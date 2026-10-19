@@ -13,7 +13,7 @@ from concurrent.futures import Future
 
 import pytest
 
-from fibsem.applications.autolamella.workflows.interaction import (
+from fibsem.workflows.interaction import (
     Confirm,
     SetImages,
     ask,
@@ -185,29 +185,3 @@ def test_an_instruction_does_not_lend_the_runs_control():
     with control.take("workflow", "a lamella run"):
         ask(responder, SetImages(), timeout=5)
     assert responder.outcome == "refused"
-
-
-def test_the_milling_question_lends_the_runs_control():
-    # The mill runs on the asking thread (FIB-1236), so the question is an
-    # ordinary wait between passes: whoever answers may act first.
-    from fibsem.applications.autolamella.workflows.interaction import RunMillingTask
-    from fibsem.control import Control
-
-    control = Control()
-    responder = _TryToActResponder(control)
-    with control.take("workflow", "a lamella run"):
-        ask(responder, RunMillingTask(config=None), timeout=5)
-    assert responder.outcome == "acted"
-
-
-def test_the_spot_burn_question_lends_the_runs_control():
-    # The burn is the asker's, run after the answer, as the mill is: between
-    # burns whoever answers may act.
-    from fibsem.applications.autolamella.workflows.interaction import RunSpotBurn
-    from fibsem.control import Control
-
-    control = Control()
-    responder = _TryToActResponder(control)
-    with control.take("workflow", "a lamella run"):
-        ask(responder, RunSpotBurn(settings=None), timeout=5)
-    assert responder.outcome == "acted"

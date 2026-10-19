@@ -4,7 +4,7 @@ Per lamella, because a lamella is what gets delivered to a TEM and because an
 experiment with one abandoned lamella never completes at all. A placeholder for the
 PDF and overview PNG while the trigger is proven end to end. See FIB-461.
 
-The hook is commented out in AutoLamellaUI.setup_hooks rather than shipped, so nothing
+The hook is commented out in lamella_run_hooks (workflows/runs.py) rather than shipped, so nothing
 writes these files during a real run yet. These tests are what keeps the writer honest
 in the meantime: they register the same hook themselves, so the wiring is exercised
 even while it is dormant.
@@ -20,8 +20,6 @@ import pytest
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskState,
-    AutoLamellaTaskStatus,
     AutoLamellaWorkflowConfig,
     Experiment,
     Lamella,
@@ -33,6 +31,7 @@ from fibsem.applications.autolamella.tools.artifacts import (
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.hooks import FunctionHook, HookContext, HookEvent, HookManager
 from fibsem.util.timestamps import iso_from_posix
+from fibsem.workflows.status import TaskState, TaskStatus
 
 REQUIRED_TASKS = ["MillTrench", "MillUndercut"]
 
@@ -67,7 +66,7 @@ def _complete_lamella(experiment: Experiment, name: str) -> Lamella:
     lamella = _new_lamella(experiment, name)
     for task_name in REQUIRED_TASKS:
         lamella.task_history.append(
-            AutoLamellaTaskState(name=task_name, status=AutoLamellaTaskStatus.Completed)
+            TaskState(name=task_name, status=TaskStatus.Completed)
         )
     experiment.positions.append(lamella)
     return lamella
@@ -175,9 +174,9 @@ def test_a_task_that_failed_is_not_reported_as_delivered(experiment):
     -- a failed task's outputs are not results anyone should be handed."""
     lamella = _complete_lamella(experiment, "lam-1")
     lamella.task_history.append(
-        AutoLamellaTaskState(
+        TaskState(
             name="MillPolish",
-            status=AutoLamellaTaskStatus.Failed,
+            status=TaskStatus.Failed,
             outputs={"final_sem": ["MillPolish-final-sem.tif"]},
         )
     )
@@ -192,9 +191,7 @@ def test_a_retried_task_appears_as_both_attempts(experiment):
     """Two completions of the same task are two entries, distinguished by task_id --
     the history is reported as it happened rather than collapsed by name."""
     lamella = _complete_lamella(experiment, "lam-1")
-    retry = AutoLamellaTaskState(
-        name="MillTrench", status=AutoLamellaTaskStatus.Completed
-    )
+    retry = TaskState(name="MillTrench", status=TaskStatus.Completed)
     lamella.task_history.append(retry)
 
     write_completion_summary(experiment, _context(lamella, experiment))
@@ -281,7 +278,7 @@ def test_an_unresolvable_item_writes_nothing(experiment, caplog):
 
 
 def _manager_with_summary_hook(experiment: Experiment) -> TaskManager:
-    """Mirrors the registration commented out in AutoLamellaUI.setup_hooks, so the two
+    """Mirrors the registration commented out in lamella_run_hooks (workflows/runs.py), so the two
     have to be changed together when it is turned back on."""
 
     class _NoMicroscope:
@@ -298,7 +295,6 @@ def _manager_with_summary_hook(experiment: Experiment) -> TaskManager:
     return TaskManager(
         microscope=_NoMicroscope(),
         experiment=experiment,
-        parent_ui=None,
         hook_manager=hooks,
     )
 
@@ -336,7 +332,7 @@ def test_an_unfinished_lamella_writes_nothing(experiment):
     manager = _manager_with_summary_hook(experiment)
     lamella = _new_lamella(experiment, "lam-1")
     lamella.task_history.append(
-        AutoLamellaTaskState(name="MillTrench", status=AutoLamellaTaskStatus.Completed)
+        TaskState(name="MillTrench", status=TaskStatus.Completed)
     )
     experiment.positions.append(lamella)
     manager._snapshot_completion()
@@ -365,7 +361,6 @@ def test_a_failing_artifact_does_not_break_the_run(experiment, caplog):
     manager = TaskManager(
         microscope=_NoMicroscope(),
         experiment=experiment,
-        parent_ui=None,
         hook_manager=hooks,
     )
     lamella = _complete_lamella(experiment, "lam-1")
@@ -378,7 +373,7 @@ def test_a_failing_artifact_does_not_break_the_run(experiment, caplog):
 
 
 def test_the_event_the_dormant_wiring_names_still_exists():
-    """The registration in setup_hooks is commented out, so nothing type-checks the
+    """The registration in lamella_run_hooks is commented out, so nothing type-checks the
     event it names. This does, and fails loudly if ITEM_COMPLETED is ever renamed while
     the wiring is asleep."""
     assert HookEvent.ITEM_COMPLETED in list(HookEvent)

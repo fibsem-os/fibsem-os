@@ -21,8 +21,10 @@ from fastapi.testclient import TestClient
 
 from fibsem.applications.autolamella.server import AutoLamellaAppContext
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
-from fibsem.applications.autolamella.workflows.interaction import Confirm, ask
 from fibsem.server import AuthConfig, build_server
+from fibsem.workflows.interaction import Confirm, ask
+from fibsem.workflows.runner import ITEMS
+from tests.run_state import hold_runs, started_with
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -55,7 +57,7 @@ def ui(qapp, monkeypatch):
 def _client(ui, arm_control):
     app = build_server(
         ui.microscope,
-        app_context=AutoLamellaAppContext(ui),
+        app_context=AutoLamellaAppContext(ui.session, window=ui),
         auth=AuthConfig.generate(
             level="drive" if arm_control else "watch", token=TOKEN
         ),
@@ -171,8 +173,8 @@ def test_display_images_are_served_read_scope(ui, qapp):
 def test_display_images_follow_a_one_shot_acquisition(ui, qapp):
     """The post-mill inspect image reaches /app/experiment/images, pixels AND acquired_at.
 
-    A milling task's inspect acquisition is a one-shot emit on
-    fib_acquisition_signal with no live stream running. On the 2026-08-31
+    A milling task's inspect acquisition is a one-shot `imaging.show` with no
+    live stream running. On the 2026-08-31
     supervised run, /app/experiment/images kept serving the pre-mill reference through
     the whole inspect prompt — the supervising agent refuses images whose
     acquired_at predates the mill, so staleness here blocks supervision."""
@@ -191,7 +193,7 @@ def test_display_images_follow_a_one_shot_acquisition(ui, qapp):
 
     with _client(ui, arm_control=False) as client:
         assert not ui.microscope.is_acquiring, "this test pins the one-shot path"
-        ui.microscope.fib_acquisition_signal.emit(inspect_image)
+        ui.microscope.imaging.show(inspect_image)
         qapp.processEvents()
         fib = client.get("/app/experiment/images", headers=AUTH).json()["fib"]
         # With its UTC offset, as the event stream's times carry theirs (FIB-1190).
@@ -209,10 +211,10 @@ def test_alignment_prompt_carries_the_fib_display_frame(ui, qapp):
     grabbed by the workflow) — so a remote responder can judge the area
     without pairing a second request, and sees exactly what the operator
     sees."""
-    from fibsem.applications.autolamella.workflows.interaction import (
+    from fibsem.structures import BeamType, FibsemImage, FibsemRectangle
+    from fibsem.workflows.interaction import (
         EditAlignmentArea,
     )
-    from fibsem.structures import BeamType, FibsemImage, FibsemRectangle
 
     fib_frame = FibsemImage.generate_blank_image(
         resolution=(1536, 1024), hfw=80e-6, random=True
@@ -262,8 +264,9 @@ def test_alignment_prompt_carries_the_fib_display_frame(ui, qapp):
 
 def test_a_value_on_a_valueless_question_is_refused(ui, qapp):
     """Only the questions with a value field (EditAlignmentArea, PickPOI,
-    ConfirmDetection, RunMillingTask, RunSpotBurn) take a value; a value on anything else — or a value that is not an object — is a 422 refusal that
-    clicks nothing, and the question stands."""
+    ConfirmDetection) take a value; a value on anything else — or a value
+    that is not an object — is a 422 refusal that clicks nothing, and the
+    question stands."""
     with _client(ui, arm_control=True) as client:
         thread, outcome = _ask_on_worker(ui, qapp)
         question_id = client.get("/app/workflow/prompt", headers=AUTH).json()[
@@ -330,12 +333,12 @@ def test_an_answer_without_a_question_id_is_rejected(ui, qapp):
 def test_prompt_lifecycle_reaches_the_event_stream_with_attribution(ui, qapp):
     # Wired the way hosting wires it: responder feeds the same buffer the
     # events endpoint serves — the long-poll replaces polling /app/workflow/prompt.
-    from fibsem.applications.autolamella.server.events import EventBuffer
+    from fibsem.workflows.events import EventBuffer
 
     buffer = EventBuffer()
     app = build_server(
         ui.microscope,
-        app_context=AutoLamellaAppContext(ui, event_buffer=buffer),
+        app_context=AutoLamellaAppContext(ui.session, window=ui, event_buffer=buffer),
         auth=AuthConfig.generate(level="drive", token=TOKEN),
     )
     dispose = ui.ui_responder.add_question_observer(buffer.append)
@@ -363,7 +366,7 @@ def test_prompt_lifecycle_reaches_the_event_stream_with_attribution(ui, qapp):
 
             events = client.get("/app/events?since=0", headers=AUTH).json()["events"]
             answered = [e for e in events if e["kind"] == "prompt_answered"][-1]
-            assert answered["payload"]["answered_by"] == "agent"
+            assert answered["actor"] == "agent"
             assert answered["payload"]["response"] is True
             assert answered["payload"]["question_id"] == question_id
     finally:
@@ -386,16 +389,16 @@ def test_stop_workflow_needs_the_control_scope(ui, qapp):
         }
 
 
-def test_start_workflow_validates_and_starts_on_the_gui_thread(ui, qapp):
+def test_start_workflow_validates_and_starts_on_the_gui_thread(ui, qapp, monkeypatch):
     from psygnal.containers import EventedDict
 
     from fibsem.applications.autolamella.structures import (
-        Attention,
         AutoLamellaTaskDescription,
         AutoLamellaTaskProtocol,
         Experiment,
     )
     from fibsem.structures import MicroscopeState
+    from fibsem.workflows.attention import Attention
 
     experiment = Experiment(path="/tmp/agent-start", name="agent-start")
     experiment.task_protocol = AutoLamellaTaskProtocol()
@@ -407,18 +410,7 @@ def test_start_workflow_validates_and_starts_on_the_gui_thread(ui, qapp):
     experiment.add_new_lamella(MicroscopeState(), EventedDict())
     ui.experiment = experiment
 
-    calls = []
-
-    class _AliveThread:
-        @staticmethod
-        def is_alive():
-            return True
-
-    def fake_start(task_names, item_names):
-        calls.append((task_names, item_names))
-        ui._task_worker_thread = _AliveThread()
-
-    ui._start_run_workflow_thread = fake_start
+    held = hold_runs(monkeypatch, ITEMS)
 
     with _client(ui, arm_control=True) as client:
         posted = {}
@@ -437,7 +429,7 @@ def test_start_workflow_validates_and_starts_on_the_gui_thread(ui, qapp):
         refused = posted["response"].json()
         assert refused["started"] is False
         assert refused["task_names"] == ["Mill Fiducial"]
-        assert calls == []
+        assert started_with(held) == []
 
         # Valid start; omitted items means every item in the experiment.
         posted.clear()
@@ -447,7 +439,9 @@ def test_start_workflow_validates_and_starts_on_the_gui_thread(ui, qapp):
         poster.start()
         _spin_until(qapp, lambda: "response" in posted)
         assert posted["response"].json() == {"available": True, "started": True}
-        assert calls == [(["Mill Fiducial"], [experiment.positions[0].name])]
+        assert started_with(held) == [
+            (["Mill Fiducial"], [experiment.positions[0].name])
+        ]
 
         # And now that it is "running", a second start is refused.
         posted.clear()
@@ -457,7 +451,7 @@ def test_start_workflow_validates_and_starts_on_the_gui_thread(ui, qapp):
         poster.start()
         _spin_until(qapp, lambda: "response" in posted)
         assert posted["response"].json()["started"] is False
-        ui._task_worker_thread = None
+        held.end(ui.session.runner)
 
     ui.experiment = None
 
@@ -479,7 +473,7 @@ def test_supervision_and_requeue_require_the_control_scope(ui, qapp):
     with _client(ui, arm_control=False) as client:
         for path, payload in (
             (
-                "/app/agent/supervision",
+                "/app/experiment/protocol/supervision",
                 {"task_name": "Rough Milling", "supervise": True},
             ),
             ("/app/workflow/queue/requeue", {"item_name": "01", "task_name": "x"}),
@@ -493,7 +487,7 @@ def test_supervision_and_requeue_require_the_control_scope(ui, qapp):
             assert refused.json()["detail"]["level"] == "watch"
     with _client(ui, arm_control=True) as client:
         for path in (
-            "/app/agent/supervision",
+            "/app/experiment/protocol/supervision",
             "/app/workflow/queue/requeue",
             "/app/workflow/queue/edit",
         ):
@@ -519,7 +513,7 @@ def test_capabilities_reflect_the_level(ui, qapp):
     with _client(ui, arm_control=True) as client:
         level = client.get("/capabilities", headers=AUTH).json()["level"]
         assert level == "drive"
-        from fibsem.server.catalog import tools_for_capabilities
+        from fibsem.ai.agent.catalog import tools_for_capabilities
 
         names = {
             t.name
@@ -529,7 +523,7 @@ def test_capabilities_reflect_the_level(ui, qapp):
         }
         assert "prompt_answer" in names
     with _client(ui, arm_control=False) as client:
-        from fibsem.server.catalog import tools_for_capabilities
+        from fibsem.ai.agent.catalog import tools_for_capabilities
 
         names = {
             t.name

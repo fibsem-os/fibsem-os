@@ -1,0 +1,70 @@
+{
+  "electron_beam": {
+    "beam_current": 5e-11,
+    "beam_type": "ELECTRON",
+    "dwell_time": 1e-06,
+    "hfw": 0.00015,
+    "preset": "30 keV; UHR imaging",
+    "resolution": [
+      1536,
+      1024
+    ],
+    "scan_rotation": 3.141592653589793,
+    "shift": {
+      "name": null,
+      "x": 1e-06,
+      "y": 2e-06
+    },
+    "stigmation": {
+      "name": null,
+      "x": 0.1,
+      "y": -0.1
+    },
+    "voltage": 2000.0,
+    "working_distance": 0.004
+  },
+  "electron_detector": {
+    "brightness": 0.4,
+    "contrast": 0.6,
+    "mode": "SE",
+    "type": "ETD"
+  },
+  "ion_beam": {
+    "beam_current": 1e-09,
+    "beam_type": "ION",
+    "dwell_time": null,
+    "hfw": null,
+    "preset": null,
+    "resolution": null,
+    "scan_rotation": null,
+    "shift": {
+      "name": null,
+      "x": 0.0,
+      "y": 0.0
+    },
+    "stigmation": {
+      "name": null,
+      "x": 0.0,
+      "y": 0.0
+    },
+    "voltage": null,
+    "working_distance": null
+  },
+  "ion_detector": {
+    "brightness": 0.5,
+    "contrast": 0.5,
+    "mode": "Unknown",
+    "type": "Unknown"
+  },
+  "objective_position": 0.0015,
+  "stage_position": {
+    "coordinate_system": "RAW",
+    "name": "lamella",
+    "r": 0.5235987755982988,
+    "t": 0.9075712110370514,
+    "x": 0.001,
+    "y": -0.002,
+    "z": 0.003
+  },
+  "timestamp": 1760000000.0
+}

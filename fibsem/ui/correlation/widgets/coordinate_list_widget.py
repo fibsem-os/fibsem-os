@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Dict, List, Optional, Tuple
 
 from PyQt5.QtCore import QEvent, QSize, Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QFontMetrics, QIcon, QPixmap
+from PyQt5.QtGui import QColor, QFontMetrics
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -27,6 +27,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.correlation.points import point_names
 from fibsem.correlation.structures import (
     Coordinate,
     PointProvenance,
@@ -34,7 +35,6 @@ from fibsem.correlation.structures import (
     PointType,
 )
 from fibsem.ui import stylesheets
-from fibsem.ui.correlation.point_store import CorrelationPointStore
 from fibsem.ui.icon import (
     DRAG_HANDLE_HEIGHT,
     DRAG_HANDLE_WIDTH,
@@ -50,6 +50,7 @@ from fibsem.ui.tokens import (
     state_style,
 )
 from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueSpinBox
+from fibsem.ui.widgets.point_store import PointStore
 
 _NAME_FIXED_WIDTH = 100
 _SPIN_FIXED_WIDTH = 62
@@ -69,22 +70,6 @@ _POINT_TYPE_COLORS: Dict[PointType, str] = {
     PointType.SURFACE: "red",
     PointType.SURFACE_FM: "yellow",
 }
-
-
-def _make_color_icon(color_name: str, size: int = 16) -> QIcon:
-    px = QPixmap(size, size)
-    px.fill(QColor(color_name))
-    return QIcon(px)
-
-
-def _generate_names(coordinates: List[Coordinate]) -> List[str]:
-    """Return auto-generated names: 'FIB 1', 'FIB 2', 'FM 1', etc."""
-    counters: Dict[PointType, int] = {}
-    names = []
-    for c in coordinates:
-        counters[c.point_type] = counters.get(c.point_type, 0) + 1
-        names.append(f"{c.point_type.value} {counters[c.point_type]}")
-    return names
 
 
 def _name_col_width(point_type: Optional[PointType]) -> int:
@@ -330,9 +315,6 @@ class CoordinateRowWidget(QWidget):
     # Public API
     # ------------------------------------------------------------------
 
-    def set_name(self, name: str) -> None:
-        self.name_label.setText(name)
-
     def set_selected(self, selected: bool) -> None:
         """Show the row's actions only while it is the selected row, and paint
         the row's own selected background (the list's item highlight is off)."""
@@ -525,7 +507,7 @@ class CoordinateListWidget(QWidget):
         coordinates: Optional[List[Coordinate]] = None,
         point_type: Optional[PointType] = None,
         parent: Optional[QWidget] = None,
-        store: Optional[CorrelationPointStore] = None,
+        store: Optional[PointStore] = None,
     ) -> None:
         super().__init__(parent)
         if point_type is None:
@@ -534,7 +516,7 @@ class CoordinateListWidget(QWidget):
         # The points and the selection live in the store (FIB-973); this widget
         # renders them. Until the tab widget shares one store between the lists
         # and the canvases, each list has its own.
-        self._store = store if store is not None else CorrelationPointStore(self)
+        self._store = store if store is not None else PointStore(self)
         self._assigning = False
         self._x_max: Optional[float] = None
         self._y_max: Optional[float] = None
@@ -615,7 +597,7 @@ class CoordinateListWidget(QWidget):
                     w.set_z_view(view)
 
     @property
-    def store(self) -> CorrelationPointStore:
+    def store(self) -> PointStore:
         return self._store
 
     @property
@@ -651,7 +633,7 @@ class CoordinateListWidget(QWidget):
     def _rebuild_rows(self) -> None:
         coords = self.coordinates
         self._list.clear()
-        for coord, name in zip(coords, _generate_names(coords)):
+        for coord, name in zip(coords, point_names(coords)):
             self._add_row(coord, name)
         self._empty_label.setVisible(len(coords) == 0)
         self._fit_height_to_rows()

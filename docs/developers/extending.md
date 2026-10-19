@@ -27,7 +27,9 @@ from fibsem import utils, acquire
 from fibsem.structures import BeamType, ImageSettings
 
 microscope, settings = utils.setup_session(manufacturer="Demo")
-image = acquire.acquire_image(microscope, ImageSettings(hfw=80e-6, beam_type=BeamType.ION))
+image = acquire.acquire_image(
+    microscope, ImageSettings(hfw=80e-6, beam_type=BeamType.ION)
+)
 ```
 
 `setup_session()` connects using a configuration file (the shipped Demo
@@ -56,7 +58,8 @@ experiment, from **Tools → Scripts → Manage scripts…**. A script is one
 module-level function:
 
 ```python
-"""Export the experiment summary to CSV."""   # the first line becomes the tooltip
+"""Export the experiment summary to CSV."""  # the first line becomes the tooltip
+
 
 def run(ctx):
     out = ctx.path / "summary.csv"
@@ -82,8 +85,9 @@ the full contract; `examples/scripts/` contains three working examples.
 
 ## Plugins
 
-fibsemOS loads four entry-point groups: `fibsem.patterns`,
-`fibsem.strategies`, `fibsem.tasks` and `fibsem.drivers`. A plugin is a Python package that
+fibsemOS loads five entry-point groups: `fibsem.milling.patterns`,
+`fibsem.milling.strategies`, `fibsem.autolamella.tasks`, `fibsem.grid.tasks` and
+`fibsem.drivers`. A plugin is a Python package that
 declares one or more of these in its `pyproject.toml` and is installed into
 the same environment as fibsemOS. No registration calls or files in the
 fibsem tree are needed; the application discovers it on the next start.
@@ -96,14 +100,16 @@ it. Its "When nothing shows up" section covers the diagnostic steps.
 
 Each group contributes one kind of object:
 
-- **A pattern** (`fibsem.patterns`): a subclass of `BasePattern` from
+- **A pattern** (`fibsem.milling.patterns`): a subclass of `BasePattern` from
   `fibsem.milling.patterning.base` whose `define()` returns the shapes
   to mill. It appears in the pattern list of every milling stage.
-- **A strategy** (`fibsem.strategies`): how a pattern is milled, for example
+- **A strategy** (`fibsem.milling.strategies`): how a pattern is milled, for example
   in N passes. It appears in the strategy list of every stage.
-- **A task** (`fibsem.tasks`): an `AutoLamellaTask` with its configuration
-  class, as described in the next section. It appears in the Add Task
-  dialog.
+- **A task** (`fibsem.autolamella.tasks`): an `AutoLamellaTask` with its
+  configuration class, as described in the next section. It appears in the
+  Add Task dialog.
+- **A grid task** (`fibsem.grid.tasks`): a `GridTask` with its configuration
+  class, run on a whole grid. It appears in the grid protocol.
 - **A microscope driver** (`fibsem.drivers`): a function returning a
   `DriverEntry` (`fibsem/drivers/registry.py`) that names a
   `FibsemMicroscope` subclass, its manufacturer, its defaults, and how it
@@ -114,7 +120,8 @@ Each group contributes one kind of object:
   [Adding a driver](devices.md#adding-a-driver) shows one that adds a device type;
   a plugin's device can also be served from another computer and checked from the
   application, as [Devices on another computer](devices.md#devices-on-another-computer)
-  describes (`examples/plugins/fibsem-fake-scanner` does it end to end).
+  describes (the fake scanner in
+  [fibsem-plugin-example](https://github.com/fibsem-os/fibsem-plugin-example) does it end to end).
 
 When a built-in, a runtime registration and a plugin claim the same name, the
 built-in is used, then the runtime registration, then the plugin.
@@ -158,7 +165,7 @@ patterns do; the example's tests check this as well.
 A task is one step applied to one lamella. Subclass `AutoLamellaTask`
 (`fibsem/applications/autolamella/workflows/tasks/base.py`) with a matching
 `AutoLamellaTaskConfig`, and register both with `register_task()` in the
-repository or through the `fibsem.tasks` entry point from a plugin.
+repository or through the `fibsem.autolamella.tasks` entry point from a plugin.
 `fiducial.py` is a representative task module of moderate complexity.
 
 Four contracts:

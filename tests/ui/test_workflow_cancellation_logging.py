@@ -1,6 +1,7 @@
 """A user Stop is logged as a cancellation, not as an error (FIB-859).
 
-``_run_tasks_worker``'s catch-all treated the cancellation unwind the same as a
+The run's catch-all (``BaseTaskManager.execute``, once the window's worker)
+treated the cancellation unwind the same as a
 real failure, so every Stop press put ``ERROR — Error during running tasks:
 Workflow aborted by user.`` in the log — a false positive for anyone scanning a
 session log for problems, once per Stop. Both cancellation types
@@ -14,12 +15,15 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
+from psygnal import Signal
 
 pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.cancellation import OperationCancelledError
+from tests.run_state import Stopped
 
 
 @pytest.fixture
@@ -28,8 +32,6 @@ def ui(qapp, tmp_path, monkeypatch):
     widget = AutoLamellaUI(parent_ui=None)
     widget.system_widget.connect_to_microscope()
     widget.experiment = Experiment(path=tmp_path, name="test-exp")
-    # The hook set is irrelevant here and pulls in user preferences.
-    monkeypatch.setattr(widget, "setup_hooks", lambda: None)
     yield widget
     if widget.microscope is not None:
         widget.microscope.disconnect()
@@ -37,31 +39,11 @@ def ui(qapp, tmp_path, monkeypatch):
 
 
 def _run_with_manager_raising(ui, monkeypatch, exc):
-    from fibsem.applications.autolamella.ui import AutoLamellaUI as module
+    def raising(self, *args, **kwargs):
+        raise exc
 
-    class _RaisingManager:
-        is_stopped = True
-
-        def __init__(self, **kwargs):
-            pass
-
-        def stop(self):
-            pass
-
-        def run(self, **kwargs):
-            raise exc
-
-        def build_run_summary_dataframe(self):
-            return None
-
-        def closing_note(self):
-            return ""
-
-        def end_unstarted_run(self, error):
-            pass
-
-    monkeypatch.setattr(module, "TaskManager", _RaisingManager)
-    ui._run_tasks_worker(["Rough Milling"], ["01-test"])
+    monkeypatch.setattr(TaskManager, "run", raising)
+    TaskManager(ui.microscope, ui.experiment).execute(["Rough Milling"], ["01-test"])
 
 
 @pytest.mark.parametrize(
@@ -93,6 +75,12 @@ def test_a_genuine_failure_still_logs_an_error(ui, monkeypatch, caplog):
     )
 
 
+class _StoppedRun(Stopped):
+    """A stopped run, with the status a window listens to."""
+
+    status = Signal(object)
+
+
 def test_the_closing_line_gets_out_after_a_stop(ui):
     """After Stop the abort predicate is true, and a status point raises on it:
     that is what kept "Workflow cancelled by user." off the label. The manager's closing
@@ -101,10 +89,11 @@ def test_the_closing_line_gets_out_after_a_stop(ui):
 
     seen = []
     ui.workflow_status_signal.connect(lambda event: seen.append(event.workflow_info))
-    ui._workflow_stop_event.set()
+    run = _StoppedRun()
+    run.status.connect(ui._on_run_status)
     with pytest.raises(InterruptedError):
-        update_status_ui(ui, "", workflow_info="Workflow cancelled by user.")
+        update_status_ui(run, "", workflow_info="Workflow cancelled by user.")
     update_status_ui(
-        ui, "", workflow_info="Workflow cancelled by user.", check_abort=False
+        run, "", workflow_info="Workflow cancelled by user.", check_abort=False
     )
     assert seen == ["Workflow cancelled by user."]

@@ -19,6 +19,7 @@ import yaml
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.codec.upgrades.configuration import upgrade
 from fibsem.structures import MicroscopeSettings, SystemSettings
 
 IFLM = os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
@@ -165,7 +166,7 @@ def test_writing_the_calibration_touches_only_that_block(tmp_path):
         "limit_position": 8.4e-3,
     }
     # The file is upgraded on the way (the device list), and otherwise left alone.
-    expected = utils.upgrade_configuration(copy.deepcopy(original))
+    expected = upgrade(copy.deepcopy(original))
     expected["calibration"]["objective"] = written["calibration"]["objective"]
     assert written == expected
     # and it loads

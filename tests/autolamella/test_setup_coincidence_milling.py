@@ -20,7 +20,7 @@ from fibsem.applications.autolamella.workflows.tasks.setup_coincidence_milling i
     SetupCoincidenceMillingTask,
     SetupCoincidenceMillingTaskConfig,
 )
-from fibsem.fm.structures import ChannelSettings
+from fibsem.fm.structures import ChannelSettings, EmissionFilter
 from fibsem.structures import FibsemRectangle, InsertableDeviceState, Point
 
 SIM_ARCTIS_CONFIG_PATH = os.path.join(
@@ -57,7 +57,7 @@ def _lamella(microscope, tmp_path, fm_objective: float = 2.45e-3) -> Lamella:
             ChannelSettings(
                 name="Red Channel",
                 excitation_wavelength=550,
-                emission_wavelength="Fluorescence",
+                emission_filter=EmissionFilter("Fluorescence", multi_band=True),
             ),
         ],
     )
@@ -212,13 +212,17 @@ def test_requires_a_milling_pose(microscope, tmp_path):
 
 
 class _Manager:
-    """The manager seam the task reads: the run's experiment and its abort."""
+    """The manager seam the task reads: the run's experiment, its abort and who
+    can answer (nobody)."""
 
     def __init__(self, experiment):
         import threading
 
         self.experiment = experiment
         self.abort_token = threading.Event()
+
+    def answerers(self):
+        return ()
 
 
 def _managed_task(microscope, lamella, tmp_path, attention, listed=True):
@@ -248,7 +252,7 @@ def _managed_task(microscope, lamella, tmp_path, attention, listed=True):
 
 
 def test_an_automated_setup_is_refused_before_anything_moves(microscope, tmp_path):
-    from fibsem.applications.autolamella.structures import Attention
+    from fibsem.workflows.attention import Attention
 
     lamella = _lamella(microscope, tmp_path)
     before = microscope.get_stage_position()
@@ -264,7 +268,7 @@ def test_an_automated_setup_is_refused_before_anything_moves(microscope, tmp_pat
 
 
 def test_a_supervised_setup_runs(microscope, tmp_path):
-    from fibsem.applications.autolamella.structures import Attention
+    from fibsem.workflows.attention import Attention
 
     lamella = _lamella(microscope, tmp_path)
     task = _managed_task(microscope, lamella, tmp_path, Attention.supervised)
@@ -275,7 +279,7 @@ def test_a_supervised_setup_runs(microscope, tmp_path):
 def test_a_setup_the_workflow_does_not_list_is_not_refused(microscope, tmp_path):
     """The protocol reads an unlisted task as automated; running Setup on its
     own is not asking for that."""
-    from fibsem.applications.autolamella.structures import Attention
+    from fibsem.workflows.attention import Attention
 
     lamella = _lamella(microscope, tmp_path)
     task = _managed_task(

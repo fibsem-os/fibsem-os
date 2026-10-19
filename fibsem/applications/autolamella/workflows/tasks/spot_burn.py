@@ -8,14 +8,6 @@ from typing import ClassVar, Optional, Type
 
 from fibsem import timing
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
-from fibsem.applications.autolamella.workflows.interaction import (
-    ACTION_ACCEPT,
-    ACTION_EDIT,
-    ACTION_RUN,
-    ClearSpotBurn,
-    RunSpotBurn,
-    ask,
-)
 from fibsem.applications.autolamella.workflows.tasks.base import (
     ALIGNMENT_REFERENCE_IMAGE_FILENAME,
     AutoLamellaTask,
@@ -26,6 +18,15 @@ from fibsem.applications.autolamella.workflows.ui import (
 )
 from fibsem.imaging.spot import SpotBurnSettings, run_spot_burn, show_after_burn
 from fibsem.structures import BeamType, Display, Point, param
+from fibsem.workflows.interaction import ClearSpotBurn, ask
+from fibsem.workflows.proposals import (
+    ACTION_ACCEPT,
+    ACTION_EDIT,
+    ACTION_RUN,
+    ACTION_SKIP,
+    SPOT_BURN,
+    DecisionOutcome,
+)
 
 
 @dataclass
@@ -125,7 +126,7 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
 class SpotBurnFiducialTask(AutoLamellaTask):
     """Task to mill spot fiducial markers for correlation."""
 
-    sessions = ("the spot burn",)
+    questions = (SPOT_BURN,)
 
     config: SpotBurnFiducialTaskConfig
     config_cls: ClassVar[Type[SpotBurnFiducialTaskConfig]] = SpotBurnFiducialTaskConfig
@@ -164,67 +165,77 @@ class SpotBurnFiducialTask(AutoLamellaTask):
         """Burn the points, asking first when supervised, and keep the settings
         as last used.
 
-        The loop is the task's, on this thread, as the mill's is (FIB-1236).
-        Supervised, it asks :class:`RunSpotBurn` what to do: run burns the
-        settings as answered and asks again with the pass counted (and the
-        error, if the burn failed); edit asks again with the settings as
-        answered; skip and accept end the loop. A run with no points burns
-        nothing and asks again, saying so. Unsupervised or headless, it
-        burns the stored points once, and a failure fails the task; with no
-        points it skips. Supervision is read at each decision.
+        The loop is the task's, on this thread, as the mill's is (FIB-1236):
+        each pass a ``spot_burn`` question through ``ask``, on the record,
+        decided as run (burn the settings as decided and ask again with the
+        pass counted, and the error if the burn failed), edit (ask again with
+        the settings as decided), skip or accept (end the loop). A run with no
+        points burns nothing and asks again, saying so. Asked of nobody, the
+        first pass burns the stored points once and the next accepts, and a
+        failure fails the task; with no points it skips.
         """
-        responder = getattr(self.parent_ui, "ui_responder", None)
+        responder = self.responder
         settings = self.config.to_settings()
         msg = f"Place points for the spot burn of {self.lamella.name}."
-        burned, passes, error, refused = settings, 0, None, None
+        burned, passes, error, refused, watched = settings, 0, None, None, False
+        if not settings.coordinates and self.unasked_reason(SPOT_BURN):
+            logging.warning(
+                f"No spot burn coordinates set for {self.lamella.name}; "
+                "skipping spot burn."
+            )
+            return
         try:
             while True:
-                if responder is not None and self.validate:
-                    decision = ask(
-                        responder,
-                        RunSpotBurn(
-                            settings=deepcopy(settings),
-                            message=msg,
-                            passes=passes,
-                            last_error=refused
-                            or (None if error is None else str(error)),
-                        ),
-                        abort=lambda: _abort_requested(self.parent_ui),
+                actions = (
+                    (ACTION_RUN, ACTION_EDIT, ACTION_SKIP)
+                    if passes == 0
+                    else (ACTION_RUN, ACTION_EDIT, ACTION_ACCEPT)
+                )
+                asked = deepcopy(settings)
+                decision = self.ask(
+                    SPOT_BURN,
+                    {"spot_burn": asked},
+                    image=self._last_fib_image_file(),
+                    provenance={
+                        "actions": list(actions),
+                        "passes": passes,
+                        "last_error": refused
+                        or (None if error is None else str(error)),
+                    },
+                    message=msg,
+                    decided=lambda: {"spot_burn": asked},
+                )
+                if decision.outcome is DecisionOutcome.Rejected:
+                    raise RuntimeError(
+                        f"{self.task_name} was rejected: "
+                        f"{decision.reason or 'no reason given'}"
                     )
-                    if decision is None:
-                        # No spot-burn widget: optional hardware must not fail
-                        # a workflow.
-                        return
-                    if decision.action == ACTION_ACCEPT and passes:
-                        settings = burned  # not an edit made after the burn
-                        break
-                    settings, refused = decision.settings, None
-                    if decision.action == ACTION_EDIT:
-                        continue
-                    if decision.action != ACTION_RUN:
-                        break
-                    if not settings.coordinates:
-                        refused = "No points to burn: place some first."
-                        continue
-                elif passes:
-                    if error is not None:
+                if decision.outcome is not DecisionOutcome.Unreviewed:
+                    watched = True
+                if decision.action == ACTION_ACCEPT and passes:
+                    if error is not None and not watched:
                         raise error
+                    settings = burned  # not an edit made after the burn
                     break
-                elif not settings.coordinates:
-                    logging.warning(
-                        f"No spot burn coordinates set for {self.lamella.name}; "
-                        "skipping spot burn."
-                    )
-                    return
+                settings, refused = decision.values.get("spot_burn", settings), None
+                if decision.action == ACTION_EDIT:
+                    continue
+                if decision.action != ACTION_RUN:
+                    break
+                if not settings.coordinates:
+                    if decision.outcome is DecisionOutcome.Unreviewed:
+                        break  # nobody here to place them
+                    refused = "No points to burn: place some first."
+                    continue
                 error = self._burn(settings, show=responder is not None)
                 burned, passes = settings, passes + 1
         finally:
             # After a Stop the workflow's end clears the widget instead.
-            if responder is not None and not _abort_requested(self.parent_ui):
+            if responder is not None and not _abort_requested(self.task_manager):
                 ask(
                     responder,
                     ClearSpotBurn(),
-                    abort=lambda: _abort_requested(self.parent_ui),
+                    abort=lambda: _abort_requested(self.task_manager),
                     timeout=INSTRUCTION_TIMEOUT_S,
                 )
         self.config.apply_settings(settings)

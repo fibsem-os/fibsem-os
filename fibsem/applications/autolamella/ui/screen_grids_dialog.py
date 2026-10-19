@@ -40,19 +40,8 @@ from fibsem.applications.autolamella.ui.grid_workflow_widget import (
     is_default_grid_name,
     task_block,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-    LOAD_ENTRY_NAME,
-    grid_has_run,
-    plan_grid_run,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid.screening import (
-    GridNamingError,
-    name_and_record_grids,
-    naming_problems,
-    screen_names,
-)
-from fibsem.applications.autolamella.workflows.workflow_estimate import (
-    WorkflowEstimate,
+from fibsem.applications.autolamella.workflows.tasks.attendance import (
+    grid_run_attendance,
 )
 from fibsem.structures import BeamType, GridInventoryEntry, GridSlotState
 from fibsem.ui import stylesheets
@@ -74,6 +63,15 @@ from fibsem.ui.widgets.preflight import (
     warning_label,
 )
 from fibsem.ui.widgets.sample_holder_widget import _NAME_FIELD_STYLE
+from fibsem.workflows.estimate import RunEstimate
+from fibsem.workflows.grid.manager import LOAD_ENTRY_NAME, plan_grid_run
+from fibsem.workflows.grid.naming import grid_has_run
+from fibsem.workflows.grid.screening import (
+    GridNamingError,
+    name_and_record_grids,
+    naming_problems,
+    screen_names,
+)
 
 # The stages the dialog moves through. Reading is the instant read on opening.
 READING = "reading"
@@ -131,9 +129,7 @@ class ScreenGridsDialog(QDialog):
         task_names: List[str],
         output_root: str,
         beams_off: Sequence[BeamType] = (),
-        estimate: Optional[
-            Callable[[List[str], int], Optional[WorkflowEstimate]]
-        ] = None,
+        estimate: Optional[Callable[[List[str], int], Optional[RunEstimate]]] = None,
         synchronous: bool = False,
         clock: Callable[[], float] = time.monotonic,
         unload_at_end: bool = False,
@@ -593,7 +589,7 @@ class ScreenGridsDialog(QDialog):
             label.setWordWrap(True)
             self.summary_layout.addWidget(label)
 
-    def _price(self, names: List[str], exchanges: int) -> Optional[WorkflowEstimate]:
+    def _price(self, names: List[str], exchanges: int) -> Optional[RunEstimate]:
         """The run's estimate, asked again only when the grids or the exchanges
         change: a name typed into a field does not change what the run costs."""
         if self._estimate is None or not names:
@@ -611,12 +607,13 @@ class ScreenGridsDialog(QDialog):
             return
         for widget in GridRunPreflightDialog._time_figures(estimate, None):
             self.summary_layout.addWidget(widget)
+        attendance = grid_run_attendance(self.experiment.grid_protocol, self.task_names)
         if estimate.tasks:
             self.summary_layout.addWidget(
-                task_block(estimate.tasks, estimate.started_at)
+                task_block(estimate.tasks, estimate.started_at, attendance)
             )
         note = "Estimates round up."
-        if estimate.waits_for_a_human:
+        if attendance.waits_for_a_human:
             note += " Time spent waiting for you is not included."
         footnote = QLabel(note)
         footnote.setStyleSheet(

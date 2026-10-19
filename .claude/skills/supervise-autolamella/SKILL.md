@@ -12,144 +12,11 @@ When in doubt, this whole document reduces to one rule: **hold the question
 and ask the operator.** A workflow's questions have no timeout — nothing is
 ever lost by waiting.
 
-## Connect
-
-**Prefer the native MCP tools.** If `mcp__fibsem__*` tools are available in
-your session, use them for everything below *except the Watch step* —
-`server_get_capabilities`, `prompt_get`, `prompt_answer`, `workflow_start`,
-and the rest map one-to-one onto the HTTP surface, and they avoid
-shell-permission friction entirely. (The tools come from the `fibsem-mcp`
-sidecar; if they are missing, the sidecar is not registered in this session's
-MCP config — e.g. `claude mcp add -s user fibsem -- fibsem-mcp` — and the HTTP fallback
-below works regardless.) Watching is the exception either way: looping the
-`app_get_events` tool in the foreground blocks you from acting, so
-`fibsem-mcp watch` stays the watch mechanism even when MCP is connected.
-
-Fallback is plain HTTP; the running app advertises itself in a discovery
-file:
-
-```bash
-TOKEN=$(python3 -c "import json;print(json.load(open('$HOME/.fibsem/app-server.json'))['token'])")
-curl -s "http://127.0.0.1:8001/capabilities" -H "Authorization: Bearer $TOKEN"
-```
-
-Note for the curl path: your own harness may gate state-changing commands.
-In an interactive session that is a permission prompt for the operator to
-approve; running autonomously it can be a hard denial. Treat a harness
-denial exactly like a server 403 — stop and ask; never repackage the call
-to slip past it.
-
-Check the capabilities response before doing anything else:
-- `routers.app` must be true (an application is hosted);
-- `level` is what the operator lets you do (next section). Tell them, in a
-  sentence, what that level means you can and can't do this session.
-
-No discovery file → no server. Tell the operator to enable it
-(Tools → App Server) and connect a microscope. Do not go looking for
-other ways in.
-
-## Your level
-
-The operator sets one level for you from the Agent chip in AutoLamella's
-status bar. Every launch starts at Watch; nothing in a file raises it.
-
-- **Watch** — you see everything and can add notes; you cannot answer,
-  start, stop, re-queue or edit. Watch is a complete job: say what you see,
-  say what you would answer and why, and leave the click to the operator.
-  What you would answer goes on the record too (see *Write down why*).
-- **Drive** — you may answer questions, start and stop workflows, change
-  supervision, re-queue, and edit configuration and schedules.
-- **Assist** — you ask before each action and the operator approves it on
-  the Agent chip; you suggest answers rather than answering. That is the
-  assist-autolamella skill's job: use it at Assist. **Off** refuses
-  everything, `/capabilities` included (`403 agent_off`).
-
-At Drive, with the microscope served, you can also use the
-microscope directly (see *Using the microscope*). Supervising doesn't need
-it.
-
-A refusal names its reason in `detail.error_type`:
-
-- `level` — the action needs a higher level. Say what
-  you wanted to do and that it needs Drive; ask once, then carry on watching.
-- `agent_stopped` — the operator pressed *Stop agent* and you are at Watch.
-  Stop acting at once: abandon what you were doing, report where you left
-  it, and keep watching. Do not ask to be raised again unless they ask you
-  to continue.
-- `agent_off` — you are off. Report that once and stop; there is nothing to
-  watch.
-- `ask_first` — you are at Assist: the operator wants to approve each
-  action. Switch to the assist-autolamella skill and ask through a request.
-- `not_allowed` — you may never use that write or command, at any level
-  (the listings mark it `agent: false`), and no request makes it allowed.
-  Say what you wanted and that it is the operator's to do.
-
-If `level` drops from Drive to Watch mid-session for any reason, the rule is
-the same as `agent_stopped`: report and stop acting. Never treat a 403 as an
-error to work around, and never retry it in another form.
-
-## Watch
-
-Sleep on the events long-poll; never poll `/app/workflow/prompt` on a timer. **Run
-the watcher as a background monitor** — do not write your own (the first
-fresh agent to try matched the wrong JSON key and slept through a question),
-and do not run it in the foreground: each line it prints is your wake-up
-call, and a foreground watcher blocks you from acting on what it sees.
-
-```
-fibsem-mcp watch
-```
-
-It comes with fibsem and finds the app the way the MCP tools do. If
-`fibsem-mcp` is not on your PATH, run `python -m fibsem.mcp.sidecar watch`
-with the Python fibsem is installed in, from a folder that holds no other
-fibsem checkout (the current folder is searched first). Check it is the
-fibsem the app runs: a watcher from before Assist prints no `REQUEST` lines
-and has no `--since`.
-
-A process that only runs in the background is not a wake-up call: its
-lines go to a file, and you read them on your next turn, which may be
-long after the question. In Claude Code, run the watcher in the
-background writing to a file, then stream that file with the Monitor
-tool, so each new line wakes you:
-
-```
-fibsem-mcp watch > watch.log 2>&1        # Bash, run_in_background
-tail -n +1 -f watch.log                  # Monitor
-```
-
-A monitor expires after 30 minutes. Re-arm it each time it ends, starting
-after the last line you read (`tail -n +43 -f watch.log` when you have read
-42 lines), so a line written in between still reaches you. The watcher
-itself keeps running. Other harnesses need the same thing: a line from the
-watcher has to start your turn.
-
-Wake and act on its lines: `PROMPT` (a question is standing, with its
-`question_id`), `QUESTION` (the run is stopped on a recorded question — rule 5),
-`ANSWERED` (check who — if the operator answered, your read of that
-question is stale), task lifecycle `EVENT` lines, `MILL STAGE STARTED` and
-`MILL ENDED` (every mill, the workflow's and the operator's too: see
-*Milling*), `COMMAND ENDED` (a long command ended), `GAP` (events were lost:
-re-read `/app/workflow/prompt` and `/app/workflow/status`), `WORKFLOW STARTED`, and
-`WORKFLOW ENDED` (report, and keep watching). A workflow that ended badly
-says how: `workflow_stalled` (decisions are pending), `workflow_failed:
-<error>`, or `stopped without an end event` (it died without saying so). For
-the last two, read `app_get_log` with the workflow's `task_id` and
-`level=WARNING` before you report.
-
-Keep the watcher running for the whole session, across workflows: you may
-start the next workflow yourself, and the operator may start one from the
-app. Stop it only when the operator says the session is done. It exits 1
-when the app cannot be watched; say so rather than going idle.
-
-If your harness cannot keep a background process alive while you are idle
-(spawned subagents usually cannot — the watcher dies with your turn, and no
-line will ever wake you), do not go idle expecting one. Hold the watch in
-the foreground of a single bounded command instead: run the watcher with
-your tool timeout as the cap, act on whatever lines it printed when the
-command returns, and run it again with `--since <the last seq you saw>`
-(`latest_seq` from `app_get_events`) so nothing between two watches is lost. A stalled watch looks exactly like a
-quiet run — when in doubt, read `/app/workflow/prompt` directly.
+Read the autolamella-agent skill first: it covers connecting, the levels and
+their refusals, the watcher, writing down why, session setup and using the
+microscope. This skill is what supervising adds. It is for **Drive**; at
+Assist use assist-autolamella, and at Watch say what you would answer and
+leave the click to the operator, with a note saying why.
 
 ## Answer — the rules that are never optional
 
@@ -161,46 +28,33 @@ quiet run — when in doubt, read `/app/workflow/prompt` directly.
 2. **Separate reading from acting.** Freshness check, *then* look, *then*
    answer — three tool calls, never one chained command. A chained
    guard-and-answer once fired an accept before a stale reading could stop it.
-3. **Check image freshness before judging.** `GET /app/experiment/images` carries
-   `acquired_at`. If the image predates the mill you are inspecting, you are
-   looking at the wrong frame: on the simulator the display does not refresh
-   between passes, and on hardware a stale frame means the acquisition has not
-   happened yet. Do not judge a stale image — wait or escalate.
+3. **Check image freshness before judging.** An image that predates the
+   mill you are inspecting is the wrong frame (autolamella-agent, *Reading
+   the experiment*). Do not judge a stale image — wait or escalate.
 4. **First writer wins, and the operator outranks you.** If they answer first,
    your job for that question is over. Never race them.
-5. **A recorded question is decided, not answered.** With the review
-   preference on, a task asks a detection or a position confirmation on the
-   item's record and stops on it. No prompt is raised: the watcher prints a
+5. **A recorded question is decided, not answered.** A task asks a
+   position, a point of interest, an alignment area, a detection, or a
+   mill's or spot burn's pass on the item's record and stops on it; the
+   operator sees it on the widget it is answered on (the prompt bar, the
+   Detection tab, the milling editor, the marker or rectangle on the FIB
+   view). No prompt is raised for you: the watcher prints a
    `QUESTION item=… task=…` line, and `review_list` lists it with
-   `holding_the_run: true` (its `proposal_id`, `values` and image are
-   there). Decide it with `review_decide`: `item_id`, `task_name`,
+   `holding_the_run: true` (its `proposal_id`, `kind`, `values` and image
+   are there). Decide it with `review_decide`: `item_id`, `task_name`,
    `proposal_id`, the outcome, and — on Confirmed — every value the kind
-   carries, as proposed or adjusted. Rejected needs a reason and fails the
-   task that asked, so when unsure hold and escalate rather than reject.
-   Take a `holding_the_run` review before anything else in the inbox:
-   nothing runs until it is decided. (An older path still exists: a prompt
-   whose payload says `answer_via: "decide"` carries a `decide` block with
-   the same three fields; `prompt_answer` on it is refused with nothing
-   clicked, and `review_decide` is the answer there too.)
+   carries, as proposed or adjusted. Rejected needs a reason and does what
+   the review's `rejected_fails_task` says: true, it fails the task that
+   asked; false (a `state` question), it means *don't* and the task carries
+   on. When unsure, hold and escalate rather than reject. Nothing runs
+   until it is decided, so take it before anything else. Once a task
+   ends, nothing waits on a decision: its result is used as proposed.
 
 ## Write down why
 
-Chat is not kept; the experiment folder is. Every time you act (answer,
-decide, start, stop, re-queue, edit) or suggest an action at Watch, call
-`experiment_add_note` with the item's name, before the action. The note lands in the
-experiment's `events.jsonl` and `logfile.log`, beside what you did.
-
-A note says what you looked at and what you saw in it, then what you did:
-
-- *"lamella-02 Polishing: ref_polishing_ib.tif (02:14:05, after the last
-  pass). Face clean; curtaining stops below the trench. Answered no: accept."*
-- *"Suggest: lamella-04 Setup, POI 1.5 µm left of the marker. The marker
-  sits on the grid bar edge in ref_setup_eb.tif. Left for the operator."*
-
-Name the image, value or event you judged from. A note you cannot tie to
-something you looked at is not a reason; look first, or escalate instead.
-Laddered repeats get a note too, one line. Notes change nothing, so they
-are allowed at Watch.
+Before every answer, decision, start, stop, re-queue or edit, add a note as
+the autolamella-agent skill's *Write down why* says. Laddered repeats get a
+note too, one line.
 
 ## The prompt playbook
 
@@ -211,83 +65,83 @@ message; it may be a position instruction ("double click to move… press
 Continue") — for an already-placed item, Continue is safe; for a *new*
 placement, that is the operator's decision (see the ladder).
 
-**`RunMillingTask`** — the milling question. Answer with an action in
-`value` (required): `run`, `edit`, `skip` or `accept`; the payload's
-`actions` lists the ones allowed now, and `passes` says how many times the
-mill has run for this question.
-- *Before a pass* (`passes: 0`): `run` mills the config as shown; check
-  `task_name` and the stages look right first, on `image` (the FIB view
-  with the patterns drawn). **`skip` goes on without milling.** That is
-  the operator's call; escalate rather than skip.
+**A `milling` review** — one pass of the mill, a recorded question (rule
+5): `values.milling_config` is the config this pass would mill, and the
+image is the FIB view it sits on. Decide it with `review_decide` Confirmed
+and an `action`: `provenance.actions` lists the ones allowed now, and
+`provenance.passes` says how many times the mill has run for this task. No
+values mills it as proposed.
+- *Before a pass* (`passes: 0`): `run` mills the config; check the config's
+  name and the stages look right first (`milling_preview_patterns` draws
+  them). **`skip` goes on without milling.** That is the operator's call;
+  escalate rather than skip.
 - *After a pass* (`passes` ≥ 1): **`run` mills AGAIN, `accept` goes on.**
   Pull a fresh image (rules 2–3), judge it, and accept. Do not re-mill
-  without a reason you can state. `last_error` says why the last run
-  failed, if it did.
-- *Edits*: `config` is the task's milling config, and `fields` explains
-  every option, with `unit` and `not_used` for one nothing reads (a patch
-  to it is refused, with why). Change it by `patch` (dotted paths, SI
-  units, a stage by name or index: `{"action": "run", "patch":
-  {"stages.Polish 1.milling.milling_current": 1e-11}}`) or by a whole
-  `config` (add, remove, reorder stages, change a pattern type). `edit`
-  applies the change and asks again without milling, so you can see it
-  land on the drawn patterns first. Edits are the operator's call unless
+  without a reason you can state. `provenance.last_error` says why the last
+  run failed, if it did.
+- *Edits*: change the config by `patch` (dotted paths, SI units, a stage by
+  name or index: `{"action": "run", "patch": {"stages.Polish
+  1.milling.milling_current": 1e-11}}`) or by a whole
+  `values.milling_config` (add, remove, reorder stages, change a pattern
+  type). `edit` takes the change and asks again without milling, so you can
+  see it on the next pass first. Edits are the operator's call unless
   delegated, like any placement.
 - Between passes the question lends control, as any other does: image,
   move or re-align before the next `run`. Never during a mill.
 
-**`EditAlignmentArea`** — the payload's `current` is the live rectangle
-(fractions of the frame), and `image` is the frame it sits on (the post-mill
-FIB view). Sanity-check against the image: in bounds, non-degenerate size,
-covering the fiducial, consistent with previous items. Yes accepts it as
-shown. In a fiducial task this prompt arrives at the task's *end*, not its
-start. An answer may carry a **corrected rectangle**:
-`{"response": true, "question_id": N, "value": {"left", "top", "width", "height"}}`
-(fractions of the frame, origin top-left). The server validates it and
-places it on the operator's screen through the same widget they would drag,
-then accepts it — use this for a small correction you can justify from your
-criteria, never to invent an area from scratch (that is an escalation).
+**An `alignment_area` review** — a recorded question (rule 5):
+`values.alignment_area` is the rectangle (`left`, `top`, `width`,
+`height`, fractions of the frame, origin top-left) and the image is the
+frame it sits on (the post-mill FIB view in a fiducial task, where it
+arrives at the task's *end*, not its start). Sanity-check against the
+image: in bounds, non-degenerate size, covering the fiducial, consistent
+with previous items. Confirm with the rectangle as proposed to accept it,
+or with a **corrected rectangle** for a small correction you can justify
+from your criteria — never invent an area from scratch (that is an
+escalation). The task acquires its reference in the decided area.
 
-**`PickPOI`** — a placement. The payload carries the image and the live
-`current` marker (microscope image coordinates, +y up, origin centre). In
-collaborative mode this is **held for the operator**: report it, show where
-the marker is, and wait. Where placement has been delegated (exemplar mode,
-or an explicit "you place the rest"), the answer may carry the point:
-`"value": {"x", "y"}` in the payload's stated coordinates — validated
-against the image bounds, and landed on screen before acceptance.
+**A `point_of_interest` review** — a placement, and Setup's result: it is
+proposed at the end of the task on the final FIB image and does not hold
+the run; the milling tasks that follow the point wait on the decision.
+`values.poi` is `{"x", "y"}` in metres, milling frame (+y up, origin the
+image centre). In collaborative mode this is **held for the operator**:
+report it, show where the point is, and wait. Where placement has been
+delegated (exemplar mode, or an explicit "you place the rest"), confirm
+with the point you judge right; it is written through and the patterns
+that follow it move with it.
 
-**`ConfirmDetection`** — feature positions. Held for the operator in
-collaborative mode. With the review preference on this is a recorded
-question (rule 5): a `detection` review whose `values.features` are the
-model's points in image pixels, each with a name. Confirm with the features
-as they are to say the model was right; move one only for a correction you
-can state. Where it is a prompt rather than a review, the payload's
-`current` is the live features, and an answer may move some:
-`"value": {"features": [{"name", "px": {"x", "y"}}]}` (source-image pixels,
-origin top-left; features you leave out stay). The model's points are kept
-beside your correction, as they are when the operator drags one.
+**A `detection` review** — feature positions, a recorded question (rule
+5): `values.features` are the model's points in source-image pixels
+(origin top-left), each with a name. Held for the operator in
+collaborative mode. Confirm with the features as they are to say the model
+was right; move one only for a correction you can state
+(`{"features": [{"name", "px": {"x", "y"}}]}`). The model's points are
+kept beside your correction, as they are when the operator drags one.
 
-**`RunSpotBurn`** — points to burn on the FIB image, the same loop as the
-milling question: answer with an `action` in `value` (`run`, `edit`, `skip`
-or `accept`, as `actions` allows), `passes` counts the burns and
-`last_error` says why the last one failed. Before a burn, `run` burns the
-points as shown and **`skip` goes on without burning** (the operator's
-call). After one, `run` burns AGAIN and `accept` goes on; look at the FIB
-image the burn left first. Edits ride the same value: `points`
-(`[{"x", "y"}]`, fractions of the frame, origin top-left; all of them,
-replacing the old), `milling_current` (A) and `exposure_time` (s, within
-`exposure_limits`). Placing points is a placement: held for the operator
+**A `spot_burn` review** — one pass of the spot burn, the same loop as
+the mill's: `values.spot_burn` is `{coordinates: [{x, y}], milling_current,
+exposure_time}` (fractions of the frame, origin top-left; A; s), decided
+Confirmed with an `action` from `provenance.actions`. Before a burn, `run`
+burns the points as proposed and **`skip` goes on without burning** (the
+operator's call). After one, `run` burns AGAIN and `accept` goes on; look at
+the FIB image the burn left first. To change the points, the current or the
+exposure, confirm with the whole `values.spot_burn` (all the points,
+replacing the old). Placing points is a placement: held for the operator
 unless delegated. The question lends control between burns.
 
 **A `state` review** — the task's position, "press Continue when ready" on
 the record (rule 5). Confirming carries no values: the task reads the
 instrument after the answer, so a move the operator made first is the
-delta. Sanity-check its `message` against the run before confirming; the
-ladder applies as for any `Confirm`.
+delta. Rejecting is *don't*, not a failure (`rejected_fails_task: false`):
+at Setup's tilt question the task does not tilt and carries on at the angle
+it is at. Sanity-check its `message` against the run before confirming;
+the ladder applies as for any `Confirm`.
 
 **Before a position or a POI: check coincidence.** Setup's position
 question ("Double click the image to move to the milling position… Press
 Continue", a `Confirm` or a `state` review) fixes where the lamella is
-milled, and the `PickPOI` after it fixes the point the mills follow. Both
+milled, and the `point_of_interest` review after it fixes the point the
+mills follow. Both
 beams have to be looking at the same target. Before you answer, suggest or
 place either:
 
@@ -296,17 +150,17 @@ place either:
    on it is not one either.
 2. At the position question, take fresh SEM and FIB images
    (`beam_acquire_image`) and check the target is at the centre of both. If
-   it is not, run the coincidence loop under *Using the microscope*: centre
-   it in one beam with `stage_stable_move`, bring the other beam onto it
-   with `stage_vertical_move`, and image both again.
+   it is not, run the coincidence loop (autolamella-agent, *Using the
+   microscope*): centre it in one beam with `stage_stable_move`, bring the
+   other beam onto it with `stage_vertical_move`, and image both again.
 3. Only then answer, and show the operator both images, saying which is
    which.
 
 Checking only the beam you moved in is not enough. A FIB stable move onto a
 cell once left the SEM centred on a different one, 30 µm away. Moving the
-stage while `PickPOI` stands invalidates its image, so do the check at the
-position question; at `PickPOI`, put the point on the target in the
-payload's image.
+stage after the position question invalidates the image the point is
+proposed on, so do the check at the position question; at the
+`point_of_interest` review, put the point on the target in its image.
 
 Unknown type → escalate. Do not guess an answer shape.
 
@@ -317,8 +171,9 @@ Unknown type → escalate. Do not guess an answer shape.
   intend, and let them confirm your policy (or answer it themselves).
 - **Repeats, handle**: once a class has been confirmed, answer its repeats
   the same way without asking.
-- **Interactive types never ladder** in collaborative mode: `PickPOI`,
-  `ConfirmDetection`, and any placement-flavoured `Confirm` stay with the
+- **Interactive types never ladder** in collaborative mode: the
+  `point_of_interest` and `detection` reviews, and any placement-flavoured
+  `Confirm` stay with the
   operator unless they explicitly delegate ("you place the rest").
 - **Anything novel or wrong-smelling breaks the ladder**: an unexpected
   value, a failed task, an image you cannot interpret, a question you did
@@ -362,14 +217,14 @@ The argument selects a variation on the same loop:
   state, not the live prompt: after an `ANSWERED by=operator` line, read
   `GET /app/experiment/items/{item_name}` — the accepted POI, alignment area, and
   milling angle are there — and pair it with the display image. Never race
-  the operator for the prompt's `current` value. A small drift against a
-  criterion you can state is a correction, not an escalation: answer with a
-  `value` carrying the fixed geometry (the alignment rectangle nudged off
-  the POI, the point moved onto the feature) — the operator sees it land.
+  the operator for a question they are answering. A small drift against a
+  criterion you can state is a correction, not an escalation: confirm with
+  values carrying the fixed geometry (the alignment rectangle nudged off
+  the POI, the point moved onto the feature).
   Escalate when you cannot state the correction, when you cannot evaluate a
   criterion, or when a question type the exemplar never showed appears.
 - **batch-review**: supervision is off or minimal; let the run complete, then
-  present the outputs (`/app/workflow/run_summary`, `/app/experiment/items/{item}/outputs`,
+  present the outputs (`/app/workflow/summary`, `/app/experiment/items/{item}/outputs`,
   `/app/experiment/items/{item}`, final images) and act on the verdicts —
   `workflow_requeue` for items in a running workflow, `workflow_start` for a
   fresh round. Whose verdicts is a **policy question you settle up front**,
@@ -394,20 +249,8 @@ The argument selects a variation on the same loop:
   the same body; `screen_all: true` inventories and runs every present grid.
   One run at a time: it is refused while a lamella run is live, and a
   lamella start is refused while a grid run is.
-- **one grid by hand** (Drive): `grid_list` is the experiment's records;
-  `grid_get_inventory` is the hardware now, and says which grid is loaded.
-  `grid_load` brings a grid onto the stage by name. With an autoloader that is
-  an exchange: the loaded grid goes back to the magazine first, so say which
-  grid comes out before you load. It does not move the stage; follow it with
-  `grid_move_to`. `grid_unload` returns the grid; `grid_run_inventory` scans
-  the magazine again (minutes). All three are long: wait with
-  `service_wait_for_run sample_handling`. A grid run loads its own grids, so
-  never load ahead of one.
-- **grid records** (Drive): `grid_add` records the inventory's grids the
-  experiment doesn't have yet. `grid_rename` renames a grid on its slot and
-  in the experiment together; never rename only the slot. A grid that has run
-  keeps its name, so ask the operator before renaming anything, and say the
-  old and new names.
+- **grids by hand** (Drive): loading, unloading and recording grids, as the
+  autolamella-agent skill's *Grids by hand* says.
 
 ## Acting beyond answers (Drive)
 
@@ -418,7 +261,7 @@ The argument selects a variation on the same loop:
   Assist, file it as a request (the assist skill). At Watch you cannot stop
   it: tell the operator at once, plainly, what you see and that they should
   press Stop.
-- `POST /app/agent/supervision {"task_name", "supervise"}` — takes effect at the
+- `POST /app/experiment/protocol/supervision {"task_name", "supervise"}` — takes effect at the
   next decision point. A supervised task's questions go to the operator and
   to you alike; the first answer wins, and the operator can always answer
   first.
@@ -427,269 +270,10 @@ The argument selects a variation on the same loop:
 
 ## Using the microscope (Drive)
 
-Moving the stage, acquiring images, beam_auto_contrast, and device parameters and
-commands. Supervising needs these only for the coincidence check before a
-position (*Before a position or a POI*); otherwise use them only when the
-operator asks for something on the microscope. Say what you are about to do
-first.
-
-**Check before you start.** In `/capabilities`, `level` must be `drive` and
-`routers.microscope` true. If either is not, say plainly which, and that the
-operator changes it (the Agent chip for the level; Tools → App Server,
-*Serve the microscope*, for the microscope). Don't look for another
-way in. A hardware tool missing from your tool list means the same thing.
-
-**Get your bearings once, before the first move.** On an instrument you
-have not used this session (every read here works at Watch):
-- `microscope_get_info` says which microscope it is: manufacturer, model,
-  software version and the optional hardware fitted.
-- `device_list` shows what it has: the beams, detectors, stage and an FM.
-- Read `device_get_parameter` `on` for the electron and ion beams. If one is off,
-  stop and tell the operator: switching a beam on is theirs. Note it if a
-  beam reads `blanked`. Some instruments have no `blanked`.
-- `stage_get_geometry` gives the stage's poses, column tilts, pre-tilt, device
-  origins and the milling angle. It also gives, for each beam at the pose and
-  scan rotation now, the stage move a +1 µm `stage_stable_move` along each image
-  axis makes, and which way raw +z goes. If a view says
-  `scan_rotation_handled: false`, its image axes are not the stage's: don't
-  `stage_stable_move` from it.
-- `grid_get_holder_slots` gives each holder slot's stage position and its
-  calibration. A slot whose `position` is null is not calibrated, or was
-  calibrated against a pre-tilt or rotation reference the system no longer
-  has. Say which slots are not calibrated: the operator calibrates them with
-  the app's wizard, never you, and nothing moves to an uncalibrated slot.
-- `grid_get_inventory` and `grid_get_current` say which grid is on the stage
-  and whether the stage is at a slot.
-- `microscope_get_state` gives each beam's voltage, current, working
-  distance and scan rotation, the detectors' type and mode, and the stage
-  position. Say what you read, and anything that looks wrong for the task
-  (a milling current on the imaging beam, a detector the operator
-  doesn't use).
-- Take an initial image with each beam (`beam_acquire_image`) and look
-  at it before moving: is the sample in view and in focus?
-- Then confirm the geometry with one small `stage_stable_move` and a fresh image,
-  and check that the feature went where it says. If it did not, stop and
-  tell the operator what you saw, rather than correcting by hand.
-
-**Read the microscope before each step, not once.** The operator, a run or
-a script may have moved it since you last looked. Before a move, read
-`stage_get_position`; before judging what is under the beam, take a fresh
-image (`beam_acquire_image`) rather than trusting the last one. Say what
-you read when you act on it.
-
-**A blank or black image.** Work through it in order, and stop at the step
-that explains it:
-1. Read the beam's `on`. If it is off, tell the operator: switching a beam
-   on is theirs.
-2. Read `blanked`. If the beam is blanked, set `blanked` to false with
-   `device_set_parameter`.
-3. Run `beam_auto_brightness_contrast` for that beam. The detector levels
-   often stay as another pose or current left them: on the Arctis, a FIB
-   image at stage tilt 0° came back black after milling until the levels were
-   reset.
-4. Take the image again, once. If it is still blank, stop and tell the
-   operator what you read at each step.
-
-**Check what an autofocus did.** Read the working distance before
-`beam_auto_focus` and after it. A change of more than about 0.1 mm is worth
-a fresh image and a sentence to the operator before you go on. On a coated
-or tilted surface that one focus can't hold, use a focus stack.
-
-**Move with `stage_stable_move`.** To bring something you see to the centre of
-an image, call `stage_stable_move` with its offset from the image centre in
-metres, x to the right and y up, and the beam the image came from. From a
-preview: `dx = (px - width/2) * hfw / width`, `dy = (height/2 - py) * hfw /
-width` (pixel rows count down, so y flips). The server turns that into the
-stage x, y and z for that beam's viewing angle and the stage tilt, rotation
-and scan rotation, so the sample slides along its own surface at the same
-height. The feature stays in focus, and at the coincidence point it stays in
-view of the other beam too. `stage_move_relative` moves the raw stage axes:
-on a tilted stage a y move there also changes the sample's height, so the
-feature goes out of focus and drifts out of the other beam, and you have no
-way to tell from the numbers where it will land. Use it only when the
-operator gives you stage coordinates.
-
-`stage_stable_move` uses the stage and scan rotation as they are now. An offset
-measured on an older image is only right if neither has changed since; after
-a rotation or a scan-rotation change, take a new image and measure again.
-Before a large stable move, `service_call_query` `project_stable_move` with
-the same offset answers where the stage would go without moving it.
-
-Measure on a preview with its own scale: `hfw / width` per preview pixel.
-The `pixelsize` in an image answer is per pixel of the full image, which is
-larger than the preview.
-
-The rest of the moves, by when to use them:
-- `stage_vertical_move`: the feature is centred in one beam's image but off in
-  the other. Pass its offset in the image where it is off, and that beam as
-  `beam_type` (ION, the default, or ELECTRON); it moves the stage along the
-  chamber vertical, which the beam where the feature is centred doesn't see.
-- `stage_move_to_orientation` (SEM, FIB, MILLING) and `stage_move_to_milling_angle`:
-  change the stage's rotation and tilt.
-- `stage_move_absolute`: go back to a saved position. It tilts flat
-  before a large rotation.
-
-After every move, read the position back and compare it with what you
-asked for, then take a fresh image and check where the feature landed before
-the next one. A move under about 1 µm may not happen at all; the position
-read back says so. Move z in small steps and tilt in steps, with an image
-after each.
-
-**Coincidence: do it yourself.** To bring the beams onto the same feature,
-centre it in one beam with `stage_stable_move`, find it in the other beam's image,
-and `stage_vertical_move` by its offset there (`beam_type` = the beam you measured
-in). Cap each step to a few µm, take both images again, and repeat until it
-is centred in both. Work from whichever beam has it centred already. Don't
-use the coincidence commands: this loop worked better on a real instrument.
-A coincidence error shows only as a vertical offset in the image, never
-side to side.
-
-To try (experimental): `alignment_check_coincidence` finds the feature you
-centred in one beam (`beam`, ELECTRON by default) in the other beam's view for
-you. It answers `dy` for `stage_vertical_move` with the other beam's
-`beam_type`, and `dx`: a height error can't cause it, so a steady `dx` is a
-beam shift, never a stage move. Start from the SEM when the error may be
-large: from the FIB it shows about 3x larger in the SEM and can leave the frame. It answers an overlay too.
-Look at it, and use the `dy` only if the `+` sits on your feature; it
-refuses nothing. Give it a `path` so the pair can be replayed, and say in a
-note how it compared with your own measurement.
-
-**A refused move and a failed move are different.** A move refused before it
-starts (outside the stage limits, `microscope_busy`, a bad argument, the
-level or the allowlist) changed nothing: fix the request and go again. A move
-that fails while moving (a hardware error, the touch alarm, stopped partway)
-may have hit something. Then stop moving: don't retry it, and don't reach the
-same place another way. Read the stage position, add a note saying what you
-asked for and what happened, and hand back to the operator.
-
-**Milling.** Mill a protocol's stage with milling `run_stage` (a
-`FibsemMillingStage` dict, e.g. one from `item_get_task_config`) and a
-multi-stage job with `run_task` (a `FibsemMillingTaskConfig` dict). They mill
-as the app does: each stage's strategy, alignment between stages, the beam put
-back. Leave `path` out or give one inside the experiment. Before milling,
-`milling_preview_patterns` with a saved ion image and the stages shows where they
-will mill; look at it. Both are long commands: `service_wait_for_run` milling, and the
-result says the status, the folder and how each stage ended.
-Only where neither fits, `prepare` the settings and patterns, mill with `run` (not
-`start`, which reports no progress and records nothing), then `clear` and
-`restore`, and check the ion beam current is back where it was. `run`
-answers at once with its `run_id` (`state: running`) and mills on, in control
-of the microscope: call `service_wait_for_run` milling with that id, again while it
-says running, before you `clear`. It ends `done` (`result: completed`),
-`cancelled` or `failed` with its error. `service_get_parameter` milling
-`progress` shows how far it has got. A spot burn `run` works the same way.
-
-Follow every mill the same way, whoever started it (you, a workflow task, the
-operator): the watcher prints `MILL STAGE STARTED` for each stage and `MILL
-ENDED` with each stage's outcome. Check the `current` and `depth` on each
-stage's line against what the protocol or you meant to mill; if they are
-wrong, stop the mill (`milling_stop`, as your level allows) and tell the
-operator. Collect the result with `service_wait_for_run` milling, with
-the line's `run` as `run_id`, or without one for the mill going on.
-
-**Polishing by hand.** When the operator asks you to thin a lamella outside
-the task, one `milling_run_stage` per step:
-- Preview every step's patterns on a fresh ion image first
-  (`milling_preview_patterns`), and look at where they land.
-- Re-align to the reference before every step. Below about 300 nm, if the
-  alignment methods disagree, align again before milling. For polish
-  passes, set the Polishing task's `alignment.full_frame_below` (80 pA,
-  say) rather than re-aligning by hand.
-- Measure the band, don't trust the gap. Track the pattern gap you asked
-  for and the band you measure on a FIB image, and stop on whichever
-  reaches the target first: on the Arctis the band ran at 0.53-0.73× the
-  gap. Measure on enough pixels: once the band is under about 400 nm, image
-  at a narrower FIB field of view (15 µm, not 30 µm).
-- After rough milling, measure the band's tilt and rotate the polishing
-  patterns to match. A 0.6° mismatch left a 55 nm wedge along the lamella.
-- Check the SEM view of the face after each step as a second opinion:
-  contrast changes, cracks, bending.
-- Report each step: current, gap, time, the alignment residual, the band
-  measured.
-
-**Aligning to a reference.** To bring the view back onto a saved image (a
-task's reference from `item_list_outputs`, or one you saved), `alignment_measure_shift`
-the reference against a fresh saved image to see how far off you are, then
-`alignment_align_to_reference`: beam shift for a small offset, `stage` when it is beyond
-the beam shift's range. It is a long command; `service_wait_for_run` alignment gives
-each step's shift and whether the methods agree on what is left. If they don't
-agree, or the score stays low, the view has changed (milled, drifted out of
-frame): stop and tell the operator rather than aligning again.
-
-**How thick is the lamella?** `item_measure_thickness` with a FIB image from
-`item_list_outputs` measures the band between the trenches on the full-resolution
-file, around the item's POI: thickness, wedge, the band's angle, where it sits
-against the POI, and any holes. Use it instead of measuring a preview yourself.
-When `resolution.under_resolved` is true the band is under 8 px: take the next
-image at the suggested field width before trusting the number.
-
-**Overviews and focus stacks.** `beam_acquire_overview` images a grid of tiles
-around where the stage is and stitches them; the stage moves to each tile and
-comes back. Ask `beam_estimate_overview` first: it gives the tile count and the scan
-time, but not the stage moves, which often take longer than the scanning, so a
-3 x 3 that scans for seconds still takes minutes. `beam_acquire_focus_stack` focuses
-and images a frame in strips, for a tilted view one focus can't hold. Both save
-into a folder you name inside the experiment and are long commands:
-`service_wait_for_run` imaging gives the image and its path, and `service_call_command`
-imaging `stop`, with a reason, ends either one. `fm_acquire_overview` is the
-fluorescence one, from the FM pose with the objective in; `fm_estimate_overview`
-gives its whole run time, stage moves included, and the same `stop` ends it.
-`register_tiles` (experimental, off by default) places each tile where its
-picture says it is rather than where the stage step put it, when no tile moves
-more than 15 µm. The answer's `overview` says the resolution used, which tiles
-were skipped, how far the steps were off, whether it moved the tiles (and the
-largest move) and why not when it didn't; its `paths.record` file has every
-tile's planned and read-back stage position. `beam_estimate_overview` answers the
-resolution the beam will scan and any tiles out of the stage's reach.
-
-Set an overview up as the app does. Give the tile size in `image_settings`
-(`hfw`, `resolution`, `dwell_time` belong there, not at the top level of the
-settings) and use 3:2 tiles (e.g. 1536 × 1024). The instrument snaps a size it
-doesn't list to one it does, so a square 2048 × 2048 came back as
-2048 × 1768 and the stitch failed. Keep at least 15 % overlap. A grid
-that runs past the stage's travel is refused only once it starts, so keep
-it near the middle of the travel, and keep it small: a 3 × 3 worked on the
-Arctis where a 6 × 6 failed twice.
-
-A point picked on an overview is only as good as the stitch. The tiles are
-placed where the stage was told to go, and a stage that overshoots puts
-features a few µm off (about 4 % in x and 7 % in y per step on the Arctis).
-After moving to a point picked on an overview, take a fresh image and
-centre on the feature itself before acting, as an operator would.
-
-**Finding sites.** When you pick sites (cells, squares) on an overview:
-- Start with what worked on a real grid: GrabCut on the holey film,
-  tracing the grid bars by hand where shading defeats a threshold, and a
-  piece of debris as an anchor to find the same place again. Say how sure
-  you are of each detection, not only where it is.
-- Look at the tile seams. A feature on a seam can be cut in two, doubled or
-  hidden under the next tile; check it in the tiles on both sides before
-  you count it.
-- A square you haven't looked at is unassessed, never "empty" or "bad".
-- Confirm shorthand before acting on it. "3:3" or "C2" can name a square, a
-  cell or a rank; ask which the operator means.
-- Leave the lamella's name to the app: `item_add` without `name` gives it
-  the app's usual name. Put what the operator needs to find it again (grid,
-  square, rank, why you chose it) in its description:
-  `item_update` with `{"patch": {"description": "..."}}`.
-
-**`409 microscope_busy` is someone else working.** Its
-`detail.in_control` names who (`workflow`, `script`, or another command)
-and what. Treat it as a person would: say who has the microscope and what you
-wanted to do, then wait for that to finish or ask the operator. Never retry
-it in a loop, and never try the same thing through another tool. While a run
-waits on a question, it lends control, so your command can go through; when
-the question is answered the run takes it back.
-
-**Stop agent stops you mid-action.** If the operator presses it, your mill,
-spot burn, auto focus or live imaging is stopped and you drop to Watch
-(`agent_stopped`). Report where the microscope was left (read the stage
-position; take no new image) and stop acting.
-
-The operator's own buttons don't take control yet, so nothing refuses your
-command while they are working at the microscope by hand. If the events
-show them acting (a `stage_position_changed` or acquisition event with
-`actor: operator`), stop and ask before your next command.
+Supervising needs the microscope only for the coincidence check before a
+position (*Before a position or a POI*). Otherwise use it when the operator
+asks for something on the microscope, as the autolamella-agent skill's
+*Using the microscope* says.
 
 ## Editing configuration (Drive)
 
@@ -716,13 +300,8 @@ when a task may start (ISO-8601, instrument-local when naive; null
 clears). The workflow reads it at each task start, so it never interrupts
 anything running.
 
-So is the run summary: by default the summary dialog opens at the end of
-every run. Before you start runs yourself, turn it off with
-`workflow_set_options(show_run_summary=false)` so no dialog is left over
-the operator's window, and tell them you did. Each run's end still shows a
-toast with a Show summary link, and it stays in the notification bell.
-Read `/app/workflow/run_summary` for the outcome yourself. If the operator turns it
-back on, leave it on.
+So is the run summary dialog: turn it off before you start workflows
+yourself, as the autolamella-agent skill's *Session setup* says.
 
 Etiquette:
 
@@ -741,7 +320,7 @@ Etiquette:
 Keep the operator oriented without flooding them: say what you answered and
 why when it was a judgment call (the note already records it); stay quiet
 for laddered repeats; always report task completions/failures, escalations,
-and the end-of-run summary (items, durations, outcomes — `/app/workflow/run_summary`
+and the end-of-run summary (items, durations, outcomes — `/app/workflow/summary`
 survives the run's end).
 Every answer you give is attributed on the timeline in the app; write nothing
 the timeline would contradict.

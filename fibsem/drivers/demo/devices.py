@@ -81,12 +81,12 @@ from fibsem.drivers.demo.simulator import (
     UINT16_MIN,
     sim_is_compustage,
 )
-from fibsem.fm.microscope import emission_filter_named
 from fibsem.fm.structures import (
     REFLECTION,
     ChannelSettings,
     EmissionFilter,
     emission_filter_for,
+    matching_emission_filter,
 )
 from fibsem.structures import (
     BeamSettings,
@@ -1477,8 +1477,8 @@ class DemoFM(FM):
             filters = self.filter_set
             filters.excitation_wavelength.write_through(settings.excitation_wavelength)
             filters.emission_filter.write_through(
-                emission_filter_named(
-                    settings.emission_wavelength, filters.emission_filter.choices
+                matching_emission_filter(
+                    settings.emission_filter, filters.emission_filter.choices
                 )
             )
             self.light_source.power.write_through(settings.power)

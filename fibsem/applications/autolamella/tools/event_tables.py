@@ -40,18 +40,16 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 import pandas as pd
 
-from fibsem.applications.autolamella.event_recording import (
+from fibsem.acting import Actor
+from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
+from fibsem.applications.autolamella.tools.replay import changed_values
+from fibsem.util.timestamps import wall_time_of
+from fibsem.workflows.event_recording import (
     EVENTS_FILENAME,
     milling_run_of,
     read_events,
 )
-from fibsem.applications.autolamella.proposals import (
-    DETECTION,
-    POINT_OF_INTEREST,
-    STATE,
-)
-from fibsem.applications.autolamella.tools.replay import changed_values
-from fibsem.util.timestamps import wall_time_of
+from fibsem.workflows.proposals import DETECTION, STATE
 
 RUN_COLUMNS = [
     "item",
@@ -102,8 +100,10 @@ DECISION_COLUMNS = [
     "proposal_id",
     "decision",
     "outcome",
-    "author",
+    # a loop's pass: run, edit, skip or accept
+    "action",
     "actor",
+    "actor_name",
     "via",
     "reason",
     "asked",
@@ -408,8 +408,12 @@ def _decision(
         "proposal_id": payload.get("proposal_id"),
         "decision": payload.get("decision"),
         "outcome": payload.get("outcome"),
-        "author": payload.get("author"),
+        "action": payload.get("action"),
         "actor": record.get("actor"),
+        # the decision's actor is kind:name; older logs put it under author
+        "actor_name": Actor.parse(
+            payload.get("actor") or payload.get("author") or ""
+        ).name,
         "via": payload.get("via"),
         "reason": payload.get("reason"),
         "asked": question[0] if question is not None else None,

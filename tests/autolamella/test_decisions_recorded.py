@@ -3,7 +3,7 @@
 
 The app's own ``EventRecorder`` on Demo, watching a real ``Experiment``. Every
 decision is made through the experiment's own methods -- ``decide`` for a
-person or an agent, ``expire_open``, ``withdraw_proposal`` and
+person or an agent, ``apply_proposed``, ``withdraw_proposal`` and
 ``record_unasked`` for the record itself -- and read back from the buffer.
 """
 
@@ -15,26 +15,27 @@ from psygnal.containers import EventedDict
 
 from fibsem import utils
 from fibsem.acting import OPERATOR
-from fibsem.applications.autolamella.event_recording import EventRecorder
-from fibsem.applications.autolamella.proposals import (
+from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
+from fibsem.applications.autolamella.structures import (
+    AutoLamellaTaskProtocol,
+    Experiment,
+)
+from fibsem.detection.detection import DetectedFeatures, LamellaCentre
+from fibsem.detection.review import (
+    detection_provenance,
+    detection_values,
+)
+from fibsem.structures import FibsemStagePosition, MicroscopeState, Point
+from fibsem.workflows.event_recording import EventRecorder
+from fibsem.workflows.proposals import (
     DETECTION,
-    POINT_OF_INTEREST,
     STATE,
     Decision,
     DecisionOutcome,
     Proposal,
 )
-from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
-    Experiment,
-)
-from fibsem.applications.autolamella.workflows.question_adapters import (
-    detection_provenance,
-    detection_values,
-)
-from fibsem.detection.detection import DetectedFeatures, LamellaCentre
-from fibsem.structures import FibsemStagePosition, MicroscopeState, Point
+from fibsem.workflows.status import TaskStatus
+from tests.proposal_records import set_proposals
 
 TASK = "Setup Lamella Position"
 RUN = "run-1"
@@ -57,7 +58,7 @@ def experiment(tmp_path):
     lamella = exp.positions[0]
     lamella.task_state.name = TASK
     lamella.task_state.task_id = RUN
-    lamella.task_state.status = AutoLamellaTaskStatus.Completed
+    lamella.task_state.status = TaskStatus.Completed
     return exp
 
 
@@ -84,7 +85,19 @@ def _poi_proposal(lamella, x=0.0):
             "reference_image": "ref_final_ib.tif",
         },
     )
-    lamella.proposals[TASK] = [proposal]
+    set_proposals(lamella, TASK, [proposal])
+    return proposal
+
+
+def _rerun(lamella, x=0.0):
+    """Setup run again: a new point beside the decided one, which stays on
+    the record."""
+    proposal = Proposal(
+        kind=POINT_OF_INTEREST,
+        values={"poi": Point(x, 0.0)},
+        provenance={"task_id": RUN, "proposer": "current-poi"},
+    )
+    lamella.record_proposal(TASK, proposal)
     return proposal
 
 
@@ -94,7 +107,7 @@ def _decide(experiment, proposal, author, values=None, via="review"):
         TASK,
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author=author,
+            actor=author,
             values=values or {},
             via=via,
             task_id=RUN,
@@ -111,7 +124,7 @@ def test_a_decision_is_recorded_with_what_was_proposed_and_what_was_decided(
     lamella = experiment.positions[0]
     proposal = _poi_proposal(lamella)
 
-    _decide(experiment, proposal, "human:op", {"poi": Point(2e-6, -1e-6)})
+    _decide(experiment, proposal, "operator:op", {"poi": Point(2e-6, -1e-6)})
 
     ((event),) = _events(recorder)
     assert (event["kind"], event["actor"]) == ("proposal_decided", "operator")
@@ -122,9 +135,9 @@ def test_a_decision_is_recorded_with_what_was_proposed_and_what_was_decided(
     assert payload["proposed"]["poi"] == Point(0.0, 0.0).to_dict()
     assert payload["decided"]["poi"] == Point(2e-6, -1e-6).to_dict()
     assert payload["image"] == "ref_final_ib.tif"  # what the point sits on
-    assert (payload["outcome"], payload["author"], payload["via"]) == (
+    assert (payload["outcome"], payload["actor"], payload["via"]) == (
         "Confirmed",
-        "human:op",
+        "operator:op",
         "review",
     )
     assert "filled_in" not in payload
@@ -151,10 +164,10 @@ def test_a_detection_names_the_model_that_made_it(experiment, recorder):
         values=detection_values(detection),
         provenance={"task_id": RUN, **detection_provenance(detection)},
     )
-    experiment.positions[0].proposals[TASK] = [proposal]
+    set_proposals(experiment.positions[0], TASK, [proposal])
     corrected = {"features": [{"name": feature.name, "px": Point(12.0, 20.0)}]}
 
-    _decide(experiment, proposal, "human:op", corrected)
+    _decide(experiment, proposal, "operator:op", corrected)
 
     ((event),) = _events(recorder)
     payload = event["payload"]
@@ -173,7 +186,7 @@ def test_an_agent_s_decision_is_the_agent_s(experiment, recorder):
 
     ((event),) = _events(recorder)
     assert event["actor"] == "agent"
-    assert (event["payload"]["author"], event["payload"]["via"]) == (
+    assert (event["payload"]["actor"], event["payload"]["via"]) == (
         "agent:a-model",
         "server",
     )
@@ -185,7 +198,7 @@ def test_a_question_is_recorded_and_so_is_the_position_it_was_confirmed_at(
     """A state asked mid-run, confirmed "as it stands" from the prompt bar:
     the task fills in the position afterwards, and that is recorded too."""
     lamella = experiment.positions[0]
-    lamella.task_state.status = AutoLamellaTaskStatus.InProgress
+    lamella.task_state.status = TaskStatus.InProgress
     asked_at = FibsemStagePosition(x=1e-3, y=0, z=0, r=0, t=0, name="asked")
     moved_to = FibsemStagePosition(x=1.002e-3, y=0, z=0, r=0, t=0, name="moved")
     proposal = Proposal(
@@ -195,7 +208,7 @@ def test_a_question_is_recorded_and_so_is_the_position_it_was_confirmed_at(
     )
     assert experiment.ask_proposal(lamella.id, TASK, proposal)
 
-    _decide(experiment, proposal, "human:op", via="workflow")
+    _decide(experiment, proposal, "operator:op", via="workflow")
     assert experiment.fill_in_decision(
         lamella.id, TASK, proposal.id, {"stage_position": moved_to}
     )
@@ -214,9 +227,11 @@ def test_a_question_is_recorded_and_so_is_the_position_it_was_confirmed_at(
 
 def test_what_nobody_decided_is_recorded_as_the_task_s(experiment, recorder):
     lamella = experiment.positions[0]
-    # An automated value its consumer started on before anyone looked.
+    # A result nobody was asked about: used as proposed when the run ended.
     open_one = _poi_proposal(lamella)
-    assert experiment.expire_open(lamella.id, TASK, "Mill Rough started") == 1
+    assert experiment.apply_proposed(
+        lamella.id, TASK, open_one.id, "nobody was asked"
+    ).applied
     # A question nobody was asked: the task is not supervised.
     unasked = Proposal(
         kind=STATE,
@@ -227,7 +242,7 @@ def test_what_nobody_decided_is_recorded_as_the_task_s(experiment, recorder):
         lamella.id, "Acquire Reference Image", unasked, "not supervised"
     )
     # A question whose run stopped before it was answered.
-    lamella.task_state.status = AutoLamellaTaskStatus.InProgress
+    lamella.task_state.status = TaskStatus.InProgress
     withdrawn = Proposal(kind=STATE, values={}, provenance={"task_id": RUN})
     assert experiment.ask_proposal(lamella.id, TASK, withdrawn)
     assert experiment.withdraw_proposal(lamella.id, TASK, "the run stopped").applied
@@ -243,7 +258,7 @@ def test_what_nobody_decided_is_recorded_as_the_task_s(experiment, recorder):
     ]
     unreviewed = decided[0]["payload"]
     assert unreviewed["decided"] == unreviewed["proposed"]  # used as proposed
-    assert unreviewed["reason"] == "Mill Rough started"
+    assert unreviewed["reason"] == "nobody was asked"
 
 
 def test_what_the_experiment_held_when_watched_is_not_recorded_again(
@@ -251,17 +266,18 @@ def test_what_the_experiment_held_when_watched_is_not_recorded_again(
 ):
     lamella = experiment.positions[0]
     earlier = _poi_proposal(lamella)
-    _decide(experiment, earlier, "human:op", {"poi": Point(1e-6, 0.0)})
+    _decide(experiment, earlier, "operator:op", {"poi": Point(1e-6, 0.0)})
     recorder = EventRecorder(microscope, experiment=experiment)
     try:
-        # A second look at the same proposal: its first decision was made
+        # A re-run decided: the earlier decision on the same task was made
         # before the recorder watched, and is not new.
-        _decide(experiment, earlier, "human:someone-else")
+        later = _rerun(lamella, 2e-6)
+        _decide(experiment, later, "operator:someone-else", {"poi": Point(2e-6, 0)})
 
         ((event),) = _events(recorder)
-        assert (event["payload"]["decision"], event["payload"]["author"]) == (
-            1,
-            "human:someone-else",
+        assert (event["payload"]["proposal_id"], event["payload"]["actor"]) == (
+            later.id,
+            "operator:someone-else",
         )
     finally:
         recorder.close()
@@ -274,11 +290,12 @@ def test_the_experiment_watched_is_the_one_set(microscope, experiment, tmp_path)
     try:
         recorder.set_experiment(experiment.path, experiment)
         proposal = _poi_proposal(experiment.positions[0])
-        _decide(experiment, proposal, "human:op", {"poi": Point(1e-6, 0.0)})
+        _decide(experiment, proposal, "operator:op", {"poi": Point(1e-6, 0.0)})
         assert len(_events(recorder)) == 1
 
         recorder.set_experiment(None)
-        _decide(experiment, proposal, "human:op")  # a second look
+        later = _rerun(experiment.positions[0])
+        _decide(experiment, later, "operator:op", {"poi": Point(0.0, 0.0)})
         assert len(_events(recorder)) == 1, "recorded after it stopped watching"
     finally:
         recorder.close()
@@ -287,7 +304,7 @@ def test_the_experiment_watched_is_the_one_set(microscope, experiment, tmp_path)
 def test_a_decision_that_cannot_be_recorded_is_still_made(
     experiment, recorder, monkeypatch
 ):
-    from fibsem.applications.autolamella import event_recording
+    from fibsem.workflows import event_recording
 
     def fail(values):
         raise RuntimeError("cannot encode")
@@ -296,7 +313,7 @@ def test_a_decision_that_cannot_be_recorded_is_still_made(
     lamella = experiment.positions[0]
     proposal = _poi_proposal(lamella)
 
-    _decide(experiment, proposal, "human:op", {"poi": Point(3e-6, 0.0)})
+    _decide(experiment, proposal, "operator:op", {"poi": Point(3e-6, 0.0)})
 
     assert _events(recorder) == []
     assert lamella.poi.x == 3e-6

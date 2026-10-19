@@ -1,7 +1,8 @@
-"""The App Server's review surface: GET /app/workflow/reviews is the tab's inbox,
-POST /app/workflow/decide is the tab's Confirm and Reject, through the same
-Experiment.decide -- on the main thread, blocking the server worker until
-applied, with the agent recorded as author.
+"""The App Server's review surface: GET /app/workflow/reviews lists the
+questions a task is stopped on, POST
+/app/workflow/decide answers one through the same Experiment.decide the
+operator's Continue goes through -- on the main thread, blocking the server
+worker until applied, with the agent recorded as author.
 """
 
 import os
@@ -18,20 +19,11 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from fibsem.applications.autolamella.proposals import (  # noqa: E402
-    POINT_OF_INTEREST,
-    Decision,
-    DecisionOutcome,
-    Proposal,
-)
+from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST  # noqa: E402
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
-from fibsem.applications.autolamella.server.events import EventBuffer  # noqa: E402
-from fibsem.applications.autolamella.structures import (  # noqa: E402
-    Attention,
+from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskState,
-    AutoLamellaTaskStatus,
     AutoLamellaWorkflowConfig,
     Experiment,
 )
@@ -49,6 +41,11 @@ from fibsem.structures import (  # noqa: E402
     MicroscopeState,
     Point,
 )
+from fibsem.workflows.attention import Attention
+from fibsem.workflows.events import EventBuffer  # noqa: E402
+from fibsem.workflows.proposals import Decision, DecisionOutcome, Proposal  # noqa: E402
+from fibsem.workflows.status import TaskStatus  # noqa: E402
+from tests.proposal_records import set_proposals  # noqa: E402
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -101,21 +98,22 @@ def ui(qapp, monkeypatch, tmp_path):
     lamella.path.mkdir(parents=True, exist_ok=True)
     ref = os.path.join(str(lamella.path), "ref_setup_ib")
     _fib_image().save(ref)
-    # A waiting proposal: its task ended waiting for the decision.
-    lamella.task_history.append(
-        AutoLamellaTaskState(name=SETUP, status=AutoLamellaTaskStatus.AwaitingDecision)
+    # A question Setup is stopped on: the task is running, asking for its
+    # point of interest.
+    lamella.task_state.name = SETUP
+    lamella.task_state.status = TaskStatus.InProgress
+    lamella.task_state.task_id = RUN
+    question = Proposal(
+        kind=POINT_OF_INTEREST,
+        values={"poi": Point(0.0, 0.0)},
+        provenance={
+            "proposer": "centre-of-image",
+            "reference_image": ref + ".tif",
+            "task_id": RUN,
+        },
     )
-    lamella.proposals[SETUP] = [
-        Proposal(
-            kind=POINT_OF_INTEREST,
-            values={"poi": Point(0.0, 0.0)},
-            provenance={
-                "proposer": "centre-of-image",
-                "reference_image": ref + ".tif",
-                "task_id": RUN,
-            },
-        )
-    ]
+    question.asking = True
+    set_proposals(lamella, SETUP, [question])
     widget.experiment = exp
     yield widget
     if widget.microscope is not None:
@@ -125,10 +123,17 @@ def ui(qapp, monkeypatch, tmp_path):
     qapp.processEvents()
 
 
+def _finished(lamella) -> None:
+    """Setup ended with its question unanswered: the value is open, used as
+    proposed, and nobody is stopped on it."""
+    lamella.task_state.status = TaskStatus.Completed
+    lamella.proposal(SETUP).asking = False
+
+
 def _client(ui, buffer=None):
     app = build_server(
         ui.microscope,
-        app_context=AutoLamellaAppContext(ui, event_buffer=buffer),
+        app_context=AutoLamellaAppContext(ui.session, window=ui, event_buffer=buffer),
         auth=AuthConfig.generate(level="drive", token=TOKEN),
     )
     return TestClient(app, raise_server_exceptions=False)
@@ -170,60 +175,10 @@ def test_reviews_lists_the_pending_proposal_with_its_image(ui):
     assert review["task_name"] == SETUP
     assert review["task_id"] == RUN
     assert review["kind"] == POINT_OF_INTEREST
-    assert review["values"] == {"poi": {"x": 0.0, "y": 0.0}}
-    assert review["gated"] is True
-    assert review["waiting_on"] == [ROUGH]
+    assert review["values"] == {"poi": {"name": None, "x": 0.0, "y": 0.0}}
+    assert review["holding_the_run"] is True
     assert review["reference_image"]["width"] > 0
     assert review["reference_image"]["image_b64_jpeg"]
-
-
-def test_to_check_is_listed_and_an_agent_look_does_not_clear_it(ui, qapp):
-    """An agent's acknowledgement is recorded, writes nothing, and leaves the
-    row to check: it is not automatic (a decider acted) and not a person
-    (someone may still want to look). A person's look clears it."""
-    lamella = ui.experiment.positions[0]
-    proposal = lamella.proposal(SETUP)
-    proposal.decisions.append(
-        Decision(
-            outcome=DecisionOutcome.Confirmed,
-            author="auto:centre-of-image",
-            values=dict(proposal.values),
-        )
-    )
-    with _client(ui) as client:
-        doc = client.get("/app/workflow/reviews", headers=AUTH).json()
-        assert doc["reviews"] == [], "nothing waits on it"
-        (check,) = doc["to_check"]
-        assert check["item_id"] == lamella.id and check["task_name"] == SETUP
-        assert check["decisions"][-1]["author"] == "auto:centre-of-image"
-
-        resp = _post_on_worker(
-            qapp,
-            client,
-            "/app/workflow/decide",
-            {
-                "item_id": lamella.id,
-                "task_name": SETUP,
-                "task_id": RUN,
-                "outcome": "Confirmed",
-                "author": "test-model",
-            },
-        )
-        assert resp.status_code == 200, resp.text
-        assert resp.json()["synced_tasks"] == [], "an acknowledgement writes nothing"
-        (check,) = client.get("/app/workflow/reviews", headers=AUTH).json()["to_check"]
-        assert check["decisions"][-1]["author"] == "agent:test-model"
-    assert proposal.to_check, "an agent looked; a person has not"
-    assert (
-        str(proposal.current.author) == "agent:test-model"
-        and proposal.current.values == {}
-    )
-    ui.experiment._decide(
-        lamella.id,
-        SETUP,
-        Decision(outcome=DecisionOutcome.Confirmed, author="human:op", task_id=RUN),
-    )
-    assert not proposal.to_check
 
 
 def test_confirm_from_a_worker_writes_through_as_the_agent(ui, qapp):
@@ -240,29 +195,28 @@ def test_confirm_from_a_worker_writes_through_as_the_agent(ui, qapp):
                 "task_id": RUN,
                 "outcome": "Confirmed",
                 "values": {"poi": {"x": 2e-6, "y": -1e-6}},
-                "author": "test-model",
+                "actor": "test-model",
             },
         )
         assert resp.status_code == 200, resp.text
         body = resp.json()
         assert body["applied"] is True
-        assert body["delta"]["poi"] == {"x": 2e-6, "y": -1e-6}
+        assert body["delta"]["poi"] == {"name": None, "x": 2e-6, "y": -1e-6}
         assert lamella.proposal(SETUP).current.via == "server"
         assert ROUGH in body["synced_tasks"]
         assert lamella.poi == Point(2e-6, -1e-6)
         proposal = lamella.proposal(SETUP)
         assert proposal.current.outcome is DecisionOutcome.Confirmed
-        assert str(proposal.current.author) == "agent:test-model"
+        assert str(proposal.current.actor) == "agent:test-model"
         assert client.get("/app/workflow/reviews", headers=AUTH).json()["reviews"] == []
     kinds = [e["kind"] for e in buffer.events_since(0)["events"]]
     assert "review_decided" in kinds
 
 
-def test_reject_needs_a_reason_and_fails_the_task(ui, qapp):
+def test_reject_needs_a_reason_and_is_handed_to_the_task(ui, qapp):
+    """A reject is the answer the stopped task reads; the task fails itself
+    on it, so the decision moves no status."""
     lamella = ui.experiment.positions[0]
-    lamella.task_history.append(
-        AutoLamellaTaskState(name=SETUP, status=AutoLamellaTaskStatus.AwaitingDecision)
-    )
     with _client(ui) as client:
         resp = _post_on_worker(
             qapp,
@@ -291,17 +245,16 @@ def test_reject_needs_a_reason_and_fails_the_task(ui, qapp):
             },
         )
         assert resp.status_code == 200, resp.text
-    assert lamella.task_history[-1].status is AutoLamellaTaskStatus.Failed
-    assert lamella.task_history[-1].status_message == (
-        "Rejected by agent · remote: no usable site"
-    )
+    decision = lamella.proposal(SETUP).current
+    assert decision.outcome is DecisionOutcome.Rejected
+    assert decision.reason == "no usable site"
+    assert lamella.task_state.status is TaskStatus.InProgress
     assert not lamella.is_failure
 
 
 def test_decide_refuses_what_is_not_pending_or_is_running(ui, qapp):
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
-
     lamella = ui.experiment.positions[0]
+    _finished(lamella)
     with _client(ui) as client:
         resp = _post_on_worker(
             qapp,
@@ -320,7 +273,7 @@ def test_decide_refuses_what_is_not_pending_or_is_running(ui, qapp):
         # a look at an earlier task's result, while a later one runs, lands:
         # only the task being decided, or a value, is refused under a run
         lamella.task_state.name = ROUGH
-        lamella.task_state.status = AutoLamellaTaskStatus.InProgress
+        lamella.task_state.status = TaskStatus.InProgress
         resp = _post_on_worker(
             qapp,
             client,
@@ -356,12 +309,12 @@ def test_decide_refuses_what_is_not_pending_or_is_running(ui, qapp):
     assert lamella.proposal(SETUP).pending
 
 
-def test_decide_refuses_a_missing_or_stale_run_and_an_edit_disguised_as_a_look(
-    ui, qapp
-):
-    """FIB-1003 through the route: a missing task_id and an acknowledgement
-    carrying values are 422; a run that has been replaced is 409. None writes."""
+def test_decide_refuses_a_missing_or_stale_run_and_a_second_decision(ui, qapp):
+    """FIB-1003 through the route: a missing task_id and a decision on a
+    proposal already decided are 422; a run that has been replaced is 409.
+    None writes."""
     lamella = ui.experiment.positions[0]
+    _finished(lamella)
     base = {"item_id": lamella.id, "task_name": SETUP, "outcome": "Confirmed"}
     poi = {"poi": {"x": 4e-6, "y": 0.0}}
     with _client(ui) as client:
@@ -420,7 +373,8 @@ def test_reviews_give_the_proposals_own_id_to_pass_back(ui):
 
     assert waiting[0]["proposal_id"] == lamella.proposal(SETUP).id
     assert waiting[0]["task_id"] == RUN, "the run is still there, as a fact about it"
-    assert waiting[0]["holding_the_run"] is False
+    assert waiting[0]["holding_the_run"] is True
+    assert waiting[0]["rejected_fails_task"] is True, "a point rejected fails Setup"
 
 
 def test_decide_by_the_proposals_id_needs_no_run(ui, qapp):
@@ -447,13 +401,14 @@ def test_decide_by_an_id_that_is_no_longer_on_the_record_is_stale(ui, qapp):
     run as well does not excuse it -- the id decides."""
     lamella = ui.experiment.positions[0]
     shown = lamella.proposal(SETUP).id
-    lamella.proposals[SETUP] = [
-        Proposal(
-            kind=POINT_OF_INTEREST,
-            values={"poi": Point(1e-6, 0.0)},
-            provenance=dict(lamella.proposal(SETUP).provenance),
-        )
-    ]
+    # the task asked again, in the same run
+    again = Proposal(
+        kind=POINT_OF_INTEREST,
+        values={"poi": Point(1e-6, 0.0)},
+        provenance=dict(lamella.proposal(SETUP).provenance),
+    )
+    again.asking = True
+    set_proposals(lamella, SETUP, [again])
     body = {
         "item_id": lamella.id,
         "task_name": SETUP,

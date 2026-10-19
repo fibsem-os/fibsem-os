@@ -6,9 +6,8 @@ withdrawing, while a run is unwinding from an abort the main thread may itself
 be waiting on. Marshalling either with ``await_return=True`` stalls the caller
 for superqt's one-second timeout and then raises ``TimeoutError`` -- out of an
 abort path -- while the queued call still lands later, on a run that has moved
-on. It is invisible without a ``QApplication``, where the marshal degrades to a
-plain call and everything passes. That is why this lives under ``tests/ui``:
-the application is the condition.
+on. It is invisible where the experiment is edited on the caller's thread, so
+here it is edited on the GUI thread, as a window's is.
 
 The main thread below deliberately does **not** spin the event loop while the
 worker runs, and gives it well under that second. A call that needs the main
@@ -23,16 +22,15 @@ from psygnal.containers import EventedDict
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.proposals import (  # noqa: E402
-    POINT_OF_INTEREST,
-    Proposal,
-)
+from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     Experiment,
 )
 from fibsem.structures import MicroscopeState, Point  # noqa: E402
+from fibsem.workflows.proposals import Proposal  # noqa: E402
+from fibsem.workflows.status import TaskStatus  # noqa: E402
+from tests.gui_thread import on_the_gui_thread  # noqa: E402
 
 TASK = "Mill Rough"
 
@@ -40,13 +38,14 @@ TASK = "Mill Rough"
 @pytest.fixture
 def experiment(qapp, tmp_path):
     exp = Experiment(path=tmp_path, name="no-wait-exp")
+    exp.edit_executor = on_the_gui_thread
     os.makedirs(exp.path, exist_ok=True)
     exp.task_protocol = AutoLamellaTaskProtocol()
     exp.add_new_lamella(MicroscopeState(), EventedDict())
     lamella = exp.positions[0]
     lamella.task_state.name = TASK
     lamella.task_state.task_id = "run-1"
-    lamella.task_state.status = AutoLamellaTaskStatus.InProgress
+    lamella.task_state.status = TaskStatus.InProgress
     return exp
 
 

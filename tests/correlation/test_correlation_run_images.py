@@ -19,6 +19,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
+from fibsem.correlation.history import image_stem, recorded_image_basename
 from fibsem.correlation.structures import (
     Coordinate,
     CorrelationInputData,
@@ -27,8 +28,6 @@ from fibsem.correlation.structures import (
     CorrelationState,
     PointType,
     PointXYZ,
-    image_stem,
-    recorded_image_basename,
 )
 from fibsem.structures import FibsemImage, Point
 
@@ -124,12 +123,10 @@ def test_a_result_at_another_fib_pixel_size_is_not_current():
 @pytest.fixture
 def widget(qapp, monkeypatch):
     pytest.importorskip("PyQt5")
-    import fibsem.ui.correlation.widgets.refractive_index_widget as riw
     from fibsem.ui.correlation.widgets.correlation_tab_widget import (
         CorrelationTabWidget,
     )
 
-    monkeypatch.setattr(riw, "_ensure_lut", lambda: None)
     w = CorrelationTabWidget()
     yield w
     w.close()
@@ -154,7 +151,9 @@ def _lamella(tmp_path):
 
 
 def _loaded_fib(w):
-    return os.path.basename(w._fib_image.filepath) if w._fib_image else None
+    return (
+        os.path.basename(w.session.fib_image.filepath) if w.session.fib_image else None
+    )
 
 
 def test_opening_a_run_loads_the_fib_image_it_records_not_the_spot_burn_guess(
@@ -186,7 +185,7 @@ def test_a_recorded_image_that_is_missing_is_not_replaced_by_a_guess(widget, tmp
 
     load_project(widget, str(run))
 
-    assert widget._fib_image is None
+    assert widget.session.fib_image is None
     assert len(widget.data.fib_coordinates) == 4  # the points still open
 
 

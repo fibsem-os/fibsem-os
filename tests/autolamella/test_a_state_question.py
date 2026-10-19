@@ -1,10 +1,9 @@
 """The ``state`` kind: a task's position, confirmed before it goes on.
 
-Acquire Reference Image is the first task to ask through ``ask``: with the
-review preference on it asks a ``state`` question in place of its "Press
-Continue when ready" prompt. Headless nobody is there, so the position goes
-on the record as proposed, ``Unreviewed``. With the preference off nothing
-changes: the old prompt, and no record.
+Acquire Reference Image was the first task to ask through ``ask``: it asks
+a ``state`` question in place of its "Press Continue when ready" prompt,
+whether the review preference is on or off. Headless nobody is there, so the
+position goes on the record as proposed, ``Unreviewed``.
 """
 
 import math
@@ -16,15 +15,7 @@ from psygnal.containers import EventedDict
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.applications.autolamella.proposals import (
-    STATE,
-    TASK_RESULT,
-    Decision,
-    DecisionOutcome,
-    compute_delta,
-)
 from fibsem.applications.autolamella.structures import (
-    Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
@@ -36,6 +27,14 @@ from fibsem.applications.autolamella.workflows.tasks.reference_image import (
     AcquireReferenceImageTask,
 )
 from fibsem.structures import FibsemStagePosition
+from fibsem.workflows.attention import Attention
+from fibsem.workflows.proposals import (
+    STATE,
+    TASK_RESULT,
+    Decision,
+    DecisionOutcome,
+    compute_delta,
+)
 
 REF = "Acquire Reference Image"
 CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
@@ -68,15 +67,13 @@ def _experiment(tmp_path: Path, microscope, attention=Attention.automated):
     return exp
 
 
-def _task(microscope, exp, review_enabled=True) -> AcquireReferenceImageTask:
-    manager = TaskManager(microscope=microscope, experiment=exp, parent_ui=None)
-    manager.review_enabled = review_enabled
+def _task(microscope, exp) -> AcquireReferenceImageTask:
+    manager = TaskManager(microscope=microscope, experiment=exp)
     lamella = exp.positions[0]
     return AcquireReferenceImageTask(
         microscope=microscope,
         config=lamella.task_config[REF],
         lamella=lamella,
-        parent_ui=None,
         task_manager=manager,
     )
 
@@ -91,7 +88,7 @@ def test_headless_the_position_goes_on_the_record_unreviewed(microscope, tmp_pat
 
     _task(microscope, exp).run()
 
-    question, result = lamella.proposals[REF]
+    question, result = lamella.proposals_from(REF)
     assert question.kind == STATE and result.kind == TASK_RESULT
     assert question.unreviewed
     pose = question.values["stage_position"]
@@ -99,12 +96,6 @@ def test_headless_the_position_goes_on_the_record_unreviewed(microscope, tmp_pat
     assert question.current.values["stage_position"] == pose, "used as proposed"
     assert "Press Continue" in question.provenance["message"]
     assert not question.provenance["reference_image"], "asked before an image"
-
-
-def test_with_the_preference_off_nothing_is_recorded(microscope, tmp_path):
-    exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
-    _task(microscope, exp, review_enabled=False).run()
-    assert [p.kind for p in exp.positions[0].proposals[REF]] == [TASK_RESULT]
 
 
 def test_the_position_survives_the_file(microscope, tmp_path):
@@ -122,12 +113,9 @@ def test_the_position_survives_the_file(microscope, tmp_path):
 
 def test_a_confirmed_position_is_checked_and_written_nowhere(microscope, tmp_path):
     """The task uses the position; the writer checks it and touches nothing,
-    like a detection's features. A later look at an unreviewed one is
-    accepted and carries no values."""
-    from fibsem.applications.autolamella.proposals import (
-        ValueRefused,
-        prepare_values,
-    )
+    like a detection's features. Unasked, it is recorded unreviewed, and a
+    later decision on it is refused as already decided."""
+    from fibsem.workflows.proposals import ValueRefused, prepare_values
 
     exp = _experiment(tmp_path, microscope)
     lamella = exp.positions[0]
@@ -148,12 +136,12 @@ def test_a_confirmed_position_is_checked_and_written_nowhere(microscope, tmp_pat
         REF,
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             proposal_id=question.id,
         ),
     )
-    assert looked.applied, looked.reason
-    assert not question.unreviewed and not question.to_check
+    assert not looked.applied and looked.error_type == "invalid_value", looked
+    assert question.unreviewed
 
 
 def test_the_delta_between_positions_is_a_position():

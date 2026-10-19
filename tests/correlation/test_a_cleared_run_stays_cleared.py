@@ -31,18 +31,12 @@ from fibsem.correlation.structures import (
     PointXYZ,
 )
 from fibsem.fm.structures import (
+    EmissionFilter,
     FluorescenceChannelMetadata,
     FluorescenceImage,
     FluorescenceImageMetadata,
 )
 from fibsem.structures import FibsemImage
-
-
-@pytest.fixture(autouse=True)
-def _no_lut_download(monkeypatch):
-    import fibsem.ui.correlation.widgets.refractive_index_widget as riw
-
-    monkeypatch.setattr(riw, "_ensure_lut", lambda *a, **k: None, raising=False)
 
 
 def _fm_image():
@@ -56,7 +50,7 @@ def _fm_image():
             FluorescenceChannelMetadata(
                 name="GFP",
                 excitation_wavelength=488.0,
-                emission_wavelength=520.0,
+                emission_filter=EmissionFilter("520 nm", low=520.0),
                 power=0.3,
                 exposure_time=0.05,
                 gain=1.5,
@@ -101,7 +95,7 @@ def widget(qapp, tmp_path):
             poi_coordinates=[Coordinate(PointXYZ(90, 90, 8), PointType.POI)],
         )
     )
-    assert w._can_run()
+    assert w.session.can_run()
     yield w
     if w._worker is not None:
         w._worker.wait()
@@ -128,10 +122,10 @@ def test_a_run_finishing_after_the_points_are_cleared_is_dropped(
 
     widget._run()
     widget._images_tab._load_fib(str(other))  # another image; clear the points
-    assert widget._current_positions() == []
+    assert widget.session.positions() == []
     _deliver(widget, qapp)
 
-    assert widget._result is None
+    assert widget.session.result is None
     assert not widget._btn_continue.isEnabled()
     assert widget._results_tab._lbl_agree.text() == "—"
     assert _overlay_groups(widget) == []
@@ -143,7 +137,7 @@ def test_an_undisturbed_run_still_lands(widget, qapp, tmp_path):
     widget._run()
     _deliver(widget, qapp)
 
-    assert widget._result is not None, widget._lbl_status.text()
+    assert widget.session.result is not None, widget._lbl_status.text()
     assert widget._btn_continue.isEnabled()
     assert _overlay_groups(widget) != []
     saved = CorrelationState.load(str(tmp_path / "run" / "correlation.json"))
@@ -156,13 +150,15 @@ def test_a_run_finishing_after_a_file_is_loaded_keeps_the_loaded_result(
     widget._run()
     _deliver(widget, qapp)
     saved = tmp_path / "saved.json"
-    CorrelationState(input_data=widget.data, result=widget._result).save(str(saved))
-    loaded_rms = widget._result.rms_error
+    CorrelationState(input_data=widget.data, result=widget.session.result).save(
+        str(saved)
+    )
+    loaded_rms = widget.session.result.rms_error
 
     widget.data.fm_coordinates[0].point.x += 5.0  # a different answer
     widget._run()
     widget.load_correlation(str(saved))  # the user opens the saved run
     _deliver(widget, qapp)
 
-    assert widget._result.rms_error == pytest.approx(loaded_rms)
+    assert widget.session.result.rms_error == pytest.approx(loaded_rms)
     assert widget._btn_continue.isEnabled()

@@ -6,6 +6,9 @@ give. The host converts and applies.
 """
 
 import os
+import subprocess
+import sys
+from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -16,8 +19,8 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QApplication
 
-from fibsem.correlation.similarity import SimilarityFit
 from fibsem.correlation.structures import PointType
+from fibsem.geometry.similarity import SimilarityFit
 from fibsem.ui.widgets.image_fit_dialog import MIN_PAIRS, ImageFitDialog
 
 
@@ -30,6 +33,17 @@ def qapp():
 @pytest.fixture(autouse=True)
 def _destroy_widgets(destroy_widgets_after_test):
     """The correlation canvases leave top-levels behind."""
+
+
+def test_the_dialog_imports_nothing_from_the_correlation_tab():
+    # the picking canvas and the point store are shared UI, not correlation's
+    code = (
+        "import sys, fibsem.ui.widgets.image_fit_dialog; "
+        "assert not [m for m in sys.modules if m.startswith('fibsem.ui.correlation')]"
+    )
+    root = str(Path(__file__).resolve().parents[2])  # this checkout's fibsem
+    env = {**os.environ, "PYTHONPATH": root}
+    subprocess.run([sys.executable, "-c", code], check=True, env=env)
 
 
 def _dialog(preview=None):

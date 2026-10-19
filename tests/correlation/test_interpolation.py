@@ -8,7 +8,7 @@ METEOR case (500 nm z step, 130 nm XY -> isotropic).
 import numpy as np
 import pytest
 
-from fibsem.correlation.util import (
+from fibsem.fm.interpolation import (
     interpolate_fm_volume,
     interpolate_z_stack,
     multi_channel_interpolation,
@@ -294,6 +294,8 @@ def test_returns_a_fluorescence_image():
 
 import os  # noqa: E402
 
+from fibsem.fm.structures import EmissionFilter
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 pytest.importorskip("PyQt5")
@@ -348,7 +350,7 @@ def test_dialog_opens_with_fm_points_placed(qapp):
                     name="GFP",
                     color="#00FF00",
                     excitation_wavelength=488,
-                    emission_wavelength=509,
+                    emission_filter=EmissionFilter("509 nm", low=509),
                     power=1.0,
                     exposure_time=0.1,
                     gain=1.0,
@@ -402,9 +404,6 @@ def test_enter_does_not_run_the_interpolation(qapp):
 
 
 def _widget(qapp):
-    import fibsem.ui.correlation.widgets.refractive_index_widget as riw
-
-    riw._ensure_lut = lambda: None  # never hit the network for the LUT
     from fibsem.ui.correlation.widgets.correlation_tab_widget import (
         CorrelationTabWidget,
     )
@@ -445,7 +444,7 @@ def test_adopt_interpolated_volume_only_resamples_the_view(qapp):
     """The resampled volume is shown on the canvas; the points, the stack the
     fits and the file use, and its z step are untouched (FIB-1248)."""
     from fibsem.correlation.structures import PointType
-    from fibsem.correlation.util import interpolate_fm_volume
+    from fibsem.fm.interpolation import interpolate_fm_volume
 
     w = _widget(qapp)
     fm = _meteor_like_fm()
@@ -464,8 +463,8 @@ def test_adopt_interpolated_volume_only_resamples_the_view(qapp):
 
     assert w._coords_tab.fm_list.coordinates[0].point.z == 15.0
     assert w._coords_tab.poi_list.coordinates[0].point.z == 11.0
-    assert w._fm_image is fm  # the stack the fits and the file use
-    assert w._fm_pixel_size_z() == pytest.approx(old_z_step)
+    assert w.session.fm_image is fm  # the stack the fits and the file use
+    assert w.session.fm_pixel_size_z == pytest.approx(old_z_step)
     # only the canvas changed: it scrubs the resampled planes
     assert w._fm_display._z_max == new_image.data.shape[1] - 1
 
@@ -520,7 +519,7 @@ def _aniso_fm(nz=8, xy=1e-7, z=5e-7, shape=(8, 8)):
                     name="GFP",
                     color="#00FF00",
                     excitation_wavelength=488,
-                    emission_wavelength=509,
+                    emission_filter=EmissionFilter("509 nm", low=509),
                     power=1.0,
                     exposure_time=0.1,
                     gain=1.0,

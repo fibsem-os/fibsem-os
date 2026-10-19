@@ -9,7 +9,7 @@ the duration of one manual run in the coincidence viewer.
 This task puts the microscope where that mill will happen, hands the operator the
 viewer to place the boxes (FIB-911), and records what they leave behind on the
 lamella. ``MillCoincidentTask`` reads that record back by task name. Headless --
-no ``parent_ui`` -- it records the defaults and the objective position it used,
+no window -- it records the defaults and the objective position it used,
 without waiting.
 
 Always supervised: like Select Milling Position, the point of the task is the
@@ -30,10 +30,7 @@ from dataclasses import dataclass
 from typing import ClassVar, Optional, Type
 
 from fibsem import timing
-from fibsem.applications.autolamella.structures import (
-    Attention,
-    AutoLamellaTaskConfig,
-)
+from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.structures import (
     Display,
@@ -43,6 +40,7 @@ from fibsem.structures import (
     RangeLimit,
     param,
 )
+from fibsem.workflows.attention import Attention
 
 SETUP_COINCIDENCE_MILLING_KEY = "SETUP_COINCIDENCE_MILLING"
 
@@ -218,7 +216,7 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
 
             # 4. hand-off. Without a UI there is nobody to hand to: record what we
             # used and move on. The viewer's setup mode (FIB-911) plugs in here.
-            if self.parent_ui is not None:
+            if self.responder is not None:
                 self._hand_off()
 
             # 5. the record. Whatever the operator left is now this site's setup.
@@ -346,17 +344,13 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
 
         Only a listed task: the protocol reads an unlisted task as automated,
         and running Setup on its own is not asking for that. Read through the
-        task manager, which a headless run and a GUI run share, and through
-        the window only when there is no manager."""
-        for holder in (self.task_manager, self.parent_ui):
-            experiment = getattr(holder, "experiment", None)
-            protocol = getattr(experiment, "task_protocol", None)
-            if protocol is None:
-                continue
+        task manager, which a headless run and a GUI run share."""
+        experiment = getattr(self.task_manager, "experiment", None)
+        protocol = getattr(experiment, "task_protocol", None)
+        if protocol is not None:
             for task in protocol.workflow_config.tasks:
                 if task.name == self.task_name:
                     return task.attention
-            return None
         return None
 
     def _hand_off(self) -> None:

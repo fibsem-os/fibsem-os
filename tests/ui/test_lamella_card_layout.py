@@ -36,12 +36,13 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus, Lamella
+from fibsem.applications.autolamella.structures import Lamella
 from fibsem.applications.autolamella.ui.lamella_card_widget import (
     LamellaCardContainer,
     LamellaCardWidget,
 )
 from fibsem.config import MODE_COMPACT, MODE_COZY, MODE_STANDARD
+from fibsem.workflows.status import TaskStatus
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -54,7 +55,7 @@ def _lamella(petname="test", task=None):
     lamella = Lamella(path="/tmp", number=0, petname=petname)
     if task:
         lamella.task_state.name = task
-        lamella.task_state.status = AutoLamellaTaskStatus.InProgress
+        lamella.task_state.status = TaskStatus.InProgress
     return lamella
 
 
@@ -201,7 +202,7 @@ def test_a_task_state_write_no_longer_refreshes_the_card():
     before = card._status_label.text()
 
     lamella.task_state.name = "Mill Undercut"
-    lamella.task_state.status = AutoLamellaTaskStatus.InProgress
+    lamella.task_state.status = TaskStatus.InProgress
 
     assert card._status_label.text() == before, (
         "a task_state write reached the card -- the cross-thread subscription is back"
@@ -323,3 +324,23 @@ def test_a_mode_this_build_does_not_know_falls_back_the_same_way_everywhere():
         assert dialog.get_preferences().display.lamella_card_mode == fallback
     finally:
         dialog.deleteLater()
+
+
+def test_remove_asks_with_yes_and_no_and_no_is_the_default(monkeypatch):
+    """`QMessageBox.question(parent, title, text, buttons, default)`: the
+    buttons argument once carried only Yes, so the dialog had no No button."""
+    from PyQt5.QtWidgets import QMessageBox
+
+    asked = []
+
+    def question(parent, title, text, buttons, default):
+        asked.append((buttons, default))
+        return QMessageBox.No
+
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(question))
+    card = LamellaCardWidget(_lamella("short"), mode=MODE_STANDARD)
+    removed = []
+    card.remove_requested.connect(removed.append)
+    card._on_remove_clicked()
+    assert asked == [(QMessageBox.Yes | QMessageBox.No, QMessageBox.No)]
+    assert removed == []

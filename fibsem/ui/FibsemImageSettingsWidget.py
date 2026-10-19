@@ -6,6 +6,7 @@ from PyQt5.QtCore import QEvent, pyqtSignal
 from superqt import ensure_main_thread
 
 from fibsem import acquire, utils
+from fibsem.imaging.latest import LatestImages
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamSettings,
@@ -34,8 +35,12 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         microscope: FibsemMicroscope,
         image_settings: ImageSettings,
         parent: QtWidgets.QWidget,
+        images: Optional[LatestImages] = None,
     ):
+        """``images``: where the latest image of each beam is kept, the app
+        session's when there is one, so readers need no widget."""
         super().__init__(parent=parent)
+        self.images = images if images is not None else LatestImages()
 
         self.parent = parent
         self.microscope = microscope
@@ -43,14 +48,12 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         # generate_blank_image defaults both to ELECTRON, and _on_acquire routes
         # by metadata — acquisition_finished replaying a mislabelled ION blank
         # would clobber eb_image with it.
-        self.eb_image = FibsemImage.generate_blank_image(
-            resolution=image_settings.resolution, hfw=image_settings.hfw
-        )
-        self.eb_image.metadata.image_settings.beam_type = BeamType.ELECTRON
-        self.ib_image = FibsemImage.generate_blank_image(
-            resolution=image_settings.resolution, hfw=image_settings.hfw
-        )
-        self.ib_image.metadata.image_settings.beam_type = BeamType.ION
+        for beam_type in (BeamType.ELECTRON, BeamType.ION):
+            blank = FibsemImage.generate_blank_image(
+                resolution=image_settings.resolution, hfw=image_settings.hfw
+            )
+            blank.metadata.image_settings.beam_type = beam_type
+            self.images.set(blank)
 
         self.is_acquiring: bool = False
         self._live_beam: Optional[BeamType] = (
@@ -68,8 +71,26 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
         # NOTE: the canvases are intentionally left empty ("No image") on connect — no
         # blank placeholder is seeded. eb_image / ib_image remain as internal fallbacks
-        # and appear once a real acquisition arrives (sem/fib_acquisition_signal, or a
-        # beam's live_frame).
+        # and appear once an image is shown (``imaging.show``) or a beam's live_frame
+        # arrives.
+
+    @property
+    def eb_image(self) -> Optional[FibsemImage]:
+        """The latest electron image (`images`)."""
+        return self.images.get(BeamType.ELECTRON)
+
+    @eb_image.setter
+    def eb_image(self, image: FibsemImage) -> None:
+        self.images.set(image, BeamType.ELECTRON)
+
+    @property
+    def ib_image(self) -> Optional[FibsemImage]:
+        """The latest ion image (`images`)."""
+        return self.images.get(BeamType.ION)
+
+    @ib_image.setter
+    def ib_image(self, image: FibsemImage) -> None:
+        self.images.set(image, BeamType.ION)
 
     # ------------------------------------------------------------------
     # Display backend
@@ -285,8 +306,10 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         self.pushButton_start_acquisition.setStyleSheet(
             stylesheets.SECONDARY_BUTTON_STYLESHEET
         )
-        self.microscope.sem_acquisition_signal.connect(self._on_acquire)
-        self.microscope.fib_acquisition_signal.connect(self._on_acquire)
+        # Only images someone asked to show, never every acquisition: see
+        # `Imaging.image_shown`.
+        if self.microscope.imaging is not None:
+            self.microscope.imaging.image_shown.connect(self._on_acquire)
         for beam in getattr(self.microscope, "beams", {}).values():
             beam.live_frame.connect(self._on_acquire)
         self.pushButton_start_acquisition.clicked.connect(self.toggle_live_acquisition)
@@ -796,9 +819,9 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
     def clear_alignment_area(self):
         """Hide the alignment area, keeping its value.
 
-        The workflow reads ``get_alignment_area()`` straight after sending its "clear"
-        (``update_alignment_area_ui``), so the rect has to survive being hidden — the
-        model keeps its value while the overlay comes off.
+        The responder reads ``get_alignment_area()`` as it hides the overlay
+        (``QtResponder``, answering ``EditAlignmentArea``), so the rect has to
+        survive being hidden — the model keeps its value while the overlay comes off.
         """
         controller = self._view_controller()
         if controller is not None:

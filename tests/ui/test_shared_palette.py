@@ -58,8 +58,8 @@ def _modules():
     ``stylesheets``. Not the whole package, and the boundary is not arbitrary:
     ``fibsem/ui/__init__`` imports the widget layer, so ``import
     fibsem.ui.stylesheets`` from outside costs 133 fibsem modules instead of the
-    one it looks like. Applying this rule to ``correlation/fit_diagnostics.py``
-    tripled that module's import weight, and ``correlation.util`` imports it at
+    one it looks like. Applying this rule to the fit-diagnostic plot (then ``correlation/fit_diagnostics.py``)
+    tripled that module's import weight, and the point fitters (then ``correlation.util``) imported it at
     module level -- so every correlation user would have paid for the entire UI.
 
     Scoped to ``fibsem/ui/widgets/*.py`` alone at first, which is how a sixth

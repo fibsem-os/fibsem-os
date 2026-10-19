@@ -25,7 +25,8 @@ from fibsem.devices.runs import Runs, current_run_id
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.base import FibsemMillingStage, MillingStrategyResult
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
-from fibsem.services.milling import report_progress
+from fibsem.milling.steps import MillingStageRun
+from fibsem.services.milling import report_progress, stage_running
 from fibsem.services.milling import task_running as _task_running
 from fibsem.structures import (
     BeamType,
@@ -140,6 +141,73 @@ def task_overridden_path(path: str) -> Optional[str]:
     return None
 
 
+class InvalidMillingEdit(ValueError):
+    """An edit to a milling config that cannot be made: the message says why."""
+
+
+def resolve_stage_names(
+    config: "FibsemMillingTaskConfig", patch: Dict[str, Any]
+) -> Dict[str, Any]:
+    """``patch`` with each ``stages.<name>.`` segment as the stage's index, which
+    is what :func:`fibsem.server.config_patch.apply_patch` resolves.
+
+    A stage is named by its name or its index. A name no stage has, or more
+    than one has, is refused with the names there are."""
+    names = [stage.name for stage in config.stages]
+    resolved: Dict[str, Any] = {}
+    for path, value in patch.items():
+        head, sep, rest = str(path).partition(".")
+        if head != "stages" or not sep:
+            resolved[path] = value
+            continue
+        segment, sep, tail = rest.partition(".")
+        if segment.isdigit():
+            resolved[path] = value
+            continue
+        # A stage name may hold dots: match the longest name the path starts with.
+        matches = [
+            name for name in names if rest == name or rest.startswith(name + ".")
+        ]
+        if not matches:
+            raise InvalidMillingEdit(
+                f"{path!r}: no stage named {segment!r}; the stages are {names}."
+            )
+        name = max(matches, key=len)
+        if names.count(name) > 1:
+            raise InvalidMillingEdit(
+                f"{path!r}: more than one stage is named {name!r}; name it by "
+                "its index instead."
+            )
+        tail = rest[len(name) :]
+        resolved[f"stages.{names.index(name)}{tail}"] = value
+    return resolved
+
+
+def patch_milling_config(
+    config: "FibsemMillingTaskConfig", fields: Dict[str, Any]
+) -> "FibsemMillingTaskConfig":
+    """``config`` with ``fields`` set by dotted path, as
+    ``item_update_task_config``'s patch sets them, a stage named by its name or
+    its index (``stages.Polish 1.pattern.depth``). A new config; ``config``
+    itself is not touched. Raises :class:`InvalidMillingEdit` naming what is
+    wrong, with nothing changed."""
+    from copy import deepcopy
+
+    from fibsem.server.config_patch import PatchError, apply_patch
+
+    edited = deepcopy(config)
+    patch = resolve_stage_names(edited, fields)
+    for path in patch:
+        note = task_overridden_path(path)
+        if note is not None:
+            raise InvalidMillingEdit(f"{path!r}: {note}")
+    try:
+        apply_patch(edited, patch)
+    except PatchError as exc:
+        raise InvalidMillingEdit(f"{exc.path!r}: {exc}") from None
+    return edited
+
+
 def describe_config_fields(config: "FibsemMillingTaskConfig") -> Dict[str, Any]:
     """What each field of ``config`` means, for an agent editing it: the task's
     fields and the stage's by dotted path, and each pattern's and strategy's
@@ -188,11 +256,16 @@ def describe_config_fields(config: "FibsemMillingTaskConfig") -> Dict[str, Any]:
     patterns: Dict[str, Any] = {}
     strategies: Dict[str, Any] = {}
     for each in config.stages:
-        pattern, strategy = each.pattern, getattr(each.strategy, "config", None)
+        pattern, strategy = each.pattern, each.strategy
         if pattern.name not in patterns:
             walk(type(pattern), "", patterns.setdefault(pattern.name, {}), ())
-        if strategy is not None and each.strategy.name not in strategies:
-            walk(type(strategy), "", strategies.setdefault(each.strategy.name, {}), ())
+        if strategy.strategy_name not in strategies:
+            walk(
+                type(strategy),
+                "",
+                strategies.setdefault(strategy.strategy_name, {}),
+                (),
+            )
     return {
         "task": task,
         "stage": stage,
@@ -518,7 +591,8 @@ class FibsemMillingTask:
                 fib_image = acquire.acquire_current_image(
                     self.microscope, self.config.channel
                 )
-                self.microscope.fib_acquisition_signal.emit(fib_image)
+                if self.microscope.imaging is not None:
+                    self.microscope.imaging.show(fib_image)
         except Exception as e:
             logging.error(f"Error acquiring image after milling task: {e}")
 
@@ -545,16 +619,26 @@ class FibsemMillingTask:
             "milling_current": stage.milling.milling_current,
             "started_at": now_iso(),
             # which strategy milled it, and what it said about the run
-            "strategy": {"name": stage.strategy.name},
+            "strategy": {"name": stage.strategy.strategy_name},
         }
         self._stage_records.append(record)
-        try:
-            result = self._run_stage(stage, idx, start_time)
-        except BaseException as e:
-            record.update(ended_by(e), ended_at=now_iso())
-            raise
+        with stage_running(self.microscope, stage.name) as stage_run:
+            error: Optional[BaseException] = None
+            try:
+                result = self._run_stage(stage, idx, start_time)
+                # Before the cancel check: a stopped stage keeps what its
+                # strategy said.
+                record["strategy"].update(_strategy_result(stage, result))
+                # A stop of the service while the stage milled: the run answered
+                # cancelled, which a strategy need not pass on.
+                raise_if_cancelled(self._stopped, "Milling stopped.")
+            except BaseException as e:
+                error = e
+                record.update(ended_by(e), ended_at=now_iso())
+                raise
+            finally:
+                record.update(_stage_run_ended(stage_run, error))
         record.update(status=COMPLETED, ended_at=now_iso())
-        record["strategy"].update(_strategy_result(stage, result))
 
         # optionally acquire images after milling
         if self.config.acquisition.enabled:
@@ -592,14 +676,11 @@ class FibsemMillingTask:
         for stage_path, task_path in TASK_SETS_ON_STAGE.items():
             _set_path(stage, stage_path, _get_path(self.config, task_path))
         self._record_stage_started(stage, idx)
-        result = stage.strategy.run(
+        result = stage.get_strategy().run(
             microscope=self.microscope,
             stage=stage,
             stop_event=self._stop_token,
         )
-        # A stop of the service while the stage milled: the run answered
-        # cancelled, which a strategy need not pass on, so the stage was cut short.
-        raise_if_cancelled(self._stopped, "Milling stopped.")
         # TODO: pass task as parent into strategy.run()?, allow logging from strategy?
         # performance logging
         msgd = {
@@ -788,12 +869,12 @@ class FibsemMillingTask:
         )
 
         try:
-            if sem_image is not None:
-                self.microscope.sem_acquisition_signal.emit(sem_image)  # sem image
-            if fib_image is not None:
-                self.microscope.fib_acquisition_signal.emit(fib_image)  # ion image
+            imaging = self.microscope.imaging
+            for image in (sem_image, fib_image):
+                if image is not None and imaging is not None:
+                    imaging.show(image)
         except Exception as e:
-            logging.error(f"Error emitting acquisition signals: {e}")
+            logging.error(f"Error showing the images after milling: {e}")
 
 
 def _strategy_result(stage: FibsemMillingStage, result: Any) -> Dict[str, Any]:
@@ -804,7 +885,7 @@ def _strategy_result(stage: FibsemMillingStage, result: Any) -> Dict[str, Any]:
         return {}
     if not isinstance(result, MillingStrategyResult):
         logging.warning(
-            f"{stage.strategy.name} returned {type(result).__name__} for "
+            f"{stage.strategy.strategy_name} returned {type(result).__name__} for "
             f"{stage.name}, not a MillingStrategyResult; it is not recorded"
         )
         return {}
@@ -812,6 +893,23 @@ def _strategy_result(stage: FibsemMillingStage, result: Any) -> Dict[str, Any]:
         return result.to_dict()
     except Exception:  # noqa: BLE001 - recording must not matter
         logging.debug(f"could not record {stage.name}'s strategy result", exc_info=True)
+        return {}
+
+
+def _stage_run_ended(
+    stage_run: Optional[MillingStageRun], error: Optional[BaseException]
+) -> Dict[str, Any]:
+    """How a stage run ended and its mill steps, as its record holds them:
+    ``end`` beside its status, and ``steps``. Never raises."""
+    if not isinstance(stage_run, MillingStageRun):
+        stage_run = MillingStageRun()
+    try:
+        return {
+            "end": stage_run.ended(error),
+            "steps": [step.to_dict() for step in stage_run.steps],
+        }
+    except Exception:  # noqa: BLE001 - recording must not matter
+        logging.debug("could not record how a stage run ended", exc_info=True)
         return {}
 
 

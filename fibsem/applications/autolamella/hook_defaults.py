@@ -6,7 +6,7 @@ user's saved configuration without a QApplication.
 
 First step of FIB-497: before a user can override the defaults, the defaults have to
 be something you can round-trip through YAML and diff. They were previously four
-`manager.register(...)` calls inlined in `AutoLamellaUI.setup_hooks()`, reachable only
+`manager.register(...)` calls inlined in the window's run set-up, reachable only
 by reading the source.
 """
 
@@ -20,9 +20,8 @@ def default_hooks() -> List[Hook]:
     """The hooks AutoLamella registers when the user has not configured any.
 
     Returns **fresh instances on every call**, deliberately. `HookManager.set_notifier`
-    injects a callable into each `NotificationHook` and `HookConfigWidget` edits hooks
-    in place, so a shared module-level list would leak one run's notifier -- and one
-    session's edits -- into the next. `setup_hooks()` runs once per workflow run.
+    injects a callable into each `NotificationHook`, so a shared module-level list
+    would leak one run's notifier into the next. `lamella_run_hooks()` runs once per workflow run.
 
     Every hook here must be a type in `HOOK_TYPES`. `HookManager.to_dict` silently
     drops anything that is not, so a `FunctionHook` default would vanish the first time

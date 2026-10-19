@@ -27,10 +27,6 @@ from PyQt5.QtWidgets import (
 )
 from skimage.transform import resize
 
-from fibsem.applications.autolamella.event_recording import (
-    EVENTS_FILENAME,
-    read_new_events,
-)
 from fibsem.applications.autolamella.history_rows import (
     OPERATION_KINDS,
     HistoryFilter,
@@ -43,7 +39,7 @@ from fibsem.applications.autolamella.history_rows import (
     operations_need_a_look,
     operations_summary,
 )
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus, Lamella
+from fibsem.applications.autolamella.structures import Lamella
 from fibsem.cancellation import CANCELLED, COMPLETED, FAILED, SKIPPED
 from fibsem.config import load_user_preferences, update_user_preferences
 from fibsem.fm.preview import composite_projection, is_fluorescence_image
@@ -73,6 +69,11 @@ from fibsem.ui.widgets.custom_widgets import ElidedLabel
 from fibsem.ui.widgets.image_viewer_dialog import ViewerItem, open_image_viewer
 from fibsem.ui.widgets.task_summary_formatting import STATUS_BADGE_COLORS
 from fibsem.util.timestamps import format_time
+from fibsem.workflows.event_recording import (
+    EVENTS_FILENAME,
+    read_new_events,
+)
+from fibsem.workflows.status import TaskStatus
 
 # Thumbnails, two to a line in the panel's width, up to the size the tab has
 # always shown them at: big enough to judge a lamella from without opening it.
@@ -286,20 +287,15 @@ _WORKERS: Set[_ImageLoaderWorker] = set()
 # Status words and colours, as the run's header shows them. The colours are the
 # task-summary badges, so a run reads the same here as in the workflow summary.
 _RUN_STATUS = {
-    AutoLamellaTaskStatus.Completed: ("Completed", "mdi:check", "Completed"),
-    AutoLamellaTaskStatus.Failed: ("Failed", "mdi:close", "Failed"),
-    AutoLamellaTaskStatus.Cancelled: ("Cancelled", "mdi:stop", "Cancelled"),
-    AutoLamellaTaskStatus.InProgress: (
+    TaskStatus.Completed: ("Completed", "mdi:check", "Completed"),
+    TaskStatus.Failed: ("Failed", "mdi:close", "Failed"),
+    TaskStatus.Cancelled: ("Cancelled", "mdi:stop", "Cancelled"),
+    TaskStatus.InProgress: (
         "In progress",
         "mdi:progress-clock",
         "InProgress",
     ),
-    AutoLamellaTaskStatus.AwaitingDecision: (
-        "Awaiting decision",
-        "mdi:progress-clock",
-        "AwaitingDecision",
-    ),
-    AutoLamellaTaskStatus.Skipped: ("Skipped", "mdi:skip-next", "Skipped"),
+    TaskStatus.Skipped: ("Skipped", "mdi:skip-next", "Skipped"),
 }
 # Which of a run's operation endings its folded line shows: the worst.
 _SEVERITY = {FAILED: 0, CANCELLED: 1, SKIPPED: 2}
@@ -352,7 +348,7 @@ def _text(text: str, style: str) -> QLabel:
 class _HistoryFilterButton(QToolButton):
     """The filter menu: what each run shows, which runs, which task.
 
-    Behind an icon, as in the Review tab: set once and left, so not worth a row
+    Behind an icon: set once and left, so not worth a row
     of controls. The icon takes the accent while anything is narrowed, so a
     filtered history is never mistaken for the whole one. Each section is one of
     several, so its items read as radio buttons -- the mark is the action's icon.
@@ -925,8 +921,8 @@ class LamellaTaskImageWidget(QWidget):
             top.addWidget(_text(word, f"font-size: 11px; color: {colour};"))
         layout.addLayout(top)
         if run.status_message and run.status in (
-            AutoLamellaTaskStatus.Failed,
-            AutoLamellaTaskStatus.Cancelled,
+            TaskStatus.Failed,
+            TaskStatus.Cancelled,
         ):
             message = _text(run.status_message, f"font-size: 11px; color: {colour};")
             message.setWordWrap(True)

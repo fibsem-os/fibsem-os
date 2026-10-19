@@ -34,17 +34,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.structures import Experiment, GridTaskProtocol
-from fibsem.applications.autolamella.workflows.tasks.grid import (
-    GRID_TASK_REGISTRY,
-    BeamOverviewGridTaskConfig,
-    FluorescenceOverviewGridTaskConfig,
-    GridTaskConfig,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid.reach import (
-    describe_reach,
-    overview_reach,
-)
+from fibsem.applications.autolamella.structures import Experiment
 from fibsem.ui.tokens import NEUTRAL_200, TEXT_MUTED_COLOR, WARN_COLOR
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
@@ -54,11 +44,17 @@ from fibsem.ui.widgets.custom_widgets import (
 from fibsem.ui.widgets.fibsem_overview_settings_widget import (
     FibsemOverviewSettingsWidget,
 )
-
-# The poses a beam overview can be taken at: flat to either beam, or the milling
-# pose, so a FIB overview can show the grid as the lamellae will be milled. The
-# stage knows FM too, which is the fluorescence task's business.
-_ORIENTATIONS = ["SEM", "FIB", "MILLING"]
+from fibsem.workflows.grid import (
+    BeamOverviewGridTaskConfig,
+    FluorescenceOverviewGridTaskConfig,
+    GridTaskConfig,
+    get_grid_tasks,
+)
+from fibsem.workflows.grid.protocol import GridTaskProtocol
+from fibsem.workflows.grid.reach import (
+    describe_reach,
+    overview_reach,
+)
 
 # The name a new task gets, by type, before the person renames it. The role the
 # task records under follows the beam, so the default name says which.
@@ -74,7 +70,7 @@ def _config_classes() -> Dict[str, Type[GridTaskConfig]]:
     here without a change."""
     return {
         task_type: task_cls.config_cls
-        for task_type, task_cls in GRID_TASK_REGISTRY.items()
+        for task_type, task_cls in get_grid_tasks().items()
     }
 
 
@@ -142,18 +138,14 @@ class _BeamOverviewEditor(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         form = QFormLayout()
+        params = BeamOverviewGridTaskConfig.params
         self.orientation = QComboBox()
-        self.orientation.setEditable(True)
-        self.orientation.addItems(_ORIENTATIONS)
-        self.orientation.setToolTip(
-            "The pose to acquire at; the grid's slot position is re-expressed for it"
-        )
-        form.addRow("Orientation", self.orientation)
+        self.orientation.addItems(params.orientation.choices)
+        self.orientation.setToolTip(params.orientation.doc)
+        form.addRow(params.orientation.label, self.orientation)
         self.filename = QLineEdit()
-        self.filename.setToolTip(
-            "The stem of the stitched image's name; a time stamp is added per run"
-        )
-        form.addRow("Filename", self.filename)
+        self.filename.setToolTip(params.filename.doc)
+        form.addRow(params.filename.label, self.filename)
         layout.addLayout(form)
         # The canvas Overview tab's own column (Imaging, Focus, Stack, Grid), so a
         # setting here is the setting there. Its Output panel is hidden: the task
@@ -198,9 +190,10 @@ class _FluorescenceOverviewEditor(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         form = QFormLayout()
+        filename = FluorescenceOverviewGridTaskConfig.params.filename
         self.filename = QLineEdit()
-        self.filename.setToolTip("The stem of the mosaic's name; a time stamp is added")
-        form.addRow("Filename", self.filename)
+        self.filename.setToolTip(filename.doc)
+        form.addRow(filename.label, self.filename)
         layout.addLayout(form)
         self.channels = ChannelListWidget(fm=None, channel_settings=[])
         # Four 40 px rows and the header. The list is Expanding, and left to it

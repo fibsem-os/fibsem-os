@@ -13,8 +13,6 @@ from psygnal.containers import EventedDict
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskState,
-    AutoLamellaTaskStatus,
     AutoLamellaWorkflowConfig,
     Experiment,
 )
@@ -22,6 +20,7 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
     MillRoughTaskConfig,
 )
 from fibsem.structures import MicroscopeState
+from fibsem.workflows.status import TaskState, TaskStatus
 
 SETUP = "Setup"
 FIDUCIAL = "Fiducial"
@@ -50,7 +49,7 @@ def experiment(tmp_path: Path) -> Experiment:
     for _ in range(2):
         exp.add_new_lamella(MicroscopeState(), exp.task_protocol.task_config)
     exp.positions[0].task_history.append(
-        AutoLamellaTaskState(name=FIDUCIAL, status=AutoLamellaTaskStatus.Completed)
+        TaskState(name=FIDUCIAL, status=TaskStatus.Completed)
     )
     return exp
 

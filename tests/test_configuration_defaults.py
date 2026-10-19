@@ -20,6 +20,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.codec.upgrades.configuration import upgrade
 from fibsem.structures import (
     CONFIGURED_DEVICES,
     BeamSettings,
@@ -80,7 +81,7 @@ def test_the_split_changed_no_configuration_s_meaning(filename: str):
         flat[block] = {**(flat.get(block) or {}), **(defaults.get(block) or {})}
     flat["imaging"] = defaults["imaging"]
 
-    old = MicroscopeSettings.from_dict(flat)
+    old = MicroscopeSettings.from_dict(upgrade(flat))
     new = MicroscopeSettings.from_dict(split)
 
     assert new.system == old.system
@@ -119,8 +120,7 @@ def test_the_defaults_block_holds_the_session_state(filename: str):
 
 
 def test_a_file_written_before_the_split_still_loads():
-    """Every configuration in the field is flat. The merge is a no-op for them, which
-    is the whole reason it is a merge and not a move."""
+    """A file from before the split is upgraded to it, with the meaning it had."""
     flat = {
         "electron": {
             "enabled": True,
@@ -135,7 +135,7 @@ def test_a_file_written_before_the_split_still_loads():
         "imaging": {"beam_type": "ION", "hfw": 80.0e-6},
     }
 
-    settings = MicroscopeSettings.from_dict(flat)
+    settings = MicroscopeSettings.from_dict(upgrade(flat))
 
     assert settings.system.electron.beam.voltage == 2000
     assert settings.system.electron.column_tilt == 0
@@ -144,20 +144,24 @@ def test_a_file_written_before_the_split_still_loads():
 
 
 def test_the_old_spellings_are_not_reported_as_unrecognised():
-    """Read for migration, so a file in the field is not told its settings are
-    unsupported -- but a typo under the old block still is."""
+    """Upgraded, so a file in the field is not told its settings are unsupported --
+    but a typo under the old block still is."""
     flat = {
         "electron": {"voltage": 2000, "hfw": 150.0e-6},
         "imaging": {"beam_type": "ION", "hfw": 80.0e-6, "nonsense": 1},
     }
-    assert utils.unrecognised_configuration_keys(flat) == ["imaging.nonsense"]
+    assert utils.unrecognised_configuration_keys(upgrade(flat)) == [
+        "defaults.imaging.nonsense"
+    ]
 
 
 def test_defaults_win_over_the_flat_block():
     """A file may carry both -- hand-edited, or partially migrated. The more specific
     location wins, and this pins which that is."""
     settings = SystemSettings.from_dict(
-        {"electron": {"voltage": 1000}, "defaults": {"electron": {"voltage": 5000}}}
+        upgrade(
+            {"electron": {"voltage": 1000}, "defaults": {"electron": {"voltage": 5000}}}
+        )
     )
     assert settings.electron.beam.voltage == 5000
 

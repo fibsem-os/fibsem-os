@@ -1,9 +1,7 @@
 """A picker for the FM's emission filters, shown by name and band.
 
-The items are today's emission values (``None``, a label, or a band's bottom edge in
-nm), so ``ChannelSettings.emission_wavelength`` and saved channels keep their values.
-Each item shows the filter that value names: its name, its band drawn on a 400 to
-700 nm strip, and the band's edges and centre in the tooltip.
+The items are the filter set's ``EmissionFilter`` choices. Each shows its name, its
+band drawn on a 400 to 700 nm strip, and the band's edges and centre in the tooltip.
 """
 
 from __future__ import annotations
@@ -14,29 +12,14 @@ from PyQt5.QtCore import QPointF, QRectF, QSize, Qt
 from PyQt5.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PyQt5.QtWidgets import QStyledItemDelegate
 
-from fibsem.fm.structures import REFLECTION, EmissionFilter, emission_filter_for
+from fibsem.fm.structures import REFLECTION, EmissionFilter, matching_emission_filter
 from fibsem.ui.widgets.custom_widgets import ValueComboBox
-
-EmissionValue = Union[None, float, str]
-FilterLookup = Callable[[EmissionValue], EmissionFilter]
 
 STRIP_NM: Tuple[float, float] = (400.0, 700.0)
 _STRIP_SIZE = QSize(36, 10)
 _SWATCH_SIZE = QSize(10, 10)
 _STRIP_COLOR = QColor("#555a66")
 _UNKNOWN_BANDS_COLOR = QColor("#9aa0a8")
-
-
-def plain_emission_filter(value: EmissionValue) -> EmissionFilter:
-    """The filter a value names when no filter set is connected: no known bands."""
-    return emission_filter_for(value, {})
-
-
-def emission_lookup_for(fm: Any) -> Optional[FilterLookup]:
-    """Name emission values through the FM's filter set, which knows their bands. A
-    filter set that doesn't subclass ``FilterSet`` gets the plain names."""
-    filter_set = getattr(fm, "filter_set", None)
-    return getattr(filter_set, "emission_filter", None)
 
 
 def band_color(nm: float) -> QColor:
@@ -163,18 +146,14 @@ def band_tooltip(emission_filter: EmissionFilter) -> str:
 
 
 class EmissionFilterComboBox(ValueComboBox):
-    """Picks an emission value; shows the filter it names, by name and band."""
+    """Picks an emission filter; shows each by name and band."""
 
     def __init__(
-        self,
-        items: Optional[Sequence[EmissionValue]] = None,
-        lookup: Optional[FilterLookup] = None,
-        parent=None,
+        self, items: Optional[Sequence[EmissionFilter]] = None, parent=None
     ) -> None:
-        self._lookup: FilterLookup = lookup or plain_emission_filter
         super().__init__(
             items=list(items or []),
-            format_fn=lambda value: self._lookup(value).label,
+            format_fn=lambda found: found.label,
             parent=parent,
         )
         self.setIconSize(_SWATCH_SIZE)
@@ -188,21 +167,19 @@ class EmissionFilterComboBox(ValueComboBox):
         self.currentIndexChanged.connect(self._show_current_in_tooltip)
         self._show_current_in_tooltip()
 
-    def set_lookup(self, lookup: Optional[FilterLookup]) -> None:
-        """Name the items through another filter set; keeps the selection."""
-        self._lookup = lookup or plain_emission_filter
-        items = [self.itemData(i) for i in range(self.count())]
-        self.set_values(items)
-
     def _show_current_in_tooltip(self, *_) -> None:
-        self.setToolTip(band_tooltip(self.emission_filter()) if self.count() else "")
+        self.setToolTip(band_tooltip(self.value()) if self.count() else "")
 
-    def emission_filter(self) -> EmissionFilter:
-        """The filter the current item names."""
-        return self._lookup(self.value())
+    def index_of(self, wanted: EmissionFilter) -> int:
+        """The item ``wanted`` is (``matching_emission_filter``), or -1: a channel
+        saved on another scope finds the filter set's own filter."""
+        items = [self.itemData(i) for i in range(self.count())]
+        try:
+            return items.index(matching_emission_filter(wanted, items))
+        except ValueError:
+            return -1
 
-    def add_value(self, item) -> None:
-        emission_filter = self._lookup(item)
-        self.addItem(band_icon(emission_filter), emission_filter.label, item)
-        tooltip = band_tooltip(emission_filter)
+    def add_value(self, item: EmissionFilter) -> None:
+        self.addItem(band_icon(item), item.label, item)
+        tooltip = band_tooltip(item)
         self.setItemData(self.count() - 1, tooltip, Qt.ItemDataRole.ToolTipRole)

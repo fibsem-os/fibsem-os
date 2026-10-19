@@ -269,7 +269,11 @@ from fibsem.drivers.autoscript.devices import (  # noqa: E402
     ThermoFisherFluorescenceMicroscope,
     bind_autoscript_fm,
 )
-from fibsem.fm.structures import REFLECTION, ChannelSettings  # noqa: E402
+from fibsem.fm.structures import (  # noqa: E402
+    REFLECTION,
+    ChannelSettings,
+    EmissionFilter,
+)
 
 
 class Parent:
@@ -358,7 +362,7 @@ def pair(view, objective, filter_mode, old, new):
 CHANNEL = ChannelSettings(
     name="GFP",
     excitation_wavelength=450,
-    emission_wavelength="Fluorescence",
+    emission_filter=EmissionFilter("Fluorescence", multi_band=True),
     power=0.4,
     exposure_time=0.25,
     gain=0.5,
@@ -366,7 +370,7 @@ CHANNEL = ChannelSettings(
 REFLECTION_CHANNEL = ChannelSettings(
     name="Reflection",
     excitation_wavelength=500,  # between bands: the nearest, 550
-    emission_wavelength=None,
+    emission_filter=REFLECTION,
     power=0.1,
     exposure_time=0.05,
     gain=0.0,
@@ -750,9 +754,9 @@ def api_cases():
         ],
         "filter reads": lambda fm: [
             fm.filter_set.excitation_wavelength,
-            fm.filter_set.emission_wavelength,
+            _value(fm.filter_set.emission_filter),
             list(fm.filter_set.available_excitation_wavelengths),
-            list(fm.filter_set.available_emission_wavelengths),
+            [_value(f) for f in fm.filter_set.available_emission_filters],
         ],
         "objective reads": lambda fm: [
             fm.objective.position,
@@ -770,8 +774,8 @@ def api_cases():
         "set_exposure_time out of range": lambda fm: fm.set_exposure_time(100.0),
         "emission then read": lambda fm: (
             setattr(fm.filter_set, "excitation_wavelength", 365),
-            setattr(fm.filter_set, "emission_wavelength", 365),
-            fm.filter_set.emission_wavelength,
+            setattr(fm.filter_set, "emission_filter", MULTI_BAND),
+            fm.filter_set.emission_filter,
         )[2],
         "objective moves": lambda fm: (
             fm.objective.move_absolute(6e-3),
@@ -869,7 +873,7 @@ def _thermo_microscope_fm():
         fm=FluorescenceSystemSettings(mount_transform=CameraImageTransform.FLIP_Y)
     )
     fm = build_autoscript_fm(
-        DeviceEntry.from_dict(microscope.system.fm.to_dict(), name="fm"),
+        DeviceEntry.from_dict({"name": "fm", **microscope.system.fm.to_dict()}),
         BuildContext(microscope=microscope),
     )
     group = fm.devices["fm"]

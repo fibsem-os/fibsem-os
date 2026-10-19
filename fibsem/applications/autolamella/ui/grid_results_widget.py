@@ -28,17 +28,9 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskState,
-    AutoLamellaTaskStatus,
-    Experiment,
-    GridRecord,
-)
+from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.ui.lamella_task_image_widget import (
     ClickableLabel,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-    EXCHANGE_ENTRY_NAMES as _EXCHANGE_ENTRY_NAMES,
 )
 from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
 from fibsem.ui import stylesheets
@@ -54,20 +46,24 @@ from fibsem.ui.tokens import (
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, IconToolButton
 from fibsem.ui.widgets.image_viewer_dialog import ViewerItem, open_image_viewer
 from fibsem.util.timestamps import format_time
+from fibsem.workflows.grid.manager import (
+    EXCHANGE_ENTRY_NAMES as _EXCHANGE_ENTRY_NAMES,
+)
+from fibsem.workflows.grids import GridRecord
+from fibsem.workflows.status import TaskState, TaskStatus
 
-_TILE_W, _TILE_H = 320, 213  # 3:2, the Review tab's proportions at a card-friendly size
+_TILE_W, _TILE_H = 320, 213  # 3:2, at a card-friendly size
 
 _STATUS_COLOUR = {
-    AutoLamellaTaskStatus.Completed: OK_COLOR,
-    AutoLamellaTaskStatus.AwaitingDecision: stylesheets.DEFECT_ORANGE_COLOR,
-    AutoLamellaTaskStatus.Failed: ERROR_COLOR,
-    AutoLamellaTaskStatus.Cancelled: stylesheets.DEFECT_ORANGE_COLOR,
-    AutoLamellaTaskStatus.Skipped: NEUTRAL_550,
-    AutoLamellaTaskStatus.InProgress: stylesheets.GREEN_COLOR,
+    TaskStatus.Completed: OK_COLOR,
+    TaskStatus.Failed: ERROR_COLOR,
+    TaskStatus.Cancelled: stylesheets.DEFECT_ORANGE_COLOR,
+    TaskStatus.Skipped: NEUTRAL_550,
+    TaskStatus.InProgress: stylesheets.GREEN_COLOR,
 }
 
 
-def _when(state: AutoLamellaTaskState) -> str:
+def _when(state: TaskState) -> str:
     stamp = state.end_timestamp or state.start_timestamp
     return format_time(stamp, TIME_DISPLAY_AMPM_SHORT) or ""
 
@@ -75,7 +71,7 @@ def _when(state: AutoLamellaTaskState) -> str:
 def _recorded(
     experiment: Experiment,
     grid: GridRecord,
-    state: AutoLamellaTaskState,
+    state: TaskState,
     thumbnail: bool,
 ) -> Optional[str]:
     """The last existing file this run recorded: the thumbnail, or the image
@@ -93,13 +89,13 @@ def _recorded(
 
 
 def thumbnail_for(
-    experiment: Experiment, grid: GridRecord, state: AutoLamellaTaskState
+    experiment: Experiment, grid: GridRecord, state: TaskState
 ) -> Optional[str]:
     return _recorded(experiment, grid, state, thumbnail=True)
 
 
 def image_for(
-    experiment: Experiment, grid: GridRecord, state: AutoLamellaTaskState
+    experiment: Experiment, grid: GridRecord, state: TaskState
 ) -> Optional[str]:
     return _recorded(experiment, grid, state, thumbnail=False)
 
@@ -123,7 +119,7 @@ class _HistoryRow(QWidget):
 
     def __init__(
         self,
-        state: AutoLamellaTaskState,
+        state: TaskState,
         thumbnail: Optional[str],
         image: Optional[str],
         parent: Optional[QWidget] = None,
@@ -199,7 +195,7 @@ class _HistoryRow(QWidget):
             layout.addWidget(self.tile, 0, Qt.AlignLeft)
         elif (
             state.name not in _EXCHANGE_ENTRY_NAMES
-            and state.status is AutoLamellaTaskStatus.Completed
+            and state.status is TaskStatus.Completed
         ):
             note = QLabel("No image recorded.")
             note.setStyleSheet(
@@ -306,7 +302,7 @@ class GridResultsWidget(QWidget):
                 t
                 for t in reversed(grid.task_history)
                 if t.name not in _EXCHANGE_ENTRY_NAMES
-                and t.status is AutoLamellaTaskStatus.Completed
+                and t.status is TaskStatus.Completed
             ),
             None,
         )

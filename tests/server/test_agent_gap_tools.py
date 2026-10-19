@@ -15,9 +15,10 @@ pytest.importorskip("httpx")  # TestClient transport
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+from fibsem.ai.agent.request_text import describe_action  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.request_text import describe_action  # noqa: E402
-from tests.server.test_agent_requests import Host, RecordingContext  # noqa: E402
+from tests.run_state import stub_session  # noqa: E402
+from tests.server.test_agent_requests import RecordingContext  # noqa: E402
 from tests.server.test_grid_tools import AUTH, TOKEN, _call, arctis  # noqa: E402, F401
 
 
@@ -30,7 +31,7 @@ def driving(arctis, tmp_path):  # noqa: F811
         Experiment,
     )
 
-    host = Host()
+    host = stub_session()
     host.microscope = arctis
     (tmp_path / "gaps-exp").mkdir()
     host.experiment = Experiment(path=tmp_path, name="gaps-exp")
@@ -142,7 +143,7 @@ def test_the_agent_adds_reorders_requires_and_removes_a_task(driving):
 
 
 def test_the_workflow_is_not_edited_while_it_runs(driving):
-    driving.host.is_workflow_running = True
+    driving.host.runner.is_running = True
     refused = _call(driving, "protocol_reorder_tasks", order=list(_workflow(driving)))
     assert refused.status_code == 409
 
@@ -242,13 +243,11 @@ def test_the_agent_edits_the_grid_tasks(driving):
 
 def test_run_options_are_set_and_saved(driving):
     options = driving.host.experiment.task_protocol.options
-    _ok(_call(driving, "workflow_set_options", turn_beams_off=True, review_wait=600))
-    assert options.turn_beams_off is True and options.review_wait == 600.0
-    _ok(_call(driving, "workflow_set_options", review_wait=-1))
-    assert options.review_wait is None
+    _ok(_call(driving, "workflow_set_options", turn_beams_off=True))
+    assert options.turn_beams_off is True
     assert driving.post("/app/workflow/options", json={}).status_code == 422
     assert (
-        driving.post("/app/workflow/options", json={"review_wait": -5}).status_code
+        driving.post("/app/workflow/options", json={"turn_beams_off": 1}).status_code
         == 422
     )
 
@@ -259,8 +258,14 @@ class _Queue:
 
 
 class _Manager:
+    RUN_KIND = "items"
+    RUN_DESCRIPTION = "a lamella run"
+
     def __init__(self, active):
         self.queue = _Queue(active)
+
+    def stop_task(self):
+        pass
 
 
 class _Item:
@@ -269,8 +274,6 @@ class _Item:
 
 
 def test_stop_task_stops_only_the_task_named(driving):
-    stops = []
-    driving.host.stop_current_task = lambda: stops.append(True)
 
     nothing = _ok(
         _call(
@@ -281,9 +284,9 @@ def test_stop_task_stops_only_the_task_named(driving):
             reason="the trench is off target",
         )
     )
-    assert nothing["stopped"] is False and stops == []
+    assert nothing["stopped"] is False and driving.host.runner.stops == []
 
-    driving.host._task_manager = _Manager(_Item())
+    driving.host.runner.manager = _Manager(_Item())
     other = _ok(
         _call(
             driving,
@@ -298,7 +301,7 @@ def test_stop_task_stops_only_the_task_named(driving):
         "item_name": "01-live-raptor",
         "task_name": "Rough Milling",
     }
-    assert stops == []
+    assert driving.host.runner.stops == []
 
     stopped = _ok(
         _call(
@@ -309,7 +312,7 @@ def test_stop_task_stops_only_the_task_named(driving):
             reason="the trench is off target",
         )
     )
-    assert stopped["stopped"] is True and stops == [True]
+    assert stopped["stopped"] is True and driving.host.runner.stops == ["task"]
 
     no_reason = driving.post(
         "/app/workflow/stop_task",
@@ -328,7 +331,7 @@ def test_grid_tasks_join_only_a_running_grid_run(driving):
         )
     )
     assert answer["queued"] is False
-    driving.host._task_manager = _Manager(None)
+    driving.host.runner.manager = _Manager(None)
     lamella_run = _ok(
         _call(
             driving,
@@ -341,17 +344,19 @@ def test_grid_tasks_join_only_a_running_grid_run(driving):
 
 
 def test_grid_tasks_are_queued_after_what_waits(driving):
-    from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+    from fibsem.workflows.grid.manager import (
         GridTaskManager,
     )
-    from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue
+    from fibsem.workflows.queue import TaskQueue
 
     _ok(_call(driving, "grid_add"))
     manager = GridTaskManager.__new__(GridTaskManager)
     manager.queue = TaskQueue()
     manager.notify_queue_changed = lambda: None
+    manager.experiment = driving.host.experiment
+    manager.microscope = driving.host.microscope
     manager.queue.add("G1", "Load Grid")
-    driving.host._task_manager = manager
+    driving.host.runner.manager = manager
 
     answer = _ok(
         _call(
@@ -502,8 +507,8 @@ def test_alignment_methods_are_compared_on_saved_images(driving, arctis):  # noq
         ),
         (
             "workflow_set_options",
-            {"turn_beams_off": True, "review_wait": -1},
-            "Turn the beams off when a run ends; Wait on reviews until stopped",
+            {"turn_beams_off": True},
+            "Turn the beams off when a run ends",
         ),
         (
             "workflow_start_grids",

@@ -40,6 +40,9 @@ dependencies = [
     # fluorescence images people bring from other microscopes are exactly that -- a
     # Zeiss ZEN export and a METEOR ImageJ stack are both LZW.
     "imagecodecs",
+    # fibsem.codec, which saves and loads the structures. Present via ome_types all
+    # along; 2.12 is the first that refuses unknown keys per call (`extra=`).
+    "pydantic>=2.12",
 ]
 
 [project.urls]
@@ -112,7 +115,7 @@ fibsem-autolamella-ui = "fibsem.tools.launcher:autolamella"
 fm-image-viewer-ui = "fibsem.ui.fm.widgets.fm_image_viewer_widget:main"
 fibsem-correlation-ui = "fibsem.ui.correlation.widgets.correlation_tab_widget:main"
 fibsem-cli = "fibsem.cli:main"
-fibsem-mcp = "fibsem.mcp.sidecar:main"
+fibsem-mcp = "fibsem.ai.agent.mcp.sidecar:main"
 
 # Recursive by design. A bare `packages = ["fibsem"]` is NOT recursive: it ships
 # only the top-level fibsem/*.py and none of fibsem/ui, fibsem/milling, etc. That
@@ -124,7 +127,7 @@ fibsem-mcp = "fibsem.mcp.sidecar:main"
 include = ["fibsem*"]
 # Stated explicitly because it is load-bearing, not a preference: a dozen
 # directories are PEP 420 namespace packages with no __init__.py, including
-# fibsem/ui/widgets (68 modules), fibsem/microscopes and fibsem/ui/napari.
+# fibsem/ui/widgets (68 modules) and fibsem/microscopes.
 # This defaults to true for pyproject config, but setting it false — or reaching
 # for find_packages semantics — would silently drop all of them from the wheel.
 namespaces = true
@@ -132,6 +135,7 @@ namespaces = true
 [tool.setuptools.package-data]
 "*" = ["*.yaml"]
 "fibsem.server" = ["dashboard.html", "dashboard_log.html"]
+"fibsem.correlation" = ["data/zeta_lut.npz"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -169,10 +173,6 @@ filterwarnings = [
 # infers py310, so the two can never drift apart.
 extend-exclude = [
     "external",
-    # Vendored from Pyto (Vladan Lucic, MPI of Biochemistry) by way of tdct. It is
-    # someone else's code kept as it was, so neither the linter nor the formatter
-    # rewrites it.
-    "fibsem/correlation/pyto",
     # Ruff rewrites notebooks in place, re-sorting imports inside the cell JSON.
     # Whether the notebooks are in scope is a separate question to this config.
     "**/*.ipynb",

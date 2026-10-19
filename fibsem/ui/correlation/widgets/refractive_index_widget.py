@@ -25,15 +25,20 @@ from fibsem.correlation.config import RISettings
 from fibsem.correlation.refractive_index import (
     _LUT_PATH,
     ZetaParams,
-    _ensure_lut,
     lookup_zeta,
+    zeta_params_from_settings,
 )
 from fibsem.ui.tokens import (
-    CAPTION_STYLE,
     CONTROL_STYLE,
     state_style,
 )
-from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, ValueSpinBox
+from fibsem.ui.widgets.custom_widgets import (
+    IconToolButton,
+    TitledPanel,
+    ValueSpinBox,
+    form_label,
+)
+from fibsem.ui.widgets.form_builder import configure_spinbox
 
 _LUT_MISSING_MSG = (
     f"Correction factor calculator unavailable: LUT file not found at\n{_LUT_PATH}\n"
@@ -42,14 +47,7 @@ _LUT_MISSING_MSG = (
 
 # The one default set lives on RISettings, where the protocol reads it too; see
 # its docstring for where the values come from (FIB-1234).
-_RI_DEFAULTS = RISettings()
-_DEFAULTS = ZetaParams(
-    tilt_deg=_RI_DEFAULTS.tilt_deg,
-    depth_um=_RI_DEFAULTS.depth_um,
-    NA=_RI_DEFAULTS.na,
-    n2=_RI_DEFAULTS.n2,
-    wavelength_um=_RI_DEFAULTS.wavelength_um,
-)
+_DEFAULTS = zeta_params_from_settings(RISettings())
 
 # Only used when the lookup table cannot be read. Must equal the LUT's value at
 # _DEFAULTS — pinned by tests/correlation/test_default_correction_factor.py, so
@@ -83,21 +81,23 @@ def _default_factor() -> float:
         return _FALLBACK_FACTOR
 
 
-# The correlation panels run at 11-12px. Controls and QFormLayout's auto-built
-# string labels default to the app font, which renders larger than the values
-# beside them — the field name ends up shouting over its own data.
+# The correlation panels run at 11-12px. Controls default to the app font, which
+# renders larger than the values beside them (form-row labels: see form_label).
 _CONTROL_STYLE = CONTROL_STYLE
-_FORM_LABEL_STYLE = CAPTION_STYLE
 
 
-def _form_label(text: str) -> QLabel:
-    """A small, muted form-row label — pass instead of a bare string."""
-    lbl = QLabel(text)
-    lbl.setStyleSheet(_FORM_LABEL_STYLE)
-    return lbl
+# Each optical parameter's box is shown as RISettings declares it.
+_RI = RISettings.params
+_TILT_TOOLTIP = _RI["tilt_deg"].doc
+_WAVELENGTH_SCALE = _RI["wavelength_um"].scale  # shown in nm, stored in µm
 
 
-_TILT_TOOLTIP = "The angle between the FIB column and the sample surface"
+def _ri_spinbox(name: str) -> ValueSpinBox:
+    spinbox = ValueSpinBox(no_buttons=True)
+    configure_spinbox(spinbox, _RI[name])
+    return spinbox
+
+
 _TILT_LOCKED_TOOLTIP = (
     "Locked to 0°: the FM-surface correction acts along the optical axis, "
     "which is normal to the sample surface."
@@ -137,10 +137,6 @@ class RefractiveIndexWidget(QWidget):
         self._factor_computed = False
         # Params the user has typed by hand; metadata seeding leaves these alone.
         self._user_edited: set = set()
-        try:
-            _ensure_lut()
-        except Exception as e:
-            logging.warning(f"Failed to download refractive index LUT: {e}")
         self._setup_ui()
         self._connect_signals()
         self._recompute()
@@ -160,56 +156,20 @@ class RefractiveIndexWidget(QWidget):
         form.setContentsMargins(8, 8, 8, 8)
         form.setSpacing(6)
 
-        self._spin_tilt = ValueSpinBox(
-            suffix="°",
-            minimum=0.0,
-            maximum=30.0,
-            step=1.0,
-            decimals=0,
-            no_buttons=True,
-            tooltip=_TILT_TOOLTIP,
-        )
-        self._spin_depth = ValueSpinBox(
-            suffix="µm",
-            minimum=0.5,
-            maximum=14.5,
-            step=0.5,
-            decimals=1,
-            no_buttons=True,
-            tooltip="Estimated depth of the feature below the coverslip (has little effect below ~20 µm)",
-        )
-        self._spin_na = ValueSpinBox(
-            minimum=0.2,
-            maximum=0.9,
-            step=0.1,
-            decimals=2,
-            no_buttons=True,
-            tooltip="Numerical aperture of the objective lens",
-        )
-        self._spin_n2 = ValueSpinBox(
-            minimum=1.22,
-            maximum=1.46,
-            step=0.04,
-            decimals=2,
-            no_buttons=True,
-            tooltip="Refractive index of the sample medium (n=1.0 is vacuum/air)",
-        )
-        # Wavelength spinbox works in nm; converted to µm for LUT lookup
-        self._spin_wl = ValueSpinBox(
-            suffix="nm",
-            minimum=420.0,
-            maximum=720.0,
-            step=10.0,
-            decimals=0,
-            no_buttons=True,
-            tooltip="Excitation wavelength of the fluorescence channel",
-        )
+        self._spin_tilt = _ri_spinbox("tilt_deg")
+        self._spin_depth = _ri_spinbox("depth_um")
+        self._spin_na = _ri_spinbox("na")
+        self._spin_n2 = _ri_spinbox("n2")
+        self._spin_wl = _ri_spinbox("wavelength_um")
 
-        form.addRow(_form_label("Milling Angle"), self._spin_tilt)
-        form.addRow(_form_label("Depth"), self._spin_depth)
-        form.addRow(_form_label("Numerical Aperture"), self._spin_na)
-        form.addRow(_form_label("Refractive Index"), self._spin_n2)
-        form.addRow(_form_label("Wavelength (λ)"), self._spin_wl)
+        for name, spin in (
+            ("tilt_deg", self._spin_tilt),
+            ("depth_um", self._spin_depth),
+            ("na", self._spin_na),
+            ("n2", self._spin_n2),
+            ("wavelength_um", self._spin_wl),
+        ):
+            form.addRow(form_label(_RI[name].label), spin)
 
         self._spin_factor = ValueSpinBox(
             minimum=0.1,
@@ -223,7 +183,7 @@ class RefractiveIndexWidget(QWidget):
         # the button that restores it cannot disagree.
         self._default_factor = _default_factor()
         self._spin_factor.setValue(self._default_factor)
-        form.addRow(_form_label("Correction Factor (ζ)"), self._spin_factor)
+        form.addRow(form_label("Correction Factor (ζ)"), self._spin_factor)
 
         self._btn_reset_factor = IconToolButton(
             "mdi:refresh",
@@ -303,10 +263,6 @@ class RefractiveIndexWidget(QWidget):
     # Public API
     # ------------------------------------------------------------------
 
-    def get_zeta(self) -> Optional[float]:
-        """Return the last computed zeta value, or ``None`` if not yet computed."""
-        return self._zeta
-
     def get_factor(self) -> float:
         """Return the current correction factor spinbox value."""
         return self._spin_factor.value()
@@ -368,7 +324,7 @@ class RefractiveIndexWidget(QWidget):
         self._spin_depth.setValue(params.depth_um)
         self._spin_na.setValue(params.NA)
         self._spin_n2.setValue(params.n2)
-        self._spin_wl.setValue(params.wavelength_um * 1000.0)  # µm → nm
+        self._spin_wl.setValue(params.wavelength_um * _WAVELENGTH_SCALE)
 
         for spin in (
             self._spin_tilt,
@@ -387,7 +343,7 @@ class RefractiveIndexWidget(QWidget):
             depth_um=self._spin_depth.value(),
             NA=self._spin_na.value(),
             n2=self._spin_n2.value(),
-            wavelength_um=self._spin_wl.value() / 1000.0,  # nm → µm
+            wavelength_um=self._spin_wl.value() / _WAVELENGTH_SCALE,
         )
 
     def seed_from_metadata(
@@ -398,7 +354,7 @@ class RefractiveIndexWidget(QWidget):
         """Populate λ and/or NA from FM metadata (FIB-277), leaving user-typed
         values and absent (``None``) inputs untouched."""
         if wavelength_um is not None and "wavelength" not in self._user_edited:
-            self._spin_wl.setValue(wavelength_um * 1000.0)  # µm → nm
+            self._spin_wl.setValue(wavelength_um * _WAVELENGTH_SCALE)
         if na is not None and "na" not in self._user_edited:
             self._spin_na.setValue(na)
 

@@ -10,12 +10,12 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.ui.agent_previews import (  # noqa: E402
+from fibsem.structures import BeamType, FibsemImage, Point  # noqa: E402
+from fibsem.ui.agent.previews import (  # noqa: E402
     AgentPreviews,
     request_patterns,
     request_targets,
 )
-from fibsem.structures import BeamType, FibsemImage, Point  # noqa: E402
 from fibsem.ui.tokens import PURPLE_COLOR  # noqa: E402
 
 _RECTANGLE = {
@@ -110,6 +110,22 @@ def test_a_new_request_replaces_the_last_one_s_picture():
     assert len(layer.patterns) == 2 and layer.crosses == []
 
 
+def test_a_request_filed_before_the_views_had_images_is_drawn_once_they_do():
+    """Sim session 2026-10-16: no picture came until the request was filed
+    again; the picture was worked out once per request."""
+    controller = _Controller()
+    controller._images = {}
+    card = _Card()
+    previews = AgentPreviews(lambda: controller, show_picture=card)
+    previews.show_request(_request())
+    assert previews.request_picture is None
+    controller._images = _Controller()._images
+    previews.show_request(_request())
+    frame, _ = _layer(previews.request_picture)
+    assert frame is controller.image(BeamType.ION)
+    assert card.shown[False] is not None
+
+
 def test_without_views_nothing_is_drawn():
     card = _Card()
     previews = AgentPreviews(lambda: None, show_picture=card)
@@ -122,20 +138,20 @@ def test_a_suggested_point_of_interest_is_in_the_view_s_pixels():
     """In the FIB view's frame (FIB-1410); the question's when no view shows one."""
     import types
 
+    from fibsem.applications.autolamella.ui.poi_marker import PoiMarker
     from fibsem.applications.autolamella.ui.qt_responder import QtResponder
-    from fibsem.applications.autolamella.workflows.interaction import PickPOI
+    from fibsem.workflows.interaction import PickPOI
 
     image = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=100e-6)
     request = PickPOI(image=image)
-    no_view = types.SimpleNamespace(_ui=None)
+    no_view = types.SimpleNamespace(_marker=PoiMarker(None))
     pixel = QtResponder._suggested_pixel(no_view, request, Point(-10e-6, 5e-6))
     assert pixel == (80.0, 40.0)
     assert QtResponder._suggested_pixel(no_view, request, None) is None
 
     shown = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=50e-6)
-    view = types.SimpleNamespace(
-        _ui=types.SimpleNamespace(image_widget=types.SimpleNamespace(ib_image=shown))
-    )
+    window = types.SimpleNamespace(image_widget=types.SimpleNamespace(ib_image=shown))
+    view = types.SimpleNamespace(_marker=PoiMarker(window))
     pixel = QtResponder._suggested_pixel(view, request, Point(-10e-6, 5e-6))
     assert pixel == pytest.approx((60.0, 30.0))
 
@@ -161,7 +177,7 @@ def _layer(picture, colour=PURPLE_COLOR):
 def test_a_move_target_on_another_frame_is_re_projected_onto_it():
     # FIB-1411: measured on one frame, drawn on another, the target stays on
     # the sample.
-    from fibsem.applications.autolamella.ui.agent_previews import (
+    from fibsem.ui.agent.previews import (
         _Mark,
         _offset_pixel,
     )
@@ -178,9 +194,9 @@ def test_a_move_target_on_another_frame_is_re_projected_onto_it():
 def test_a_run_stage_or_run_task_request_draws_the_stages_it_would_mill():
     # FIB-1411: run_stage and run_task were drawn nothing, though their stages
     # carry every pattern.
-    from fibsem.applications.autolamella.ui.agent_previews import request_stages
     from fibsem.milling.base import FibsemMillingStage
     from fibsem.milling.tasks import FibsemMillingTaskConfig
+    from fibsem.ui.agent.previews import request_stages
 
     trench = FibsemMillingStage(name="Trench")
     off = FibsemMillingStage(name="Off", enabled=False)
@@ -227,10 +243,10 @@ def test_a_run_stage_or_run_task_request_draws_the_stages_it_would_mill():
 def test_patterns_past_the_edge_of_the_field_are_drawn_again_in_red():
     # FIB-1411: patterns at (-30, +30) µm in a 100 µm field (y spans ±33 µm)
     # reached y ≈ 36-39 µm. The Demo milled them; a real instrument refuses.
-    from fibsem.applications.autolamella.ui.agent_previews import (
+    from fibsem.structures import FibsemMillingSettings
+    from fibsem.ui.agent.previews import (
         request_outside_field,
     )
-    from fibsem.structures import FibsemMillingSettings
     from fibsem.ui.tokens import RED_COLOR
 
     inside = dict(_RECTANGLE)
@@ -367,6 +383,124 @@ def test_a_review_decision_s_point_is_drawn_on_the_card_on_its_own_image():
     assert previews.request_picture is None and card.shown[False] is None
 
 
+def _pass_request(proposal, **arguments):
+    """A waiting request to decide *proposal*, a loop's pass."""
+    return {
+        "request_id": "pq34",
+        "status": "pending",
+        "actions": [
+            {
+                "tool": "review_decide",
+                "what": "01-full-magpie · Rough Milling",
+                "arguments": {
+                    "item_id": "01",
+                    "task_name": "Rough Milling",
+                    "proposal_id": proposal.id,
+                    "outcome": "Confirmed",
+                    **arguments,
+                },
+            }
+        ],
+    }
+
+
+def _pass_previews(proposal, reference):
+    card = _Card()
+    previews = AgentPreviews(
+        lambda: _Controller(),
+        reference_image=lambda arguments: reference,
+        show_picture=card,
+        review_proposal=lambda arguments: (
+            proposal if arguments.get("proposal_id") == proposal.id else None
+        ),
+    )
+    return previews, card
+
+
+def test_a_request_to_run_a_mill_pass_draws_its_patterns_as_patched():
+    """A pass the agent asks to run draws what it would mill, its patch
+    applied, on the image the pass was asked on: what the operator approves."""
+    from fibsem.milling.base import FibsemMillingStage
+    from fibsem.milling.tasks import FibsemMillingTaskConfig
+    from fibsem.workflows.proposals import MILLING, Proposal
+
+    config = FibsemMillingTaskConfig.from_stages(
+        [FibsemMillingStage(name="Trench")], name="Rough Milling"
+    )
+    proposal = Proposal(kind=MILLING, values={"milling_config": config})
+    reference = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=100e-6)
+    previews, card = _pass_previews(proposal, reference)
+
+    previews.show_request(_pass_request(proposal, action="run"))
+    frame, layers = previews.request_picture
+    assert frame is reference
+    purple = layers[1]
+    assert purple.fill and len(purple.patterns) == len(
+        config.stages[0].define_patterns()
+    )
+    assert card.shown[False][1].startswith("01-full-magpie · Rough Milling · FIB")
+
+    wider = config.stages[0].pattern.width * 2
+    previews.show_request(None)
+    previews.show_request(
+        _pass_request(
+            proposal, action="run", patch={"stages.Trench.pattern.width": wider}
+        )
+    )
+    _, layers = previews.request_picture
+    assert layers[1].patterns != purple.patterns
+    # the pass itself is not changed
+    assert config.stages[0].pattern.width == pytest.approx(wider / 2)
+
+
+def test_a_request_to_accept_a_mill_pass_outlines_what_is_not_milled():
+    from fibsem.milling.base import FibsemMillingStage
+    from fibsem.milling.tasks import FibsemMillingTaskConfig
+    from fibsem.workflows.proposals import MILLING, Proposal
+
+    config = FibsemMillingTaskConfig.from_stages(
+        [FibsemMillingStage(name="Trench")], name="Fiducial"
+    )
+    proposal = Proposal(kind=MILLING, values={"milling_config": config})
+    reference = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=100e-6)
+    previews, _card = _pass_previews(proposal, reference)
+    previews.show_request(_pass_request(proposal, action="accept"))
+    _, layers = previews.request_picture
+    assert not layers[1].patterns, "nothing to mill"
+    unmilled = layers[-1]
+    assert unmilled.patterns and not unmilled.fill
+    assert unmilled.keys == [("outline", "not milled")]
+
+
+def test_a_request_to_run_a_spot_burn_pass_draws_its_points():
+    from fibsem.imaging.spot import SpotBurnSettings
+    from fibsem.workflows.proposals import SPOT_BURN, Proposal
+
+    proposal = Proposal(
+        kind=SPOT_BURN,
+        values={"spot_burn": SpotBurnSettings(coordinates=[Point(0.5, 0.5)])},
+    )
+    reference = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=100e-6)
+    previews, _card = _pass_previews(proposal, reference)
+    # The call's own points, not the pass's.
+    values = {
+        "spot_burn": {
+            "coordinates": [{"x": 0.25, "y": 0.5}, {"x": 0.75, "y": 0.25}],
+            "milling_current": 60e-12,
+            "exposure_time": 5,
+        }
+    }
+    previews.show_request(_pass_request(proposal, action="run", values=values))
+    frame, layers = previews.request_picture
+    assert frame is reference
+    dots = [d for layer in layers for d in layer.dots]
+    assert dots == [pytest.approx((50.0, 50.0)), pytest.approx((150.0, 25.0))]
+    # Skipped, nothing is burned: nothing drawn.
+    previews.show_request(None)
+    previews.show_request(_pass_request(proposal, action="skip"))
+    assert previews.request_picture is None
+
+
 def _item_edit(request_id="kl12"):
     return {
         "request_id": request_id,
@@ -417,6 +551,22 @@ def test_an_item_edit_s_point_and_alignment_area_are_drawn_on_the_item_s_image()
     assert caption.startswith("01-full-magpie · FIB")
 
 
+def test_an_item_edit_s_nested_alignment_area_is_drawn_too():
+    # Sim session 2026-10-16 F4: the server takes {"alignment_area": {...}};
+    # only the dotted keys were drawn.
+    item_image = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=100e-6)
+    request = _item_edit()
+    request["actions"][0]["arguments"]["patch"] = {
+        "alignment_area": {"left": 0.25, "top": 0.5, "width": 0.5, "height": 0.25}
+    }
+    previews = AgentPreviews(
+        lambda: _Controller(), item_image=lambda item: item_image, show_picture=_Card()
+    )
+    previews.show_request(request)
+    _, layer = _layer(previews.request_picture)
+    assert layer.areas == [[pytest.approx((50.0, 50.0)), pytest.approx((150.0, 75.0))]]
+
+
 def test_an_item_edit_without_an_image_of_the_item_says_so():
     # Never the live view instead: it may be at another lamella.
     controller = _Controller()
@@ -430,7 +580,7 @@ def test_an_item_edit_without_an_image_of_the_item_says_so():
 def test_the_card_s_picture_is_the_image_with_its_marks_drawn():
     from PyQt5.QtGui import QColor
 
-    from fibsem.applications.autolamella.ui.agent_previews import (
+    from fibsem.ui.agent.previews import (
         _Layer,
         draw_picture,
     )
@@ -493,15 +643,11 @@ def test_a_task_config_edit_draws_the_milling_as_it_would_be_and_as_it_is():
     assert config.milling["milling"].stages[0].pattern.width == pytest.approx(width)
 
 
-def test_a_suggested_area_and_spot_burn_points_are_drawn_on_the_card():
+def test_a_suggested_area_is_drawn_on_the_card():
     # FIB-1411: a suggested area (left 0.03, top 0.30, 0.22 × 0.40) was not
     # drawn: only the current green area showed.
-    from fibsem.applications.autolamella.workflows.interaction import (
-        EditAlignmentArea,
-        RunSpotBurn,
-        SpotBurnEdit,
-    )
     from fibsem.structures import FibsemRectangle
+    from fibsem.workflows.interaction import EditAlignmentArea
 
     controller = _Controller()  # 200 × 100 px, 0.5 µm/px
     card = _Card()
@@ -513,15 +659,6 @@ def test_a_suggested_area_and_spot_burn_points_are_drawn_on_the_card():
     assert card.shown[True] is not None
     assert layer.keys == [("area", "alignment area")]
 
-    points = [Point(0.5, 0.5), Point(0.75, 0.25)]
-    previews.show_suggestion(
-        RunSpotBurn(settings=None), SpotBurnEdit(action="run", points=points)
-    )
-    _, layer = _layer(previews.suggestion_picture)
-    assert layer.areas == []
-    # Spot burn points are dots.
-    assert layer.dots == [pytest.approx((100.0, 50.0)), pytest.approx((150.0, 25.0))]
-    assert layer.keys == [("dot", "spot burn points")]
     assert controller.overlays == {}
     previews.show_suggestion(None, None)
     assert previews.suggestion_picture is None and card.shown[True] is None
@@ -530,7 +667,7 @@ def test_a_suggested_area_and_spot_burn_points_are_drawn_on_the_card():
 def test_suggested_features_are_drawn_on_the_image_they_were_found_in():
     from types import SimpleNamespace
 
-    from fibsem.applications.autolamella.workflows.interaction import (
+    from fibsem.workflows.interaction import (
         ConfirmDetection,
     )
 
@@ -545,39 +682,10 @@ def test_suggested_features_are_drawn_on_the_image_they_were_found_in():
     assert card.shown[True][1].startswith("SEM")
 
 
-def test_a_suggested_answer_to_the_mill_question_draws_the_task_s_patterns():
-    # FIB-1424: "Run" suggested for RunMillingTask showed nothing, though the
-    # patterns are exactly what the operator approves.
-    from fibsem.applications.autolamella.workflows.interaction import (
-        RunMillingTask,
-    )
-    from fibsem.milling.base import FibsemMillingStage
-    from fibsem.milling.tasks import FibsemMillingTaskConfig
-
-    config = FibsemMillingTaskConfig.from_stages(
-        [
-            FibsemMillingStage(name="Trench"),
-            FibsemMillingStage(name="Off", enabled=False),
-        ],
-        name="Rough Milling",
-    )
-    controller = _Controller()
-    card = _Card()
-    previews = AgentPreviews(lambda: controller, show_picture=card)
-    previews.show_suggestion(RunMillingTask(config=config), None)
-    frame, layer = _layer(previews.suggestion_picture)
-    assert frame is controller.image(BeamType.ION)
-    trench = config.stages[0].define_patterns()
-    assert len(layer.patterns) == len(trench) and layer.fill
-    assert card.shown[True][1].startswith("Rough Milling · FIB")
-    previews.show_suggestion(None, None)
-    assert card.shown[True] is None
-
-
 def test_a_suggested_answer_to_a_position_question_shows_both_beams():
     # FIB-1424: "Continue" on Setup's position question showed nothing; the
     # agent checked it on a fresh SEM and FIB pair.
-    from fibsem.applications.autolamella.workflows.interaction import Confirm
+    from fibsem.workflows.interaction import Confirm
 
     controller = _Controller()  # 200 × 100 px each
     card = _Card()
@@ -596,13 +704,8 @@ def test_a_suggested_answer_to_a_position_question_shows_both_beams():
 
 def test_a_suggestion_shows_the_agent_s_own_image():
     # FIB-1424: the agent judged a position on its own image; the card shows
-    # that image, not the live views, and a mill on its own FIB image.
-    from fibsem.applications.autolamella.workflows.interaction import (
-        Confirm,
-        RunMillingTask,
-    )
-    from fibsem.milling.base import FibsemMillingStage
-    from fibsem.milling.tasks import FibsemMillingTaskConfig
+    # that image, not the live views.
+    from fibsem.workflows.interaction import Confirm
 
     evidence = FibsemImage.generate_blank_image(resolution=(400, 200), hfw=100e-6)
     evidence.metadata.image_settings.beam_type = BeamType.ION
@@ -615,12 +718,6 @@ def test_a_suggestion_shows_the_agent_s_own_image():
     frame, layer = _layer(previews.suggestion_picture)
     assert frame is evidence and layer.targets == [(200.0, 100.0)]
     assert card.shown[True][1].startswith("The agent's image · FIB")
-    config = FibsemMillingTaskConfig.from_stages(
-        [FibsemMillingStage(name="Trench")], name="Rough Milling"
-    )
-    previews.show_suggestion(RunMillingTask(config=config), None, image="/exp/a.tif")
-    frame, layer = _layer(previews.suggestion_picture)
-    assert frame is evidence and layer.patterns
 
 
 def test_a_suggested_point_is_on_the_card_until_the_suggestion_goes():
@@ -642,7 +739,7 @@ def test_the_legend_is_drawn_on_the_picture_at_its_own_size(qapp):
     # wide the image shows.
     from PyQt5.QtGui import QColor, QImage, QPainter
 
-    from fibsem.applications.autolamella.ui.agent_previews import draw_legend
+    from fibsem.ui.agent.previews import draw_legend
 
     sizes = []
     for width in (300, 900):
@@ -662,11 +759,11 @@ def test_the_legend_is_drawn_on_the_picture_at_its_own_size(qapp):
 def test_patterns_to_mill_are_filled_and_an_area_is_only_outlined(qapp):
     # FIB-1424 (decided): patterns as see-through solid areas, one colour;
     # dashed outlines only for what is not milled.
-    from fibsem.applications.autolamella.ui.agent_previews import (
+    from fibsem.ai.agent.request_text import parse_patterns
+    from fibsem.ui.agent.previews import (
         _Layer,
         draw_picture,
     )
-    from fibsem.server.request_text import parse_patterns
 
     frame = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=100e-6)
     milled = _Layer(PURPLE_COLOR, fill=True)
@@ -835,11 +932,11 @@ def test_a_pose_off_the_view_with_no_overview_draws_no_picture(monkeypatch):
 
 
 def test_past_the_field_off_the_picture_says_so():
-    from fibsem.applications.autolamella.ui.agent_previews import (
+    from fibsem.structures import FibsemRectangleSettings
+    from fibsem.ui.agent.previews import (
         _key_past_field,
         _Layer,
     )
-    from fibsem.structures import FibsemRectangleSettings
 
     frame = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=100e-6)
     layer = _Layer("#ff0000")
@@ -883,3 +980,31 @@ def test_the_agent_s_own_image_is_the_picture_with_the_values_on_it():
     stop["image"] = "/exp/ref_trench.tif"
     previews.show_request(stop)
     assert previews.request_picture[0] is evidence
+
+
+def test_a_pair_of_views_labels_each_half(qapp):
+    """Sim session 2026-10-16: "SEM and FIB · 05:16" captioned two images with
+    no label on either."""
+    from PyQt5.QtGui import QColor, QImage
+
+    from fibsem.ui.agent.previews import side_by_side
+
+    def black():
+        image = QImage(200, 120, QImage.Format_RGB32)
+        image.fill(QColor(0, 0, 0))
+        return image
+
+    plain = side_by_side([black(), black()])
+    labelled = side_by_side([black(), black()], labels=["SEM", "FIB"])
+    assert plain.size() == labelled.size()
+
+    def white_in(image, x0, x1):
+        return any(
+            QColor(image.pixel(x, y)).lightness() > 200
+            for x in range(x0, x1)
+            for y in range(0, 30)
+        )
+
+    assert not white_in(plain, 0, 60)
+    assert white_in(labelled, 0, 60)  # "SEM", top-left of the first half
+    assert white_in(labelled, 204, 264)  # "FIB", top-left of the second

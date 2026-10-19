@@ -9,14 +9,10 @@ from typing import List
 
 import pytest
 
-from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskStatus,
-    DefectType,
-    Experiment,
-    Lamella,
-)
+from fibsem.applications.autolamella.structures import DefectType, Experiment, Lamella
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.hooks import FunctionHook, HookContext, HookEvent, HookManager
+from fibsem.workflows.status import TaskStatus
 
 ALL_EVENTS = list(HookEvent)
 
@@ -46,7 +42,6 @@ def _manager(experiment: Experiment, hook_manager: HookManager) -> TaskManager:
     return TaskManager(
         microscope=_NoMicroscope(),
         experiment=experiment,
-        parent_ui=None,
         hook_manager=hook_manager,
     )
 
@@ -163,7 +158,7 @@ def _status_messages(monkeypatch) -> List[str]:
     captured: List[str] = []
     monkeypatch.setattr(
         "fibsem.applications.autolamella.workflows.tasks.manager.update_status_ui",
-        lambda parent_ui, msg, workflow_info=None, **kw: captured.append(workflow_info),
+        lambda run, msg, workflow_info=None, **kw: captured.append(workflow_info),
     )
     return captured
 
@@ -194,8 +189,8 @@ def test_completion_message_counts_partial_skips(experiment, recorder):
     hook_manager, _ = recorder
     manager = _manager(experiment, hook_manager)
     items = manager.queue.build_from_matrix(["MillTrench"], ["lam-1", "lam-2"])
-    manager.queue.mark_done(items[0], AutoLamellaTaskStatus.Skipped)
-    manager.queue.mark_done(items[1], AutoLamellaTaskStatus.Completed)
+    manager.queue.mark_done(items[0], TaskStatus.Skipped)
+    manager.queue.mark_done(items[1], TaskStatus.Completed)
 
     assert manager._completion_message() == "All tasks completed (1 skipped)."
 
@@ -204,7 +199,7 @@ def test_completion_message_unchanged_when_nothing_skipped(experiment, recorder)
     hook_manager, _ = recorder
     manager = _manager(experiment, hook_manager)
     items = manager.queue.build_from_matrix(["MillTrench"], ["lam-1"])
-    manager.queue.mark_done(items[0], AutoLamellaTaskStatus.Completed)
+    manager.queue.mark_done(items[0], TaskStatus.Completed)
 
     assert manager._completion_message() == "All tasks completed."
 

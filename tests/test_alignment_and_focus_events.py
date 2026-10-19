@@ -13,11 +13,6 @@ import pytest
 from fibsem import acquire, utils
 from fibsem.alignment import AlignmentSubsystem, multi_step_alignment_v2
 from fibsem.alignment.coincidence import check_coincidence
-from fibsem.applications.autolamella.event_recording import (
-    EVENTS_FILENAME,
-    EventRecorder,
-    read_events,
-)
 from fibsem.autofunctions.autofocus import (
     AutoFocusSettings,
     FocusSweepPass,
@@ -25,6 +20,11 @@ from fibsem.autofunctions.autofocus import (
 )
 from fibsem.cancellation import OperationCancelledError
 from fibsem.structures import BeamType, ImageSettings
+from fibsem.workflows.event_recording import (
+    EVENTS_FILENAME,
+    EventRecorder,
+    read_events,
+)
 
 
 @pytest.fixture
@@ -73,7 +73,7 @@ def test_an_alignment_is_one_event_with_every_step(microscope, recorded, tmp_pat
     assert alignment["steps"] == 2
     assert alignment["aborted"] is False
     assert [r["shift"] for r in alignment["results"]] == [
-        {"x": pytest.approx(r.shift.x), "y": pytest.approx(r.shift.y)}
+        {"x": pytest.approx(r.shift.x), "y": pytest.approx(r.shift.y), "name": None}
         for r in run.results
     ]
     assert alignment["validation"] is None

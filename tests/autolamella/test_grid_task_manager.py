@@ -18,17 +18,17 @@ from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
-    GridRecord,
 )
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus as Status
-from fibsem.applications.autolamella.task_outputs import grid_outputs
-from fibsem.applications.autolamella.workflows.tasks.grid import (
+from fibsem.cancellation import OperationCancelledError
+from fibsem.services.sample_handling import BUILTIN_SLOT_NAME
+from fibsem.structures import BeamType, ImageSettings, OverviewAcquisitionSettings
+from fibsem.workflows.grid import (
     BeamOverviewGridTaskConfig,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid import (
+from fibsem.workflows.grid import (
     manager as manager_module,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+from fibsem.workflows.grid.manager import (
     LOAD_ENTRY_NAME,
     SKIP_GRID_NOT_FOUND,
     SKIP_GRID_NOT_LOADED,
@@ -36,14 +36,14 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     SKIP_TASK_REMOVED,
     UNLOAD_ENTRY_NAME,
     GridTaskManager,
-    grid_has_run,
     plan_grid_run,
-    run_grid_tasks,
 )
-from fibsem.applications.autolamella.workflows.tasks.status import WorkflowStatusEvent
-from fibsem.cancellation import OperationCancelledError
-from fibsem.services.sample_handling import BUILTIN_SLOT_NAME
-from fibsem.structures import BeamType, ImageSettings, OverviewAcquisitionSettings
+from fibsem.workflows.grid.naming import grid_has_run
+from fibsem.workflows.grids import GridRecord
+from fibsem.workflows.outputs import item_outputs
+from fibsem.workflows.status import TaskStatus as Status
+from fibsem.workflows.status import WorkflowStatusEvent
+from tests.run_state import run_grids
 
 GRIDS = ["Grid-01", "Grid-02", "Grid-03"]  # what the sim magazine holds
 
@@ -57,11 +57,12 @@ class _Recorder:
 
 
 class RecordingUI:
-    """A recorder in place of AutoLamellaUI, which needs a live viewer."""
+    """A recorder in place of AutoLamellaUI, which needs a live viewer: it
+    hears the run's ``status`` as the window does."""
 
-    def __init__(self):
+    def __init__(self, manager: GridTaskManager):
         self.workflow_status_signal = _Recorder()
-        self._task_manager = None  # _check_for_abort reads this
+        manager.status.connect(self.workflow_status_signal.emit)
 
     @property
     def reports(self):
@@ -143,15 +144,19 @@ def run_with_stub(manager: GridTaskManager, task_names, grid_names, on_task=None
         grid.task_state.status_message = ""
         return None
 
-    manager.parent_ui._task_manager = manager
     manager._run_single_task = _run_single_task
     manager.run(task_names, grid_names)
     return executed
 
 
+def _listened(manager: GridTaskManager) -> GridTaskManager:
+    manager.ui = RecordingUI(manager)
+    return manager
+
+
 @pytest.fixture
 def manager(microscope, experiment) -> GridTaskManager:
-    return GridTaskManager(microscope, experiment, parent_ui=RecordingUI())
+    return _listened(GridTaskManager(microscope, experiment))
 
 
 def load_entries(grid: GridRecord):
@@ -179,8 +184,6 @@ class TestOrderAndLoading:
             ("Grid-02", LOAD_ENTRY_NAME),
             ("Grid-02", "overview_sem"),
         ]
-        assert manager.queue.task_names == ["overview_sem"]
-        assert manager.queue.item_names == ["Grid-01", "Grid-02"]
 
     def test_runs_grid_outer(self, manager):
         executed = run_with_stub(
@@ -271,15 +274,15 @@ class TestFailureIsolation:
         ]
         (load_report,) = [
             r
-            for r in manager.parent_ui.reports
+            for r in manager.ui.reports
             if r.task_name == LOAD_ENTRY_NAME and r.status is Status.Failed
         ]
         assert load_report.item_name == "Grid-01"
         assert "Simulated" in load_report.error_message
-        skipped = [r for r in manager.parent_ui.reports if r.status is Status.Skipped]
+        skipped = [r for r in manager.ui.reports if r.status is Status.Skipped]
         assert {r.skip_reason for r in skipped} == {SKIP_GRID_NOT_LOADED}
         assert all("Simulated" in r.error_message for r in skipped)
-        assert manager.parent_ui.workflow_info[-1] == (
+        assert manager.ui.workflow_info[-1] == (
             "Grid workflow complete: 1 of 2 grids run, 1 could not be loaded."
         )
 
@@ -311,14 +314,14 @@ class TestFailureIsolation:
             Status.Failed,
             Status.Completed,
         ]
-        assert manager.parent_ui.workflow_info[-1] == (
+        assert manager.ui.workflow_info[-1] == (
             "Grid workflow complete: 1 of 1 grids run, 1 task failed."
         )
 
     def test_an_unknown_grid_is_skipped_with_a_reason(self, manager):
         executed = run_with_stub(manager, ["overview_sem"], ["Grid-99", "Grid-01"])
         assert executed == [("Grid-01", "overview_sem")]
-        skipped = [r for r in manager.parent_ui.reports if r.status is Status.Skipped]
+        skipped = [r for r in manager.ui.reports if r.status is Status.Skipped]
         assert [(r.item_name, r.task_name) for r in skipped] == [
             ("Grid-99", LOAD_ENTRY_NAME),
             ("Grid-99", "overview_sem"),
@@ -349,7 +352,7 @@ class TestProtocolEditedMidRun:
             ("Grid-02", "overview_sem", Status.Completed),
             ("Grid-02", "overview_fib", Status.Skipped),
         ]
-        skipped = [r for r in manager.parent_ui.reports if r.status is Status.Skipped]
+        skipped = [r for r in manager.ui.reports if r.status is Status.Skipped]
         assert {r.skip_reason for r in skipped} == {SKIP_TASK_REMOVED}
 
     def test_a_grid_left_with_nothing_to_run_is_not_loaded(
@@ -376,7 +379,7 @@ class TestProtocolEditedMidRun:
         assert load_entries(experiment.get_grid_by_name("Grid-02")) == []
         skipped = {
             (r.item_name, r.task_name): r.skip_reason
-            for r in manager.parent_ui.reports
+            for r in manager.ui.reports
             if r.status is Status.Skipped
         }
         assert skipped == {
@@ -410,7 +413,6 @@ class TestProtocolEditedMidRun:
             raise KeyError("Grid task type 'NOT_A_TYPE' is not registered.")
 
         monkeypatch.setattr(manager_module, "run_grid_task", unregistered)
-        manager.parent_ui._task_manager = manager
         manager.run(["overview_sem"], ["Grid-01"])
 
         grid = experiment.get_grid_by_name("Grid-01")
@@ -430,7 +432,6 @@ class TestProtocolEditedMidRun:
             raise RuntimeError("beam off")
 
         monkeypatch.setattr(manager_module, "run_grid_task", fails_after_recording)
-        manager.parent_ui._task_manager = manager
         manager.run(["overview_sem"], ["Grid-01"])
 
         grid = experiment.get_grid_by_name("Grid-01")
@@ -450,7 +451,7 @@ class TestStopAndStatus:
         assert executed == [("Grid-01", "overview_sem")]
         # load + first task consumed; the other four still pending
         assert manager.queue.counts == (4, 6)
-        assert manager.parent_ui.workflow_info[-1] == "Grid workflow cancelled by user."
+        assert manager.ui.workflow_info[-1] == "Grid workflow cancelled by user."
         # The rows that never ran say nothing about the load, rather than
         # repeating the last load's outcome.
         df = manager.build_run_summary_dataframe()
@@ -486,7 +487,7 @@ class TestStopAndStatus:
         load_item, task_item = manager.queue.items
         assert load_item.status is Status.Cancelled
         assert task_item.status is Status.NotStarted
-        assert manager.parent_ui.workflow_info[-1] == "Grid workflow cancelled by user."
+        assert manager.ui.workflow_info[-1] == "Grid workflow cancelled by user."
         # Cancelled is not "could not be loaded": nothing refused the grid.
         assert "Grid-02" not in manager._not_loaded
 
@@ -515,7 +516,7 @@ class TestStopAndStatus:
         load_item, task_item = manager.queue.items
         assert load_item.status is Status.Completed
         assert task_item.status is Status.NotStarted
-        assert manager.parent_ui.workflow_info[-1] == "Grid workflow cancelled by user."
+        assert manager.ui.workflow_info[-1] == "Grid workflow cancelled by user."
 
     def test_stop_before_the_exchange_loads_nothing(
         self, manager, experiment, microscope
@@ -534,9 +535,7 @@ class TestStopAndStatus:
 
     def test_reports_name_the_grid_and_track_the_queue(self, manager):
         run_with_stub(manager, ["overview_sem"], ["Grid-01", "Grid-02"])
-        reports = [
-            r for r in manager.parent_ui.reports if r.task_name != LOAD_ENTRY_NAME
-        ]
+        reports = [r for r in manager.ui.reports if r.task_name != LOAD_ENTRY_NAME]
         assert [(r.item_name, r.status) for r in reports] == [
             ("Grid-01", Status.InProgress),
             ("Grid-01", Status.Completed),
@@ -606,7 +605,7 @@ class TestEndOfRun:
         df = manager.build_run_summary_dataframe()
         assert df.iloc[-1].task_name == UNLOAD_ENTRY_NAME
         assert df.iloc[-1].completed_at != ""
-        assert "Grid workflow complete" in manager.parent_ui.workflow_info[-1]
+        assert "Grid workflow complete" in manager.ui.workflow_info[-1]
 
     def test_without_it_the_last_grid_stays_loaded(
         self, manager, experiment, microscope
@@ -651,16 +650,14 @@ class TestEndOfRun:
         assert entry.status_message == "magazine door open"
         assert manager.queue.items[-1].status is Status.Failed
         assert not manager.is_stopped and not manager.stalled
-        assert manager.parent_ui.workflow_info[-1].endswith(
-            "Grid-01 could not be unloaded."
-        )
+        assert manager.ui.workflow_info[-1].endswith("Grid-01 could not be unloaded.")
 
     def test_an_unload_entry_does_not_fix_a_grids_name(self, experiment):
-        from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+        from fibsem.workflows.status import TaskState
 
         grid = experiment.get_grid_by_name("Grid-01")
         for name in (LOAD_ENTRY_NAME, UNLOAD_ENTRY_NAME):
-            grid.task_history.append(AutoLamellaTaskState(name=name))
+            grid.task_history.append(TaskState(name=name))
         assert not grid_has_run(grid)
 
     def test_the_report_is_written_after_the_unload(
@@ -714,14 +711,14 @@ class TestEndOfRun:
         with caplog.at_level("WARNING"):
             run_with_stub(manager, ["overview_sem"], ["Grid-01"])
         assert "The grid screening report was not written" in caplog.text
-        assert "Grid workflow complete" in manager.parent_ui.workflow_info[-1]
+        assert "Grid workflow complete" in manager.ui.workflow_info[-1]
         assert all(i.status is Status.Completed for i in manager.queue.items)
 
     def test_headless_takes_the_same_options(
         self, microscope, experiment, monkeypatch, tmp_path
     ):
         pytest.importorskip("reportlab")
-        manager = run_grid_tasks(
+        manager = run_grids(
             microscope,
             experiment,
             task_names=["overview_sem"],
@@ -748,7 +745,7 @@ class TestEndToEnd:
                 settings=_small_settings(BeamType.ION),
             )
         )
-        manager = run_grid_tasks(
+        manager = run_grids(
             microscope,
             experiment,
             task_names=["overview_milling"],
@@ -756,7 +753,7 @@ class TestEndToEnd:
         )
         assert all(i.status is Status.Completed for i in manager.queue.items)
         grid = experiment.get_grid_by_name("Grid-01")
-        (path,) = grid_outputs(experiment, grid, "overview_fib")
+        (path,) = item_outputs(experiment, grid, "overview_fib")
         assert path.startswith(
             str(tmp_path / "exp" / "grids" / "Grid-01" / "overview_milling")
         )
@@ -767,9 +764,7 @@ class TestEndToEnd:
     def test_real_overviews_land_under_each_grid(
         self, microscope, experiment, tmp_path
     ):
-        manager = run_grid_tasks(
-            microscope, experiment, grid_names=["Grid-01", "Grid-02"]
-        )
+        manager = run_grids(microscope, experiment, grid_names=["Grid-01", "Grid-02"])
         assert all(i.status is Status.Completed for i in manager.queue.items)
         for name in ("Grid-01", "Grid-02"):
             grid = experiment.get_grid_by_name(name)
@@ -779,7 +774,7 @@ class TestEndToEnd:
                 "overview_fib",
             ]
             for role in ("overview_sem", "overview_fib"):
-                (path,) = grid_outputs(experiment, grid, role)
+                (path,) = item_outputs(experiment, grid, role)
                 assert path.startswith(str(tmp_path / "exp" / "grids" / name / role))
         # the run saved as it went: the record on disk carries the history
         loaded = Experiment.load(tmp_path / "exp" / "experiment.yaml")

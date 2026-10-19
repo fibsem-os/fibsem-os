@@ -2,12 +2,11 @@
 
 The real task, the real model: a supervised or automated Mill Undercut on the
 Demo microscope with the waffle checkpoint, four detections in one run (two in
-the coincident alignment, one per undercut, one to finish). With the review
-preference on each is a ``detection`` question through ``ask``; headless
-nobody answers, so each goes on the record as proposed, ``Unreviewed``, on the
-image the model ran on, and the training data is written as the Detection
-tab writes it. With the preference off it is ``update_detection_ui`` exactly
-as before.
+the coincident alignment, one per undercut, one to finish). Each is a
+``detection`` question through ``ask``, whether the review preference is on
+or off; headless nobody answers, so each goes on the record as proposed,
+``Unreviewed``, on the image the model ran on, and the training data is
+written as the Detection tab writes it.
 
 Needs the ``ml`` extra and the checkpoint already in the Hugging Face cache;
 skipped otherwise (nothing here downloads).
@@ -23,22 +22,12 @@ pytest.importorskip("segmentation_models_pytorch")
 
 import fibsem.config as fibsem_config
 from fibsem import utils
-from fibsem.applications.autolamella.proposals import (
-    DETECTION,
-    TASK_RESULT,
-    Decision,
-    DecisionOutcome,
-)
 from fibsem.applications.autolamella.structures import (
-    Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     AutoLamellaWorkflowConfig,
     Experiment,
 )
-from fibsem.applications.autolamella.workflows import core as C
-from fibsem.applications.autolamella.workflows.tasks import base as B
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.applications.autolamella.workflows.tasks.undercut import (
@@ -46,6 +35,9 @@ from fibsem.applications.autolamella.workflows.tasks.undercut import (
     MillUndercutTaskConfig,
 )
 from fibsem.structures import Point
+from fibsem.workflows.attention import Attention
+from fibsem.workflows.proposals import DETECTION, TASK_RESULT, Decision, DecisionOutcome
+from fibsem.workflows.status import TaskStatus
 
 UNDERCUT = "Mill Undercut"
 CHECKPOINT = "autolamella-waffle-20240107.pt"
@@ -106,15 +98,13 @@ def _experiment(tmp_path: Path, microscope, attention=Attention.automated):
     return exp
 
 
-def _task(microscope, exp, review_enabled=True) -> MillUndercutTask:
-    manager = TaskManager(microscope=microscope, experiment=exp, parent_ui=None)
-    manager.review_enabled = review_enabled
+def _task(microscope, exp) -> MillUndercutTask:
+    manager = TaskManager(microscope=microscope, experiment=exp)
     lamella = exp.positions[0]
     return MillUndercutTask(
         microscope=microscope,
         config=lamella.task_config[UNDERCUT],
         lamella=lamella,
-        parent_ui=None,
         task_manager=manager,
     )
 
@@ -131,10 +121,10 @@ def test_headless_every_detection_goes_on_the_record_unreviewed(
 
     _task(microscope, exp).run()
 
-    assert [p.kind for p in lamella.proposals[UNDERCUT]] == [DETECTION] * 4 + [
+    assert [p.kind for p in lamella.proposals_from(UNDERCUT)] == [DETECTION] * 4 + [
         TASK_RESULT
     ], "two in the coincident alignment, one per undercut, one to finish"
-    detections = [p for p in lamella.proposals[UNDERCUT] if p.kind == DETECTION]
+    detections = [p for p in lamella.proposals_from(UNDERCUT) if p.kind == DETECTION]
     assert [p.provenance["features"] for p in detections] == [
         ["LamellaCentre"],
         ["LamellaCentre"],
@@ -160,35 +150,7 @@ def test_headless_every_detection_goes_on_the_record_unreviewed(
     assert detections[0].provenance["reference_image"].endswith("_eb.tif"), (
         "the first coincident detection is on the electron image"
     )
-    assert lamella.task_state.status is AutoLamellaTaskStatus.Completed
-
-
-def test_with_the_preference_off_the_detection_tab_prompt_asks_as_before(
-    microscope, tmp_path, checkpoint, monkeypatch
-):
-    calls = []
-    real = B.update_detection_ui
-
-    def counted(**kwargs):
-        calls.append(kwargs["features"][0].name)
-        return real(**kwargs)
-
-    monkeypatch.setattr(B, "update_detection_ui", counted)
-    monkeypatch.setattr(C, "update_detection_ui", counted)
-    exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
-    lamella = exp.positions[0]
-
-    _task(microscope, exp, review_enabled=False).run()
-
-    assert calls == [
-        "LamellaCentre",
-        "LamellaCentre",
-        "LamellaTopEdge",
-        "LamellaCentre",
-    ]
-    assert [p.kind for p in lamella.proposals[UNDERCUT]] == [TASK_RESULT], (
-        "no record of the detections"
-    )
+    assert lamella.task_state.status is TaskStatus.Completed
 
 
 def test_a_rejected_detection_fails_the_task(
@@ -199,7 +161,7 @@ def test_a_rejected_detection_fails_the_task(
 
     def rejected(self, *args, **kwargs):
         return Decision(
-            outcome=DecisionOutcome.Rejected, author="human:op", reason="off target"
+            outcome=DecisionOutcome.Rejected, actor="operator:op", reason="off target"
         )
 
     monkeypatch.setattr(AutoLamellaTask, "ask", rejected)
@@ -209,4 +171,4 @@ def test_a_rejected_detection_fails_the_task(
     with pytest.raises(RuntimeError, match="rejected: off target"):
         _task(microscope, exp).run()
 
-    assert lamella.task_state.status is AutoLamellaTaskStatus.Failed
+    assert lamella.task_state.status is TaskStatus.Failed

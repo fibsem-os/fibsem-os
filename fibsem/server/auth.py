@@ -36,11 +36,9 @@ from typing import Callable, Iterator, List, Optional
 from fastapi import HTTPException, Request
 
 from fibsem.acting import AGENT, current_actor
+from fibsem.ai.agent.calls import current_call
+from fibsem.ai.agent.levels import AgentLevel
 from fibsem.control import MicroscopeBusy
-from fibsem.server.calls import current_call
-
-# Re-exported: AgentLevel lives where the GUI can import it without FastAPI.
-from fibsem.server.levels import AgentLevel
 
 # What each level reaches, in order: a route needing a level is open at it and
 # every level above.
@@ -361,7 +359,7 @@ def take_control(request: Request):
     control = request.app.state.microscope.control
     taking = control.take(current_actor() or AGENT, described_action(request))
     try:
-        taking.__enter__()
+        entry = taking.__enter__()
     except MicroscopeBusy as busy:
         raise HTTPException(
             status_code=409,
@@ -382,6 +380,7 @@ def take_control(request: Request):
             taking.__exit__(None, None, None)
 
     request.state.release_control = release
+    request.state.control_entry = entry
     # Entered and exited by hand, not ``with``: an exception from the route is
     # thrown in here, and must reach FastAPI as it is.
     try:
@@ -394,8 +393,10 @@ def take_control(request: Request):
 def adopt_control(request: Request) -> Optional[Callable[[], None]]:
     """Keep the control of the microscope this request took past its answer,
     for a long command that runs on (`fibsem.devices.runs`). Returns what gives
-    it up, which the run calls when it ends; None when the request took none."""
+    it up, which the run calls when it ends; None when the request took none.
+    Its starter may act beside it while it runs (`Control.let_act_beside`)."""
     release = getattr(request.state, "release_control", None)
     if release is not None:
         request.state.control_adopted = True
+        request.app.state.microscope.control.let_act_beside(request.state.control_entry)
     return release

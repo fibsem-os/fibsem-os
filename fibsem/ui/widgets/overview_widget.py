@@ -66,6 +66,7 @@ from fibsem.fm.composite import auto_clim
 from fibsem.geometry.projection import BeamStageProjection
 from fibsem.imaging import tiled
 from fibsem.imaging.reduce import downsample, downsample_mask
+from fibsem.imaging.tiled import stamped_overview_name
 from fibsem.imaging.tiling import unreachable_tiles
 from fibsem.imaging.tiling.progress import (
     MODALITY_BEAM,
@@ -141,9 +142,6 @@ from fibsem.ui.widgets.custom_widgets import (
 )
 from fibsem.ui.widgets.fibsem_overview_settings_widget import (
     FibsemOverviewSettingsWidget,
-)
-from fibsem.ui.widgets.overview_acquisition_settings_widget import (
-    stamped_overview_name,
 )
 from fibsem.ui.widgets.overview_confirmation_dialog import OverviewConfirmationDialog
 from fibsem.ui.widgets.overview_list_widget import OverviewListWidget
@@ -569,7 +567,7 @@ class FibsemOverviewWidget(QWidget):
     image_display_changed = pyqtSignal(str)
 
     # Internal hops from a worker thread to the GUI thread. `imaging.tiled_progress`
-    # and `stage_position_changed` are psygnals, which call their callbacks
+    # and `stage.position.changed` are psygnals, which call their callbacks
     # synchronously on whichever thread emitted -- during a run, the acquisition
     # worker. Touching widgets from there is a cross-thread GUI access; re-emitting as
     # a Qt signal gets it queued onto the GUI thread, because this widget lives there.
@@ -681,8 +679,12 @@ class FibsemOverviewWidget(QWidget):
         # torn down was a segfault.
         if self.microscope.imaging is not None:
             self.microscope.imaging.tiled_progress.connect(self._on_progress)
-        self.microscope.stage_position_changed.connect(self._on_stage_signal)
-        self.microscope.holder_changed.connect(self._on_holder_changed)
+        if self.microscope.stage is not None:
+            self.microscope.stage.position.changed.connect(self._on_stage_signal)
+        if self.microscope.sample_handling is not None:
+            self.microscope.sample_handling.holder_changed.connect(
+                self._on_holder_changed
+            )
 
         self._refresh_current_position()
         self._refresh_context_overlays()
@@ -1970,7 +1972,7 @@ class FibsemOverviewWidget(QWidget):
             return image_pixels, targets
 
         def preview(pairs, fix_scale):
-            from fibsem.correlation.similarity import fit_similarity
+            from fibsem.geometry.similarity import fit_similarity
 
             image_pixels, targets = to_canvas(pairs)
             placed = [
@@ -1981,7 +1983,7 @@ class FibsemOverviewWidget(QWidget):
         per_px = (self.canvas.reference_pixel_size or 0.0) * constants.SI_TO_MICRO
 
         def hint(pairs, fix_scale):
-            from fibsem.correlation.similarity import looks_mirrored
+            from fibsem.geometry.similarity import looks_mirrored
 
             image_pixels, targets = to_canvas(pairs)
             placed = [
@@ -2099,13 +2101,9 @@ class FibsemOverviewWidget(QWidget):
     def _settings(self) -> Optional[OverviewAcquisitionSettings]:
         """The planned acquisition, read from the settings widget.
 
-        Note what `OverviewAcquisitionSettingsWidget.get_settings()` actually does: it
-        *mutates and returns the widget's own* `ImageSettings`, resetting `path` from
-        its text box among other fields. So the object it hands back is shared, and
-        every later call rewrites it.
-
-        That is safe to read from here only because `acquire` deep-copies before giving
-        anything to the runner. Before it did, this exact call -- reached from an
+        `acquire` deep-copies what this returns before giving anything to the runner.
+        Before it did, a settings widget that handed back its own shared
+        `ImageSettings` let this exact call -- reached from an
         overlay refresh when the stage moved between tiles -- reset a running
         acquisition's output path to None, and the second tile died in
         `os.path.join(None, filename)`. The first tile had already succeeded, so it
@@ -3629,7 +3627,7 @@ class FibsemOverviewWidget(QWidget):
             # part-way has still left the stage somewhere, and the marker should say
             # where rather than where it set off from.
             #
-            # Publishes the new position through `stage_position_changed`, which is what
+            # Publishes the new position through `stage.position.changed`, which is what
             # re-marks it -- rather than assuming the stage arrived exactly where it was
             # asked to, which on a real instrument it does not.
             try:
@@ -3972,8 +3970,8 @@ class FibsemOverviewWidget(QWidget):
         # SEM @ SEM.
         #
         # Resolved against a **live** read, which is why the read is here. The cache is
-        # refreshed by `stage_position_changed`, and that is emitted by
-        # `get_stage_position` -- so a move nobody polled after is a move this tab never
+        # refreshed by `stage.position.changed`, and that is emitted by a read or move
+        # of the stage device -- so a move nobody read after is a move this tab never
         # heard about (FIB-669). Tolerable for a marker, not for the value a run is
         # centred on: the runner drives to each tile absolutely, z and tilt included, so
         # a stale pose is the stage being pushed back to one the user has since left
@@ -4275,10 +4273,18 @@ class FibsemOverviewWidget(QWidget):
         # objects that `close` has already torn down on the C++ side, so the next emit
         # writes into freed memory. Closing the tab and then moving the stage from
         # anywhere else in the application was a hard segfault, not an exception.
-        subscriptions = [
-            (self.microscope.stage_position_changed, self._on_stage_signal),
-            (self.microscope.holder_changed, self._on_holder_changed),
-        ]
+        subscriptions = []
+        if self.microscope.stage is not None:
+            subscriptions.append(
+                (self.microscope.stage.position.changed, self._on_stage_signal)
+            )
+        if self.microscope.sample_handling is not None:
+            subscriptions.append(
+                (
+                    self.microscope.sample_handling.holder_changed,
+                    self._on_holder_changed,
+                )
+            )
         if self.microscope.imaging is not None:
             subscriptions.append(
                 (self.microscope.imaging.tiled_progress, self._on_progress)

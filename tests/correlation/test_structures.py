@@ -15,6 +15,7 @@ from fibsem.correlation.structures import (
     PointType,
     PointXYZ,
 )
+from fibsem.correlation.upgrade import upgrade_result
 from fibsem.structures import Point
 
 # ---------------------------------------------------------------------------
@@ -54,7 +55,7 @@ def _make_result() -> CorrelationResult:
         poi=[_make_poi(100.0, 200.0)],
         scale=1.5,
         rotation_eulers=[10.0, 20.0, 30.0],
-        rotation_quaternion=[0.9, 0.1, 0.2, 0.3],
+        rotation_matrix=[0.9, 0.1, 0.2, 0.3],
         translation=[1.0, 2.0, 3.0],
         rms_error=0.42,
         mean_absolute_error=[0.3, 0.5],
@@ -212,6 +213,24 @@ class TestCorrelationResultSerialization:
         assert math.isclose(r2.delta_2d[0].x, 0.1)
         assert len(r2.reprojected_3d) == 1
         assert math.isclose(r2.reprojected_3d[0].z, 3.0)
+
+    def test_rotation_matrix_roundtrips_under_its_own_key(self):
+        rotation = [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]
+        d = CorrelationResult(rotation_matrix=rotation).to_dict()
+        assert d["rotation_matrix"] == rotation
+        assert "rotation_quaternion" not in d
+        assert CorrelationResult.from_dict(d).rotation_matrix == rotation
+
+    def test_a_run_saved_with_the_old_rotation_key_still_loads(self):
+        """Runs saved before the rename stored the same 3x3 matrix as
+        ``rotation_quaternion``."""
+        rotation = [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]
+        d = CorrelationResult().to_dict()
+        del d["rotation_matrix"]
+        d["rotation_quaternion"] = rotation
+        assert (
+            CorrelationResult.from_dict(upgrade_result(d)).rotation_matrix == rotation
+        )
 
     def test_save_load(self, tmp_path):
         r = _make_result()

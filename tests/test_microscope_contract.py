@@ -1092,14 +1092,18 @@ def test_demo_fm_snaps_excitation_to_its_bands(caplog):
     assert "set to the nearest, 450" in caplog.text
 
 
-def test_demo_fm_names_a_numeric_emission_as_its_multi_band_filter():
-    """The simulator's filter set has no bands, so a wavelength means its multi-band
-    filter, as Thermo reports one."""
+def test_demo_fm_names_a_banded_emission_as_its_multi_band_filter():
+    """The simulator's filter set has no bands, so a banded filter means its
+    multi-band filter, as Thermo reports one."""
+    from fibsem.fm.structures import REFLECTION, EmissionFilter
+
     microscope = _connect("Demo", FM_CONFIGURATION)
-    microscope.fm.filter_set.emission_wavelength = 520.0
-    assert microscope.fm.filter_set.emission_wavelength == "Fluorescence"
-    microscope.fm.filter_set.emission_wavelength = None
-    assert microscope.fm.filter_set.emission_wavelength is None
+    microscope.fm.filter_set.emission_filter = EmissionFilter("GFP", low=510, high=560)
+    assert microscope.fm.filter_set.emission_filter == EmissionFilter(
+        "Fluorescence", multi_band=True
+    )
+    microscope.fm.filter_set.emission_filter = REFLECTION
+    assert microscope.fm.filter_set.emission_filter == REFLECTION
 
 
 def test_fm_image_metadata_is_the_state_it_was_taken_in(fm_microscope):

@@ -17,7 +17,12 @@ from fibsem.applications.autolamella.workflows.tasks.fiducial import (
 from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
     SpotBurnFiducialTaskConfig,
 )
-from fibsem.fm.structures import AutoFocusSettings, ChannelSettings, FocusSweepPass
+from fibsem.fm.structures import (
+    AutoFocusSettings,
+    ChannelSettings,
+    EmissionFilter,
+    FocusSweepPass,
+)
 from fibsem.fm.timing import estimate_acquisition_time, estimate_autofocus_time
 from fibsem.structures import Point
 
@@ -161,7 +166,7 @@ def _channel(exposure: float) -> ChannelSettings:
     return ChannelSettings(
         name="DAPI",
         excitation_wavelength=365,
-        emission_wavelength=450,
+        emission_filter=EmissionFilter("450 nm", low=450),
         power=0.5,
         exposure_time=exposure,
     )

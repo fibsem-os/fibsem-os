@@ -50,7 +50,7 @@ class TestTheOrder:
 
         thumbnail = _statement_index(tree, lambda d: "save_thumbnail" in d)
         status = _statement_index(
-            tree, lambda d: "AutoLamellaTaskStatus" in d and "Completed" in d
+            tree, lambda d: "TaskStatus" in d and "Completed" in d
         )
 
         assert thumbnail != -1, "post_task no longer saves a thumbnail"
@@ -82,7 +82,6 @@ def task(tmp_path):
     """A real task, run through `post_task`. Only `_run` is abstract."""
     from fibsem import utils
     from fibsem.applications.autolamella.structures import (
-        AutoLamellaTaskState,
         Lamella,
     )
 
@@ -90,6 +89,7 @@ def task(tmp_path):
     # unset, so the base class cannot be instantiated on its own.
     from fibsem.applications.autolamella.workflows.tasks import MillTrenchTaskConfig
     from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
+    from fibsem.workflows.status import TaskState
 
     class _Task(AutoLamellaTask):
         def _run(self):  # pragma: no cover - never called here
@@ -97,7 +97,7 @@ def task(tmp_path):
 
     microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
     lamella = Lamella(path=str(tmp_path / "lam"), number=1, petname="test")
-    lamella.task_state = AutoLamellaTaskState(name="TestTask")
+    lamella.task_state = TaskState(name="TestTask")
     return _Task(
         microscope=microscope,
         config=MillTrenchTaskConfig(task_name="TestTask"),
@@ -125,8 +125,10 @@ class TestItActuallyBehaves:
             f"finished should already be the one on disk when the status is announced"
         )
 
-    def test_a_failing_thumbnail_does_not_stop_the_task_completing(self, task, monkeypatch):
-        from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+    def test_a_failing_thumbnail_does_not_stop_the_task_completing(
+        self, task, monkeypatch
+    ):
+        from fibsem.workflows.status import TaskStatus
 
         def exploding(self, image):
             raise RuntimeError("disk went away")
@@ -136,7 +138,7 @@ class TestItActuallyBehaves:
 
         task.post_task()
 
-        assert task.lamella.task_state.status is AutoLamellaTaskStatus.Completed, (
+        assert task.lamella.task_state.status is TaskStatus.Completed, (
             "a thumbnail failure stopped a finished task being marked Completed — the "
             "picture is worth far less than an accurate task state"
         )

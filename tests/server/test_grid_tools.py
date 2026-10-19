@@ -15,12 +15,13 @@ pytest.importorskip("httpx")  # TestClient transport
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+from fibsem.ai.agent.catalog import CATALOG, route_call  # noqa: E402
+from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
+from fibsem.ai.agent.request_text import describe_action  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.auth import AgentLevel  # noqa: E402
-from fibsem.server.catalog import CATALOG, route_call  # noqa: E402
-from fibsem.server.request_text import describe_action  # noqa: E402
 from tests.fixtures.demo_stage import demo_grid_loader, demo_session  # noqa: E402
-from tests.server.test_agent_requests import Host, RecordingContext  # noqa: E402
+from tests.run_state import stub_session  # noqa: E402
+from tests.server.test_agent_requests import RecordingContext  # noqa: E402
 
 TOKEN = "agent"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -203,7 +204,7 @@ SLOTS = {
             "grid_move_to",
             {"grid_name": "G1"},
             SLOTS,
-            "Move to grid 'G1': it is not on the stage, so it will be refused",
+            "Move to grid 'G1' (not on the stage yet)",
         ),
     ],
 )
@@ -223,8 +224,21 @@ def test_a_grid_action_reads_as_what_the_loader_will_do(
     assert generic == described
 
 
+def test_a_load_after_an_unload_step_doesn_t_say_the_unload_again():
+    """Sim session 2026-10-16: "(unloads 'Grid-01' first)" after a step that
+    unloads it."""
+    from fibsem.ai.agent.request_text import describe_actions
+
+    unload, load = describe_actions(
+        [("grid_unload", {}, "/x"), ("grid_load", {"grid_name": "G2"}, "/x")],
+        read=EXCHANGE.get,
+    )
+    assert unload["change"] == "Return grid 'G1' to the magazine"
+    assert load["change"] == "Load grid 'G2' from Slot-02"
+
+
 def test_assist_asks_for_an_exchange_and_the_operator_reads_it(arctis, tmp_path):
-    host = Host()
+    host = stub_session()
     host.microscope = arctis
     auth = AuthConfig(token=TOKEN, dashboard_token="dashboard")
     auth.set_level(AgentLevel.ASSIST)
@@ -265,7 +279,7 @@ def recording(arctis, tmp_path):
         Experiment,
     )
 
-    host = Host()
+    host = stub_session()
     host.microscope = arctis
     (tmp_path / "grids-exp").mkdir()
     host.experiment = Experiment(path=tmp_path, name="grids-exp")
@@ -316,10 +330,7 @@ def test_a_grid_with_no_record_yet_is_named_on_its_slot(recording, arctis):
 
 
 def test_a_rename_the_grids_tab_would_refuse_is_refused(recording, arctis):
-    from fibsem.applications.autolamella.structures import (
-        AutoLamellaTaskState,
-        AutoLamellaTaskStatus,
-    )
+    from fibsem.workflows.status import TaskState, TaskStatus
 
     _call(recording, "grid_add")
     taken = _call(recording, "grid_rename", grid_name="G1", name="G2")
@@ -327,7 +338,7 @@ def test_a_rename_the_grids_tab_would_refuse_is_refused(recording, arctis):
     assert taken.json()["detail"]["message"] == "There is already a grid named G2."
 
     recording.host.experiment.get_grid_by_name("G1").task_history.append(
-        AutoLamellaTaskState(name="Overview", status=AutoLamellaTaskStatus.Completed)
+        TaskState(name="Overview", status=TaskStatus.Completed)
     )
     ran = _call(recording, "grid_rename", grid_name="G1", name="Lyso-1")
     assert ran.status_code == 422
@@ -338,11 +349,11 @@ def test_a_rename_the_grids_tab_would_refuse_is_refused(recording, arctis):
     assert missing.status_code == 404
     assert missing.json()["detail"]["grid_names"] == ["G1", "G2", "Grid-03"]
 
-    recording.host.is_workflow_running = True
+    recording.host.runner.is_running = True
     try:
         running = _call(recording, "grid_rename", grid_name="G2", name="Lyso-2")
     finally:
-        recording.host.is_workflow_running = False
+        recording.host.runner.is_running = False
     assert running.status_code == 409
 
 

@@ -56,12 +56,15 @@ def mount_transform_from_name(name: Optional[str]) -> CameraImageTransform:
 
 
 class Camera(Device):
+    # The limits and choices here are for a form with no camera: every driver
+    # reports its own.
     exposure_time = DeviceParameter(
         float,
         unit="s",
+        limits=RangeLimit(1e-3, 10.0),
         display=Display("Exposure Time", scale=1e3, step=1.0, decimals=1),
     )
-    binning = DeviceParameter(int, display=Display("Binning"))
+    binning = DeviceParameter(int, choices=(1, 2, 4, 8), display=Display("Binning"))
     gain = DeviceParameter(
         float,
         limits=RangeLimit(0.0, 1.0),
@@ -126,6 +129,7 @@ class LightSource(Device):
 
     power = DeviceParameter(
         float,
+        limits=RangeLimit(0.0, 1.0),
         doc="A fraction of the source's maximum, 0 to 1.",
         display=Display("Power", scale=100, unit="%", step=1.0, decimals=1),
     )

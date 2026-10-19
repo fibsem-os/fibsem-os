@@ -4,7 +4,7 @@ does (FIB-1044).
 The task manager, the one path headless and GUI runs share, finds the
 microscope's recorder -- the app keeps one from connecting -- or makes one for
 the run, and registers its lifecycle hook for the run. Real tasks through
-``run_tasks`` on Demo, read back from ``events.jsonl``.
+a session's runner on Demo, read back from ``events.jsonl``.
 """
 
 import os
@@ -15,12 +15,6 @@ from psygnal.containers import EventedDict
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.applications.autolamella.event_recording import (
-    EVENTS_FILENAME,
-    EventRecorder,
-    read_events,
-    recorder_for,
-)
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
@@ -28,14 +22,20 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.applications.autolamella.workflows.tasks import manager as manager_module
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-    run_grid_tasks,
-)
-from fibsem.applications.autolamella.workflows.tasks.manager import run_tasks
 from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTaskConfig,
 )
 from fibsem.hooks import HookManager
+from fibsem.workflows.event_recording import (
+    EVENTS_FILENAME,
+    EventRecorder,
+    read_events,
+    recorder_for,
+)
+from fibsem.workflows.grid.manager import (
+    GridTaskManager,
+)
+from tests.run_state import run_lamellae
 
 SETUP = "Setup Lamella Position"
 CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
@@ -79,7 +79,7 @@ def _kinds(records):
 
 
 def test_a_run_without_the_gui_records_its_events(microscope, experiment):
-    run_tasks(microscope, experiment, [SETUP])
+    run_lamellae(microscope, experiment, [SETUP])
 
     records = list(read_events(Path(experiment.path) / EVENTS_FILENAME))
     kinds = _kinds(records)
@@ -105,7 +105,7 @@ def test_a_run_records_through_the_recorder_the_app_keeps(microscope, experiment
     )
     hooks = HookManager()
     try:
-        run_tasks(microscope, experiment, [SETUP], hook_manager=hooks)
+        run_lamellae(microscope, experiment, [SETUP], hook_manager=hooks)
 
         kinds = _kinds(kept.buffer.events_since(0)["events"])
         assert kinds.count("task_started") == 1
@@ -116,7 +116,7 @@ def test_a_run_records_through_the_recorder_the_app_keeps(microscope, experiment
         kept.close()
 
 
-def test_a_run_that_raises_still_closes_the_recorder_it_made(
+def test_a_run_that_breaks_still_closes_the_recorder_it_made(
     microscope, experiment, monkeypatch
 ):
     def fail(self):
@@ -124,8 +124,7 @@ def test_a_run_that_raises_still_closes_the_recorder_it_made(
 
     monkeypatch.setattr(manager_module.TaskManager, "_run_items", fail)
 
-    with pytest.raises(RuntimeError):
-        run_tasks(microscope, experiment, [SETUP])
+    run_lamellae(microscope, experiment, [SETUP])
 
     # closed (the fixture checks), and what it recorded is on disk: the run's
     # failure included, recorded before the recorder closed (FIB-1327)
@@ -133,7 +132,7 @@ def test_a_run_that_raises_still_closes_the_recorder_it_made(
     assert kinds == ["workflow_started", "workflow_failed"]
 
 
-def test_a_run_that_raises_leaves_the_recorder_it_found_open(
+def test_a_run_that_breaks_leaves_the_recorder_it_found_open(
     microscope, experiment, monkeypatch
 ):
     def fail(self):
@@ -142,8 +141,7 @@ def test_a_run_that_raises_leaves_the_recorder_it_found_open(
     monkeypatch.setattr(manager_module.TaskManager, "_run_items", fail)
     kept = EventRecorder(microscope, experiment_path=experiment.path)
     try:
-        with pytest.raises(RuntimeError):
-            run_tasks(microscope, experiment, [SETUP])
+        run_lamellae(microscope, experiment, [SETUP])
 
         assert recorder_for(microscope) is kept and kept.writer.alive
     finally:
@@ -151,7 +149,7 @@ def test_a_run_that_raises_leaves_the_recorder_it_found_open(
 
 
 def test_a_grid_run_without_the_gui_records_its_events(microscope, experiment):
-    run_grid_tasks(microscope, experiment, task_names=[], grid_names=[])
+    GridTaskManager(microscope, experiment).execute([], [])
 
     kinds = _kinds(read_events(Path(experiment.path) / EVENTS_FILENAME))
     assert kinds == ["workflow_started", "workflow_completed"]
@@ -226,7 +224,7 @@ def test_a_run_s_end_is_the_task_s_in_the_app_s_stream(microscope, experiment):
         default_actor=OPERATOR,
     )
     try:
-        run_tasks(microscope, experiment, [SETUP])
+        run_lamellae(microscope, experiment, [SETUP])
         records = kept.buffer.events_since(0)["events"]
     finally:
         kept.close()

@@ -35,9 +35,14 @@ fibsem/                     the instrument library (no application logic)
   ui/                       shared Qt widgets, stylesheets, canvases
   theme/                    the palette (tokens.py), importable without Qt
   server/                   the App Server for agents (build_server)
-  mcp/                      the fibsem-mcp sidecar (MCP to HTTP)
-  plugins/                  entry-point loading: fibsem.patterns,
-                            fibsem.strategies, fibsem.tasks, fibsem.drivers
+  ai/agent/                 the agent: levels, allowlist, tool catalog,
+                            request text, AgentSession (session.agent),
+                            and mcp/, the fibsem-mcp sidecar (MCP to HTTP)
+  ui/agent/                 the agent's Qt UI: level chip and card,
+                            previews, App Server and Connect dialogs
+  plugins/                  entry-point loading: fibsem.milling.patterns,
+                            fibsem.milling.strategies, fibsem.autolamella.tasks,
+                            fibsem.grid.tasks, fibsem.drivers
 
 fibsem/applications/autolamella/
   structures.py             Experiment, Lamella, AutoLamellaTaskProtocol
@@ -108,7 +113,7 @@ see [Segmentation models](extending.md#segmentation-models).
 
 **Building against the App Server.** The App Server is internal for
 now. `docs/app-server.md` describes it; the tool catalogue in
-`fibsem/server/catalog.py` is the contract, and the supervision skill under
+`fibsem/ai/agent/catalog.py` is the contract, and the supervision skill under
 `.claude/skills/` is a reference client.
 
 **Working on the user interface.** Use the palette tokens in

@@ -21,13 +21,15 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import JSONResponse, Response
 from fastapi.routing import APIRoute
+from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from fibsem import __version__
 from fibsem.acting import AGENT, acting
+from fibsem.ai.agent import allowlist
+from fibsem.ai.agent.calls import calling, current_call, from_headers
 from fibsem.microscope import FibsemMicroscope
-from fibsem.server import allowlist
 from fibsem.server.app_routes import (
     build_app_config_router,
     build_app_control_router,
@@ -45,7 +47,6 @@ from fibsem.server.auth import (
     require_monitoring,
     take_control,
 )
-from fibsem.server.calls import calling, current_call, from_headers
 from fibsem.server.devices import ERROR_STATUS, build_device_router, refusal
 from fibsem.server.discovery import fibsem_folder
 from fibsem.server.models import MicroscopeStateRequest
@@ -56,18 +57,17 @@ API_VERSION = "0.3.0"
 
 
 def _show_in_app(microscope: FibsemMicroscope, image) -> None:
-    """Send an image a route acquired to the microscope's acquisition signal, as
-    the workflow's one-shots do, so the app's SEM/FIB views show it (FIB-1375).
+    """Show an image a route acquired in the app's SEM/FIB views, as the
+    workflow's one-shots do (FIB-1375).
 
     Before this, an agent's image went back to the agent only: the app kept the
     frame from before the agent's move, and a question raised next showed that.
     """
     metadata = getattr(image, "metadata", None)
     beam_type = getattr(metadata, "beam_type", None) if metadata is not None else None
-    if beam_type is BeamType.ELECTRON:
-        microscope.sem_acquisition_signal.emit(image)
-    elif beam_type is BeamType.ION:
-        microscope.fib_acquisition_signal.emit(image)
+    imaging = getattr(microscope, "imaging", None)
+    if beam_type in (BeamType.ELECTRON, BeamType.ION) and imaging is not None:
+        imaging.show(image)
 
 
 class _RefusingRoute(APIRoute):
@@ -93,6 +93,8 @@ STOP_COMMANDS = frozenset(("stop", "stop_live"))
 
 # The instrument half of the API; /app is the application's.
 MICROSCOPE = "/microscope"
+# The analysis services, which need no microscope (`fibsem.services.analysis`).
+SERVICES = "/services"
 
 _watch = require_level(AgentLevel.WATCH)
 _assist = require_level(AgentLevel.ASSIST)
@@ -100,7 +102,7 @@ _drive = require_level(AgentLevel.DRIVE)
 
 
 def _refuse(app_context) -> Callable[[Any, str, str, Mapping[str, Any]], Optional[str]]:
-    """The App Server's allowlist (`fibsem.server.allowlist`): what the agent may
+    """The App Server's allowlist (`fibsem.ai.agent.allowlist`): what the agent may
     never touch, and a path it may only give inside the open experiment, to a
     command or a query."""
 
@@ -289,10 +291,13 @@ def _record_refusal(request: Request, exc: StarletteHTTPException) -> None:
         logging.debug("could not record an agent refusal", exc_info=True)
 
 
-# Routes that put the agent's call on the record themselves: its requests, notes
-# and level, its answers and suggestions to the run's questions. A stop says
+# Routes that put the agent's call on the record themselves: its requests, its
+# notes, its answers and suggestions to the workflow's questions. A stop says
 # so as it stops (`_stop_reason`).
-_RECORDS_ITSELF = ("/app/agent/", "/app/workflow/prompt/")
+_RECORDS_ITSELF = ("/app/agent/", "/app/experiment/notes", "/app/workflow/prompt/")
+# POST routes that only read: a query, and the grid run's plan. Not the agent
+# acting, and the request store reads them to describe each request.
+_POSTED_READS = ("/queries/", "/app/workflow/grids/plan")
 
 
 class _AgentActs:
@@ -302,12 +307,13 @@ class _AgentActs:
     a sync function, which FastAPI runs in a worker thread -- runs with a copy
     of the request's context, so the mark reaches whatever the handler calls.
 
-    An acting call is also the agent's call (`fibsem.server.calls`), named by
+    An acting call is also the agent's call (`fibsem.ai.agent.calls`), named by
     the sidecar's headers, and once answered is recorded as ``agent_called``
     (FIB-1426): what it did in the operator's words, how it ended, and at which
     level. Not a read, an approved request's call (the request's own events say
     those), a refusal for the agent's permissions (``agent_refused``), a long
-    command (its run's events), or a route that records itself.
+    command (its run's events), a POST that only reads (a query), or a route
+    that records itself.
     """
 
     def __init__(self, app) -> None:
@@ -335,12 +341,29 @@ class _AgentActs:
                 answer["body"] += message.get("body", b"")[:65536]
             await send(message)
 
-        with acting(AGENT), calling(from_headers(headers)) as call:
+        call = from_headers(headers)
+        call.action = await self._described(scope, call) or call.action
+        with acting(AGENT), calling(call):
             call.level = self._level(scope)
             try:
                 await self.app(scope, receive, sending)
             finally:
                 self._record(scope, call, answer["status"], answer["body"])
+
+    @staticmethod
+    async def _described(scope, call) -> Optional[str]:
+        """*call* in the card's words, read from the state it changes; None
+        without a named tool or a request store, or when describing fails."""
+        requests = getattr(getattr(scope.get("app"), "state", None), "requests", None)
+        if not call.tool or requests is None:
+            return None
+        try:
+            return await run_in_threadpool(
+                requests.describe_call, call.tool, call.arguments, scope.get("path", "")
+            )
+        except Exception:  # noqa: BLE001 - the plain line stands in
+            logging.debug("could not describe an agent call", exc_info=True)
+            return None
 
     @staticmethod
     def _level(scope) -> Optional[str]:
@@ -360,6 +383,7 @@ class _AgentActs:
                 or call.run_id is not None
                 or call.recorded
                 or path.startswith(_RECORDS_ITSELF)
+                or any(read in path for read in _POSTED_READS)
             ):
                 return
             request = Request(scope)
@@ -381,6 +405,10 @@ class _AgentActs:
                     detail = None
                 if isinstance(detail, dict) and detail.get("error_type"):
                     payload["error_type"] = detail["error_type"]
+                # Why, in the route's words: an exception's name is not a reason.
+                message = detail.get("message") if isinstance(detail, dict) else detail
+                if isinstance(message, str) and message.strip():
+                    payload["message"] = message.strip()
             scope["app"].state.microscope.record_event("agent_called", payload)
         except Exception:  # noqa: BLE001 - recording must not change the answer
             logging.debug("could not record an agent call", exc_info=True)
@@ -391,19 +419,23 @@ def build_server(
     app_context=None,
     auth: Optional[AuthConfig] = None,
     serve_microscope: bool = True,
+    services: Optional[Mapping[str, Any]] = None,
 ) -> FastAPI:
     """Build the server app around an already-connected microscope.
 
     ``auth`` defaults to a generated token at Watch.
-    ``app_context`` is anything satisfying app_routes.AppContext (structurally
-    -- the application's AutoLamellaAppContext in practice); passing one mounts the
-    ``/app`` routes and flips ``routers.app`` in /capabilities.
+    ``app_context`` is the application's view (AutoLamellaAppContext in practice);
+    passing one mounts the ``/app`` routes and flips ``routers.app`` in /capabilities.
 
     ``serve_microscope`` is the App Server's microscope setting (FIB-1035):
     every route under ``/microscope``, reads included, since a read reaches the
     instrument too. False leaves each answering 404 ``microscope_off``, and
     /capabilities reports ``routers.microscope`` off. The App Server passes its
     preference, which is off by default.
+
+    ``services`` are the analysis services (`fibsem.services.analysis`), served
+    under ``/services`` whatever ``serve_microscope`` is, since they use no
+    device: by default a new copy of each.
     """
     if auth is None:
         auth = AuthConfig.generate()
@@ -412,6 +444,11 @@ def build_server(
     app.add_middleware(_AgentActs)
     app.state.auth = auth
     app.state.microscope = microscope
+    if services is None:
+        from fibsem.services.analysis import analysis_services
+
+        services = analysis_services()
+    app.state.services = services
 
     @app.exception_handler(StarletteHTTPException)
     async def _refused(request: Request, exc: StarletteHTTPException) -> Response:
@@ -468,7 +505,11 @@ def build_server(
     def capabilities():
         return {
             "api_version": API_VERSION,
-            "routers": {"microscope": serve_microscope, "app": app_context is not None},
+            "routers": {
+                "microscope": serve_microscope,
+                "services": True,
+                "app": app_context is not None,
+            },
             # The agent level (FIB-1035): what the agent may do right now.
             "level": auth.level.value,
             # The code the server runs, so a sidecar can tell it imports
@@ -506,9 +547,23 @@ def build_server(
         return {"status": "ok"}
 
     app.include_router(base)
+    refuse = _refuse(app_context)
+    # The analysis services read saved data and use no device, so they are
+    # served with or without the microscope: reads and queries at Watch, a
+    # command at Drive with no control taken, and the same allowlist.
+    app.include_router(
+        build_device_router(
+            lambda: services,
+            read=[Depends(_watch)],
+            write=[Depends(_drive)],
+            command=[Depends(_drive)],
+            prefix=SERVICES,
+            refuse=refuse,
+            noun="service",
+        )
+    )
     if serve_microscope:
         app.include_router(whole)
-        refuse = _refuse(app_context)
         # Every device's parameters and commands, as the device server serves
         # them: reads at Watch, writes and commands at Drive with control of the
         # microscope. The chamber's state and pressure are read here; pumping
@@ -575,7 +630,9 @@ def build_server(
         # The agent's requests (FIB-1283): actions the operator approves in the
         # app, run through the routes above. The app decides them through
         # app.state.requests.
-        mounted = {"base", "app"} | ({"microscope"} if serve_microscope else set())
+        mounted = {"base", "app", "services"} | (
+            {"microscope"} if serve_microscope else set()
+        )
         app.state.requests = RequestStore(
             app,
             auth,

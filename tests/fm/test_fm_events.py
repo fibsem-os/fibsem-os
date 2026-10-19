@@ -10,26 +10,27 @@ import os
 import pytest
 
 from fibsem import utils
-from fibsem.applications.autolamella.event_recording import (
-    EVENTS_FILENAME,
-    EventRecorder,
-    read_events,
-)
 from fibsem.fm.acquisition import acquire_image
 from fibsem.fm.calibration import run_coarse_fine_autofocus
 from fibsem.fm.structures import (
     AutoFocusMode,
     AutoFocusSettings,
     ChannelSettings,
+    EmissionFilter,
     FocusMethod,
     OverviewParameters,
     ZParameters,
+)
+from fibsem.workflows.event_recording import (
+    EVENTS_FILENAME,
+    EventRecorder,
+    read_events,
 )
 
 CHANNEL = ChannelSettings(
     name="GFP",
     excitation_wavelength=488,
-    emission_wavelength=509,
+    emission_filter=EmissionFilter("509 nm", low=509),
     power=0.2,
     exposure_time=0.1,
 )

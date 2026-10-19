@@ -1,0 +1,24 @@
+{
+  "beam_current": 5e-11,
+  "beam_type": "ELECTRON",
+  "dwell_time": 1e-06,
+  "hfw": 0.00015,
+  "preset": "30 keV; UHR imaging",
+  "resolution": [
+    1536,
+    1024
+  ],
+  "scan_rotation": 3.141592653589793,
+  "shift": {
+    "name": null,
+    "x": 1e-06,
+    "y": 2e-06
+  },
+  "stigmation": {
+    "name": null,
+    "x": 0.1,
+    "y": -0.1
+  },
+  "voltage": 2000.0,
+  "working_distance": 0.004
+}

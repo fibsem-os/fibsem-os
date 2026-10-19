@@ -34,6 +34,7 @@ from fibsem.ui import stylesheets as stylesheets
 from fibsem.ui.icon import fibsem_icon, qta
 from fibsem.ui.tokens import (
     CANVAS_BG,
+    CAPTION_STYLE,
     TEXT_MUTED_COLOR,
 )
 from fibsem.ui.utils import find_data, install_wheel_blocker
@@ -292,6 +293,14 @@ class ValueComboBox(QComboBox):
         return self.currentData()
 
 
+def unit_suffix(unit: Optional[str]) -> str:
+    """A spin box's suffix for ``unit``: after a space ("5 s", "1.0 µm"), except a
+    degree sign, which is written against its number ("12.5°")."""
+    if not unit:
+        return ""
+    return unit if unit == "°" else f" {unit}"
+
+
 class IntegerValueSpinBox(QSpinBox):
     """QSpinBox with sensible defaults, WheelBlocker, and None-safe configuration."""
 
@@ -307,7 +316,7 @@ class IntegerValueSpinBox(QSpinBox):
     ) -> None:
         super().__init__(parent)
         if suffix:
-            self.setSuffix(f" {suffix}")
+            self.setSuffix(unit_suffix(suffix))
         self.setRange(
             minimum if minimum is not None else 0,
             maximum if maximum is not None else 1000000,
@@ -337,7 +346,7 @@ class ValueSpinBox(QDoubleSpinBox):
     ) -> None:
         super().__init__(parent)
         if suffix:
-            self.setSuffix(f" {suffix}")
+            self.setSuffix(unit_suffix(suffix))
         self.setRange(
             minimum if minimum is not None else 0.0,
             maximum if maximum is not None else 1e6,
@@ -505,34 +514,6 @@ class ContextMenu(QMenu):
                 )
             except Exception:
                 pass
-
-
-def show_context_menu(
-    actions: list[tuple[str, Callable]],
-    parent: Optional[QWidget] = None,
-) -> Optional[str]:
-    """Convenience function to show a simple context menu.
-
-    Args:
-        actions: List of (label, callback) tuples.
-        parent: Parent widget for the menu.
-
-    Returns:
-        The label of the selected action, or None if cancelled.
-
-    Usage:
-        result = show_context_menu([
-            ("Set Point of Interest", self.set_poi),
-            ("Move Patterns", self.move_patterns),
-        ], parent=self)
-    """
-    config = ContextMenuConfig()
-    for label, callback in actions:
-        config.add_action(label, callback=callback)
-
-    menu = ContextMenu(config, parent=parent)
-    selected = menu.show_at_cursor()
-    return selected.label if selected else None
 
 
 def scrollable(widget: QWidget) -> QScrollArea:
@@ -1113,6 +1094,21 @@ def align_form(layout) -> None:
             item = layout.itemAt(row, QFormLayout.LabelRole)
             if item is not None and item.widget() is not None:
                 item.widget().setMinimumWidth(FORM_LABEL_WIDTH)
+
+
+def form_label(text: str) -> QLabel:
+    """A form-row label: small and muted, so the value reads louder than its name.
+
+    ``QFormLayout.addRow("Name:", w)`` builds the label at the default app font
+    size, which renders *larger* than the 11-12px values in the correlation
+    panels — the field name ends up shouting over its own data. Pass this instead.
+
+    No trailing colon: the rows read as name and value side by side, and the
+    colon was the one piece of punctuation on the tab.
+    """
+    lbl = QLabel(text.rstrip(":"))
+    lbl.setStyleSheet(CAPTION_STYLE)
+    return lbl
 
 
 def header_chip(text: str, colour: str) -> QLabel:

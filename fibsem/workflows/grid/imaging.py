@@ -1,0 +1,197 @@
+"""The beam overview grid task: a thin wrapper over the FIB/SEM tiled runner.
+
+The operation is `fibsem.imaging.tiled.acquire_tiled_overview`, which the
+Overview tab and the imaging service call too. The task adds only what makes it
+a workflow step: where the grid is (its calibrated slot, re-expressed for the
+requested orientation), where the files go (the grid's own directory), and what
+to record (the stitched image, its tiles and a thumbnail, by role).
+"""
+
+from __future__ import annotations
+
+import logging
+from copy import deepcopy
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import (
+    TYPE_CHECKING,
+    ClassVar,
+    Iterable,
+    List,
+    Optional,
+    Tuple,
+    Type,
+)
+
+from fibsem import timing
+from fibsem.imaging.thumbnail import write_thumbnail
+from fibsem.imaging.tiled import acquire_tiled_overview, stamped_overview_name
+from fibsem.imaging.tiling.reach import reachable_overview
+from fibsem.services.sample_handling import uncalibrated_message
+from fibsem.structures import (
+    BEAM_ORIENTATIONS,
+    BeamType,
+    Display,
+    FibsemStagePosition,
+    OverviewAcquisitionSettings,
+    Parameter,
+    param,
+)
+from fibsem.workflows.grid.base import (
+    GridTask,
+    GridTaskConfig,
+)
+from fibsem.workflows.proposals import OVERVIEW_POSITIONS, Proposal, Proposer
+
+if TYPE_CHECKING:
+    from fibsem.microscope import FibsemMicroscope
+
+# The output roles a results card, the Overview tab and the App Server read
+# (FIB-876). One per beam, plus the thumbnail and the tiles beside it.
+ROLE_BY_BEAM = {BeamType.ELECTRON: "overview_sem", BeamType.ION: "overview_fib"}
+
+
+# ---------------------------------------------------------------------------
+# The task
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class BeamOverviewGridTaskConfig(GridTaskConfig):
+    """A tiled SEM or FIB overview of the grid.
+
+    One task for both beams: the beam is `settings.image_settings.beam_type`, as it
+    is everywhere else the overview settings are used, so the Overview tab's settings
+    form edits this unchanged. `orientation` is the pose to acquire in; the grid's
+    calibrated slot position is re-expressed for it.
+    """
+
+    task_type: ClassVar[str] = "BEAM_OVERVIEW_GRID"
+    display_name: ClassVar[str] = "Beam overview"
+    orientation: str = param(
+        "SEM",
+        choices=BEAM_ORIENTATIONS,
+        doc="The stage orientation to acquire in. The grid's calibrated slot position is re-expressed for it.",
+        display=Display("Orientation"),
+    )
+    settings: OverviewAcquisitionSettings = param(
+        doc="The tiled overview: the tile image settings (their beam is the overview's), the grid of tiles, focus and contrast.",
+        default_factory=OverviewAcquisitionSettings,
+    )
+    filename: str = param(
+        "overview",
+        doc="The stem of the name the overview is saved under, in the grid's folder; a time stamp is added per run.",
+        display=Display("Filename"),
+    )
+
+    @property
+    def beam_type(self) -> BeamType:
+        return self.settings.image_settings.beam_type
+
+    @property
+    def role(self) -> str:
+        return ROLE_BY_BEAM.get(self.beam_type, "overview")
+
+    @property
+    def estimated_duration(self) -> float:
+        """The move to the grid at the task's orientation, then the overview."""
+        return timing.stage_move_cost(1) + timing.beam_overview_cost(self.settings)
+
+
+class OverviewPositionsProposer:
+    """What an overview is for: somewhere to put the lamellae.
+
+    Proposes nothing in this version -- a missing proposal is an empty
+    default, so the review opens as placement on the image that was just
+    acquired. A model that picks sites is a swap for this class and changes
+    nothing downstream, which is the point of proposing through one.
+    """
+
+    kind = OVERVIEW_POSITIONS
+    name = "place-by-hand"
+    version = 1
+
+    def propose(self, task: "BeamOverviewGridTask") -> Optional[Proposal]:
+        return Proposal(kind=self.kind, values={"positions": []})
+
+
+class BeamOverviewGridTask(GridTask):
+    config_cls: ClassVar[Type[GridTaskConfig]] = BeamOverviewGridTaskConfig
+    config: BeamOverviewGridTaskConfig
+    # Under review, this asks where the lamellae go, and confirming creates
+    # them. Automated it records the overview and the run goes on, the same as
+    # any other task's result.
+    proposer: ClassVar[Optional[Proposer]] = OverviewPositionsProposer()
+
+    def grid_centre(self) -> FibsemStagePosition:
+        """The grid's calibrated slot position, in the requested orientation.
+
+        Refuses a grid that is not in a holder slot (nothing has made it reachable)
+        and a slot with no calibrated position, with the same message the stage
+        gives, rather than acquiring an overview of wherever the stage happens to be.
+        """
+        slot = self.slot
+        if slot is None:
+            raise RuntimeError(
+                f"Grid '{self.grid.name}' is not in a holder slot. Load it first."
+            )
+        if slot.position is None:
+            raise RuntimeError(uncalibrated_message(slot.name))
+        return self.microscope.get_target_position(
+            slot.position, self.config.orientation
+        )
+
+    def _run(self) -> None:
+        centre = self.grid_centre()
+        self.log_status_message(
+            "MOVE_TO_GRID",
+            f"Moving to {self.grid.name} at the {self.config.orientation} orientation",
+        )
+        self.microscope.safe_absolute_stage_movement(centre)
+        self._check_for_abort()
+
+        settings, skipped = reachable_overview(
+            self.microscope, self.config.settings, centre
+        )
+        enabled = self.config.settings.n_enabled_tiles
+        if skipped and settings.n_enabled_tiles == 0:
+            raise RuntimeError(
+                f"None of the {enabled} tiles of this overview is within the stage's "
+                f"reach from the centre of {self.grid.name}. Make it smaller."
+            )
+        self.note_skipped_tiles(skipped, enabled)
+
+        beam = self.config.beam_type.name
+        out_of_reach = f", {len(skipped)} out of reach" if skipped else ""
+        self.log_status_message(
+            "ACQUIRE",
+            f"Acquiring {beam} overview: {settings.nrows} x "
+            f"{settings.ncols} tiles{out_of_reach}",
+        )
+        overview = acquire_tiled_overview(
+            self.microscope,
+            settings,
+            str(self.output_dir),
+            stamped_overview_name(self.config.filename),
+            centre_position=centre,
+            stop_event=self._stop_event,
+        )
+        image = overview.image
+        self.record_output(self.config.role, image)
+        # The tiles too, for what reads single frames rather than the stitch: the
+        # targeting model was trained on tiles (FIB-939).
+        for tile in overview.tile_paths:
+            self.record_output(f"{self.config.role}_tiles", tile)
+
+        # Beside the stitched image, named after it, so a card can show it without
+        # decoding a full-resolution overview. A missing thumbnail is worth far less
+        # than a recorded overview, so a failure here is logged, not raised.
+        try:
+            stem = Path(image.filepath).stem if image.filepath else self.config.filename
+            thumbnail = write_thumbnail(
+                image.filtered_data, self.output_dir / f"{stem}-thumbnail.png"
+            )
+            self.record_output(f"{self.config.role}_thumbnail", thumbnail)
+        except Exception as e:  # noqa: BLE001 - the overview is already recorded
+            logging.warning(f"Could not write the overview thumbnail: {e}")
+        self.log_status_message("ACQUIRED", f"{beam} overview recorded")

@@ -66,6 +66,7 @@ from fibsem.fm.structures import (
     ChannelSettings,
     EmissionFilter,
     band_name,
+    matching_emission_filter,
 )
 from fibsem.structures import (
     BeamType,
@@ -1080,17 +1081,15 @@ class OdemisFM(FM):
         """The old ``set_channel``: excitation, emission, power, exposure, gain."""
         if channel is None:
             return
-        from fibsem.fm.microscope import emission_filter_named
-
         settings = ChannelSettings.from_dict(channel)
         filters = self.filter_set
         filters.excitation_wavelength.write_through(settings.excitation_wavelength)
-        emission: Union[None, str, float] = settings.emission_wavelength
-        if isinstance(emission, str):
+        emission = settings.emission_filter
+        if _is_fluorescence(emission):
             filters.select_fluorescence()
         else:
             filters.emission_filter.write_through(
-                emission_filter_named(emission, filters.emission_filter.choices)
+                matching_emission_filter(emission, filters.emission_filter.choices)
             )
         self.light_source.power.write_through(settings.power)
         camera = self.camera
@@ -1133,6 +1132,12 @@ class OdemisObjectiveLens(fm_api.ObjectiveLens):
         self._focus_position = device.focus_position
 
 
+def _is_fluorescence(emission: EmissionFilter) -> bool:
+    """A multi-band filter of unknown bands (TFS-style channel settings): odemis
+    picks the band that matches the current excitation."""
+    return emission.multi_band and not emission.bands
+
+
 class OdemisFilterSet(fm_api.FilterSet):
     """The FM API's filter set over the Odemis filter set device. A "Fluorescence"
     emission (TFS-style channel settings) is the band odemis matches to the current
@@ -1141,18 +1146,20 @@ class OdemisFilterSet(fm_api.FilterSet):
     @property
     def emission_bands(self) -> Dict[float, Tuple[Tuple[float, float], ...]]:
         """Each emission filter's bands in nm, keyed by its bottom edge."""
-        return {f.low: f.bands for f in self._emission_filters() if f.low is not None}
+        return {
+            f.low: f.bands for f in self.available_emission_filters if f.low is not None
+        }
 
     @property
-    def emission_wavelength(self) -> Optional[float]:
-        return fm_api.FilterSet.emission_wavelength.fget(self)
+    def emission_filter(self) -> EmissionFilter:
+        return fm_api.FilterSet.emission_filter.fget(self)
 
-    @emission_wavelength.setter
-    def emission_wavelength(self, value: Optional[Union[float, str]]) -> None:
-        if isinstance(value, str):
+    @emission_filter.setter
+    def emission_filter(self, value: EmissionFilter) -> None:
+        if _is_fluorescence(value):
             self._device.select_fluorescence()
             return
-        fm_api.FilterSet.emission_wavelength.fset(self, value)
+        fm_api.FilterSet.emission_filter.fset(self, value)
 
 
 class OdemisFluorescenceMicroscope(fm_api.FluorescenceMicroscope):

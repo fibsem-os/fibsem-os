@@ -34,20 +34,16 @@ from PyQt5.QtWidgets import (
 from fibsem.applications.autolamella.poses import (
     FLUORESCENCE_ORIENTATION,
     build_lamella_poses,
+    remove_lamella,
     sync_fluorescence_pose,
 )
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskStatus,
     Experiment,
-    GridRecord,
     Lamella,
 )
 from fibsem.applications.autolamella.ui.grid_results_widget import image_for
 from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
     LamellaNameListWidget,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-    LOAD_ENTRY_NAME as _LOAD_ENTRY_NAME,
 )
 from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
 from fibsem.fm.structures import FluorescenceImage
@@ -64,6 +60,11 @@ from fibsem.ui.utils import message_box_ui
 from fibsem.ui.widgets.overview_widget import VIEW_CHIP_SPACING, VIEW_CHIP_STYLE
 from fibsem.ui.widgets.stored_overview_canvas import VIEW_FM, StoredOverviewCanvas
 from fibsem.util.timestamps import format_time
+from fibsem.workflows.grid.manager import (
+    LOAD_ENTRY_NAME as _LOAD_ENTRY_NAME,
+)
+from fibsem.workflows.grids import GridRecord
+from fibsem.workflows.status import TaskStatus
 
 logger = logging.getLogger(__name__)
 
@@ -254,7 +255,7 @@ class GridPositionsWidget(QWidget):
         for state in grid.task_history:
             if (
                 state.name == _LOAD_ENTRY_NAME
-                or state.status is not AutoLamellaTaskStatus.Completed
+                or state.status is not TaskStatus.Completed
             ):
                 continue
             path = image_for(experiment, grid, state)
@@ -463,10 +464,10 @@ class GridPositionsWidget(QWidget):
                 f"Move {name}?",
                 f"Move {name} to {poses.fluorescence.stage_position.pretty_string}?"
                 "\n\nThis moves the milling pose with it, to "
-                f"{poses.milling.stage_position.pretty_string}.",
+                f"{poses.beam.stage_position.pretty_string}.",
             ):
                 return
-            lamella.stage_position = poses.milling.stage_position
+            lamella.stage_position = poses.beam.stage_position
             lamella.update_milling_angle(microscope)
             if lamella.fluorescence_pose is None:
                 lamella.fluorescence_pose = poses.fluorescence
@@ -490,11 +491,8 @@ class GridPositionsWidget(QWidget):
         experiment = self._experiment
         if experiment is None or lamella is None:
             return
-        try:
-            experiment.positions.remove(lamella)
-        except ValueError:
+        if not remove_lamella(experiment, lamella):
             return
-        experiment.save()
         self.refresh()
         notification_service.show_toast(f"Removed {lamella.name}.", "info")
 

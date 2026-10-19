@@ -20,21 +20,20 @@ import os
 import pytest
 from psygnal.containers import EventedDict
 
-from fibsem.applications.autolamella.proposals import (
-    POINT_OF_INTEREST,
+from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
+from fibsem.applications.autolamella.structures import (
+    AutoLamellaTaskProtocol,
+    Experiment,
+)
+from fibsem.structures import MicroscopeState, Point
+from fibsem.workflows.proposals import (
     TASK_RESULT,
     Decision,
     DecisionOutcome,
     Proposal,
-    Standing,
 )
-from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
-    Experiment,
-    standing,
-)
-from fibsem.structures import MicroscopeState, Point
+from fibsem.workflows.status import TaskStatus
+from tests.proposal_records import set_proposals
 
 TASK = "Setup Lamella Position"
 OTHER = "Mill Rough"
@@ -54,7 +53,7 @@ def _running(experiment, task_name=TASK, task_id="run-1"):
     lamella = experiment.positions[0]
     lamella.task_state.name = task_name
     lamella.task_state.task_id = task_id
-    lamella.task_state.status = AutoLamellaTaskStatus.InProgress
+    lamella.task_state.status = TaskStatus.InProgress
     return lamella
 
 
@@ -64,7 +63,7 @@ def _proposal(lamella, task_name=TASK, task_id="run-1", kind=POINT_OF_INTEREST):
         values={"poi": Point(0.0, 0.0)} if kind is POINT_OF_INTEREST else {},
         provenance={"task_id": task_id, "proposer": "detection"},
     )
-    lamella.proposals[task_name] = [proposal]
+    set_proposals(lamella, task_name, [proposal])
     return proposal
 
 
@@ -72,7 +71,7 @@ def _ask(experiment, lamella, task_name=TASK, task_id="run-1", kind=POINT_OF_INT
     """The same proposal, recorded the way an in-run question is: through
     ``ask_proposal``, which is the one place the mark is set."""
     proposal = _proposal(lamella, task_name, task_id, kind)
-    del lamella.proposals[task_name]
+    set_proposals(lamella, task_name, [])
     assert experiment.ask_proposal(lamella.id, task_name, proposal)
     return proposal
 
@@ -83,7 +82,7 @@ def _answer(experiment, lamella, task_name=TASK, values=None, task_id="run-1"):
         task_name,
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values={"poi": Point(1e-6, 0.0)} if values is None else values,
             task_id=task_id,
         ),
@@ -123,7 +122,9 @@ def test_a_question_carrying_no_values_is_allowed_on_the_same_grounds(experiment
     result = experiment.decide(
         lamella.id,
         TASK,
-        Decision(outcome=DecisionOutcome.Confirmed, author="human:op", task_id="run-1"),
+        Decision(
+            outcome=DecisionOutcome.Confirmed, actor="operator:op", task_id="run-1"
+        ),
     )
 
     assert result.applied, result.reason
@@ -145,25 +146,6 @@ def test_another_proposal_on_the_same_item_stays_refused(experiment):
 
     assert not result.applied and result.running
     assert "stop it before writing" in result.reason
-
-
-def test_an_open_value_confirmed_as_it_stands_lands_while_the_item_is_busy(experiment):
-    """Setup's point was written through when Setup ended; the item is now
-    running Mill Fiducial. Confirming the point as it stands writes nothing
-    again, so it is a look and lands. Moving it is a write and waits."""
-    lamella = _running(experiment, task_name=OTHER, task_id="run-2")
-    proposal = _proposal(lamella, task_name=TASK, task_id="run-1")
-    assert standing(lamella, TASK, proposal) is Standing.Open
-
-    look = _answer(experiment, lamella, task_name=TASK, values=dict(proposal.values))
-    assert look.applied, look.reason
-    assert proposal.current.outcome is DecisionOutcome.Confirmed
-    assert lamella.poi == Point(0.0, 0.0), "nothing written"
-
-    proposal = _proposal(lamella, task_name=TASK, task_id="run-1")
-    moved = _answer(experiment, lamella, task_name=TASK)
-    assert not moved.applied and moved.running
-    assert "stop it before writing" in moved.reason
 
 
 def test_a_mark_left_on_an_earlier_run_does_not_excuse_the_current_one(experiment):

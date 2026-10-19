@@ -13,6 +13,8 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QMessageBox  # noqa: E402
 
+from tests.run_state import StubRunner
+
 
 @pytest.fixture
 def main_ui(qapp):
@@ -31,16 +33,16 @@ def main_ui(qapp):
 @pytest.fixture
 def recorder(main_ui):
     from fibsem import utils
-    from fibsem.applications.autolamella.event_recording import EventRecorder
+    from fibsem.workflows.event_recording import EventRecorder
 
     os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
     microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
     ui = main_ui.autolamella_ui
-    previous = ui._event_recorder
+    previous = ui.session.recorder
     recorder = EventRecorder(microscope, default_actor="operator")
-    ui._event_recorder = recorder
+    ui.session.recorder = recorder
     yield recorder
-    ui._event_recorder = previous
+    ui.session.recorder = previous
     recorder.close()
     microscope.disconnect()
 
@@ -50,38 +52,41 @@ def _stops(recorder):
     return [(e["payload"], e["actor"]) for e in events if e["kind"] == "workflow_stop"]
 
 
-def test_the_stop_button_records_the_operator_s_stop(main_ui, recorder, monkeypatch):
-    stopped = []
+@pytest.fixture
+def runner(main_ui, monkeypatch):
+    """A run going, for the runner to record its stop against."""
+    ui = main_ui.autolamella_ui
+    stub = StubRunner(ui.session, is_running=True)
+    monkeypatch.setattr(ui.session, "runner", stub)
+    yield stub
+    stub.is_running = False  # so closing the window asks nothing
+
+
+def test_the_stop_button_records_the_operator_s_stop(
+    main_ui, recorder, runner, monkeypatch
+):
     monkeypatch.setattr(
         QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes)
     )
-    monkeypatch.setattr(
-        main_ui.autolamella_ui, "stop_task_workflow", lambda: stopped.append(True)
-    )
     main_ui._on_stop_workflow_clicked()
-    assert stopped == [True]
-    assert _stops(recorder) == [({"stopped": "workflow", "by": "Stop"}, "operator")]
+    assert runner.stops == ["run"]
+    assert _stops(recorder) == [({"stopped": "workflow", "via": "Stop"}, "operator")]
 
 
-def test_a_stop_not_confirmed_records_nothing(main_ui, recorder, monkeypatch):
+def test_a_stop_not_confirmed_records_nothing(main_ui, recorder, runner, monkeypatch):
     monkeypatch.setattr(
         QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.No)
     )
-    monkeypatch.setattr(
-        main_ui.autolamella_ui,
-        "stop_task_workflow",
-        lambda: pytest.fail("stopped without a yes"),
-    )
     main_ui._on_stop_workflow_clicked()
+    assert runner.stops == [], "stopped without a yes"
     assert _stops(recorder) == []
 
 
-def test_closing_the_window_mid_run_records_the_stop(main_ui, recorder, monkeypatch):
-    ui = main_ui.autolamella_ui
-    monkeypatch.setattr(type(ui), "is_workflow_running", property(lambda self: True))
-    monkeypatch.setattr(ui, "stop_task_workflow", lambda: None)
+def test_closing_the_window_mid_run_records_the_stop(
+    main_ui, recorder, runner, monkeypatch
+):
     monkeypatch.setattr(QMessageBox, "exec_", lambda self: QMessageBox.Yes)
     assert main_ui._confirm_close_during_workflow() is True
     assert _stops(recorder) == [
-        ({"stopped": "workflow", "by": "closing the window"}, "operator")
+        ({"stopped": "workflow", "via": "closing the window"}, "operator")
     ]

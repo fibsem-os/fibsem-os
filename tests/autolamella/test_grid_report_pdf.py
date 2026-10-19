@@ -15,7 +15,6 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from fibsem.applications.autolamella.structures import Verdict
 from fibsem.applications.autolamella.tools.grid_report_pdf import (
     PRINT_MAX_EDGE,
     REPORT_FILENAME,
@@ -27,6 +26,7 @@ from fibsem.applications.autolamella.tools.grid_report_pdf import (
     scale_bar_length,
 )
 from fibsem.util.timestamps import from_posix
+from fibsem.workflows.quality import Verdict
 
 from .test_grid_report import report, screened  # noqa: F401 - fixtures
 
@@ -149,10 +149,10 @@ class TestPDF:
         assert b"Poor" not in text and b"Unassessed" not in text
 
     def test_a_verdict_names_the_person_not_the_stored_form(self, pdf):
-        """A verdict is signed "human:<name>"; the page shows the name."""
+        """A verdict is signed "operator:<name>"; the page shows the name."""
         text = _shown(pdf)
         assert b"Good \\267 operator" in text  # \\267 is the middle dot
-        assert b"human:operator" not in text
+        assert b"operator:operator" not in text
 
     def test_a_failed_run_says_why(self, pdf):
         assert b"Load it first" in pdf

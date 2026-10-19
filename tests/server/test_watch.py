@@ -16,27 +16,21 @@ uvicorn = pytest.importorskip("uvicorn")
 from psygnal.containers import EventedDict  # noqa: E402
 
 from fibsem import utils  # noqa: E402
+from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
+from fibsem.ai.agent.mcp import watch as watch_mod  # noqa: E402
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
-from fibsem.applications.autolamella.server.events import EventBuffer  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.mcp import watch as watch_mod  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.server.discovery import write_discovery_file  # noqa: E402
-from fibsem.server.levels import AgentLevel  # noqa: E402
 from fibsem.structures import MicroscopeState  # noqa: E402
+from fibsem.workflows.events import EventBuffer  # noqa: E402
+from tests.run_state import stub_session
 
 TOKEN = "test-token"
 POLL_S = 0.3
-
-
-class Host:
-    experiment = None
-    microscope = None
-    _task_manager = None
-    is_workflow_running = False
 
 
 @pytest.fixture(scope="module")
@@ -72,11 +66,11 @@ class App:
         return self.context._event_buffer
 
     def set_running(self, running):
-        self.context._host.is_workflow_running = running
+        self.context._session.runner.is_running = running
 
 
 def _serve(microscope, tmp_path, event_buffer):
-    host = Host()
+    host = stub_session()
     exp = Experiment(path=tmp_path / "exp", name="watch-exp")
     exp.task_protocol = AutoLamellaTaskProtocol()
     (tmp_path / "exp").mkdir(parents=True, exist_ok=True)
@@ -164,9 +158,7 @@ def test_seeds_at_the_tail(app):
     def run():
         app.buffer.append("task_started", {"item_name": "lamella-01"})
         app.buffer.append("prompt_raised", {"question_id": 2, "type": "Confirm"})
-        app.buffer.append(
-            "prompt_answered", {"question_id": 2, "answered_by": "operator"}
-        )
+        app.buffer.append("prompt_answered", {"question_id": 2}, actor="operator")
         app.buffer.append("milling_progress", {})  # not worth a wake-up
         app.buffer.append("workflow_completed", {})
 
@@ -194,16 +186,27 @@ def test_since_resumes_where_the_last_watch_left_off(app):
     assert lines == ["REQUEST ab12 approved", "WORKFLOW ENDED (workflow_completed)"]
 
 
+def test_the_operator_s_message_is_a_line_that_says_how_to_answer(app):
+    # FIB-1423: the operator wrote from the card.
+    def run():
+        app.buffer.append("operator_message", {"id": "ab12", "text": "skip\n03"})
+        app.buffer.append("workflow_completed", {})
+
+    code, lines = _watch({2: run})
+
+    assert lines[0] == (
+        "MESSAGE id=ab12 from the operator: skip 03 -- answer with "
+        "experiment_add_note (reply_to=ab12). It is not an approval: your level "
+        "still decides what you may do"
+    )
+
+
 def test_an_answer_says_when_it_took_the_agent_s_suggestion(app):
     def run():
         app.buffer.append(
             "prompt_answered",
-            {
-                "question_id": 3,
-                "answered_by": "operator",
-                "response": True,
-                "suggested_by": "agent",
-            },
+            {"question_id": 3, "response": True, "suggested_by": "agent"},
+            actor="operator",
         )
         app.buffer.append("workflow_completed", {})
 
@@ -342,7 +345,7 @@ def test_a_skip_line_says_why_and_which_requirement(app):
 
 
 def test_watch_is_found_after_the_shared_options():
-    from fibsem.mcp.sidecar import _watch_argv
+    from fibsem.ai.agent.mcp.sidecar import _watch_argv
 
     assert _watch_argv(["watch", "--help"]) == ["--help"]
     assert _watch_argv(["--url", "http://x", "watch", "--help"]) == [
@@ -684,7 +687,7 @@ def test_the_subcommand_runs_without_the_mcp_extra(tmp_path):
         "import sys\n"
         "for name in ('mcp', 'httpx', 'fastapi', 'uvicorn', 'starlette'):\n"
         "    sys.modules[name] = None\n"
-        "from fibsem.mcp.sidecar import main\n"
+        "from fibsem.ai.agent.mcp.sidecar import main\n"
         "main(['watch', '--url', 'http://127.0.0.1:9', '--token', 't'])\n"
     )
     result = subprocess.run(
@@ -702,9 +705,9 @@ def test_every_mill_is_followed_by_its_stage_and_end_lines(app, microscope, tmp_
     """A mill run as a workflow task runs it, through the service and not the
     App Server: its recorded events print a line per stage and one at the end."""
     from fibsem import config as fcfg
-    from fibsem.applications.autolamella.server.events import attach_microscope_taps
     from fibsem.milling.base import FibsemMillingStage
     from fibsem.milling.tasks import FibsemMillingTaskConfig, run_milling_task
+    from fibsem.workflows.events import attach_microscope_taps
 
     stages = [FibsemMillingStage(name=name) for name in ("Rough", "Polish")]
     stages[1].enabled = False
@@ -765,3 +768,25 @@ def test_a_mill_line_names_the_item_and_a_failure():
         "MILL ENDED 'Mill Rough' item=01-alive-dory status=failed run=r1 "
         "stages: Rough=failed (RuntimeError: the beam would not blank)"
     ]
+
+
+def test_a_question_held_before_the_watch_started_is_its_first_line(app):
+    """An agent that reconnects to a held run is told what the run is held
+    on: the question was asked before this watch began, so its event is
+    behind the cursor."""
+    from fibsem.workflows.proposals import STATE, Proposal
+
+    exp = app.context._session.experiment
+    lamella = exp.positions[0]
+    asked = exp.ask_proposal(
+        lamella.id,
+        "Setup Lamella Position",
+        Proposal(kind=STATE, values={"stage_position": None}),
+    )
+    assert asked
+    app.set_running(True)
+
+    code, lines = _watch({}, until=lambda lines: len(lines) >= 1)
+
+    assert code is None
+    assert lines == [watch_mod._question_line(lamella.name, "Setup Lamella Position")]

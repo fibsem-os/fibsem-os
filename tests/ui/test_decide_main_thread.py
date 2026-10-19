@@ -1,9 +1,10 @@
-"""Experiment.decide runs on the Qt main thread and blocks its caller.
+"""Experiment.decide runs where the session edits the experiment, the Qt
+main thread with a window, and blocks its caller.
 
-The Review tab calls it from the GUI thread and the App Server from a
-worker; both must land on the main thread because a confirm can end in Qt
-work (a generative review adds lamellae, whose list rebuild is not safe off
-the GUI thread). Without a QApplication it is a plain call -- covered in
+The window calls it from the GUI thread and the App Server from a worker;
+both must land on the main thread because a confirm can end in Qt work (a
+generative review adds lamellae, whose list rebuild is not safe off the GUI
+thread). With no executor it is a plain call -- covered in
 tests/autolamella/test_proposals.py.
 """
 
@@ -17,12 +18,7 @@ from psygnal.containers import EventedDict
 pytest.importorskip("PyQt5")
 from PyQt5.QtCore import QThread  # noqa: E402
 
-from fibsem.applications.autolamella.proposals import (  # noqa: E402
-    POINT_OF_INTEREST,
-    Decision,
-    DecisionOutcome,
-    Proposal,
-)
+from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
     Experiment,
@@ -31,6 +27,9 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (  #
     SelectMillingPositionTaskConfig,
 )
 from fibsem.structures import FibsemStagePosition, MicroscopeState, Point  # noqa: E402
+from fibsem.workflows.proposals import Decision, DecisionOutcome, Proposal  # noqa: E402
+from tests.gui_thread import on_the_gui_thread  # noqa: E402
+from tests.proposal_records import set_proposals  # noqa: E402
 
 SETUP = "Setup Lamella Position"
 
@@ -38,18 +37,23 @@ SETUP = "Setup Lamella Position"
 def _experiment(tmp_path) -> Experiment:
     exp = Experiment(path=tmp_path, name="test-exp")
     exp.task_protocol = AutoLamellaTaskProtocol()
+    exp.edit_executor = on_the_gui_thread
     os.makedirs(exp.path, exist_ok=True)
     exp.add_new_lamella(
         MicroscopeState(stage_position=FibsemStagePosition()),
         EventedDict({SETUP: SelectMillingPositionTaskConfig(task_name=SETUP)}),
     )
-    exp.positions[0].proposals[SETUP] = [
-        Proposal(
-            kind=POINT_OF_INTEREST,
-            values={"poi": Point(0.0, 0.0)},
-            provenance={"task_id": "run-1"},
-        )
-    ]
+    set_proposals(
+        exp.positions[0],
+        SETUP,
+        [
+            Proposal(
+                kind=POINT_OF_INTEREST,
+                values={"poi": Point(0.0, 0.0)},
+                provenance={"task_id": "run-1"},
+            )
+        ],
+    )
     return exp
 
 
@@ -75,7 +79,7 @@ def test_decide_from_a_worker_lands_on_the_main_thread_and_blocks(qapp, tmp_path
             SETUP,
             Decision(
                 outcome=DecisionOutcome.Confirmed,
-                author="agent:test",
+                actor="agent:test",
                 values={"poi": Point(1e-6, 0.0)},
                 task_id="run-1",
             ),
@@ -101,7 +105,7 @@ def test_decide_on_the_main_thread_is_a_direct_call(qapp, tmp_path):
         SETUP,
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values={"poi": Point(2e-6, 0.0)},
             task_id="run-1",
         ),
@@ -116,7 +120,7 @@ def test_an_error_on_the_main_thread_is_raised_in_the_worker(qapp, tmp_path):
     It is the worker's error now, and the experiment says it is unsaved."""
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
-    proposal = lamella.proposals[SETUP][0]
+    proposal = lamella.proposals_from(SETUP)[0]
     proposal.values = {"poi": Point(3e-6, 0.0)}
     # A directory where the file goes: the open fails, whoever runs the test
     # (IsADirectoryError on POSIX, PermissionError on Windows).
@@ -126,7 +130,7 @@ def test_an_error_on_the_main_thread_is_raised_in_the_worker(qapp, tmp_path):
 
     def worker():
         try:
-            exp.apply_proposed(lamella.id, SETUP, proposal.id)
+            exp.apply_proposed(lamella.id, SETUP, proposal.id, "nobody was asked")
         except Exception as e:  # noqa: BLE001 - the error under test
             seen["error"] = e
         seen["done"] = True

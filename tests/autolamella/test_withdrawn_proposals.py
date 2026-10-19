@@ -18,19 +18,16 @@ import os
 import pytest
 from psygnal.containers import EventedDict
 
-from fibsem.applications.autolamella.proposals import (
-    POINT_OF_INTEREST,
-    AuthorKind,
-    Decision,
-    DecisionOutcome,
-    Proposal,
-)
+from fibsem.acting import ActorKind
+from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     Experiment,
 )
 from fibsem.structures import MicroscopeState, Point
+from fibsem.workflows.proposals import Decision, DecisionOutcome, Proposal
+from fibsem.workflows.status import TaskStatus
+from tests.proposal_records import set_proposals
 
 TASK = "Setup Lamella Position"
 
@@ -50,13 +47,13 @@ def _asked(experiment, values=None) -> Proposal:
     lamella = experiment.positions[0]
     lamella.task_state.name = TASK
     lamella.task_state.task_id = "run-1"
-    lamella.task_state.status = AutoLamellaTaskStatus.InProgress
+    lamella.task_state.status = TaskStatus.InProgress
     proposal = Proposal(
         kind=POINT_OF_INTEREST,
         values=values if values is not None else {"poi": Point(0.0, 0.0)},
         provenance={"task_id": "run-1", "proposer": "detection"},
     )
-    lamella.proposals[TASK] = [proposal]
+    set_proposals(lamella, TASK, [proposal])
     proposal.asking = True  # the run is parked on it
     return proposal
 
@@ -85,7 +82,7 @@ def test_it_is_authored_automatically_because_nobody_decided_it(experiment):
 
     experiment.withdraw_proposal(lamella.id, TASK, "the run was stopped")
 
-    assert proposal.current.author.kind is AuthorKind.automated
+    assert proposal.current.actor.kind is ActorKind.task
 
 
 def test_withdrawing_works_while_the_task_is_running(experiment):
@@ -93,7 +90,7 @@ def test_withdrawing_works_while_the_task_is_running(experiment):
     failing, which is the state ``decide`` refuses a decision in."""
     lamella = experiment.positions[0]
     _asked(experiment)
-    assert lamella.task_state.status is AutoLamellaTaskStatus.InProgress
+    assert lamella.task_state.status is TaskStatus.InProgress
 
     assert experiment.withdraw_proposal(lamella.id, TASK, "aborted").applied
 
@@ -101,13 +98,13 @@ def test_withdrawing_works_while_the_task_is_running(experiment):
 def test_an_answered_proposal_cannot_be_withdrawn(experiment):
     lamella = experiment.positions[0]
     proposal = _asked(experiment)
-    lamella.task_state.status = AutoLamellaTaskStatus.Completed
+    lamella.task_state.status = TaskStatus.Completed
     assert experiment.decide(
         lamella.id,
         TASK,
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values={"poi": Point(0.0, 0.0)},
             task_id="run-1",
         ),
@@ -138,29 +135,18 @@ def test_a_withdrawn_question_cannot_be_answered_afterwards(experiment):
     lamella = experiment.positions[0]
     _asked(experiment)
     experiment.withdraw_proposal(lamella.id, TASK, "Mill Rough failed")
-    lamella.task_state.status = AutoLamellaTaskStatus.Failed
+    lamella.task_state.status = TaskStatus.Failed
 
     result = experiment.decide(
         lamella.id,
         TASK,
-        Decision(outcome=DecisionOutcome.Confirmed, author="human:op", task_id="run-1"),
+        Decision(
+            outcome=DecisionOutcome.Confirmed, actor="operator:op", task_id="run-1"
+        ),
     )
 
     assert not result.applied and result.error_type == "stale_review"
     assert "withdrawn" in result.reason
-
-
-def test_it_is_never_to_check(experiment):
-    """Nobody should be asked to acknowledge a question that was taken back:
-    a withdrawal is authored automatically, which is otherwise exactly what
-    puts a proposal in the to-check group."""
-    lamella = experiment.positions[0]
-    proposal = _asked(experiment)
-
-    experiment.withdraw_proposal(lamella.id, TASK, "the run was stopped")
-
-    assert not proposal.to_check
-    assert proposal not in [p for _, _, p in experiment.proposals_to_check()]
 
 
 def test_it_leaves_the_waiting_list(experiment):
@@ -195,24 +181,22 @@ def test_it_does_not_satisfy_what_requires_the_task(experiment):
     _asked(experiment)
 
     experiment.withdraw_proposal(lamella.id, TASK, "Mill Rough failed")
-    lamella.task_state.status = AutoLamellaTaskStatus.Failed
-    lamella.set_task_status(TASK, AutoLamellaTaskStatus.Failed, "failed")
+    lamella.task_state.status = TaskStatus.Failed
+    lamella.set_task_status(TASK, TaskStatus.Failed, "failed")
 
     assert not lamella.latest_run_completed(TASK)
-    assert not lamella.is_awaiting_decision(TASK)
 
 
 def test_it_does_not_touch_the_task_status(experiment):
     """The task has its own ending; the withdrawal is a consequence of it, not
-    a cause. A confirm or a reject finishes a task that ended AwaitingDecision
-    -- this must not."""
+    a cause."""
     lamella = experiment.positions[0]
     _asked(experiment)
-    lamella.set_task_status(TASK, AutoLamellaTaskStatus.InProgress)
+    lamella.set_task_status(TASK, TaskStatus.InProgress)
 
     experiment.withdraw_proposal(lamella.id, TASK, "aborted")
 
-    assert lamella.task_state.status is AutoLamellaTaskStatus.InProgress
+    assert lamella.task_state.status is TaskStatus.InProgress
 
 
 # ---------------------------------------------------------------------------

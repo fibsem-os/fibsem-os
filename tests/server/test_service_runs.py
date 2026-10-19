@@ -101,7 +101,7 @@ def test_with_no_run_id_the_route_reads_the_mill_going_on(client, microscope):
     """No run id: the run going on, waited for, else the last one."""
     go = threading.Event()
     started = threading.Event()
-    strategy_run = FibsemMillingStage().strategy.run
+    strategy_run = FibsemMillingStage().get_strategy().run
 
     def held(microscope, stage, **kwargs):
         started.set()
@@ -109,7 +109,7 @@ def test_with_no_run_id_the_route_reads_the_mill_going_on(client, microscope):
         return strategy_run(microscope=microscope, stage=stage, **kwargs)
 
     config = _config("Rough")
-    config.stages[0].strategy.run = held
+    config.stages[0].get_strategy().run = held
     worker = threading.Thread(target=run_milling_task, args=(microscope, config))
     worker.start()
     try:
@@ -172,7 +172,7 @@ def test_a_failed_task_s_run_says_why(client, microscope):
         raise RuntimeError("the beam would not blank")
 
     config = _config("Rough")
-    config.stages[0].strategy.run = fails
+    config.stages[0].get_strategy().run = fails
     task = run_milling_task(microscope, config)
 
     run = _read(client, run_id=task.task_id)
@@ -184,7 +184,7 @@ def test_a_failed_task_s_run_says_why(client, microscope):
 
 def test_service_wait_for_run_waits_for_a_task_s_mill(client, microscope):
     pytest.importorskip("mcp")
-    from fibsem.mcp.sidecar import build_sidecar
+    from fibsem.ai.agent.mcp.sidecar import build_sidecar
 
     task = run_milling_task(microscope, _config("Rough"))
     sidecar = build_sidecar(client, client.get("/capabilities").json())

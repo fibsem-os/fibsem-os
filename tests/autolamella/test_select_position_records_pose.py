@@ -23,6 +23,8 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTask,
     SelectMillingPositionTaskConfig,
 )
+from tests.answering import answering
+from tests.autolamella._on_the_record import manager_for
 
 # Tens of seconds each on the simulator, so pull requests run these on one CI leg
 # only; the nightly and release runs take them everywhere (python-package.yml).
@@ -52,10 +54,14 @@ def test_the_task_records_pose_and_reference_either_way(
         select_poi=True,
     )
     task = SelectMillingPositionTask(
-        microscope=microscope, config=config, lamella=lamella
+        microscope=microscope,
+        config=config,
+        lamella=lamella,
+        task_manager=manager_for(microscope, lamella),
     )
 
-    task._run()
+    with answering(task.task_manager.experiment):
+        task._run()
 
     assert lamella.milling_angle is not None, "milling pose and angle were stored"
     assert os.path.exists(
@@ -84,7 +90,7 @@ def test_the_fluorescence_pose_follows_the_milling_pose(tmp_path, sync):
         poses = build_lamella_poses(microscope=microscope, position=marked)
         lamella = Lamella(path=tmp_path / "lam", number=0, petname="test")
         lamella.path.mkdir(parents=True, exist_ok=True)
-        lamella.milling_pose = poses.milling
+        lamella.milling_pose = poses.beam
         lamella.fluorescence_pose = poses.fluorescence
         assert lamella.fluorescence_pose is not None
         stale = lamella.fluorescence_pose.stage_position
@@ -107,7 +113,10 @@ def test_the_fluorescence_pose_follows_the_milling_pose(tmp_path, sync):
             sync_fluorescence_pose=sync,
         )
         SelectMillingPositionTask(
-            microscope=microscope, config=config, lamella=lamella
+            microscope=microscope,
+            config=config,
+            lamella=lamella,
+            task_manager=manager_for(microscope, lamella),
         )._run()
 
         got = lamella.fluorescence_pose.stage_position
@@ -143,6 +152,7 @@ def test_the_alignment_reference_is_lamella_state_not_the_run_s(
         microscope=microscope,
         config=SelectMillingPositionTaskConfig(use_autofocus=False),
         lamella=lamella,
+        task_manager=manager_for(microscope, lamella),
     )
 
     task._run()

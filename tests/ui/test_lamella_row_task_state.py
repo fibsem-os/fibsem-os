@@ -41,15 +41,12 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QApplication
 
-from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskState,
-    AutoLamellaTaskStatus,
-    Lamella,
-)
+from fibsem.applications.autolamella.structures import Lamella
 from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
     LamellaNameListWidget,
     _LamellaRow,
 )
+from fibsem.workflows.status import TaskState, TaskStatus
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -58,7 +55,7 @@ def lamella(tmp_path, number: int = 1) -> Lamella:
     lam = Lamella(
         path=str(tmp_path / f"lam{number}"), number=number, petname=f"lam-{number}"
     )
-    lam.task_state = AutoLamellaTaskState(name="MillTrench")
+    lam.task_state = TaskState(name="MillTrench")
     return lam
 
 
@@ -138,7 +135,7 @@ class TestWhatItStillFollows:
         widget.set_lamella(lamellae)
         running = lamellae[1]
         running.task_state.name = "MillPolishing"
-        running.task_state.status = AutoLamellaTaskStatus.InProgress
+        running.task_state.status = TaskStatus.InProgress
 
         widget.refresh_lamella(running)
 
@@ -179,7 +176,7 @@ class TestWhatItStillFollows:
         widget.set_lamella(lamellae)
         for lam in lamellae:
             lam.task_state.name = "MillPolishing"
-            lam.task_state.status = AutoLamellaTaskStatus.InProgress
+            lam.task_state.status = TaskStatus.InProgress
 
         widget.refresh_all()
 

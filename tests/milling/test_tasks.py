@@ -16,7 +16,12 @@ from fibsem.milling.tasks import (
     record_milling_skipped,
     run_milling_task,
 )
-from fibsem.structures import BeamType, FibsemMillingSettings, ImageSettings
+from fibsem.structures import (
+    BeamType,
+    FibsemMillingSettings,
+    ImageSettings,
+    MillingState,
+)
 
 # ── MillingTaskAcquisitionSettings.estimated_time ────────────────────────────
 
@@ -663,3 +668,114 @@ def test_a_strategy_that_raised_is_named_on_its_failed_stage(tmp_path):
     stage = run["stages"][0]
     assert stage["status"] == "failed"
     assert stage["strategy"] == {"name": "Standard"}
+
+
+# ── stage runs and how they end (FIB-1480) ───────────────────────────────────
+
+
+def test_a_stage_records_how_it_ended_and_its_steps(tmp_path):
+    stage = FibsemMillingStage(name="rough")
+    microscope, task = _task(tmp_path, stages=[stage], acquire_final_image=False)
+    events = _milling_events(microscope)
+
+    task.run()
+
+    (run,) = events
+    rough = run["stages"][0]
+    assert rough["status"] == "completed"
+    finished = {"kind": "finished", "by": "instrument", "reason": None}
+    assert rough["end"] == finished
+    (step,) = rough["steps"]
+    assert step["index"] == 0 and step["end"] == finished
+    assert rough["started_at"] <= step["started_at"] <= step["ended_at"]
+
+
+class _TwoSteps(StandardMillingStrategy):
+    """Mills twice, as Overtilt mills once a pattern; the first step is ended."""
+
+    name = "TwoSteps"
+
+    def run(self, microscope, stage, stop_event=None):
+        def end_once(progress):
+            if progress.milling_state is MillingState.RUNNING:
+                microscope.milling.progress.changed.disconnect(end_once)
+                microscope.milling.end("drop seen", by="agent")
+
+        microscope.milling.progress.changed.connect(end_once)
+        super().run(microscope, stage, stop_event)
+        super().run(microscope, stage, stop_event)
+        return MillingStrategyResult(facts={"Steps": 2})
+
+
+def test_ending_a_stage_completes_it_and_the_task_goes_on(tmp_path):
+    stages = [
+        FibsemMillingStage(name="rough", strategy=_TwoSteps()),
+        FibsemMillingStage(name="polish"),
+    ]
+    microscope, task = _task(tmp_path, stages=stages, acquire_final_image=False)
+    events = _milling_events(microscope)
+
+    task.run()
+
+    assert task.outcome is MillingProgressStatus.TASK_FINISHED
+    (run,) = events
+    rough, polish = run["stages"]
+    assert rough["status"] == "completed"
+    assert rough["end"] == {"kind": "ended", "by": "agent", "reason": "drop seen"}
+    assert len(rough["steps"]) == 1, "the ended stage mills no second step"
+    assert rough["strategy"]["facts"] == {"Steps": 2}
+    assert polish["status"] == "completed" and polish["end"]["kind"] == "finished"
+
+
+class _KeepsMilling(StandardMillingStrategy):
+    """Mills without the task's stop event, as coincidence does, and says so."""
+
+    name = "KeepsMilling"
+
+    def run(self, microscope, stage, stop_event=None):
+        super().run(microscope, stage, None)
+        return MillingStrategyResult(end_reason="stopped", facts={"Seen": True})
+
+
+def test_a_stopped_stage_keeps_what_its_strategy_said(tmp_path):
+    stage = FibsemMillingStage(name="rough", strategy=_KeepsMilling())
+    microscope, task = _task(tmp_path, stages=[stage], acquire_final_image=False)
+
+    def stop_once(progress):
+        if progress.milling_state is MillingState.RUNNING:
+            microscope.milling.progress.changed.disconnect(stop_once)
+            microscope.milling.stop()
+
+    microscope.milling.progress.changed.connect(stop_once)
+    events = _milling_events(microscope)
+
+    task.run()
+
+    assert task.outcome is MillingProgressStatus.TASK_CANCELLED
+    (run,) = events
+    rough = run["stages"][0]
+    assert rough["status"] == "cancelled"
+    assert rough["strategy"]["end_reason"] == "stopped"
+    assert rough["end"] == {
+        "kind": "stopped",
+        "by": None,
+        "reason": "Milling stopped.",
+    }
+    assert rough["steps"][0]["end"]["kind"] == "stopped"
+
+
+def test_a_failed_stage_records_its_end(tmp_path):
+    microscope, task = _task(tmp_path, acquire_final_image=False)
+    _reject_milling(microscope)
+    events = _milling_events(microscope)
+
+    task.run()
+
+    (run,) = events
+    stage = run["stages"][0]
+    assert stage["end"] == {
+        "kind": "failed",
+        "by": None,
+        "reason": "_Rejected: could not load type",
+    }
+    assert stage["steps"] == []

@@ -10,7 +10,6 @@ from psygnal.containers import EventedDict
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.applications.autolamella.proposals import ALIGNMENT_AREA
 from fibsem.applications.autolamella.protocol.constants import FIDUCIAL_KEY
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
@@ -23,6 +22,7 @@ from fibsem.applications.autolamella.workflows.tasks.fiducial import (
     MillFiducialTaskConfig,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
+from fibsem.workflows.proposals import ALIGNMENT_AREA, MILLING
 
 FIDUCIAL = "Mill Fiducial"
 CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
@@ -44,12 +44,11 @@ def microscope():
 
 
 def test_the_area_is_a_question_with_a_switch():
-    assert MillFiducialTask.questions == (ALIGNMENT_AREA,)
-    assert MillFiducialTask.sessions == ("milling",)
+    assert MillFiducialTask.questions == (MILLING, ALIGNMENT_AREA)
     on = MillFiducialTaskConfig(task_name=FIDUCIAL)
     off = MillFiducialTaskConfig(task_name=FIDUCIAL, confirm_alignment_area=False)
-    assert MillFiducialTask.questions_for(on) == (ALIGNMENT_AREA,)
-    assert MillFiducialTask.questions_for(off) == ()
+    assert MillFiducialTask.questions_for(on) == (MILLING, ALIGNMENT_AREA)
+    assert MillFiducialTask.questions_for(off) == (MILLING,)
 
 
 def test_the_question_sits_on_the_image_the_mill_left_behind(microscope, tmp_path):
@@ -66,7 +65,6 @@ def test_the_question_sits_on_the_image_the_mill_left_behind(microscope, tmp_pat
         microscope=microscope,
         config=config,
         lamella=lamella,
-        parent_ui=None,
         task_manager=None,
     )
     milling = config.milling[FIDUCIAL_KEY]
@@ -116,13 +114,11 @@ def test_with_no_finished_image_the_task_takes_one_frame_to_ask_on(
     lamella = exp.positions[0]
     lamella.path.mkdir(parents=True, exist_ok=True)
     lamella.milling_pose = microscope.get_microscope_state()
-    manager = TaskManager(microscope=microscope, experiment=exp, parent_ui=None)
-    manager.review_enabled = True
+    manager = TaskManager(microscope=microscope, experiment=exp)
     task = MillFiducialTask(
         microscope=microscope,
         config=lamella.task_config[FIDUCIAL],
         lamella=lamella,
-        parent_ui=None,
         task_manager=manager,
     )
     # the mill itself is not the point: the session hands back its config

@@ -17,7 +17,7 @@ type names) stays off the screen.
 
 import time
 from collections import deque
-from typing import Deque, Dict, Tuple
+from typing import Deque, Dict, Optional, Tuple
 
 
 def _feature_enabled() -> bool:
@@ -44,12 +44,9 @@ __all__ = ["QuestionTimelineWidget"]
 # so a new question type degrades to jargon rather than to silence.
 _QUESTION_LABELS = {
     "Confirm": "confirmation",
-    "RunMillingTask": "Run Milling",
-    "RunSpotBurn": "Run Spot Burn",
     "PickPOI": "point of interest",
     "EditAlignmentArea": "alignment area",
     "ConfirmDetection": "detection",
-    "ReviewDetection": "detection",
 }
 
 _ROW_STYLESHEET = (
@@ -78,11 +75,11 @@ class QuestionTimelineWidget(QWidget):
         # Nothing to show until a question is answered; an empty strip is noise.
         self.setVisible(False)
 
-    def record(self, kind: str, payload: Dict) -> None:
+    def record(self, kind: str, payload: Dict, actor: Optional[str] = None) -> None:
         """One lifecycle event in; the line updates. Ignores prompt_raised —
         the standing question already has the whole instruction label."""
         if kind == "prompt_answered":
-            who = "agent" if payload.get("answered_by") == "agent" else "you"
+            who = "agent" if actor == "agent" else "you"
             verb = "answered" if payload.get("response") else "declined"
             label = _QUESTION_LABELS.get(payload.get("type"), payload.get("type"))
             took = (

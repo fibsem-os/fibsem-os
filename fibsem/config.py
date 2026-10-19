@@ -11,6 +11,7 @@ import yaml
 import fibsem
 import fibsem.util.numpy_yaml  # noqa: F401  numpy scalars dump as numbers
 from fibsem.util.timestamps import to_datetime
+from fibsem.workflows.saved_format import saved_app
 
 # Documentation for a human reading a file, not a parsing switch -- from_dict does not
 # branch on it, and additive changes are detected from field presence instead (FIB-445
@@ -334,14 +335,9 @@ class FeatureFlags:
     # A staging flag, and it goes the same way `napari_overview_tab` did: deleted
     # when the chip replaces the tab, not kept as a preference.
     connection_chip: bool = False
-    # Propose and review (FIB-946..950): a task completes and leaves a proposal
-    # -- a point of interest, to start with -- for the operator to confirm or
-    # reject later in a Review tab, off the beam, instead of answering inline
-    # while the stage waits. Gates the whole path: the producer writing a
-    # proposal, the run deferring the consumer until it is decided, the wait
-    # before a run reports itself stalled, and the tab. Off, every task behaves
-    # exactly as before. Off by default while it is a proof of concept.
-    proposer_reviewer_workflow_enabled: bool = False
+    # `proposer_reviewer_workflow_enabled` retired 2026-10-18: every task's
+    # questions and result go on the record, and nothing waits on a decision
+    # once a task ends. Same load rule as above.
 
 
 @dataclass
@@ -540,6 +536,7 @@ class ExperimentSummary:
 
     path: str  # path to the experiment.yaml file
     name: str
+    app: Optional[str] = None  # the application that wrote it; None if unread
     created_at: Optional[datetime] = None  # None when the file does not say
     num_lamella: int = 0
     exists: bool = True
@@ -582,6 +579,7 @@ def peek_experiment(experiment_yaml_path: str) -> ExperimentSummary:
         return ExperimentSummary(
             path=experiment_yaml_path,
             name=ddict.get("name") or fallback_name,
+            app=saved_app(ddict),
             created_at=to_datetime(ddict.get("created_at")),
             num_lamella=len(ddict.get("positions") or []),
             exists=True,

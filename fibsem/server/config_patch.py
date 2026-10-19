@@ -16,8 +16,13 @@ refuses identically:
 - The leaf must be a value, not a section — patching ``milling`` wholesale is
   refused; patch the fields inside it.
 - The new value must match the old one's type (bool for bool, number for
-  number, string for string, an enum member's name for an enum). ``None``
-  fields are refused: their type cannot be inferred.
+  number, string for string, an enum member's name for an enum). A ``None``
+  field takes the type its annotation declares (``Optional[X]`` is an ``X``,
+  read through the codec, so a rectangle is given as its saved dict); one with
+  no such annotation is refused, as its type cannot be inferred.
+- A path follows the saved shape. Where a value saves its fields under a key of
+  its own (a milling stage's strategy config, under ``config``), that key
+  names the value itself.
 - Where the enclosing dataclass declares ``limits`` for the field (in SI,
   the limits the GUI's forms clamp by), the value must be within them —
   otherwise the server stores a number the form then displays differently.
@@ -29,10 +34,11 @@ refuses identically:
 Qt-free and py3.8-clean; the GUI-thread caller owns marshalling.
 """
 
+import typing
 from dataclasses import MISSING, is_dataclass
 from dataclasses import fields as dataclass_fields
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from fibsem.structures import (
     DRIVER_MILLING_SETTINGS,
@@ -97,9 +103,13 @@ def _resolve(root: Any, path: str, value: Any, none_type: Optional[type] = None)
             path,
             f"{path!r} names a section, not a value; patch the fields inside it.",
         )
-    if old is None and none_type is not None:
+    if old is None and none_type is None:
+        none_type = _annotated_type(obj, leaf)
+    if old is None and none_type in (bool, int, float, str):
         old_for_coerce = none_type()  # a stand-in of the declared type
         new = _coerce(old_for_coerce, value, path)
+    elif old is None and none_type is not None:
+        new = _decode(none_type, value, path)
     else:
         new = _coerce(old, value, path)
     if is_dataclass(obj):
@@ -141,6 +151,33 @@ def _resolve_driver_setting(
     return setter, path, old, new
 
 
+def _annotated_type(obj: Any, leaf: str) -> Optional[type]:
+    """The type *obj*'s field *leaf* holds when set: ``X`` for ``Optional[X]``.
+    None when *obj* is no dataclass or the annotation says nothing narrower."""
+    if not is_dataclass(obj):
+        return None
+    try:
+        hint = typing.get_type_hints(type(obj)).get(leaf)
+    except Exception:  # an annotation naming a type-checking-only import
+        return None
+    if typing.get_origin(hint) is not Union:
+        return None
+    args = [a for a in typing.get_args(hint) if a is not type(None)]
+    return args[0] if len(args) == 1 else None
+
+
+def _decode(type_: type, value: Any, path: str) -> Any:
+    """*value* as a *type_*, read as a saved file would be."""
+    from fibsem.codec import decode
+
+    try:
+        return decode(type_, value)
+    except (TypeError, ValueError) as e:
+        raise PatchError(
+            path, f"{value!r} is not a {getattr(type_, '__name__', type_)}: {e}"
+        )
+
+
 def _child(obj: Any, part: str, path: str) -> Any:
     if isinstance(obj, dict):
         if part not in obj:
@@ -161,6 +198,8 @@ def _child(obj: Any, part: str, path: str) -> Any:
         return obj[index]
     if is_dataclass(obj):
         names = {f.name for f in dataclass_fields(obj)}
+        if part not in names and part == getattr(type(obj), "SAVED_UNDER", None):
+            return obj  # the key the value's fields are saved under
         if part not in names:
             raise PatchError(
                 path,

@@ -9,7 +9,11 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.microscope import FibsemMicroscope
-from fibsem.milling.base import FibsemMillingStage, MillingStrategy, get_strategy
+from fibsem.milling.base import (
+    FibsemMillingStage,
+    MillingStrategyConfig,
+    get_strategy_config,
+)
 from fibsem.milling.patterning import get_pattern
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.structures import BeamType, FibsemMillingSettings
@@ -102,7 +106,7 @@ class FibsemMillingStagesWidget(QWidget):
 
         # Strategy settings
         self._strategy_widget = FibsemStrategySettingsWidget(
-            strategy=get_strategy("Standard"),
+            strategy=get_strategy_config("Standard"),
             microscope=self.microscope,
         )
 
@@ -178,7 +182,7 @@ class FibsemMillingStagesWidget(QWidget):
             self._list.refresh_stage(self._selected_stage)
             self.stages_changed.emit(self._list.get_stages())
 
-    def _on_strategy_changed(self, strategy: MillingStrategy) -> None:
+    def _on_strategy_changed(self, strategy: MillingStrategyConfig) -> None:
         if self._selected_stage is not None:
             self._selected_stage.strategy = strategy
             self._list.refresh_stage(self._selected_stage)

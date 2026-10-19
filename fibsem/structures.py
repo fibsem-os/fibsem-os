@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import numbers
 import os
 import sys
 import weakref
@@ -40,7 +41,16 @@ import yaml
 from numpy.typing import NDArray
 
 import fibsem
+from fibsem.codec import (
+    AwareTimestamp,
+    NamedEnum,
+    Timestamp,
+    decode,
+    encode,
+    saved,
+)
 from fibsem.config import (
+    DEFAULT_STANDARD_RESOLUTION_LIST,
     METADATA_VERSION,
     UNVERSIONED_METADATA,
 )
@@ -65,6 +75,7 @@ TFibsemPatternSettings = TypeVar(
 )
 
 
+@saved(required=("min", "max"))
 @dataclass
 class RangeLimit:
     min: float
@@ -74,11 +85,11 @@ class RangeLimit:
         return max(self.min, min(self.max, value))
 
     def to_dict(self) -> dict:
-        return {"min": self.min, "max": self.max}
+        return encode(self)
 
     @staticmethod
     def from_dict(d: dict) -> "RangeLimit":
-        return RangeLimit(min=d["min"], max=d["max"])
+        return decode(RangeLimit, d)
 
 
 Limits = Union[RangeLimit, Mapping[str, RangeLimit]]
@@ -636,24 +647,30 @@ def _plain_number(value: Any) -> Any:
     return value
 
 
+@saved(required=("x", "y"))
 @dataclass
-class Point:
-    x: float = 0.0
-    y: float = 0.0
-    name: Optional[str] = None
+class Point(Configurable):
+    x: float = param(
+        0.0,
+        doc="The x value. Its unit is the context's: metres for a shift or a position in an image, none for a stigmation.",
+    )
+    y: float = param(0.0, doc="The y value, in the same unit as x.")
+    name: Optional[str] = param(None, doc="A name for the point.")
+
+    # numpy would otherwise read a Point as the sequence [x, y] and answer
+    # np.float64(2) * point with an array instead of calling __rmul__.
+    __array_ufunc__ = None
 
     def __post_init__(self) -> None:
         self.x = _plain_number(self.x)
         self.y = _plain_number(self.y)
 
     def to_dict(self) -> dict:
-        return {"x": self.x, "y": self.y}
+        return encode(self)
 
     @staticmethod
     def from_dict(d: dict) -> "Point":
-        x = float(d["x"])
-        y = float(d["y"])
-        return Point(x, y)
+        return decode(Point, d)
 
     def to_list(self) -> list:
         return [self.x, self.y]
@@ -670,6 +687,25 @@ class Point:
     def __sub__(self, other) -> "Point":
         return Point(self.x - other.x, self.y - other.y)
 
+    def __mul__(self, scale: float) -> "Point":
+        """Both coordinates times a number, e.g. pixels times a pixel size. Only a
+        number: the point carries no unit, so the result is in whatever unit the
+        number makes it."""
+        if not isinstance(scale, numbers.Real):
+            return NotImplemented
+        return Point(self.x * scale, self.y * scale)
+
+    __rmul__ = __mul__
+
+    def __truediv__(self, scale: float) -> "Point":
+        """Both coordinates divided by a number, e.g. metres by a pixel size."""
+        if not isinstance(scale, numbers.Real):
+            return NotImplemented
+        return Point(self.x / scale, self.y / scale)
+
+    def __neg__(self) -> "Point":
+        return Point(-self.x, -self.y)
+
     def __len__(self) -> int:
         return 2
 
@@ -681,12 +717,6 @@ class Point:
         else:
             raise IndexError("Index out of range")
 
-    def _to_metres(self, pixel_size: float) -> "Point":
-        return Point(self.x * pixel_size, self.y * pixel_size)
-
-    def _to_pixels(self, pixel_size: float) -> "Point":
-        return Point(self.x / pixel_size, self.y / pixel_size)
-
     def distance(self, other: "Point") -> "Point":
         """Calculate the distance between two points. (other - self)"""
         return Point(x=(other.x - self.x), y=(other.y - self.y))
@@ -696,7 +726,7 @@ class Point:
         return float(np.linalg.norm(self.distance(other).to_list()))
 
 
-class BeamType(Enum):
+class BeamType(NamedEnum, Enum):
     """Enumerator Class for Beam Type
     1: Electron Beam
     2: Ion Beam
@@ -855,7 +885,7 @@ _DISTANCE_METRICS = ("euclidean", "manhattan", "max")
 
 
 @dataclass
-class FibsemAxesPosition:
+class FibsemAxesPosition(Configurable):
     """The maths shared by stage and manipulator positions (FIB-1247).
 
     A subclass declares its axes as dataclass fields and lists them in ``AXES``; the
@@ -1048,6 +1078,7 @@ class FibsemAxesPosition:
         return self._pretty_axes(self.AXES, units=True)
 
 
+@saved(required=("x", "y", "z", "r", "t", "coordinate_system"))
 @dataclass
 class FibsemStagePosition(FibsemAxesPosition):
     """Data class for storing stage position data.
@@ -1070,47 +1101,53 @@ class FibsemStagePosition(FibsemAxesPosition):
     LINEAR_AXES: ClassVar[Tuple[str, ...]] = ("x", "y", "z")
     ANGULAR_AXES: ClassVar[Tuple[str, ...]] = ("r", "t")
 
-    name: Optional[str] = None
-    x: Optional[float] = None
-    y: Optional[float] = None
-    z: Optional[float] = None
-    r: Optional[float] = None
-    t: Optional[float] = None
-    coordinate_system: Optional[str] = None
+    name: Optional[str] = param(
+        None, doc="A name for the position, such as a saved position's."
+    )
+    x: Optional[float] = param(
+        None,
+        unit="m",
+        doc="The stage's x position.",
+        display=Display("X", scale=1e3, step=0.001, decimals=5),
+    )
+    y: Optional[float] = param(
+        None,
+        unit="m",
+        doc="The stage's y position.",
+        display=Display("Y", scale=1e3, step=0.001, decimals=5),
+    )
+    z: Optional[float] = param(
+        None,
+        unit="m",
+        doc="The stage's z position.",
+        display=Display("Z", scale=1e3, step=0.001, decimals=5),
+    )
+    r: Optional[float] = param(
+        None,
+        unit="rad",
+        doc="The stage's rotation.",
+        display=Display("Rotation", scale=180 / math.pi, unit="°"),
+    )
+    t: Optional[float] = param(
+        None,
+        unit="rad",
+        doc="The stage's tilt.",
+        display=Display("Tilt", scale=180 / math.pi, unit="°"),
+    )
+    coordinate_system: Optional[str] = param(
+        None,
+        doc="The frame the coordinates are in, as the driver names it, such as RAW.",
+    )
 
     def to_dict(self) -> dict:
-        position_dict = {}
-
-        position_dict["name"] = self.name if self.name is not None else None
-        position_dict["x"] = float(self.x) if self.x is not None else None
-        position_dict["y"] = float(self.y) if self.y is not None else None
-        position_dict["z"] = float(self.z) if self.z is not None else None
-        position_dict["r"] = float(self.r) if self.r is not None else None
-        position_dict["t"] = float(self.t) if self.t is not None else None
-        position_dict["coordinate_system"] = self.coordinate_system
-
-        return position_dict
+        return encode(self)
 
     @classmethod
     def from_dict(cls, data: dict) -> "FibsemStagePosition":
-        items = ["x", "y", "z", "r", "t"]
-
-        for item in items:
-            value = data[item]
-
-            assert isinstance(value, float) or isinstance(value, int) or value is None
-
-        return cls(
-            name=data.get("name", None),
-            x=data["x"],
-            y=data["y"],
-            z=data["z"],
-            r=data["r"],
-            t=data["t"],
-            coordinate_system=data["coordinate_system"],
-        )
+        return decode(cls, data)
 
 
+@saved(required=("x", "y", "z", "r", "t"))
 @dataclass
 class FibsemManipulatorPosition(FibsemAxesPosition):
     """Data class for storing manipulator position data.
@@ -1133,53 +1170,83 @@ class FibsemManipulatorPosition(FibsemAxesPosition):
     LINEAR_AXES: ClassVar[Tuple[str, ...]] = ("x", "y", "z")
     ANGULAR_AXES: ClassVar[Tuple[str, ...]] = ("r", "t")
 
-    x: float = 0.0
-    y: float = 0.0
-    z: float = 0.0
-    r: float = 0.0
-    t: float = 0.0
-    coordinate_system: Optional[str] = None
+    x: float = param(
+        0.0,
+        unit="m",
+        doc="The needle's x position.",
+        display=Display("X", scale=1e3, step=0.001, decimals=5),
+    )
+    y: float = param(
+        0.0,
+        unit="m",
+        doc="The needle's y position.",
+        display=Display("Y", scale=1e3, step=0.001, decimals=5),
+    )
+    z: float = param(
+        0.0,
+        unit="m",
+        doc="The needle's z position.",
+        display=Display("Z", scale=1e3, step=0.001, decimals=5),
+    )
+    r: float = param(
+        0.0,
+        unit="rad",
+        doc="The needle's rotation.",
+        display=Display("Rotation", scale=180 / math.pi, unit="°"),
+    )
+    t: float = param(
+        0.0,
+        unit="rad",
+        doc="The needle's tilt.",
+        display=Display("Tilt", scale=180 / math.pi, unit="°"),
+    )
+    coordinate_system: Optional[str] = param(
+        None, doc="The frame the coordinates are in, as the driver names it."
+    )
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        # in capitals, as it has always been saved
+        if self.coordinate_system:
+            self.coordinate_system = self.coordinate_system.upper()
 
     def to_dict(self) -> dict:
-        position_dict = {}
-        position_dict["x"] = self.x
-        position_dict["y"] = self.y
-        position_dict["z"] = self.z
-        position_dict["r"] = self.r
-        position_dict["t"] = self.t
-        position_dict["coordinate_system"] = (
-            self.coordinate_system.upper() if self.coordinate_system else None
-        )
-
-        return position_dict
+        return encode(self)
 
     @classmethod
     def from_dict(cls, data: dict) -> "FibsemManipulatorPosition":
-        items = ["x", "y", "z", "r", "t"]
-
-        for item in items:
-            value = data[item]
-
-            assert isinstance(value, float) or isinstance(value, int) or value is None
-
-        return cls(
-            x=data["x"],
-            y=data["y"],
-            z=data["z"],
-            r=data["r"],
-            t=data["t"],
-            coordinate_system=data.get("coordinate_system"),
-        )
+        return decode(cls, data)
 
 
+@saved(required=("left", "top", "width", "height"))
 @dataclass
-class FibsemRectangle:
+class FibsemRectangle(Configurable):
     """Universal Rectangle class used for ReducedArea"""
 
-    left: float = 0.0
-    top: float = 0.0
-    width: float = 1.0
-    height: float = 1.0
+    left: float = param(
+        0.0,
+        limits=RangeLimit(0.0, 1.0),
+        doc="The left edge, from the frame's left, as a fraction of the full frame.",
+        display=Display("Left", step=0.01, decimals=2),
+    )
+    top: float = param(
+        0.0,
+        limits=RangeLimit(0.0, 1.0),
+        doc="The top edge, from the frame's top, as a fraction of the full frame.",
+        display=Display("Top", step=0.01, decimals=2),
+    )
+    width: float = param(
+        1.0,
+        limits=RangeLimit(0.0, 1.0),
+        doc="The width, as a fraction of the full frame.",
+        display=Display("Width", step=0.01, decimals=2),
+    )
+    height: float = param(
+        1.0,
+        limits=RangeLimit(0.0, 1.0),
+        doc="The height, as a fraction of the full frame.",
+        display=Display("Height", step=0.01, decimals=2),
+    )
 
     def __post_init__(self):
         self.left = _plain_number(self.left)
@@ -1200,30 +1267,12 @@ class FibsemRectangle:
         )
 
     @classmethod
-    def from_dict(cls, settings: dict) -> "FibsemRectangle":
-        if settings is None:
-            return None
-        points = ["left", "top", "width", "height"]
-
-        for point in points:
-            value = settings[point]
-
-            assert isinstance(value, float) or isinstance(value, int) or value is None
-
-        return FibsemRectangle(
-            left=settings["left"],
-            top=settings["top"],
-            width=settings["width"],
-            height=settings["height"],
-        )
+    def from_dict(cls, settings: Optional[dict]) -> Optional["FibsemRectangle"]:
+        """None for None: a reduced area that isn't set."""
+        return None if settings is None else decode(cls, settings)
 
     def to_dict(self) -> dict:
-        return {
-            "left": float(self.left),
-            "top": float(self.top),
-            "width": float(self.width),
-            "height": float(self.height),
-        }
+        return encode(self)
 
     @property
     def is_valid_reduced_area(self) -> bool:
@@ -1326,12 +1375,32 @@ class ImageSettings(Configurable):
     hfw: float = param(
         150e-6, device_parameter="beam.hfw", display=Display("Field of View")
     )
-    autocontrast: bool = False
-    beam_type: BeamType = BeamType.ELECTRON
-    save: bool = False
-    filename: str = "default_image"
-    path: Optional[Union[Path, str]] = None
-    reduced_area: Optional[FibsemRectangle] = None
+    autocontrast: bool = param(
+        False,
+        doc="Set the detector's contrast and brightness automatically before the image is acquired.",
+        display=Display("Auto Contrast"),
+    )
+    beam_type: BeamType = param(
+        BeamType.ELECTRON,
+        doc="The beam that acquires the image.",
+        display=Display("Beam Type"),
+    )
+    save: bool = param(
+        False, doc="Save the image after it is acquired.", display=Display("Save Image")
+    )
+    filename: str = param(
+        "default_image",
+        doc="The name the image is saved under, without its extension.",
+        display=Display("Filename"),
+    )
+    path: Optional[Union[Path, str]] = param(
+        None, doc="The folder the image is saved in.", display=Display("Path")
+    )
+    reduced_area: Optional[FibsemRectangle] = param(
+        None,
+        doc="Acquire only this part of the frame. Empty acquires the full frame.",
+        display=Display("Reduced Area", advanced=True),
+    )
     # None is off; a form shows it as 1.
     line_integration: Optional[int] = param(
         None, limits=RangeLimit(1, 255), display=Display("Line Integration")
@@ -1342,7 +1411,11 @@ class ImageSettings(Configurable):
     frame_integration: Optional[int] = param(
         None, limits=RangeLimit(1, 512), display=Display("Frame Integration")
     )
-    drift_correction: bool = False  # (bool) # requires frame_integration > 1
+    drift_correction: bool = param(
+        False,
+        doc="Correct drift between integrated frames. Needs frame integration above 1.",
+        display=Display("Drift Correction", advanced=True),
+    )  # (bool) # requires frame_integration > 1
 
     def __post_init__(self):
         assert isinstance(self.resolution, (list, tuple)) or self.resolution is None, (
@@ -1394,63 +1467,10 @@ class ImageSettings(Configurable):
 
     @staticmethod
     def from_dict(settings: dict) -> "ImageSettings":
-        if "reduced_area" in settings and settings["reduced_area"] is not None:
-            reduced_area = FibsemRectangle.from_dict(settings["reduced_area"])
-        else:
-            reduced_area = None
-
-        # default to Electron if not specified
-        beam_name = settings.get("beam_type", "Electron")
-        if beam_name is None:
-            beam_name = "Electron"
-
-        image_settings = ImageSettings(
-            resolution=settings.get("resolution", (1536, 1024)),
-            dwell_time=settings.get("dwell_time", 1.0e-6),
-            hfw=settings.get("hfw", 150e-6),
-            autocontrast=settings.get("autocontrast", False),
-            beam_type=BeamType[beam_name.upper()],
-            save=settings.get("save", False),
-            path=settings.get("path", os.getcwd()),
-            filename=settings.get("filename", "default_image"),
-            reduced_area=reduced_area,
-            line_integration=settings.get("line_integration", None),
-            scan_interlacing=settings.get("scan_interlacing", None),
-            frame_integration=settings.get("frame_integration", None),
-            drift_correction=settings.get("drift_correction", False),
-        )
-
-        return image_settings
+        return decode(ImageSettings, settings)
 
     def to_dict(self) -> dict:
-        settings_dict = {
-            "beam_type": self.beam_type.name if self.beam_type is not None else None,
-            "resolution": list(self.resolution)
-            if self.resolution is not None
-            else None,
-            "dwell_time": self.dwell_time if self.dwell_time is not None else None,
-            "hfw": self.hfw if self.hfw is not None else None,
-            "autocontrast": self.autocontrast
-            if self.autocontrast is not None
-            else None,
-            "save": self.save if self.save is not None else None,
-            "path": str(self.path) if self.path is not None else None,
-            "filename": self.filename if self.filename is not None else None,
-            "reduced_area": {
-                "left": self.reduced_area.left,
-                "top": self.reduced_area.top,
-                "width": self.reduced_area.width,
-                "height": self.reduced_area.height,
-            }
-            if self.reduced_area is not None
-            else None,
-            "line_integration": self.line_integration,
-            "scan_interlacing": self.scan_interlacing,
-            "frame_integration": self.frame_integration,
-            "drift_correction": self.drift_correction,
-        }
-
-        return settings_dict
+        return encode(self)
 
     @property
     def field_of_view(self) -> float:
@@ -1491,7 +1511,7 @@ class ImageSettings(Configurable):
 
 
 @dataclass
-class FocusStackSettings:
+class FocusStackSettings(Configurable):
     """Settings for focus-stack acquisition in tiled overview acquisition.
 
     Attributes:
@@ -1500,24 +1520,27 @@ class FocusStackSettings:
         auto_focus: Whether to run autofocus for each strip.
     """
 
-    enabled: bool = False
-    n_steps: int = 3
-    auto_focus: bool = True
+    enabled: bool = param(
+        False,
+        doc="Build each tile from strips focused one by one, for a tilted sample.",
+        display=Display("Focus Stack"),
+    )
+    n_steps: int = param(
+        3,
+        limits=RangeLimit(1, 10),
+        doc="The number of vertical strips each tile is divided into.",
+        display=Display("Strips"),
+    )
+    auto_focus: bool = param(
+        True, doc="Autofocus on each strip.", display=Display("Autofocus Each Strip")
+    )
 
     def to_dict(self) -> dict:
-        return {
-            "enabled": self.enabled,
-            "n_steps": self.n_steps,
-            "auto_focus": self.auto_focus,
-        }
+        return encode(self)
 
     @staticmethod
     def from_dict(d: dict) -> "FocusStackSettings":
-        return FocusStackSettings(
-            enabled=d.get("enabled", False),
-            n_steps=d.get("n_steps", 3),
-            auto_focus=d.get("auto_focus", True),
-        )
+        return decode(FocusStackSettings, d)
 
 
 def _default_autofocus_settings() -> "AutoFocusSettings":
@@ -1537,8 +1560,36 @@ def _default_autofocus_settings() -> "AutoFocusSettings":
     return AutoFocusSettings()
 
 
+# What an overview run looks like before anyone touches it. House defaults rather
+# than physics: a 500 um tile and a 1 us dwell are what the overview has always
+# opened with. The name decides where every overview is written:
+# `TiledAcquisitionRunner._setup` makes the tile sub-folder from it.
+OVERVIEW_TILE_HFW = 500e-6  # m
+OVERVIEW_TILE_DWELL_TIME = 1e-6  # s
+DEFAULT_OVERVIEW_FILENAME = "overview-image"
+
+
+def _default_overview_tile_settings() -> ImageSettings:
+    """The tile settings a new overview starts from.
+
+    The standard 1536x1024 resolution, not a square one: `hfw` is the horizontal
+    field, so the same 500 um tile at 1024x1024 is 0.49 um/px against 0.33 and half
+    again as tall, and overviews worth putting side by side should not differ by it.
+    A `tuple`, not the config list itself, so no two settings share one mutable list.
+    """
+    return ImageSettings(
+        resolution=tuple(DEFAULT_STANDARD_RESOLUTION_LIST),
+        hfw=OVERVIEW_TILE_HFW,
+        dwell_time=OVERVIEW_TILE_DWELL_TIME,
+        beam_type=BeamType.ELECTRON,
+        save=True,
+        path=None,  # whoever owns the experiment fills this in
+        filename=DEFAULT_OVERVIEW_FILENAME,
+    )
+
+
 @dataclass
-class OverviewAcquisitionSettings:
+class OverviewAcquisitionSettings(Configurable):
     """Settings for a tiled overview acquisition.
 
     Attributes:
@@ -1573,19 +1624,62 @@ class OverviewAcquisitionSettings:
             than left to bite twice.
     """
 
-    image_settings: ImageSettings = field(default_factory=ImageSettings)
-    nrows: int = 3
-    ncols: int = 3
-    overlap: float = 0.1
-    focus_stack_settings: FocusStackSettings = field(default_factory=FocusStackSettings)
-    autofocus_mode: AutoFocusMode = AutoFocusMode.NONE
-    autofocus_settings: "AutoFocusSettings" = field(
-        default_factory=_default_autofocus_settings
+    image_settings: ImageSettings = param(
+        doc="The settings each tile is acquired with; its field of view is the tile's.",
+        default_factory=_default_overview_tile_settings,
     )
-    autocontrast_mode: AutoContrastMode = AutoContrastMode.NONE
-    tile_order: TileOrderStrategy = TileOrderStrategy.TYPEWRITER
-    tile_mask: Optional[List[List[bool]]] = None
-    register_tiles: bool = False
+    nrows: int = param(
+        3,
+        limits=RangeLimit(1, 100),
+        doc="The number of tile rows.",
+        display=Display("Rows"),
+    )
+    ncols: int = param(
+        3,
+        limits=RangeLimit(1, 100),
+        doc="The number of tile columns.",
+        display=Display("Columns"),
+    )
+    overlap: float = param(
+        0.1,
+        limits=RangeLimit(0.0, 0.9),
+        doc="How much neighbouring tiles overlap, as a fraction of a tile.",
+        display=Display("Overlap", scale=100, unit="%", step=5.0, decimals=0),
+    )
+    focus_stack_settings: FocusStackSettings = param(
+        doc="Focus stacking within each tile.", default_factory=FocusStackSettings
+    )
+    autofocus_mode: AutoFocusMode = param(
+        AutoFocusMode.NONE,
+        doc="When to autofocus during the run: never, once, at each row or at each tile.",
+        display=Display("Autofocus"),
+    )
+    autofocus_settings: "AutoFocusSettings" = param(
+        doc="How to autofocus: the sweep passes, the method and the probe frame.",
+        default_factory=_default_autofocus_settings,
+    )
+    # One contrast for the whole mosaic by default; the runner sets the per-image
+    # flag from this.
+    autocontrast_mode: AutoContrastMode = param(
+        AutoContrastMode.ONCE,
+        doc="When to set the contrast: never, once at the grid centre, or at each tile. It decides image_settings.autocontrast for the run.",
+        display=Display("Auto Contrast"),
+    )
+    tile_order: TileOrderStrategy = param(
+        TileOrderStrategy.TYPEWRITER,
+        doc="The order the tiles are visited in.",
+        display=Display("Tile Order", advanced=True),
+    )
+    tile_mask: Optional[List[List[bool]]] = param(
+        None,
+        doc="Which tiles to acquire, as tile_mask[row][col]. Empty acquires every tile; a skipped tile keeps its place in the mosaic.",
+        display=Display(hidden=True),
+    )
+    register_tiles: bool = param(
+        False,
+        doc="Experimental. Place each tile where its picture says it is, measured against its neighbours, rather than where the grid planned it. The planned mosaic is kept when the tiles don't match well enough.",
+        display=Display("Register Tiles", advanced=True),
+    )
 
     @property
     def n_enabled_tiles(self) -> int:
@@ -1725,6 +1819,12 @@ class OverviewAcquisitionSettings:
         }
 
 
+# `current` and `eucentric_height` are how a configuration's beam defaults spell
+# them. A missing scan rotation is 0, as it has always read.
+@saved(
+    reads={"beam_current": "current", "working_distance": "eucentric_height"},
+    absent={"beam_type": BeamType.ELECTRON, "scan_rotation": 0.0},
+)
 @dataclass
 class BeamSettings:
     """
@@ -1800,65 +1900,19 @@ class BeamSettings:
         )
 
     def to_dict(self) -> dict:
-        state_dict = {
-            "beam_type": self.beam_type.name,
-            "working_distance": self.working_distance,
-            "beam_current": self.beam_current,
-            "voltage": self.voltage,
-            "hfw": self.hfw,
-            "resolution": list(self.resolution)
-            if self.resolution is not None
-            else None,
-            "dwell_time": self.dwell_time,
-            "stigmation": self.stigmation.to_dict()
-            if self.stigmation is not None
-            else None,
-            "shift": self.shift.to_dict() if self.shift is not None else None,
-            "scan_rotation": self.scan_rotation,
-            "preset": self.preset,
-        }
-
-        return state_dict
+        return encode(self)
 
     @staticmethod
     def from_dict(state_dict: dict) -> "BeamSettings":
-        if "stigmation" in state_dict and state_dict["stigmation"] is not None:
-            stigmation = Point.from_dict(state_dict["stigmation"])
-        else:
-            stigmation = Point()
-        if "shift" in state_dict and state_dict["shift"] is not None:
-            shift = Point.from_dict(state_dict["shift"])
-        else:
-            shift = Point()
-
-        wd = state_dict.get(
-            "working_distance", state_dict.get("eucentric_height", None)
-        )
-        current = state_dict.get("beam_current", state_dict.get("current", None))
-
-        beam_settings = BeamSettings(
-            beam_type=BeamType[state_dict.get("beam_type", "ELECTRON").upper()],
-            working_distance=wd,
-            beam_current=current,
-            voltage=state_dict.get("voltage"),
-            hfw=state_dict.get("hfw"),
-            resolution=state_dict.get("resolution"),
-            dwell_time=state_dict.get("dwell_time"),
-            stigmation=stigmation,
-            shift=shift,
-            scan_rotation=state_dict.get("scan_rotation", 0.0),
-            preset=state_dict.get("preset", None),
-        )
-
-        return beam_settings
+        return decode(BeamSettings, state_dict)
 
 
 @dataclass
 class FibsemDetectorSettings:
-    type: str = "Unknown"
-    mode: str = "Unknown"
-    brightness: float = 0.5
-    contrast: float = 0.5
+    type: Optional[str] = "Unknown"
+    mode: Optional[str] = "Unknown"
+    brightness: Optional[float] = 0.5
+    contrast: Optional[float] = 0.5
 
     def __post_init__(self):
         assert isinstance(self.type, str) or self.type is None, (
@@ -1875,23 +1929,11 @@ class FibsemDetectorSettings:
         )
 
     def to_dict(self) -> dict:
-        """Converts to a dictionary."""
-        return {
-            "type": self.type,
-            "mode": self.mode,
-            "brightness": self.brightness,
-            "contrast": self.contrast,
-        }
+        return encode(self)
 
     @staticmethod
     def from_dict(settings: dict) -> "FibsemDetectorSettings":
-        """Converts from a dictionary."""
-        return FibsemDetectorSettings(
-            type=settings.get("type", "Unknown"),
-            mode=settings.get("mode", "Unknown"),
-            brightness=settings.get("brightness", 0.0),
-            contrast=settings.get("contrast", 0.0),
-        )
+        return decode(FibsemDetectorSettings, settings)
 
 
 @dataclass
@@ -1914,7 +1956,11 @@ class MicroscopeState:
     # When the state was read, as POSIX: not when a frame was taken, which is the
     # image's acquisition_datetime. default_factory, not a plain default, which is
     # evaluated once when this module is imported (FIB-487).
-    timestamp: float = field(default_factory=lambda: datetime.now().timestamp())
+    # A string only in a ThermoFisher image from before v11, which wrote the PC's
+    # clock time as month/day/year; `acquisition_datetime_of` reads either.
+    timestamp: Union[float, str] = field(
+        default_factory=lambda: datetime.now().timestamp()
+    )
     stage_position: Optional[FibsemStagePosition] = field(
         default_factory=FibsemStagePosition
     )
@@ -1961,55 +2007,11 @@ class MicroscopeState:
         )
 
     def to_dict(self) -> dict:
-        state_dict = {
-            "timestamp": self.timestamp,
-            "stage_position": self.stage_position.to_dict()
-            if self.stage_position is not None
-            else None,
-            "electron_beam": self.electron_beam.to_dict()
-            if self.electron_beam is not None
-            else None,
-            "ion_beam": self.ion_beam.to_dict() if self.ion_beam is not None else None,
-            "electron_detector": self.electron_detector.to_dict()
-            if self.electron_detector is not None
-            else None,
-            "ion_detector": self.ion_detector.to_dict()
-            if self.ion_detector is not None
-            else None,
-            "objective_position": self.objective_position,
-        }
-
-        return state_dict
+        return encode(self)
 
     @staticmethod
     def from_dict(state_dict: dict) -> "MicroscopeState":
-
-        # beam, and detector settings are now optional
-        electron_beam, electron_detector = None, None
-        ion_beam, ion_detector = None, None
-
-        if state_dict.get("electron_beam", None) is not None:
-            electron_beam = BeamSettings.from_dict(state_dict["electron_beam"])
-        if state_dict.get("ion_beam", None) is not None:
-            ion_beam = BeamSettings.from_dict(state_dict["ion_beam"])
-        if state_dict.get("electron_detector", None) is not None:
-            electron_detector = FibsemDetectorSettings.from_dict(
-                state_dict["electron_detector"]
-            )
-        if state_dict.get("ion_detector", None) is not None:
-            ion_detector = FibsemDetectorSettings.from_dict(state_dict["ion_detector"])
-
-        microscope_state = MicroscopeState(
-            timestamp=state_dict["timestamp"],
-            stage_position=FibsemStagePosition.from_dict(state_dict["stage_position"]),
-            electron_beam=electron_beam,
-            ion_beam=ion_beam,
-            electron_detector=electron_detector,
-            ion_detector=ion_detector,
-            objective_position=state_dict.get("objective_position", None),
-        )
-
-        return microscope_state
+        return decode(MicroscopeState, state_dict)
 
 
 ########### Base Pattern Settings
@@ -2611,15 +2613,11 @@ class StageDeviceSettings:
     def from_dict(
         ddict: dict,
         default_orientations: Sequence[str] = (),
-        default_range: Optional[FibsemStagePosition] = None,
     ) -> "StageDeviceSettings":
         """Read a device's stage position.
 
         `available_orientations` missing is the device type's default; stated empty is
-        an error. The configuration version 1 spelling, `acquisition_orientations`, is
-        read too, and there an empty list meant "any orientation", so it reads as all
-        of them. `range` missing is *default_range*, or 1 mm on each axis the origin
-        sets.
+        an error. `range` missing is 1 mm on each axis the origin sets.
         """
         origin = device_axes_from_dict(ddict.get("origin"), "device origin")
         if "available_orientations" in ddict:
@@ -2630,9 +2628,6 @@ class StageDeviceSettings:
                     f"orientation. Name at least one of {list(KNOWN_ORIENTATIONS)}, "
                     "or leave the key out for the device's default."
                 )
-        elif "acquisition_orientations" in ddict:
-            orientations = [str(o) for o in ddict["acquisition_orientations"] or []]
-            orientations = orientations or list(KNOWN_ORIENTATIONS)
         else:
             orientations = list(default_orientations) or list(BEAM_ORIENTATIONS)
         # Validated here, at the one place configuration enters, because a typo would
@@ -2646,14 +2641,11 @@ class StageDeviceSettings:
             )
         if ddict.get("range"):
             range_ = device_axes_from_dict(ddict["range"], "device range")
-        elif default_range is not None:
-            range_ = deepcopy(default_range)
         else:
             range_ = default_device_range(origin)
         # A range covers every axis the origin sets; one it leaves out gets the
         # default. Otherwise `contains` answers no on that axis, and the device -- a
-        # version 1 `{x: 20 mm}` copied onto an origin that also sets y -- could never
-        # be arrived at.
+        # `{x: 20 mm}` range on an origin that also sets y -- could never be arrived at.
         for axis in DEVICE_AXES:
             if getattr(origin, axis) is not None and getattr(range_, axis) is None:
                 setattr(range_, axis, DEFAULT_DEVICE_RANGE_EXTENT)
@@ -2677,11 +2669,6 @@ def default_device_range(origin: FibsemStagePosition) -> FibsemStagePosition:
         }
     )
 
-
-# The range every device shared in configuration version 1 when the file stated none.
-# A version 1 file is read with its `device_range` (or this) copied onto each device,
-# so an existing site keeps the window it had; the 1 mm default is for new entries.
-VERSION_1_DEVICE_RANGE = FibsemStagePosition(x=20.0e-3)
 
 # The ion column's angle from the electron column, in degrees. A property of the
 # instrument rather than a preference, and the same on every dual-beam this supports,
@@ -2784,8 +2771,14 @@ def _parse_rotation_centre(value) -> Optional[Tuple[float, float]]:
 
 
 @dataclass
-class StageSystemSettings:
-    rotation_reference: float
+class StageSystemSettings(Configurable):
+    rotation_reference: float = param(
+        unit="°",
+        limits=RangeLimit(-360.0, 360.0),
+        doc="The stage rotation the SEM orientation is defined at; on a stage that "
+        "rotates, the FIB orientation is 180° from it.",
+        display=Display("Reference rotation", decimals=2),
+    )
     # Accepted as a constructor keyword, held as `_shuttle_pre_tilt`, and read back
     # through the property below. An `InitVar` rather than a field because the value
     # a caller passes is a *fallback* -- the answer comes from the active holder when
@@ -2815,7 +2808,14 @@ class StageSystemSettings:
     # to sit -- which is exactly what `rotation` had become in the simulator's Arctis
     # configuration before it was read by anything.
     rotation: bool = True
-    milling_angle: float = 15
+    milling_angle: float = param(
+        15,
+        unit="°",
+        limits=RangeLimit(0.0, 45.0),
+        doc="The milling angle is the difference between the stage and the fib "
+        "viewing angle.",
+        display=Display("Milling Angle", step=1.0, decimals=1),
+    )
     # Where the stage travels for each instrument to see the sample. Keyed by device
     # name -- "FIBSEM" and "FM" today -- and separate from `orientations`, which says
     # what pose the sample is held in once the stage is there.
@@ -2948,11 +2948,6 @@ class StageSystemSettings:
 
     @staticmethod
     def from_dict(settings: dict):
-        # `rotation_180` is deliberately not read. A file written before FIB-834 still
-        # carries the key and still loads -- the value is simply ignored, because it is
-        # now derived from the two fields that decide it. Ignoring beats honouring: a
-        # stored value that disagrees with the derivation is a value someone typed
-        # wrong, and reading it back would preserve the mistake.
         holders = {
             name: _configured_holder_from(name, holder)
             for name, holder in (settings.get("holders") or {}).items()
@@ -2972,7 +2967,7 @@ class StageSystemSettings:
             enabled=settings.get("enabled", True),
             rotation=settings.get("rotation", True),
             milling_angle=settings.get("milling_angle", 15.0),
-            devices=_version_1_stage_devices(settings),
+            devices=deepcopy(DEFAULT_STAGE_DEVICES),
             holders=holders,
             active_holder=active_holder,
             rotation_centre_correction=_parse_rotation_centre(
@@ -2982,63 +2977,14 @@ class StageSystemSettings:
         )
 
 
-def _version_1_stage_devices(stage: dict) -> Dict[str, StageDeviceSettings]:
-    """The device positions a version 1 `stage:` block declares, or the defaults.
-
-    Version 1 kept them under `stage.devices`, keyed `FIBSEM` and `FM`, with one
-    `device_range` for all of them. Each declared device gets that range (or the 20 mm
-    version 1 used when the file stated none), so an existing site keeps the window it
-    had. The beams are the implicit zero and unbounded whatever the file said; a
-    version 1 origin for them away from zero is not kept, and is warned about.
-    """
-    devices = stage.get("devices")
-    result = deepcopy(DEFAULT_STAGE_DEVICES)
-    if not devices:
-        return result
-    range_ = (
-        device_axes_from_dict(stage["device_range"], "device range")
-        if stage.get("device_range")
-        else deepcopy(VERSION_1_DEVICE_RANGE)
-    )
-    for key, device in devices.items():
-        if key == BEAMS_STAGE_DEVICE:
-            origin = device_axes_from_dict(
-                (device or {}).get("origin"), "device origin"
-            )
-            if any(getattr(origin, axis) for axis in DEVICE_AXES):
-                logging.warning(
-                    f"stage.devices.{key}.origin {device_axes_to_dict(origin)} is not "
-                    "kept: the beams are the stage's zero."
-                )
-            continue
-        result[key] = StageDeviceSettings.from_dict(
-            device or {},
-            default_orientations=DEFAULT_AVAILABLE_ORIENTATIONS.get(
-                stage_device_entry_name(key), ()
-            ),
-            default_range=range_,
-        )
-    # A version 1 file that declared devices declared all of them: one it left out
-    # did not exist there.
-    for key in list(result):
-        if key != BEAMS_STAGE_DEVICE and key not in devices:
-            del result[key]
-    return result
-
-
 def _detector_block_from(settings: dict) -> dict:
-    """The detector keys of a beam block, in the names `FibsemDetectorSettings` reads.
-
-    The prefixed spelling wins when both are present, because it is the one the
-    writer produces and the one every shipped file uses.
-    """
-    block = {}
-    for name in ("type", "mode", "brightness", "contrast"):
-        if f"detector_{name}" in settings:
-            block[name] = settings[f"detector_{name}"]
-        elif name in settings:
-            block[name] = settings[name]
-    return block
+    """The detector keys of a beam block (``detector_type``), in the names
+    `FibsemDetectorSettings` reads (``type``)."""
+    return {
+        name: settings[f"detector_{name}"]
+        for name in ("type", "mode", "brightness", "contrast")
+        if f"detector_{name}" in settings
+    }
 
 
 # Written by `BeamSettings` / `FibsemDetectorSettings` and not defaults: the column's
@@ -3161,32 +3107,8 @@ class BeamSystemSettings:
             detector=FibsemDetectorSettings.from_dict(_detector_block_from(settings)),
             eucentric_height=settings.get("eucentric_height", 0.0),
             column_tilt=settings.get("column_tilt", default_column_tilt),
-            plasma_gas=_plasma_gas_from(settings),
+            plasma_gas=settings.get("plasma_gas"),
         )
-
-
-def _plasma_gas_from(settings: dict) -> Optional[str]:
-    """The plasma gas a block states, or None for a column without one.
-
-    Reads the old two-key spelling as well as the new one. `plasma: false` means no
-    plasma source whatever the gas key says, because the flag was the one the
-    drivers consulted. And the shipped files wrote "no gas" as `plasma_gas: None`,
-    which YAML reads as the *string* "None", so that spelling (and its lower-case
-    and empty cousins) is read as None too.
-    """
-    if settings.get("plasma") is False:
-        return None
-    gas = settings.get("plasma_gas")
-    if gas is None or str(gas).strip().lower() in ("", "none", "null"):
-        if settings.get("plasma") is True:
-            # The old flag without a gas. Not a plasma column until the instrument
-            # names its gas at connect (`FibsemMicroscope._read_plasma_source`).
-            logging.info(
-                "The configuration says `plasma: true` but names no plasma gas; the "
-                "gas is read from the instrument at connect."
-            )
-        return None
-    return str(gas)
 
 
 @dataclass
@@ -3229,65 +3151,38 @@ class SystemInfo:
     registration API first -- the field can come back alongside one.
     """
 
-    name: str
-    ip_address: str
-    manufacturer: str
-    model: str
-    serial_number: str
-    hardware_version: str
-    software_version: str
+    name: str = "Unknown"
+    ip_address: str = "Unknown"
+    manufacturer: str = "Unknown"
+    model: str = "Unknown"
+    serial_number: str = "Unknown"
+    hardware_version: str = "Unknown"
+    software_version: str = "Unknown"
     fibsem_version: str = fibsem.__version__
     application: Optional[str] = None
     # The commit actually running, when installed from a source checkout. None
     # for a wheel install. default_factory, not a plain default, so the lookup
-    # happens on first use rather than at import of this module.
-    fibsem_revision: Optional[str] = field(default_factory=get_revision)
+    # happens on first use rather than at import of this module. A lambda, so the
+    # lookup goes through this module's name (tests pin it).
+    fibsem_revision: Optional[str] = field(default_factory=lambda: get_revision())
     # The port the driver connects on. None uses the port its driver registers
     # (``fibsem.drivers.registry``): 7520 for ThermoFisher, 8300 for Tescan.
     port: Optional[int] = None
 
-    def to_dict(self):
-        ddict = {
-            "name": self.name,
-            "ip_address": self.ip_address,
-            "manufacturer": self.manufacturer,
-            "model": self.model,
-            "serial_number": self.serial_number,
-            "hardware_version": self.hardware_version,
-            "software_version": self.software_version,
-            "fibsem_version": self.fibsem_version,
-            "application": self.application,
-            "fibsem_revision": self.fibsem_revision,
-        }
-        # Written only when set: unset is the driver's registered port, and a file
-        # that says `port: null` reads as though it chose one.
-        if self.port is not None:
-            ddict["port"] = self.port
-        return ddict
-
-    @staticmethod
-    def from_dict(settings: dict):
+    def __post_init__(self) -> None:
         # Here, not at the top: keeps `structures` light for what imports only it.
         from fibsem.drivers.registry import normalize_name
 
-        return SystemInfo(
-            name=settings.get("name", "Unknown"),
-            ip_address=settings.get("ip_address", "Unknown"),
-            port=settings.get("port"),
-            # normalise on read: configs and old experiments carry "Thermo"/"TESCAN"
-            # etc.; everything downstream compares against the canonical spellings
-            manufacturer=normalize_name(settings.get("manufacturer", "Unknown")),
-            model=settings.get("model", "Unknown"),
-            serial_number=settings.get("serial_number", "Unknown"),
-            hardware_version=settings.get("hardware_version", "Unknown"),
-            software_version=settings.get("software_version", "Unknown"),
-            fibsem_version=settings.get("fibsem_version", fibsem.__version__),
-            application=settings.get("application", None),
-            # `application_version` is not read: files up to v4 carry it, always null.
-            # `or`, not a .get() default: settings.get(k, get_revision()) would
-            # evaluate the lookup eagerly on every call.
-            fibsem_revision=settings.get("fibsem_revision") or get_revision(),
-        )
+        # Configurations and old experiments carry "Thermo", "TESCAN" and so on;
+        # everything downstream compares against the canonical spellings.
+        self.manufacturer = normalize_name(self.manufacturer)
+
+    def to_dict(self) -> dict:
+        return encode(self)
+
+    @staticmethod
+    def from_dict(settings: dict) -> "SystemInfo":
+        return decode(SystemInfo, settings)
 
 
 # The one FM driver a configuration names today; see `FluorescenceSystemSettings.driver`.
@@ -3513,10 +3408,10 @@ class DeviceEntry:
         return block
 
     @staticmethod
-    def from_dict(data: dict, name: Optional[str] = None) -> "DeviceEntry":
-        """Read one entry. *name* is the block's key, for a version 1 block."""
+    def from_dict(data: dict) -> "DeviceEntry":
+        """Read one entry."""
         data = dict(data or {})
-        name = data.pop("name", None) or name
+        name = data.pop("name", None)
         type_ = data.pop("type", None)
         if name is None and type_ is None:
             raise ValueError(
@@ -3560,11 +3455,8 @@ STAGE_POSITION_KEYS = ("origin", "available_orientations", "range")
 def read_device_entries(settings: dict) -> Dict[str, DeviceEntry]:
     """Every device a configuration dict names, by name, in file order.
 
-    Reads all three shapes a file can be in: the blocks at the top level from before the
-    sections (`stage:`), the version 1 blocks under `hardware:` (`hardware.stage:`) --
-    both only for the devices that had one, `CONFIGURED_DEVICES` -- and the version 2
-    list (`hardware.devices:`). A later shape wins key by key, so a file
-    half way between two reads as it says. Two list entries with one name are an error:
+    Reads the list (`hardware.devices:`); a file in an older shape is upgraded first
+    (`fibsem.codec.upgrades.configuration`). Two entries with one name are an error:
     which of them the file meant cannot be known. A list entry with no type whose name
     is no device type is ignored with a warning, so a file naming a device this version
     no longer has still loads.
@@ -3572,29 +3464,9 @@ def read_device_entries(settings: dict) -> Dict[str, DeviceEntry]:
     settings = settings or {}
     hardware = settings.get("hardware") or {}
     entries: Dict[str, DeviceEntry] = {}
-
-    def merge(entry: DeviceEntry) -> None:
-        old = entries.get(entry.name)
-        if old is None:
-            entries[entry.name] = entry
-            return
-        entries[entry.name] = DeviceEntry.from_dict(
-            {**old.to_dict(), **entry.to_dict()}
-        )
-
-    for name in CONFIGURED_DEVICES:
-        if isinstance(settings.get(name), dict):
-            merge(DeviceEntry.from_dict(settings[name], name=name))
-    # Only the blocks version 1 wrote. Any other `hardware.<name>` block was never read,
-    # and reading it now would build a device from a key a site left there for nothing.
-    for name in CONFIGURED_DEVICES:
-        if isinstance(hardware.get(name), dict):
-            merge(DeviceEntry.from_dict(hardware[name], name=name))
-
     listed = hardware.get("devices") or []
     if not isinstance(listed, list):
         raise ValueError("hardware.devices must be a list of devices.")
-    seen: Set[str] = set()
     for item in listed:
         try:
             entry = DeviceEntry.from_dict(item)
@@ -3602,13 +3474,12 @@ def read_device_entries(settings: dict) -> Dict[str, DeviceEntry]:
             # such as a device this version no longer has
             logging.warning(f"{e} It is ignored.")
             continue
-        if entry.name in seen:
+        if entry.name in entries:
             raise ValueError(
                 f"hardware.devices names '{entry.name}' twice. Give each device its "
                 "own name."
             )
-        seen.add(entry.name)
-        merge(entry)
+        entries[entry.name] = entry
     return entries
 
 
@@ -3736,20 +3607,14 @@ class SystemSettings:
         # not a corrupt file, and this is what lets a key be removed from the
         # shipped files without every existing one raising `KeyError` at load.
         #
-        # `defaults:` names what a session starts from; `electron:` / `ion:` describe
+        # `defaults:` names what a session starts from; a column's entry describes
         # what the column *is*. Merged back together here because nothing downstream
-        # cares about the split -- the records are unchanged, and the readers of
-        # `system.electron.beam` and `system.ion.detector` do not move. `defaults:`
-        # wins a collision: every file written before the split states the keys in
-        # the flat block only, which is why the merge is in this direction and why
-        # those files load unchanged.
-        # Every file written before the sections existed has its blocks at the top
-        # level, so each block is read from there first and from `hardware:` over
-        # it; `calibration:` folds into the stage record it belongs to.
+        # cares about the split -- the readers of `system.electron.beam` and
+        # `system.ion.detector` do not move. `defaults:` wins a collision.
+        # `calibration:` folds into the stage record it belongs to.
         #
-        # Version 2 lists the devices (`hardware.devices`); `read_device_entries`
-        # reads the list and both older shapes, and gives each device back as the
-        # block its record has always read.
+        # The current version only: a file in an older shape is upgraded before it
+        # gets here (`fibsem.codec.upgrades.configuration`).
         calibration = settings.get("calibration") or {}
         defaults = settings.get("defaults") or {}
         entries = read_device_entries(settings)
@@ -3773,9 +3638,7 @@ class SystemSettings:
         ion["beam_type"] = BeamType.ION.name
 
         # Device positions are on each device's entry (`origin`,
-        # `available_orientations`, `range`); version 1 kept them under
-        # `stage.devices`, which `StageSystemSettings.from_dict` reads. An entry's
-        # wins.
+        # `available_orientations`, `range`), over the defaults.
         stage_settings = StageSystemSettings.from_dict(stage)
         for name, entry in entries.items():
             position = {
@@ -3856,7 +3719,7 @@ class SystemSettings:
         )
 
 
-class CameraImageTransform(Enum):
+class CameraImageTransform(NamedEnum, Enum):
     """Image transformations for aligning fluorescence images with SEM/FIB coordinate systems.
 
     Flips only. Any fixed rotation between the sensor and the stage belongs to the
@@ -3890,6 +3753,15 @@ class CameraImageTransform(Enum):
         flip_x = self in (CameraImageTransform.FLIP_X, CameraImageTransform.FLIP_XY)
         flip_y = self in (CameraImageTransform.FLIP_Y, CameraImageTransform.FLIP_XY)
         return (-dx if flip_x else dx, -dy if flip_y else dy)
+
+    @classmethod
+    def _codec_member(cls, value: Any) -> "CameraImageTransform":
+        """By name or value, as any enum; a stored value that is no longer a member
+        through `_parse_image_transform`, which migrates it or falls back to none."""
+        try:
+            return super()._codec_member(value)
+        except ValueError:
+            return _parse_image_transform(value)
 
 
 # Transforms that stored configurations may still hold. A half turn is the same
@@ -3957,7 +3829,8 @@ class FibsemHardwareGeometry:
     mirrors an image a beam takes of the back of the grid, so it reads as if seen from
     the front. An image written before these had ``is_compustage`` for both, and older
     still nothing at all, so the model name was matched against a product; both are
-    read by `from_dict` and `FibsemImageMetadata._geometry_from_legacy_system`.
+    read by `fibsem.codec.upgrades.hardware_geometry` and
+    `fibsem.codec.upgrades.image_metadata`.
 
     Note this is deliberately *not* grouped this way in ``SystemSettings`` itself: that
     maps onto ``microscope-configuration.yaml``, a user-facing file, and regrouping it
@@ -4052,55 +3925,13 @@ class FibsemHardwareGeometry:
         )
 
     def to_dict(self) -> dict:
-        return {
-            "column_tilt": self.column_tilt,
-            "fib_column_tilt": self.fib_column_tilt,
-            "shuttle_pre_tilt": self.shuttle_pre_tilt,
-            "rotation_reference": self.rotation_reference,
-            "rotation_180": self.rotation_180,
-            "fm_is_pose": self.fm_is_pose,
-            "mirrors_back_view": self.mirrors_back_view,
-            "rotation_centre": (
-                list(self.rotation_centre) if self.rotation_centre is not None else None
-            ),
-            "poses": {name: list(pose) for name, pose in self.poses.items()},
-            "stage_frame": self.stage_frame,
-            "camera_tilt": self.camera_tilt,
-            "transform": self.transform.value,
-        }
+        return encode(self)
 
     @classmethod
     def from_dict(cls, ddict: dict) -> "FibsemHardwareGeometry":
-        # `.get` throughout, with the field defaults repeated rather than referenced:
-        # a file written before this record existed has none of these keys, and the
-        # point of the record is that such a file still loads. A file written before
-        # the two facts were split has `is_compustage`, which meant both.
-        legacy = bool(ddict.get("is_compustage", False))
-        return cls(
-            column_tilt=ddict.get("column_tilt", 0.0),
-            fib_column_tilt=ddict.get("fib_column_tilt", DEFAULT_FIB_COLUMN_TILT),
-            shuttle_pre_tilt=ddict.get("shuttle_pre_tilt", 0.0),
-            rotation_reference=ddict.get("rotation_reference", 0.0),
-            rotation_180=ddict.get("rotation_180", 180.0),
-            fm_is_pose=ddict.get("fm_is_pose", legacy),
-            mirrors_back_view=ddict.get("mirrors_back_view", legacy),
-            # Absent only on an image saved before the field existed, all of which
-            # were drawn about the legacy centre; a recorded None stays None.
-            rotation_centre=(
-                _parse_rotation_centre(ddict["rotation_centre"])
-                if "rotation_centre" in ddict
-                else LEGACY_ROTATION_CENTRE
-            ),
-            poses={
-                name: (float(pose[0]), float(pose[1]))
-                for name, pose in (ddict.get("poses") or {}).items()
-            },
-            stage_frame=ddict.get("stage_frame"),
-            camera_tilt=ddict.get("camera_tilt", 0.0),
-            # Not a bare CameraImageTransform(...): stored configurations may hold a
-            # rotation that is no longer a member, which the parser migrates.
-            transform=_parse_image_transform(ddict.get("transform")),
-        )
+        from fibsem.codec.upgrades.hardware_geometry import upgrade
+
+        return decode(cls, upgrade(ddict))
 
 
 @dataclass
@@ -4159,17 +3990,16 @@ class MicroscopeSettings:
 
         return MicroscopeSettings(
             system=SystemSettings.from_dict(settings),
-            # `defaults.imaging` first, the old top-level `imaging:` after it.
             image=ImageSettings.from_dict(
-                (settings.get("defaults") or {}).get("imaging")
-                or settings.get("imaging")
-                or {}
+                (settings.get("defaults") or {}).get("imaging") or {}
             ),
             protocol=protocol,
             fm=fm_config,
         )
 
 
+# A file with no date doesn't say when the experiment was: unknown, not now.
+@saved(absent={"date": None})
 @dataclass
 class FibsemExperimentRef:
     """A reference to the experiment an image was acquired for. Provenance.
@@ -4215,7 +4045,7 @@ class FibsemExperimentRef:
     # POSIX float, which reads as this machine's zone. default_factory, not a plain
     # default: a plain default is evaluated once at class definition, so every
     # experiment recorded the interpreter's import time rather than its own.
-    date: Optional[datetime] = field(default_factory=now)
+    date: Optional[Timestamp] = field(default_factory=now)
 
     # Where in the run. None outside a workflow -- the minimap, a manual acquisition,
     # a script -- which is a real answer rather than missing information.
@@ -4230,6 +4060,9 @@ class FibsemExperimentRef:
     item_name: Optional[str] = None
     task_id: Optional[str] = None
     task_name: Optional[str] = None
+    # Which iteration of the item's tasks, for an item that repeats them (a volume
+    # position's slices); None for one that does not.
+    iteration: Optional[int] = None
 
     def set_workflow_metadata(
         self,
@@ -4237,6 +4070,7 @@ class FibsemExperimentRef:
         item_name: Optional[str] = None,
         task_id: Optional[str] = None,
         task_name: Optional[str] = None,
+        iteration: Optional[int] = None,
     ) -> None:
         """Record what subsequent images should say about where in the run they were
         taken, leaving experiment identity alone.
@@ -4249,6 +4083,7 @@ class FibsemExperimentRef:
         self.item_name = item_name
         self.task_id = task_id
         self.task_name = task_name
+        self.iteration = iteration
 
     def clear_workflow_metadata(self) -> None:
         """Stop stamping an item and task, keeping the experiment.
@@ -4260,42 +4095,11 @@ class FibsemExperimentRef:
         self.set_workflow_metadata()
 
     def to_dict(self) -> dict:
-        """Converts to a dictionary."""
-        return {
-            "id": self.id,
-            "name": self.name,
-            "date": to_iso(self.date),
-            "item_id": self.item_id,
-            "item_name": self.item_name,
-            "task_id": self.task_id,
-            "task_name": self.task_name,
-        }
+        return encode(self)
 
     @staticmethod
     def from_dict(settings: dict) -> "FibsemExperimentRef":
-        """Converts from a dictionary.
-
-        Files written before v5 also carry `application`, `application_version`,
-        `fibsem_version`, `fibsem_revision` and `method` here. None are read.
-        `application`, `fibsem_version` and `fibsem_revision` live on ``SystemInfo``,
-        which is where a reader should look; `application_version` was never
-        populated anywhere; `method` never held anything but the string "null". The
-        values are still in those files if anyone needs to dig them out by hand.
-        """
-        return FibsemExperimentRef(
-            id=settings.get("id", "Unknown"),
-            # Absent in files written before v0.5.3, where `id` holds the name. Left
-            # as None rather than backfilled from `id`, so a reader can tell the two
-            # eras apart instead of being handed a name that claims to be an ID.
-            name=settings.get("name"),
-            # None when absent or unreadable; files before FIB-1197 hold a float
-            date=to_datetime(settings.get("date")),
-            # Absent before v8, and in any image acquired outside a workflow.
-            item_id=settings.get("item_id"),
-            item_name=settings.get("item_name"),
-            task_id=settings.get("task_id"),
-            task_name=settings.get("task_name"),
-        )
+        return decode(FibsemExperimentRef, settings)
 
 
 @dataclass
@@ -4324,23 +4128,11 @@ class FibsemUser:
     # TODO: add host_ip_address
 
     def to_dict(self) -> dict:
-        """Converts to a dictionary."""
-        return {
-            "name": self.name,
-            "email": self.email,
-            "organization": self.organization,
-            "hostname": self.hostname,
-        }
+        return encode(self)
 
     @staticmethod
     def from_dict(settings: dict) -> "FibsemUser":
-        """Converts from a dictionary."""
-        return FibsemUser(
-            name=settings.get("name", "Unknown"),
-            email=settings.get("email", "Unknown"),
-            organization=settings.get("organization", "Unknown"),
-            hostname=settings.get("hostname", "Unknown"),
-        )
+        return decode(FibsemUser, settings)
 
     @staticmethod
     def from_environment() -> "FibsemUser":
@@ -4495,6 +4287,7 @@ class SessionInfo:
         )
 
 
+@saved(keys={"image_settings": "image"})
 @dataclass
 class FibsemImageMetadata:
     """Metadata for a FibsemImage.
@@ -4550,7 +4343,7 @@ class FibsemImageMetadata:
     # before the driver runs; a driver with a vendor time sets its own. None on
     # files from before v11 and on images built rather than acquired -- read the
     # time through `acquisition_datetime_of`, which falls back for those.
-    acquisition_datetime: Optional[datetime] = None
+    acquisition_datetime: Optional[AwareTimestamp] = None
     # Provenance: the device in each role the acquiring beam had filled (v12), by
     # role name, such as the external scanner that made the frame: its ``name``,
     # ``class``, ``driver``, its parameters' last known ``values`` and its
@@ -4577,128 +4370,14 @@ class FibsemImageMetadata:
         return acquisition_datetime_of(self)
 
     def to_dict(self) -> dict:
-        """Converts metadata to a dictionary.
-
-        Returns:
-            dictionary: self as a dictionary
-        """
-        settings_dict = {}
-        if self.image_settings is not None:
-            settings_dict["image"] = self.image_settings.to_dict()
-        if self.version is not None:
-            settings_dict["version"] = self.version
-        if self.acquisition_datetime is not None:
-            settings_dict["acquisition_datetime"] = (
-                self.acquisition_datetime.isoformat()
-            )
-        if self.pixel_size is not None:
-            settings_dict["pixel_size"] = self.pixel_size.to_dict()
-        if self.microscope_state is not None:
-            settings_dict["microscope_state"] = self.microscope_state.to_dict()
-        # Not nested under the microscope_state guard: who acquired an image is
-        # unrelated to whether the instrument's state was captured, and nesting it
-        # dropped the user silently -- from_dict defaults it back, so a reload
-        # produced a plausible empty FibsemUser rather than an error. See FIB-486.
-        settings_dict["user"] = self.user.to_dict()
-        settings_dict["experiment"] = self.experiment.to_dict()
-        settings_dict["system_info"] = (
-            self.system_info.to_dict() if self.system_info is not None else {}
-        )
-        settings_dict["hardware_geometry"] = (
-            self.hardware_geometry.to_dict()
-            if self.hardware_geometry is not None
-            else {}
-        )
-        settings_dict["roles"] = deepcopy(self.roles)
-
-        return settings_dict
-
-    @staticmethod
-    def _geometry_from_legacy_system(system: dict) -> Optional[FibsemHardwareGeometry]:
-        """Recover the geometry from a pre-v6 `system` blob.
-
-        Read with `.get()` chains rather than by building a `SystemSettings` first.
-        That constructor used to be bracket-indexed and raise on a blob missing any
-        block, which would have broken exactly the old files this exists to load; it
-        now defaults instead, so the two routes agree and the choice is no longer
-        load-bearing. The agreement is not free, though -- it holds because both
-        declare the FIB column tilt from one constant -- and
-        `tests/test_metadata_fixtures.py` pins it.
-
-        Whether the FM is a pose and the instrument mirrors its back views is
-        recovered the way the reprojection used to detect it, by model name, falling
-        back to the simulator flag. That match is wrong -- a capability inferred from
-        a name -- which is why v6 records it instead. It survives here only because a
-        pre-v6 file has nothing better in it: this is the legacy reader.
-        """
-        if not system:
-            return None
-
-        stage = system.get("stage") or {}
-        electron = system.get("electron") or {}
-        ion = system.get("ion") or {}
-        info = system.get("info") or {}
-        sim = system.get("sim") or {}
-
-        model = info.get("model") or ""
-        is_compustage = "Arctis" in model or bool(sim.get("is_compustage", False))
-
-        # Field defaults where a key is absent, so a partial blob degrades to the
-        # same values a freshly-constructed record would have.
-        default = FibsemHardwareGeometry()
-        return FibsemHardwareGeometry(
-            column_tilt=electron.get("column_tilt", default.column_tilt),
-            fib_column_tilt=ion.get("column_tilt", default.fib_column_tilt),
-            shuttle_pre_tilt=stage.get("shuttle_pre_tilt", default.shuttle_pre_tilt),
-            rotation_reference=stage.get(
-                "rotation_reference", default.rotation_reference
-            ),
-            rotation_180=stage.get("rotation_180", default.rotation_180),
-            fm_is_pose=is_compustage,
-            mirrors_back_view=is_compustage,
-            rotation_centre=LEGACY_ROTATION_CENTRE,
-        )
+        return encode(self)
 
     @staticmethod
     def from_dict(settings: dict) -> "FibsemImageMetadata":
-        """Converts a dictionary to metadata."""
+        """Read metadata written by any version (`fibsem.codec.upgrades.image_metadata`)."""
+        from fibsem.codec.upgrades.image_metadata import upgrade
 
-        image_settings = ImageSettings.from_dict(settings["image"])
-        version = settings.get("version", UNVERSIONED_METADATA)
-        if settings["pixel_size"] is not None:
-            pixel_size = Point.from_dict(settings["pixel_size"])
-        if settings["microscope_state"] is not None:
-            microscope_state = MicroscopeState.from_dict(settings["microscope_state"])
-
-        # Presence-detection, not a version switch (FIB-445 D3): v6 writes
-        # `system_info` and `hardware_geometry`, everything before it wrote a whole
-        # `system`. Both are optional -- an image may be built without a microscope.
-        legacy_system = settings.get("system") or {}
-
-        info_dict = settings.get("system_info") or legacy_system.get("info") or {}
-        system_info = SystemInfo.from_dict(info_dict) if info_dict else None
-
-        geometry_dict = settings.get("hardware_geometry") or {}
-        if geometry_dict:
-            hardware_geometry = FibsemHardwareGeometry.from_dict(geometry_dict)
-        else:
-            hardware_geometry = FibsemImageMetadata._geometry_from_legacy_system(
-                legacy_system
-            )
-
-        metadata = FibsemImageMetadata(
-            image_settings=image_settings,
-            version=version,
-            pixel_size=pixel_size,
-            microscope_state=microscope_state,
-            user=FibsemUser.from_dict(settings.get("user", {})),
-            experiment=FibsemExperimentRef.from_dict(settings.get("experiment", {})),
-            system_info=system_info,
-            hardware_geometry=hardware_geometry,
-            acquisition_datetime=to_aware(settings.get("acquisition_datetime")),
-            roles=deepcopy(settings.get("roles") or {}),
-        )
-        return metadata
+        return decode(FibsemImageMetadata, upgrade(settings))
 
 
 @dataclass
@@ -5355,29 +5034,53 @@ DEFAULT_ALIGNMENT_AREA = {"left": 0.7, "top": 0.3, "width": 0.25, "height": 0.4}
 class MillingAlignment(Configurable):
     """Drift correction settings for milling"""
 
-    enabled: bool = True
+    enabled: bool = param(
+        True,
+        doc="Align between the imaging and milling currents before milling starts.",
+        display=Display("Enable Initial Alignment"),
+    )
     interval_enabled: bool = param(
         False,
+        display=Display("Re-align during milling"),
         not_used="drift correction during a mill is not built yet (FIB-13); "
         "the task aligns before each stage only",
     )
     interval: int = param(
         30,
         unit="s",
+        display=Display("Re-align every"),
         not_used="drift correction during a mill is not built yet (FIB-13)",
     )
     rect: FibsemRectangle = field(
         default_factory=lambda: FibsemRectangle.from_dict(DEFAULT_ALIGNMENT_AREA)
     )
-    use_autocontrast: bool = True
-    use_autofocus: bool = False
-    steps: int = 3
+    use_autocontrast: bool = param(
+        True,
+        doc="Auto contrast before the alignment image is acquired.",
+        display=Display("Use Auto Contrast"),
+    )
+    use_autofocus: bool = param(
+        False,
+        doc="Auto focus before the alignment image is acquired.",
+        display=Display("Use Auto Focus"),
+    )
+    steps: int = param(
+        3,
+        limits=RangeLimit(1, 9),
+        doc="How many times the alignment is repeated.",
+        display=Display("Alignment Steps"),
+    )
     imaging: ImageSettings = field(default_factory=ImageSettings)
-    # Align on the whole frame, not ``rect``, when the current the column reads
-    # back at the stage's milling current is at or below this (amps); 0 is off.
     # At polishing currents a full frame costs about the dose of an ordinary
     # image and gives the match far more to lock onto than a small area does.
-    full_frame_below: float = 0.0
+    full_frame_below: float = param(
+        0.0,
+        unit="A",
+        limits=RangeLimit(0.0, 100e-9),
+        doc="Align on the whole frame instead of the alignment area when the "
+        "milling current is at or below this. Off at 0.",
+        display=Display("Full Frame At Or Below", scale=1e12, step=10, decimals=0),
+    )
 
     def to_dict(self):
         return {
@@ -5411,7 +5114,10 @@ class MillingAlignment(Configurable):
 
 @dataclass
 class ReferenceImageParameters(Configurable):
-    imaging: ImageSettings = field(default_factory=ImageSettings)
+    imaging: ImageSettings = param(
+        default_factory=ImageSettings,
+        doc="The settings the reference images are acquired with; each image's field of view is field_of_view1 or field_of_view2.",
+    )
     field_of_view1: float = param(100e-6, doc="Field of view for first reference image")
     field_of_view2: float = param(
         150e-6, doc="Field of view for second reference image"
@@ -5659,7 +5365,12 @@ class SampleHolder(Configurable):
     # `_parent.system.stage.shuttle_pre_tilt`. That direction is now reversed, and
     # both cannot exist: the stage reads the holder, so a holder that read the stage
     # would recurse until the interpreter gave up.
-    pre_tilt: float = param(unit="°", doc="Pre-tilt of this holder, in degrees")
+    pre_tilt: float = param(
+        unit="°",
+        limits=RangeLimit(-90.0, 90.0),
+        doc="Pre-tilt of this holder, in degrees",
+        display=Display(decimals=1),
+    )
     name: str = param("Sample Holder", doc="Name of the sample holder")
     description: str = param("", doc="Description of the sample holder")
     capacity: int = param(

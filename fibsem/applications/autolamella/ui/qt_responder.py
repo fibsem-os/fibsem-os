@@ -27,48 +27,32 @@ arrives belonged to a waiter that aborted and unwound, and is cancelled.
 import logging
 from concurrent.futures import InvalidStateError
 from copy import deepcopy
-from dataclasses import replace
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple, Type
 
 from PyQt5.QtCore import QObject, pyqtSignal
 
-from fibsem.acting import AGENT, OPERATOR, TASK, acting
-from fibsem.applications.autolamella.proposals import AuthorKind, DecisionOutcome
-from fibsem.applications.autolamella.workflows.interaction import (
+from fibsem.acting import AGENT, OPERATOR, TASK
+from fibsem.applications.autolamella.ui.poi_marker import PoiMarker
+from fibsem.structures import BeamType
+from fibsem.workflows.interaction import (
     ClearMillingConfig,
     ClearSpotBurn,
     Confirm,
     ConfirmDetection,
     EditAlignmentArea,
-    MillingDecision,
-    MillingEdit,
     PickPOI,
     Request,
-    ReviewDetection,
-    RunAgainQuestion,
-    RunMillingTask,
-    RunSpotBurn,
     SetFluorescenceChannels,
     SetImages,
     SetMillingConfig,
-    SpotBurnDecision,
-    SpotBurnEdit,
+    ShowDetection,
     StalePromptError,
-    apply_milling_edit,
-    apply_spot_burn_edit,
-    mark_answered_by,
 )
-from fibsem.applications.autolamella.workflows.question_adapters import (
-    answer_from,
-    answered,
-    proposal_for,
-)
-from fibsem.applications.autolamella.workflows.tasks.status import (
+from fibsem.workflows.status import (
     Hold,
     HoldKind,
     WorkflowStatusEvent,
 )
-from fibsem.structures import BeamType
 
 if TYPE_CHECKING:
     from concurrent.futures import Future
@@ -77,49 +61,6 @@ if TYPE_CHECKING:
     from fibsem.structures import FibsemImage, Point
 
 __all__ = ["QtResponder"]
-
-
-def _loop_action(request: RunAgainQuestion, clicked_yes: bool, value: object) -> str:
-    """What an answer to a run-again question (milling, spot burn) decides: its
-    value's action when it carries one (an agent's), else the button's."""
-    if isinstance(value, (MillingEdit, SpotBurnEdit)):
-        return value.action
-    return request.action_for(clicked_yes)
-
-
-def _poi_frame(responder: object, request: PickPOI) -> "FibsemImage":
-    """The FIB frame the POI marker sits on: the one the FIB view shows.
-
-    The request carries the frame the task last took, and anything since (an
-    agent's approved moves and their images) shows in the view instead
-    (FIB-1399). The marker is placed and read in the view's pixels, so it is
-    converted against the view's frame; the request's is the fallback.
-    """
-    ui = getattr(responder, "_ui", None)
-    shown = getattr(getattr(ui, "image_widget", None), "ib_image", None)
-    return shown if shown is not None else request.image
-
-
-def _poi_pixel(frame: "FibsemImage", point: "Point") -> Tuple[float, float]:
-    """A point of interest (metres from the frame's centre) as *frame*'s
-    (col, row) pixel."""
-    from fibsem import conversions
-
-    px = conversions.microscope_image_to_image_coordinates(
-        point, frame.data.shape, frame.metadata.pixel_size.x
-    )
-    return (px.x, px.y)
-
-
-def _poi_point(frame: "FibsemImage", pixel: Tuple[float, float]) -> "Point":
-    """The inverse of :func:`_poi_pixel`."""
-    from fibsem import conversions
-    from fibsem.structures import Point
-
-    col, row = pixel
-    return conversions.image_to_microscope_image_coordinates(
-        Point(x=col, y=row), frame.data, frame.metadata.pixel_size.x
-    )
 
 
 class QtResponder(QObject):
@@ -144,6 +85,7 @@ class QtResponder(QObject):
             SetMillingConfig: self._set_milling_config,
             ClearMillingConfig: self._clear_milling_config,
             ClearSpotBurn: self._clear_spot_burn,
+            ShowDetection: self._show_detection,
             SetFluorescenceChannels: self._set_fluorescence_channels,
         }
         # Deferred: the handler shows the prompt and someone else completes the
@@ -152,11 +94,8 @@ class QtResponder(QObject):
         self._deferred_handlers: Dict[Type[Request], Callable] = {
             Confirm: self._confirm,
             ConfirmDetection: self._confirm_detection,
-            ReviewDetection: self._review_detection,
             EditAlignmentArea: self._edit_alignment_area,
             PickPOI: self._pick_poi,
-            RunMillingTask: self._run_milling_task,
-            RunSpotBurn: self._run_spot_burn,
         }
         # (request, future, question_id): one attribute so a cross-thread reader sees
         # a question and its id as a single consistent pair. The question id names
@@ -164,16 +103,9 @@ class QtResponder(QObject):
         # corpse) is a new question and gets a new one.
         self._pending_question: Optional[Tuple[Request, "Future", int]] = None
         self._question_seq = 0
-        # (experiment, item_id, task_name, proposal_id) when the pending question is also on
-        # the record as a proposal (FIB-1025): it is answered by a decision in
-        # the Review tab rather than by the prompt's button, and a decision
-        # landing on it is what completes the future. None for a question that
-        # is only a prompt. One attribute, read cross-thread by the agent
-        # server the same way _pending_question is.
-        self._recorded: Optional[Tuple[object, str, str, str]] = None
-        # The frame a pending PickPOI's marker was placed on, and the image
-        # widget whose frame changes it follows (FIB-1410).
-        self._poi_marker_frame: Optional["FibsemImage"] = None
+        # A pending PickPOI's marker, the window's one (FIB-1410), and the
+        # image widget whose frame changes it follows.
+        self._marker = getattr(ui, "poi_marker", None) or PoiMarker(ui)
         self._view_frames_followed: Optional[object] = None
         # Question-lifecycle observers (prompt_raised / prompt_answered /
         # prompt_cancelled): the App Server's hosting feeds the event buffer,
@@ -187,15 +119,19 @@ class QtResponder(QObject):
         self._suggestion: Optional[
             Tuple[int, bool, Optional[object], str, Optional[str]]
         ] = None
+        # The operator's last Dismiss of a suggestion: (question_id, reason),
+        # for the agent reading the question again (sim session 2026-10-16).
+        self._dismissed: Optional[Tuple[int, str]] = None
         self._submitted.connect(self._dispatch)
         self._agent_suggested.connect(self._apply_agent_suggestion)
         self._agent_answered.connect(self._apply_agent_answer)
         self._agent_peeked.connect(self._apply_agent_peek)
 
     def add_question_observer(
-        self, observer: Callable[[str, Dict], None]
+        self, observer: Callable[[str, Dict, str], None]
     ) -> Callable[[], None]:
-        """Subscribe to question-lifecycle events; returns the unsubscribe."""
+        """Subscribe to question-lifecycle events, ``observer(kind, payload,
+        actor)``; returns the unsubscribe."""
         self._question_observers.append(observer)
 
         def dispose() -> None:
@@ -210,16 +146,15 @@ class QtResponder(QObject):
         """Tell every observer, each on its own; failures are logged, never raised.
 
         On the GUI thread, but every question is a task's: it is raised and
-        withdrawn on the task's behalf, so it is marked as the task's for the
-        experiment's record (FIB-1062). An answer says who answered. A
-        suggestion is the agent's own, so it is marked as the agent's.
+        withdrawn on the task's behalf, so *actor* is the task for the
+        experiment's record (FIB-1062). An answer's is whoever answered. A
+        suggestion is the agent's own.
         """
-        with acting(actor):
-            for observer in list(self._question_observers):
-                try:
-                    observer(kind, payload)
-                except Exception:  # noqa: BLE001 - observers are not allowed to matter
-                    logging.exception("question-event observer failed; continuing")
+        for observer in list(self._question_observers):
+            try:
+                observer(kind, payload, actor)
+            except Exception:  # noqa: BLE001 - observers are not allowed to matter
+                logging.exception("question-event observer failed; continuing")
 
     def submit(self, request: "Request", future: "Future") -> None:
         """Hand ``request`` to the GUI thread; never blocks. Any thread."""
@@ -251,15 +186,6 @@ class QtResponder(QObject):
             return None, None
         return pending[0], pending[2]
 
-    def recorded_question(self) -> Optional[Tuple[str, str, str]]:
-        """``(item_id, task_name, proposal_id)`` when the pending question is on
-        the record and is answered by deciding that proposal, else None. What a
-        decision has to name, all three. Any thread."""
-        recorded = self._recorded
-        if recorded is None or self.pending_question() is None:
-            return None
-        return recorded[1], recorded[2], recorded[3]
-
     def submit_answer(
         self,
         clicked_yes: bool,
@@ -286,8 +212,7 @@ class QtResponder(QObject):
         from live widget state — a :class:`FibsemRectangle` for
         ``EditAlignmentArea``, a :class:`Point` (microscope image coordinates)
         for ``PickPOI``, ``{name: Point}`` in image pixels for
-        ``ConfirmDetection``, a :class:`MillingEdit` for ``RunMillingTask``
-        and a :class:`SpotBurnEdit` for ``RunSpotBurn``. It is applied to the widget first, exactly as if the
+        ``ConfirmDetection``. It is applied to the widget first, exactly as if the
         operator had dragged it there, and then the ordinary click path reads
         it back — so the proposed geometry lands on screen, and attribution,
         the question id, and first-writer-wins all hold unchanged. A value on any
@@ -324,19 +249,6 @@ class QtResponder(QObject):
                     ),
                 )
                 return
-        if self._recorded is not None:
-            # A recorded question has one way to be answered, for an agent as
-            # for a person: a decision. A click here would say "applied" and
-            # decide nothing.
-            _experiment, item_id, task_name, _proposal_id = self._recorded
-            self._fail(
-                outcome,
-                ValueError(
-                    f"this question is on the record: decide {task_name!r} on "
-                    f"item {item_id!r} instead of answering the prompt"
-                ),
-            )
-            return
         adjusted = False
         try:
             if value is not None:
@@ -346,9 +258,7 @@ class QtResponder(QObject):
                     )
                 # Echoing what stands is accepting it, not adjusting it.
                 _, live = self._live_answer()
-                adjusted = not pending[0].same_value(
-                    live, value, self._poi_marker_frame
-                )
+                adjusted = not pending[0].same_value(live, value, self._marker.frame)
                 if adjusted:
                     self._apply_value(pending[0], value)
             applied = self.answer_confirm(
@@ -377,14 +287,22 @@ class QtResponder(QObject):
         answers, as theirs, with the agent named as the one who suggested it.
 
         Fails with :class:`StalePromptError` when that question is no longer
-        pending, and with ValueError for a question on the record (decided in
-        the Review tab) or a value on a question that takes none.
+        pending, and with ValueError for a value on a question that takes none.
         """
         from concurrent.futures import Future as _Future
 
         outcome: "_Future" = _Future()
         self._agent_suggested.emit(response, question_id, value, reason, image, outcome)
         return outcome
+
+    def dismissed_reason(self) -> Optional[str]:
+        """Why the operator dismissed the agent's suggestion to the pending
+        question ("" for no reason given); None when they haven't."""
+        dismissed = self._dismissed
+        _, question_id = self.pending_question_and_id()
+        if dismissed is None or dismissed[0] != question_id:
+            return None
+        return dismissed[1]
 
     @property
     def suggestion(
@@ -414,16 +332,6 @@ class QtResponder(QObject):
                 outcome,
                 StalePromptError(
                     f"That question is no longer pending (question {question_id})"
-                ),
-            )
-            return
-        if self._recorded is not None:
-            _experiment, item_id, task_name, _proposal_id = self._recorded
-            self._fail(
-                outcome,
-                ValueError(
-                    f"this question is on the record: at Assist, decide {task_name!r} "
-                    f"on item {item_id!r} through a request"
                 ),
             )
             return
@@ -464,7 +372,7 @@ class QtResponder(QObject):
         adjusted = False
         if value is not None and pending is not None:
             _, live = self._live_answer()
-            adjusted = not pending[0].same_value(live, value, self._poi_marker_frame)
+            adjusted = not pending[0].same_value(live, value, self._marker.frame)
             if adjusted:
                 self._apply_value(pending[0], value)
         return self.answer_confirm(
@@ -492,6 +400,7 @@ class QtResponder(QObject):
         }
         if str(reason or "").strip():
             payload["reason"] = str(reason).strip()
+        self._dismissed = (suggestion[0], str(reason or "").strip())
         self._clear_suggestion()
         self._emit_question_event("prompt_suggestion_dismissed", payload, OPERATOR)
         return True
@@ -513,9 +422,7 @@ class QtResponder(QObject):
         pending = self._pending_question
         label = self._button_label(pending[0], response, value) if pending else None
         shown = self._buttons[0 if response else 1]
-        if not isinstance(value, (MillingEdit, SpotBurnEdit)):
-            # An action-carrying value names its own button; else the one shown.
-            label = shown or label
+        label = shown or label
         point = None
         if pending is not None and isinstance(pending[0], PickPOI):
             point = self._suggested_pixel(pending[0], value)
@@ -527,10 +434,9 @@ class QtResponder(QObject):
         the answer is read back from (FIB-1410)."""
         from fibsem.structures import Point
 
-        frame = _poi_frame(self, request)
-        if not isinstance(value, Point) or getattr(frame, "metadata", None) is None:
+        if not isinstance(value, Point):
             return None
-        return _poi_pixel(frame, value)
+        return self._marker.pixel(value, request.image)
 
     def _sync_poi_frame(self) -> None:
         """Keep a pending PickPOI on the frame the FIB view shows.
@@ -545,17 +451,8 @@ class QtResponder(QObject):
         pending = self._pending_question
         if pending is None or not isinstance(pending[0], PickPOI):
             return
-        old = self._poi_marker_frame
-        frame = _poi_frame(self, pending[0])
-        if old is None or frame is old:
+        if not self._marker.sync():
             return
-        self._poi_marker_frame = frame
-        controller = self._view_controller()
-        pts = controller.overlay_points(BeamType.ION, "poi") if controller else None
-        if pts:
-            controller.set_points(
-                BeamType.ION, "poi", [_poi_pixel(frame, _poi_point(old, pts[0]))]
-            )
         if self._suggestion is not None:
             self._show_suggestion()
 
@@ -564,10 +461,6 @@ class QtResponder(QObject):
         request: "Request", response: bool, value: object = None
     ) -> Optional[str]:
         """The prompt button the suggested answer stands for."""
-        if isinstance(request, RunAgainQuestion) and isinstance(
-            value, (MillingEdit, SpotBurnEdit)
-        ):
-            return request.label_for(value.action)
         return getattr(request, "positive" if response else "negative", None)
 
     def _apply_value(self, request: "Request", value: object) -> None:
@@ -591,14 +484,8 @@ class QtResponder(QObject):
         if isinstance(request, PickPOI):
             if not isinstance(value, Point):
                 raise ValueError("a PickPOI value must be a Point")
-            controller = self._view_controller()
-            if controller is None:
-                raise RuntimeError("No canvas to place the point of interest on.")
             self._sync_poi_frame()
-            self._poi_marker_frame = _poi_frame(self, request)
-            controller.set_points(
-                BeamType.ION, "poi", [_poi_pixel(self._poi_marker_frame, value)]
-            )
+            self._marker.place(value)
             return
         if isinstance(request, ConfirmDetection):
             if not isinstance(value, dict) or not all(
@@ -609,24 +496,6 @@ class QtResponder(QObject):
             if det_widget is None:
                 raise RuntimeError("No detection widget to move the features on.")
             det_widget.move_features(value)
-            return
-        if isinstance(request, RunSpotBurn):
-            if not isinstance(value, SpotBurnEdit):
-                raise ValueError("a RunSpotBurn value must be a SpotBurnEdit")
-            widget = self._ui.spot_burn_widget
-            if widget is None:
-                raise RuntimeError("No spot burn widget to place the points on.")
-            # On the settings as the widget holds them now, as for milling.
-            widget.set_settings(apply_spot_burn_edit(widget.get_settings(), value))
-            return
-        if isinstance(request, RunMillingTask):
-            if not isinstance(value, MillingEdit):
-                raise ValueError("a RunMillingTask value must be a MillingEdit")
-            # Made on the config as the editor holds it now, so the operator's
-            # own edits stay: the same changes, refused whole if they no longer
-            # fit (a stage renamed since the answer was checked).
-            widget = self._milling_widget()
-            widget.update_from_settings(apply_milling_edit(widget.get_config(), value))
             return
         raise ValueError(f"{type(request).__name__} answers carry no value.")
 
@@ -666,14 +535,8 @@ class QtResponder(QObject):
             return None, None
         request, _, question_id = pending
         if isinstance(request, PickPOI):
-            controller = self._view_controller()
-            if controller is None:
-                return question_id, None
             self._sync_poi_frame()
-            pts = controller.overlay_points(BeamType.ION, "poi")
-            if not pts:
-                return question_id, None
-            return question_id, _poi_point(_poi_frame(self, request), pts[0])
+            return question_id, self._marker.read()
         if isinstance(request, EditAlignmentArea):
             image_widget = self._ui.image_widget
             if image_widget is None:
@@ -684,16 +547,6 @@ class QtResponder(QObject):
             if det is None:
                 return question_id, None
             return question_id, {f.name: deepcopy(f.px) for f in det.features}
-        if isinstance(request, RunSpotBurn):
-            widget = self._ui.spot_burn_widget
-            if widget is None:
-                return question_id, None
-            return question_id, deepcopy(widget.get_settings())
-        if isinstance(request, RunMillingTask):
-            try:
-                return question_id, deepcopy(self._milling_widget().get_config())
-            except RuntimeError:
-                return question_id, None
         return question_id, None
 
     def _dispatch(self, request: "Request", future: "Future") -> None:
@@ -781,6 +634,16 @@ class QtResponder(QObject):
         """Clear the milling editor. Moved from handle_workflow_update."""
         self._milling_widget().clear()
 
+    def _show_detection(self, request: ShowDetection) -> None:
+        """Load the detection into the detection widget. The window fronts its
+        tab when the question is asked."""
+        det_widget = self._ui.det_widget
+        if det_widget is None:
+            # As for ConfirmDetection: the model already ran, so a missing
+            # widget is a defect, not optional hardware.
+            raise RuntimeError("No detection widget available to show the features.")
+        det_widget.set_detected_features(request.detection)
+
     def _clear_spot_burn(self, request: ClearSpotBurn) -> None:
         """Clear the spot-burn widget's points and leave workflow mode, if
         there is one."""
@@ -811,11 +674,8 @@ class QtResponder(QObject):
         msg: str,
         pos: str,
         neg: Optional[str],
-        releases: str = "answer the question on the Microscope tab",
-        items: Tuple[str, ...] = (),
     ) -> None:
         """Hold ``future`` for :meth:`answer_confirm` and put the prompt up."""
-        self._stop_listening()
         if self._pending_question is not None:
             # The workflow thread blocks on each question, so a live second
             # question is impossible: a pending future here belonged to a waiter
@@ -841,7 +701,9 @@ class QtResponder(QObject):
         # the attention button, border, status bar and timeline pause read it.
         # The main window re-addresses it to a connected agent when the task
         # is designated so.
-        self._ui.hold = Hold(kind=HoldKind.question, releases=releases, items=items)
+        self._ui.hold = Hold(
+            kind=HoldKind.question, releases="answer the question on the Microscope tab"
+        )
         # We are on the GUI thread that owns the widgets: show the prompt
         # directly, and ping the status channel (message=None: says nothing
         # about the prompt) so the main window's waiting chrome refreshes.
@@ -859,24 +721,16 @@ class QtResponder(QObject):
         own rather than the shared prompt bar.
 
         The attention button uses this to go back to a question the operator
-        navigated away from: a detection is corrected on its own tab, a mill is
-        run on the milling tab, and neither is on the Microscope tab the button
-        otherwise goes to. Derived from the pending request rather than
+        navigated away from: a detection is corrected on its own tab, not on
+        the Microscope tab the button otherwise goes to. Derived from the pending request rather than
         remembered, so it cannot drift out of step with what was actually
         raised; ``None`` means the prompt is where the button already goes.
         """
         if self._pending_question is None:
             return None
-        if self._recorded is not None:
-            return self._review_tab()
         request = self._pending_question[0]
         if isinstance(request, ConfirmDetection):
             return self._ui.det_widget
-        if isinstance(request, RunMillingTask):
-            try:
-                return self._milling_widget()
-            except RuntimeError:
-                return None
         return None
 
     def _confirm_detection(self, request: ConfirmDetection, future: "Future") -> None:
@@ -919,10 +773,6 @@ class QtResponder(QObject):
         signal.connect(self._sync_poi_frame)
         self._view_frames_followed = image_widget
 
-    def _view_controller(self):
-        """The main window's quad-view controller, or None standalone."""
-        return getattr(self._ui.parent_widget, "view_controller", None)
-
     def _pick_poi(self, request: PickPOI, future: "Future") -> None:
         """Show a draggable POI marker on the FIB canvas; the click answers with it.
 
@@ -931,228 +781,11 @@ class QtResponder(QObject):
         no-oped and delivered None, so answer None immediately rather than
         putting up a prompt about a marker that is not there.
         """
-        controller = self._view_controller()
-        if controller is None:
+        if not self._marker.show(request.initial, request.image):
             self._deliver(future, None)
             return
-
-        from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
-
-        image = _poi_frame(self, request)
-        self._poi_marker_frame = image
         self._follow_view_frames()
-        if request.initial is not None:
-            col, row = _poi_pixel(image, request.initial)
-        else:
-            row = image.data.shape[0] / 2
-            col = image.data.shape[1] / 2
-        controller.set_overlay(
-            BeamType.ION,
-            PointsSpec(
-                id="poi",
-                points=[(col, row)],
-                # Matches the protocol editor's POI, down to the legend entry: same
-                # concept, same marker. Left to the defaults this drew at size 18 with
-                # PointOverlay's 2.0 edge, a cross visibly fatter than the thin one the
-                # editor and the config preview draw, and absent from the legend
-                # (FIB-582). 1.2 keeps it reading like the centre crosshair.
-                color="magenta",
-                selected_color="magenta",
-                marker="+",
-                size=14,
-                edge_width=1.2,
-                legend_label="Point of Interest",
-                add_on_right_click=False,
-                removable=False,
-            ),
-        )
-        # POI owns FIB-canvas input: stage-move + milling menu stand down. The toolbar
-        # toggle lets the user drop to Move and back. (See active-overlay model.)
-        controller.arm_overlay(BeamType.ION, "poi", label="POI", icon="mdi:map-marker")
-        controller.fib_canvas.set_hint("drag to move")
         self._park_question(request, future, request.message, "Continue", None)
-
-    def _run_milling_task(self, request: RunMillingTask, future: "Future") -> None:
-        """Show the config in the editor and ask what to do with it.
-
-        The mill is the asker's (FIB-1236): it runs on the workflow thread, and
-        this only shows the config, takes the edits and answers with the
-        decision and the config as the editor then holds it. The editor's own
-        Run button stands down while a task owns the mill.
-        """
-        widget = self._milling_widget()
-        widget.update_from_settings(request.config)
-        widget.setEnabled(True)
-        self._ui.front_tab(widget)
-        widget.milling_widget.pushButton_run_milling.setVisible(False)
-        self._park_question(
-            request, future, request.prompt, request.positive, request.negative
-        )
-
-    # --- a question on the record (FIB-1025) ------------------------------------
-    #
-    # Some questions carry a value -- where the model put the features -- and the
-    # value, who corrected it and by how much belong on the item. Such a question
-    # is recorded as a proposal and answered by a decision in the Review tab,
-    # which is where every other judgement is collected. Everything about the
-    # *wait* stays here: the question id, the hold, the abort. Only where the answer
-    # comes from changes.
-
-    def _review_detection(self, request: ReviewDetection, future: "Future") -> None:
-        """A detection from an asker that said who it is: on the record and in
-        the Review tab when it can be, and otherwise the Detection tab prompt,
-        untouched -- it is a ``ConfirmDetection`` too."""
-        if self._ask_on_the_record(
-            request,
-            future,
-            "The detected features need confirming in the Review tab.",
-        ):
-            return
-        self._confirm_detection(request, future)
-
-    def _review_tab(self):
-        """The main window's Review tab when there is one and it is showing --
-        which is the interactive-review preference, read where it is applied --
-        else None. The standalone window has no Review tab at all."""
-        parent = self._ui.parent_widget
-        tab = getattr(parent, "review_tab", None)
-        tabs = getattr(parent, "tab_widget", None)
-        if tab is None or tabs is None:
-            return None
-        index = tabs.indexOf(tab)
-        if index == -1 or not tabs.isTabVisible(index):
-            return None
-        return tab
-
-    def _ask_on_the_record(self, request: Request, future: "Future", msg: str) -> bool:
-        """Record ``request`` as a proposal and hold the run on the decision.
-
-        False, having done nothing, whenever it cannot: no Review tab to answer
-        it in, a request that does not say who is asking, an item that is gone,
-        or nothing to record (``proposal_for`` says why). The caller then asks
-        the way it always has, so nothing here can leave a question unasked.
-        """
-        tab = self._review_tab()
-        item_id = getattr(request, "item_id", "")
-        task_name = getattr(request, "task_name", "")
-        experiment = getattr(self._ui, "experiment", None)
-        if tab is None or not item_id or not task_name or experiment is None:
-            return False
-        item = experiment.get_item_by_id(item_id)
-        if item is None:
-            return False
-        proposal = proposal_for(request, experiment, item)
-        if proposal is None:
-            return False
-        if not experiment.ask_proposal(item_id, task_name, proposal):
-            return False
-
-        self._park_question(
-            request,
-            future,
-            msg,
-            "Go to Review",
-            None,
-            releases=f"decide {item.name} in the Review tab",
-            items=(f"{item.name}/{task_name}",),
-        )
-        self._recorded = (experiment, item_id, task_name, proposal.id)
-        experiment.decided.connect(self._on_decided)
-
-        # However the wait ends without an answer -- Stop, a timeout, a run that
-        # is torn down -- the asker cancels its future, on its own thread. That
-        # is the moment the question stops existing, so it is taken back there
-        # and then: withdraw_proposal is safe off the GUI thread and does not
-        # wait for it. The withdrawal comes back round as a decision, on this
-        # thread, and _on_decided takes the prompt down.
-        def _taken_back(done: "Future") -> None:
-            if done.cancelled():
-                experiment.withdraw_proposal(
-                    item_id, task_name, "the run stopped before it was answered"
-                )
-
-        future.add_done_callback(_taken_back)
-
-        parent = self._ui.parent_widget
-        parent.tab_widget.setCurrentWidget(tab)
-        tab.select(item_id, task_name)
-        return True
-
-    def _stop_listening(self) -> None:
-        """Forget the recorded question, if there is one. The record itself is
-        not touched: it has its answer, or its withdrawal, already."""
-        recorded, self._recorded = self._recorded, None
-        if recorded is None:
-            return
-        try:
-            recorded[0].decided.disconnect(self._on_decided)
-        except Exception:  # noqa: BLE001 - already disconnected is fine
-            pass
-
-    def _on_decided(self, item_id: str, task_name: str) -> None:
-        """GUI thread. A decision landed somewhere; release the run if it was
-        on the question that is up."""
-        recorded, pending = self._recorded, self._pending_question
-        if recorded is None or pending is None:
-            return
-        experiment, asked_item, asked_task, asked_id = recorded
-        if (item_id, task_name) != (asked_item, asked_task):
-            return
-        item = experiment.get_item_by_id(item_id)
-        proposal = item.proposal(task_name) if item is not None else None
-        if proposal is None or proposal.id != asked_id:
-            # A decision on this item and task, but not on the question that
-            # is up: the pair is not what names a question, the proposal is.
-            return
-        decision = proposal.current
-        if decision is None:
-            return
-        request, future, question_id = pending
-        self._pending_question = None
-        self._clear_suggestion()
-        self._stop_listening()
-        self._ui.hold = None
-        self._ui.workflow_status_signal.emit(WorkflowStatusEvent(message=""))
-        name = type(request).__name__
-        if decision.outcome is DecisionOutcome.Withdrawn:
-            # Nobody answered: the asker is gone, or somebody took it back.
-            future.cancel()
-            self._emit_question_event(
-                "prompt_cancelled", {"type": name, "question_id": question_id}
-            )
-            return
-        confirmed = decision.outcome is DecisionOutcome.Confirmed
-        self._emit_question_event(
-            "prompt_answered",
-            {
-                "type": name,
-                "response": confirmed,
-                "answered_by": "agent"
-                if decision.author.kind is AuthorKind.agent
-                else "operator",
-                "question_id": question_id,
-            },
-        )
-        if not confirmed:
-            # Raised on the workflow thread inside wait_for, where the task's
-            # own failure path handles it -- the same as any other refusal to
-            # go on.
-            self._fail(
-                future,
-                RuntimeError(
-                    f"{task_name} was rejected: {decision.reason or 'no reason given'}"
-                ),
-            )
-            return
-        try:
-            answer = answer_from(request, decision.values)
-        except Exception as exc:  # noqa: BLE001 - the caller owns the failure
-            self._fail(future, exc)
-            return
-        # Before the waiter wakes, as the Detection tab's click does it: the
-        # task carries on to a consistent record.
-        answered(request, answer)
-        self._deliver(future, answer)
 
     def abandon(self) -> None:
         """Drop whatever a finished run left behind. GUI thread, workflow end.
@@ -1161,7 +794,6 @@ class QtResponder(QObject):
         so a question still parked belongs to nobody: cancel it and take the
         prompt down.
         """
-        self._stop_listening()
         pending, self._pending_question = self._pending_question, None
         if pending is not None:
             pending[1].cancel()
@@ -1171,25 +803,6 @@ class QtResponder(QObject):
                 "prompt_cancelled",
                 {"type": type(pending[0]).__name__, "question_id": pending[2]},
             )
-
-    def _run_spot_burn(self, request: RunSpotBurn, future: "Future") -> None:
-        """Show the points in the spot-burn widget and ask what to do with them.
-
-        The burn is the asker's (FIB-1236), as the mill is: this shows the
-        settings, takes the edits and answers with the decision and the
-        settings as the widget then holds them. Without a spot-burn widget the
-        answer is None: optional hardware must not fail a workflow.
-        """
-        widget = self._ui.spot_burn_widget
-        if widget is None:
-            self._deliver(future, None)
-            return
-        widget.set_settings(request.settings)
-        self._ui.set_spot_burn_widget_active(True)
-        widget.set_workflow_mode(True)
-        self._park_question(
-            request, future, request.prompt, request.positive, request.negative
-        )
 
     def answer_confirm(
         self,
@@ -1216,23 +829,12 @@ class QtResponder(QObject):
         path), so the record shows the agent changed the widget, not just
         accepted what stood. ``suggested_by`` names who suggested the answer the
         operator took (FIB-1283): the answer is still the operator's.
-        ``value`` is the answer's value, already placed in the widget: a value
-        whose action says what the answer means (the milling question's) is
-        read for it.
+        ``value`` is the answer's value, already placed in the widget.
         """
         pending = self._pending_question
         if pending is None:
             return False
         request, future = pending[0], pending[1]
-        if self._recorded is not None and not future.cancelled():
-            # Not an answer. The question is decided in the Review tab, and
-            # this button is the way there from the Microscope tab.
-            tab = self._review_tab()
-            if tab is not None:
-                self._ui.parent_widget.tab_widget.setCurrentWidget(tab)
-                tab.select(self._recorded[1], self._recorded[2])
-            return True
-        self._stop_listening()
         self._pending_question = None
         self._clear_suggestion()
         self._ui.hold = None
@@ -1253,39 +855,32 @@ class QtResponder(QObject):
         answered_payload = {
             "type": type(request).__name__,
             "response": bool(clicked_yes),
-            "answered_by": source,
             "question_id": pending[2],
         }
-        if isinstance(request, RunAgainQuestion):
-            answered_payload["action"] = _loop_action(request, clicked_yes, value)
         if adjusted:
             answered_payload["adjusted"] = True
         if suggested_by:
             answered_payload["suggested_by"] = suggested_by
-        self._emit_question_event("prompt_answered", answered_payload)
-        # And to the asker, which records the decision the answer makes.
-        mark_answered_by(future, source)
-        self._ui.workflow_status_signal.emit(WorkflowStatusEvent(message=""))
         try:
-            self._deliver(future, self._answer(request, clicked_yes, value))
+            answer = self._answer(request, clicked_yes, value)
         except Exception as exc:  # noqa: BLE001 - the caller owns the failure
-            self._fail(future, exc)
+            answer, failure = None, exc
+        else:
+            failure = None
+            # What it decided, for a line about it (the agent card's Recent).
+            decided = request.decided(answer)
+            if decided:
+                answered_payload["decided"] = decided
+        self._emit_question_event("prompt_answered", answered_payload, actor=source)
+        self._ui.workflow_status_signal.emit(WorkflowStatusEvent(message=""))
+        if failure is not None:
+            self._fail(future, failure)
+        else:
+            self._deliver(future, answer)
         return True
 
     def _answer(self, request: Request, clicked_yes: bool, value: object = None):
         """What the click means for this question's asker."""
-        if isinstance(request, RunMillingTask):
-            # The decision, and the config as the editor holds it: what the
-            # operator dragged and what an agent's value placed there.
-            return MillingDecision(
-                action=_loop_action(request, clicked_yes, value),
-                config=deepcopy(self._milling_widget().get_config()),
-            )
-        if isinstance(request, RunSpotBurn):
-            return SpotBurnDecision(
-                action=_loop_action(request, clicked_yes, value),
-                settings=deepcopy(self._ui.spot_burn_widget.get_settings()),
-            )
         if isinstance(request, ConfirmDetection):
             # Both the read-back and the save used to straddle threads: the
             # workflow thread called _get_detected_features across the seam, then
@@ -1309,16 +904,8 @@ class QtResponder(QObject):
             # the FIB view shows), and take the overlay down — the old flow's
             # second handshake plus its SELECTED_POI read-back, all in the
             # click's slot.
-            controller = self._view_controller()
-            poi = None
-            if controller is not None:
-                self._sync_poi_frame()
-                pts = controller.overlay_points(BeamType.ION, "poi")
-                if pts:
-                    poi = _poi_point(_poi_frame(self, request), pts[0])
-                self._poi_marker_frame = None
-                controller.arm_overlay(BeamType.ION, None)  # restore Move
-                controller.remove_overlay(BeamType.ION, "poi")
-                controller.fib_canvas.set_hint(None)
+            self._sync_poi_frame()
+            poi = self._marker.read()
+            self._marker.remove()
             return poi
         return clicked_yes

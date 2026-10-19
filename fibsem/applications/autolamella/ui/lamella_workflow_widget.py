@@ -16,7 +16,6 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.structures import (
-    Attention,
     AutoLamellaTaskDescription,
     AutoLamellaWorkflowConfig,
     AutoLamellaWorkflowOptions,
@@ -46,6 +45,7 @@ from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     ValueComboBox,
 )
+from fibsem.workflows.attention import Attention
 
 # What the panel's ? says: how to work the task list. It was a line of text under
 # the list on every view; it is for the first time, not every time.
@@ -374,7 +374,10 @@ class LamellaWorkflowWidget(QWidget):
         return sorted(self.experiment.task_protocol.task_config.keys())
 
     def _on_task_edit_requested(self, task: AutoLamellaTaskDescription) -> None:
-        available = [t.name for t in self.workflow.get_tasks()]
+        # Only the tasks before it: a task cannot require one that runs later
+        # (`AutoLamellaWorkflowConfig.set_requirements`, the App Server's rule).
+        names = [t.name for t in self.workflow.get_tasks()]
+        available = names[: names.index(task.name)] if task.name in names else names
         self._editor_dialog.open_for(
             task,
             available_tasks=available,

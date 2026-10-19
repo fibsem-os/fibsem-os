@@ -31,11 +31,12 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from fibsem.acting import AGENT, acting
-from fibsem.server.allowlist import image_refusal
-from fibsem.server.auth import AgentLevel, AuthConfig, lending_drive, require_level
-from fibsem.server.calls import AgentCall, calling, join_line
-from fibsem.server.catalog import CATALOG, ToolSpec, route_call
-from fibsem.server.request_text import Describer, describe_actions
+from fibsem.ai.agent.allowlist import image_refusal
+from fibsem.ai.agent.calls import AgentCall, calling, join_line
+from fibsem.ai.agent.catalog import CATALOG, ToolSpec, route_call
+from fibsem.ai.agent.levels import AgentLevel
+from fibsem.ai.agent.request_text import Describer, describe_action, describe_actions
+from fibsem.server.auth import AuthConfig, lending_drive, require_level
 
 PENDING = "pending"
 APPLYING = "applying"
@@ -224,6 +225,33 @@ def _cut_short(answer: Any) -> bool:
     return isinstance(result, str) and result.lower() == CANCELLED
 
 
+# The flags a route answers 2xx with to say whether it did what it was asked:
+# workflow_start answers ``started: false`` and a reason when it is turned away,
+# a context edit ``applied: false``, a stop with nothing to stop ``stopped: false``.
+_OUTCOME_FLAGS = ("ok", "started", "applied", "stopped")
+
+
+def _refusal(answer: Any) -> Optional[Dict[str, Any]]:
+    """The refusal in an answer that came back 2xx but says the action did
+    nothing (one of its outcome flags is False), as a route's error detail;
+    None for an answer that did what it was asked. Such a step failed, with
+    its reason, rather than reading "applied"."""
+    if not isinstance(answer, dict):
+        return None
+    flag = next((name for name in _OUTCOME_FLAGS if answer.get(name) is False), None)
+    if flag is None:
+        return None
+    reason = next(
+        (
+            answer[key]
+            for key in ("reason", "error", "message")
+            if isinstance(answer.get(key), str) and answer[key].strip()
+        ),
+        f"Answered {flag}: false.",
+    )
+    return {"error_type": f"not_{flag}", "message": reason}
+
+
 class RequestStore:
     """The agent's requests, and the worker that runs approved ones.
 
@@ -350,8 +378,16 @@ class RequestStore:
             {
                 "request_id": request.id,
                 "reason": request.reason,
+                # With the card's own words, so a line about it later (the
+                # app's Recent list) reads as the card did.
                 "actions": [
-                    {"tool": a.tool, "arguments": a.arguments} for a in resolved
+                    {
+                        "tool": a.tool,
+                        "arguments": a.arguments,
+                        "what": a.what,
+                        "change": a.change,
+                    }
+                    for a in resolved
                 ],
                 **({"image": image} if image else {}),
             },
@@ -505,7 +541,9 @@ class RequestStore:
         with self._lock:
             request = self._pending_or_refuse(request_id)
             self._finish_locked(request, CANCELLED)
-        self._cancelled(request, f"withdrawn by the agent: {reason.strip()}")
+        self._cancelled(
+            request, f"withdrawn by the agent: {reason.strip()}", withdrawn=True
+        )
         return request
 
     def cancel(self, why: str) -> Optional[AgentRequest]:
@@ -577,19 +615,20 @@ class RequestStore:
                                 }
                             },
                         )
-                ok = code < 400
+                refused = _refusal(answer) if code < 400 else None
+                ok = code < 400 and refused is None
                 result = {
                     "index": index,
                     "tool": action.tool,
                     "status_code": code,
                     "ok": ok,
                 }
-                if ok:
+                if code < 400:
                     result["result"] = answer
-                    if _cut_short(answer):
-                        result["cancelled"] = True
-                else:
-                    result["error"] = (answer or {}).get("detail", answer)
+                if ok and _cut_short(answer):
+                    result["cancelled"] = True
+                if not ok:
+                    result["error"] = refused or (answer or {}).get("detail", answer)
                 request.results.append(result)
                 self._emit("request_applied", {"request_id": request.id, **result})
                 self._changed(request)
@@ -636,6 +675,17 @@ class RequestStore:
             action.what, action.change = line["what"], line["change"]
             action.details = line.get("details")
 
+    def describe_call(
+        self, tool: str, arguments: Dict[str, Any], path: str
+    ) -> Optional[str]:
+        """A direct call as its request's card would say it, ``what · change``,
+        reading the state it changes: "Set Field of View 150 µm → 300 µm", not
+        the bare "Set hfw to 0.0003" a line without a reader falls back to."""
+        line = describe_action(
+            tool, arguments, path, read=self._read, describe=self._describe
+        )
+        return join_line(line.get("what"), line.get("change"))
+
     def _read(self, path: str) -> Optional[Dict[str, Any]]:
         """Read a route in this process: the document a config edit patches, or
         a service query's answer (a query moves nothing), such as which grid an
@@ -680,9 +730,14 @@ class RequestStore:
         ]:
             del self._requests[request.id]
 
-    def _cancelled(self, request: AgentRequest, why: str) -> None:
+    def _cancelled(
+        self, request: AgentRequest, why: str, withdrawn: bool = False
+    ) -> None:
         request.cancel_reason = why
-        self._emit("request_cancelled", {"request_id": request.id, "why": why})
+        payload = {"request_id": request.id, "why": why}
+        if withdrawn:
+            payload["withdrawn"] = True
+        self._emit("request_cancelled", payload)
         self._changed(request)
 
     def _emit(self, kind: str, payload: Dict[str, Any]) -> None:

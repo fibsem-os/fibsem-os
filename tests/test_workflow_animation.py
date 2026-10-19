@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskState, Lamella
+from fibsem.applications.autolamella.structures import Lamella
 from fibsem.applications.autolamella.task_outputs import (
     final_images_by_task,
     images_by_task,
@@ -43,6 +43,7 @@ from fibsem.structures import (
     ImageSettings,
     MicroscopeState,
 )
+from fibsem.workflows.status import TaskState
 
 
 def _image(beam: BeamType, hfw: float, value: int = 100) -> FibsemImage:
@@ -67,9 +68,7 @@ def _lamella(tmp_path: Path) -> Lamella:
     return lamella
 
 
-def _run(
-    lamella: Lamella, task: str, value: int = 100, sem: bool = True
-) -> AutoLamellaTaskState:
+def _run(lamella: Lamella, task: str, value: int = 100, sem: bool = True) -> TaskState:
     """A completed run of ``task`` that saved its final set, as a task does: SEM and
     FIB at a wide (150 µm) and a narrow (100 µm) field width."""
     outputs = {"final_sem": [], "final_fib": []}
@@ -83,7 +82,7 @@ def _run(
             name = f"ref_{task}_final_res_{res}_{suffix}.tif"
             _image(beam, hfw, value).save(os.path.join(lamella.path, name))
             outputs[role].append(name)
-    run = AutoLamellaTaskState(name=task, outputs=outputs)
+    run = TaskState(name=task, outputs=outputs)
     lamella.task_history.append(run)
     return run
 
@@ -111,7 +110,7 @@ def test_a_step_per_task_in_the_order_they_ran(tmp_path):
 def test_a_run_that_saved_nothing_adds_no_step(tmp_path):
     lamella = _lamella(tmp_path)
     _run(lamella, "Setup")
-    lamella.task_history.append(AutoLamellaTaskState(name="Acquire FM"))  # cancelled
+    lamella.task_history.append(TaskState(name="Acquire FM"))  # cancelled
     _run(lamella, "Mill")
     assert [name for name, _ in final_images_by_task(lamella)] == ["Setup", "Mill"]
 
@@ -332,9 +331,7 @@ def _fm_run(lamella: Lamella, task: str = "Acquire FM", order=("DAPI", "GFP")) -
     )
     name = f"{lamella.petname}-{task.replace(' ', '-')}-zstack.ome.tiff"
     image.save(os.path.join(lamella.path, name))
-    lamella.task_history.append(
-        AutoLamellaTaskState(name=task, outputs={"fluorescence": [name]})
-    )
+    lamella.task_history.append(TaskState(name=task, outputs={"fluorescence": [name]}))
     return name
 
 

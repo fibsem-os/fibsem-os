@@ -14,6 +14,7 @@ Class names avoid a ``Test`` prefix so pytest does not try to collect them.
 PATTERN_NAME = "Fixture Pattern"
 STRATEGY_NAME = "Fixture Strategy"
 TASK_TYPE = "FIXTURE_TASK"
+GRID_TASK_TYPE = "FIXTURE_GRID_TASK"
 
 # Deliberately collides with a built-in pattern, so the documented precedence
 # (builtins > registered > plugins) has something to actually assert against.
@@ -24,3 +25,6 @@ CLASHING_PATTERN_NAME = "Rectangle"
 FAILING_ENTRY_POINTS = ("wrong_base_class", "missing_module")
 
 DRIVER_MANUFACTURER = "Fixture Microscopes"
+
+# A driver that builds a device and no microscope (``drivers.fixture_device_driver``).
+DEVICE_DRIVER = "Fixture Scanners"

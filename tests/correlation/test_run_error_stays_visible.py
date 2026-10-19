@@ -26,18 +26,12 @@ from fibsem.correlation.structures import (
     PointXYZ,
 )
 from fibsem.fm.structures import (
+    EmissionFilter,
     FluorescenceChannelMetadata,
     FluorescenceImage,
     FluorescenceImageMetadata,
 )
 from fibsem.structures import FibsemImage
-
-
-@pytest.fixture(autouse=True)
-def _no_lut_download(monkeypatch):
-    import fibsem.ui.correlation.widgets.refractive_index_widget as riw
-
-    monkeypatch.setattr(riw, "_ensure_lut", lambda *a, **k: None, raising=False)
 
 
 def _fm_image():
@@ -51,7 +45,7 @@ def _fm_image():
             FluorescenceChannelMetadata(
                 name="GFP",
                 excitation_wavelength=488.0,
-                emission_wavelength=520.0,
+                emission_filter=EmissionFilter("520 nm", low=520.0),
                 power=0.3,
                 exposure_time=0.05,
                 gain=1.5,
@@ -92,7 +86,7 @@ def widget(qapp, tmp_path):
     w.set_fib_image(FibsemImage.generate_blank_image(resolution=(400, 300)))
     w.set_fm_image(_fm_image())
     w.set_data(_data())
-    assert w._can_run()
+    assert w.session.can_run()
     yield w
     if w._worker is not None:
         w._worker.wait()
@@ -108,12 +102,12 @@ def test_the_error_stays_on_the_status_line(widget):
 
 
 def test_a_run_that_fails_on_its_worker_says_why(widget, qapp, monkeypatch):
-    import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
+    import fibsem.correlation.fit as fit_module
 
     def fail(*args, **kwargs):
         raise ValueError("boom")
 
-    monkeypatch.setattr(ctw, "run_correlation_from_data", fail)
+    monkeypatch.setattr(fit_module, "run_correlation_from_data", fail)
 
     widget._run()
     widget._worker.wait()

@@ -19,6 +19,7 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.server.discovery import write_discovery_file  # noqa: E402
 from fibsem.structures import MicroscopeState  # noqa: E402
+from tests.run_state import stub_session
 
 AGENT = "agent-token"
 DASHBOARD = "dashboard-token"
@@ -26,13 +27,6 @@ DASHBOARD = "dashboard-token"
 
 def _bearer(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
-
-
-class Host:
-    experiment = None
-    microscope = None
-    _task_manager = None
-    is_workflow_running = False
 
 
 @pytest.fixture(scope="module")
@@ -49,7 +43,7 @@ def auth():
 
 @pytest.fixture
 def client(tmp_path, microscope, auth):
-    host = Host()
+    host = stub_session()
     exp = Experiment(path=tmp_path / "exp", name="dashboard-exp")
     exp.task_protocol = AutoLamellaTaskProtocol()
     (tmp_path / "exp").mkdir(parents=True, exist_ok=True)

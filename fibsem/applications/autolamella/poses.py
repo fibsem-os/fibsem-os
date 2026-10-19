@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import logging
 from copy import deepcopy
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
 
 from fibsem.structures import (
@@ -27,6 +26,7 @@ from fibsem.structures import (
     InsertableDeviceState,
     MicroscopeState,
 )
+from fibsem.workflows.proposals import ItemPoses
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
     from fibsem.microscope import FibsemMicroscope
@@ -38,26 +38,13 @@ MILLING_ORIENTATION = "MILLING"
 FLUORESCENCE_ORIENTATION = "FM"
 
 
-@dataclass(frozen=True)
-class LamellaPoses:
-    """Both poses for a lamella, whichever side it was marked from.
-
-    `fluorescence` is None when the microscope has no fluorescence detector — there is
-    nothing to derive it from, and a pose invented for an instrument that does not exist
-    would be worse than its absence.
-    """
-
-    milling: MicroscopeState
-    fluorescence: Optional[MicroscopeState] = None
-
-
 def build_lamella_poses(
     microscope: "FibsemMicroscope",
     position: Optional[FibsemStagePosition] = None,
     objective_position: Optional[float] = None,
     state: Optional[MicroscopeState] = None,
     marked_at: Optional[str] = None,
-) -> LamellaPoses:
+) -> ItemPoses:
     """The milling and fluorescence poses for a lamella marked at *position*.
 
     *position* may be in any orientation. A position in the fluorescence orientation is
@@ -114,7 +101,7 @@ def build_lamella_poses(
     milling.stage_position = milling_position
 
     if microscope.fm is None or fluorescence_position is None:
-        return LamellaPoses(milling=milling, fluorescence=None)
+        return ItemPoses(beam=milling, fluorescence=None)
 
     fluorescence = deepcopy(state)
     fluorescence.stage_position = fluorescence_position
@@ -122,7 +109,7 @@ def build_lamella_poses(
         objective_position = microscope.fm.objective.focus_position
     fluorescence.objective_position = objective_position
 
-    return LamellaPoses(milling=milling, fluorescence=fluorescence)
+    return ItemPoses(beam=milling, fluorescence=fluorescence)
 
 
 def sync_fluorescence_pose(microscope: "FibsemMicroscope", lamella) -> bool:
@@ -290,14 +277,14 @@ def add_lamella(
     # fluorescence pose after the append left every listener that redraws on
     # `inserted` deciding the new lamella had none.
     experiment.add_new_lamella(
-        microscope_state=poses.milling,
+        microscope_state=poses.beam,
         task_config=experiment.task_protocol.task_config,
         name=name,
         fluorescence_pose=poses.fluorescence,
         grid_id=(
             grid_id
             if grid_id is not None
-            else grid_id_at(experiment, microscope, poses.milling.stage_position)
+            else grid_id_at(experiment, microscope, poses.beam.stage_position)
         ),
     )
     lamella = experiment.positions[-1]
@@ -337,6 +324,28 @@ def remove_lamella(experiment, lamella) -> bool:
         return False
     experiment.save()
     return True
+
+
+def set_objective_position(experiment, lamella, value: float) -> None:
+    """Store *value* as the objective position on *lamella*'s fluorescence pose,
+    and save *experiment* when there is one. The selected lamella's spinbox and
+    Use current, and the App Server's."""
+    lamella.fluorescence_pose.objective_position = value
+    if experiment is not None:
+        experiment.save()
+
+
+def set_objective_position_on_all(experiment, value: float) -> int:
+    """Store *value* on every lamella with a fluorescence pose, saved: Apply to
+    All. How many it was stored on."""
+    count = 0
+    for lamella in experiment.positions:
+        if lamella.fluorescence_pose is not None:
+            lamella.fluorescence_pose.objective_position = value
+            count += 1
+    if count:
+        experiment.save()
+    return count
 
 
 def current_objective_position(fm) -> Optional[float]:

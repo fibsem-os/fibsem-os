@@ -39,7 +39,7 @@ def ui(qapp):
 
 
 def test_a_fresh_window_satisfies_the_host_contract(ui):
-    ctx = AutoLamellaAppContext(ui)
+    ctx = AutoLamellaAppContext(ui.session, window=ui)
     status = ctx.status()
     json.dumps(status)
     assert status["microscope_connected"] is False
@@ -47,26 +47,26 @@ def test_a_fresh_window_satisfies_the_host_contract(ui):
     assert status["workflow"]["running"] is False
     assert ctx.queue()["available"] is False
     assert ctx.run_summary()["available"] is False
-    # No image widget until a microscope connects: unavailable, not an error.
+    # No images until a microscope connects: unavailable, not an error.
     assert ctx.display_images() == {"available": False, "sem": None, "fib": None}
 
 
-def test_display_images_mirror_the_widgets_current_images(ui):
+def test_display_images_are_the_sessions_latest_images(ui):
+    """FIB-1451: the session holds the latest image of each beam; the server
+    reads them there, once a microscope connects and the window shows them."""
     import numpy as np
 
-    from fibsem.structures import FibsemImage
+    from fibsem.structures import BeamType, FibsemImage
 
-    class _Widget:
-        eb_image = FibsemImage.generate_blank_image(resolution=[128, 128], hfw=1e-6)
-        ib_image = None
-
-    _Widget.eb_image.data[:] = np.random.randint(
-        0, 255, _Widget.eb_image.data.shape, dtype=np.uint8
-    )
-    ui.image_widget = _Widget()
-    ctx = AutoLamellaAppContext(ui)
-
-    payload = ctx.display_images()
+    sem = FibsemImage.generate_blank_image(resolution=[128, 128], hfw=1e-6)
+    sem.data[:] = np.random.randint(0, 255, sem.data.shape, dtype=np.uint8)
+    ui.session.images.set(sem, BeamType.ELECTRON)
+    ctx = AutoLamellaAppContext(ui.session, window=ui)
+    ui.session.microscope = object()
+    try:
+        payload = ctx.display_images()
+    finally:
+        ui.session.microscope = None
     json.dumps(payload)
     assert payload["available"] is True
     assert payload["fib"] is None  # nothing displayed on that side yet
@@ -84,9 +84,8 @@ def test_an_adopted_experiment_is_visible_through_the_facade(ui, tmp_path):
     (tmp_path / "exp").mkdir(parents=True, exist_ok=True)
     exp.add_new_lamella(MicroscopeState(), EventedDict())
 
-    ctx = AutoLamellaAppContext(
-        ui
-    )  # built BEFORE the experiment exists — call-time wins
+    # built BEFORE the experiment exists — call-time wins
+    ctx = AutoLamellaAppContext(ui.session, window=ui)
     ui.experiment = exp
 
     status = ctx.status()
@@ -132,12 +131,12 @@ def toasts(monkeypatch):
 
 def test_run_summary_survives_the_run_end_toast(ui, toasts):
     # The live-run regression: _show_workflow_summary used to consume
-    # _last_run_summary to make the dialog once-only, so a remote read after
+    # the last run summary to make the dialog once-only, so a remote read after
     # the run always found nothing. The run's end is shown once; the record
     # stays readable.
     import pandas as pd
 
-    ui._last_run_summary = pd.DataFrame(
+    ui.session.runner.last_summary = pd.DataFrame(
         [
             {
                 "lamella_name": "01",
@@ -156,15 +155,15 @@ def test_run_summary_survives_the_run_end_toast(ui, toasts):
     assert action[0] == "Show summary"
     # No experiment, so no option set: the summary opens, as it always has,
     # but without blocking the window.
-    assert _Dialog.opened == [(ui._last_run_summary, ""), "show"]
+    assert _Dialog.opened == [(ui.session.runner.last_summary, ""), "show"]
 
-    payload = AutoLamellaAppContext(ui).run_summary()
+    payload = AutoLamellaAppContext(ui.session, window=ui).run_summary()
     assert payload["available"] is True
     assert payload["items"][0]["task_name"] == "Rough Milling"
     json.dumps(payload)
 
     # The next run's capture is a new object: it shows again.
-    ui._last_run_summary = pd.DataFrame([{"task_name": "Polishing"}])
+    ui.session.runner.last_summary = pd.DataFrame([{"task_name": "Polishing"}])
     ui._show_workflow_summary()
     assert len(toasts) == 2
 
@@ -181,8 +180,8 @@ def test_with_the_summary_off_only_the_toast_shows(ui, toasts, tmp_path):
     summary = pd.DataFrame(
         [{"lamella_name": "01", "task_name": "Polishing", "task_status": "Failed"}]
     )
-    ui._last_run_summary = summary
-    ui._last_run_note = ""
+    ui.session.runner.last_summary = summary
+    ui.session.runner.last_note = ""
 
     ui._show_workflow_summary()
     assert _Dialog.opened == []

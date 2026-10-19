@@ -20,9 +20,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 from psygnal.containers import EventedDict
 
-from fibsem.applications.autolamella.event_recording import EventRecorder
 from fibsem.applications.autolamella.server import AutoLamellaAppContext
-from fibsem.applications.autolamella.server.events import EventBuffer
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
@@ -33,6 +31,8 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
 )
 from fibsem.server import AuthConfig, build_server
 from fibsem.structures import MicroscopeState
+from fibsem.workflows.event_recording import EventRecorder
+from fibsem.workflows.events import EventBuffer
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -82,7 +82,7 @@ def recorded(ui, tmp_path):
 def _client(ui, buffer=None, arm_configure=True):
     app = build_server(
         ui.microscope,
-        app_context=AutoLamellaAppContext(ui, event_buffer=buffer),
+        app_context=AutoLamellaAppContext(ui.session, window=ui, event_buffer=buffer),
         auth=AuthConfig.generate(
             level="drive" if arm_configure else "watch", token=TOKEN
         ),

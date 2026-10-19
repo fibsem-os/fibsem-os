@@ -18,18 +18,16 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus as Status
-from fibsem.applications.autolamella.workflows.tasks.grid import (
-    BeamOverviewGridTaskConfig,
-    FluorescenceOverviewGridTaskConfig,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-    run_grid_tasks,
-)
 from fibsem.fm.structures import ChannelSettings, OverviewParameters
 from fibsem.imaging.tiling.reach import disable_tiles, reachable_overview
 from fibsem.services.sample_handling import BUILTIN_SLOT_NAME
 from fibsem.structures import BeamType, ImageSettings, OverviewAcquisitionSettings
+from fibsem.workflows.grid import (
+    BeamOverviewGridTaskConfig,
+    FluorescenceOverviewGridTaskConfig,
+)
+from fibsem.workflows.status import TaskStatus as Status
+from tests.run_state import run_grids
 
 ROWS_OUT_OF_REACH = "(0,0), (0,1), (0,2), (0,3), (3,0), (3,1), (3,2), (3,3)"
 
@@ -64,7 +62,7 @@ def _beam(rows, cols, hfw, beam=BeamType.ELECTRON) -> OverviewAcquisitionSetting
 
 def _run(microscope, experiment, config):
     experiment.grid_protocol.add(config)
-    run_grid_tasks(microscope, experiment, [config.task_name], ["Grid-01"])
+    run_grids(microscope, experiment, [config.task_name], ["Grid-01"])
     grid = experiment.get_grid_by_name("Grid-01")
     (entry,) = [t for t in grid.task_history if t.name == config.task_name]
     return grid, entry
@@ -166,7 +164,7 @@ def test_a_fluorescence_overview_skips_its_tiles_out_of_reach(microscope, experi
 
 
 def test_the_reach_is_known_before_the_overview_runs(microscope):
-    from fibsem.applications.autolamella.workflows.tasks.grid.reach import (
+    from fibsem.workflows.grid.reach import (
         describe_reach,
         overview_reach,
     )
@@ -186,10 +184,10 @@ def test_the_reach_is_known_before_the_overview_runs(microscope):
 
 def test_a_projection_is_built_once_per_beam(microscope, monkeypatch):
     """Building one reads the instrument; the Grid page asks on every edit."""
-    from fibsem.applications.autolamella.workflows.tasks.grid.reach import (
+    from fibsem.geometry.projection import BeamStageProjection
+    from fibsem.workflows.grid.reach import (
         overview_reach,
     )
-    from fibsem.geometry.projection import BeamStageProjection
 
     built = []
     real = BeamStageProjection.from_microscope.__func__
@@ -208,7 +206,7 @@ def test_a_projection_is_built_once_per_beam(microscope, monkeypatch):
 
 
 def test_the_warning_names_whole_rows_and_columns_or_a_few_tiles():
-    from fibsem.applications.autolamella.workflows.tasks.grid.reach import (
+    from fibsem.workflows.grid.reach import (
         SlotReach,
         describe_reach,
     )
@@ -241,7 +239,7 @@ def test_the_shipped_grid_tasks_are_in_the_arctis_reach(microscope):
     vacuous."""
     from copy import deepcopy
 
-    from fibsem.applications.autolamella.workflows.tasks.grid.reach import (
+    from fibsem.workflows.grid.reach import (
         overview_reach,
     )
 

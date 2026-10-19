@@ -15,18 +15,18 @@ from psygnal.containers import EventedDict  # noqa: E402
 
 import fibsem.applications.autolamella  # noqa: E402
 from fibsem import utils  # noqa: E402
-from fibsem.acting import current_actor  # noqa: E402
+from fibsem.acting import WORKFLOW, current_actor  # noqa: E402
+from fibsem.ai.agent.catalog import CATALOG  # noqa: E402
+from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.control import WORKFLOW  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.auth import AgentLevel  # noqa: E402
-from fibsem.server.catalog import CATALOG  # noqa: E402
 from fibsem.server.requests import RequestRefused, route_call  # noqa: E402
 from fibsem.structures import MicroscopeState  # noqa: E402
+from tests.run_state import stub_session
 
 AGENT = {"Authorization": "Bearer agent"}
 NUDGE = {"tool": "stage_move_relative", "arguments": {"dx": 1e-6}}
@@ -43,18 +43,11 @@ _PROTOCOL = os.path.join(
 )
 
 
-class Host:
-    experiment = None
-    microscope = None
-    _task_manager = None
-    is_workflow_running = False
-
-
 class RecordingContext(AutoLamellaAppContext):
     """Records each event with who was marked as acting when it was emitted."""
 
-    def __init__(self, host):
-        super().__init__(host)
+    def __init__(self, session):
+        super().__init__(session)
         self.recorded = []
 
     def record_event(self, kind, payload):
@@ -76,7 +69,7 @@ def auth():
 
 
 def _context(tmp_path, microscope):
-    host = Host()
+    host = stub_session()
     exp = Experiment(path=tmp_path / "exp", name="requests-exp")
     exp.task_protocol = AutoLamellaTaskProtocol()
     (tmp_path / "exp").mkdir(parents=True, exist_ok=True)
@@ -131,7 +124,7 @@ def test_assist_files_a_request_and_reads_it_back(client):
     assert body["status"] == "pending"
     assert [a["path"] for a in body["actions"]] == [
         MOVE_RELATIVE,
-        "/app/agent/supervision",
+        "/app/experiment/protocol/supervision",
     ]
     read = client.get(f"/app/agent/requests/{body['request_id']}", headers=AGENT)
     assert read.json() == body
@@ -232,9 +225,17 @@ def test_hardware_needs_the_devices_service(microscope, context, auth):
     assert _detail(refused)["error_type"] == "not_available"
 
 
-def test_approve_runs_each_action_through_its_route(client, app, auth, microscope):
+def test_approve_runs_each_action_through_its_route(
+    client, app, auth, microscope, context
+):
     before = microscope.get_stage_position()
-    filed = _file(client, NUDGE, SUPERVISE).json()
+    # A task the protocol has: one it lacks is answered applied: false, a failure.
+    context._session.experiment.task_protocol = AutoLamellaTaskProtocol.load(_PROTOCOL)
+    supervise = {
+        "tool": "protocol_set_supervision",
+        "arguments": {"task_name": "Rough Milling", "supervise": True},
+    }
+    filed = _file(client, NUDGE, supervise).json()
     heard = auth.last_seen_monotonic
 
     store = app.state.requests
@@ -266,7 +267,10 @@ def test_every_step_is_on_the_record_with_who_acted(client, app, context):
     ]
     raised = context.recorded[0][1]
     assert raised["reason"] == "checking the trenches"
-    assert raised["actions"] == [NUDGE]
+    # With the card's words, for the app's Recent list (sim session 2026-10-16 F7).
+    (action,) = raised["actions"]
+    assert action.pop("change").startswith("Move 1 µm in x, from x ")
+    assert action == {**NUDGE, "what": "Stage"}
     decided = context.recorded[1][1]
     assert decided["outcome"] == "approved"
     assert decided["decided_by"] == "operator"
@@ -371,6 +375,33 @@ def test_a_request_whose_mill_was_stopped_says_so(
     assert done.results[0]["cancelled"] is True
     finished = [p for kind, p, _ in context.recorded if kind == "request_finished"]
     assert finished[-1]["cancelled"] == 1
+
+
+def test_an_action_answered_200_but_turned_away_fails_with_its_reason(
+    client, app, context
+):
+    """workflow_start answers 200 with ``started: false`` and a reason when it is
+    turned away: that step failed, and says why, rather than reading applied."""
+    from fibsem.workflows.runner import refused
+
+    context._session.runner.start = lambda experiment, request: refused(
+        "Grid-01 is not on the stage"
+    )
+    start = {"tool": "workflow_start", "arguments": {"task_names": ["MILL_ROUGH"]}}
+    filed = _file(client, start, NUDGE).json()
+    store = app.state.requests
+    store.approve(filed["request_id"])
+    done = store.wait(filed["request_id"], timeout=10)
+
+    assert done.status == "failed", done.results
+    assert [r["ok"] for r in done.results] == [False]
+    assert done.results[0]["status_code"] == 200
+    assert done.results[0]["error"] == {
+        "error_type": "not_started",
+        "message": "Grid-01 is not on the stage",
+    }
+    finished = [p for kind, p, _ in context.recorded if kind == "request_finished"]
+    assert finished[-1]["applied"] == 0
 
 
 @pytest.mark.parametrize("stop_agent", [False, True])
@@ -490,7 +521,7 @@ def test_every_acting_tool_resolves_to_its_route():
 
 
 def test_each_action_is_described_by_the_server_with_old_and_new(client, context):
-    item = context._host.experiment.positions[0]
+    item = context._session.experiment.positions[0]
     item.description = "first pass"
     edit = {
         "tool": "item_update",
@@ -502,8 +533,11 @@ def test_each_action_is_described_by_the_server_with_old_and_new(client, context
     }
     filed = _file(client, NUDGE, edit, SUPERVISE).json()
     lines = [(a["what"], a["change"]) for a in filed["actions"]]
+    # The nudge says from where on the axis (sim session 2026-10-16).
+    assert lines[0][1].startswith("Move 1 µm in x, from x ")
+    lines[0] = ("Stage", "Move 1 µm in x")
     assert lines == [
-        ("Stage", "Move by x 1 µm"),
+        ("Stage", "Move 1 µm in x"),
         (item.name, "description: first pass → trench floor high"),
         ("MILL_ROUGH", "Supervised: ask at each decision"),
     ]
@@ -512,7 +546,7 @@ def test_each_action_is_described_by_the_server_with_old_and_new(client, context
 def test_a_config_edit_reads_as_its_form_names_it_in_display_units(client, context):
     """FIB-1403: the setting under its milling stage, old -> new in the form's
     units, and the same as a table; never the dotted path."""
-    item = context._host.experiment.positions[0]
+    item = context._session.experiment.positions[0]
     protocol = AutoLamellaTaskProtocol.load(_PROTOCOL)
     rough = next(
         c for c in protocol.task_config.values() if c.task_type == "MILL_ROUGH"
@@ -547,7 +581,7 @@ def test_a_config_edit_reads_as_its_form_names_it_in_display_units(client, conte
 
 
 def test_a_mill_reads_as_its_patterns_and_its_run_as_how_long():
-    from fibsem.server.request_text import describe_actions
+    from fibsem.ai.agent.request_text import describe_actions
     from fibsem.structures import FibsemMillingSettings, FibsemRectangleSettings
 
     def rectangle(x):
@@ -587,6 +621,33 @@ def test_a_mill_reads_as_its_patterns_and_its_run_as_how_long():
     assert run["change"].startswith("Run, about ")
 
 
+def test_a_mill_past_the_field_says_so_on_its_line():
+    """Sim session 2026-10-16: the warning lived only in the picture's legend."""
+    from fibsem.ai.agent.request_text import describe_action
+    from fibsem.structures import FibsemMillingSettings, FibsemRectangleSettings
+
+    def rectangle(x):
+        pattern = FibsemRectangleSettings(
+            width=2e-6, height=1e-6, depth=0.2e-6, centre_x=x, centre_y=0.0
+        )
+        return {**pattern.to_dict(), "type": "Rectangle"}
+
+    settings = FibsemMillingSettings(milling_current=2e-11, hfw=150e-6).to_dict()
+    line = describe_action(
+        "service_call_command",
+        {
+            "service": "milling",
+            "command": "prepare",
+            "kwargs": {
+                "settings": settings,
+                "patterns": [rectangle(0.0), rectangle(80e-6)],
+            },
+        },
+        "/x",
+    )
+    assert line["change"].endswith(", 1 of them past the 150 µm field")
+
+
 @pytest.mark.parametrize(
     "tool, arguments, line",
     [
@@ -618,14 +679,14 @@ def test_a_mill_reads_as_its_patterns_and_its_run_as_how_long():
     ],
 )
 def test_an_action_reads_as_one_plain_line(tool, arguments, line):
-    from fibsem.server.request_text import describe_action
+    from fibsem.ai.agent.request_text import describe_action
 
     described = describe_action(tool, arguments, "/x")
     assert (described["what"], described["change"]) == line
 
 
 def test_a_long_argument_is_cut_in_the_line_and_whole_in_the_details():
-    from fibsem.server.request_text import describe_action
+    from fibsem.ai.agent.request_text import describe_action
 
     path = "/data/" + "a" * 80 + ".tif"
     described = describe_action(
@@ -639,7 +700,7 @@ def test_a_long_argument_is_cut_in_the_line_and_whole_in_the_details():
 
 
 def test_an_unknown_tool_in_the_describer_falls_back_to_its_name():
-    from fibsem.server.request_text import describe_action
+    from fibsem.ai.agent.request_text import describe_action
 
     assert describe_action("new_tool", {}, "/x") == {
         "what": "New tool",
@@ -653,7 +714,7 @@ def test_an_unknown_tool_in_the_describer_falls_back_to_its_name():
 def test_no_acting_tool_reads_as_its_name_or_as_json():
     """FIB-1412: every tool the agent can put in a request has a plain line:
     the subject as the header, never the tool's name, and no JSON."""
-    from fibsem.server.request_text import describe_action
+    from fibsem.ai.agent.request_text import describe_action
 
     for spec in CATALOG:
         if spec.level != "drive":
@@ -670,7 +731,7 @@ def test_no_acting_tool_reads_as_its_name_or_as_json():
 def test_no_acting_tool_reads_none_with_its_required_arguments():
     """FIB-1425: filing needs every required argument, so a line never shows a
     value left out as "None"."""
-    from fibsem.server.request_text import describe_action
+    from fibsem.ai.agent.request_text import describe_action
 
     for spec in CATALOG:
         if spec.level != "drive":
@@ -687,8 +748,8 @@ def _reader(answers):
 
 
 def test_a_run_task_reads_by_its_stages_with_whose_estimate_it_is():
+    from fibsem.ai.agent.request_text import describe_action
     from fibsem.milling.tasks import FibsemMillingTaskConfig
-    from fibsem.server.request_text import describe_action
 
     protocol = AutoLamellaTaskProtocol.load(_PROTOCOL)
     rough = next(
@@ -747,7 +808,7 @@ def test_a_run_task_reads_by_its_stages_with_whose_estimate_it_is():
             {"beam_type": "ION", "image_settings": {"hfw": 80e-6}},
             {},
             "Ion beam",
-            "Take an image: 80 µm wide, 1536 × 1024, 1 µs dwell. "
+            "Take an image: 80 µm wide, 1536 × 1024, 1 µs dwell\n"
             "These settings stay on the beam",
         ),
         (
@@ -768,6 +829,24 @@ def test_a_run_task_reads_by_its_stages_with_whose_estimate_it_is():
             {"/x": {"poi": {"x": 1e-6, "y": 0.0}}},
             "01-full-magpie",
             "Point of interest: (+1, 0) → (+2, 0) µm",
+        ),
+        (
+            "fm_acquire_image",
+            {
+                "channels": [
+                    {
+                        "name": "GFP",
+                        "excitation_wavelength": 488,
+                        "power": 0.05,
+                        "exposure_time": 0.1,
+                    }
+                ],
+                "zparams": {"zmin": -10e-6, "zmax": 10e-6, "zstep": 1e-6},
+            },
+            {},
+            "Fluorescence",
+            "Take a z-stack, −10 µm to +10 µm in 1 µm steps (21 planes), "
+            "in 1 channel (GFP), here",
         ),
         (
             "experiment_load",
@@ -860,7 +939,7 @@ def test_a_run_task_reads_by_its_stages_with_whose_estimate_it_is():
 def test_each_kind_reads_in_display_units_with_old_and_new(
     tool, arguments, answers, what, change
 ):
-    from fibsem.server.request_text import describe_action
+    from fibsem.ai.agent.request_text import describe_action
 
     path = "/microscope/devices/ion/current" if tool == "device_set_parameter" else "/x"
     described = describe_action(tool, arguments, path, read=_reader(answers))
@@ -868,7 +947,7 @@ def test_each_kind_reads_in_display_units_with_old_and_new(
 
 
 def test_a_new_experiment_says_what_it_replaces():
-    from fibsem.server.request_text import describe_action
+    from fibsem.ai.agent.request_text import describe_action
 
     described = describe_action(
         "experiment_create",
@@ -937,7 +1016,9 @@ def test_the_agent_withdraws_its_waiting_request_with_a_reason(client, app, cont
     assert withdrawn.json()["status"] == "cancelled"
     assert withdrawn.json()["cancel_reason"] == why
     cancelled = [p for kind, p, _ in context.recorded if kind == "request_cancelled"]
-    assert cancelled == [{"request_id": filed["request_id"], "why": why}]
+    assert cancelled == [
+        {"request_id": filed["request_id"], "why": why, "withdrawn": True}
+    ]
     # A new one can be filed; a decided one can't be withdrawn.
     again = _file(client, NUDGE).json()
     app.state.requests.reject(again["request_id"])
@@ -960,7 +1041,7 @@ def test_the_sidecar_shows_an_approved_image_as_an_image(client, app):
     pytest.importorskip("mcp")
     import asyncio
 
-    from fibsem.mcp.sidecar import build_sidecar
+    from fibsem.ai.agent.mcp.sidecar import build_sidecar
 
     image = {"tool": "beam_acquire_image", "arguments": {"beam_type": "ION"}}
     request_id = _file(client, image).json()["request_id"]
@@ -984,7 +1065,7 @@ def test_the_sidecar_shows_an_approved_image_as_an_image(client, app):
 def test_a_waiting_request_is_described_again_with_the_values_now(client, app, context):
     """FIB-1412: the old value is read when the operator looks, not only when
     the request was filed."""
-    item = context._host.experiment.positions[0]
+    item = context._session.experiment.positions[0]
     item.description = "first pass"
     edit = {
         "tool": "item_update",
@@ -1010,7 +1091,7 @@ def test_a_waiting_request_is_described_again_with_the_values_now(client, app, c
 def test_an_image_s_settings_read_in_display_units_now_and_new():
     """FIB-1428: no raw SI in the details; the beam's settings now beside what
     the image sets them to."""
-    from fibsem.server.request_text import describe_action
+    from fibsem.ai.agent.request_text import describe_action
 
     answers = {
         "/microscope/devices/ion/hfw": {"value": 3e-4},
@@ -1034,7 +1115,7 @@ def test_an_image_s_settings_read_in_display_units_now_and_new():
 
 
 def test_an_overview_s_details_are_labelled_and_short():
-    from fibsem.server.request_text import describe_action
+    from fibsem.ai.agent.request_text import describe_action
 
     described = describe_action(
         "beam_acquire_overview",
@@ -1058,7 +1139,7 @@ def test_an_overview_s_details_are_labelled_and_short():
 
 
 def test_an_item_edit_with_no_old_value_says_none():
-    from fibsem.server.request_text import describe_action
+    from fibsem.ai.agent.request_text import describe_action
 
     described = describe_action(
         "item_update",
@@ -1070,7 +1151,7 @@ def test_an_item_edit_with_no_old_value_says_none():
 
 
 def test_no_details_table_has_blank_headers():
-    from fibsem.server.request_text import describe_action
+    from fibsem.ai.agent.request_text import describe_action
 
     for tool, arguments in (
         ("item_add", {"stage_position": {"x": 0.0, "coordinate_system": "RAW"}}),
@@ -1079,3 +1160,72 @@ def test_no_details_table_has_blank_headers():
     ):
         details = describe_action(tool, arguments, "").get("details")
         assert details is None or all(details["columns"]), tool
+
+
+def test_fluorescence_channel_settings_read_in_the_fm_panel_s_units():
+    """Sim session 2026-10-16 F5: "power 0.05, exposure time 0.1"."""
+    from fibsem.ai.agent.request_text import describe_action
+
+    channel = {
+        "name": "GFP",
+        "excitation_wavelength": 488,
+        "emission_filter": {"name": "GFP 525/50"},
+        "power": 0.05,
+        "exposure_time": 0.1,
+    }
+    line = describe_action("fm_acquire_image", {"channels": [channel]}, "")
+    assert line["details"]["rows"] == [
+        [
+            "GFP",
+            "excitation wavelength 488 nm, emission filter GFP 525/50, "
+            "power 5%, exposure 100 ms",
+        ]
+    ]
+
+
+def test_a_filed_request_and_a_beam_switched_off_read_as_words():
+    """Sim session 2026-10-16: "Request create · Run", "Electron · Set on to off"."""
+    from fibsem.ai.agent.request_text import describe_action
+
+    filed = describe_action(
+        "request_create",
+        {"actions": [{"tool": "stage_move_relative", "arguments": {"dx": 1e-6}}]},
+        "",
+    )
+    assert filed == {
+        "what": "Request",
+        "change": "Ask you to approve 1 action: Stage · Move 1 µm in x",
+    }
+    off = describe_action(
+        "device_set_parameter",
+        {"device": "electron", "parameter": "on", "value": False},
+        "",
+    )
+    assert off == {"what": "Electron", "change": "Turn the electron beam off"}
+
+
+def test_a_protocol_s_re_alignment_reads_as_the_milling_panel_says_it():
+    """Sim session 2026-10-16: "Interval enabled off → on / Interval 30 → 60"."""
+    from fibsem.ai.agent.request_text import describe_patch
+    from fibsem.structures import MillingAlignment
+
+    line = describe_patch(
+        MillingAlignment(), {"interval_enabled": True, "interval": 60}
+    )
+    assert line["change"] == (
+        "Re-align during milling: off → on\nRe-align every 30 s → 60 s"
+    )
+
+
+def test_a_lamella_added_on_an_overview_names_the_overview_not_its_file():
+    """Sim session 2026-10-16: "Add on overview-04-58-45.tif of Grid-01, at 60%
+    across, 62% down"."""
+    from fibsem.ai.agent.request_text import describe_action
+
+    overview = {
+        "grid_name": "Grid-01",
+        "filename": "overview-04-58-45.tif",
+        "fraction": [0.6, 0.62],
+    }
+    line = describe_action("item_add", {"overview": overview}, "")
+    assert line["change"] == "Add on the Grid-01 overview (04:58), 60% across, 62% down"

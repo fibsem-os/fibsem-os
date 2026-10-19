@@ -45,6 +45,7 @@ from fibsem.ui.tokens import (
     PRIMARY_COLOR,
     SURFACE_COLOR,
 )
+from fibsem.ui.utils import arr_to_qimage
 from fibsem.ui.widgets.custom_widgets import ElidedLabel
 
 _CARD_WIDTH = 300
@@ -87,26 +88,6 @@ QToolButton {
 QToolButton:hover { background: rgba(255, 255, 255, 30); }
 QToolButton:pressed { background: rgba(255, 255, 255, 15); }
 """
-
-
-def _arr_to_qimage(arr: np.ndarray) -> QImage:
-    """An RGB888 QImage of `arr`, independent of it.
-
-    Qt's `QImage(buffer, ...)` documents the buffer as having to outlive the image,
-    which would make the cached result of this a dangling read once the ndarray is
-    collected. PyQt5 does not work that way: sip copies the Python buffer, so the
-    image owns its pixels and the source can go. Verified rather than assumed -- the
-    bits pointer differs from the ndarray's, and mutating the ndarray in place leaves
-    the image unchanged, including via `sip.voidptr`. An explicit `.copy()` here would
-    be a second full-size memcpy for nothing.
-
-    Worth knowing if this ever moves to PySide, where the same constructor can alias.
-    """
-    if arr.ndim == 2:
-        arr = np.stack([arr, arr, arr], axis=2)
-    arr = np.ascontiguousarray(arr, dtype=np.uint8)
-    ih, iw, c = arr.shape
-    return QImage(arr.data, iw, ih, iw * c, QImage.Format_RGB888)
 
 
 _THUMBNAIL_CACHE: "OrderedDict[tuple, QImage]" = OrderedDict()
@@ -155,7 +136,7 @@ def _thumbnail_image(lamella: Lamella, w: int, h: int) -> QImage:
         _THUMBNAIL_CACHE.move_to_end(key)
         return image
 
-    image = _arr_to_qimage(lamella.get_thumbnail()).scaled(
+    image = arr_to_qimage(lamella.get_thumbnail()).scaled(
         w,
         h,
         Qt.AspectRatioMode.KeepAspectRatioByExpanding,
@@ -536,7 +517,7 @@ class LamellaCardWidget(QWidget):
             self,
             "Remove Lamella",
             f"Remove '{self.lamella.name}'?",
-            QMessageBox.Yes,
+            QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
         if reply == QMessageBox.Yes:

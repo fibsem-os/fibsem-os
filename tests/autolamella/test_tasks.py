@@ -12,6 +12,7 @@ from fibsem.applications.autolamella.workflows.tasks.trench import (
 )
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import FibsemImage, FibsemStagePosition
+from tests.autolamella._on_the_record import manager_for
 from tests.fixtures.demo_stage import demo_session
 
 
@@ -217,7 +218,6 @@ def test_task_is_cancellation_classifies_stop_vs_failure(tmp_path: Path):
         return TaskManager(
             microscope=_NoMicroscope(),
             experiment=Experiment(path=tmp_path, name="test-exp"),
-            parent_ui=None,
         )
 
     def _isc(exc, manager=None):
@@ -293,7 +293,10 @@ def _make_reference_image_task(microscope: FibsemMicroscope, tmp_path: Path):
     lamella = Lamella(path=tmp_path / "lam", number=0, petname="test")
     lamella.milling_pose = microscope.get_microscope_state()
     return AcquireReferenceImageTask(
-        microscope=microscope, config=AcquireReferenceImageConfig(), lamella=lamella
+        microscope=microscope,
+        config=AcquireReferenceImageConfig(),
+        lamella=lamella,
+        task_manager=manager_for(microscope, lamella),
     )
 
 

@@ -1,10 +1,11 @@
 """The spot burn question and its loop: the task burns, the question decides.
 
 The loop is the task's, on the workflow thread, as the mill's is (FIB-1236):
-it asks :class:`RunSpotBurn`, burns on ``run``, and asks again with the pass
-counted and the burn's error. The responder only shows the settings in the
-spot burn widget and answers with a :class:`SpotBurnDecision`: the action and
-the settings (points, current, exposure) as the widget then held them.
+each pass is a ``spot_burn`` question on the record, it burns on ``run``, and
+asks again with the pass counted and the burn's error. The window shows the
+settings in the spot burn widget with the pass on the prompt bar, and a button
+decides it with the action and the settings (points, current, exposure) as the
+widget then held them.
 
 ``run_spot_burn`` and the image after it are stubbed at the task's import
 site: the loop, the prompt, the widget and the answers are real, only the beam
@@ -25,18 +26,12 @@ pytest.importorskip("PyQt5")
 
 from psygnal.containers import EventedDict
 
-from fibsem.acting import TASK, current_actor
+from fibsem.acting import TASK, Actor, current_actor
 from fibsem.applications.autolamella.structures import (
-    Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
     Experiment,
-)
-from fibsem.applications.autolamella.workflows.interaction import (
-    ACTION_EDIT,
-    ACTION_RUN,
-    SpotBurnEdit,
 )
 from fibsem.applications.autolamella.workflows.tasks import base, spot_burn
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
@@ -44,8 +39,18 @@ from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
     SpotBurnFiducialTask,
     SpotBurnFiducialTaskConfig,
 )
-from fibsem.applications.autolamella.workflows.tasks.status import HoldKind
 from fibsem.structures import Point
+from fibsem.workflows.attention import Attention
+from fibsem.workflows.proposals import (
+    ACTION_EDIT,
+    ACTION_RUN,
+    ACTION_SKIP,
+    SPOT_BURN,
+    Decision,
+    DecisionOutcome,
+)
+from fibsem.workflows.status import HoldKind
+from tests.run_state import Stopped
 
 SPOT = "Spot Burn Fiducial"
 FIRST_HINT = "Press Run Spot Burn to burn, or Skip to go on without burning."
@@ -105,6 +110,7 @@ def window(qapp, tmp_path_factory):
     )
     experiment.positions[0].path.mkdir(parents=True, exist_ok=True)
     ui.experiment = experiment
+    window._on_experiment_update()
     ui._burns = burns
     ui._burn_failures = failures
     ui._supervision = supervision
@@ -130,7 +136,7 @@ def ui(window):
     ui._burn_failures.clear()
     ui._supervision["supervised"] = True
     yield ui
-    ui._workflow_stop_event.clear()
+    ui.session.runner.manager = None
 
 
 def _task(ui, points=((0.5, 0.5),)):
@@ -140,13 +146,17 @@ def _task(ui, points=((0.5, 0.5),)):
     config.milling_current = 100e-12
     config.exposure_time = 7.0
     manager = TaskManager(
-        microscope=ui.microscope, experiment=ui.experiment, parent_ui=ui
+        microscope=ui.microscope,
+        experiment=ui.experiment,
+        responder=ui.ui_responder,
+        answerers=ui.session.answerers,
     )
+    # The window hears it as it hears a run the runner starts.
+    ui.session.runner.relay(manager)
     task = SpotBurnFiducialTask(
         microscope=ui.microscope,
         config=config,
         lamella=lamella,
-        parent_ui=ui,
         task_manager=manager,
     )
     task._manager = manager
@@ -198,26 +208,44 @@ def _finish(thread, qapp, timeout_s=10.0):
     thread.join(timeout=1.0)
 
 
-def _question_id(ui):
-    _request, question_id = ui.ui_responder.pending_question_and_id()
-    assert question_id is not None
-    return question_id
+def _pass(ui):
+    """The pass up on the prompt bar: the spot burn question being asked."""
+    assert ui._loop_question is not None, "no pass is up"
+    proposal = ui._loop_question[2]
+    assert proposal.kind == SPOT_BURN and proposal.asking
+    return proposal
 
 
-def _answer(ui, qapp, value, clicked_yes=True, asks_again=True):
-    """Answer the pending question with ``value``, as an agent does; with
-    ``asks_again``, wait for the next question."""
-    question_id = _question_id(ui)
-    answered = ui.ui_responder.submit_answer(clicked_yes, question_id, value=value)
-    assert answered.result(timeout=5) is True
+def _current_pass(ui):
+    """The spot burn question being asked, wherever it is shown; None when
+    none is."""
+    lamella = ui.experiment.positions[0]
+    asked = [
+        p for p in lamella.proposals_from(SPOT) if p.kind == SPOT_BURN and p.asking
+    ]
+    return asked[-1] if asked else None
+
+
+def _decide(ui, qapp, action, settings=None, asks_again=True):
+    """Decide the pass up as an agent does; with ``asks_again``, wait for the
+    next one."""
+    asked = _current_pass(ui)
+    assert asked is not None
+    result = ui.experiment.decide(
+        ui.experiment.positions[0].id,
+        SPOT,
+        Decision(
+            outcome=DecisionOutcome.Confirmed,
+            actor=Actor.agent("remote"),
+            values={} if settings is None else {"spot_burn": settings},
+            via="server",
+            proposal_id=asked.id,
+            action=action,
+        ),
+    )
+    assert result.applied, result.reason
     if asks_again:
-        _wait(
-            qapp,
-            lambda: (
-                ui.ui_responder.pending_question_and_id()[1] not in (None, question_id)
-            ),
-        )
-    return answered
+        _wait(qapp, lambda: (_current_pass(ui) or asked).id != asked.id)
 
 
 def _points(settings):
@@ -236,7 +264,7 @@ def test_run_then_accept_burns_once_on_the_workflow_thread(ui, qapp):
     _wait_for_prompt(ui, qapp, AGAIN_HINT)
     assert ui.pushButton_yes.text() == "Burn Again"
     assert ui.pushButton_no.text() == "Accept"
-    assert ui.ui_responder.pending_question().passes == 1
+    assert _pass(ui).provenance["passes"] == 1
 
     ui.pushButton_no.click()  # accept
     _finish(thread, qapp)
@@ -262,8 +290,9 @@ def test_burn_again_runs_a_second_pass(ui, qapp):
     _wait(
         qapp,
         lambda: (
-            ui.ui_responder.pending_question() is not None
-            and ui.ui_responder.pending_question().passes == 2
+            _current_pass(ui) is not None
+            and _current_pass(ui).provenance["passes"] == 2
+            and ui.pushButton_no.isEnabled()
         ),
     )
     ui.pushButton_no.click()
@@ -289,7 +318,7 @@ def test_a_failed_burn_asks_again_with_the_error(ui, qapp):
     ui.pushButton_yes.click()
     _wait_for_prompt(ui, qapp, AGAIN_HINT)
     assert ui.label_instructions.text().startswith("Spot burn failed: beam blanker")
-    assert ui.ui_responder.pending_question().last_error == "beam blanker"
+    assert _pass(ui).provenance["last_error"] == "beam blanker"
 
     ui.pushButton_no.click()
     _finish(thread, qapp)
@@ -303,13 +332,14 @@ def test_a_run_with_no_points_burns_nothing_and_asks_again(ui, qapp):
     _wait(
         qapp,
         lambda: (
-            ui.ui_responder.pending_question() is not None
-            and ui.ui_responder.pending_question().last_error is not None
+            _current_pass(ui) is not None
+            and _current_pass(ui).provenance["last_error"] is not None
+            and ui.pushButton_no.isEnabled()
         ),
     )
-    request = ui.ui_responder.pending_question()
-    assert request.passes == 0
-    assert "No points to burn" in request.last_error
+    asked = _current_pass(ui)
+    assert asked.provenance["passes"] == 0
+    assert "No points to burn" in asked.provenance["last_error"]
     assert ui._burns == []
 
     ui.pushButton_no.click()
@@ -345,26 +375,27 @@ def test_unsupervised_a_failed_burn_fails_the_task(ui, qapp):
 
 
 def test_an_agents_edit_lands_in_the_widget_and_asks_again(ui, qapp):
-    """``edit`` makes the changes and asks again; nothing burns. The points,
+    """``edit`` takes the changes and asks again; nothing burns. The points,
     current and exposure are in the widget for the operator to see, and in
     what the next run burns."""
+    from fibsem.imaging.spot import SpotBurnSettings
+
     task, thread, outcome = _start(ui, qapp)
 
-    edit = SpotBurnEdit(
-        action=ACTION_EDIT,
-        points=[Point(x=0.25, y=0.75), Point(x=0.6, y=0.1)],
+    edit = SpotBurnSettings(
+        coordinates=[Point(x=0.25, y=0.75), Point(x=0.6, y=0.1)],
         milling_current=3e-10,
         exposure_time=2.5,
     )
-    answered = _answer(ui, qapp, edit)
-    assert answered.adjusted is True
+    _decide(ui, qapp, ACTION_EDIT, edit)
+    _wait_for_prompt(ui, qapp, FIRST_HINT)
     assert ui._burns == []
     shown = ui.spot_burn_widget.get_settings()
     assert _points(shown) == [(0.25, 0.75), (0.6, 0.1)]
     assert shown.milling_current == pytest.approx(3e-10)
     assert shown.exposure_time == pytest.approx(2.5)
 
-    _answer(ui, qapp, SpotBurnEdit(action=ACTION_RUN))
+    _decide(ui, qapp, ACTION_RUN)
     _wait_for_prompt(ui, qapp, AGAIN_HINT)
     (burn,) = ui._burns
     assert _points(burn.settings) == [(0.25, 0.75), (0.6, 0.1)]
@@ -378,39 +409,63 @@ def test_an_agents_edit_lands_in_the_widget_and_asks_again(ui, qapp):
     assert len(task.config.coordinates) == 2
 
 
+def test_a_point_outside_the_frame_is_refused(ui, qapp):
+    from fibsem.imaging.spot import SpotBurnSettings
+
+    task, thread, outcome = _start(ui, qapp)
+    asked = _pass(ui)
+    result = ui.experiment.decide(
+        ui.experiment.positions[0].id,
+        SPOT,
+        Decision(
+            outcome=DecisionOutcome.Confirmed,
+            actor=Actor.agent("remote"),
+            values={
+                "spot_burn": SpotBurnSettings(
+                    coordinates=[Point(x=1.5, y=0.5)],
+                    milling_current=1e-10,
+                    exposure_time=2.0,
+                )
+            },
+            via="server",
+            proposal_id=asked.id,
+            action=ACTION_RUN,
+        ),
+    )
+    assert not result.applied and "outside the frame" in result.reason
+    _decide(ui, qapp, ACTION_SKIP, asks_again=False)
+    _finish(thread, qapp)
+    assert ui._burns == []
+
+
 def test_accept_keeps_what_was_burned_not_a_later_edit(ui, qapp):
+    from dataclasses import replace
+
     task, thread, outcome = _start(ui, qapp)
 
     ui.pushButton_yes.click()
     _wait_for_prompt(ui, qapp, AGAIN_HINT)
-    _answer(ui, qapp, SpotBurnEdit(action=ACTION_EDIT, exposure_time=30.0))
+    later = replace(_pass(ui).values["spot_burn"], exposure_time=30.0)
+    _decide(ui, qapp, ACTION_EDIT, later)
+    _wait_for_prompt(ui, qapp, AGAIN_HINT)
     ui.pushButton_no.click()  # accept
     _finish(thread, qapp)
 
     assert task.config.exposure_time == pytest.approx(7.0)
 
 
-def test_the_live_settings_are_what_a_peek_reads(ui, qapp):
-    task, thread, outcome = _start(ui, qapp)
-
-    question_id, live = ui.ui_responder.peek_live_answer().result(timeout=5)
-    assert question_id == _question_id(ui)
-    assert _points(live) == [(0.5, 0.5)]
-    assert live.exposure_time == 7.0
-
-    # Echoing the points that stand is not adjusting them.
-    echo = SpotBurnEdit(action="skip", points=live.coordinates)
-    answered = _answer(ui, qapp, echo, clicked_yes=False, asks_again=False)
-    assert answered.adjusted is False
-    _finish(thread, qapp)
-    assert ui._burns == []
-
-
-def test_no_spot_burn_widget_goes_on_without_a_burn(ui, qapp):
+def test_no_spot_burn_widget_still_asks_on_the_prompt_bar(window, ui, qapp):
     real_widget = ui.spot_burn_widget
     ui.spot_burn_widget = None
     try:
         task, thread, outcome = _start(ui, qapp, wait_for=None)
+        _wait(
+            qapp,
+            lambda: _current_pass(ui) is not None and ui._loop_question is not None,
+            why="the pass was not put on the prompt bar",
+        )
+        assert ui.pushButton_no.text() == "Skip"
+        ui.pushButton_no.click()
         _finish(thread, qapp)
     finally:
         ui.spot_burn_widget = real_widget
@@ -423,7 +478,7 @@ def test_a_stop_interrupts_the_prompt(ui, qapp):
     task, thread, outcome = _start(ui, qapp)
 
     task._manager.stop()
-    ui._workflow_stop_event.set()
+    ui.session.runner.manager = Stopped()
     _finish(thread, qapp)
 
     assert isinstance(outcome.get("error"), InterruptedError)

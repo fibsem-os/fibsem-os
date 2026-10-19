@@ -104,7 +104,7 @@ from fibsem.fm.structures import (
     REFLECTION,
     ChannelSettings,
     EmissionFilter,
-    emission_filter_for,
+    matching_emission_filter,
 )
 from fibsem.structures import (
     BeamType,
@@ -298,6 +298,19 @@ def bind_autoscript_stage(
     return stage(microscope, microscope._connection, resources).connect()
 
 
+def _point(value: Any) -> Point:
+    """An AutoScript Point as a fibsem Point."""
+    return Point(float(value.x), float(value.y))
+
+
+def _point_limits(limits: Any) -> Dict[str, RangeLimit]:
+    """An AutoScript Limits2d as a Point parameter's limits."""
+    return {
+        "x": RangeLimit(min=limits.limits_x.min, max=limits.limits_x.max),
+        "y": RangeLimit(min=limits.limits_y.min, max=limits.limits_y.max),
+    }
+
+
 class AutoscriptBeam(Beam):
     """An AutoScript beam: ``connection.beams.electron_beam`` or ``.ion_beam``.
 
@@ -473,6 +486,44 @@ class AutoscriptBeam(Beam):
 
         self._beam.stigmator.value = ThermoPoint(value.x, value.y)
         self._set_log("stigmation", value, "")
+
+    # The electron column's source tilt (radians) and lens alignment (metres), each
+    # an AutoScript Point with Limits2d. A column without one answers unavailable.
+    def available_source_tilt(self) -> bool:
+        return self._has_electron("source_tilt")
+
+    def read_source_tilt(self) -> Point:
+        return _point(self._beam.source_tilt.value)
+
+    def write_source_tilt(self, value: Point) -> None:
+        self._beam.source_tilt.value = [value.x, value.y]
+        self._set_log("source tilt", value, " rad")
+
+    def metadata_source_tilt(self) -> ParameterMetadata:
+        return ParameterMetadata(limits=_point_limits(self._beam.source_tilt.limits))
+
+    def available_lens_alignment(self) -> bool:
+        return self._has_electron("lens_alignment")
+
+    def read_lens_alignment(self) -> Point:
+        return _point(self._beam.lens_alignment.value)
+
+    def write_lens_alignment(self, value: Point) -> None:
+        self._beam.lens_alignment.value = [value.x, value.y]
+        self._set_log("lens alignment", value, " m")
+
+    def metadata_lens_alignment(self) -> ParameterMetadata:
+        return ParameterMetadata(limits=_point_limits(self._beam.lens_alignment.limits))
+
+    def _has_electron(self, name: str) -> bool:
+        """Whether this is the electron column and it has *name*; an AutoScript or
+        an instrument without it is "no"."""
+        if self.beam_type is not BeamType.ELECTRON:
+            return False
+        try:
+            return getattr(self._beam, name) is not None
+        except Exception:  # noqa: BLE001 - an older SDK, or a column without it
+            return False
 
     def read_resolution(self) -> List[int]:
         # a list, as the old get returns it
@@ -1343,8 +1394,13 @@ def build_autoscript_sample_loader(
 FM_ACTIVE_VIEW = 3
 """The FM's view on Arctis, as the old class sets it."""
 
-MULTI_BAND = emission_filter_for("Fluorescence", {})
-"""Thermo's one fluorescence filter, multi-band; the other choice is reflection."""
+MULTI_BAND = EmissionFilter(
+    "Quad-band", bands=((414, 450), (499.5, 530), (580, 611), (661, 800))
+)
+"""Thermo's one fluorescence filter; the other choice is reflection. The Arctis and
+iFLM datasheets name the Semrock LED-DA/FI/TR/Cy5-B-000 quad-band set; these are
+its emitter's (FF01-432/515/595/730) bands, for the 365, 450, 550 and 635 nm LEDs.
+AutoScript doesn't report them, so a scope with another set shows these."""
 
 AVAILABLE_FM_WAVELENGTHS = (365, 450, 550, 635)
 """The FM light's excitation wavelengths, in nm, one per AutoScript emission colour."""
@@ -1867,14 +1923,12 @@ class AutoscriptFM(FM):
         """The old ``set_channel``: excitation, emission filter, power, exposure, gain."""
         if channel is None:
             return
-        from fibsem.fm.microscope import emission_filter_named
-
         settings = ChannelSettings.from_dict(channel)
         filters = self.filter_set
         filters.excitation_wavelength.write_through(settings.excitation_wavelength)
         filters.emission_filter.write_through(
-            emission_filter_named(
-                settings.emission_wavelength, filters.emission_filter.choices
+            matching_emission_filter(
+                settings.emission_filter, filters.emission_filter.choices
             )
         )
         self.light_source.power.write_through(settings.power)
@@ -1950,22 +2004,6 @@ class ThermoFisherObjectiveLens(fm_api.ObjectiveLens):
         self._notify_moved()
 
 
-class ThermoFisherFilterSet(fm_api.FilterSet):
-    """The FM API's filter set over the Thermo filter set device. Thermo names its
-    multi-band fluorescence filter by the excitation wavelength, as the old filter set
-    did, where the other drivers name it "Fluorescence"."""
-
-    @property
-    def emission_wavelength(self) -> Optional[float]:
-        if self._device.emission_filter.get_value() == REFLECTION:
-            return None
-        return self.excitation_wavelength
-
-    @emission_wavelength.setter
-    def emission_wavelength(self, value: Optional[Union[float, str]]) -> None:
-        fm_api.FilterSet.emission_wavelength.fset(self, value)
-
-
 class ThermoFisherFluorescenceMicroscope(fm_api.FluorescenceMicroscope):
     """The FM API over the Thermo FM devices (Arctis, Hydra, iFLM).
 
@@ -1976,7 +2014,7 @@ class ThermoFisherFluorescenceMicroscope(fm_api.FluorescenceMicroscope):
     """
 
     objective: ThermoFisherObjectiveLens
-    filter_set: ThermoFisherFilterSet
+    filter_set: fm_api.FilterSet
 
     def __init__(self, devices, parent: Optional["FibsemMicroscope"] = None):
         super().__init__(devices, parent=parent)
@@ -1984,7 +2022,7 @@ class ThermoFisherFluorescenceMicroscope(fm_api.FluorescenceMicroscope):
         self.objective = ThermoFisherObjectiveLens(
             devices["objective"], self._channel, parent=self
         )
-        self.filter_set = ThermoFisherFilterSet(devices["filter_set"], parent=self)
+        self.filter_set = fm_api.FilterSet(devices["filter_set"], parent=self)
 
     @property
     def connection(self) -> Any:
@@ -2002,14 +2040,6 @@ class ThermoFisherFluorescenceMicroscope(fm_api.FluorescenceMicroscope):
     @property
     def fm_settings(self) -> "CameraSettings":
         return self._channel.settings()
-
-    def _metadata_for_frame(self, frame_metadata):
-        md = super()._metadata_for_frame(frame_metadata)
-        for channel in md.channels:
-            if isinstance(channel.emission_wavelength, str):
-                # The multi-band filter, named by the excitation as the old one is.
-                channel.emission_wavelength = channel.excitation_wavelength
-        return md
 
 
 def bind_autoscript_fm(

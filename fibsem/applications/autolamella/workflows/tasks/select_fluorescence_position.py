@@ -7,13 +7,10 @@ from typing import (
     Type,
 )
 
-from fibsem.applications.autolamella.proposals import STATE
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
-from fibsem.applications.autolamella.workflows.ui import (
-    ask_user,
-)
 from fibsem.structures import InsertableDeviceState
+from fibsem.workflows.proposals import STATE
 
 
 @dataclass
@@ -28,7 +25,7 @@ class SelectFluorescencePositionTask(AutoLamellaTask):
     """Task to select fluorescence stage position and objective position."""
 
     # "Move to the fluorescence position. Press Continue": a confirmation of
-    # the state, on the record with the review preference on.
+    # the state, on the record.
     questions = (STATE,)
 
     config: SelectFluorescencePositionConfig
@@ -106,25 +103,17 @@ class SelectFluorescencePositionTask(AutoLamellaTask):
             f"Move to fluorescence position (stage and objective) for "
             f"{self.lamella.name}. Press Continue to proceed."
         )
-        if getattr(self.task_manager, "review_enabled", False):
-            # The position as arrived at is the proposal; the position as it
-            # stands on Continue is the decision, so a move made first is the
-            # delta. The objective is not part of the kind's values: the pose
-            # refreshed below records it.
-            self.ask(
-                STATE,
-                {"stage_position": self.microscope.get_stage_position()},
-                message=msg,
-                decided=lambda: {
-                    "stage_position": self.microscope.get_stage_position()
-                },
-            )
-            if self.validate:
-                self.microscope.fm.stop_acquisition()
-        elif self.validate:
-            # The prompt as it has always been, kept as it is while the review
-            # preference is off.
-            ask_user(self.parent_ui, msg=msg, pos="Continue")
+        # The position as arrived at is the proposal; the position as it stands
+        # on Continue is the decision, so a move made first is the delta. The
+        # objective is not part of the kind's values: the pose refreshed below
+        # records it.
+        self.ask(
+            STATE,
+            {"stage_position": self.microscope.get_stage_position()},
+            message=msg,
+            decided=lambda: {"stage_position": self.microscope.get_stage_position()},
+        )
+        if self.validate:
             self.microscope.fm.stop_acquisition()
 
         # refresh the recorded fluorescence pose (preserving the configured objective position)

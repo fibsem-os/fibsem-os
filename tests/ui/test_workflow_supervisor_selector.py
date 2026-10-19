@@ -13,16 +13,15 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.structures import (
-    Attention,
     AutoLamellaTaskDescription,
     AutoLamellaWorkflowConfig,
 )
 from fibsem.applications.autolamella.ui import workflow_config_widget as module
+from fibsem.workflows.attention import Attention
 
 
 @pytest.fixture
-def row(qapp, monkeypatch):
-    monkeypatch.setattr(module, "_review_available", lambda: False)
+def row(qapp):
     task = AutoLamellaTaskDescription(name="Mill Fiducial", required=True)
     widget = module.WorkflowTaskRowWidget(task)
     yield widget
@@ -52,10 +51,9 @@ def test_each_click_announces_what_changed(row):
     assert seen == [A.supervised, A.automated, A.supervised]
 
 
-def test_a_requirement_on_a_supervised_task_reads_as_the_wait_it_is(qapp, monkeypatch):
-    """With the review preference on, a supervised task's result waits for a
-    decision, so a task that requires it says so where the wait is felt."""
-    monkeypatch.setattr(module, "_review_available", lambda: True)
+def test_a_requirement_reads_the_same_whatever_its_mode(qapp):
+    """Nothing waits on a decision once a task ends, so a requirement on a
+    supervised task is said like any other."""
     setup = AutoLamellaTaskDescription(
         name="Setup", required=True, attention=Attention.supervised
     )
@@ -65,41 +63,23 @@ def test_a_requirement_on_a_supervised_task_reads_as_the_wait_it_is(qapp, monkey
     widget = module.WorkflowConfigWidget()
     widget.set_config(AutoLamellaWorkflowConfig(tasks=[setup, rough]))
     rows = [widget._row(i) for i in range(2)]
-    assert rows[0].requires_label.text() == ""
     assert rows[1].requires_label.text() == ""
     rough.requires = ["Setup"]
     widget.refresh_all()
-    assert rows[1].requires_label.text() == "after review of Setup", (
-        "the wait is said where it is felt"
-    )
-    assert rows[1].toolTip().startswith("Requires: review of Setup")
-    # Setup to Automated: Rough's row stops saying it waits for a review
+    assert rows[1].requires_label.text() == "after Setup"
+    assert rows[1].toolTip().startswith("Requires: Setup")
     rows[0]._on_attention_clicked()
     assert rows[1].requires_label.text() == "after Setup"
     widget.deleteLater()
     qapp.processEvents()
 
 
-def test_the_requires_phrase_leads_with_the_review():
-    """Task names are long and the column elides the tail, so the marker goes
-    first where every requirement is reviewed."""
-    assert module._requires_phrase(["Setup"], {"Setup"}) == "review of Setup"
-    assert module._requires_phrase(["Setup", "Rough"], {"Setup", "Rough"}) == (
-        "review of Setup, Rough"
-    )
-    assert module._requires_phrase(["Setup", "Fiducial"], {"Setup"}) == (
-        "Setup (reviewed), Fiducial"
-    )
-    assert module._requires_phrase(["Setup"], set()) == "Setup"
-
-
-def test_a_schedule_shares_the_dependency_column(qapp, monkeypatch):
+def test_a_schedule_shares_the_dependency_column(qapp):
     """The clock button only duplicated the pencil; the row now says when in
     the same column as what it waits for, so a scheduled row is not a wider
     row, and says nothing at all when there is no schedule."""
     from datetime import datetime
 
-    monkeypatch.setattr(module, "_review_available", lambda: False)
     task = AutoLamellaTaskDescription(
         name="Rough", required=True, requires=["Fiducial"]
     )
@@ -129,7 +109,6 @@ def test_remove_lives_in_the_edit_dialog_not_on_the_row(qapp, monkeypatch):
         LamellaWorkflowWidget,
     )
 
-    monkeypatch.setattr(module, "_review_available", lambda: False)
     setup = AutoLamellaTaskDescription(name="Setup", required=True)
     rough = AutoLamellaTaskDescription(name="Rough", required=True)
     widget = LamellaWorkflowWidget()
@@ -173,7 +152,7 @@ def test_remove_lives_in_the_edit_dialog_not_on_the_row(qapp, monkeypatch):
     qapp.processEvents()
 
 
-def test_the_chip_says_what_the_task_needs_from_you(qapp, monkeypatch):
+def test_the_chip_says_what_the_task_needs_from_you(qapp):
     """With the protocol known, the chip's tooltip and the row's say whether
     the operator must be there while the task runs and what waits afterwards,
     derived from the task's type."""
@@ -187,7 +166,6 @@ def test_the_chip_says_what_the_task_needs_from_you(qapp, monkeypatch):
         MillUndercutTaskConfig,
     )
 
-    monkeypatch.setattr(module, "_review_available", lambda: True)
     undercut = AutoLamellaTaskDescription(
         name="Undercut", required=True, attention=Attention.supervised
     )
@@ -213,7 +191,7 @@ def test_the_chip_says_what_the_task_needs_from_you(qapp, monkeypatch):
     tip = rows[0].btn_attention.toolTip()
     assert tip.startswith("Supervised — Needs you at the microscope while it runs: ")
     assert "detection and milling" in tip
-    assert "Rough waits for your decision on its result" in tip
+    assert "waits for your decision" not in tip, "nothing waits once it ends"
     assert "Needs you at the microscope" in rows[0].toolTip()
     assert rows[1].btn_attention.toolTip().startswith("Automated — Nobody is asked.")
     # Without a protocol nothing is claimed.

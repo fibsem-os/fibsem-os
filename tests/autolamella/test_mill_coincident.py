@@ -12,7 +12,11 @@ import yaml
 
 import fibsem.config as fconfig
 from fibsem import utils
-from fibsem.applications.autolamella.structures import Lamella
+from fibsem.applications.autolamella.structures import (
+    AutoLamellaTaskProtocol,
+    Experiment,
+    Lamella,
+)
 from fibsem.applications.autolamella.workflows.tasks import get_tasks
 from fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence import (
     AcquireFluorescenceImageConfig,
@@ -26,8 +30,11 @@ from fibsem.applications.autolamella.workflows.tasks.setup_coincidence_milling i
     SetupCoincidenceMillingTask,
     SetupCoincidenceMillingTaskConfig,
 )
-from fibsem.fm.structures import ChannelSettings
-from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy
+from fibsem.fm.structures import ChannelSettings, EmissionFilter
+from fibsem.milling.strategy.coincidence import (
+    CoincidenceMillingStrategy,
+    CoincidenceMillingStrategyConfig,
+)
 from fibsem.structures import FibsemRectangle, InsertableDeviceState, Point
 
 SIM_ARCTIS_CONFIG_PATH = os.path.join(
@@ -37,10 +44,15 @@ SETUP_NAME = "Setup Coincidence Milling"
 
 
 class _Manager:
-    """The one thing a task reads off its manager: the abort token."""
+    """What a task reads off its manager: the abort token, the experiment its
+    mill's passes go on the record of, and who can answer (nobody)."""
 
-    def __init__(self):
+    def __init__(self, experiment=None):
         self.abort_token = threading.Event()
+        self.experiment = experiment
+
+    def answerers(self):
+        return ()
 
 
 @pytest.fixture
@@ -71,7 +83,7 @@ def _lamella(microscope, tmp_path) -> Lamella:
             ChannelSettings(
                 name="Red Channel",
                 excitation_wavelength=550,
-                emission_wavelength="Fluorescence",
+                emission_filter=EmissionFilter("Fluorescence", multi_band=True),
             ),
         ],
     )
@@ -94,15 +106,28 @@ def _mill_task(
     lamella.task_config[config.task_name] = config
     milling = config.milling[MILL_COINCIDENT_KEY]
     for stage in milling.stages:
-        strategy = stage.strategy
+        strategy = stage.get_strategy()
         assert isinstance(strategy, CoincidenceMillingStrategy)
         strategy.config.timeout = timeout
         strategy.config.warmup_duration = 1.0
         strategy.config.save_fm_images = False
         strategy.config.acquire_fib_image = False
+    if manager is None:
+        manager = _Manager()
+    if manager.experiment is None:
+        manager.experiment = _experiment(lamella)
     return MillCoincidentTask(
         microscope=microscope, config=config, lamella=lamella, task_manager=manager
     )
+
+
+def _experiment(lamella: Lamella) -> Experiment:
+    """An experiment holding ``lamella``, with nothing supervised."""
+    experiment = Experiment(path=lamella.path.parent, name="coincidence-exp")
+    experiment.task_protocol = AutoLamellaTaskProtocol()
+    experiment.positions.append(lamella)
+    os.makedirs(experiment.path, exist_ok=True)  # a task's end saves it
+    return experiment
 
 
 def test_registered_as_a_builtin_task():
@@ -111,7 +136,6 @@ def test_registered_as_a_builtin_task():
 
 def test_development_protocol_loads_both_tasks():
     import fibsem
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
 
     path = os.path.join(
         os.path.dirname(fibsem.__file__),
@@ -129,7 +153,7 @@ def test_development_protocol_loads_both_tasks():
     assert config.monitoring_channel.exposure_time == 0.1
     assert isinstance(
         config.milling[MILL_COINCIDENT_KEY].stages[0].strategy,
-        CoincidenceMillingStrategy,
+        CoincidenceMillingStrategyConfig,
     )
 
 
@@ -218,7 +242,7 @@ def test_headless_mill_runs_from_the_setup_record_to_timeout(
     for stage in milling.enabled_stages:
         assert stage.pattern.point.x == pytest.approx(1.0e-6)
         assert stage.pattern.point.y == pytest.approx(-0.5e-6)
-        strategy = stage.strategy
+        strategy = stage.get_strategy()
         assert isinstance(strategy, CoincidenceMillingStrategy)
         assert strategy.config.bbox == FibsemRectangle(0.4, 0.4, 0.2, 0.2)
         assert strategy.config.intensity_drop_fraction == pytest.approx(0.3)
@@ -263,7 +287,7 @@ def test_abort_token_stops_the_mill(microscope, tmp_path):
         microscope.milling.progress.changed.disconnect(_stop_on_first_tick)
 
     milling = lamella.task_config["Coincidence Milling"].milling[MILL_COINCIDENT_KEY]
-    strategy = milling.enabled_stages[0].strategy
+    strategy = milling.enabled_stages[0].get_strategy()
     assert isinstance(strategy, CoincidenceMillingStrategy)
     assert strategy.end_reason == "stopped"
     assert microscope.fm.objective.state is not InsertableDeviceState.INSERTED

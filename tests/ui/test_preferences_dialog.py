@@ -112,6 +112,21 @@ def test_the_app_server_fails_closed():
     assert UserPreferences.from_dict(retired).app_server.enabled is False
 
 
+def test_a_file_naming_the_retired_review_flag_keeps_its_other_preferences():
+    """The Review workflow is the only one; a saved file that still turns it on
+    or off loads, and the flags beside it are read rather than defaulted (a
+    load that raised would fall back to every default)."""
+    saved = {
+        "features": {
+            "proposer_reviewer_workflow_enabled": False,
+            "coincidence_milling_enabled": True,
+        }
+    }
+    prefs = UserPreferences.from_dict(saved)
+    assert not hasattr(prefs.features, "proposer_reviewer_workflow_enabled")
+    assert prefs.features.coincidence_milling_enabled is True
+
+
 def _every_field_changed() -> UserPreferences:
     """Preferences with every field moved off its default, so a field the dialog drops
     and rebuilds from scratch cannot pass by coincidence."""

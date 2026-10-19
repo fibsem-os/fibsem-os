@@ -12,19 +12,19 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskState,
-    AutoLamellaTaskStatus,
     Experiment,
     GridQuality,
-    GridRecord,
 )
 from fibsem.applications.autolamella.ui.grid_card_widget import grid_headline
 from fibsem.applications.autolamella.ui.grids_tab_widget import GridsTabWidget
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-    LOAD_ENTRY_NAME,
-)
 from fibsem.services.sample_handling import bind_sample_handling
 from fibsem.structures import SampleGrid
+from fibsem.workflows.grid.manager import (
+    LOAD_ENTRY_NAME,
+)
+from fibsem.workflows.grids import GridRecord
+from fibsem.workflows.status import TaskState, TaskStatus
+from tests.run_state import StubRunner
 
 
 @pytest.fixture
@@ -52,7 +52,7 @@ def tab(qapp, arctis, experiment):
 
 
 def entry(status, name="overview_sem"):
-    state = AutoLamellaTaskState(name=name, status=status)
+    state = TaskState(name=name, status=status)
     state.end_timestamp = state.start_timestamp + timedelta(seconds=1)
     return state
 
@@ -64,73 +64,42 @@ class TestHeadline:
     def test_a_load_with_no_task_after_it_says_nothing_either(self):
         grid = GridRecord(name="g")
         grid.task_history += [
-            entry(AutoLamellaTaskStatus.Completed),
-            entry(AutoLamellaTaskStatus.Completed, LOAD_ENTRY_NAME),
+            entry(TaskStatus.Completed),
+            entry(TaskStatus.Completed, LOAD_ENTRY_NAME),
         ]
         assert grid_headline(grid)[0] == ""
 
     def test_complete_after_a_load(self):
         grid = GridRecord(name="g")
         grid.task_history += [
-            entry(AutoLamellaTaskStatus.Completed, LOAD_ENTRY_NAME),
-            entry(AutoLamellaTaskStatus.Completed),
-            entry(AutoLamellaTaskStatus.Completed, "overview_fib"),
+            entry(TaskStatus.Completed, LOAD_ENTRY_NAME),
+            entry(TaskStatus.Completed),
+            entry(TaskStatus.Completed, "overview_fib"),
         ]
         assert grid_headline(grid)[0].startswith("overview_fib (")
-
-    def test_a_task_awaiting_a_decision_is_the_headline(self):
-        grid = GridRecord(name="g")
-        grid.task_history += [
-            entry(AutoLamellaTaskStatus.Completed, LOAD_ENTRY_NAME),
-            entry(AutoLamellaTaskStatus.AwaitingDecision),
-            entry(AutoLamellaTaskStatus.Failed, "overview_fib"),
-        ]
-        assert grid_headline(grid)[0] == "overview_sem awaits a decision"
-
-    def test_it_is_found_across_a_later_load(self):
-        """A run that moved on and came back loads the grid again; the task
-        waiting from before that load is still the news."""
-        grid = GridRecord(name="g")
-        grid.task_history += [
-            entry(AutoLamellaTaskStatus.Completed, LOAD_ENTRY_NAME),
-            entry(AutoLamellaTaskStatus.AwaitingDecision),
-            entry(AutoLamellaTaskStatus.AwaitingDecision, "overview_fib"),
-            entry(AutoLamellaTaskStatus.Completed, LOAD_ENTRY_NAME),
-            entry(AutoLamellaTaskStatus.Completed, "overview_fm"),
-        ]
-        assert grid_headline(grid)[0] == "2 tasks await a decision"
-
-    def test_a_decided_task_is_not_waiting(self):
-        grid = GridRecord(name="g")
-        grid.task_history += [
-            entry(AutoLamellaTaskStatus.Completed, LOAD_ENTRY_NAME),
-            entry(AutoLamellaTaskStatus.AwaitingDecision),
-            entry(AutoLamellaTaskStatus.Completed),  # re-run, finished
-        ]
-        assert grid_headline(grid)[0].startswith("overview_sem (")
 
     def test_failed_tasks_are_counted(self):
         grid = GridRecord(name="g")
         grid.task_history += [
-            entry(AutoLamellaTaskStatus.Completed, LOAD_ENTRY_NAME),
-            entry(AutoLamellaTaskStatus.Failed),
-            entry(AutoLamellaTaskStatus.Completed, "overview_fib"),
+            entry(TaskStatus.Completed, LOAD_ENTRY_NAME),
+            entry(TaskStatus.Failed),
+            entry(TaskStatus.Completed, "overview_fib"),
         ]
         assert grid_headline(grid)[0] == "1 task failed"
 
     def test_a_failed_load_with_nothing_after_it(self):
         grid = GridRecord(name="g")
         grid.task_history += [
-            entry(AutoLamellaTaskStatus.Completed, LOAD_ENTRY_NAME),
-            entry(AutoLamellaTaskStatus.Completed),
-            entry(AutoLamellaTaskStatus.Failed, LOAD_ENTRY_NAME),
+            entry(TaskStatus.Completed, LOAD_ENTRY_NAME),
+            entry(TaskStatus.Completed),
+            entry(TaskStatus.Failed, LOAD_ENTRY_NAME),
         ]
         assert grid_headline(grid)[0] == "Load failed"
 
     def test_a_run_in_progress(self):
         grid = GridRecord(name="g")
         grid.task_state.name = "overview_fm"
-        grid.task_state.status = AutoLamellaTaskStatus.InProgress
+        grid.task_state.status = TaskStatus.InProgress
         assert grid_headline(grid)[0] == "Running overview_fm"
 
 
@@ -242,7 +211,7 @@ class TestCards:
         tab.btn_inventory.click()
         card = tab.cards.cards[0]
         assert card._action_rename.isEnabled()
-        card.grid.task_history.append(entry(AutoLamellaTaskStatus.Completed))
+        card.grid.task_history.append(entry(TaskStatus.Completed))
         card.refresh()
         assert not card._action_rename.isEnabled()
         assert "Named once it has run" in card._action_rename.toolTip()
@@ -259,9 +228,7 @@ class TestCards:
         """A load writes nothing under the grid's name, so it does not fix it."""
         tab.btn_inventory.click()
         card = tab.cards.cards[0]
-        card.grid.task_history.append(
-            entry(AutoLamellaTaskStatus.Completed, name=LOAD_ENTRY_NAME)
-        )
+        card.grid.task_history.append(entry(TaskStatus.Completed, name=LOAD_ENTRY_NAME))
         card.refresh()
         assert card._action_rename.isEnabled()
         tab._on_rename(card.grid, "grid-aspen")
@@ -297,8 +264,8 @@ class TestCards:
     def test_a_card_shows_the_latest_overview_thumbnail(self, tab, experiment):
         import numpy as np
 
-        from fibsem.applications.autolamella.structures import AutoLamellaTaskState
         from fibsem.imaging.thumbnail import write_thumbnail
+        from fibsem.workflows.status import TaskState
 
         tab.btn_inventory.click()
         grid = experiment.get_grid_by_name("Grid-01")
@@ -307,9 +274,7 @@ class TestCards:
             (np.random.rand(200, 300) * 255).astype(np.uint8),
             root / "overview_sem" / "overview-thumbnail.png",
         )
-        state = AutoLamellaTaskState(
-            name="overview_sem", status=AutoLamellaTaskStatus.Completed
-        )
+        state = TaskState(name="overview_sem", status=TaskStatus.Completed)
         state.outputs = {
             "overview_sem_thumbnail": ["overview_sem/overview-thumbnail.png"]
         }
@@ -545,9 +510,7 @@ class TestNamingOnTheSampleView:
 
     def test_a_grid_that_has_run_is_refused(self, main_ui, tmp_path):
         ui, microscope, exp = _window_with_magazine(main_ui, tmp_path)
-        exp.get_grid_by_name("Grid-01").task_history.append(
-            entry(AutoLamellaTaskStatus.Completed)
-        )
+        exp.get_grid_by_name("Grid-01").task_history.append(entry(TaskStatus.Completed))
         _name_on_the_sample_view(ui, 0, "grid-aspen")
         assert [g.name for g in exp.grids] == ["Grid-01", "Grid-02", "Grid-03"]
         assert (
@@ -569,15 +532,12 @@ class TestNamingOnTheSampleView:
         """The run's queue holds grids by name."""
         ui, microscope, exp = _window_with_magazine(main_ui, tmp_path)
 
-        class _Running:
-            def is_alive(self):
-                return True
-
-        ui._task_worker_thread = _Running()
+        runner = ui.session.runner
+        ui.session.runner = StubRunner(ui.session, is_running=True)
         try:
             _name_on_the_sample_view(ui, 1, "grid-birch")
         finally:
-            ui._task_worker_thread = None  # or closing the window waits on it
+            ui.session.runner = runner
         assert [g.name for g in exp.grids] == ["Grid-01", "Grid-02", "Grid-03"]
         assert "while a workflow is running" in (
             ui.sample_widget.loader_widget.status_label.text()

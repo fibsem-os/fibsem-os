@@ -30,7 +30,6 @@ def _task_with_objective(state: str) -> AutoLamellaTask:
     task.microscope.fm.objective.state = state
     task.config = MagicMock(task_name="Acquire Fluorescence Image")
     task.lamella = MagicMock()
-    task.parent_ui = None
     task.log_status_message = MagicMock()
     return task
 

@@ -246,9 +246,16 @@ def make(compustage, fm_inserted=False):
     microscope = object.__new__(A.ThermoMicroscope)
     microscope.system = copy.deepcopy(SYSTEM)
     microscope.fm = _FM() if fm_inserted else None
-    microscope._stage_position = None
     connection = Node("connection")
     object.__setattr__(connection.beams.electron_beam.working_distance, "value", 4e-3)
+    # what connect reads into `system.info`, which saves as text
+    for node, name, value in (
+        (connection.service.system, "name", "Fake"),
+        (connection.service.system, "serial_number", "0"),
+        (connection.service.system, "version", "0"),
+        (connection.service.autoscript.client, "version", "0"),
+    ):
+        object.__setattr__(node, name, value)
     if compustage:
         position = STRUCTS.CompustagePosition(
             x=1e-4, y=2e-4, z=3e-5, a=np.radians(-10), coordinate_system="Specimen"

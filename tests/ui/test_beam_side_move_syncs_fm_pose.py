@@ -63,7 +63,7 @@ def _lamella(microscope, tmp_path, x=100e-6, y=50e-6):
 
     poses = build_lamella_poses(microscope, _at(microscope, MILLING_ORIENTATION, x, y))
     lamella = Lamella(petname="Lamella-01", path=str(tmp_path / "Lamella-01"), number=1)
-    lamella.milling_pose = poses.milling
+    lamella.milling_pose = poses.beam
     lamella.fluorescence_pose = poses.fluorescence
     return lamella
 
@@ -188,6 +188,38 @@ def test_saving_a_new_position_from_the_lamella_list_moves_it_too(
         microscope.get_stage_orientation(lamella.fluorescence_pose.stage_position)
         == FLUORESCENCE_ORIENTATION
     )
+
+
+def test_saving_a_new_position_keeps_the_objective_position(tmp_path, monkeypatch):
+    """The microscope state does not capture the FM objective, so Update
+    Position keeps the milling pose's stored focus, as Set pose does (FIB-1456)."""
+    module = sys.modules["fibsem.applications.autolamella.ui.AutoLamellaUI"]
+
+    microscope = _microscope()
+    lamella = _lamella(microscope, tmp_path)
+    lamella.milling_pose.objective_position = 0.0123
+    monkeypatch.setattr(
+        module.QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes)
+    )
+
+    class _UI:
+        update_lamella_position_ui = module.AutoLamellaUI.update_lamella_position_ui
+
+        def __init__(self):
+            self.microscope = microscope
+            self.protocol = object()
+            self.experiment = _Experiment([lamella])
+            self.lamella_list = _SelectedList()
+
+        def update_lamella_combobox(self, latest=False):
+            pass
+
+        def update_ui(self):
+            pass
+
+    _UI().update_lamella_position_ui()
+
+    assert lamella.milling_pose.objective_position == pytest.approx(0.0123)
 
 
 def test_declining_the_confirmation_moves_neither_pose(tmp_path, monkeypatch):

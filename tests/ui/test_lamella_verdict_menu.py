@@ -24,11 +24,7 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QApplication, QMenu  # noqa: E402
 
-from fibsem.applications.autolamella.structures import (  # noqa: E402
-    Lamella,
-    QualityRecord,
-    Verdict,
-)
+from fibsem.applications.autolamella.structures import Lamella  # noqa: E402
 from fibsem.applications.autolamella.ui.lamella_card_widget import (  # noqa: E402
     LamellaCardContainer,
 )
@@ -40,6 +36,10 @@ from fibsem.applications.autolamella.ui.lamella_list_widget import (  # noqa: E4
 )
 from fibsem.applications.autolamella.ui.lamella_name_list_widget import (  # noqa: E402
     LamellaNameListWidget,
+)
+from fibsem.workflows.quality import (  # noqa: E402
+    QualityRecord,
+    Verdict,
 )
 
 _app = QApplication.instance() or QApplication(sys.argv)
@@ -100,14 +100,14 @@ def test_the_current_verdict_is_ticked(lamella):
 
 def test_choosing_the_current_verdict_writes_nothing(lamella):
     """No new record, so no save and no redraw for a click that changed nothing."""
-    lamella.defect = QualityRecord(verdict=Verdict.GOOD, author="human:Ada")
+    lamella.defect = QualityRecord(verdict=Verdict.GOOD, actor="operator:Ada")
     changed = []
     parent, _sub, actions = _menu(lamella, lambda: changed.append(True))
 
     actions["Good"].trigger()
 
     assert changed == []
-    assert lamella.defect.author == "human:Ada"
+    assert lamella.defect.actor == "operator:Ada"
 
 
 def test_a_good_lamella_is_judged_but_not_defective(lamella):
@@ -157,8 +157,8 @@ class TestEveryDisplay:
 def test_a_grid_s_verdict_menu_is_a_lamella_s(lamella, monkeypatch):
     """One layout for both: they had drifted apart in labels, icons and order
     ("Unassessed" first and a wrench for rework, on the grid card)."""
-    from fibsem.applications.autolamella.structures import GridRecord
     from fibsem.applications.autolamella.ui.grid_card_widget import GridCardWidget
+    from fibsem.workflows.grids import GridRecord
 
     shown = {}
 

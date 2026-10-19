@@ -38,13 +38,13 @@ from datetime import datetime, timedelta
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
-from fibsem.applications.autolamella.event_recording import (
+from fibsem.util.timestamps import wall_time_of
+from fibsem.workflows.event_recording import (
     EVENTS_FILENAME,
     milling_run_of,
     read_events,
 )
-from fibsem.applications.autolamella.proposals import kind_label
-from fibsem.util.timestamps import wall_time_of
+from fibsem.workflows.proposals import kind_label
 
 logger = logging.getLogger(__name__)
 
@@ -727,7 +727,6 @@ def _prompt_event(record: LogRecord, m: "re.Match", item, task, step) -> ReplayE
         data={
             "prompt": kind,
             "response": response == "True",
-            "answered_by": by,
             "adjusted": adjusted == "True",
         },
         actor=by,  # the one thing the log says about who acted

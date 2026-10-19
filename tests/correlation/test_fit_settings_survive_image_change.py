@@ -22,6 +22,7 @@ pytest.importorskip("PyQt5")
 
 from fibsem.correlation.config import CorrelationConfig, FitSettings
 from fibsem.fm.structures import (
+    EmissionFilter,
     FluorescenceChannelMetadata,
     FluorescenceImage,
     FluorescenceImageMetadata,
@@ -44,7 +45,7 @@ def _fm_image(channel_names, nz: int = 5) -> FluorescenceImage:
                 name=name,
                 color="#00ff00",
                 excitation_wavelength=488,
-                emission_wavelength=509,
+                emission_filter=EmissionFilter("509 nm", low=509),
                 power=1.0,
                 exposure_time=0.1,
                 gain=1.0,
@@ -108,7 +109,7 @@ def test_a_new_volume_with_the_same_channels_changes_nothing(widget):
 
 def test_the_method_combos_are_never_touched_by_an_image_change(widget):
     """Methods do not depend on the image at all — they are populated from
-    _FIT_METHODS at construction — so even a volume with entirely different
+    FIT_METHODS at construction — so even a volume with entirely different
     channels must leave them alone."""
     widget.set_fm_image(_fm_image(["GFP", "mCherry"]))
     _set_all_five(

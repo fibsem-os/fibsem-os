@@ -147,7 +147,10 @@ def test_quality_record_reads_the_defect_state_shape_and_the_bare_grid_name():
     """Experiments written before QualityRecord: a lamella wrote the DefectState
     keys, a grid wrote just the GridQuality name. Both still load, and the old
     names map onto the new verdicts."""
-    from fibsem.applications.autolamella.structures import QualityRecord, Verdict
+    from fibsem.workflows.quality import (
+        QualityRecord,
+        Verdict,
+    )
 
     old_lamella = {
         "state": "FAILURE",
@@ -158,7 +161,7 @@ def test_quality_record_reads_the_defect_state_shape_and_the_bare_grid_name():
     assert q.verdict is Verdict.FAILED
     assert q.at_task == "Mill Rough"
     assert q.reason == "torn"
-    assert q.author == ""
+    assert q.actor == ""
 
     assert QualityRecord.from_dict("POOR").verdict is Verdict.FAILED
     assert QualityRecord.from_dict("GOOD").verdict is Verdict.GOOD
@@ -167,11 +170,14 @@ def test_quality_record_reads_the_defect_state_shape_and_the_bare_grid_name():
 
 
 def test_quality_record_round_trips_author_and_decision_id():
-    from fibsem.applications.autolamella.structures import QualityRecord, Verdict
+    from fibsem.workflows.quality import (
+        QualityRecord,
+        Verdict,
+    )
 
     q = QualityRecord(
         verdict=Verdict.FAILED,
-        author="human:operator",
+        actor="operator:operator",
         reason="no usable site",
         at_task="Setup Lamella Position",
         decision_id=("lamella-uuid", "Setup Lamella Position"),
@@ -191,6 +197,8 @@ def test_old_enum_names_are_aliases():
         DefectState,
         DefectType,
         GridQuality,
+    )
+    from fibsem.workflows.quality import (
         QualityRecord,
         Verdict,
     )
@@ -206,7 +214,7 @@ def test_old_enum_names_are_aliases():
 def test_lamella_quality_is_the_defect_record():
     from pathlib import Path
 
-    from fibsem.applications.autolamella.structures import Verdict
+    from fibsem.workflows.quality import Verdict
 
     lam = Lamella(path=Path("/tmp/test/lam"), number=1, petname="test-lam")
     assert lam.quality is lam.defect
@@ -464,24 +472,24 @@ def test_task_protocol_carries_correlation_config():
     assert AutoLamellaTaskProtocol.from_dict(legacy).correlation == CorrelationConfig()
 
 
-# ── AutoLamellaTaskState.outputs ──────────────────────────────────────────────
+# ── TaskState.outputs ──────────────────────────────────────────────
 
 
 def test_task_state_outputs_defaults_to_empty():
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+    from fibsem.workflows.status import TaskState
 
-    assert AutoLamellaTaskState().outputs == {}
+    assert TaskState().outputs == {}
 
 
 def test_task_state_outputs_survive_an_experiment_round_trip(tmp_path):
     """The experiment is written with yaml.safe_dump, which refuses anything but
     plain types. Recording paths as strings is what keeps the save working."""
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+    from fibsem.workflows.status import TaskState
 
     exp = _make_experiment(tmp_path)
     exp.add_new_lamella(MicroscopeState(), EventedDict())
     exp.positions[0].task_history.append(
-        AutoLamellaTaskState(
+        TaskState(
             name="MillRough",
             outputs={
                 "final_sem": ["ref_MillRough_final_res_01_eb.tif"],
@@ -501,11 +509,11 @@ def test_task_state_outputs_survive_an_experiment_round_trip(tmp_path):
 
 def test_task_state_from_dict_without_outputs_defaults(tmp_path):
     """Experiments written before outputs existed must still load."""
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+    from fibsem.workflows.status import TaskState
 
     legacy = {"name": "MillRough", "status": "Completed"}
 
-    assert AutoLamellaTaskState.from_dict(legacy).outputs == {}
+    assert TaskState.from_dict(legacy).outputs == {}
 
 
 def test_task_state_from_dict_ignores_unknown_keys():
@@ -514,11 +522,11 @@ def test_task_state_from_dict_ignores_unknown_keys():
     from_dict expands the dict into the constructor, so an unrecognised key would
     otherwise raise TypeError and make the whole experiment unloadable.
     """
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+    from fibsem.workflows.status import TaskState
 
     future = {"name": "MillRough", "status": "Completed", "metrics": {"focus": 1.0}}
 
-    state = AutoLamellaTaskState.from_dict(future)
+    state = TaskState.from_dict(future)
 
     assert state.name == "MillRough"
     assert not hasattr(state, "metrics")

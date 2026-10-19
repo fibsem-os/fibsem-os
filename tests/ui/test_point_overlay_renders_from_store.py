@@ -1,7 +1,7 @@
 """The correlation point overlay is a view of the point store (FIB-973).
 
 The overlay used to own the points it drew and the index of the selected one.
-It now draws what a ``CorrelationPointStore`` holds, and a gesture on the canvas
+It now draws what a ``PointStore`` holds, and a gesture on the canvas
 is a call on the store. Each overlay still makes its own store by default; these
 also cover two overlays on one store, one per canvas, which is how the tab
 widget will use them.
@@ -25,11 +25,11 @@ from matplotlib.backend_bases import MouseEvent
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.correlation.structures import Coordinate, PointStatus, PointType, PointXYZ
-from fibsem.ui.correlation.point_store import CorrelationPointStore
-from fibsem.ui.correlation.widgets.correlation_point_overlay import (
-    CorrelationPointOverlay,
-)
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
+from fibsem.ui.widgets.canvas.overlays.coordinate_overlay import (
+    CoordinateOverlay,
+)
+from fibsem.ui.widgets.point_store import PointStore
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -50,9 +50,9 @@ def _on_canvas(overlay):
 
 
 def _shared():
-    store = CorrelationPointStore()
-    fib = CorrelationPointOverlay(store=store, side="fib")
-    fm = CorrelationPointOverlay(store=store, side="fm")
+    store = PointStore()
+    fib = CoordinateOverlay(store=store, side="fib")
+    fm = CoordinateOverlay(store=store, side="fm")
     return store, fib, _on_canvas(fib), fm, _on_canvas(fm)
 
 
@@ -66,7 +66,7 @@ def _same(a, b) -> bool:
 
 
 def test_an_overlay_makes_its_own_store_by_default():
-    a, b = CorrelationPointOverlay(), CorrelationPointOverlay()
+    a, b = CoordinateOverlay(), CoordinateOverlay()
     assert a.store is not b.store
 
 
@@ -107,7 +107,7 @@ def test_set_coordinates_on_one_canvas_leaves_the_other_sides_points():
 
 def test_set_coordinates_redraws_a_changed_status_for_the_same_points():
     # what the tab widget's _refresh_canvas relies on after a reject
-    ov = CorrelationPointOverlay()
+    ov = CoordinateOverlay()
     _on_canvas(ov)
     point = _coord(10, 10)
     ov.set_coordinates([point])

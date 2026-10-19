@@ -19,6 +19,7 @@ from fibsem.drivers.demo.sim_scene import fm_channel_weights
 from fibsem.fm.microscope import (
     FluorescenceMicroscope,
 )
+from fibsem.fm.structures import REFLECTION
 from fibsem.geometry.projection import FMStageProjection
 from fibsem.structures import (
     BeamSettings,
@@ -313,8 +314,10 @@ def render_fm_scene(
     if projection is None:
         return None
     sim_sleep(exposure_time)
+    emission = fm.filter_set.emission_filter
     weights = fm_channel_weights(
-        fm.filter_set.emission_wavelength, fm.filter_set.excitation_wavelength
+        None if emission == REFLECTION else (emission.low or emission.name),
+        fm.filter_set.excitation_wavelength,
     )
     focus = fm.objective.focus_position
     defocus = 0.0 if focus is None else fm.objective.position - focus

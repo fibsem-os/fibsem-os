@@ -114,7 +114,7 @@ def test_the_holder_reaches_system_settings():
     holder = _calibrated_holder()
     system = SystemSettings.from_dict(
         {
-            "stage": {
+            "calibration": {
                 "holders": {holder.name: holder.to_dict()},
                 "active_holder": holder.name,
             }
@@ -257,7 +257,7 @@ def test_the_schema_knows_about_the_new_keys():
 
     assert (
         utils.unrecognised_configuration_keys(
-            {"stage": {"holders": {}, "active_holder": "x"}}
+            {"calibration": {"holders": {}, "active_holder": "x"}}
         )
         == []
     )
@@ -324,13 +324,16 @@ def test_a_configuration_that_names_holders_wins_over_the_live_one():
     incoming = SystemSettings.from_dict(utils.load_yaml(path))
     incoming.stage.holders = {chosen.name: chosen}
     incoming.stage.active_holder = chosen.name
+    handling = microscope.sample_handling
     announced = []
-    microscope.holder_changed.connect(announced.append)
+    handling.holder_changed.connect(announced.append)
     microscope.apply_configuration(incoming)
 
-    # Said on the microscope, which outlives the `Stage` that was just rebuilt: what
-    # draws the slots has to hear that they are now another holder's.
-    assert announced == [microscope.sample_handling.holder]
+    # Said on the same service, which loads the new holder rather than being
+    # rebuilt: what draws the slots has to hear that they are now another holder's.
+    assert microscope.sample_handling is handling
+    assert announced == [handling.holder]
+    assert not hasattr(microscope, "holder_changed")
 
     assert microscope.system.stage.active_holder == "Flat Shuttle"
     assert set(microscope.system.stage.holders) == {"Flat Shuttle"}

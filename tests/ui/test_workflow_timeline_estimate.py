@@ -1,6 +1,6 @@
 """The estimate column and the header's remaining/finish line (FIB-666).
 
-The arithmetic itself is tested in tests/autolamella/test_workflow_estimate.py, without a
+The arithmetic itself is tested in tests/autolamella/test_run_estimate.py, without a
 widget. What is checked here is what the timeline *says*, and when it changes its mind:
 the column predicts while it can and reports once it cannot, and the header quotes a clock
 only while a clock can honestly be quoted.
@@ -25,12 +25,12 @@ from datetime import datetime, timedelta
 
 from PyQt5.QtWidgets import QLabel
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus as Status
 from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
     WorkflowProgressWidget,
 )
-from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue
 from fibsem.ui.stylesheets import NAPARI_STYLE
+from fibsem.workflows.queue import TaskQueue
+from fibsem.workflows.status import TaskStatus as Status
 
 START = 1000.0  # the fake clock every status payload is stamped with
 
@@ -53,7 +53,7 @@ def widget(app, queue) -> WorkflowProgressWidget:
     """A live workflow: four items, every one of them estimated at 100 s."""
     w = WorkflowProgressWidget()
     w.set_actions_enabled(True)  # "a workflow is live"
-    w.set_estimates({(i.lamella_name, i.task_name): 100.0 for i in queue.items})
+    w.set_estimates({(i.item_name, i.task_name): 100.0 for i in queue.items})
     w.set_workflow(queue.items)
     return w
 
@@ -61,7 +61,7 @@ def widget(app, queue) -> WorkflowProgressWidget:
 def status_for(queue, item, status, **extra) -> dict:
     payload = {
         "task_name": item.task_name,
-        "item_name": item.lamella_name,
+        "item_name": item.item_name,
         "status": status,
         "queue_items": queue.items,
         "timestamp": START,
@@ -111,13 +111,13 @@ def test_estimates_arriving_after_the_rows_still_reach_them(app, queue):
     w.set_actions_enabled(True)
     w.set_workflow(queue.items)
     assert column(w) == [""] * 4
-    w.set_estimates({(i.lamella_name, i.task_name): 100.0 for i in queue.items})
+    w.set_estimates({(i.item_name, i.task_name): 100.0 for i in queue.items})
     assert column(w) == ["1m 40s"] * 4
 
 
 def test_an_item_added_mid_workflow_gets_its_estimate(widget, queue):
     added = queue.add("L9", "Polish")
-    estimates = {(i.lamella_name, i.task_name): 100.0 for i in queue.items}
+    estimates = {(i.item_name, i.task_name): 100.0 for i in queue.items}
     estimates[("L9", "Polish")] = 250.0
     widget.set_estimates(estimates)
     widget.refresh_queue(queue.items)
@@ -197,7 +197,7 @@ def test_a_wait_for_a_human_pauses_the_countdown_rather_than_spending_it(
 
 
 def test_the_elapsed_keeps_running_through_a_wait(widget, queue, monkeypatch):
-    """Only the countdown pauses. `AutoLamellaTaskState.duration` is end minus start and
+    """Only the countdown pauses. `TaskState.duration` is end minus start and
     counts the wait, so an elapsed that skipped it would snap on completion and disagree
     with the experiment record."""
     start_next(widget, queue)
@@ -281,7 +281,7 @@ def test_the_header_is_silent_when_no_workflow_is_live(app, queue):
     """The timeline stays on screen afterwards; a remaining time beside a queue that is
     not going to run would be a lie."""
     w = WorkflowProgressWidget()
-    w.set_estimates({(i.lamella_name, i.task_name): 100.0 for i in queue.items})
+    w.set_estimates({(i.item_name, i.task_name): 100.0 for i in queue.items})
     w.set_workflow(queue.items)
     assert w._summary.isHidden()
 
@@ -303,7 +303,7 @@ def test_a_scheduled_hold_is_inside_the_time_the_header_quotes(app, queue):
     """ "When do I come back" includes four hours of dead time in the middle."""
     w = WorkflowProgressWidget()
     w.set_actions_enabled(True)
-    w.set_estimates({(i.lamella_name, i.task_name): 100.0 for i in queue.items})
+    w.set_estimates({(i.item_name, i.task_name): 100.0 for i in queue.items})
     w.set_schedule({"Undercut": datetime.now() + timedelta(hours=4)})
     w.set_workflow(queue.items)
     assert w._summary.text().startswith("4h 0")
@@ -332,7 +332,7 @@ def test_a_long_name_elides_instead_of_pushing_the_column_off_screen(app):
     q.build_from_matrix(["Trench"], ["L1", "a-very-long-petname-here-indeed"])
     w = WorkflowProgressWidget()
     w.set_actions_enabled(True)
-    w.set_estimates({(i.lamella_name, i.task_name): 100.0 for i in q.items})
+    w.set_estimates({(i.item_name, i.task_name): 100.0 for i in q.items})
     w.set_workflow(q.items)
     w.resize(280, 200)
     w.show()
@@ -421,8 +421,10 @@ def live(app, tmp_path):
     parent_ui.queue_changed_signal.connect(
         lambda info: widget.refresh_queue(info["queue_items"])
     )
-    manager = TaskManager(
-        microscope=_NoMicroscope(), experiment=experiment, parent_ui=parent_ui
+    manager = TaskManager(microscope=_NoMicroscope(), experiment=experiment)
+    # What AutoLamellaUI does with the runner's relay of it: re-emit on Qt.
+    manager.queue_changed.connect(
+        lambda info: parent_ui.queue_changed_signal.emit(info)
     )
     names = [p.name for p in experiment.positions]
     manager.queue.build_from_matrix(list(TASKS), names)
@@ -447,7 +449,7 @@ def test_a_real_config_reaches_the_column_through_the_managers_own_payload(live)
     sibling = experiment.positions[1].task_config["Setup Lamella Position"]
 
     item = manager.queue.next()
-    lamella = manager.experiment.get_lamella_by_name(item.lamella_name)
+    lamella = manager.experiment.get_lamella_by_name(item.item_name)
     manager._emit_status(item=item, lamella=lamella, status=Status.InProgress)
 
     assert column(widget)[1] == _fmt(sibling.estimated_duration)

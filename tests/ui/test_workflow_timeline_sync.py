@@ -24,14 +24,14 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtCore import QObject, pyqtSignal
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus as Status
 from fibsem.applications.autolamella.structures import Experiment, Lamella
 from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
     StepStatus,
     WorkflowProgressWidget,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
-from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue
+from fibsem.workflows.queue import TaskQueue
+from fibsem.workflows.status import TaskStatus as Status
 
 
 @pytest.fixture
@@ -50,7 +50,7 @@ def status_for(queue: TaskQueue, item, status, **extra) -> dict:
     """The subset of TaskManager._emit_status's payload the timeline reads."""
     payload = {
         "task_name": item.task_name,
-        "item_name": item.lamella_name,
+        "item_name": item.item_name,
         "status": status,
         "queue_items": queue.items,
         "timestamp": 1000.0,
@@ -155,7 +155,7 @@ def test_removed_item_disappears_from_the_timeline(widget, queue):
     widget.refresh_queue(queue.items)
 
     assert len(widget._outer._rows) == 3
-    assert (target.lamella_name, target.task_name) not in labels(widget)
+    assert (target.item_name, target.task_name) not in labels(widget)
     assert labels(widget) == before[:-1]
     assert layout_order(widget) == widget._outer._rows
 
@@ -224,7 +224,7 @@ def test_reorder_moves_the_rows(widget, queue):
     queue.move_to_front(last.id)
     widget.refresh_queue(queue.items)
 
-    assert labels(widget)[1] == (last.lamella_name, last.task_name)
+    assert labels(widget)[1] == (last.item_name, last.task_name)
 
 
 def test_reorder_moves_the_row_widgets_rather_than_rebuilding_them(widget, queue):
@@ -423,9 +423,11 @@ def manager(widget, tmp_path) -> TaskManager:
         lambda info: widget.refresh_queue(info["queue_items"])
     )
 
-    m = TaskManager(
-        microscope=_NoMicroscope(), experiment=experiment, parent_ui=parent_ui
-    )
+    m = TaskManager(microscope=_NoMicroscope(), experiment=experiment)
+    # What AutoLamellaUI does with the runner's relay of it: re-emit on Qt.
+    m.queue_changed.connect(lambda info: parent_ui.queue_changed_signal.emit(info))
+    m.status.connect(lambda event: parent_ui.workflow_status_signal.emit(event))
+    m.ui = parent_ui
     m.queue.build_from_matrix(
         ["Trench", "Undercut"], [p.name for p in experiment.positions]
     )
@@ -433,7 +435,7 @@ def manager(widget, tmp_path) -> TaskManager:
 
 
 def emit(manager: TaskManager, item, status, **extra) -> None:
-    lamella = manager.experiment.get_lamella_by_name(item.lamella_name)
+    lamella = manager.experiment.get_lamella_by_name(item.item_name)
     manager._emit_status(item=item, lamella=lamella, status=status, **extra)
 
 
@@ -464,14 +466,16 @@ def test_notify_queue_changed_reaches_the_timeline(widget, manager):
     assert [r._label.text() for r in widget._outer._rows[0]._inner_rows] == ["Setup"]
 
 
-def test_notify_queue_changed_is_a_noop_headless(tmp_path):
+def test_notify_queue_changed_is_heard_headless(tmp_path):
     m = TaskManager(
         microscope=_NoMicroscope(),
         experiment=_experiment(tmp_path, names=["L1"]),
-        parent_ui=None,
     )
     m.queue.build_from_matrix(["Trench"], ["L1"])
-    m.notify_queue_changed()  # must not raise
+    heard = []
+    m.queue_changed.connect(heard.append)
+    m.notify_queue_changed()
+    assert [len(info["queue_items"]) for info in heard] == [1]
 
 
 def test_a_queue_edit_stays_off_the_status_channel(manager):
@@ -484,8 +488,8 @@ def test_a_queue_edit_stays_off_the_status_channel(manager):
     manager.queue.add("L9", "Polish")
     manager.notify_queue_changed()
 
-    assert manager.parent_ui.status_events == []
-    assert len(manager.parent_ui.queue_changes) == 1
+    assert manager.ui.status_events == []
+    assert len(manager.ui.queue_changes) == 1
 
 
 def test_task_status_goes_out_on_the_status_signal(manager):
@@ -493,8 +497,8 @@ def test_task_status_goes_out_on_the_status_signal(manager):
     item = manager.queue.next()
     emit(manager, item, Status.InProgress)
 
-    assert len(manager.parent_ui.status_events) == 1
-    assert manager.parent_ui.queue_changes == []
+    assert len(manager.ui.status_events) == 1
+    assert manager.ui.queue_changes == []
 
 
 def test_every_lifecycle_event_carries_its_report(manager):
@@ -511,5 +515,5 @@ def test_every_lifecycle_event_carries_its_report(manager):
     manager.queue.mark_done(item, Status.Completed)
     emit(manager, item, Status.Completed, task_duration=1.0)
 
-    assert manager.parent_ui.status_events
-    assert all(event.report is not None for event in manager.parent_ui.status_events)
+    assert manager.ui.status_events
+    assert all(event.report is not None for event in manager.ui.status_events)

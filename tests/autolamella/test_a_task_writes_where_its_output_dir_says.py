@@ -3,7 +3,7 @@
 ``AutoLamellaTask.output_dir`` is the one place a task decides where its
 reference images, alignment runs, autofocus runs and milling are saved. Pointed
 somewhere other than the lamella's folder, they all follow it: real Setup and
-Rough Milling runs on Demo, through ``run_tasks``.
+Rough Milling runs on Demo, through the session's runner.
 
 Not asserted: where the alignment reference lands. Tasks share it by name in
 the lamella's folder; it is lamella state, overwritten as the lamella moves on
@@ -26,7 +26,6 @@ from fibsem.alignment import AlignmentResult
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     AutoLamellaWorkflowConfig,
     Experiment,
 )
@@ -34,7 +33,6 @@ from fibsem.applications.autolamella.workflows.tasks.base import (
     ALIGNMENT_REFERENCE_IMAGE_FILENAME,
     AutoLamellaTask,
 )
-from fibsem.applications.autolamella.workflows.tasks.manager import run_tasks
 from fibsem.applications.autolamella.workflows.tasks.rough import (
     MillRoughTask,
     MillRoughTaskConfig,
@@ -44,6 +42,8 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
 )
 from fibsem.autofunctions.autofocus import AutoFocusResult
 from fibsem.structures import BeamType
+from fibsem.workflows.status import TaskStatus
+from tests.run_state import run_lamellae
 
 CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
 SETUP = "Setup Lamella Position"
@@ -107,9 +107,9 @@ def test_everything_a_task_writes_follows_the_output_folder(
     _write_elsewhere(monkeypatch, elsewhere)
     lamella = experiment.positions[0]
 
-    run_tasks(microscope, experiment, [SETUP, ROUGH])
+    run_lamellae(microscope, experiment, [SETUP, ROUGH])
 
-    assert lamella.task_state.status is AutoLamellaTaskStatus.Completed
+    assert lamella.task_state.status is TaskStatus.Completed
     written = _top_level(elsewhere)
     assert {"autofunctions", "Milling"} <= written
     assert any(name.startswith(f"ref_{ROUGH}_final") for name in written)
@@ -138,18 +138,29 @@ def test_the_output_folder_is_the_run_s_own(microscope, experiment):
 
 
 def test_a_task_name_a_folder_cannot_hold_is_made_safe(microscope, experiment):
-    from fibsem.applications.autolamella.task_outputs import run_folder
     from fibsem.util.timestamps import now
+    from fibsem.workflows.task import run_folder
 
     lamella = experiment.positions[0]
-    folder = run_folder(lamella, 'Rough: 1/2 "fast"', now())
+    folder = run_folder(lamella.path, 'Rough: 1/2 "fast"', now())
 
     assert os.path.basename(os.path.dirname(folder)) == "Rough- 1-2 -fast-"
 
 
+def test_a_round_has_a_folder_of_its_own(tmp_path):
+    from fibsem.util.timestamps import now
+    from fibsem.workflows.task import run_folder
+
+    folder = run_folder(tmp_path, "Mill", now(), iteration=3)
+    assert folder == os.path.join(str(tmp_path), "Mill", "0003")
+
+    os.makedirs(folder)  # a re-run of the same iteration
+    assert run_folder(tmp_path, "Mill", now(), iteration=3) == folder + "-2"
+
+
 def test_the_wrappers_return_what_they_measured(microscope, experiment):
     lamella = experiment.positions[0]
-    run_tasks(microscope, experiment, [SETUP])  # leaves the alignment reference
+    run_lamellae(microscope, experiment, [SETUP])  # leaves the alignment reference
     task = MillRoughTask(microscope, lamella.task_config[ROUGH], lamella)
 
     assert isinstance(

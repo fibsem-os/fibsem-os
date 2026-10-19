@@ -1918,7 +1918,7 @@ def test_the_frame_cannot_be_re_anchored_under_placed_images(qapp, interactive_w
 
 
 def test_closing_the_widget_lets_go_of_the_stage_signal(qapp):
-    """`stage_position_changed` belongs to the microscope and outlives the widget. A
+    """`stage.position.changed` belongs to the stage and outlives the widget. A
     connection left behind emits into a Qt object already torn down on the C++ side,
     which is a segfault rather than an exception: closing the tab and then moving the
     stage from anywhere else in the application took the whole application down.
@@ -1929,14 +1929,14 @@ def test_closing_the_widget_lets_go_of_the_stage_signal(qapp):
     from tests.fixtures.fm_microscope import build_microscope
 
     microscope = build_microscope()
-    before = len(microscope.stage_position_changed)
+    before = len(microscope.stage.position.changed)
     widget = FMOverviewWidget(microscope)
-    assert len(microscope.stage_position_changed) == before + 1
+    assert len(microscope.stage.position.changed) == before + 1
 
     widget.close()
     qapp.processEvents()
 
-    assert len(microscope.stage_position_changed) == before
+    assert len(microscope.stage.position.changed) == before
 
 
 def test_a_dropped_widget_lets_go_of_the_stage_signal_too(qapp):
@@ -1949,14 +1949,14 @@ def test_a_dropped_widget_lets_go_of_the_stage_signal_too(qapp):
     from tests.fixtures.fm_microscope import build_microscope
 
     microscope = build_microscope()
-    before = len(microscope.stage_position_changed)
+    before = len(microscope.stage.position.changed)
     widget = FMOverviewWidget(microscope)
-    assert len(microscope.stage_position_changed) == before + 1
+    assert len(microscope.stage.position.changed) == before + 1
 
     del widget
     gc.collect()
 
-    assert len(microscope.stage_position_changed) == before
+    assert len(microscope.stage.position.changed) == before
 
 
 # ── the host contract: saving, and being locked ──────────────────────────
@@ -2391,14 +2391,14 @@ def test_retiring_the_widget_releases_the_stage_signal(qapp):
     # the merged tab builds the beam widget too, and it subscribes to the same signal.
     # Counting from an empty microscope would be counting both and attributing them here.
     host._teardown_fm_overview_widget()
-    before = len(microscope.stage_position_changed)
+    before = len(microscope.stage.position.changed)
 
     host._build_fm_overview_widget()
-    assert len(microscope.stage_position_changed) == before + 1
+    assert len(microscope.stage.position.changed) == before + 1
 
     host._teardown_fm_overview_widget()
 
-    assert len(microscope.stage_position_changed) == before
+    assert len(microscope.stage.position.changed) == before
     assert host.fm_overview_widget is None
 
 
@@ -3048,7 +3048,7 @@ def _lamella_with_poses(name: str, microscope, tmp_path, x: float, y: float):
     marked = FibsemStagePosition(x=x, y=y, z=0.0, r=beam.r, t=beam.t)
     poses = build_lamella_poses(microscope, marked)
     lamella = Lamella(petname=name, path=str(tmp_path / name), number=1)
-    lamella.milling_pose = poses.milling
+    lamella.milling_pose = poses.beam
     lamella.fluorescence_pose = poses.fluorescence
     return lamella
 
@@ -3419,7 +3419,7 @@ def _real_lamella(name, microscope, tmp_path, x=100e-6, y=50e-6):
         FibsemStagePosition(x=x, y=y, z=0.0, r=beam.r, t=beam.t),
     )
     lamella = Lamella(petname=name, path=str(tmp_path / name), number=1)
-    lamella.milling_pose = poses.milling
+    lamella.milling_pose = poses.beam
     lamella.fluorescence_pose = poses.fluorescence
     return lamella
 
@@ -4173,7 +4173,7 @@ def test_a_lamella_is_complete_before_anyone_is_told_about_it(qapp, tmp_path):
         FibsemStagePosition(x=100e-6, y=50e-6, z=0.0, r=beam.r, t=beam.t),
     )
     experiment.add_new_lamella(
-        microscope_state=poses.milling,
+        microscope_state=poses.beam,
         task_config=EventedDict(),
         fluorescence_pose=poses.fluorescence,
     )
@@ -4206,7 +4206,7 @@ def test_a_lamella_added_from_elsewhere_lands_on_the_canvas_immediately(qapp, tm
         FibsemStagePosition(x=100e-6, y=50e-6, z=0.0, r=beam.r, t=beam.t),
     )
     experiment.add_new_lamella(
-        microscope_state=poses.milling,
+        microscope_state=poses.beam,
         task_config=EventedDict(),
         name="Lamella-01",
         fluorescence_pose=poses.fluorescence,
@@ -4377,7 +4377,7 @@ def test_recalibrating_a_slot_moves_its_marker_without_a_stage_move(qapp):
     assert before, "no slot marker drawn to move"
 
     slot.position = replace(slot.position, x=slot.position.x + 300e-6)
-    microscope.holder_changed.emit(holder)
+    microscope.sample_handling.holder_changed.emit(holder)
     qapp.processEvents()
 
     assert marker() and marker() != before, "the recalibrated slot did not move"

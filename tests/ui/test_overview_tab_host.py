@@ -33,12 +33,12 @@ from fibsem import utils  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     DefectType,
     Experiment,
-    OverlayRecord,
 )
 from fibsem.applications.autolamella.ui.autolamella_overview_tab import (  # noqa: E402
     AutoLamellaOverviewTab,
 )
 from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition  # noqa: E402
+from fibsem.workflows.grids import OverlayRecord  # noqa: E402
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -106,7 +106,7 @@ class _StubWindow:
             path=os.path.join(str(self.experiment.path), name),
             number=number,
         )
-        lamella.milling_pose = poses.milling
+        lamella.milling_pose = poses.beam
         lamella.fluorescence_pose = poses.fluorescence
         self.added.append(lamella)
         self.experiment.positions.append(lamella)
@@ -319,7 +319,7 @@ class TestLifecycle:
     def test_dropping_the_widget_releases_its_subscriptions(self, tab, microscope):
         signals = (
             microscope.imaging.tiled_progress,
-            microscope.stage_position_changed,
+            microscope.stage.position.changed,
         )
         before = [len(s) for s in signals]
         tab._drop_overview()
@@ -348,7 +348,7 @@ class TestTheFlagOff:
         os.makedirs(str(experiment.path), exist_ok=True)
         signals = (
             microscope.imaging.tiled_progress,
-            microscope.stage_position_changed,
+            microscope.stage.position.changed,
         )
         before = [len(s) for s in signals]
 
@@ -365,7 +365,7 @@ class TestTheFlagOff:
     def test_turning_it_off_drops_what_was_built(self, tab, microscope):
         signals = (
             microscope.imaging.tiled_progress,
-            microscope.stage_position_changed,
+            microscope.stage.position.changed,
         )
         before = [len(s) for s in signals]
         tab.set_enabled(False)
@@ -619,7 +619,7 @@ class TestALamellaMarkedOnAGridOverviewBelongsToThatGrid:
         return image
 
     def test_the_overview_grid_is_passed_and_bare_canvas_is_not(self, tab, microscope):
-        from fibsem.applications.autolamella.structures import GridRecord
+        from fibsem.workflows.grids import GridRecord
 
         experiment = tab.experiment
         birch = experiment.add_grid(GridRecord(name="grid-birch"))

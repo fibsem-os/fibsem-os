@@ -43,14 +43,6 @@ from fibsem.ui.correlation.widgets.correlation_setup_section import (
     CorrelationSetupSection,
 )
 
-
-@pytest.fixture(autouse=True)
-def _no_lut_download(monkeypatch):
-    import fibsem.ui.correlation.widgets.refractive_index_widget as riw
-
-    monkeypatch.setattr(riw, "_ensure_lut", lambda: None)
-
-
 OLD = "2026-07-20_09-00-00"
 NEW = "2026-07-24_14-32-00"
 
@@ -134,7 +126,7 @@ def test_a_surface_point_is_something_to_lose(qapp, monkeypatch):
             point=PointXYZ(x=10.0, y=20.0, z=3.0), point_type=PointType.SURFACE_FM
         )
     )
-    assert w._has_manual_edits()
+    assert w.session.has_manual_edits()
 
     asked = _asked(monkeypatch, QMessageBox.Cancel)
     section.rb_none.setChecked(True)  # would wipe the surface point
@@ -164,12 +156,12 @@ def test_interpolating_does_not_look_like_an_edit(qapp, monkeypatch):
         config=CorrelationConfig(),
     )
     section.emit_current_seed()
-    assert not w._has_manual_edits()
+    assert not w.session.has_manual_edits()
 
     w._adopt_interpolated_volume(_fm_image(nz=22, pixel_size_z=100e-9), old_nz=11)
     # the view is resampled, the points are not (FIB-1248)
     assert w.data.fm_coordinates[0].point.z == pytest.approx(4.0)
-    assert not w._has_manual_edits()
+    assert not w.session.has_manual_edits()
 
     asked = _asked(monkeypatch, QMessageBox.Ok)
     section.rb_burns.setChecked(True)

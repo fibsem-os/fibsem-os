@@ -28,21 +28,22 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 import tifffile as tff
 
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskState,
-    AutoLamellaTaskStatus,
     Experiment,
-    GridRecord,
     Lamella,
-    QualityRecord,
-    Verdict,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-    LOAD_ENTRY_NAME,
 )
 from fibsem.fm.preview import is_fluorescence_image
 from fibsem.fm.structures import FluorescenceImageMetadata, safe_ome_from_tiff
 from fibsem.geometry.projection import BeamStageProjection, FMStageProjection
 from fibsem.structures import BeamType, FibsemImageMetadata, FibsemStagePosition
+from fibsem.workflows.grid.manager import (
+    LOAD_ENTRY_NAME,
+)
+from fibsem.workflows.grids import GridRecord
+from fibsem.workflows.quality import (
+    QualityRecord,
+    Verdict,
+)
+from fibsem.workflows.status import TaskState, TaskStatus
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +83,7 @@ class OverviewEntry:
     task_name: str
     role: str
     modality: str  # SEM, FIB, FM
-    status: AutoLamellaTaskStatus
+    status: TaskStatus
     status_message: str
     started: Optional[datetime]
     ended: Optional[datetime]
@@ -105,7 +106,7 @@ class OverviewEntry:
 
 @dataclass
 class LoadEntry:
-    status: AutoLamellaTaskStatus
+    status: TaskStatus
     status_message: str
     when: Optional[datetime]
 
@@ -131,14 +132,14 @@ class GridSection:
         """True or False by the latest load entry; None when nothing tried."""
         if self.load is None:
             return None
-        return self.load.status is AutoLamellaTaskStatus.Completed
+        return self.load.status is TaskStatus.Completed
 
 
 @dataclass
 class TaskOutcome:
     """How a grid's runs of one protocol task ended: the latest, and how many."""
 
-    status: Optional[AutoLamellaTaskStatus]  # None: never ran on this grid
+    status: Optional[TaskStatus]  # None: never ran on this grid
     runs: int
 
 
@@ -268,7 +269,7 @@ def _mark(
 # ---------------------------------------------------------------------------
 
 
-def _recorded_image(root: str, state: AutoLamellaTaskState, role: str) -> Optional[str]:
+def _recorded_image(root: str, state: TaskState, role: str) -> Optional[str]:
     """The last existing image this run recorded under `role`, or None."""
     for relpath in reversed(state.outputs.get(role, [])):
         path = os.path.join(root, relpath)
@@ -277,7 +278,7 @@ def _recorded_image(root: str, state: AutoLamellaTaskState, role: str) -> Option
     return None
 
 
-def _role_of(state: AutoLamellaTaskState, configs: Dict[str, Any]) -> Optional[str]:
+def _role_of(state: TaskState, configs: Dict[str, Any]) -> Optional[str]:
     """Which overview role a history entry is: from what it recorded, else from
     the protocol's config for its task (a failed run recorded nothing)."""
     for role in OVERVIEW_ROLES:
@@ -300,7 +301,7 @@ def _tiles_of(config) -> Optional[Tuple[int, int]]:
 def overview_entry(
     experiment: Experiment,
     grid: GridRecord,
-    state: AutoLamellaTaskState,
+    state: TaskState,
     lamellae: Sequence[Lamella],
     configs: Dict[str, Any],
 ) -> Optional[OverviewEntry]:

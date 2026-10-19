@@ -16,7 +16,7 @@ import os
 import threading
 from copy import deepcopy
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
@@ -31,16 +31,16 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.acting import OPERATOR
 from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
     LamellaNameListWidget,
 )
+from fibsem.applications.autolamella.ui.poi_marker import PoiMarker
 from fibsem.applications.autolamella.ui.qt_responder import QtResponder
 from fibsem.applications.autolamella.ui.selected_lamella_widget import (
     SelectedLamellaWidget,
 )
-from fibsem.cancellation import OperationCancelledError
 from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
-from fibsem.control import WORKFLOW, MicroscopeBusy
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamType,
@@ -61,7 +61,6 @@ from fibsem.ui import (
 from fibsem.ui import utils as fui
 from fibsem.ui.FibsemSampleWidget import FibsemSampleWidget
 from fibsem.ui.fm.widgets import FMImageViewerWidget
-from fibsem.ui.qt.threading import FunctionWorker
 
 if (
     DETECTION_AVAILABLE
@@ -73,27 +72,21 @@ if (
 from psygnal import EmissionInfo
 from superqt import ensure_main_thread
 
-# Paired with the disabled completion_summary hook in setup_hooks; FunctionHook and
-# HookEvent come back from fibsem.hooks below at the same time.
-# from fibsem.applications.autolamella.tools.artifacts import write_completion_summary
 import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.experiment_setup import load_for_adoption
-from fibsem.applications.autolamella.hook_defaults import build_hook_manager
 from fibsem.applications.autolamella.poses import (
     add_lamella,
     current_objective_position,
-    grid_id_at,
     remove_lamella,
     set_lamella_pose,
+    set_objective_position,
+    set_objective_position_on_all,
     stored_objective_position,
-    sync_fluorescence_pose,
 )
 from fibsem.applications.autolamella.structures import (
-    Attention,
     AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
-    AutoLamellaWorkflowOptions,
     Experiment,
     Lamella,
 )
@@ -109,14 +102,12 @@ from fibsem.applications.autolamella.ui.autolamella_load_task_protocol_widget im
 from fibsem.applications.autolamella.ui.autolamella_overview_image_widget import (
     create_overview_image_widget,
 )
-from fibsem.applications.autolamella.workflows.grid_gate import run_refusal
-from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
-from fibsem.hooks import HookManager
 from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
 from fibsem.ui.widgets.workflow_summary_dialog import (
     WorkflowSummaryDialog,
     run_counts_text,
 )
+from fibsem.workflows.session import AppSession
 
 if TYPE_CHECKING:
     from concurrent.futures import Future
@@ -126,7 +117,7 @@ if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
         AutoLamellaSingleWindowUI,
     )
-    from fibsem.applications.autolamella.workflows.tasks.status import (
+    from fibsem.workflows.status import (
         Hold,
         WorkflowStatusEvent,
     )
@@ -186,11 +177,21 @@ INSTRUCTIONS = {
 }
 
 
+def _complete(call, outcome) -> None:
+    """Complete ``outcome`` with ``call()``'s result, or its exception."""
+    try:
+        result = call()
+    except Exception as exc:  # noqa: BLE001 - the requester owns the failure
+        outcome.set_exception(exc)
+        return
+    outcome.set_result(result)
+
+
 class AutoLamellaUI(QMainWindow):
     # Everything the workflow says without needing an answer, as a
     # WorkflowStatusEvent. Questions and instructions do not travel on a signal
     # at all: they are typed requests to the QtResponder, each on its own
-    # future (workflows/interaction.py) — the dict workflow_update_signal that
+    # future (fibsem/workflows/interaction.py) — the dict workflow_update_signal that
     # once carried all three kinds of traffic is gone.
     workflow_status_signal = pyqtSignal(object)
     # Its own signal: a queue edit is not a step in the task lifecycle and must
@@ -198,6 +199,10 @@ class AutoLamellaUI(QMainWindow):
     queue_changed_signal = pyqtSignal(dict)
     step_update_signal = pyqtSignal(str)  # emits human-readable step label
     _workflow_finished_signal = pyqtSignal(bool)
+    # A stop was asked of the running workflow, by anyone: the operator's Stop,
+    # the agent's workflow_stop (from the App Server's thread), closing the
+    # window. The window shows "stopping" until the run has unwound.
+    workflow_stopping_signal = pyqtSignal()
     experiment_update_signal = pyqtSignal()
     _hook_toast_signal = pyqtSignal(
         str, str
@@ -212,30 +217,55 @@ class AutoLamellaUI(QMainWindow):
     # The agent added or renamed grid records (App Server); the grid views redraw.
     grids_changed = pyqtSignal()
 
+    @property
+    def microscope(self) -> Optional[FibsemMicroscope]:
+        return self.session.microscope
+
+    @microscope.setter
+    def microscope(self, microscope: Optional[FibsemMicroscope]) -> None:
+        self.session.microscope = microscope
+
+    @property
+    def experiment(self) -> Optional[Experiment]:
+        return self.session.experiment
+
+    @experiment.setter
+    def experiment(self, experiment: Optional[Experiment]) -> None:
+        self.session.experiment = experiment
+
     def __init__(
         self,
         parent_ui: "AutoLamellaSingleWindowUI",
     ) -> None:
         super().__init__()
+        # The microscope, the open experiment and the connection's event
+        # stream are the session's; this window is one client of it.
+        self.session = AppSession()
 
         self._setup_ui()
         self.parent_widget = parent_ui
 
         # The agent's suggestion the responder last showed (see show_suggestion).
         self.suggestion_shown: Optional[Dict[str, object]] = None
+        # The point-of-interest marker on the FIB view: one for whoever asks
+        # for the point, the question on the record or a PickPOI prompt.
+        self.poi_marker = PoiMarker(self)
         # The Qt side of the workflow's Responder seam: workflow code is handed
         # this one-method object, never the window itself.
         self.ui_responder = QtResponder(self)
+        self.session.responder = self.ui_responder
+        # The operator answers the run's questions here, for the session's life.
+        self.session.attach_answerer(OPERATOR)
         # The timeline renders the responder's question-lifecycle feed; the
         # widget itself is built in _setup_ui, before the responder exists.
         self.ui_responder.add_question_observer(self.question_timeline.record)
         # A bound method, not a lambda: the slot must run on this window's thread.
         self._agent_call.connect(self._run_agent_call)
+        # Edits to the experiment run on this thread: its widgets listen to it.
+        self.session.executor = self._run_on_gui_thread
 
         self._protocol_lock = threading.RLock()
 
-        self.experiment: Optional[Experiment] = None
-        self.microscope: Optional[FibsemMicroscope] = None
         # the microscope whose moves the stage readout follows
         self._stage_followed: Optional[FibsemMicroscope] = None
         self.settings: Optional[MicroscopeSettings] = None
@@ -275,38 +305,28 @@ class AutoLamellaUI(QMainWindow):
         # border, status bar and timeline pause read it. The cross-thread
         # flag-poll it used to be -- USER_RESPONSE, WAITING_FOR_UI_UPDATE -- is
         # gone: every workflow interaction is a typed request on its own future
-        # (workflows/interaction.py).
+        # (fibsem/workflows/interaction.py).
         self.hold: Optional[Hold] = None
-        # A state question a task asked (``AutoLamellaTask.ask`` with the
+        # A state question a task asked (``BaseTask.ask`` with the
         # ``state`` kind), shown on the prompt bar: (item_id, task_name,
         # proposal_id). Continue decides it; the decision takes it down.
         self._state_question: Optional[Tuple[str, str, str]] = None
+        # A pass of a loop a task asked (``milling``, ``spot_burn``), shown on
+        # the prompt bar over its widget: (item_id, task_name, proposal). A
+        # button decides it with the widget's value; the decision takes it down.
+        self._loop_question: Optional[Tuple[str, str, Any]] = None
+        # A value a task asked for that is edited on a widget of its own (a
+        # ``detection`` on the Detection tab, an ``alignment_area`` or a
+        # ``point_of_interest`` on the FIB view): (item_id, task_name,
+        # proposal). Continue decides it with the widget's value.
+        self._widget_question: Optional[Tuple[str, str, Any]] = None
+        self._poi_frames_followed: Optional[object] = None
         # A run is active but nothing is executing -- today only during a
         # scheduled-start wait. Set from the worker thread, read by the border.
         self.WORKFLOW_PENDING: bool = False
-        self._workflow_stop_event: threading.Event = threading.Event()
-        self._task_worker_thread: Optional[FunctionWorker] = None
-        self._task_manager: Optional[TaskManager] = None
-        # The embedded App Server (FIB-845): built on microscope connect when the
-        # App Server preference is on; None means the feature is off.
-        self._app_server_host = None
-        # Whether this session serves the microscope (FIB-1359): the
-        # operator's choice in Tools → App Server, per session like the agent
-        # level. None until the server first starts, which reads the
-        # preference's start-up default.
-        self._app_server_microscope: Optional[bool] = None
-        # The app's event stream (FIB-1031): built on microscope connect, always,
-        # and recorded to events.jsonl in the experiment directory. The agent
-        # server reads it when it runs; None only while disconnected.
-        self._event_recorder = None
-        self._last_run_summary: Optional["pd.DataFrame"] = None
-        # Why the last run ended short of done, for the run summary's
-        # headline: a run that gave up waiting for a review must not read as
-        # a finish. Empty when it finished or was stopped.
-        self._last_run_note: str = ""
         # The summary already toasted (by identity): the run-end toast is
-        # once-per-run, while _last_run_summary itself must survive as the
-        # record remote readers see.
+        # once-per-run, while the runner's last_summary itself must survive as
+        # the record remote readers see.
         self._shown_run_summary: Optional["pd.DataFrame"] = None
 
         # setup connections
@@ -382,33 +402,6 @@ class AutoLamellaUI(QMainWindow):
                 self.experiment.task_protocol if self.experiment is not None else None
             )
 
-    @property
-    def is_workflow_running(self) -> bool:
-        return (
-            self._task_worker_thread is not None and self._task_worker_thread.is_alive()
-        )
-
-    def _script_runner_is_busy(self) -> bool:
-        """Whether a user script is currently driving the microscope (FIB-340).
-
-        Reached through the parent window, which owns the Scripts menu. Absent in
-        the tests and in any host that never built one, so this stays optional
-        rather than asserting the attribute exists.
-        """
-        controller = getattr(self.parent_widget, "script_menu_controller", None)
-        return bool(controller is not None and controller.runner.is_running)
-
-    def _someone_else_in_control(self) -> bool:
-        """Whether someone is in control of the microscope (FIB-1270), a command
-        from the App Server say, so a run would be refused. Says so if so."""
-        current = self.microscope.control.current if self.microscope else None
-        if current is None:
-            return False
-        msg = f"Can't start the workflow: {current.describe()}."
-        logging.warning(msg)
-        notification_service.show_toast(msg, "warning")
-        return True
-
     def setup_connections(self):
 
         # lamella controls
@@ -437,6 +430,17 @@ class AutoLamellaUI(QMainWindow):
         # signals
         self.workflow_status_signal.connect(self.handle_workflow_status)
         self._workflow_finished_signal.connect(self._workflow_finished)  # type: ignore
+        # Every run starts and ends through the session's runner, whoever
+        # started it: the window hears the run's status, and redraws.
+        runner = self.session.runner
+        runner.starting.connect(self._on_run_starting)
+        runner.finished.connect(self._on_run_finished)
+        runner.notice.connect(self._on_run_notice)
+        runner.queue_changed.connect(self._on_run_queue_changed)
+        runner.status.connect(self._on_run_status)
+        runner.held.connect(self._on_run_held)
+        runner.pending.connect(self._on_run_pending)
+        runner.step.connect(self._on_run_step)
 
         # workflow info
         self.set_current_workflow_message(msg=None, show=False)
@@ -516,15 +520,15 @@ class AutoLamellaUI(QMainWindow):
         followed = self._stage_followed
         if followed is microscope:
             return
-        if followed is not None:
+        if followed is not None and followed.stage is not None:
             try:
-                followed.stage_position_changed.disconnect(
+                followed.stage.position.changed.disconnect(
                     self._on_stage_position_updated
                 )
             except Exception as e:
                 logging.debug(f"Could not disconnect microscope stage events: {e}")
-        if microscope is not None:
-            microscope.stage_position_changed.connect(self._on_stage_position_updated)
+        if microscope is not None and microscope.stage is not None:
+            microscope.stage.position.changed.connect(self._on_stage_position_updated)
         self._stage_followed = microscope
 
     def _disconnect_experiment_events(self) -> None:
@@ -586,7 +590,7 @@ class AutoLamellaUI(QMainWindow):
             notification_service.show_toast("Experiment creation cancelled.", "info")
             return
 
-        self._adopt_experiment(experiment)
+        self.adopt_experiment(experiment)
 
     def load_experiment(self) -> None:
         """Load an existing experiment using the experiment loading dialog."""
@@ -603,7 +607,7 @@ class AutoLamellaUI(QMainWindow):
             notification_service.show_toast("Experiment loading cancelled.", "info")
             return
 
-        self._adopt_experiment(experiment)
+        self.adopt_experiment(experiment)
 
     def quickstart(self, load_experiment: bool = False) -> None:
         """Connect to the microscope without waiting to be clicked (``--quickstart``).
@@ -657,12 +661,12 @@ class AutoLamellaUI(QMainWindow):
             notification_service.show_toast(msg, "warning")
             return
 
-        self._adopt_experiment(experiment)
+        self.adopt_experiment(experiment)
         logging.info(
             f"Quickload: loaded experiment {experiment.name} from {experiment_path}"
         )
 
-    def _adopt_experiment(self, experiment: Experiment) -> None:
+    def adopt_experiment(self, experiment: Experiment) -> None:
         """Make ``experiment`` the current one, and point logging at its logfile.
 
         The single place the app takes ownership of an experiment, whether it was
@@ -676,15 +680,10 @@ class AutoLamellaUI(QMainWindow):
         # Disconnect existing event subscribers if there's an existing experiment
         self._disconnect_experiment_events()
 
-        # Assign the experiment
-        self.experiment = experiment
+        self.session.adopt(experiment)
 
         experiment.configure_logging()
         logging.info(f"Logging to experiment {experiment.name} at {experiment.path}")
-        # getattr: the adoption tests drive this method on a stand-in window.
-        recorder = getattr(self, "_event_recorder", None)
-        if recorder is not None:
-            recorder.set_experiment(experiment.path, experiment)
 
         # Setup experiment connections and update UI
         self._setup_experiment_connections()
@@ -712,79 +711,43 @@ class AutoLamellaUI(QMainWindow):
     def _start_event_recorder(self) -> None:
         """Start recording events for this microscope connection, whatever else runs.
 
-        Never raises: the recording is a record of the connection, and failing to
-        keep one must not stop the connection being used.
-
         This is the slot for the system widget's ``connected_signal``, which fires
         whenever that widget refreshes while connected -- not once per connection
         -- so it can run again for a microscope that already has a stream, and
         that microscope keeps it. A different microscope (the connection dialog can
-        hand one back) gets a new stream, and a running App Server is stopped so
-        it restarts on the new buffer: left alone it would serve a closed one.
+        hand one back) gets a new stream, and the session stops a running App
+        Server so it restarts on the new buffer.
         """
-        recorder = self._event_recorder
-        if recorder is not None and recorder.microscope is self.microscope:
-            return
-        if self.microscope is None:
-            self._stop_event_recorder()
-            return
-        if recorder is not None:
-            host = self._app_server_host
-            if host is not None and host.running:
-                host.stop()
-            self._stop_event_recorder()
-        try:
-            from fibsem.acting import OPERATOR
-            from fibsem.applications.autolamella.event_recording import EventRecorder
-
-            self._event_recorder = EventRecorder(
-                self.microscope,
-                responder=getattr(self, "ui_responder", None),
-                experiment_path=self.experiment.path if self.experiment else None,
-                # tasks and the agent mark their own calls; the rest are the UI's
-                default_actor=OPERATOR,
-                experiment=self.experiment,
-            )
-        except Exception:
-            logging.exception("event stream failed to start; continuing without it")
-            self._event_recorder = None
-
-    def _stop_event_recorder(self) -> None:
-        if self._event_recorder is not None:
-            self._event_recorder.close()
-            self._event_recorder = None
+        self.session.start_recording()
 
     def closeEvent(self, event) -> None:
         """Closed on its own, as tests and scripts use it, the window closes its
         recorder, whose writer thread would otherwise run until the process
         ends. Embedded, it is never closed: the main window's closeEvent does
         this instead."""
-        self._stop_event_recorder()
+        self.session.stop_recording()
         super().closeEvent(event)
 
     def _start_app_server(self) -> None:
         """Host the App Server over this session, if the preference asks for it.
 
         The agent starts at Watch; never raises — an optional observer
-        must not be able to take the session down (see hosting.py).
+        must not be able to take the session down (see fibsem/server/hosting.py).
         """
         preference = fibsem_cfg.load_user_preferences().app_server
         if preference.enabled:
-            from fibsem.applications.autolamella.server.hosting import AppServerHost
+            from fibsem.applications.autolamella.server.context import (
+                AutoLamellaAppContext,
+            )
 
-            if self._app_server_microscope is None:
-                self._app_server_microscope = preference.microscope
-            if self._app_server_host is None:
-                self._app_server_host = AppServerHost(
-                    self, serve_microscope=self._app_server_microscope
+            if self.session.serve_microscope is None:
+                # the operator's choice in Tools → App Server is per session,
+                # like the agent level; it starts at the preference's default
+                self.session.serve_microscope = preference.microscope
+            self.session.start_app_server(
+                lambda buffer: AutoLamellaAppContext(
+                    self.session, window=self, event_buffer=buffer
                 )
-            recorder = self._event_recorder
-            self._app_server_host.start(
-                self.microscope,
-                event_buffer=recorder.buffer if recorder is not None else None,
-                lifecycle_hook=recorder.lifecycle_hook
-                if recorder is not None
-                else None,
             )
 
     def sync_app_server_with_preference(self) -> None:
@@ -795,7 +758,7 @@ class AutoLamellaUI(QMainWindow):
         server wraps it); without one this is a no-op and the connect path
         picks the preference up as before.
         """
-        host = self._app_server_host
+        host = self.session.app_server
         preference = fibsem_cfg.load_user_preferences().app_server
         if preference.enabled:
             if self.microscope is not None and (host is None or not host.running):
@@ -812,26 +775,18 @@ class AutoLamellaUI(QMainWindow):
         carry over, so a connected agent carries on.
         """
         serve = bool(serve)
-        if serve == self._app_server_microscope:
+        if serve == self.session.serve_microscope:
             return
-        self._app_server_microscope = serve
         logging.info(
             "App Server: the microscope %s by the operator",
             "served" if serve else "no longer served",
         )
-        host = self._app_server_host
-        if host is None or host.serve_microscope == serve:
-            return
-        was_running = host.running
-        host.stop()
-        self._app_server_host = None
-        if was_running and self.microscope is not None:
+        if self.session.set_serve_microscope(serve) and self.microscope is not None:
             self._start_app_server()
 
     def disconnect_from_microscope(self):
-        if self._app_server_host is not None:
-            self._app_server_host.stop()
-        self._stop_event_recorder()
+        self.session.stop_app_server()
+        self.session.stop_recording()
         self._follow_stage(None)
         self.microscope = None
         self.settings = None
@@ -865,9 +820,19 @@ class AutoLamellaUI(QMainWindow):
         Does nothing when no question is up, or when its prompt is the shared
         one the Microscope tab already shows.
         """
-        widget = self.ui_responder.question_host()
+        widget = self.question_host()
         if widget is not None:
             self.front_tab(widget)
+
+    def question_host(self):
+        """The tab the question now up is answered on, when it has one of its
+        own (a mill's pass, a detection); None when it is on the Microscope
+        tab, or nothing is up."""
+        return (
+            self.loop_question_host()
+            or self.widget_question_host()
+            or self.ui_responder.question_host()
+        )
 
     def update_microscope_ui(self):
         """Update the ui based on the current state of the microscope."""
@@ -878,6 +843,7 @@ class AutoLamellaUI(QMainWindow):
                 microscope=self.microscope,
                 image_settings=self.settings.image,  # type: ignore
                 parent=self,
+                images=self.session.images,
             )
             self.movement_widget = FibsemMovementWidget(
                 microscope=self.microscope,
@@ -1176,177 +1142,60 @@ class AutoLamellaUI(QMainWindow):
 
     #### TASK WORKFLOW
 
-    def _start_run_workflow_thread(
-        self, selected_tasks: List[str], selected_lamella: List[str]
-    ) -> None:
-        """Start the workflow thread with the selected tasks and lamella, and update the UI accordingly."""
+    def _on_run_starting(self, request) -> None:
+        """Where the run was started, before its thread starts."""
+        if self.milling_task_config_widget is not None:
+            self.milling_task_config_widget.clear()
 
-        # A user script may be driving the microscope right now. Scripts are already
-        # blocked while a workflow runs; this is the other direction, so the two
-        # cannot end up moving the stage at the same time (FIB-340).
-        if self._script_runner_is_busy():
-            msg = "A microscope script is running. Stop it before starting a workflow."
-            logging.warning(msg)
-            notification_service.show_toast(msg, "warning")
-            return
-        if self._someone_else_in_control():
-            return
+    def _on_run_finished(self, cancelled: bool) -> None:
+        """The run's thread: over to the GUI thread."""
+        self._workflow_finished_signal.emit(cancelled)  # type: ignore
 
-        # clear milling task config
-        self.milling_task_config_widget.clear()  # type: ignore
+    def _on_run_notice(self, message: str, notification_type: str) -> None:
+        """A hook's notice, from the run's thread: signals are thread-safe."""
+        self._hook_toast_signal.emit(message, notification_type)
 
-        # Start acquisition thread
-        self._task_worker_thread = FunctionWorker(
-            self._run_tasks_worker, selected_tasks, selected_lamella
-        )
-        self._task_worker_thread.start()
+    def _on_run_queue_changed(self, info: dict) -> None:
+        """The running queue was edited, from any thread: signals are
+        thread-safe."""
+        self.queue_changed_signal.emit(info)
 
-    def _start_run_grid_workflow_thread(
-        self,
-        task_names: List[str],
-        grid_names: Optional[List[str]],
-        inventory_first: bool = False,
-        unload_at_end: bool = False,
-        report_at_end: bool = False,
-    ) -> None:
-        """Start a grid run on the workflow thread: the lamella run's twin.
+    def _on_run_status(self, event: "WorkflowStatusEvent") -> None:
+        """A status line or a task's report, from the run's thread."""
+        self.workflow_status_signal.emit(event)
 
-        `grid_names` None with `inventory_first` is "Screen all grids": the worker
-        runs the inventory, records every present grid, and runs over them all.
-        `unload_at_end` and `report_at_end` are the confirmation's end-of-run
-        options, carried out by the manager.
-        Shares the worker slot, the manager slot and the finished signal with the
-        lamella run, so Stop, the timeline and the run summary work unchanged and
-        the two cannot overlap.
-        """
-        if self._script_runner_is_busy():
-            msg = "A microscope script is running. Stop it before starting a workflow."
-            logging.warning(msg)
-            notification_service.show_toast(msg, "warning")
-            return
-        if self._someone_else_in_control():
-            return
-        self._task_worker_thread = FunctionWorker(
-            self._run_grid_tasks_worker,
-            task_names,
-            grid_names,
-            inventory_first,
-            unload_at_end,
-            report_at_end,
-        )
-        self._task_worker_thread.start()
+    def _on_run_held(self, hold: Optional["Hold"]) -> None:
+        """Who holds the run, from the run's thread. Kept here for the chrome,
+        which the status line that follows redraws."""
+        self.hold = hold
 
-    def _run_grid_tasks_worker(
-        self,
-        task_names: List[str],
-        grid_names: Optional[List[str]],
-        inventory_first: bool,
-        unload_at_end: bool = False,
-        report_at_end: bool = False,
-    ) -> None:
-        """Worker thread for a grid run."""
-        from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-            GridTaskManager,
-        )
-        from fibsem.applications.autolamella.workflows.tasks.grid.screening import (
-            present_grids,
-        )
+    def _on_run_pending(self, pending: bool) -> None:
+        """Whether the run waits between tasks, from the run's thread."""
+        self.WORKFLOW_PENDING = pending
 
-        try:
-            self._workflow_stop_event.clear()
-            if self.microscope is None or self.experiment is None:
-                logging.error("No microscope or experiment loaded.")
-                return
-            # Made before the set-up below, as for a lamella run (FIB-1353).
-            self._task_manager = GridTaskManager(
-                microscope=self.microscope,
-                experiment=self.experiment,
-                parent_ui=self,
-                hook_manager=self.setup_hooks(),
-                unload_at_end=unload_at_end,
-                report_at_end=report_at_end,
-            )
-            # In control for the whole run, the inventory included (FIB-1270).
-            with self.microscope.control.take(WORKFLOW, "a grid run"):
-                if not self.microscope.is_on(BeamType.ELECTRON):
-                    self.microscope.turn_on(BeamType.ELECTRON)
-                if not self.microscope.is_on(BeamType.ION):
-                    self.microscope.turn_on(BeamType.ION)
-                if inventory_first:
-                    grid_names = present_grids(self.microscope, self.experiment)
-                logging.info(
-                    f"Starting grid tasks: {task_names}, for grids: {grid_names}"
-                )
-                if self._workflow_stop_event.is_set():
-                    self._task_manager.stop()
-                self._task_manager.run(task_names, grid_names)
-        except MicroscopeBusy as e:
-            logging.warning(f"Grid workflow not started: {e}")
-            self._end_unstarted_run(e)
-        except (InterruptedError, OperationCancelledError) as e:
-            logging.info(f"Grid workflow cancelled: {e}")
-            self._end_unstarted_run(e)
-        except Exception as e:
-            logging.error(f"Error during grid workflow: {e}", exc_info=True)
-            self._end_unstarted_run(e)
-        finally:
-            cancelled = self._task_manager is not None and self._task_manager.is_stopped
-            if self._task_manager is not None:
-                try:
-                    self._last_run_summary = (
-                        self._task_manager.build_run_summary_dataframe()
-                    )
-                except Exception as e:
-                    logging.warning(f"Failed to build grid run summary: {e}")
-                    self._last_run_summary = None
-                self._last_run_note = self._task_manager.closing_note()
-            self._task_manager = None
-            self._task_worker_thread = None
-            self._workflow_finished_signal.emit(cancelled)  # type: ignore
+    def _on_run_step(self, step: str) -> None:
+        """The step a task is on, from the run's thread."""
+        self.step_update_signal.emit(step)
 
-    def _end_unstarted_run(self, error: BaseException) -> None:
-        """Workflow thread. End a run that died in the set-up above before it
-        began, so whoever was told it started sees it end (FIB-1353)."""
-        manager = self._task_manager
-        if manager is None:
-            return
-        try:
-            manager.end_unstarted_run(error)
-        except Exception:
-            logging.exception("reporting the end of a run that never began failed")
-
-    def _marshal(self, apply, *args) -> None:
-        """Run ``apply(*args)`` on the GUI thread as whoever called this."""
-        from fibsem.acting import carried
-
-        self._agent_call.emit(carried(functools.partial(apply, *args)))
-
-    def _run_agent_call(self, call) -> None:
-        """GUI thread. Run a call :meth:`_marshal` sent."""
-        call()
-
-    def request_agent_call(self, call, select_latest: bool = False) -> "Future":
-        """Run ``call()`` on the GUI thread for an agent; any thread.
-
-        For the App Server's edits to the experiment (adding a lamella, setting a
-        pose): the experiment's listeners redraw widgets, so it is changed where
-        they live. Resolves to ``call``'s result, or its exception; the views are
-        refreshed afterwards, as after the Lamella tab's own buttons, selecting the
-        newest lamella when ``select_latest``.
-        """
+    def _run_on_gui_thread(self, call) -> "Future":
+        """The session's executor: ``call()`` on the GUI thread as whoever
+        called this; any thread. Resolves to its result, or its exception."""
         from concurrent.futures import Future as _Future
 
+        from fibsem.acting import carried
+
         outcome: "_Future" = _Future()
-        self._marshal(self._apply_agent_call, call, select_latest, outcome)
+        self._agent_call.emit(carried(functools.partial(_complete, call, outcome)))
         return outcome
 
-    def _apply_agent_call(self, call, select_latest: bool, outcome: "Future") -> None:
-        """GUI thread. Complete ``outcome`` with ``call()`` and redraw."""
-        try:
-            result = call()
-        except Exception as exc:  # noqa: BLE001 - the requester owns the failure
-            outcome.set_exception(exc)
-            return
+    def _run_agent_call(self, call) -> None:
+        """GUI thread. Run a call :meth:`_run_on_gui_thread` sent."""
+        call()
+
+    def after_agent_edit(self, select_latest: bool = False) -> None:
+        """GUI thread. Redraw after an agent's edit to the experiment (adding a
+        lamella, setting a pose), as after the Lamella tab's own buttons,
+        selecting the newest lamella when ``select_latest``."""
         try:
             self.update_lamella_combobox(latest=select_latest)
             self.update_ui()
@@ -1359,733 +1208,31 @@ class AutoLamellaUI(QMainWindow):
                 self.experiment.positions.events.changed.emit()
         except Exception:
             logging.exception("redraw after an agent's experiment edit failed")
-        outcome.set_result(result)
 
-    def request_start_workflow(
-        self, task_names: List[str], item_names: Optional[List[str]] = None
-    ) -> "Future":
-        """Start a workflow as the Run button would; any thread.
-
-        The agent-facing start: marshalled to the GUI thread (which owns the
-        worker creation and the window chrome), resolving to a plain dict —
-        ``{"started": True}`` or a structured refusal with the valid names.
-        The agent at Drive is the consent that replaces the Run click's
-        confirm dialog.
-        """
-        from concurrent.futures import Future as _Future
-
-        outcome: "_Future" = _Future()
-        self._marshal(
-            self._apply_agent_start_workflow, list(task_names), item_names, outcome
-        )
-        return outcome
-
-    def _apply_agent_start_workflow(
-        self, task_names: List[str], item_names, outcome: "Future"
-    ) -> None:
-        """GUI thread. Complete ``outcome`` with the start result."""
-        try:
-            result = self._start_workflow_for_agent(task_names, item_names)
-        except Exception as exc:  # noqa: BLE001 - the requester owns the failure
-            outcome.set_exception(exc)
-            return
-        outcome.set_result(result)
-
-    def _start_workflow_for_agent(
-        self, task_names: List[str], item_names: Optional[List[str]]
-    ) -> dict:
-        """Validate and start, mirroring the Run click's path (GUI thread)."""
-        if self.is_workflow_running:
-            return {"started": False, "reason": "a workflow is already running"}
-        if self.microscope is None:
-            return {"started": False, "reason": "no microscope is connected"}
-        experiment = self.experiment
-        protocol = self.protocol
-        if experiment is None or protocol is None:
-            return {"started": False, "reason": "no experiment is loaded"}
-        known_tasks = [t.name for t in protocol.workflow_config.tasks]
-        unknown = [t for t in task_names if t not in known_tasks]
-        if not task_names or unknown:
-            return {
-                "started": False,
-                "reason": f"unknown tasks: {unknown!r}" if unknown else "no tasks",
-                "task_names": known_tasks,
-            }
-        known_items = [p.name for p in experiment.positions]
-        if item_names is not None:
-            missing = [n for n in item_names if n not in known_items]
-            if missing:
-                return {
-                    "started": False,
-                    "reason": f"unknown items: {missing!r}",
-                    "item_names": known_items,
-                }
-        names = list(item_names) if item_names is not None else known_items
-        # The Run click's grid gate: a lamella whose grid is not on the stage
-        # is refused by name, with no override, before anything moves.
-        refused = self.lamella_run_refusal(
-            [p for p in experiment.positions if p.name in names]
-        )
-        if refused:
-            return {"started": False, "reason": refused}
-        # The chrome the Run click supplies around the shared start. Guarded:
-        # the standalone window has no parent to decorate.
-        parent = self.parent_widget
-        if parent is not None:
-            try:
-                # FIB-683 one-writer rule: land any edit still in the editor
-                # before the run's thread becomes the experiment's writer.
-                parent.lamella_widget.flush_pending_save()
-            except Exception:
-                logging.exception("flush before agent start failed; continuing")
-        self._start_run_workflow_thread(task_names, names)
-        started = self.is_workflow_running
-        if started and parent is not None:
-            try:
-                supervised = (
-                    protocol.get_attention(task_names[0]) is Attention.supervised
-                )
-                parent._set_border_state("supervised" if supervised else "automated")
-                # Show the Stop button immediately — a remotely started run
-                # must be just as cancellable as a clicked one.
-                parent.set_workflow_running()
-            except Exception:
-                logging.exception("window chrome after agent start failed")
-        return {"started": started}
-
-    def lamella_run_refusal(self, lamellae) -> str:
-        """Why these lamellae cannot run now, or "": a lamella linked to a grid
-        that is not on the stage. Reads the inventory first; see `grid_gate`.
-
-        The one gate for the Run click, Add to queue and the agent's start and
-        requeue, so none of them can run a lamella on the wrong grid.
-        """
-        stage = getattr(self.microscope, "sample_handling", None)
-        if self.experiment is None or stage is None:
-            return ""
-        return run_refusal(self.experiment, stage, lamellae)
-
-    def request_start_grid_workflow(
-        self,
-        task_names: List[str],
-        grid_names: Optional[List[str]] = None,
-        inventory_first: bool = False,
-        unload_at_end: bool = False,
-        report_at_end: bool = False,
-    ) -> "Future":
-        """Start a grid run as the Grids view's Run (or Screen all grids) would;
-        any thread. Same marshal as :meth:`request_start_workflow`.
-        ``unload_at_end`` and ``report_at_end`` are the confirmation's
-        end-of-run options."""
-        from concurrent.futures import Future as _Future
-
-        outcome: "_Future" = _Future()
-        self._marshal(
-            self._apply_agent_start_grid_workflow,
-            list(task_names),
-            grid_names,
-            bool(inventory_first),
-            bool(unload_at_end),
-            bool(report_at_end),
-            outcome,
-        )
-        return outcome
-
-    def _apply_agent_start_grid_workflow(
-        self,
-        task_names: List[str],
-        grid_names,
-        inventory_first: bool,
-        unload_at_end: bool,
-        report_at_end: bool,
-        outcome,
-    ) -> None:
-        """GUI thread. Complete ``outcome`` with the start result."""
-        try:
-            result = self._start_grid_workflow_for_agent(
-                task_names, grid_names, inventory_first, unload_at_end, report_at_end
-            )
-        except Exception as exc:  # noqa: BLE001 - the requester owns the failure
-            outcome.set_exception(exc)
-            return
-        outcome.set_result(result)
-
-    def _start_grid_workflow_for_agent(
-        self,
-        task_names: List[str],
-        grid_names: Optional[List[str]],
-        inventory_first: bool,
-        unload_at_end: bool = False,
-        report_at_end: bool = False,
-    ) -> dict:
-        """Validate and start, mirroring the Grids view's Run path (GUI thread).
-
-        One worker slot serves lamella and grid runs alike, so "a workflow is
-        already running" refuses either kind. ``inventory_first`` is "Screen
-        all grids": the worker inventories and runs over every present grid,
-        so ``grid_names`` must be omitted; otherwise omitted grids means every
-        grid the experiment records, as the manager's own default does.
-        """
-        from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-            plan_grid_run,
-        )
-
-        if self.is_workflow_running:
-            return {"started": False, "reason": "a workflow is already running"}
-        if self.microscope is None:
-            return {"started": False, "reason": "no microscope is connected"}
-        experiment = self.experiment
-        if experiment is None or experiment.task_protocol is None:
-            return {"started": False, "reason": "no experiment is loaded"}
-        known_tasks = list(experiment.grid_protocol.ordered_task_names)
-        unknown = [t for t in task_names if t not in known_tasks]
-        if not task_names or unknown:
-            return {
-                "started": False,
-                "reason": f"unknown grid tasks: {unknown!r}" if unknown else "no tasks",
-                "task_names": known_tasks,
-            }
-        known_grids = [g.name for g in experiment.grids]
-        if inventory_first:
-            if grid_names is not None:
-                return {
-                    "started": False,
-                    "reason": "screen_all runs over every present grid; "
-                    "do not name grids with it",
-                }
-        elif grid_names is None:
-            grid_names = known_grids
-        else:
-            missing = [n for n in grid_names if n not in known_grids]
-            if missing:
-                return {
-                    "started": False,
-                    "reason": f"unknown grids: {missing!r}",
-                    "grid_names": known_grids,
-                }
-        if not inventory_first and not grid_names:
-            return {"started": False, "reason": "no grids", "grid_names": known_grids}
-        parent = self.parent_widget
-        if parent is not None:
-            try:
-                # FIB-683 one-writer rule, as the Grids view's Run does.
-                parent.lamella_widget.flush_pending_save()
-            except Exception:
-                logging.exception("flush before agent grid start failed; continuing")
-        self._start_run_grid_workflow_thread(
-            task_names,
-            list(grid_names) if grid_names is not None else None,
-            inventory_first,
-            unload_at_end=unload_at_end,
-            report_at_end=report_at_end,
-        )
-        started = self.is_workflow_running
-        if started and parent is not None:
-            try:
-                parent._set_border_state("automated")
-                parent.set_workflow_running()
-            except Exception:
-                logging.exception("window chrome after agent grid start failed")
-        result = {"started": started, "screen_all": inventory_first}
-        if not inventory_first:
-            result["plan"] = [
-                {"grid": grid, "step": step}
-                for grid, step in plan_grid_run(task_names, grid_names or [])
-            ]
-        return result
-
-    def request_apply_task_config_patch(
-        self, item_name: str, task_name: str, patch: dict, version: str
-    ) -> "Future":
-        """Patch an item's task config as an operator edit would land; any thread.
-
-        Marshalled to the GUI thread — the thread that owns the editor and the
-        experiment's writer seat — resolving to a plain dict: the applied
-        changes, or a structured refusal (stale version, invalid patch,
-        unknown names). The agent at Drive is the consent.
-        """
-        from concurrent.futures import Future as _Future
-
-        outcome: "_Future" = _Future()
-        self._marshal(
-            self._apply_agent_config_patch,
-            "item",
-            item_name,
-            task_name,
-            patch,
-            version,
-            outcome,
-        )
-        return outcome
-
-    def request_apply_item_patch(
-        self, item_name: str, patch: dict, version: str
-    ) -> "Future":
-        """Patch an item's own document (geometry, verdict, notes); any thread.
-
-        Same marshal as the config patches; the editable set is
-        ITEM_PATCH_FIELDS, and the version comes from item_detail.
-        """
-        from concurrent.futures import Future as _Future
-
-        outcome: "_Future" = _Future()
-        self._marshal(
-            self._apply_agent_config_patch,
-            "item_fields",
-            item_name,
-            "",
-            patch,
-            version,
-            outcome,
-        )
-        return outcome
-
-    def request_reorder_milling_stages(
-        self,
-        level: str,
-        item_name: str,
-        task_name: str,
-        milling_key: str,
-        order,
-        version: str,
-    ) -> "Future":
-        """Reorder one milling config's stages; any thread.
-
-        Structure, so a verb: the same elements in a new sequence, named by
-        stage name, against the config version the caller read. ``level`` is
-        "item" or "protocol".
-        """
-        from concurrent.futures import Future as _Future
-
-        outcome: "_Future" = _Future()
-        self._marshal(
-            self._apply_agent_config_patch,
-            "reorder_stages",
-            item_name,
-            task_name,
-            {"level": level, "milling_key": milling_key, "order": list(order)},
-            version,
-            outcome,
-        )
-        return outcome
-
-    def request_apply_protocol_to_item(self, item_name: str, task_names) -> "Future":
-        """Re-copy protocol task configs onto an existing item; any thread.
-
-        The agent's form of the editor's apply dialog: protocol-level edits
-        only reach items created after them, and this is the verb that brings
-        an existing item up to date. ``task_names`` of None means every task
-        the protocol defines.
-        """
-        from concurrent.futures import Future as _Future
-
-        outcome: "_Future" = _Future()
-        self._marshal(
-            self._apply_agent_config_patch,
-            "apply_protocol",
-            item_name,
-            "",
-            {"task_names": task_names},
-            "",
-            outcome,
-        )
-        return outcome
-
-    def request_apply_protocol_task_config_patch(
-        self, task_name: str, patch: dict, version: str
-    ) -> "Future":
-        """Patch a task's protocol-level defaults; any thread.
-
-        Same marshal and rules as the per-item form; the document edited is
-        what new items copy, so a running task is never affected (it holds
-        its item's copy) and no task-running guard applies.
-        """
-        from concurrent.futures import Future as _Future
-
-        outcome: "_Future" = _Future()
-        self._marshal(
-            self._apply_agent_config_patch,
-            "protocol",
-            "",
-            task_name,
-            patch,
-            version,
-            outcome,
-        )
-        return outcome
-
-    def _apply_agent_config_patch(
-        self,
-        level: str,
-        item_name: str,
-        task_name: str,
-        patch,
-        version: str,
-        outcome: "Future",
-    ) -> None:
-        """GUI thread. Complete ``outcome`` with the patch result."""
-        from fibsem.acting import AGENT, acting
-        from fibsem.applications.autolamella.ui.edit_recording import (
-            PendingEdits,
-            touch_agent_patch,
-        )
-
-        # The agent's edit, applied here on its behalf: the record says who
-        # (FIB-1062) and what changed, before and after (FIB-1034).
-        edits = PendingEdits(lambda: self.microscope, via="agent patch")
-        with acting(AGENT):
-            touch_agent_patch(
-                edits, self.experiment, level, item_name, task_name, patch
-            )
-            try:
-                result = self._apply_task_config_patch_for_agent(
-                    level, item_name, task_name, patch, version
-                )
-            except Exception as exc:  # noqa: BLE001 - the requester owns the failure
-                outcome.set_exception(exc)
-                return
-            finally:
-                edits.flush()
-        outcome.set_result(result)
-
-    def _apply_task_config_patch_for_agent(
-        self, level: str, item_name: str, task_name: str, patch: dict, version: str
-    ) -> dict:
-        """Validate against the live config and apply, all on the GUI thread.
-
-        The version check sits beside the apply on the one thread that edits
-        configs, so nothing can change between check and set. Before checking,
-        any edit still sitting in the editors is flushed (the FIB-683
-        one-writer rule, same as the agent workflow start): if the operator's
-        pending edit changes this config, the agent's version goes stale and
-        the refusal — not a silent merge — resolves the race. After a
-        successful apply, whichever editor is displaying this config is
-        rebuilt (no stale form survives to write old values back) and a toast
-        tells the operator what changed.
-        """
-        from fibsem.applications.autolamella.server.context import config_version
-        from fibsem.applications.autolamella.server.events import to_plain
-        from fibsem.server.config_patch import PatchError, apply_patch
-
+    def before_config_edit(self) -> None:
+        """GUI thread. Before an agent's config edit: flush any edit still
+        sitting in the editors (the FIB-683 one-writer rule), so an operator
+        edit that changes the same config makes the agent's version stale."""
         parent = self.parent_widget
         if parent is not None:
             try:
                 parent.lamella_widget.flush_pending_save()
             except Exception:
-                logging.exception("flush before agent config patch failed; continuing")
+                logging.exception("flush before agent config edit failed; continuing")
 
-        experiment = self.experiment
-        if experiment is None:
-            return {"applied": False, "error": "no experiment is loaded"}
-        if level == "item_fields":
-            return self._apply_item_fields_patch(experiment, item_name, patch, version)
-        if level == "reorder_stages":
-            return self._reorder_milling_stages(
-                experiment, item_name, task_name, patch, version
-            )
+    def after_config_edit(
+        self, level: str, item_name: str, task_name: str, result: dict
+    ) -> None:
+        """GUI thread. After an agent's config edit applied: rebuild the
+        editor showing it and toast the change."""
         if level == "apply_protocol":
-            return self._apply_protocol_to_item(
-                experiment, item_name, patch.get("task_names")
-            )
-        if level == "protocol":
-            protocol = getattr(experiment, "task_protocol", None)
-            config_map = getattr(protocol, "task_config", None)
-            if config_map is None:
-                return {"applied": False, "error": "no protocol is loaded"}
-            config = dict(config_map).get(task_name)
-            if config is None:
-                return {
-                    "applied": False,
-                    "error": f"No task named {task_name!r} in the protocol.",
-                    "task_names": list(config_map.keys()),
-                }
-        else:
-            from fibsem.applications.autolamella.server.context import find_item
+            self._show_agent_protocol_apply(item_name, result.get("task_names") or [])
+            return
+        changes = [(c["path"], c["old"], c["new"]) for c in result.get("changes") or []]
+        if changes:
+            self._show_agent_config_patch(level, item_name, task_name, changes)
 
-            lamella, refusal = find_item(experiment, item_name)
-            if refusal:
-                return {"applied": False, **refusal}
-            config = dict(lamella.task_config).get(task_name)
-            if config is None:
-                return {
-                    "applied": False,
-                    "error": f"No task config named {task_name!r} on {item_name!r}.",
-                    "task_names": list(lamella.task_config.keys()),
-                }
-        if config_version(config) != version:
-            return {"applied": False, "stale": True}
-        try:
-            changes = apply_patch(config, patch)
-        except PatchError as exc:
-            return {
-                "applied": False,
-                "invalid_patch": str(exc),
-                "path": exc.path,
-            }
-        where = f"{item_name} / {task_name}" if level == "item" else task_name
-        logging.info(
-            f"agent config patch applied ({level}): {where}: "
-            + ", ".join(f"{p}: {old!r} -> {new!r}" for p, old, new in changes)
-        )
-        # Persist now: an operator edit rides the editor's debounced save, but
-        # a patch has no editor session to coalesce with — without this write
-        # the change lives only in memory and a restart silently reverts it
-        # (observed live). One request, one write; protocol-level edits also
-        # rewrite protocol.yaml, exactly as the protocol editor's saves do.
-        saved = True
-        try:
-            experiment.save(save_protocol=(level == "protocol"))
-        except Exception:
-            saved = False
-            logging.exception(
-                "save after agent config patch failed; the change is applied "
-                "in memory but not yet on disk"
-            )
-        self._show_agent_config_patch(level, item_name, task_name, changes)
-        result = {
-            "applied": True,
-            "saved": saved,
-            "task_name": task_name,
-            "changes": [
-                {"path": p, "old": to_plain(old), "new": to_plain(new)}
-                for p, old, new in changes
-            ],
-            "version": config_version(config),
-        }
-        if level == "item":
-            result["item_name"] = item_name
-        return result
-
-    def _apply_item_fields_patch(
-        self, experiment, item_name: str, patch: dict, version: str
-    ) -> dict:
-        """Patch the lamella's own editable fields. GUI thread.
-
-        Allowlisted to ITEM_PATCH_FIELDS — poses, ids, paths and history are
-        not editable through any agent surface. Alignment validity is checked
-        after the apply and reverted on failure (the engine's own checks are
-        per-field; a rectangle is only judgeable whole). A defect edit stamps
-        ``updated_at``, so the verdict record carries when it was changed.
-        """
-        from fibsem.applications.autolamella.server.context import (
-            ITEM_PATCH_FIELDS,
-            find_item,
-            item_fields_version,
-        )
-        from fibsem.applications.autolamella.server.events import to_plain
-        from fibsem.server.config_patch import PatchError, apply_patch
-
-        lamella, refusal = find_item(experiment, item_name)
-        if refusal:
-            return {"applied": False, **refusal}
-        for path in patch:
-            if path.split(".", 1)[0] not in ITEM_PATCH_FIELDS:
-                return {
-                    "applied": False,
-                    "invalid_patch": f"{path!r} is not an editable item field; "
-                    f"editable: {sorted(ITEM_PATCH_FIELDS)}",
-                    "path": path,
-                }
-        if item_fields_version(lamella) != version:
-            return {"applied": False, "stale": True}
-        try:
-            changes = apply_patch(
-                lamella,
-                patch,
-                none_types={"description": str},
-            )
-        except PatchError as exc:
-            return {"applied": False, "invalid_patch": str(exc), "path": exc.path}
-        area = lamella.alignment_area
-        if area is not None and not area.is_valid_reduced_area:
-            for path, old, _new in reversed(changes):
-                apply_patch(
-                    lamella, {path: old if not hasattr(old, "name") else old.name}
-                )
-            return {
-                "applied": False,
-                "invalid_patch": "the patched alignment area is out of bounds "
-                "(left/top >= 0, width/height > 0, inside the frame); "
-                "nothing was applied.",
-                "path": None,
-            }
-        if any(p.split(".", 1)[0] == "defect" for p, _o, _n in changes):
-            from fibsem.util.timestamps import now
-
-            lamella.defect.updated_at = now()
-        # Moving the POI moves what is attached to it: the GUI's move path
-        # calls sync_tasks_to_poi (patterns with sync_to_poi follow the
-        # point); a patch that bypassed it left rough/polishing patterns
-        # detached from the new POI — found live. Same domain call, same
-        # ordering (poi first, then sync).
-        synced_tasks = []
-        if any(p.split(".", 1)[0] == "poi" for p, _o, _n in changes):
-            try:
-                synced_tasks = list(lamella.sync_tasks_to_poi())
-            except Exception:
-                logging.exception("pattern sync after POI patch failed")
-        # Moving the area moves the fiducial not milled yet, as Setup does
-        # when it chooses the area (FIB-1430).
-        if any(p.split(".", 1)[0] == "alignment_area" for p, _o, _n in changes):
-            from fibsem.applications.autolamella.workflows.tasks.fiducial import (
-                follow_alignment_area,
-            )
-
-            try:
-                synced_tasks += follow_alignment_area(lamella)
-            except Exception:
-                logging.exception("fiducial sync after alignment area patch failed")
-        logging.info(
-            f"agent item patch applied: {item_name}: "
-            + ", ".join(f"{p}: {old!r} -> {new!r}" for p, old, new in changes)
-            + (f" (patterns synced: {', '.join(synced_tasks)})" if synced_tasks else "")
-        )
-        saved = True
-        try:
-            experiment.save()
-        except Exception:
-            saved = False
-            logging.exception(
-                "save after agent item patch failed; the change is applied "
-                "in memory but not yet on disk"
-            )
-        self._show_agent_config_patch("item_fields", item_name, item_name, changes)
-        return {
-            "applied": True,
-            "saved": saved,
-            "item_name": item_name,
-            "synced_tasks": synced_tasks,
-            "changes": [
-                {"path": p, "old": to_plain(old), "new": to_plain(new)}
-                for p, old, new in changes
-            ],
-            "version": item_fields_version(lamella),
-        }
-
-    def _reorder_milling_stages(
-        self, experiment, item_name: str, task_name: str, payload: dict, version: str
-    ) -> dict:
-        """Reorder stages inside one milling config. GUI thread.
-
-        Same-set-by-name and version-guarded: this can never add, drop, or
-        duplicate a stage, and never reorders a config the caller hasn't
-        seen. Stage names must be unique to reorder by name at all.
-        """
-        from fibsem.applications.autolamella.server.context import config_version
-
-        level = payload.get("level", "item")
-        milling_key = payload.get("milling_key")
-        order = payload.get("order") or []
-        if level == "protocol":
-            protocol = getattr(experiment, "task_protocol", None)
-            config_map = getattr(protocol, "task_config", None)
-            if config_map is None:
-                return {"applied": False, "error": "no protocol is loaded"}
-            config = dict(config_map).get(task_name)
-        else:
-            from fibsem.applications.autolamella.server.context import find_item
-
-            lamella, refusal = find_item(experiment, item_name)
-            if refusal:
-                return {"applied": False, **refusal}
-            config = dict(lamella.task_config).get(task_name)
-        if config is None:
-            return {
-                "applied": False,
-                "error": f"No task config named {task_name!r}.",
-            }
-        milling = getattr(config, "milling", None) or {}
-        if milling_key not in milling:
-            return {
-                "applied": False,
-                "invalid_patch": f"{milling_key!r} is not a milling config of "
-                f"{task_name!r}; known: {sorted(milling.keys())}",
-                "path": milling_key,
-            }
-        if config_version(config) != version:
-            return {"applied": False, "stale": True}
-        stages = milling[milling_key].stages
-        names = [s.name for s in stages]
-        if len(set(names)) != len(names):
-            return {
-                "applied": False,
-                "invalid_patch": "stage names are not unique; reorder by "
-                "name is ambiguous — rename the stages first.",
-                "path": milling_key,
-            }
-        if sorted(order) != sorted(names):
-            return {
-                "applied": False,
-                "invalid_patch": f"order must be exactly the current stages "
-                f"in a new sequence; current: {names}",
-                "path": milling_key,
-            }
-        by_name = {s.name: s for s in stages}
-        milling[milling_key].stages = [by_name[n] for n in order]
-        logging.info(
-            f"agent reordered stages ({level}): "
-            f"{item_name or 'protocol'} / {task_name} / {milling_key}: "
-            f"{names} -> {order}"
-        )
-        saved = True
-        try:
-            experiment.save(save_protocol=(level == "protocol"))
-        except Exception:
-            saved = False
-            logging.exception("save after stage reorder failed")
-        changes = [(f"milling.{milling_key}.stages", names, list(order))]
-        self._show_agent_config_patch(level, item_name, task_name, changes)
-        return {
-            "applied": True,
-            "saved": saved,
-            "task_name": task_name,
-            "milling_key": milling_key,
-            "order": list(order),
-            "version": config_version(config),
-        }
-
-    def _apply_protocol_to_item(self, experiment, item_name: str, task_names) -> dict:
-        """Deep-copy protocol task configs onto one item. GUI thread.
-
-        Mirrors what creation does: the copy, then ``_sync_imaging_paths`` so
-        the copied milling acquisitions write into this lamella's directory
-        rather than wherever the protocol document pointed. Wholesale by
-        design — this verb IS "replace with the defaults" — so no version
-        dance; the refusals are unknown names and running tasks.
-        """
-        from copy import deepcopy as _deepcopy
-
-        from fibsem.applications.autolamella.server.context import find_item
-
-        lamella, refusal = find_item(experiment, item_name)
-        if refusal:
-            return {"applied": False, **refusal}
-        protocol = getattr(experiment, "task_protocol", None)
-        config_map = getattr(protocol, "task_config", None)
-        if config_map is None:
-            return {"applied": False, "error": "no protocol is loaded"}
-        names = list(task_names) if task_names else list(config_map.keys())
-        unknown = [n for n in names if n not in config_map]
-        if unknown:
-            return {
-                "applied": False,
-                "error": f"Not in the protocol: {unknown!r}.",
-                "task_names": list(config_map.keys()),
-            }
-        for name in names:
-            lamella.task_config[name] = _deepcopy(config_map[name])
-        lamella._sync_imaging_paths()
-        logging.info(f"agent applied protocol to {item_name}: {', '.join(names)}")
-        saved = True
-        try:
-            experiment.save()
-        except Exception:
-            saved = False
-            logging.exception(
-                "save after protocol apply failed; the change is applied "
-                "in memory but not yet on disk"
-            )
-        parent = self.parent_widget
+    def _show_agent_protocol_apply(self, item_name: str, names) -> None:
         try:
             notification_service.show(
                 f"Agent applied protocol to {item_name} — {', '.join(names)}",
@@ -2093,17 +1240,12 @@ class AutoLamellaUI(QMainWindow):
             )
         except Exception:
             logging.exception("toast after protocol apply failed")
+        parent = self.parent_widget
         if parent is not None:
             try:
                 parent.lamella_widget.refresh_if_showing(item_name)
             except Exception:
                 logging.exception("editor refresh after protocol apply failed")
-        return {
-            "applied": True,
-            "saved": saved,
-            "item_name": item_name,
-            "task_names": names,
-        }
 
     def _show_agent_config_patch(
         self, level: str, item_name: str, task_name: str, changes
@@ -2144,161 +1286,31 @@ class AutoLamellaUI(QMainWindow):
         except Exception:
             logging.exception("editor refresh after agent config patch failed")
 
-    def _run_tasks_worker(
-        self, task_names: List[str], lamella_names: Optional[List[str]] = None
-    ) -> None:
-        """Worker thread for task worker."""
-        try:
-            self._workflow_stop_event.clear()
-            if self.microscope is None or self.experiment is None:
-                logging.error("No microscope or experiment loaded.")
-                return
-
-            # Made before the set-up below, so a failure in it still ends the
-            # run with an event (FIB-1353).
-            self._task_manager = TaskManager(
-                microscope=self.microscope,
-                experiment=self.experiment,
-                parent_ui=self,
-                hook_manager=self.setup_hooks(),
-            )
-            # In control for the whole run, beams on included (FIB-1270).
-            with self.microscope.control.take(WORKFLOW, "a lamella run"):
-                # turn beams on if required
-                if not self.microscope.is_on(BeamType.ELECTRON):
-                    self.microscope.turn_on(BeamType.ELECTRON)
-                if not self.microscope.is_on(BeamType.ION):
-                    self.microscope.turn_on(BeamType.ION)
-
-                logging.info(
-                    f"Starting tasks: {task_names}, for lamella: {lamella_names}"
-                )
-                # Honor a stop requested before the manager existed (clicked
-                # as the worker started, while _task_manager was still None).
-                if self._workflow_stop_event.is_set():
-                    self._task_manager.stop()
-                self._task_manager.run(
-                    task_names=task_names,
-                    required_lamella=lamella_names,
-                )
-        except MicroscopeBusy as e:
-            logging.warning(f"Workflow not started: {e}")
-            self._end_unstarted_run(e)
-        except (InterruptedError, OperationCancelledError) as e:
-            # A user Stop, not a failure: both cancellation types unwind through
-            # here, and anyone scanning the log for problems (or filtering on
-            # ERROR) must not see one per Stop press. The task layer has already
-            # recorded the outcome as Cancelled; this is the worker's exit note.
-            logging.info(f"Workflow cancelled: {e}")
-            self._end_unstarted_run(e)
-        except Exception as e:
-            logging.error(f"Error during running tasks: {e}", exc_info=True)
-            self._end_unstarted_run(e)
-
-        finally:
-            cancelled = self._task_manager is not None and self._task_manager.is_stopped
-            # capture the per-run summary before the manager is torn down
-            if self._task_manager is not None:
-                try:
-                    self._last_run_summary = (
-                        self._task_manager.build_run_summary_dataframe()
-                    )
-                except Exception as e:
-                    logging.warning(f"Failed to build workflow run summary: {e}")
-                    self._last_run_summary = None
-                self._last_run_note = self._task_manager.closing_note()
-            self._task_manager = None
-            self._task_worker_thread = None
-            self._workflow_finished_signal.emit(cancelled)  # type: ignore
-
-    def stop_task_workflow(self):
-        if not self.is_workflow_running:
+    def stop_task_workflow(self, actor=None, via: str = "") -> None:
+        """Stop the run and bring the hardware to a halt; ``actor`` and ``via``
+        say who stopped it and from where, for the record (``runner.stop``)."""
+        if not self.session.runner.is_running:
             return
-        self._stop_workflow_thread()
+        self.session.runner.stop(actor=actor, via=via)
+        self.stop_current_operations()
+        self.workflow_stopping_signal.emit()
 
-    def stop_current_task(self) -> None:
+    def stop_current_task(self, actor=None, via: str = "", **details) -> None:
         """Abandon the task now running and carry on with the rest of the queue.
 
         Stop Task's two halves, as Stop Workflow has them: tell the queue this
         task is being abandoned, and bring the hardware to a halt. Without the
         second, the task stops waiting for the mill but the mill keeps going.
         """
-        if self._task_manager is not None:
-            self._task_manager.stop_task()
+        self.session.runner.stop_task(actor=actor, via=via, **details)
         self.stop_current_operations()
-
-    def setup_hooks(self) -> HookManager:
-        """Build the HookManager for one workflow run.
-
-        Called per run from the workflow worker, not once at startup, so the hook set is
-        rebuilt each time — which is what will let a user's saved configuration take
-        effect on the next run without a restart, and means the config dialog can never
-        be editing a manager a running workflow is holding. See FIB-497.
-
-        The hook set comes from the user's saved configuration when there is one, and
-        from hook_defaults.default_hooks() when there is not. Re-read here rather than
-        cached at startup, so editing user-preferences.yaml by hand takes effect on the
-        next run of a workflow instead of needing a restart.
-
-        Code-registered hooks go after: a configuration load replaces the *defaults*,
-        and must never be able to remove a hook that only exists in Python.
-        """
-        preferences = fibsem_cfg.load_user_preferences()
-        manager = build_hook_manager(preferences.hooks)
-
-        # The event stream's lifecycle feed is registered by the task manager for
-        # its run, the same path a run without the GUI takes (FIB-1044). The agent
-        # server shares the recorder's hook; one of its own (a host started
-        # without a recorder) is registered here, per run, as before.
-        recorder = self._event_recorder
-        host = self._app_server_host
-        if (
-            host is not None
-            and host.running
-            and host.lifecycle_hook is not None
-            and (recorder is None or host.lifecycle_hook is not recorder.lifecycle_hook)
-        ):
-            manager.register(host.lifecycle_hook)
-
-        # Deliberately not registered yet. The trigger is proven end to end and the
-        # writer is tested, but completion-summary.json is a placeholder for the real
-        # artifacts (the PDF and the overview PNG), and turning it on here would start
-        # writing a throwaway file into every user's lamella directories. Re-enable when
-        # the artifact is the one people actually want -- see FIB-461. Three imports at
-        # the top of this file come back with it: write_completion_summary, and
-        # FunctionHook + HookEvent from fibsem.hooks.
-        #
-        # Per lamella, not per experiment: a lamella is what gets delivered, and an
-        # experiment with one abandoned lamella never reaches completion at all, so
-        # hanging the artifact off the experiment would mean it was almost never
-        # written.
-        #
-        # A FunctionHook rather than a template-driven one because this needs the
-        # experiment itself, which the context deliberately does not carry -- the path
-        # is derivable from the record, and in-process hooks can reach the record. A
-        # webhook could not, which is the distinction.
-        #
-        # HookManager.fire contains what this raises, so a summary that cannot be
-        # written is logged and the run carries on. FIB-461 asks for exactly that, and
-        # it comes for free rather than needing a second guard here.
-        #
-        # manager.register(
-        #     FunctionHook(
-        #         name="completion_summary",
-        #         events=[HookEvent.ITEM_COMPLETED],
-        #         callback=lambda ctx: write_completion_summary(self.experiment, ctx),
-        #     )
-        # )
-        # Signals are thread-safe to emit; hooks fire on the task worker thread.
-        manager.set_notifier(self._hook_toast_signal.emit)
-        return manager
 
     #### UI UPDATES
 
     def update_ui(self):
         """Update the ui based on the current state of the application."""
 
-        if self.is_workflow_running:
+        if self.session.runner.is_running:
             self.selected_lamella_widget.setEnabled(False)
 
             return
@@ -2332,13 +1344,13 @@ class AutoLamellaUI(QMainWindow):
             self.selected_lamella_widget.set_lamella(None)
 
         # disable lamella controls while workflow is running
-        self.selected_lamella_widget.setEnabled(not self.is_workflow_running)
+        self.selected_lamella_widget.setEnabled(not self.session.runner.is_running)
 
         # Current Lamella Status
         if has_lamella and self.experiment is not None:
             self.update_lamella_ui()
 
-        if self.is_workflow_running:
+        if self.session.runner.is_running:
             return
 
         # Nothing to say while idle. The same guidance is in the window's status
@@ -2356,17 +1368,10 @@ class AutoLamellaUI(QMainWindow):
 
         self.update_ui()
 
-    def _on_workflow_options_changed(self, options: AutoLamellaWorkflowOptions):
-        if self.experiment is None or self.experiment.task_protocol is None:
-            return
-        self.experiment.task_protocol.options = options
-        self.experiment.save()
-        self.experiment.save_protocol()
-
     def update_lamella_combobox(self, latest: bool = False):
         if self.experiment is None:
             return
-        if self.is_workflow_running:
+        if self.session.runner.is_running:
             return
 
         # detail lamella list
@@ -2387,7 +1392,7 @@ class AutoLamellaUI(QMainWindow):
         if self.protocol is None:
             return
 
-        if self.is_workflow_running:
+        if self.session.runner.is_running:
             return
 
         idx = self.lamella_list.selected_index
@@ -2440,13 +1445,6 @@ class AutoLamellaUI(QMainWindow):
 
         logging.info(f"Moving to position of {lamella.name}.")
         self.movement_widget.move_to_position(stage_position)
-
-    def _grid_id_for_new_lamella(
-        self, position: Optional[FibsemStagePosition]
-    ) -> Optional[str]:
-        """The record id of the grid a lamella at *position* is on, or None
-        (`fibsem.applications.autolamella.poses.grid_id_at`)."""
-        return grid_id_at(self.experiment, self.microscope, position)
 
     def add_new_lamella(
         self,
@@ -2520,38 +1518,6 @@ class AutoLamellaUI(QMainWindow):
         self.update_lamella_combobox(latest=True)
         self.update_ui()
 
-    def delete_lamella_ui(self):
-        """Handle the removal of a lamella from the experiment (legacy path)."""
-
-        idx = self.lamella_list.selected_index
-        if idx == -1:
-            logging.warning("No lamella is selected, cannot remove.")
-            return
-
-        if self.experiment is None or self.experiment.positions == []:
-            logging.warning("No lamella in the experiment, cannot remove.")
-            return
-
-        pos = self.experiment.positions[idx]
-        ret = fui.message_box_ui(
-            title="Remove Lamella",
-            text=f"Are you sure you want to remove Lamella {pos.name}?",
-            parent=self,
-        )
-        if ret is False:
-            logging.debug("User cancelled lamella removal.")
-            return
-
-        # TODO: also remove data from disk
-
-        # remove the lamella
-        self.experiment.positions.pop(idx)
-        self.experiment.save()
-
-        logging.debug("Lamella removed from experiment")
-        self.update_lamella_combobox(latest=True)
-        self.update_ui()
-
     def update_lamella_position_ui(self):
         """Update the stage position of the selected lamella to the current stage position."""
 
@@ -2583,14 +1549,14 @@ class AutoLamellaUI(QMainWindow):
         if ret != QMessageBox.Yes:
             return
 
-        lamella.milling_pose = deepcopy(self.microscope.get_microscope_state())
-
-        # keep the milling angle consistent with the updated milling pose
-        lamella.update_milling_angle(self.microscope)
-        # ...and the fluorescence pose, which describes the same piece of sample from
-        # the other side. Left behind, it would go on naming where this lamella used to
-        # be -- and nothing about a stale pose looks wrong.
-        sync_fluorescence_pose(self.microscope, lamella)
+        # As Set pose does: the stored objective position is kept, and the
+        # milling angle and fluorescence pose follow the new milling pose.
+        set_lamella_pose(
+            self.microscope,
+            lamella,
+            "MILLING",
+            deepcopy(self.microscope.get_microscope_state()),
+        )
 
         self.update_lamella_combobox()
         self.update_ui()
@@ -2709,8 +1675,7 @@ class AutoLamellaUI(QMainWindow):
                 "Objective position unavailable.", "warning"
             )
             return
-        lamella.fluorescence_pose.objective_position = value_m
-        self.experiment.save()
+        set_objective_position(self.experiment, lamella, value_m)
         # full refresh so the objective value shows and "Apply to All" re-enables
         self.selected_lamella_widget.set_lamella(lamella)
         notification_service.show_toast(
@@ -2776,22 +1741,17 @@ class AutoLamellaUI(QMainWindow):
         if lamella.fluorescence_pose is None:
             return
         # convert from µm to m
-        lamella.fluorescence_pose.objective_position = value * MICRON_TO_METRE
-        self.experiment.save()
+        set_objective_position(self.experiment, lamella, value * MICRON_TO_METRE)
 
     def _apply_objective_position_to_all(self):
         """Copy the current spinbox objective position to all lamella that have a fluorescence pose."""
         if self.experiment is None:
             return
         value_um = self.selected_lamella_widget.objective_value_um()
-        value_m = value_um * MICRON_TO_METRE
-        count = 0
-        for lamella in self.experiment.positions:
-            if lamella.fluorescence_pose is not None:
-                lamella.fluorescence_pose.objective_position = value_m
-                count += 1
+        count = set_objective_position_on_all(
+            self.experiment, value_um * MICRON_TO_METRE
+        )
         if count:
-            self.experiment.save()
             notification_service.show_toast(
                 f"Applied objective position ({value_um:.1f} µm) to {count} lamella.",
                 "info",
@@ -2837,13 +1797,13 @@ class AutoLamellaUI(QMainWindow):
             notification_service.show_toast("Protocol loading cancelled.", "info")
             return
 
-        self._adopt_protocol(protocol)
+        self.adopt_protocol(protocol)
         notification_service.show_toast(
             f"Protocol '{protocol.name}' loaded successfully with {len(protocol.task_config)} tasks.",
             "info",
         )
 
-    def _adopt_protocol(self, protocol) -> None:
+    def adopt_protocol(self, protocol) -> None:
         """Make *protocol* the open experiment's, save it beside the experiment
         and redraw: the Load Protocol dialog's OK, and an agent's load. GUI
         thread."""
@@ -2960,17 +1920,26 @@ class AutoLamellaUI(QMainWindow):
         # nothing.
         if self.ui_responder.answer_confirm(clicked_yes):
             return
-        if clicked_yes:
-            self._decide_state_question()
+        if self._loop_question is not None:
+            self._decide_loop_question(clicked_yes)
+            return
+        if self._widget_question is not None:
+            if clicked_yes:
+                self._decide_widget_question()
+            return
+        self._decide_state_question(clicked_yes)
 
     # -- a state question, on the prompt bar ----------------------------------
 
     def show_state_question(self, item_id: str, task_name: str, proposal) -> None:
         """The prompt bar is the renderer for the ``state`` kind: the task's
-        message and one button. Continue records the operator's confirmation
-        through ``Experiment.decide``, the one write path; the task then reads
-        the instrument for the position as confirmed."""
-        from fibsem.applications.autolamella.workflows.tasks.status import (
+        message and its button, Continue unless the task names another
+        (``positive`` in the provenance). Continue records the operator's
+        confirmation through ``Experiment.decide``, the one write path; the
+        task then reads the instrument for the position as confirmed. A task
+        that can do without it names a second button (``negative``: the
+        tilt's Skip), which rejects it: "don't", and the task carries on."""
+        from fibsem.workflows.status import (
             WorkflowStatusEvent,
         )
 
@@ -2978,17 +1947,20 @@ class AutoLamellaUI(QMainWindow):
         message = str(
             proposal.provenance.get("message") or "Press Continue when ready."
         )
-        self.set_instructions_msg(message, "Continue", None)
+        self.set_instructions_msg(
+            message,
+            str(proposal.provenance.get("positive") or "Continue"),
+            proposal.provenance.get("negative") or None,
+        )
         self.workflow_status_signal.emit(WorkflowStatusEvent())
 
     def clear_state_question(self, item_id: str, task_name: str) -> None:
         """A decision landed on the item and task; if it is the question up,
-        the prompt comes down (answered here, in the Review tab, by an agent,
-        or withdrawn)."""
+        the prompt comes down (answered here, by an agent, or withdrawn)."""
         shown = self._state_question
         if shown is None or shown[:2] != (item_id, task_name):
             return
-        from fibsem.applications.autolamella.workflows.tasks.status import (
+        from fibsem.workflows.status import (
             WorkflowStatusEvent,
         )
 
@@ -2996,25 +1968,25 @@ class AutoLamellaUI(QMainWindow):
         self.set_instructions_msg("")
         self.workflow_status_signal.emit(WorkflowStatusEvent(message=""))
 
-    def _decide_state_question(self) -> None:
+    def _decide_state_question(self, clicked_yes: bool = True) -> None:
         shown = self._state_question
         experiment = self.experiment
         if shown is None or experiment is None:
             return
         item_id, task_name, proposal_id = shown
-        from fibsem.applications.autolamella.proposals import (
-            Decision,
-            DecisionOutcome,
-        )
+        from fibsem.workflows.proposals import Decision, DecisionOutcome
 
         result = experiment.decide(
             item_id,
             task_name,
             Decision(
-                outcome=DecisionOutcome.Confirmed,
-                author=experiment.author(),
+                outcome=DecisionOutcome.Confirmed
+                if clicked_yes
+                else DecisionOutcome.Rejected,
+                actor=experiment.actor(),
                 via="workflow",
                 proposal_id=proposal_id,
+                reason="" if clicked_yes else f"{self.pushButton_no.text()} pressed",
             ),
         )
         if not result.applied:
@@ -3022,6 +1994,248 @@ class AutoLamellaUI(QMainWindow):
             logging.warning(
                 f"{task_name}: could not confirm the state: {result.reason}"
             )
+            self.pushButton_yes.setEnabled(True)
+            self.pushButton_no.setEnabled(bool(self.pushButton_no.text()))
+
+    # -- a loop's pass, on the prompt bar over its widget ----------------------
+
+    def _loop_widget(self, kind: str):
+        """The widget a pass of ``kind`` is decided in, or None without one."""
+        from fibsem.workflows.proposals import MILLING, SPOT_BURN
+
+        if kind == MILLING:
+            return self.milling_task_config_widget
+        if kind == SPOT_BURN:
+            return self.spot_burn_widget
+        return None
+
+    def show_loop_question(self, item_id: str, task_name: str, proposal) -> None:
+        """The prompt bar over the milling editor (or the spot-burn widget) is
+        the renderer for a loop's pass: the task's message and the pass's two
+        buttons. The task has already put what the pass would run in the
+        widget; the operator edits it there, and a button records the decision
+        through ``Experiment.decide`` with the widget's value. Without the
+        widget (no spot-burn hardware) the buttons decide the pass as
+        proposed."""
+        from fibsem.applications.autolamella.ui.loop_question import loop_prompt
+        from fibsem.workflows.proposals import SPOT_BURN
+        from fibsem.workflows.status import WorkflowStatusEvent
+
+        widget = self._loop_widget(proposal.kind)
+        if widget is None:
+            pass
+        elif proposal.kind == SPOT_BURN:
+            widget.set_settings(proposal.values["spot_burn"])
+            self.set_spot_burn_widget_active(True)
+            widget.set_workflow_mode(True)
+        else:
+            widget.setEnabled(True)
+            self.front_tab(widget)
+            # The task owns the mill while it asks: the editor's own Run stands down.
+            widget.milling_widget.pushButton_run_milling.setVisible(False)
+        self._loop_question = (item_id, task_name, proposal)
+        prompt = loop_prompt(proposal)
+        self.set_instructions_msg(prompt.message, prompt.positive, prompt.negative)
+        self.workflow_status_signal.emit(WorkflowStatusEvent())
+
+    def loop_question_host(self):
+        """The widget the pass now up is decided in, for the attention button
+        to go back to; None when no pass is up."""
+        if self._loop_question is None:
+            return None
+        return self._loop_widget(self._loop_question[2].kind)
+
+    def clear_loop_question(self, item_id: str, task_name: str) -> None:
+        """A decision landed on the item and task; if it is the pass up, the
+        prompt comes down (decided here, by an agent, or withdrawn). The widget keeps its value: the task asks again, or clears
+        it when the loop ends."""
+        shown = self._loop_question
+        if shown is None or shown[:2] != (item_id, task_name):
+            return
+        from fibsem.workflows.status import WorkflowStatusEvent
+
+        self._loop_question = None
+        self.set_instructions_msg("")
+        self.workflow_status_signal.emit(WorkflowStatusEvent(message=""))
+
+    def _decide_loop_question(self, clicked_yes: bool) -> None:
+        shown = self._loop_question
+        experiment = self.experiment
+        if shown is None or experiment is None:
+            return
+        item_id, task_name, proposal = shown
+        from fibsem.applications.autolamella.ui.loop_question import loop_prompt
+        from fibsem.workflows.proposals import (
+            ACTION_EDIT,
+            ACTION_RUN,
+            SPOT_BURN,
+            Decision,
+            DecisionOutcome,
+        )
+
+        prompt = loop_prompt(proposal)
+        action = prompt.yes if clicked_yes else prompt.no
+        if action is None:
+            return
+        values = {}
+        widget = self._loop_widget(proposal.kind)
+        if action in (ACTION_RUN, ACTION_EDIT) and widget is not None:
+            # What runs is what the widget holds: the operator's edits. Skip
+            # and accept carry nothing: the task goes on with what it had.
+            if proposal.kind == SPOT_BURN:
+                values = {"spot_burn": deepcopy(widget.get_settings())}
+            else:
+                values = {"milling_config": deepcopy(widget.get_config())}
+        result = experiment.decide(
+            item_id,
+            task_name,
+            Decision(
+                outcome=DecisionOutcome.Confirmed,
+                actor=experiment.actor(),
+                values=values,
+                via="workflow",
+                proposal_id=proposal.id,
+                action=action,
+            ),
+        )
+        if not result.applied:
+            # Left up: the question is still open, and the reason is logged.
+            logging.warning(f"{task_name}: could not decide the pass: {result.reason}")
+            self.pushButton_yes.setEnabled(True)
+            self.pushButton_no.setEnabled(prompt.negative is not None)
+
+    # -- a value edited on its own widget, on the prompt bar ------------------
+
+    def show_widget_question(self, item_id: str, task_name: str, proposal) -> None:
+        """The widget a value is edited on is the renderer for its kind: a
+        detection's features on the Detection tab (the task loaded them there
+        first), an alignment area as the rectangle on the FIB view, a point of
+        interest as the marker on it. The prompt bar carries the task's
+        message and Continue, which records the decision through
+        ``Experiment.decide`` with the widget's value. Without the widget the
+        Continue confirms the value as proposed."""
+        from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
+        from fibsem.workflows.proposals import ALIGNMENT_AREA, DETECTION
+        from fibsem.workflows.status import WorkflowStatusEvent
+
+        message = str(proposal.provenance.get("message") or "")
+        if proposal.kind == DETECTION and self._detection_shown():
+            self.front_tab(self.det_widget)
+            message = "Confirm Feature Detection. Press Continue to proceed."
+        elif proposal.kind == ALIGNMENT_AREA and self.image_widget is not None:
+            self.tabWidget.setCurrentWidget(self.tab)
+            self.image_widget.toggle_alignment_area(
+                proposal.values.get("alignment_area")
+            )
+            message = f"{message} Press Continue when done.".strip()
+        elif proposal.kind == POINT_OF_INTEREST and self.poi_marker.show(
+            proposal.values.get("poi"),
+            fallback=self._reference_image(item_id, proposal),
+        ):
+            self.tabWidget.setCurrentWidget(self.tab)
+            self._follow_poi_frames()
+        self._widget_question = (item_id, task_name, proposal)
+        self.set_instructions_msg(message or "Press Continue when ready.", "Continue")
+        self.workflow_status_signal.emit(WorkflowStatusEvent())
+
+    def _reference_image(self, item_id: str, proposal):
+        """The image the proposal's values sit on, for a view showing none."""
+        from fibsem.applications.autolamella.review_images import load_reference_image
+
+        item = self.experiment.get_item_by_id(item_id)
+        return load_reference_image(self.experiment, item, proposal)
+
+    def _detection_shown(self) -> bool:
+        """The Detection tab holds the features the task sent before asking;
+        a window that started listening mid-question has none to correct."""
+        return self.det_widget is not None and self.det_widget.det is not None
+
+    def widget_question_host(self):
+        """The tab the value now up is edited on, when it has one of its own
+        (a detection), for the attention button to go back to."""
+        from fibsem.workflows.proposals import DETECTION
+
+        shown = self._widget_question
+        if shown is None or shown[2].kind != DETECTION:
+            return None
+        return self.det_widget
+
+    def _follow_poi_frames(self) -> None:
+        """Keep the marker on the frame the FIB view shows, once per widget."""
+        signal = getattr(self.image_widget, "viewer_update_signal", None)
+        if signal is None or self._poi_frames_followed is self.image_widget:
+            return
+        signal.connect(self._sync_poi_question)
+        self._poi_frames_followed = self.image_widget
+
+    def _sync_poi_question(self, *_args) -> None:
+        from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
+
+        shown = self._widget_question
+        if shown is not None and shown[2].kind == POINT_OF_INTEREST:
+            self.poi_marker.sync()
+
+    def clear_widget_question(self, item_id: str, task_name: str) -> None:
+        """A decision landed on the item and task; if it is the value up, the
+        prompt and the widget's editing come down (decided here, by an agent,
+        or withdrawn)."""
+        shown = self._widget_question
+        if shown is None or shown[:2] != (item_id, task_name):
+            return
+        from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
+        from fibsem.workflows.proposals import ALIGNMENT_AREA, DETECTION
+        from fibsem.workflows.status import WorkflowStatusEvent
+
+        self._widget_question = None
+        kind = shown[2].kind
+        if kind == DETECTION and self.det_widget is not None:
+            self.det_widget.clear_layers()
+        elif kind == ALIGNMENT_AREA and self.image_widget is not None:
+            self.image_widget.clear_alignment_area()
+        elif kind == POINT_OF_INTEREST:
+            self.poi_marker.remove()
+        self.set_instructions_msg("")
+        self.workflow_status_signal.emit(WorkflowStatusEvent(message=""))
+
+    def _widget_value(self, proposal) -> Dict[str, Any]:
+        """What the widget holds for ``proposal``'s kind; empty (as proposed)
+        when the widget was not there to edit it on."""
+        from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
+        from fibsem.detection.review import detection_values
+        from fibsem.workflows.proposals import ALIGNMENT_AREA, DETECTION
+
+        if proposal.kind == DETECTION and self._detection_shown():
+            return detection_values(self.det_widget._get_detected_features())
+        if proposal.kind == ALIGNMENT_AREA and self.image_widget is not None:
+            area = self.image_widget.get_alignment_area()
+            return {"alignment_area": deepcopy(area)} if area is not None else {}
+        if proposal.kind == POINT_OF_INTEREST and self.poi_marker.shown:
+            poi = self.poi_marker.read()
+            return {"poi": poi} if poi is not None else {}
+        return {}
+
+    def _decide_widget_question(self) -> None:
+        shown = self._widget_question
+        experiment = self.experiment
+        if shown is None or experiment is None:
+            return
+        item_id, task_name, proposal = shown
+        from fibsem.workflows.proposals import Decision, DecisionOutcome
+
+        result = experiment.decide(
+            item_id,
+            task_name,
+            Decision(
+                outcome=DecisionOutcome.Confirmed,
+                actor=experiment.actor(),
+                values=self._widget_value(proposal),
+                via="workflow",
+                proposal_id=proposal.id,
+            ),
+        )
+        if not result.applied:
+            # Left up: the question is still open, and the reason is logged.
+            logging.warning(f"{task_name}: could not decide it: {result.reason}")
             self.pushButton_yes.setEnabled(True)
 
     def handle_acquisition_update(self, ddict: dict) -> None:
@@ -3044,13 +2258,6 @@ class AutoLamellaUI(QMainWindow):
         if self.spot_burn_widget is not None:
             self.spot_burn_widget.cancel_spot_burn()
 
-    def _stop_workflow_thread(self):
-        if self._task_manager is not None:
-            self._task_manager.stop()
-        else:
-            self._workflow_stop_event.set()
-        self.stop_current_operations()
-
     def _workflow_finished(self):
         """Handle the completion of the workflow."""
         logging.info("Workflow finished.")
@@ -3067,7 +2274,6 @@ class AutoLamellaUI(QMainWindow):
         if self.experiment is None or self.protocol is None:
             return
 
-        self._workflow_stop_event.clear()
         self.tabWidget.setCurrentIndex(self.tabWidget.indexOf(self.tab))
 
         self.hold = None
@@ -3118,20 +2324,19 @@ class AutoLamellaUI(QMainWindow):
         starting many short runs, or a run ending overnight, left standing
         over the app. That is also when to turn it off.
 
-        Show-once, but never consume: ``_last_run_summary`` is also the
-        record the App Server's ``run_summary`` endpoint reads after the
-        worker nulls the manager — nulling it here meant the record lived
-        only for the milliseconds between the worker's capture and this
-        handler, and every remote read found nothing. The record stays until
-        the next run's capture overwrites it; only the toast is once-only.
+        Show-once, but never consume: the runner's ``last_summary`` is also
+        the record the App Server's ``run_summary`` endpoint reads after the
+        manager is gone. The record stays until the next run's capture
+        overwrites it; only the toast is once-only.
         """
-        summary = self._last_run_summary
+        runner = self.session.runner
+        summary = runner.last_summary
         if summary is None or summary is self._shown_run_summary:
             return
         self._shown_run_summary = summary
         if summary.empty:
             return
-        note = self._last_run_note
+        note = runner.last_note
         failed = (
             "task_status" in summary.columns
             and (summary["task_status"] == "Failed").any()

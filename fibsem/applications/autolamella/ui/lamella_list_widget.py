@@ -23,13 +23,7 @@ from PyQt5.QtWidgets import (
 )
 from superqt import ensure_main_thread
 
-from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskState,
-    AutoLamellaTaskStatus,
-    Lamella,
-    QualityRecord,
-    Verdict,
-)
+from fibsem.applications.autolamella.structures import Lamella
 from fibsem.applications.autolamella.ui.list_chrome import (
     DETAIL_PX,
     NAME_PX,
@@ -47,6 +41,11 @@ from fibsem.ui.tokens import (
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, IconToolButton
 from fibsem.ui.widgets.preflight import format_clock
 from fibsem.util.timestamps import now
+from fibsem.workflows.quality import (
+    QualityRecord,
+    Verdict,
+)
+from fibsem.workflows.status import TaskState, TaskStatus
 
 _NAME_MIN_WIDTH = 160
 
@@ -264,7 +263,7 @@ class _LamellaTooltip(QWidget):
         self.raise_()
 
 
-def completed_text(task: AutoLamellaTaskState) -> str:
+def completed_text(task: TaskState) -> str:
     """The last task done and when, for a list's status column: "Rough Milling ·
     1:44PM", "· Yesterday, 1:44PM", and further back "· Sep 14, 1:44PM".
 
@@ -288,7 +287,7 @@ def completed_text(task: AutoLamellaTaskState) -> str:
 def _status_text(lamella: Lamella) -> tuple[str, str]:
     """Return (text, stylesheet) for the status column."""
     ts = lamella.task_state
-    if ts and ts.status == AutoLamellaTaskStatus.InProgress:
+    if ts and ts.status == TaskStatus.InProgress:
         return (
             f"{ts.name}",
             f"color: {stylesheets.PRIMARY_COLOR}; background: transparent;",

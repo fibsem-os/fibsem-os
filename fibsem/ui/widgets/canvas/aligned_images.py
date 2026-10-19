@@ -35,10 +35,10 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 import numpy as np
 from PyQt5.QtCore import QObject, pyqtSignal
 
-from fibsem.correlation.similarity import SimilarityFit, fit_similarity
 from fibsem.fm.composite import FMLayer, composite_fm_layers, to_rgba
 from fibsem.fm.preview import projection_layers
 from fibsem.geometry.projection import FMStageProjection
+from fibsem.geometry.similarity import SimilarityFit, fit_similarity
 from fibsem.imaging.reduce import downsample
 from fibsem.ui.widgets.canvas.overlays.image_overlay import ImageOverlay
 

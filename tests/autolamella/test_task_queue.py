@@ -11,12 +11,12 @@ import threading
 
 import pytest
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus as Status
-from fibsem.applications.autolamella.workflows.tasks.queue import (
+from fibsem.workflows.queue import (
     QueueOp,
     TaskQueue,
     WorkItem,
 )
+from fibsem.workflows.status import TaskStatus as Status
 
 
 @pytest.fixture
@@ -28,7 +28,7 @@ def queue() -> TaskQueue:
 
 
 def pairs(q: TaskQueue):
-    return [(i.lamella_name, i.task_name) for i in q.items]
+    return [(i.item_name, i.task_name) for i in q.items]
 
 
 def statuses(q: TaskQueue):
@@ -36,7 +36,7 @@ def statuses(q: TaskQueue):
 
 
 def pending_pairs(q: TaskQueue):
-    return [(i.lamella_name, i.task_name) for i in q.pending]
+    return [(i.item_name, i.task_name) for i in q.pending]
 
 
 # ── Build / consume ───────────────────────────────────────────────────────────
@@ -54,7 +54,7 @@ def test_build_from_matrix_is_task_outer_lamella_inner(queue):
 
 def test_next_marks_in_progress_and_sets_active(queue):
     item = queue.next()
-    assert (item.lamella_name, item.task_name) == ("L1", "Trench")
+    assert (item.item_name, item.task_name) == ("L1", "Trench")
     assert item.status is Status.InProgress
     assert queue.active.id == item.id
 
@@ -84,14 +84,14 @@ def test_is_empty_reflects_only_pending(queue):
 
 def test_next_passes_over_skipped_items_without_retiring_them(queue):
     """A skipped item stays pending and is offered again on the next call."""
-    first = queue.next(skip=lambda i: i.lamella_name == "L1")
-    assert (first.lamella_name, first.task_name) == ("L2", "Trench")
+    first = queue.next(skip=lambda i: i.item_name == "L1")
+    assert (first.item_name, first.task_name) == ("L2", "Trench")
     queue.mark_done(first, Status.Completed)
     assert queue.has_pending_pair("L1", "Trench")
     assert statuses(queue).count(Status.NotStarted) == 3
 
     again = queue.next()  # no predicate: the deferred item is offered now
-    assert (again.lamella_name, again.task_name) == ("L1", "Trench")
+    assert (again.item_name, again.task_name) == ("L1", "Trench")
 
 
 def test_next_returns_none_when_everything_left_is_skipped(queue):
@@ -103,7 +103,7 @@ def test_next_returns_none_when_everything_left_is_skipped(queue):
 def test_has_pending_pair_follows_the_item(queue):
     assert queue.has_pending_pair("L1", "Undercut")
     item = queue.next()
-    assert not queue.has_pending_pair(item.lamella_name, item.task_name)
+    assert not queue.has_pending_pair(item.item_name, item.task_name)
     assert not queue.has_pending_pair("L9", "Trench")
 
 
@@ -111,7 +111,7 @@ def test_next_skips_removed_items(queue):
     first = queue.pending[0]
     queue.remove(first.id)
     item = queue.next()
-    assert (item.lamella_name, item.task_name) == ("L2", "Trench")
+    assert (item.item_name, item.task_name) == ("L2", "Trench")
 
 
 # ── add ───────────────────────────────────────────────────────────────────────
@@ -127,7 +127,7 @@ def test_add_front_lands_after_the_active_item(queue):
     queue.add("L3", "Polishing", front=True)
     result = pairs(queue)
     # history/active untouched at position 0, new item first among pending
-    assert result[0] == (active.lamella_name, active.task_name)
+    assert result[0] == (active.item_name, active.task_name)
     assert result[1] == ("L3", "Polishing")
 
 
@@ -153,9 +153,9 @@ def test_add_duplicate_of_completed_pair_is_rerun(queue):
     """Re-run is expressed as adding a duplicate of a finished pair."""
     item = queue.next()
     queue.mark_done(item, Status.Completed)
-    queue.add(item.lamella_name, item.task_name, front=True)
+    queue.add(item.item_name, item.task_name, front=True)
     nxt = queue.next()
-    assert (nxt.lamella_name, nxt.task_name) == (item.lamella_name, item.task_name)
+    assert (nxt.item_name, nxt.task_name) == (item.item_name, item.task_name)
     assert nxt.id != item.id
 
 
@@ -195,7 +195,7 @@ def test_removed_item_keeps_its_position(queue):
     """A struck-through row should stay where the user saw it."""
     target = queue.pending[1]
     queue.remove(target.id)
-    assert pairs(queue)[1] == (target.lamella_name, target.task_name)
+    assert pairs(queue)[1] == (target.item_name, target.task_name)
 
 
 def test_counts_excludes_removed_from_pending_but_not_from_total(queue):
@@ -225,47 +225,13 @@ def test_move_to_front_stays_behind_the_active_item(queue):
     active = queue.next()
     target = queue.pending[-1]
     queue.move_to_front(target.id)
-    assert pairs(queue)[0] == (active.lamella_name, active.task_name)
-    assert pairs(queue)[1] == (target.lamella_name, target.task_name)
-
-
-def test_move_to_back(queue):
-    target = queue.pending[0]
-    assert queue.move_to_back(target.id).ok
-    assert pairs(queue)[-1] == (target.lamella_name, target.task_name)
-
-
-def test_move_before_and_after(queue):
-    p = queue.pending
-    assert queue.move_before(p[3].id, p[0].id).ok
-    assert pending_pairs(queue)[0] == (p[3].lamella_name, p[3].task_name)
-
-    p = queue.pending
-    assert queue.move_after(p[0].id, p[2].id).ok
-    assert pending_pairs(queue)[2] == (p[0].lamella_name, p[0].task_name)
-
-
-def test_move_before_forward_lands_immediately_before_target(queue):
-    """Moving an earlier item forward must not overshoot by one."""
-    p = queue.pending
-    assert queue.move_before(p[0].id, p[3].id).ok
-    result = pending_pairs(queue)
-    i = result.index((p[3].lamella_name, p[3].task_name))
-    assert result[i - 1] == (p[0].lamella_name, p[0].task_name)
-
-
-def test_move_with_a_consumed_anchor_is_refused(queue):
-    item = queue.next()
-    target = queue.pending[0]
-    before = pairs(queue)
-    assert queue.move_before(target.id, item.id).op is QueueOp.BAD_ANCHOR
-    assert pairs(queue) == before
+    assert pairs(queue)[0] == (active.item_name, active.task_name)
+    assert pairs(queue)[1] == (target.item_name, target.task_name)
 
 
 def test_move_refuses_non_pending_and_unknown(queue):
     active = queue.next()
-    anchor = queue.pending[0]
-    assert queue.move_before(active.id, anchor.id).op is QueueOp.NOT_PENDING
+    assert queue.move_to_front(active.id).op is QueueOp.NOT_PENDING
     assert queue.move_to_front("nope").op is QueueOp.NOT_FOUND
 
 
@@ -275,16 +241,16 @@ def test_move_refuses_non_pending_and_unknown(queue):
 def test_nudge_moves_one_place(queue):
     p = queue.pending
     assert queue.nudge(p[2].id, -1).ok
-    assert pending_pairs(queue)[1] == (p[2].lamella_name, p[2].task_name)
+    assert pending_pairs(queue)[1] == (p[2].item_name, p[2].task_name)
     assert queue.nudge(p[2].id, +1).ok
-    assert pending_pairs(queue)[2] == (p[2].lamella_name, p[2].task_name)
+    assert pending_pairs(queue)[2] == (p[2].item_name, p[2].task_name)
 
 
 def test_nudge_clamps_at_both_ends(queue):
     p = queue.pending
     assert queue.nudge(p[0].id, -1).op is QueueOp.NO_OP
     assert queue.nudge(p[-1].id, +1).op is QueueOp.NO_OP
-    assert pending_pairs(queue) == [(i.lamella_name, i.task_name) for i in p]
+    assert pending_pairs(queue) == [(i.item_name, i.task_name) for i in p]
 
 
 def test_nudge_skips_over_removed_items(queue):
@@ -292,50 +258,13 @@ def test_nudge_skips_over_removed_items(queue):
     queue.remove(p[1].id)
     assert queue.nudge(p[0].id, +1).ok
     # p[0] moved past the removed item to sit after the next runnable one
-    assert pending_pairs(queue)[0] == (p[2].lamella_name, p[2].task_name)
-    assert pending_pairs(queue)[1] == (p[0].lamella_name, p[0].task_name)
+    assert pending_pairs(queue)[0] == (p[2].item_name, p[2].task_name)
+    assert pending_pairs(queue)[1] == (p[0].item_name, p[0].task_name)
 
 
 def test_nudge_refuses_the_active_item(queue):
     active = queue.next()
     assert queue.nudge(active.id, +1).op is QueueOp.NOT_PENDING
-
-
-# ── reorder_pending ───────────────────────────────────────────────────────────
-
-
-def test_reorder_pending_with_partial_list_keeps_everything(queue):
-    """Regression: the old replacement-based reorder() destroyed unnamed items."""
-    p = queue.pending
-    assert queue.reorder_pending([p[3].id]).ok
-    assert len(queue.items) == 4
-    result = pending_pairs(queue)
-    assert result[0] == (p[3].lamella_name, p[3].task_name)
-    # the unnamed items follow, in their original relative order
-    assert result[1:] == [(i.lamella_name, i.task_name) for i in (p[0], p[1], p[2])]
-
-
-def test_reorder_pending_full_list(queue):
-    p = list(reversed(queue.pending))
-    assert queue.reorder_pending([i.id for i in p]).ok
-    assert pending_pairs(queue) == [(i.lamella_name, i.task_name) for i in p]
-
-
-def test_reorder_pending_ignores_unknown_and_duplicate_ids(queue):
-    p = queue.pending
-    assert queue.reorder_pending([p[1].id, "nope", p[1].id]).ok
-    assert len(queue.items) == 4
-    assert pending_pairs(queue)[0] == (p[1].lamella_name, p[1].task_name)
-
-
-def test_reorder_pending_leaves_history_and_active_pinned(queue):
-    done = queue.next()
-    queue.mark_done(done, Status.Completed)
-    active = queue.next()
-    queue.reorder_pending([i.id for i in reversed(queue.pending)])
-    assert pairs(queue)[0] == (done.lamella_name, done.task_name)
-    assert pairs(queue)[1] == (active.lamella_name, active.task_name)
-    assert statuses(queue)[:2] == [Status.Completed, Status.InProgress]
 
 
 # ── invariants ────────────────────────────────────────────────────────────────
@@ -346,21 +275,11 @@ def test_no_move_ever_changes_the_item_count(queue):
     rng = random.Random(1234)
     ids = [i.id for i in queue.items]
     for _ in range(200):
-        op = rng.choice(["front", "back", "before", "after", "nudge", "reorder"])
-        a, b = rng.choice(ids), rng.choice(ids)
-        if op == "front":
+        a = rng.choice(ids)
+        if rng.random() < 0.5:
             queue.move_to_front(a)
-        elif op == "back":
-            queue.move_to_back(a)
-        elif op == "before":
-            queue.move_before(a, b)
-        elif op == "after":
-            queue.move_after(a, b)
-        elif op == "nudge":
-            queue.nudge(a, rng.choice([-2, -1, 1, 2]))
         else:
-            sample = rng.sample(ids, rng.randint(0, len(ids)))
-            queue.reorder_pending(sample)
+            queue.nudge(a, rng.choice([-2, -1, 1, 2]))
         assert len(queue.items) == 4
         assert sorted(i.id for i in queue.items) == sorted(ids)
 
@@ -373,14 +292,11 @@ def test_history_is_unreachable_from_every_mutation(queue):
 
     for call in (
         lambda: queue.move_to_front(target.id),
-        lambda: queue.move_before(target.id, done.id),
-        lambda: queue.move_after(target.id, active.id),
         lambda: queue.nudge(target.id, -5),
-        lambda: queue.reorder_pending([target.id]),
     ):
         call()
-        assert pairs(queue)[0] == (done.lamella_name, done.task_name)
-        assert pairs(queue)[1] == (active.lamella_name, active.task_name)
+        assert pairs(queue)[0] == (done.item_name, done.task_name)
+        assert pairs(queue)[1] == (active.item_name, active.task_name)
 
 
 # ── version ───────────────────────────────────────────────────────────────────
@@ -432,10 +348,9 @@ def test_concurrent_mutation_during_consumption_loses_nothing():
             snapshot = q.items  # deliberately stale by the time it's used
             if not snapshot:
                 continue
-            a, b = rng.choice(snapshot), rng.choice(snapshot)
-            q.move_before(a.id, b.id)
+            a = rng.choice(snapshot)
+            q.move_to_front(a.id)
             q.nudge(a.id, rng.choice([-1, 1]))
-            q.reorder_pending([i.id for i in rng.sample(snapshot, 3)])
 
     consumer = threading.Thread(target=consume)
     mutator = threading.Thread(target=mutate, daemon=True)
@@ -480,3 +395,24 @@ def test_find_pair_prefers_the_waiting_one(queue):
     again = queue.add(item.item_name, item.task_name)
     assert queue.find_pair(item.item_name, item.task_name).id == again.id
     assert queue.find_pair("nope", "Trench") is None
+
+
+def test_a_fixed_step_stays_where_the_plan_put_it():
+    q = TaskQueue(fixed_tasks=["Load grid"])
+    q.build_from_pairs([("grid-1", "Load grid"), ("grid-1", "Overview")])
+    load = q.pending[0]
+    for action in ("remove", "move_down", "run_next"):
+        assert q.apply(load.id, action).op is QueueOp.FIXED
+    assert q.requeue("grid-1", "Load grid").op is QueueOp.FIXED
+    assert pending_pairs(q) == [("grid-1", "Load grid"), ("grid-1", "Overview")]
+
+
+def test_requeue_runs_a_pair_once(queue):
+    done = queue.next()
+    queue.mark_done(done, Status.Completed)
+    first = queue.requeue(done.item_name, done.task_name, front=True)
+    assert first.ok and queue.pending[0].id == first.item.id
+    again = queue.requeue(done.item_name, done.task_name, front=True)
+    assert again.op is QueueOp.ALREADY_QUEUED and again.item is None
+    waiting = [p for p in pending_pairs(queue) if p == (done.item_name, done.task_name)]
+    assert len(waiting) == 1

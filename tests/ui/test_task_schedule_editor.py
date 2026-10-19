@@ -24,13 +24,11 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtCore import QDateTime
 from PyQt5.QtWidgets import QApplication
 
-from fibsem.applications.autolamella.structures import (
-    Attention,
-    AutoLamellaTaskDescription,
-)
+from fibsem.applications.autolamella.structures import AutoLamellaTaskDescription
 from fibsem.applications.autolamella.ui.workflow_task_editor_widget import (
     WorkflowTaskEditorWidget,
 )
+from fibsem.workflows.attention import Attention
 
 
 @pytest.fixture(scope="module")

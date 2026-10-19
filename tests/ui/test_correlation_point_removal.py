@@ -26,15 +26,15 @@ from PyQt5.QtWidgets import QApplication
 
 from fibsem.correlation.structures import Coordinate, PointType, PointXYZ
 from fibsem.ui.correlation.widgets.coordinate_list_widget import CoordinateListWidget
-from fibsem.ui.correlation.widgets.correlation_canvas_widget import (
-    CorrelationCanvasWidget,
+from fibsem.ui.widgets.canvas.point_canvas import (
+    PointCanvasWidget,
 )
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
 
 def _make_canvas(n: int = 5):
-    w = CorrelationCanvasWidget()
+    w = PointCanvasWidget()
     w.set_image(np.zeros((200, 200), np.uint8))
     ov = w.picking.points
     model = [

@@ -10,11 +10,11 @@ from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QGridLayout, QLabel, QSizePolicy, QSpacerItem
 
 import fibsem
-from fibsem.applications.autolamella.workflows.question_adapters import (
-    apply_feature_px,
-)
 from fibsem.detection import utils as det_utils
 from fibsem.detection.detection import DetectedFeatures
+from fibsem.detection.review import (
+    apply_feature_px,
+)
 from fibsem.segmentation.model import load_model
 from fibsem.structures import (
     BeamType,
@@ -34,6 +34,7 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
         self._setup_ui()
 
         self.parent = parent
+        self.det: Optional[DetectedFeatures] = None  # what is shown to correct
         self.has_user_corrected: bool = False
 
         # quad-view: a "mask" MaskSpec + a modal "detection" PointsSpec on a beam
@@ -214,6 +215,7 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
             if self._host_beam is not None:
                 self._detach_detection(self._host_beam)
             self._host_beam = None
+        self.det = None
 
     def confirm_button_clicked(self):
         """Confirm the detected features, save the data and clear the overlays."""

@@ -83,6 +83,7 @@ from fastapi import (
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
 
+from fibsem.ai.agent.calls import current_call
 from fibsem.cancellation import NothingToStop, OperationCancelledError
 from fibsem.devices.core import (
     Device,
@@ -106,7 +107,6 @@ from fibsem.devices.wire import (
     to_wire,
 )
 from fibsem.schema import arguments_schema
-from fibsem.server.calls import current_call
 from fibsem.server.images import (
     TIFF_MEDIA_TYPE,
     image_answer,
@@ -781,11 +781,12 @@ def configured_devices(
     """
     import yaml
 
+    from fibsem.codec.upgrades.configuration import upgrade
     from fibsem.devices.entries import build_device_entries, resolve_device_entries
     from fibsem.structures import read_device_entries
 
     with open(path) as f:
-        settings = yaml.safe_load(f) or {}
+        settings = upgrade(yaml.safe_load(f) or {})
     configured = read_device_entries(settings)
     manufacturer = (settings.get("info") or {}).get("manufacturer")
     resolved = resolve_device_entries([], configured, manufacturer)

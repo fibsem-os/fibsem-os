@@ -516,7 +516,7 @@ def test_fibsem_shows_milling_from_its_microscope(qapp):
 def _report(
     status, item="02-civil-cub", task="Polishing", error=None, queue_items=None
 ):
-    from fibsem.applications.autolamella.workflows.tasks.status import (
+    from fibsem.workflows.status import (
         WorkflowStatusEvent,
         WorkflowStatusUpdate,
     )
@@ -537,9 +537,9 @@ def _report(
 def test_a_run_that_fails_a_task_leaves_a_line_until_the_next_run(
     no_quit, qapp, monkeypatch
 ):
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
     from fibsem.ui import notification_service
+    from fibsem.workflows.status import TaskStatus
 
     toasts = []
     monkeypatch.setattr(
@@ -549,26 +549,26 @@ def test_a_run_that_fails_a_task_leaves_a_line_until_the_next_run(
     # A report locks the protocol editor, whose UI the first connect builds.
     window.autolamella_ui.system_widget.connect_to_microscope()
     signal = window.autolamella_ui.workflow_status_signal
-    from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem
+    from fibsem.workflows.queue import WorkItem
 
     def _queue(second):
         return [
-            WorkItem("01-fancy-mite", "Polishing", AutoLamellaTaskStatus.Completed),
+            WorkItem("01-fancy-mite", "Polishing", TaskStatus.Completed),
             WorkItem("02-civil-cub", "Polishing", second),
             WorkItem("03-gentle-elk", "Polishing"),
         ]
 
     signal.emit(
         _report(
-            AutoLamellaTaskStatus.InProgress,
-            queue_items=_queue(AutoLamellaTaskStatus.InProgress),
+            TaskStatus.InProgress,
+            queue_items=_queue(TaskStatus.InProgress),
         )
     )
     signal.emit(
         _report(
-            AutoLamellaTaskStatus.Failed,
+            TaskStatus.Failed,
             error="no focus peak",
-            queue_items=_queue(AutoLamellaTaskStatus.Failed),
+            queue_items=_queue(TaskStatus.Failed),
         )
     )
     assert window.status_bar.text == "02-civil-cub › Polishing failed: no focus peak"
@@ -589,28 +589,40 @@ def test_a_run_that_fails_a_task_leaves_a_line_until_the_next_run(
     assert window.tab_widget.currentWidget() is window._workflow_tab_container
     assert window.workflow_timeline._outer._selected_index == 1
 
-    signal.emit(_report(AutoLamellaTaskStatus.InProgress, item="01-fancy-mite"))
+    signal.emit(_report(TaskStatus.InProgress, item="01-fancy-mite"))
     assert bar.failure is None, "the next run starts clean"
     window._on_workflow_finished()
     assert bar.failure is None
     assert toasts[-1] == "Workflow finished."
+
+    # A run with a summary is announced once, by the "Run ended" toast.
+    import pandas as pd
+
+    runner = window.autolamella_ui.session.runner
+    runner.last_summary = pd.DataFrame(
+        [{"lamella_name": "01", "task_name": "Polishing", "task_status": "Completed"}]
+    )
+    before = len(toasts)
+    signal.emit(_report(TaskStatus.InProgress, item="01-fancy-mite"))
+    window._on_workflow_finished()
+    assert toasts[before:] == []
     window.autolamella_ui.microscope.disconnect()
     _close(window, qapp)
 
 
 def test_a_held_run_says_so_on_the_line(no_quit, qapp):
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
-    from fibsem.applications.autolamella.workflows.tasks.status import (
+    from fibsem.workflows.status import (
         Hold,
         HoldKind,
+        TaskStatus,
         WorkflowStatusEvent,
     )
 
     window = module.AutoLamellaSingleWindowUI()
     ui = window.autolamella_ui
     ui.system_widget.connect_to_microscope()
-    ui.workflow_status_signal.emit(_report(AutoLamellaTaskStatus.InProgress))
+    ui.workflow_status_signal.emit(_report(TaskStatus.InProgress))
     ui.hold = Hold(HoldKind.question, "answer the question on the Microscope tab")
     ui.workflow_status_signal.emit(WorkflowStatusEvent())
     assert window.status_bar.text.startswith(

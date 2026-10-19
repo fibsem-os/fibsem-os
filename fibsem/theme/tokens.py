@@ -106,9 +106,8 @@ ACCENT_COLOR = "#50a6ff"  # links, selected state, informational chips
 OK_COLOR = "#4caf50"  # success
 WARN_COLOR = "#e0a030"  # loaded but inactive, degraded, needs attention
 ERROR_COLOR = "#d04040"  # failure
-# The Review chip: the task will wait on you, in the Review tab. The same
-# orange as the border's "waiting on you now" and the inbox's waiting rows, on
-# purpose: one colour for one meaning, at rest on the chip and live on the
+# Waiting on you: the agent card's waiting state. The same orange as the
+# border's "waiting on you now", on purpose: one colour for one meaning, at rest on the chip and live on the
 # border when it happens. Not red (error) and not amber (degraded, cancelled).
 REVIEW_COLOR = ORANGE_COLOR
 

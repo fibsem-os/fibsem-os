@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import numpy as np
 import yaml
+from psygnal import Signal
 
 from fibsem import config as cfg
 from fibsem.config import SAMPLE_HOLDER_CONFIGURATION_PATH
@@ -384,6 +385,11 @@ class SampleHandling(Service):
         doc="The autoloader, where there is one: its magazine is the inventory.",
     )
 
+    # The sample holder changed: slots calibrated, or another holder loaded from the
+    # configuration (`load_holder`). Carries the holder. Emitted on the caller's
+    # thread.
+    holder_changed = Signal(object)
+
     def __init__(self, name: str = "sample_handling", **kwargs: Any):
         super().__init__(name, **kwargs)
         self.holder: Optional[SampleHolder] = None
@@ -396,10 +402,17 @@ class SampleHandling(Service):
         return f"<SampleHandling: holder={self.holder}, magazine={self.magazine}>"
 
     def connect(self) -> "SampleHandling":
+        """Bind the service, then build its holder (`load_holder`)."""
+        super().connect()
+        self.load_holder()
+        return self
+
+    def load_holder(self) -> None:
         """Build the holder from the configuration, and the magazine's grid model over
         the loader if there is one; then restore the occupancy the session state
-        records, once the configuration is known."""
-        super().connect()
+        records, once the configuration is known, and announce the holder on
+        ``holder_changed``. Applying a configuration that names a holder calls this
+        again, so subscribers stay connected."""
         microscope = self.parent
         stage_settings = microscope.system.stage
         builtin = self.stage.has_builtin_shuttle()
@@ -451,7 +464,7 @@ class SampleHandling(Service):
         # `setup_session` restores it once it is.
         if getattr(microscope, "configuration_path", None):
             self.restore_occupancy()
-        return self
+        self.holder_changed.emit(holder)
 
     # -- where the stage is, against the holder -----------------------------
 
@@ -483,10 +496,11 @@ class SampleHandling(Service):
     @property
     def current_slot(self) -> Optional[GridSlot]:
         """Get the slot the stage is currently positioned at, if any."""
-        # The cached position, never a hardware read: this is called from UI
-        # paint paths. It is None until the first read or move after connecting,
-        # and then the answer is "not known to be at any slot", not a crash.
-        return self.slot_at_position(self.parent._stage_position)
+        # The stage device's cached position, never a hardware read: this is called
+        # from UI paint paths. It is None until the first read or move after
+        # connecting, and then the answer is "not known to be at any slot", not a crash.
+        stage = self.parent.stage
+        return self.slot_at_position(stage.position.last_known if stage else None)
 
     @property
     def current_grid(self) -> Optional[SampleGrid]:
@@ -643,6 +657,19 @@ class SampleHandling(Service):
         """The holder's slots in order: each one's stage position (None until it
         is calibrated), its calibration and the grid loaded in it."""
         return sorted(self.holder.slots.values(), key=lambda slot: slot.index)
+
+    @query
+    def overview_slots(self) -> List[GridSlot]:
+        """The slots a grid overview is centred on. With a loader, its working
+        slot. On a fixed holder, the occupied calibrated slots, or every
+        calibrated one when none is occupied. Empty before a holder is loaded."""
+        if self.holder is None:
+            return []
+        calibrated = [s for s in self.holder_slots() if s.position is not None]
+        if self.magazine is not None:
+            return calibrated[:1]
+        occupied = [s for s in calibrated if s.loaded_grid is not None]
+        return occupied or calibrated
 
     @command(long=True)
     def run_inventory(self) -> List[GridInventoryEntry]:

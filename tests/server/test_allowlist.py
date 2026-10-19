@@ -15,8 +15,8 @@ pytest.importorskip("httpx")  # TestClient transport
 from fastapi.testclient import TestClient  # noqa: E402
 
 from fibsem import utils  # noqa: E402
+from fibsem.ai.agent.allowlist import blocked, path_outside  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.allowlist import blocked, path_outside  # noqa: E402
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -69,6 +69,13 @@ def test_a_blocked_entry_is_refused_at_drive_and_stays_readable(client):
         message = refused.json()["detail"]["message"]
         assert f"may not run {device}.{command}" in message
         assert "readable" not in message
+
+    # A mill started bare returns at once, holding no control while it mills.
+    refused = client.post(
+        "/microscope/services/milling/commands/start", json={"kwargs": {}}
+    )
+    assert refused.status_code == 403
+    assert "milling_run_stage" in refused.json()["detail"]["message"]
 
 
 def test_risky_but_legitimate_entries_are_left_to_the_level(client, microscope):

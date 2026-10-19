@@ -25,7 +25,6 @@ from fibsem import utils
 from fibsem.microscope import DeviceImagingState
 from fibsem.structures import (
     DEFAULT_STAGE_DEVICES,
-    VERSION_1_DEVICE_RANGE,
     FibsemStagePosition,
     InsertableDeviceState,
     StageDeviceSettings,
@@ -362,7 +361,7 @@ def test_a_device_the_range_cannot_decide_is_never_arrived_at():
     assert device.contains(here) is False
     assert (
         StageDeviceSettings(
-            origin=FibsemStagePosition(), range=VERSION_1_DEVICE_RANGE
+            origin=FibsemStagePosition(), range=FibsemStagePosition(x=20.0e-3)
         ).contains(here)
         is False
     )
@@ -531,7 +530,7 @@ def test_a_traverse_that_would_arrive_outside_the_target_is_refused():
 def test_a_stage_at_no_device_is_refused_rather_than_guessed():
     """Only a position missing an axis an origin sets is at no device now."""
     microscope = _microscope()
-    microscope.system.stage.devices["FIBSEM"].range = VERSION_1_DEVICE_RANGE
+    microscope.system.stage.devices["FIBSEM"].range = FibsemStagePosition(x=20.0e-3)
     microscope.move_to_orientation("FIB")
     microscope.move_stage_relative(
         FibsemStagePosition(x=OUTSIDE_THE_FM_MM * 1e-3, y=0, z=0, r=0, t=0)
@@ -765,10 +764,10 @@ def test_an_axis_a_device_leaves_unset_is_the_beams():
 
 
 def test_a_range_covers_every_axis_its_origin_sets():
-    """A version 1 `{x: 20 mm}` copied onto an origin that also sets y gets 1 mm on y;
-    left out, `contains` would answer no on y and the device could not be reached."""
+    """A `{x: 20 mm}` range on an origin that also sets y gets 1 mm on y; left out,
+    `contains` would answer no on y and the device could not be reached."""
     device = StageDeviceSettings.from_dict(
-        {"origin": {"x": 48.8e-3, "y": 2.0e-3}}, default_range=VERSION_1_DEVICE_RANGE
+        {"origin": {"x": 48.8e-3, "y": 2.0e-3}, "range": {"x": 20.0e-3}}
     )
 
     assert (device.range.x, device.range.y) == (20.0e-3, 1.0e-3)

@@ -9,14 +9,7 @@ from datetime import datetime
 import pytest
 import yaml
 
-from fibsem.applications.autolamella.proposals import Decision, Proposal
-from fibsem.applications.autolamella.structures import (
-    Experiment,
-    GridRecord,
-    OverlayRecord,
-    QualityRecord,
-    Verdict,
-)
+from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.tools.experiments import (
     created_order,
     filter_experiments,
@@ -25,6 +18,15 @@ from fibsem.config import ExperimentSummary, peek_experiment
 from fibsem.correlation.structures import CorrelationResult
 from fibsem.structures import FibsemExperimentRef, SessionInfo, SlotCalibration
 from fibsem.util.timestamps import format_time
+from fibsem.workflows.grids import (
+    GridRecord,
+    OverlayRecord,
+)
+from fibsem.workflows.proposals import Decision, Proposal
+from fibsem.workflows.quality import (
+    QualityRecord,
+    Verdict,
+)
 
 # 2026-09-14 03:12:11 UTC, as an older file holds it
 STAMP = 1789355531.0
@@ -99,7 +101,7 @@ def test_an_older_proposal_and_decision_show_the_same_clock(viewer_zone):
         "values": {},
         "provenance": {"task_id": "run-1"},
         "decisions": [
-            {"outcome": "Confirmed", "author": "operator", "timestamp": STAMP + 60}
+            {"outcome": "Confirmed", "actor": "operator", "timestamp": STAMP + 60}
         ],
         "created_at": STAMP,
     }
@@ -116,7 +118,7 @@ def test_an_older_proposal_and_decision_show_the_same_clock(viewer_zone):
 
 
 def test_a_decision_with_no_time_has_none():
-    decision = Decision.from_dict({"outcome": "Confirmed", "author": "operator"})
+    decision = Decision.from_dict({"outcome": "Confirmed", "actor": "operator"})
     assert decision.timestamp is None
     assert clock(decision.timestamp) == ""
 

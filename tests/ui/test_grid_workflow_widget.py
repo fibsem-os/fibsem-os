@@ -16,24 +16,12 @@ from PyQt5.QtWidgets import QDialog, QLabel
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.structures import (
-    Attention,
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskState,
-    AutoLamellaTaskStatus,
     Experiment,
-    GridRecord,
 )
-from fibsem.applications.autolamella.task_outputs import grid_outputs
 from fibsem.applications.autolamella.ui.grid_workflow_widget import (
     GridRunPreflightDialog,
     GridWorkflowWidget,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid import (
-    BeamOverviewGridTaskConfig,
-    FluorescenceOverviewGridTaskConfig,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-    LOAD_ENTRY_NAME,
 )
 from fibsem.services.sample_handling import bind_sample_handling
 from fibsem.structures import (
@@ -44,6 +32,17 @@ from fibsem.structures import (
     SampleGrid,
     SlotCalibration,
 )
+from fibsem.workflows.attention import Attention
+from fibsem.workflows.grid import (
+    BeamOverviewGridTaskConfig,
+    FluorescenceOverviewGridTaskConfig,
+)
+from fibsem.workflows.grid.manager import (
+    LOAD_ENTRY_NAME,
+)
+from fibsem.workflows.grids import GridRecord
+from fibsem.workflows.outputs import item_outputs
+from fibsem.workflows.status import TaskState, TaskStatus
 
 
 def _small_settings(beam=BeamType.ELECTRON) -> OverviewAcquisitionSettings:
@@ -214,23 +213,9 @@ class TestSelection:
 
 
 class TestAttentionChip:
-    """Automated or Review per grid task, as on the lamella task list; shown
-    only while the review preference is on."""
+    """Automated or Review per grid task, as on the lamella task list."""
 
-    def test_hidden_while_review_is_off(self, view, monkeypatch):
-        import fibsem.applications.autolamella.ui.grid_workflow_widget as module
-
-        monkeypatch.setattr(module, "_review_available", lambda: False)
-        row = view._task_rows["overview_sem"]
-        row.refresh()
-        assert row.btn_attention.isHidden()
-
-    def test_a_click_toggles_review_and_saves_the_protocol(
-        self, view, experiment, monkeypatch
-    ):
-        import fibsem.applications.autolamella.ui.grid_workflow_widget as module
-
-        monkeypatch.setattr(module, "_review_available", lambda: True)
+    def test_a_click_toggles_review_and_saves_the_protocol(self, view, experiment):
         row = view._task_rows["overview_sem"]
         row.refresh()
         assert not row.btn_attention.isHidden()
@@ -251,32 +236,6 @@ class TestAttentionChip:
 
         row.btn_attention.click()
         assert config.attention is Attention.automated
-
-
-def test_review_on_a_task_nothing_requires_says_nothing_waits(
-    qapp, arctis, experiment, monkeypatch
-):
-    """As on the lamella list: a Review chip on a task no other task requires
-    holds nothing, and the row says so until something requires it."""
-    import fibsem.applications.autolamella.ui.grid_workflow_widget as module
-
-    monkeypatch.setattr(module, "_review_available", lambda: True)
-    experiment.grid_protocol.task_config[
-        "overview_sem"
-    ].attention = Attention.supervised
-    widget = GridWorkflowWidget()
-    widget.set_microscope(arctis)
-    widget.set_experiment(experiment)
-    row = widget._task_rows["overview_sem"]
-    assert row.detail_label.text() == "nothing waits on this"
-    assert "nothing waits" in row.btn_attention.toolTip()
-
-    experiment.grid_protocol.task_config["overview_fm"].requires = ["overview_sem"]
-    widget._rebuild()
-    row = widget._task_rows["overview_sem"]
-    assert row.detail_label.text() != "nothing waits on this"
-    assert "the tasks that require it wait" in row.btn_attention.toolTip()
-    widget.close()
 
 
 class TestRequiresOnTheTaskList:
@@ -322,33 +281,22 @@ class TestRequiresOnTheTaskList:
         assert experiment.grid_protocol.requirements("overview_sem") == []
         assert view._task_rows["overview_sem"].detail_label.text() == "Beam overview"
 
-    def test_the_row_says_after_review_of_a_reviewed_requirement(
-        self, view, experiment, monkeypatch
-    ):
-        import fibsem.applications.autolamella.ui.grid_workflow_widget as module
-
-        monkeypatch.setattr(module, "_review_available", lambda: True)
+    def test_a_supervised_requirement_reads_as_any_other(self, view, experiment):
         view.set_requires("overview_sem", ["overview_fm"])
         row = view._task_rows["overview_sem"]
         assert row.detail_label.text() == "after overview_fm"
 
-        view._task_rows["overview_fm"].btn_attention.click()  # FM to Review
+        view._task_rows["overview_fm"].btn_attention.click()  # FM to Supervised
 
-        assert row.detail_label.text() == "after review of overview_fm"
-        fm = view._task_rows["overview_fm"]
-        assert fm.detail_label.text() != "nothing waits on this", "SEM requires it"
+        assert row.detail_label.text() == "after overview_fm"
 
 
-def test_the_review_tab_loads_a_grid_proposals_image_from_the_grid_directory(
-    experiment,
-):
+def test_a_grid_proposals_image_loads_from_the_grid_directory(experiment):
     """A grid's recorded outputs are relative to its grid_path, which the record
     does not store; the loader resolves it through the experiment."""
-    from fibsem.applications.autolamella.proposals import TASK_RESULT, Proposal
-    from fibsem.applications.autolamella.ui.review_tab_widget import (
-        _load_reference_image,
-    )
+    from fibsem.applications.autolamella.review_images import load_reference_image
     from fibsem.structures import FibsemImage
+    from fibsem.workflows.proposals import TASK_RESULT, Proposal
 
     grid = experiment.add_grid(GridRecord(name="grid-oak"))
     directory = experiment.grid_path(grid) / "overview_sem"
@@ -360,7 +308,7 @@ def test_the_review_tab_loads_a_grid_proposals_image_from_the_grid_directory(
         kind=TASK_RESULT, provenance={"reference_image": "overview_sem/overview.tif"}
     )
 
-    image = _load_reference_image(experiment, grid, proposal)
+    image = load_reference_image(experiment, grid, proposal)
 
     assert image is not None and image.data.shape == (64, 64)
 
@@ -472,9 +420,9 @@ def main_ui(qapp):
 
 def _wait_for_run(ui, timeout_s: float = 90.0) -> None:
     deadline = time.monotonic() + timeout_s
-    while ui.is_workflow_running and time.monotonic() < deadline:
+    while ui.session.runner.is_running and time.monotonic() < deadline:
         QTest.qWait(100)
-    assert not ui.is_workflow_running, "the grid run did not finish in time"
+    assert not ui.session.runner.is_running, "the grid run did not finish in time"
 
 
 class TestPanelChrome:
@@ -677,7 +625,7 @@ def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeyp
     microscope.turn_off(BeamType.ION)
     assert main_ui._beams_off() == [BeamType.ION]
     main_ui._start_grid_run(["overview_sem"], ["grid-aspen"], inventory_first=False)
-    assert ui.is_workflow_running
+    assert ui.session.runner.is_running
     assert not main_ui.grids_tab.btn_inventory.isEnabled()  # locked during the run
     _wait_for_run(ui)
     QTest.qWait(200)  # let the finished signal land
@@ -692,10 +640,12 @@ def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeyp
     grid = exp.get_grid_by_name("grid-aspen")
     # a fixed holder: the grid was loaded already, so no load entry
     assert [t.name for t in grid.task_history] == ["overview_sem"]
-    assert grid.task_history[-1].status is AutoLamellaTaskStatus.Completed
-    assert len(grid_outputs(exp, grid, "overview_sem")) == 1
+    assert grid.task_history[-1].status is TaskStatus.Completed
+    assert len(item_outputs(exp, grid, "overview_sem")) == 1
     assert main_ui.grids_tab.btn_inventory.isEnabled()
-    assert ui._last_run_summary is not None  # the grid summary, for the App Server
+    assert (
+        ui.session.runner.last_summary is not None
+    )  # the grid summary, for the App Server
     assert microscope.is_on(BeamType.ION) and main_ui._beams_off() == []
 
 
@@ -705,11 +655,11 @@ def test_adding_grids_to_a_running_queue_appends_their_blocks(
     """The Grids view's selection goes onto the end of a grid run's queue as
     load-plus-tasks blocks, after a confirmation; a lamella run refuses it."""
     from fibsem.applications.autolamella.ui import grid_workflow_widget as view_module
-    from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+    from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
+    from fibsem.workflows.grid.manager import (
         GridTaskManager,
         plan_grid_run,
     )
-    from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 
     ui = main_ui.autolamella_ui
     ui.system_widget.connect_to_microscope()
@@ -739,10 +689,10 @@ def test_adding_grids_to_a_running_queue_appends_their_blocks(
     )
 
     # a grid run under way on grid-aspen, with the manager where the window looks
-    manager = GridTaskManager(microscope, exp, parent_ui=ui)
+    manager = GridTaskManager(microscope, exp)
     manager.queue.build_from_pairs(plan_grid_run(["overview_sem"], ["grid-aspen"]))
     manager.queue.next()  # grid-aspen's load is active
-    ui._task_manager = manager
+    ui.session.runner.manager = manager
 
     view = main_ui.grid_workflow_widget
     view._grid_rows["grid-birch"].checkbox.setChecked(True)
@@ -764,7 +714,7 @@ def test_adding_grids_to_a_running_queue_appends_their_blocks(
     # a lamella run refuses grid tasks, and the Add button says so instead of
     # offering an add the handler would refuse (seen on the bench: it was
     # enabled with a grid ticked during a lamella run)
-    ui._task_manager = TaskManager(microscope, exp, parent_ui=ui)
+    ui.session.runner.manager = TaskManager(microscope, exp)
     main_ui._on_workflow_selection_changed()
     # The button's own flag: the timeline as a whole is only enabled once an
     # experiment is loaded through the window, which this harness skips.
@@ -772,12 +722,12 @@ def test_adding_grids_to_a_running_queue_appends_their_blocks(
     own = lambda: add.isEnabledTo(add.parentWidget())  # noqa: E731
     assert not own() and "lamella run is going" in add.toolTip()
     main_ui._on_add_to_queue(run_next=False)
-    assert len(ui._task_manager.queue.items) == 0
-    ui._task_manager = manager  # back to the grid run: a ticked grid can join
+    assert len(ui.session.runner.manager.queue.items) == 0
+    ui.session.runner.manager = manager  # back to the grid run: a ticked grid can join
     view._grid_rows["grid-birch"].checkbox.setChecked(True)
     main_ui._on_workflow_selection_changed()
     assert own() and add.toolTip().startswith("Add to the end of the queue")
-    ui._task_manager = None
+    ui.session.runner.manager = None
 
 
 def test_run_and_screen_all_name_the_grids_running_for_the_first_time(
@@ -809,7 +759,7 @@ def test_run_and_screen_all_name_the_grids_running_for_the_first_time(
     exp.sync_grids_from_inventory(microscope.sample_handling)
     # grid-aspen has run once; grid-birch has not
     ran = exp.get_grid_by_name("grid-aspen")
-    ran.task_history.append(AutoLamellaTaskState(name="overview_sem"))
+    ran.task_history.append(TaskState(name="overview_sem"))
     ui.experiment = exp
     main_ui.grid_workflow_widget.set_experiment(exp)
     main_ui.workflow_left_tabs.setCurrentWidget(main_ui.grid_workflow_widget)
@@ -831,7 +781,7 @@ def test_run_and_screen_all_name_the_grids_running_for_the_first_time(
     main_ui._run_grid_workflow()
     assert shown == [["grid-birch"]]
     assert offered == [False], "a fixed holder has nothing to unload"
-    assert not ui.is_workflow_running
+    assert not ui.session.runner.is_running
 
     # Screen all grids asks its own dialog, which names and records the grids,
     # and runs on exactly the grids it hands back (FIB-1138).
@@ -872,10 +822,10 @@ def test_the_preflight_quotes_the_time_per_task_and_the_finish(
     row of their own priced at the loader's figure, a total and a finish."""
     from datetime import datetime
 
-    from fibsem.applications.autolamella.workflows.workflow_estimate import (
+    from fibsem.util.durations import format_duration_rounded
+    from fibsem.workflows.grid.estimate import (
         estimate_grid_run,
     )
-    from fibsem.util.durations import format_duration_rounded
 
     view.grid_header.checkbox_all.setChecked(True)
     grids = view.get_selected_grids()
@@ -921,7 +871,7 @@ def test_the_preflight_quotes_the_time_per_task_and_the_finish(
 def test_the_preflight_says_what_adding_costs_and_moves_the_finish(qapp):
     from datetime import datetime, timedelta
 
-    from fibsem.applications.autolamella.workflows.workflow_estimate import (
+    from fibsem.workflows.estimate import (
         AdditionEstimate,
     )
 
@@ -986,7 +936,7 @@ def test_the_window_prices_a_grid_run_for_the_confirmation_and_the_timeline(
     main_ui.grid_workflow_widget.grid_header.checkbox_all.setChecked(True)
     main_ui._run_grid_workflow()
     (estimate,) = shown
-    assert [(t.name, t.lamella_count) for t in estimate.tasks] == [("overview_sem", 2)]
+    assert [(t.name, t.count) for t in estimate.tasks] == [("overview_sem", 2)]
     per_grid = exp.grid_protocol.task_config["overview_sem"].estimated_duration
     assert estimate.work_seconds == pytest.approx(2 * per_grid)
 

@@ -6,10 +6,9 @@ drifted: left to `PointsSpec`'s defaults it came out at size 18 with a 2.0 edge,
 visibly fatter cross than the thin one the other two draw, and with no `legend_label` it
 was the only one missing from the canvas legend.
 
-Driven by calling `QtResponder._pick_poi` unbound against a stub, so the spec it
-builds is pinned without a window or a running question: the marker drawing moved
-there with the PickPOI conversion, and the image now arrives in the request rather
-than being read off the host.
+Driven through `PoiMarker` against a stub window, so the spec it builds is pinned
+without a window or a running question: the one marker the PickPOI prompt and
+Setup's point-of-interest question both draw.
 """
 
 import os
@@ -23,8 +22,7 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.ui.qt_responder import QtResponder
-from fibsem.applications.autolamella.workflows.interaction import PickPOI
+from fibsem.applications.autolamella.ui.poi_marker import PoiMarker
 from fibsem.structures import (
     BeamType,
     FibsemImage,
@@ -75,14 +73,11 @@ def _image(shape=(64, 64), pixel_size=1e-8):
 
 def _poi_spec(initial_poi=None):
     controller = _Controller()
-    stub = types.SimpleNamespace(
-        _view_controller=lambda: controller,
-        _park_question=lambda *a, **k: None,
-        _follow_view_frames=lambda: None,
+    window = types.SimpleNamespace(
+        parent_widget=types.SimpleNamespace(view_controller=controller),
+        image_widget=None,
     )
-    QtResponder._pick_poi(
-        stub, PickPOI(image=_image(), initial=initial_poi), future=None
-    )
+    assert PoiMarker(window).show(initial_poi, _image())
     return controller.overlays[(BeamType.ION, "poi")]
 
 

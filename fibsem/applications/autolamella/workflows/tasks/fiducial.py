@@ -6,7 +6,6 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar, List, Optional, Tuple, Type
 
-from fibsem.applications.autolamella.proposals import ALIGNMENT_AREA
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MILL_POLISHING_KEY,
@@ -32,6 +31,7 @@ from fibsem.structures import (
     Point,
     param,
 )
+from fibsem.workflows.proposals import ALIGNMENT_AREA, MILLING
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Lamella
@@ -185,15 +185,14 @@ def follow_alignment_area(lamella: "Lamella") -> List[str]:
 class MillFiducialTask(AutoLamellaTask):
     """Task to setup the lamella for milling."""
 
-    # Work at the microscope, then Continue: the mill. Then the alignment
-    # area around the milled fiducial, asked on the post-mill image.
-    questions = (ALIGNMENT_AREA,)
-    sessions = ("milling",)
+    # The mill, a pass at a time. Then the alignment area around the
+    # milled fiducial, asked on the post-mill image.
+    questions = (MILLING, ALIGNMENT_AREA)
 
     @classmethod
     def questions_for(cls, config) -> Tuple[str, ...]:
         if not getattr(config, "confirm_alignment_area", True):
-            return ()
+            return (MILLING,)
         return cls.questions
 
     config: MillFiducialTaskConfig
@@ -246,14 +245,9 @@ class MillFiducialTask(AutoLamellaTask):
         # session's finished acquisition when it saved one (off by default),
         # else one FIB frame taken now. A question on the record needs the
         # frame it is about, and the pre-mill reference does not show the
-        # fiducial; the old prompt sat on the display, which had the mill's
-        # own unsaved post-mill image.
+        # fiducial.
         image = self._milling_result_image_file(milling_task_config)
-        if (
-            not image
-            and self._asks_on_the_record
-            and self.config.confirm_alignment_area
-        ):
+        if not image and self.config.confirm_alignment_area:
             self._acquire_channels(
                 image_settings,
                 filename=f"ref_{self.task_name}_post_mill",

@@ -12,26 +12,9 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskState,
     Experiment,
-    GridRecord,
 )
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus as Status
 from fibsem.applications.autolamella.tools.grid_report_pdf import REPORT_FILENAME
-from fibsem.applications.autolamella.workflows.tasks.grid import (
-    BeamOverviewGridTaskConfig,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-    LOAD_ENTRY_NAME,
-    UNLOAD_ENTRY_NAME,
-    GridTaskManager,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid.screening import (
-    GridNamingError,
-    name_and_record_grids,
-    screen_grids,
-    screening_plan,
-)
 from fibsem.services.sample_handling import bind_sample_handling
 from fibsem.structures import (
     BeamType,
@@ -41,6 +24,23 @@ from fibsem.structures import (
     SampleGrid,
     SlotCalibration,
 )
+from fibsem.workflows.grid import (
+    BeamOverviewGridTaskConfig,
+)
+from fibsem.workflows.grid.manager import (
+    LOAD_ENTRY_NAME,
+    UNLOAD_ENTRY_NAME,
+    GridTaskManager,
+)
+from fibsem.workflows.grid.screening import (
+    GridNamingError,
+    name_and_record_grids,
+    screening_plan,
+)
+from fibsem.workflows.grids import GridRecord
+from fibsem.workflows.status import TaskState
+from fibsem.workflows.status import TaskStatus as Status
+from tests.run_state import run_grids
 
 
 def _small_settings(beam=BeamType.ELECTRON) -> OverviewAcquisitionSettings:
@@ -113,7 +113,7 @@ class TestOnTheAutoloader:
         self, arctis, experiment, stub_tasks
     ):
         assert experiment.grids == []
-        manager = screen_grids(arctis, experiment)
+        manager = run_grids(arctis, experiment, inventory_first=True)
         assert [g.name for g in experiment.grids] == ["Grid-01", "Grid-02", "Grid-03"]
         assert stub_tasks == [
             (g, t)
@@ -127,8 +127,8 @@ class TestOnTheAutoloader:
             ]
 
     def test_screening_again_adds_no_records(self, arctis, experiment, stub_tasks):
-        screen_grids(arctis, experiment)
-        screen_grids(arctis, experiment)
+        run_grids(arctis, experiment, inventory_first=True)
+        run_grids(arctis, experiment, inventory_first=True)
         assert len(experiment.grids) == 3
 
     def test_the_plan_is_what_a_confirmation_shows(self, arctis, experiment):
@@ -149,7 +149,9 @@ class TestOnTheAutoloader:
         self, arctis, experiment, stub_tasks
     ):
         arctis.sample_handling.magazine.device.fail_next_exchange = True
-        manager = screen_grids(arctis, experiment, task_names=["overview_sem"])
+        manager = run_grids(
+            arctis, experiment, task_names=["overview_sem"], inventory_first=True
+        )
         assert stub_tasks == [("Grid-02", "overview_sem"), ("Grid-03", "overview_sem")]
         assert [i.status for i in manager.queue.items if i.item_name == "Grid-01"] == [
             Status.Failed,
@@ -160,12 +162,13 @@ class TestOnTheAutoloader:
         self, arctis, experiment, stub_tasks, tmp_path
     ):
         pytest.importorskip("reportlab")
-        manager = screen_grids(
+        manager = run_grids(
             arctis,
             experiment,
             task_names=["overview_sem"],
             unload_at_end=True,
             report_at_end=True,
+            inventory_first=True,
         )
         assert arctis.sample_handling.loaded_grids == []
         assert manager.queue.items[-1].task_name == UNLOAD_ENTRY_NAME
@@ -207,7 +210,7 @@ class TestNamingAtScreen:
         self, arctis, experiment
     ):
         ran = experiment.add_grid(GridRecord(name="Grid-02"))
-        ran.task_history.append(AutoLamellaTaskState(name="overview_sem"))
+        ran.task_history.append(TaskState(name="overview_sem"))
         with pytest.raises(GridNamingError, match="Grid-02 cannot be renamed"):
             name_and_record_grids(
                 arctis.sample_handling,
@@ -225,7 +228,9 @@ class TestOnAFixedHolder:
     def test_every_grid_is_present_and_nothing_is_exchanged(
         self, fixed_holder, experiment, stub_tasks
     ):
-        manager = screen_grids(fixed_holder, experiment, task_names=["overview_sem"])
+        manager = run_grids(
+            fixed_holder, experiment, task_names=["overview_sem"], inventory_first=True
+        )
         assert [g.name for g in experiment.grids] == ["grid-aspen", "grid-birch"]
         assert stub_tasks == [
             ("grid-aspen", "overview_sem"),
@@ -241,12 +246,13 @@ class TestOnAFixedHolder:
         self, fixed_holder, experiment, stub_tasks, tmp_path
     ):
         pytest.importorskip("reportlab")
-        manager = screen_grids(
+        manager = run_grids(
             fixed_holder,
             experiment,
             task_names=["overview_sem"],
             unload_at_end=True,
             report_at_end=True,
+            inventory_first=True,
         )
         assert [g.name for g in fixed_holder.sample_handling.loaded_grids] == [
             "grid-aspen",
@@ -263,6 +269,6 @@ class TestOnAFixedHolder:
         microscope.sample_handling = bind_sample_handling(microscope)
         for slot in microscope.sample_handling.holder.slots.values():
             slot.loaded_grid = None
-        manager = screen_grids(microscope, experiment)
+        manager = run_grids(microscope, experiment, inventory_first=True)
         assert experiment.grids == [] and stub_tasks == []
         assert manager.queue.items == []

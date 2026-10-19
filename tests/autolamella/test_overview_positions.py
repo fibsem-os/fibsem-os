@@ -16,21 +16,23 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.applications.autolamella.poses import LamellaPoses, build_lamella_poses
-from fibsem.applications.autolamella.proposals import (
-    OVERVIEW_POSITIONS,
-    PROPOSAL_KINDS,
-    Decision,
-    DecisionOutcome,
-    Proposal,
-    ValueRefused,
-    prepare_values,
-)
+from fibsem.applications.autolamella.poses import build_lamella_poses
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
 from fibsem.structures import FibsemStagePosition
+from fibsem.workflows.proposals import (
+    OVERVIEW_POSITIONS,
+    PROPOSAL_KINDS,
+    Decision,
+    DecisionOutcome,
+    ItemPoses,
+    Proposal,
+    ValueRefused,
+    prepare_values,
+)
+from tests.proposal_records import set_proposals
 
 # The Arctis simulator, because this needs a holder with grids in it.
 CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
@@ -54,7 +56,7 @@ def experiment(tmp_path, microscope):
     return exp
 
 
-def _placed(microscope, x: float, y: float) -> LamellaPoses:
+def _placed(microscope, x: float, y: float) -> ItemPoses:
     """A position as the renderer would hand it over: marked on the overview,
     turned into both poses by the instrument's geometry there and then."""
     return build_lamella_poses(
@@ -74,13 +76,13 @@ def _proposal(values=None) -> Proposal:
 
 
 def _decide(experiment, grid, proposal, values, task_name=OVERVIEW):
-    grid.proposals[task_name] = [proposal]
+    set_proposals(grid, task_name, [proposal])
     return experiment.decide(
         grid.id,
         task_name,
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values=values,
             task_id=proposal.task_id,
         ),
@@ -106,11 +108,26 @@ def test_a_position_round_trips_through_the_record(microscope):
 
     assert len(back.values["positions"]) == 1
     read = back.values["positions"][0]
-    assert isinstance(read, LamellaPoses)
-    assert read.milling.stage_position.x == pytest.approx(
-        placed.milling.stage_position.x
-    )
+    assert isinstance(read, ItemPoses)
+    assert read.beam.stage_position.x == pytest.approx(placed.beam.stage_position.x)
     assert (read.fluorescence is None) == (placed.fluorescence is None)
+
+
+def test_a_position_saved_with_a_milling_pose_reads_as_its_beam_pose(microscope):
+    """An experiment saved before the pose was named ``beam`` still loads: the
+    old ``milling`` key is read as the beam pose, and written back as
+    ``beam``."""
+    placed = _placed(microscope, 1e-4, 2e-4)
+    saved = _proposal({"positions": [placed]}).to_dict()
+    entry = saved["values"]["positions"][0]
+    entry["milling"] = entry.pop("beam")
+
+    read = Proposal.from_dict(saved).values["positions"][0]
+
+    assert isinstance(read, ItemPoses)
+    assert read.beam.stage_position.x == pytest.approx(placed.beam.stage_position.x)
+    rewritten = _proposal({"positions": [read]}).to_dict()
+    assert "beam" in rewritten["values"]["positions"][0]
 
 
 # ---------------------------------------------------------------------------
@@ -158,10 +175,10 @@ def test_the_lamellae_are_created_at_the_poses_in_the_value(microscope, experime
 
     made = experiment.positions[-1]
     assert made.milling_pose.stage_position.x == pytest.approx(
-        placed.milling.stage_position.x
+        placed.beam.stage_position.x
     )
     assert made.milling_pose.stage_position.y == pytest.approx(
-        placed.milling.stage_position.y
+        placed.beam.stage_position.y
     )
 
 

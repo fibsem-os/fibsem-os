@@ -8,7 +8,6 @@ today (see AutoLamellaTask._fire_hook and TaskManager).
 import logging
 import threading
 import time
-import warnings
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -16,6 +15,8 @@ from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Type
 
 import yaml
+
+from fibsem.structures import Configurable, Display, RangeLimit, param
 
 
 class HookEvent(str, Enum):
@@ -178,7 +179,7 @@ class HookContext:
     # about: on a failure, "3 remaining" means three more will be attempted.
     tasks_remaining: Optional[int] = None
     tasks_total: Optional[int] = None
-    # Application-owned state for the run. AutoLamella passes an AutoLamellaTaskState;
+    # Application-owned state for the run. AutoLamella passes a TaskState;
     # left untyped so this module does not depend on any one application's structures.
     task_state: Optional[Any] = None
     # The exception message, not a traceback: this payload can leave the machine via a
@@ -191,12 +192,14 @@ class HookContext:
     # tasks whose latest run did not complete. A reason alone left an agent guessing
     # which requirement it was (FIB-1357).
     missing_prereqs: Optional[List[str]] = None
-    # How many proposals were awaiting a decision, on WORKFLOW_STALLED.
-    decisions_pending: Optional[int] = None
     # How the run's tasks ended, by status ("completed", "failed", "skipped"), on
     # WORKFLOW_COMPLETED. A run in which everything was skipped still completes, and
     # this is what says nothing ran (FIB-1357).
     task_counts: Optional[Dict[str, int]] = None
+    # Which iteration of its item's tasks the work in flight is, for an application
+    # whose items repeat their tasks (a volume position, once per slice). None
+    # for one whose items run each task once, and between tasks.
+    iteration: Optional[int] = None
     timestamp: float = field(default_factory=time.time)
 
     def __post_init__(self):
@@ -231,17 +234,6 @@ class HookContext:
                 self.event,
             )
 
-    @property
-    def lamella_name(self) -> str:
-        """Deprecated alias for item_name, kept so hooks written against the pre-rename
-        context keep working. Read-only: construct with item_name."""
-        warnings.warn(
-            "HookContext.lamella_name is deprecated, use HookContext.item_name",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.item_name
-
 
 DEFAULT_MESSAGE_TEMPLATE = "Task {task_name} {event} for {item_name}"
 
@@ -258,7 +250,6 @@ def _template_fields(context: HookContext) -> Dict[str, str]:
         "task_name": context.task_name,
         "task_type": context.task_type,
         "item_name": context.item_name,
-        "lamella_name": context.item_name,  # deprecated alias, renders pre-rename templates
         "item_id": context.item_id,
         "task_id": context.task_id,
         "experiment_id": context.experiment_id or "",
@@ -289,7 +280,7 @@ def render_template(template: str, context: HookContext) -> str:
 
 
 @dataclass
-class Hook(ABC):
+class Hook(Configurable, ABC):
     name: str = ""
     # Event names, group names, or a mix. See EVENT_GROUPS.
     events: List[str] = field(default_factory=list)
@@ -329,7 +320,12 @@ class Hook(ABC):
 
 @dataclass
 class LoggingHook(Hook):
-    level: str = "INFO"
+    level: str = param(
+        "INFO",
+        choices=("DEBUG", "INFO", "WARNING", "ERROR"),
+        doc="The log level each event is written at.",
+        display=Display("Level"),
+    )
 
     def run(self, context: HookContext) -> None:
         level = getattr(logging, self.level.upper(), logging.INFO)
@@ -354,8 +350,17 @@ class LoggingHook(Hook):
 
 @dataclass
 class NotificationHook(Hook):
-    notification_type: str = "info"
-    message_template: str = DEFAULT_MESSAGE_TEMPLATE
+    notification_type: str = param(
+        "info",
+        choices=("info", "success", "warning", "error"),
+        doc="How the notification is shown.",
+        display=Display("Notification type"),
+    )
+    message_template: str = param(
+        DEFAULT_MESSAGE_TEMPLATE,
+        doc="The notification's text; {placeholders} are filled from the event.",
+        display=Display("Message template"),
+    )
     _notify: Optional[Callable[[str, str], None]] = field(default=None, repr=False)
 
     def run(self, context: HookContext) -> None:
@@ -386,7 +391,7 @@ class NotificationHook(Hook):
         )
 
 
-_WEBHOOK_ALLOWED_METHODS = {"POST", "GET"}
+_WEBHOOK_ALLOWED_METHODS = ("POST", "GET")
 _WEBHOOK_ALLOWED_SCHEMES = {"http", "https"}
 
 
@@ -437,9 +442,20 @@ def _validate_webhook_url(url: str) -> str:
 class WebhookHook(Hook):
     """Hook that POSTs a JSON payload to a URL. Fires in a daemon thread (non-blocking)."""
 
-    url: str = ""
-    method: str = "POST"
-    timeout: int = 5
+    url: str = param("", doc="Where the event is posted.", display=Display("URL"))
+    method: str = param(
+        "POST",
+        choices=_WEBHOOK_ALLOWED_METHODS,
+        doc="The HTTP method the event is sent with.",
+        display=Display("Method"),
+    )
+    timeout: int = param(
+        5,
+        unit="s",
+        limits=RangeLimit(1, 60),
+        doc="How long to wait for the service to answer.",
+        display=Display("Timeout"),
+    )
 
     def __post_init__(self):
         super().__post_init__()  # subscription validation
@@ -476,9 +492,6 @@ class WebhookHook(Hook):
             "task_name": context.task_name,
             "task_type": context.task_type,
             "item_name": context.item_name,
-            # Deprecated duplicate of item_name: the payload shipped in v0.5.1 with
-            # this key, so endpoints reading it keep working. Drop after v0.6.
-            "lamella_name": context.item_name,
             "item_id": context.item_id,
             "task_id": context.task_id,
             "experiment_id": context.experiment_id,

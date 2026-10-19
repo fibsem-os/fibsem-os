@@ -1,7 +1,7 @@
 """Load fibsem's entry point groups, and remember what happened.
 
-fibsem's class plugin groups -- ``fibsem.patterns``,
-``fibsem.strategies`` and ``fibsem.tasks`` -- were each loaded by what used to be
+fibsem's class plugin groups -- ``fibsem.milling.patterns``,
+``fibsem.milling.strategies`` and the task groups -- were each loaded by what used to be
 three near-identical private functions. They returned ``{name: class}`` and
 wrote every failure to a log line, which meant the two questions a user
 actually asks could not be answered:
@@ -75,7 +75,7 @@ class PluginRecord:
     """
 
     group: str
-    """The entry point group, e.g. ``"fibsem.patterns"``."""
+    """The entry point group, e.g. ``"fibsem.milling.patterns"``."""
 
     entry_point: str
     """The entry point's own name, as written in the plugin's pyproject."""
@@ -189,7 +189,7 @@ def load_entry_point_group(
     """Load every entry point in ``group``, returning a record for each.
 
     Args:
-        group: The entry point group, e.g. ``"fibsem.patterns"``.
+        group: The entry point group, e.g. ``"fibsem.milling.patterns"``.
         base_cls: The class every plugin in this group must subclass.
         name_of: Extracts the name a loaded class registers under. Patterns and
             strategies use ``cls.name``; tasks use ``cls.config_cls.task_type``.
@@ -318,7 +318,7 @@ class PluginRegistry(Generic[T]):
         describe: Callable[[T], str] = qualified_name,
     ) -> None:
         self.group = group
-        """The entry point group, e.g. ``"fibsem.patterns"``."""
+        """The entry point group, e.g. ``"fibsem.milling.patterns"``."""
         self.kind = kind
         """Singular noun for log messages, e.g. ``"pattern"``."""
         self.resolve = resolve

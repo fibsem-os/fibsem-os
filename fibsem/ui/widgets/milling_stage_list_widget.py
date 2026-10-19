@@ -21,10 +21,11 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.milling.base import FibsemMillingStage, get_strategy
+from fibsem.milling.base import FibsemMillingStage, get_strategy_config
 from fibsem.milling.patterning import get_pattern, get_pattern_names
 from fibsem.milling.patterning.shapes import COLOURS
 from fibsem.milling.strategy import get_strategy_names
+from fibsem.structures import Parameter
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import DRAG_HANDLE_HEIGHT, DRAG_HANDLE_WIDTH, drag_handle_pixmap
 from fibsem.ui.tokens import (
@@ -33,6 +34,7 @@ from fibsem.ui.tokens import (
     ORANGE_COLOR,
 )
 from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueComboBox, ValueSpinBox
+from fibsem.ui.widgets.form_builder import configure_spinbox
 
 # Columns are flexible: each is (minimum_width, stretch). The header and every row
 # consume the SAME spec so their column boundaries stay aligned as the panel resizes,
@@ -65,8 +67,6 @@ def _add_flex_column(layout: QHBoxLayout, widget: QWidget, spec: tuple) -> None:
     widget.setSizePolicy(sp)
     layout.addWidget(widget, stretch)
 
-
-_SI_TO_MICRO = 1e6
 
 _NAME_EDIT_STYLE = (
     "QLineEdit { background: transparent; border: none; }"
@@ -162,10 +162,8 @@ class MillingStageRowWidget(QWidget):
         self.pattern_combo.setToolTip("Pattern type")
         _add_flex_column(layout, self.pattern_combo, _COL_PATTERN)
 
-        self.depth_spin = ValueSpinBox(
-            suffix="µm", minimum=0.01, maximum=1000.0, step=0.1, decimals=1
-        )
-        self.depth_spin.setToolTip("Depth (µm)")
+        # range, step, unit and tooltip come from the pattern's depth field (refresh)
+        self.depth_spin = ValueSpinBox()
         # keep the column slot when hidden (patterns without depth) so rows stay aligned
         depth_sp = self.depth_spin.sizePolicy()
         depth_sp.setRetainSizeWhenHidden(True)
@@ -304,10 +302,12 @@ class MillingStageRowWidget(QWidget):
         self.pattern_combo.set_value(self.stage.pattern.name)
         depth = getattr(self.stage.pattern, "depth", None)
         if depth is not None:
-            self.depth_spin.setValue(depth * _SI_TO_MICRO)
+            spec = self._depth_spec()
+            configure_spinbox(self.depth_spin, spec)
+            self.depth_spin.setValue(depth * spec.scale)
         self.current_combo.set_value(self.stage.milling.milling_current)
         self.preset_combo.set_value(self._preset())
-        self.strategy_combo.set_value(self.stage.strategy.name)
+        self.strategy_combo.set_value(self.stage.strategy.strategy_name)
         # tooltips reflect the current selection so elided (narrow) values stay readable
         self.pattern_combo.setToolTip(f"Pattern: {self.pattern_combo.currentText()}")
         self.current_combo.setToolTip(f"Current: {self.current_combo.currentText()}")
@@ -349,10 +349,14 @@ class MillingStageRowWidget(QWidget):
         self._update_depth_visibility()
         self.stage_changed.emit(self.stage)
 
+    def _depth_spec(self) -> Parameter:
+        """How the stage's pattern declares its depth."""
+        return type(self.stage.pattern).params["depth"]
+
     def _on_depth_changed(self) -> None:
         if not hasattr(self.stage.pattern, "depth"):
             return
-        new_depth = self.depth_spin.value() / _SI_TO_MICRO
+        new_depth = self.depth_spin.value() / self._depth_spec().scale
         if new_depth == self.stage.pattern.depth:
             return
         self.stage.pattern.depth = new_depth
@@ -380,9 +384,9 @@ class MillingStageRowWidget(QWidget):
 
     def _on_strategy_changed(self) -> None:
         new_name = self.strategy_combo.value()
-        if new_name is None or new_name == self.stage.strategy.name:
+        if new_name is None or new_name == self.stage.strategy.strategy_name:
             return
-        self.stage.strategy = get_strategy(new_name)
+        self.stage.strategy = get_strategy_config(new_name)
         self.stage_changed.emit(self.stage)
 
 

@@ -1,109 +1,63 @@
 """AutoLamellaAppContext: the read-side facade an embedded server sees the app through.
 
 Deliberately not the ``AutoLamellaUI`` object, for the same reasons
-``ScriptContext`` isn't: the window's ``experiment`` is rebound on load, its
-``_task_manager`` is created per run and nulled in the worker's ``finally``,
-and the GUI's internals are still moving. This facade resolves those
+``ScriptContext`` isn't: the window's ``experiment`` is rebound on load, the
+runner's task manager is created per run and dropped when it ends, and the
+GUI's internals are still moving. This facade resolves those
 references **at call time, on every call**, and returns plain JSON-able data —
 never live objects, never Qt, never a pointer into a widget.
 
 Thread contract: every method is safe to call from a server thread. Reads are
 point-in-time snapshots, not transactions — the workflow worker may be mutating
 the experiment concurrently, and a snapshot that is a task older than the
-instant it was taken is the accepted cost of never blocking anything. The one
-hardware-adjacent method, :meth:`stage_position`, reads the microscope's cached
-position only; nothing here ever issues a hardware call (the app must not be
-made to poll the instrument on behalf of an observer). The one exception is an
-action's own gate run through the host: requeueing reads the grid inventory, as
-the Add to queue click does.
+instant it was taken is the accepted cost of never blocking anything.
+An observer never makes the app poll the instrument. The few reads that do
+reach the instrument are an action's own: :meth:`set_item_pose` reads the microscope
+state it stores, and :meth:`add_grids`, :meth:`rename_grid` and requeueing read
+the grid inventory, as the window's own buttons do. None of them writes to the
+instrument.
 
-Vocabulary: the surface speaks ``item_name`` throughout. ``lamella_name`` is
-the deprecated alias scheduled to drop with the HookContext shims after v0.6
-and never appears in these payloads.
+Vocabulary: the surface speaks ``item_name`` throughout.
 
-The host is anything carrying the four attributes the facade resolves through
-(``experiment``, ``microscope``, ``_task_manager``, ``is_workflow_running``) —
-the real ``AutoLamellaUI`` in production, a plain holder of real domain objects
-in tests.
+The facade reads the session (``fibsem.workflows.session.AppSession``): the
+experiment, the microscope, the runner, the responder and the latest images,
+and starts and stops runs through its runner, so it serves with no window.
+A window (:class:`AppWindow`, ``AutoLamellaUI`` in production) adds what only
+it has: its redraws after an agent's edit, its adoption of an experiment or
+protocol, its hardware stops, and the config edits it still applies.
 """
 
 import logging
 import math
+import os
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Protocol
 
 import fibsem.config as fibsem_cfg
+from fibsem.acting import Actor
 from fibsem.applications.autolamella import task_outputs as _task_outputs
-from fibsem.applications.autolamella.structures import Attention, AutoLamellaTaskStatus
+from fibsem.applications.autolamella.config_edits import (
+    ITEM_PATCH_FIELDS,
+    config_version,
+    find_item,
+    item_fields_version,
+    item_pose_positions,
+)
 from fibsem.server.files import jpeg_preview
+from fibsem.structures import BeamType
 from fibsem.util.timestamps import to_iso, wall_time_of
+from fibsem.workflows.attention import Attention
+from fibsem.workflows.outputs import item_outputs, latest_item_output
+from fibsem.workflows.runner import GRIDS, ITEMS, RunRequest
+from fibsem.workflows.status import TaskStatus
 
 __all__ = [
+    "AppWindow",
     "AutoLamellaAppContext",
     "ITEM_PATCH_FIELDS",
     "config_version",
     "item_fields_version",
 ]
-
-# The item-document fields an agent may patch: what a lamella IS — geometry,
-# verdict, notes. Everything else on the object (poses, ids, paths, history)
-# is either derived, hardware-adjacent, an *outcome* rather than an input
-# (milling_angle is recorded from where Setup put the stage — writing it
-# would move nothing), or the record itself.
-ITEM_PATCH_FIELDS = ("poi", "alignment_area", "description", "defect")
-
-
-def _content_hash(data) -> str:
-    import hashlib
-    import json
-
-    return hashlib.sha256(
-        json.dumps(data, sort_keys=True, default=str).encode()
-    ).hexdigest()[:16]
-
-
-def item_pose_positions(lamella) -> Dict[str, Any]:
-    """Where each of an item's poses puts the stage, by pose name (None where a
-    pose has no position): the item document's ``poses``."""
-    poses = {}
-    for pose_name, pose in dict(lamella.poses).items():
-        position = getattr(pose, "stage_position", None)
-        poses[pose_name] = position.to_dict() if position is not None else None
-    return poses
-
-
-def item_fields_version(lamella) -> str:
-    """A content hash naming the state of an item's patchable fields and poses.
-
-    The item document's version, hashing the ITEM_PATCH_FIELDS and where the
-    poses put the stage — so a task re-recording geometry or moving the
-    milling pose rotates it, and a pending patch goes stale (FIB-1420): a POI
-    is in the milling frame, so one chosen before the pose moved names a
-    different place after. History growing does not rotate it.
-    """
-    from fibsem.applications.autolamella.server.events import to_plain
-
-    fields = {
-        name: to_plain(getattr(lamella, name, None)) for name in ITEM_PATCH_FIELDS
-    }
-    fields["poses"] = item_pose_positions(lamella)
-    return _content_hash(fields)
-
-
-def config_version(config) -> str:
-    """A content hash naming exactly this state of a task config.
-
-    The config's version (FIB-864): reads serve it, writes echo it, and a
-    mismatch is refused as stale — a patch can never apply against a state
-    its author did not see. Computed from the serialized document so the
-    same content hashes identically wherever it is held.
-    """
-    import hashlib
-    import json
-
-    from fibsem.applications.autolamella.server.events import to_plain
-
-    return _content_hash(to_plain(config.to_dict()))
 
 
 def _json_safe(value: Any) -> Any:
@@ -161,23 +115,6 @@ def _trench_window(lamella):
     if not widths:
         return None
     return 0.9 * min(widths), max(gaps) + 1e-6
-
-
-def find_item(experiment, item_name: str):
-    """The item named *item_name*, and None; or None and why not, in the words
-    every route refuses an unknown item with, and the names there are. Each
-    route puts the refusal in its own answer's shape."""
-    lamella = (
-        experiment.get_lamella_by_name(item_name) if experiment is not None else None
-    )
-    if lamella is not None:
-        return lamella, None
-    return None, {
-        "error": f"No item named {item_name!r} in this experiment.",
-        "item_names": [p.name for p in experiment.positions]
-        if experiment is not None
-        else [],
-    }
 
 
 def _overview_point_to_stage(path: str, px=None, fraction=None):
@@ -285,13 +222,7 @@ def _attendance_line(task_protocol: Any, task_name: str) -> str:
         attendance_for,
     )
 
-    try:
-        review_on = bool(
-            fibsem_cfg.load_user_preferences().features.proposer_reviewer_workflow_enabled
-        )
-    except Exception:
-        review_on = False
-    att = attendance_for(task_protocol, task_name, review_on)
+    att = attendance_for(task_protocol, task_name)
     return att.line if att is not None else ""
 
 
@@ -304,18 +235,48 @@ def _response_for(request, parsed, response: bool) -> bool:
     return bool(response) if said is None else said
 
 
+class AppWindow(Protocol):
+    """The window side of the context: what a window attached to the session
+    does that the session cannot. Every method runs where the experiment is
+    edited (``session.run_edit``) except the two stops, which run anywhere."""
+
+    # an agent changed the grid records, or the experiment's protocol
+    grids_changed: Any
+    experiment_update_signal: Any
+
+    def after_agent_edit(self, select_latest: bool = False) -> None: ...
+
+    def adopt_experiment(self, experiment: Any) -> None: ...
+
+    def adopt_protocol(self, protocol: Any) -> None: ...
+
+    # Stop Workflow and Stop Task: the run's stop, and the hardware's halt
+    def stop_task_workflow(self) -> None: ...
+
+    def stop_current_task(self) -> None: ...
+
+    # Around an agent's config edit (``config_edits``): flush what the
+    # editors hold first, then redraw and tell the operator what changed.
+    def before_config_edit(self) -> None: ...
+
+    def after_config_edit(
+        self, level: str, item_name: str, task_name: str, result
+    ) -> None: ...
+
+
 class AutoLamellaAppContext:
     """Read-only facade over a running (or resting) AutoLamella session."""
 
-    def __init__(self, host, event_buffer=None):
-        self._host = host
+    def __init__(self, session, window: Optional[AppWindow] = None, event_buffer=None):
+        self._session = session
+        self._window = window
         self._event_buffer = event_buffer
 
     # --- call-time resolution: never cache what the app rebinds ---------------
 
     @property
     def _experiment(self):
-        return getattr(self._host, "experiment", None)
+        return self._session.experiment
 
     @property
     def experiment_path(self) -> Optional[str]:
@@ -404,19 +365,27 @@ class AutoLamellaAppContext:
         return {"path": path, "image": block, "points": points}
 
     @property
+    def _runner(self):
+        return self._session.runner
+
+    @property
     def _manager(self):
-        return getattr(self._host, "_task_manager", None)
+        return self._runner.manager
+
+    @property
+    def _running(self) -> bool:
+        return self._runner.is_running
 
     @property
     def _microscope(self):
-        return getattr(self._host, "microscope", None)
+        return self._session.microscope
 
     # --- status ---------------------------------------------------------------
 
     def status(self) -> Dict[str, Any]:
         """What the app is doing right now, at a glance."""
         experiment = self._experiment
-        running = bool(getattr(self._host, "is_workflow_running", False))
+        running = self._running
         payload: Dict[str, Any] = {
             "microscope_connected": self._microscope is not None,
             "experiment": None,
@@ -426,6 +395,7 @@ class AutoLamellaAppContext:
                 "current_item": None,
                 "queue_total": None,
                 "queue_version": None,
+                "asking": [],
             },
         }
         if experiment is not None:
@@ -434,13 +404,25 @@ class AutoLamellaAppContext:
                 "path": str(experiment.path),
                 "num_items": len(experiment.positions),
             }
+            # The questions a task is stopped on, for an agent that has just
+            # connected: their events are behind its cursor.
+            payload["workflow"]["asking"] = [
+                {
+                    "item_id": item.id,
+                    "item_name": item.name,
+                    "task_name": task_name,
+                    "proposal_id": proposal.id,
+                }
+                for item, task_name, proposal in experiment.pending_proposals()
+                if proposal.asking
+            ]
         manager = self._manager
         if manager is not None:
             items = manager.queue.items  # thread-safe copy under the queue's lock
             payload["workflow"]["queue_total"] = len(items)
             payload["workflow"]["queue_version"] = manager.queue.version
             active = next(
-                (i for i in items if i.status is AutoLamellaTaskStatus.InProgress),
+                (i for i in items if i.status is TaskStatus.InProgress),
                 None,
             )
             if active is not None:
@@ -502,7 +484,8 @@ class AutoLamellaAppContext:
                 "available": True,
                 "items": _records(manager.build_run_summary_dataframe()),
             }
-        last = getattr(self._host, "_last_run_summary", None)
+        runner = self._runner
+        last = runner.last_summary if runner is not None else None
         if last is not None:
             return {"available": True, "items": _records(last)}
         return {"available": False, "items": []}
@@ -660,9 +643,7 @@ class AutoLamellaAppContext:
             "available": True,
             "item_name": item_name,
             "completed_tasks": [
-                state.name
-                for state in history
-                if state.status is AutoLamellaTaskStatus.Completed
+                state.name for state in history if state.status is TaskStatus.Completed
             ],
             "tasks": tasks,
             "final_reference_images": [
@@ -996,12 +977,10 @@ class AutoLamellaAppContext:
         import os
 
         history = list(grid.task_history)
-        completed = [
-            t.name for t in history if t.status is AutoLamellaTaskStatus.Completed
-        ]
+        completed = [t.name for t in history if t.status is TaskStatus.Completed]
         overviews = {}
         for role in GRID_OVERVIEW_ROLES:
-            path = _task_outputs.latest_grid_output(experiment, grid, role)
+            path = latest_item_output(experiment, grid, role)
             if path is not None:
                 overviews[role] = os.path.basename(path)
         return {
@@ -1030,7 +1009,7 @@ class AutoLamellaAppContext:
     @staticmethod
     def _recorded_grid_paths(experiment, grid) -> List[str]:
         roles = {role for state in grid.task_history for role in state.outputs}
-        return _task_outputs.grid_outputs(experiment, grid, *sorted(roles))
+        return item_outputs(experiment, grid, *sorted(roles))
 
     @classmethod
     def _recorded_grid_basenames(cls, experiment, grid) -> List[str]:
@@ -1069,7 +1048,7 @@ class AutoLamellaAppContext:
     def _not_while_running(self, what: str) -> Optional[Dict[str, Any]]:
         """The refusal while a workflow runs (*what* to do when it has
         stopped), or None."""
-        if getattr(self._host, "is_workflow_running", False):
+        if self._running:
             return {
                 "error_type": "task_running",
                 "error": f"A workflow is running; {what} when it has stopped.",
@@ -1114,11 +1093,10 @@ class AutoLamellaAppContext:
         """Make *experiment* the open one, as the dialogs' OK does."""
 
         def adopt():
-            adopt_experiment = getattr(self._host, "_adopt_experiment", None)
-            if adopt_experiment is not None:
-                adopt_experiment(experiment)
-            else:  # a host with no window: just open it
-                self._host.experiment = experiment
+            if self._window is not None:
+                self._window.adopt_experiment(experiment)
+            else:
+                self._session.adopt(experiment)
 
         self._agent_call(adopt)
 
@@ -1196,10 +1174,9 @@ class AutoLamellaAppContext:
             return refusal
 
         def attach():
-            adopt_protocol = getattr(self._host, "_adopt_protocol", None)
-            if adopt_protocol is not None:
-                adopt_protocol(task_protocol)
-            else:  # a host with no window: just set and save it
+            if self._window is not None:
+                self._window.adopt_protocol(task_protocol)
+            else:
                 experiment.task_protocol = task_protocol
                 experiment.save_protocol()
 
@@ -1209,12 +1186,48 @@ class AutoLamellaAppContext:
     # --- lamella positions: the Lamella tab's buttons, for an agent at Drive ------
 
     def _agent_call(self, call, select_latest: bool = False, timeout: float = 30.0):
-        """``call()`` on the GUI thread through the host, or inline where the host
-        has no GUI thread to offer (a test host, a headless session)."""
-        request = getattr(self._host, "request_agent_call", None)
-        if request is None:
-            return call()
-        return request(call, select_latest=select_latest).result(timeout=timeout)
+        """``call()`` where the session edits the experiment, then the window's
+        redraw when one is attached."""
+        window = self._window
+
+        def edit():
+            result = call()
+            if window is not None:
+                window.after_agent_edit(select_latest)
+            return result
+
+        return self._session.run_edit(edit).result(timeout=timeout)
+
+    def _config_edit(
+        self, level, item_name, task_name, patch, version, timeout: float, shown=None
+    ) -> Dict[str, Any]:
+        """An agent's config edit (``config_edits``) where the session edits
+        the experiment, between the window's flush and redraw when one is
+        attached; *shown* is the level the window redraws, when not *level*."""
+        from fibsem.applications.autolamella.config_edits import apply_agent_edit
+
+        window = self._window
+        session = self._session
+
+        def edit():
+            if window is not None:
+                window.before_config_edit()
+            result = apply_agent_edit(
+                session.experiment,
+                lambda: session.microscope,
+                level,
+                item_name,
+                task_name,
+                patch,
+                version,
+            )
+            if window is not None and result.get("applied"):
+                window.after_config_edit(shown or level, item_name, task_name, result)
+            return result
+
+        result = session.run_edit(edit).result(timeout=timeout)
+        result["available"] = True
+        return result
 
     def _editable(self):
         """The experiment and microscope an edit needs, or a refusal."""
@@ -1348,9 +1361,8 @@ class AutoLamellaAppContext:
 
     def _grids_changed(self) -> None:
         """Tell the app's grid views an agent changed the records."""
-        signal = getattr(self._host, "grids_changed", None)
-        if signal is not None:
-            signal.emit()
+        if self._window is not None:
+            self._window.grids_changed.emit()
 
     def add_grids(self) -> Dict[str, Any]:
         """Record every grid in the inventory that the experiment has no record
@@ -1382,10 +1394,7 @@ class AutoLamellaAppContext:
         """Rename a grid as the Grids tab's Rename does: the slot that holds it
         first, then its record. Refused for a grid that has run, a name another
         grid has, and while a workflow runs (its queue holds grids by name)."""
-        from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-            grid_rename_refusal,
-            rename_grid,
-        )
+        from fibsem.workflows.grid.naming import grid_rename_refusal, rename_grid
 
         name = name.strip()
         if not name:
@@ -1457,8 +1466,7 @@ class AutoLamellaAppContext:
         """Judge a grid, as its card's quality menu does: GOOD, REWORK, FAILED,
         or UNASSESSED to clear it, with an optional reason. Signed as the
         agent's; saved."""
-        from fibsem.applications.autolamella.proposals import agent_author
-        from fibsem.applications.autolamella.structures import Verdict
+        from fibsem.workflows.quality import Verdict
 
         experiment, grid, refusal = self._grid_record(grid_name)
         if refusal:
@@ -1473,7 +1481,7 @@ class AutoLamellaAppContext:
 
         def judge():
             grid.quality.set_defect(
-                description=reason or "", state=state, author=agent_author("remote")
+                description=reason or "", state=state, actor=Actor.agent("remote")
             )
             experiment.save()
             self._grids_changed()
@@ -1617,11 +1625,9 @@ class AutoLamellaAppContext:
                 "error": "The objective position is unavailable.",
             }
 
-        def store():
-            lamella.fluorescence_pose.objective_position = value
-            experiment.save()
+        from fibsem.applications.autolamella.poses import set_objective_position
 
-        self._agent_call(store)
+        self._agent_call(lambda: set_objective_position(experiment, lamella, value))
         return {"applied": True, "item_name": item_name, "objective_position": value}
 
     def move_objective_to_item(self, item_name: str) -> Dict[str, Any]:
@@ -1666,7 +1672,7 @@ class AutoLamellaAppContext:
         lamella, refusal = find_item(experiment, item_name)
         if refusal:
             return {"available": False, "item_name": item_name, **refusal}
-        from fibsem.applications.autolamella.server.events import to_plain
+        from fibsem.workflows.events import to_plain
 
         return {
             "available": True,
@@ -1744,7 +1750,7 @@ class AutoLamellaAppContext:
         """A config edit in an agent's request, as the config's form names it
         (FIB-1403): each setting in display units, old -> new. None for any
         other action, or a config this experiment doesn't have."""
-        from fibsem.server.request_text import describe_patch
+        from fibsem.ai.agent.request_text import describe_patch
 
         experiment = self._experiment
         if experiment is None:
@@ -1781,33 +1787,81 @@ class AutoLamellaAppContext:
         outcome, and it means an edit here is the value the NEXT run starts
         from, not a permanent override.
         """
-        host = self._host
-        if not hasattr(host, "request_apply_item_patch"):
-            return {"available": False, "applied": False}
-        outcome = host.request_apply_item_patch(item_name, dict(patch), str(version))
-        result = outcome.result(timeout=timeout)
-        result["available"] = True
-        return result
+        return self._config_edit(
+            "item_fields", item_name, "", dict(patch), str(version), timeout
+        )
+
+    def apply_item_correlation(
+        self, item_name: str, run_path: str, timeout: float = 10.0
+    ) -> Dict[str, Any]:
+        """Move an item's point of interest to a saved correlation run's target,
+        as the correlation dialog's Continue does, and record the correlation.
+
+        *run_path* is a run folder in the item's own Correlation folder (as the
+        correlation service saves it). The move is an item patch of ``poi``, so
+        it is version-checked, the patterns that follow the point move with it,
+        and it is saved and shown as the agent's edit.
+        """
+        from fibsem.correlation.history import (
+            correlation_dir,
+            correlation_record,
+            load_run,
+        )
+
+        experiment = self._experiment
+        if experiment is None:
+            return {"error_type": "not_found", "error": "No experiment is loaded."}
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
+            return {"error_type": "not_found", **refusal}
+        root = os.path.realpath(correlation_dir(str(lamella.path)))
+        folder = os.path.realpath(run_path)
+        if os.path.commonpath([root, folder]) != root or folder == root:
+            return {
+                "error_type": "invalid",
+                "error": f"run_path must be a run folder in {item_name}'s "
+                f"Correlation folder ({root}), not {run_path}.",
+            }
+        try:
+            result = load_run(folder).result
+        except FileNotFoundError as exc:
+            return {"error_type": "not_found", "error": str(exc)}
+        if result is None or not result.poi:
+            return {
+                "error_type": "invalid",
+                "error": f"the run at {run_path} has no fitted point of interest.",
+            }
+        poi = result.poi[0].px_m
+        applied = self.apply_item_patch(
+            item_name,
+            {"poi.x": float(poi.x), "poi.y": float(poi.y)},
+            item_fields_version(lamella),
+            timeout=timeout,
+        )
+        if applied.get("applied"):
+            self.record_event(
+                "correlation",
+                correlation_record(result, lamella, folder, experiment.path),
+            )
+            applied["run_path"] = run_path
+        return applied
 
     # --- propose and review (FIB-950) -----------------------------------------
 
     def reviews(self) -> Dict[str, Any]:
-        """Every proposal waiting for a decision: the Review tab's inbox, derived
-        from the experiment the same way the tab derives it, with the reference
-        image each proposal's values sit on as an agent-sized preview."""
+        """Every question waiting for an answer, derived from the experiment,
+        with the reference image each proposal's values sit on as an
+        agent-sized preview."""
         experiment = self._experiment
         if experiment is None:
             return {"available": False, "reviews": []}
-        from fibsem.applications.autolamella.server.events import to_plain
-        from fibsem.applications.autolamella.server.prompts import _preview_payload
-        from fibsem.applications.autolamella.ui.review_tab_widget import (
-            _load_reference_image,
-            is_gated,
+        from fibsem.applications.autolamella.review_images import (
+            load_reference_image,
             review_preview,
-            waiting_on,
         )
-
-        protocol = getattr(experiment, "task_protocol", None)
+        from fibsem.applications.autolamella.server.prompts import _preview_payload
+        from fibsem.workflows.events import to_plain
+        from fibsem.workflows.proposals import rejected_fails_task
 
         def describe(item, task_name, proposal):
             doc = to_plain(proposal.to_dict())
@@ -1824,17 +1878,18 @@ class AutoLamellaAppContext:
                     # The task that made it is stopped on the answer: nothing
                     # else runs until it is decided, so it comes first.
                     "holding_the_run": bool(proposal.asking),
-                    "gated": is_gated(experiment, task_name, item),
-                    "waiting_on": waiting_on(experiment, task_name, item),
+                    # What Rejected does, as the kind declares it: fail the
+                    # task, or (a state question) "don't" and carry on.
+                    "rejected_fails_task": rejected_fails_task(proposal.kind),
                 }
             )
-            image = _load_reference_image(experiment, item, proposal)
+            image = load_reference_image(experiment, item, proposal)
             # a fluorescence result is shown as its channel composite
             preview = review_preview(image) if image is not None else None
             doc["reference_image"] = (
                 _preview_payload(preview) if preview is not None else None
             )
-            electron = _load_reference_image(
+            electron = load_reference_image(
                 experiment, item, proposal, "reference_image_eb"
             )
             doc["reference_image_eb"] = (
@@ -1843,10 +1898,7 @@ class AutoLamellaAppContext:
             return doc
 
         reviews = [describe(*entry) for entry in experiment.pending_proposals()]
-        # Applied by the producer (advise mode), nobody has looked: an agent
-        # acknowledges one with Confirmed and no values, which writes nothing.
-        to_check = [describe(*entry) for entry in experiment.proposals_to_check()]
-        return {"available": True, "reviews": reviews, "to_check": to_check}
+        return {"available": True, "reviews": reviews}
 
     def decide(
         self,
@@ -1855,13 +1907,21 @@ class AutoLamellaAppContext:
         outcome: str,
         values: Optional[Dict[str, Any]] = None,
         reason: str = "",
-        author: str = "",
+        actor: str = "",
         task_id: str = "",
         proposal_id: str = "",
+        action: str = "",
+        patch: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Decide a pending proposal, exactly as the Review tab would: the same
+        """Decide a pending proposal, exactly as the operator's answer is: the same
         Experiment.decide, on the main thread, blocking until applied. The
-        author is recorded as the agent, never as the operator.
+        actor is recorded as the agent (``actor`` names its model), never as
+        the operator.
+
+        ``action`` is what a loop's pass is decided as (run, edit, skip,
+        accept). ``patch`` sets fields of its value by dotted path, on the
+        value given or else the one proposed: a milling config's
+        ``stages.Polish 1.pattern.depth``.
 
         ``proposal_id`` is the proposal the agent was shown (from
         get_pending_reviews), and what the decision is checked against: a task
@@ -1873,11 +1933,12 @@ class AutoLamellaAppContext:
         experiment = self._experiment
         if experiment is None:
             return {"available": False, "applied": False, "reason": "No experiment."}
-        from fibsem.applications.autolamella.proposals import (
+        from fibsem.workflows.proposals import (
             Decision,
             DecisionOutcome,
-            _decode_values,  # the wire shape is the stored shape
-            agent_author,
+            ValueRefused,
+            _decode_values,
+            patch_values,
         )
 
         try:
@@ -1888,39 +1949,67 @@ class AutoLamellaAppContext:
                 "applied": False,
                 "invalid_value": f"outcome must be Confirmed or Rejected, not {outcome!r}",
             }
+        try:
+            decoded = _decode_values(values or {})
+        except Exception as exc:  # noqa: BLE001 - any bad document is refused
+            return {
+                "available": True,
+                "applied": False,
+                "invalid_value": f"values could not be read: {exc}",
+            }
+        if patch:
+            item = experiment.get_item_by_id(item_id)
+            shown = next(
+                (
+                    p
+                    for p in (item.current_proposals(task_name) if item else [])
+                    if p.id == proposal_id or (not proposal_id and p.pending)
+                ),
+                None,
+            )
+            if shown is None:
+                return {
+                    "available": True,
+                    "applied": False,
+                    "invalid_value": "patch needs the proposal_id of a current proposal.",
+                }
+            try:
+                decoded = patch_values(shown.kind, decoded or dict(shown.values), patch)
+            except ValueRefused as exc:
+                return {"available": True, "applied": False, "invalid_value": str(exc)}
         decision = Decision(
             outcome=decided,
-            author=agent_author(author or "remote"),
-            values=_decode_values(values or {}),
+            actor=Actor.agent(actor or "remote"),
+            values=decoded,
             reason=reason,
             via="server",
             task_id=str(task_id or ""),
             proposal_id=str(proposal_id or ""),
+            action=str(action or ""),
         )
         result = experiment.decide(item_id, task_name, decision)
         doc = result.to_dict()
         doc["available"] = True
         if result.applied:
-            try:
-                experiment.save()
-            except Exception:
-                logging.exception(
-                    "saving the experiment after an agent decision failed"
-                )
-            if self._event_buffer is not None:
-                self._event_buffer.append(
-                    "review_decided",
-                    {
-                        "item_id": item_id,
-                        "task_name": task_name,
-                        "outcome": decided.name,
-                        "author": str(decision.author),
-                    },
-                )
+            self.record_event(
+                "review_decided",
+                {
+                    "item_id": item_id,
+                    "task_name": task_name,
+                    "outcome": decided.name,
+                    "actor": str(decision.actor),
+                },
+            )
         return doc
 
-    def add_note(self, text: str, item_name: Optional[str] = None) -> Dict[str, Any]:
-        """Put an agent observation on the record.
+    def add_note(
+        self,
+        text: str,
+        item_name: Optional[str] = None,
+        reply_to: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Put an agent observation on the record, or its answer to the
+        operator's message (``reply_to``, the message's id, FIB-1423).
 
         The agent's judgments otherwise live only in its chat: this writes
         them where the run's story is told — the event stream (live consumers:
@@ -1941,20 +2030,22 @@ class AutoLamellaAppContext:
             f" [{item_name}]" if item_name else "",
             text,
         )
-        if self._event_buffer is not None:
-            # With the item's id, so the record files the note under the item
-            # it is about, not whichever one is running (FIB-1328).
-            self._event_buffer.append(
-                "agent_note",
-                {"text": text, "item_name": item_name, "item_id": item_id},
-            )
+        # With the item's id, so the record files the note under the item
+        # it is about, not whichever one is running (FIB-1328).
+        payload = {"text": text, "item_name": item_name, "item_id": item_id}
+        if reply_to:
+            payload["reply_to"] = reply_to
+        self.record_event("agent_note", payload)
         return {"available": True, "recorded": True}
 
-    def record_event(self, kind: str, payload: Dict[str, Any]) -> None:
-        """Put an event on the experiment's record: the agent's requests and
-        their outcomes (FIB-1283)."""
+    def record_event(
+        self, kind: str, payload: Dict[str, Any], actor: Optional[str] = None
+    ) -> None:
+        """Put an event on the experiment's record: everything the server's
+        side writes, the agent's requests and their outcomes (FIB-1283)
+        among them. *actor* as for ``EventBuffer.append``."""
         if self._event_buffer is not None:
-            self._event_buffer.append(kind, payload)
+            self._event_buffer.append(kind, payload, actor=actor)
 
     def reorder_milling_stages(
         self,
@@ -1968,21 +2059,18 @@ class AutoLamellaAppContext:
     ) -> Dict[str, Any]:
         """Reorder one milling config's stages — structure, so a verb.
 
-        Same rules as the config patches: version-guarded on the GUI thread,
+        Same rules as the config patches: version-guarded beside the apply,
         refused while that task runs for that item, recorded on the event
         stream. Same-set-by-name: this can never add, drop, or duplicate a
         stage.
         """
-        host = self._host
-        if not hasattr(host, "request_reorder_milling_stages"):
-            return {"available": False, "applied": False}
         if level == "item":
             manager = self._manager
             if manager is not None:
                 running = any(
                     item.item_name == item_name
                     and item.task_name == task_name
-                    and item.status is AutoLamellaTaskStatus.InProgress
+                    and item.status is TaskStatus.InProgress
                     for item in manager.queue.items
                 )
                 if running:
@@ -1993,12 +2081,16 @@ class AutoLamellaAppContext:
                         "error": f"{task_name!r} is running for {item_name!r} "
                         "and has already copied its config.",
                     }
-        outcome = host.request_reorder_milling_stages(
-            level, item_name, task_name, milling_key, list(order), str(version)
+        payload = {"level": level, "milling_key": milling_key, "order": list(order)}
+        return self._config_edit(
+            "reorder_stages",
+            item_name,
+            task_name,
+            payload,
+            str(version),
+            timeout,
+            shown=level,
         )
-        result = outcome.result(timeout=timeout)
-        result["available"] = True
-        return result
 
     def apply_protocol_to_item(
         self,
@@ -2014,9 +2106,6 @@ class AutoLamellaAppContext:
         so no version dance; a task currently running for this item is
         refused like any other config write.
         """
-        host = self._host
-        if not hasattr(host, "request_apply_protocol_to_item"):
-            return {"available": False, "applied": False}
         manager = self._manager
         if manager is not None:
             experiment = self._experiment
@@ -2030,7 +2119,7 @@ class AutoLamellaAppContext:
             running = any(
                 item.item_name == item_name
                 and item.task_name in guard_names
-                and item.status is AutoLamellaTaskStatus.InProgress
+                and item.status is TaskStatus.InProgress
                 for item in manager.queue.items
             )
             if running:
@@ -2042,10 +2131,9 @@ class AutoLamellaAppContext:
                     f"{item_name!r} right now and has already copied its "
                     "config. Apply after it finishes.",
                 }
-        outcome = host.request_apply_protocol_to_item(item_name, task_names)
-        result = outcome.result(timeout=timeout)
-        result["available"] = True
-        return result
+        return self._config_edit(
+            "apply_protocol", item_name, "", {"task_names": task_names}, "", timeout
+        )
 
     def apply_protocol_task_config_patch(
         self,
@@ -2056,20 +2144,14 @@ class AutoLamellaAppContext:
     ) -> Dict[str, Any]:
         """Patch a task's protocol-level defaults — what new items copy.
 
-        Same version-guarded, GUI-thread apply as the per-item patch. No
+        Same version-guarded apply as the per-item patch. No
         running-task guard: a running task holds its item's copy, so a
         protocol edit can never touch it — the edit reaches items created
         (or re-copied) after it lands.
         """
-        host = self._host
-        if not hasattr(host, "request_apply_protocol_task_config_patch"):
-            return {"available": False, "applied": False}
-        outcome = host.request_apply_protocol_task_config_patch(
-            task_name, dict(patch), str(version)
+        return self._config_edit(
+            "protocol", "", task_name, dict(patch), str(version), timeout
         )
-        result = outcome.result(timeout=timeout)
-        result["available"] = True
-        return result
 
     @staticmethod
     def _config_document(task_name: str, config, level: str) -> Dict[str, Any]:
@@ -2080,7 +2162,7 @@ class AutoLamellaAppContext:
         ``version`` hashes the serialized content, so a write names exactly
         the state it read: the config's version, refused as stale on mismatch.
         """
-        from fibsem.applications.autolamella.server.events import to_plain
+        from fibsem.workflows.events import to_plain
 
         return {
             "available": True,
@@ -2101,22 +2183,19 @@ class AutoLamellaAppContext:
         """Patch one item's task config, as an operator edit would land.
 
         The version (from :meth:`item_task_config`) names the state the patch
-        was written against; the check happens on the GUI thread beside the
+        was written against; the check happens beside the
         apply, so an edit landing in between is refused as stale, never
         half-merged. A task currently running for this item is refused too —
         it already copied its config, so the edit would take effect never,
         and a refusal is more honest than a silent no-op. Pending tasks pick
         the change up when they start (the ``set_supervision`` semantics).
         """
-        host = self._host
-        if not hasattr(host, "request_apply_task_config_patch"):
-            return {"available": False, "applied": False}
         manager = self._manager
         if manager is not None:
             running = any(
                 item.item_name == item_name
                 and item.task_name == task_name
-                and item.status is AutoLamellaTaskStatus.InProgress
+                and item.status is TaskStatus.InProgress
                 for item in manager.queue.items
             )
             if running:
@@ -2128,27 +2207,11 @@ class AutoLamellaAppContext:
                     "now and has already copied its config — the edit would "
                     "never take effect. Patch it after the task finishes.",
                 }
-        outcome = host.request_apply_task_config_patch(
-            item_name, task_name, dict(patch), str(version)
+        return self._config_edit(
+            "item", item_name, task_name, dict(patch), str(version), timeout
         )
-        result = outcome.result(timeout=timeout)
-        result["available"] = True
-        return result
 
     # --- instrument-adjacent (cached only, never a hardware call) --------------
-
-    def stage_position(self) -> Dict[str, Any]:
-        """The cached stage position. None until something has read the stage.
-
-        Deliberately reads the cache, not ``get_stage_position()`` — an observer
-        must never make the app poll hardware (and on Tescan a concurrent read
-        is a socket transaction the workflow may be mid-way through).
-        """
-        microscope = self._microscope
-        cached = getattr(microscope, "_stage_position", None) if microscope else None
-        if cached is None:
-            return {"available": False, "position": None}
-        return {"available": True, "position": cached.to_dict()}
 
     def display_images(self) -> Dict[str, Any]:
         """The SEM/FIB images the GUI is displaying right now, as previews.
@@ -2162,13 +2225,22 @@ class AutoLamellaAppContext:
         whole on acquisition, never mutated in place) and encodes previews on
         the server thread; the GUI thread is neither entered nor blocked.
         """
-        if getattr(self._host, "image_widget", None) is None:
+        images = self._latest_images
+        if images is None:
             return {"available": False, "sem": None, "fib": None}
         return {
             "available": True,
-            "sem": self._display_frame("eb_image"),
-            "fib": self._display_frame("ib_image"),
+            "sem": self._display_frame(images.get(BeamType.ELECTRON)),
+            "fib": self._display_frame(images.get(BeamType.ION)),
         }
+
+    @property
+    def _latest_images(self):
+        """The session's latest image of each beam, window or not; None
+        until a microscope connects."""
+        if self._microscope is None:
+            return None
+        return self._session.images
 
     @staticmethod
     def _acquired_at(image) -> Optional[str]:
@@ -2188,16 +2260,16 @@ class AutoLamellaAppContext:
         this thread. Stopping is the safety action, so like ``stop_milling`` it
         never waits on the command lock.
         """
-        host = self._host
-        if not hasattr(host, "stop_task_workflow"):
-            return {"available": False, "stopped": False}
-        if not bool(getattr(host, "is_workflow_running", False)):
+        if not self._running:
             return {
                 "available": True,
                 "stopped": False,
                 "reason": "no workflow is running",
             }
-        host.stop_task_workflow()
+        if self._window is not None:
+            self._window.stop_task_workflow()
+        else:
+            self._runner.stop()
         return {"available": True, "stopped": True}
 
     def stop_task(self, item_name: str, task_name: str) -> Dict[str, Any]:
@@ -2205,9 +2277,8 @@ class AutoLamellaAppContext:
         as the timeline's Stop Task does. *item_name* and *task_name* name the
         task meant: a stop that lands after it finished is refused rather than
         stopping the next one."""
-        host = self._host
         manager = self._manager
-        if manager is None or not hasattr(host, "stop_current_task"):
+        if manager is None:
             return {"stopped": False, "reason": "no workflow is running"}
         active = manager.queue.active
         if active is None or (active.item_name, active.task_name) != (
@@ -2223,8 +2294,22 @@ class AutoLamellaAppContext:
                     else None
                 ),
             }
-        host.stop_current_task()
+        if self._window is not None:
+            self._window.stop_current_task()
+        else:
+            self._runner.stop_task()
         return {"stopped": True, "item_name": item_name, "task_name": task_name}
+
+    def _start_run(self, request: RunRequest, timeout: float) -> Dict[str, Any]:
+        """Start ``request`` through the session's runner, where the
+        experiment is edited, as every start goes."""
+        runner = self._runner
+        outcome = self._session.run_edit(
+            lambda: runner.start(self._experiment, request).as_dict()
+        )
+        result = outcome.result(timeout=timeout)
+        result["available"] = True
+        return result
 
     def start_workflow(
         self,
@@ -2234,18 +2319,20 @@ class AutoLamellaAppContext:
     ) -> Dict[str, Any]:
         """Start a workflow as the Run button would — the batch-review opener.
 
-        Marshalled to the GUI thread (which owns worker creation and window
-        chrome); validation refusals come back structured with the valid
-        names. ``item_names`` of None means every item in the experiment.
+        Started where the experiment is edited (the GUI thread, with a window,
+        which draws its run chrome there); validation refusals come back
+        structured with the valid names. ``item_names`` of None means every item in the experiment.
         The agent at Drive is the consent that stands in for the Run click's
         confirm dialog.
         """
-        host = self._host
-        if not hasattr(host, "request_start_workflow"):
-            return {"available": False, "started": False}
-        outcome = host.request_start_workflow(list(task_names), item_names)
-        result = outcome.result(timeout=timeout)
-        result["available"] = True
+        result = self._start_run(
+            RunRequest(
+                kind=ITEMS,
+                task_names=tuple(task_names),
+                names=tuple(item_names) if item_names is not None else None,
+            ),
+            timeout,
+        )
         if result.get("started"):
             # Who started it: the run's own workflow_started fires on its
             # worker thread, which carries no one's mark (FIB-1414).
@@ -2271,7 +2358,7 @@ class AutoLamellaAppContext:
         Exchanges are deliberately not counted: whether a grid is loaded
         is a live stage fact this facade does not read.
         """
-        from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+        from fibsem.workflows.grid.manager import (
             plan_grid_run,
         )
 
@@ -2347,23 +2434,23 @@ class AutoLamellaAppContext:
         with the confirmation's end-of-run options: unload the last grid, write
         the report.
 
-        Marshalled to the GUI thread like :meth:`start_workflow`; shares its
-        worker slot, so it is refused while any workflow — lamella or grid —
+        Started like :meth:`start_workflow`; shares its run slot, so it is refused while any workflow — lamella or grid —
         is running. The agent at Drive stands in for the preflight dialog's
         Run click; :meth:`grid_workflow_plan` is that dialog's content.
         """
-        host = self._host
-        if not hasattr(host, "request_start_grid_workflow"):
-            return {"available": False, "started": False}
-        outcome = host.request_start_grid_workflow(
-            list(task_names),
-            grid_names,
-            inventory_first=screen_all,
-            unload_at_end=unload_at_end,
-            report_at_end=report_at_end,
+        result = self._start_run(
+            RunRequest(
+                kind=GRIDS,
+                task_names=tuple(task_names),
+                names=tuple(grid_names) if grid_names is not None else None,
+                options={
+                    "inventory_first": bool(screen_all),
+                    "unload_at_end": bool(unload_at_end),
+                    "report_at_end": bool(report_at_end),
+                },
+            ),
+            timeout,
         )
-        result = outcome.result(timeout=timeout)
-        result["available"] = True
         if result.get("started"):
             self.record_event(
                 "workflow_start",
@@ -2404,15 +2491,14 @@ class AutoLamellaAppContext:
                         "save after supervision change failed; the change is "
                         "applied in memory but not yet on disk"
                     )
-                if self._event_buffer is not None:
-                    self._event_buffer.append(
-                        "workflow_changed",
-                        {
-                            "field": "attention",
-                            "task_name": task_name,
-                            "supervise": bool(supervise),
-                        },
-                    )
+                self.record_event(
+                    "workflow_changed",
+                    {
+                        "field": "attention",
+                        "task_name": task_name,
+                        "supervise": bool(supervise),
+                    },
+                )
                 return {
                     "available": True,
                     "applied": True,
@@ -2470,15 +2556,14 @@ class AutoLamellaAppContext:
                         "save after schedule change failed; the change is "
                         "applied in memory but not yet on disk"
                     )
-                if self._event_buffer is not None:
-                    self._event_buffer.append(
-                        "workflow_changed",
-                        {
-                            "field": "scheduled_at",
-                            "task_name": task_name,
-                            "scheduled_at": parsed.isoformat() if parsed else None,
-                        },
-                    )
+                self.record_event(
+                    "workflow_changed",
+                    {
+                        "field": "scheduled_at",
+                        "task_name": task_name,
+                        "scheduled_at": parsed.isoformat() if parsed else None,
+                    },
+                )
                 return {
                     "available": True,
                     "applied": True,
@@ -2502,11 +2587,8 @@ class AutoLamellaAppContext:
           starting many short runs turns it off so no dialog stands over the
           window (FIB-1376).
         - ``turn_beams_off``: whether the beams are turned off when a run ends.
-        - ``review_wait``: how long a run whose remaining work all waits on a
-          review keeps waiting, in seconds of inactivity; None waits until it is
-          stopped.
 
-        Each is read when it applies (a run's end, a review wait), so a change
+        Each is read when it applies (a run's end), so a change
         takes effect from then, mid-run included; plain rebinds, so no GUI
         marshal, like ``set_task_schedule``.
         """
@@ -2525,11 +2607,8 @@ class AutoLamellaAppContext:
                 "save after workflow option change failed; the change is "
                 "applied in memory but not yet on disk"
             )
-        if self._event_buffer is not None:
-            for name, value in options.items():
-                self._event_buffer.append(
-                    "workflow_changed", {"field": name, "value": value}
-                )
+        for name, value in options.items():
+            self.record_event("workflow_changed", {"field": name, "value": value})
         return {"available": True, "applied": True, "saved": saved, **options}
 
     # -- the workflow's tasks: the Workflow tab's task list and the protocol
@@ -2538,9 +2617,8 @@ class AutoLamellaAppContext:
     def _experiment_changed(self) -> None:
         """Tell the app's views an agent changed the experiment's protocol, so
         no editor writes back a list it drew before the change."""
-        signal = getattr(self._host, "experiment_update_signal", None)
-        if signal is not None:
-            signal.emit()
+        if self._window is not None:
+            self._window.experiment_update_signal.emit()
 
     def _workflow_edit(self, what: str):
         """The experiment and its workflow config for an edit, or a refusal."""
@@ -2567,8 +2645,7 @@ class AutoLamellaAppContext:
             saved = False
             logging.exception("save after a protocol change failed; applied in memory")
         self._experiment_changed()
-        if self._event_buffer is not None:
-            self._event_buffer.append("workflow_changed", change)
+        self.record_event("workflow_changed", change)
         return saved
 
     def add_task(self, task_type: str, task_name: str) -> Dict[str, Any]:
@@ -2638,26 +2715,22 @@ class AutoLamellaAppContext:
         experiment, config, refusal = self._workflow_edit("reorder tasks")
         if refusal:
             return refusal
-        names = config.workflow
-        if sorted(order) != sorted(names):
-            return {
-                "error_type": "invalid",
-                "error": "Give every task in the workflow, each once.",
-                "task_names": names,
-            }
-        by_name = {task.name: task for task in config.tasks}
-        reordered = [by_name[name] for name in order]
-        issues = type(config)(tasks=reordered).validate()
-        if issues:
-            return {"error_type": "invalid", "error": " ".join(issues)}
 
         def reorder():
-            config.tasks[:] = reordered
+            why = config.reorder(list(order))
+            if why:
+                return why
             return self._protocol_changed(
                 experiment, {"field": "order", "order": order}
             )
 
         saved = self._agent_call(reorder)
+        if isinstance(saved, str):
+            return {
+                "error_type": "invalid",
+                "error": saved,
+                "task_names": config.workflow,
+            }
         return {"applied": True, "saved": saved, "task_names": config.workflow}
 
     def set_task_requirements(
@@ -2680,21 +2753,11 @@ class AutoLamellaAppContext:
                 "error": f"No task named {task_name!r} in the workflow.",
                 "task_names": config.workflow,
             }
-        if requires is not None:
-            earlier = config.workflow[: config.workflow.index(task_name)]
-            wrong = [name for name in requires if name not in earlier]
-            if wrong:
-                return {
-                    "error_type": "invalid",
-                    "error": f"{task_name} can only require tasks before it: "
-                    f"{', '.join(earlier) or 'none'}; not {', '.join(wrong)}.",
-                }
 
         def edit():
-            if requires is not None:
-                task.requires = list(requires)
-            if required is not None:
-                task.required = bool(required)
+            why = config.set_requirements(task_name, requires, required)
+            if why:
+                return why
             return self._protocol_changed(
                 experiment,
                 {
@@ -2706,6 +2769,8 @@ class AutoLamellaAppContext:
             )
 
         saved = self._agent_call(edit)
+        if isinstance(saved, str):
+            return {"error_type": "invalid", "error": saved}
         return {
             "applied": True,
             "saved": saved,
@@ -2782,10 +2847,7 @@ class AutoLamellaAppContext:
             }
         os.makedirs(os.path.dirname(path), exist_ok=True)
         protocol.save(path)
-        if self._event_buffer is not None:
-            self._event_buffer.append(
-                "workflow_changed", {"field": "protocol_saved", "path": path}
-            )
+        self.record_event("workflow_changed", {"field": "protocol_saved", "path": path})
         return {"saved": True, "name": os.path.basename(path), "path": path}
 
     # -- the grid protocol: the Protocol tab's grid tasks and the Grids view's
@@ -2832,8 +2894,8 @@ class AutoLamellaAppContext:
         tab's grid task form does; ``attention`` (automated, supervised) is the
         Grids view's Automated/Supervised chip. Version-guarded like the lamella
         task configs."""
-        from fibsem.applications.autolamella.server.events import to_plain
         from fibsem.server.config_patch import PatchError, apply_patch
+        from fibsem.workflows.events import to_plain
 
         experiment, grid_protocol, refusal = self._grid_protocol_edit("edit grid tasks")
         if refusal:
@@ -2881,21 +2943,22 @@ class AutoLamellaAppContext:
         )
         if refusal:
             return refusal
-        names = grid_protocol.ordered_task_names
-        if sorted(order) != sorted(names):
-            return {
-                "error_type": "invalid",
-                "error": "Give every grid task, each once.",
-                "task_names": names,
-            }
 
         def reorder():
-            grid_protocol.order = list(order)
+            why = grid_protocol.reorder(list(order))
+            if why:
+                return why
             return self._protocol_changed(
                 experiment, {"field": "grid_order", "order": order}
             )
 
         saved = self._agent_call(reorder)
+        if isinstance(saved, str):
+            return {
+                "error_type": "invalid",
+                "error": saved,
+                "task_names": grid_protocol.ordered_task_names,
+            }
         return {
             "applied": True,
             "saved": saved,
@@ -2913,32 +2976,28 @@ class AutoLamellaAppContext:
         config, refusal = self._grid_task(grid_protocol, task_name)
         if refusal:
             return refusal
-        others = [n for n in grid_protocol.ordered_task_names if n != task_name]
-        wrong = [name for name in requires if name not in others]
-        if wrong:
-            return {
-                "error_type": "invalid",
-                "error": f"{task_name} can require {', '.join(others) or 'no task'}; "
-                f"not {', '.join(wrong)}.",
-            }
 
         def edit():
-            config.requires = list(requires)
+            why = grid_protocol.set_requires(task_name, list(requires))
+            if why:
+                return why
             return self._protocol_changed(
                 experiment,
                 {
                     "field": "grid_requirements",
                     "task_name": task_name,
-                    "requires": requires,
+                    "requires": list(config.requires),
                 },
             )
 
         saved = self._agent_call(edit)
+        if isinstance(saved, str):
+            return {"error_type": "invalid", "error": saved}
         return {
             "applied": True,
             "saved": saved,
             "task_name": task_name,
-            "requires": list(requires),
+            "requires": list(config.requires),
         }
 
     def requeue_task(
@@ -2950,62 +3009,32 @@ class AutoLamellaAppContext:
         the live run: "run 03 again" while the batch continues. Adding a
         duplicate of a completed pair is the queue's own re-run mechanism; the
         item lands at the back (or the front with ``front=True``). A pair
-        already waiting is refused (``already_queued``): it runs once.
+        already waiting is refused (``already_queued``): it runs once. The
+        timeline's Run again queues the same way (``session.runner.requeue``).
         """
-        manager = self._manager
-        if manager is None:
-            return {
+        edit = self._agent_call(
+            lambda: self._session.runner.requeue(
+                item_name, task_name, front=bool(front)
+            )
+        )
+        if not edit.applied:
+            out: Dict[str, Any] = {
                 "available": True,
                 "queued": False,
-                "reason": "no workflow is running — the queue exists only during a run",
+                "reason": edit.reason,
+                **edit.details,
             }
-        experiment = self._experiment
-        lamella, refusal = find_item(experiment, item_name)
-        if refusal:
-            return {
-                "available": True,
-                "queued": False,
-                "reason": refusal["error"],
-                "item_names": refusal["item_names"],
-            }
-        protocol = getattr(experiment, "task_protocol", None)
-        config = getattr(protocol, "workflow_config", None) if protocol else None
-        known = [t.name for t in config.tasks] if config is not None else []
-        if known and task_name not in known:
-            return {
-                "available": True,
-                "queued": False,
-                "reason": f"No task named {task_name!r} in the protocol.",
-                "task_names": known,
-            }
-        # The Add to queue click's grid gate, through the host that owns the
-        # stage: a lamella whose grid is not on the stage is refused by name.
-        refusal = getattr(self._host, "lamella_run_refusal", None)
-        if refusal is not None:
-            refused = refusal([lamella])
-            if refused:
-                return {"available": True, "queued": False, "reason": refused}
-        if manager.queue.has_pending_pair(item_name, task_name):
-            # A re-ask after a partial failure would queue it twice (FIB-1405).
-            return {
-                "available": True,
-                "queued": False,
-                "error_type": "already_queued",
-                "reason": f"{item_name} / {task_name} is already waiting in the "
-                "queue; it runs once.",
-            }
-        item = manager.queue.add(item_name, task_name, front=bool(front))
-        if item is None:
-            return {"available": True, "queued": False, "reason": "add refused"}
-        manager.notify_queue_changed()
-        self._record_queue_change("requeue_front" if front else "requeue", item)
+            if edit.error_type in ("already_queued", "fixed"):
+                out["error_type"] = edit.error_type
+            return out
+        (item,) = edit.items
         return {
             "available": True,
             "queued": True,
             "item_id": item.id,
             "item_name": item_name,
             "task_name": task_name,
-            "queue_version": manager.queue.version,
+            "queue_version": edit.version,
         }
 
     def queue_grid_tasks(
@@ -3014,51 +3043,19 @@ class AutoLamellaAppContext:
         """Add grid tasks for grids to the running grid run, at the end of the
         queue, as the Grids view's Add to queue does: each grid's load, then
         its tasks, less what is already waiting."""
-        from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-            GridTaskManager,
+        request = RunRequest(
+            kind=GRIDS, task_names=tuple(task_names), names=tuple(grid_names)
         )
-
-        manager = self._manager
-        if manager is None:
-            return {
-                "queued": False,
-                "reason": "no workflow is running; the queue exists only during a run",
-            }
-        if not isinstance(manager, GridTaskManager):
-            return {
-                "queued": False,
-                "reason": "a lamella run is going; grid tasks cannot join it",
-            }
-        experiment = self._experiment
-        known_tasks = list(experiment.grid_protocol.ordered_task_names)
-        unknown = [t for t in task_names if t not in known_tasks]
-        if not task_names or unknown:
-            return {
-                "queued": False,
-                "reason": f"unknown grid tasks: {unknown!r}" if unknown else "no tasks",
-                "task_names": known_tasks,
-            }
-        known_grids = [g.name for g in experiment.grids]
-        missing = [n for n in grid_names if n not in known_grids]
-        if not grid_names or missing:
-            return {
-                "queued": False,
-                "reason": f"unknown grids: {missing!r}" if missing else "no grids",
-                "grid_names": known_grids,
-            }
-        pairs = manager.pairs_to_queue(list(task_names), list(grid_names))
-        if not pairs:
-            return {"queued": False, "reason": "everything named is already queued"}
-        added = manager.queue_pairs(pairs)
-        for item in added:
-            self._record_queue_change("requeue", item)
+        edit = self._agent_call(lambda: self._session.runner.add(request))
+        if not edit.applied:
+            return {"queued": False, "reason": edit.reason, **edit.details}
         return {
-            "queued": bool(added),
+            "queued": True,
             "added": [
                 {"item_id": i.id, "grid_name": i.item_name, "step": i.task_name}
-                for i in added
+                for i in edit.items
             ],
-            "queue_version": manager.queue.version,
+            "queue_version": edit.version,
         }
 
     def edit_queue(self, item_name: str, task_name: str, action: str) -> Dict[str, Any]:
@@ -3071,88 +3068,35 @@ class AutoLamellaAppContext:
         is refused (``not_pending``) -- stopping it is ``stop_workflow`` -- and
         so is one that already ran.
         """
-        from fibsem.applications.autolamella.workflows.tasks.queue import (
-            QUEUE_ACTIONS,
-            QueueOp,
-        )
-
-        if action not in QUEUE_ACTIONS:
+        edit = self._session.runner.edit(item_name, task_name, action)
+        if not edit.applied:
+            if edit.error_type == "not_running":
+                return {"available": True, "applied": False, "reason": edit.reason}
             return {
                 "available": True,
                 "applied": False,
-                "error_type": "invalid",
-                "error": f"Unknown action {action!r}.",
-                "action_names": list(QUEUE_ACTIONS),
+                "error_type": edit.error_type,
+                "error": edit.reason,
+                **edit.details,
             }
-        manager = self._manager
-        if manager is None:
-            return {
-                "available": True,
-                "applied": False,
-                "reason": "no workflow is running — the queue exists only during a run",
-            }
-        item = manager.queue.find_pair(item_name, task_name)
-        if item is None:
-            return {
-                "available": True,
-                "applied": False,
-                "error_type": "not_found",
-                "error": f"{item_name} / {task_name} is not in the queue.",
-            }
-        result = manager.queue.apply(item.id, action)
-        if result.op is QueueOp.NOT_PENDING:
-            if item.status is AutoLamellaTaskStatus.InProgress:
-                state = "is running now; stop it instead"
-            elif item.status is AutoLamellaTaskStatus.Removed:
-                state = "was already removed"
-            else:
-                state = f"already ran ({item.status.name})"
-            return {
-                "available": True,
-                "applied": False,
-                "error_type": "not_pending",
-                "error": f"{item_name} / {task_name} {state}.",
-            }
-        if result.op is QueueOp.NOT_FOUND:
-            return {
-                "available": True,
-                "applied": False,
-                "error_type": "not_found",
-                "error": f"{item_name} / {task_name} is not in the queue.",
-            }
-        if result.ok:
-            manager.notify_queue_changed()
-            self._record_queue_change(action, item)
+        (item,) = edit.items
         return {
             "available": True,
             "applied": True,
             # Already first or last: nothing moved.
-            "changed": result.ok,
+            "changed": edit.changed,
             "item_id": item.id,
             "item_name": item_name,
             "task_name": task_name,
             "action": action,
-            "queue_version": result.version,
+            "queue_version": edit.version,
         }
-
-    def _record_queue_change(self, action: str, item) -> None:
-        """One ``queue_changed`` event; the stamp says who made the edit."""
-        if self._event_buffer is not None:
-            self._event_buffer.append(
-                "queue_changed",
-                {
-                    "action": action,
-                    "item_name": item.item_name,
-                    "task_name": item.task_name,
-                    "queue_item_id": item.id,
-                },
-            )
 
     # --- supervision prompts (FIB-851) ------------------------------------------
 
     @property
     def _responder(self):
-        return getattr(self._host, "ui_responder", None)
+        return self._session.responder
 
     def pending_prompt(self) -> Dict[str, Any]:
         """The supervision question currently awaiting an answer, if any.
@@ -3166,22 +3110,16 @@ class AutoLamellaAppContext:
         request, question_id = responder.pending_question_and_id()
         if request is None:
             return {"available": True, "pending": None}
-        from fibsem.applications.autolamella.server.events import to_plain
         from fibsem.applications.autolamella.server.prompts import serialize_request
+        from fibsem.workflows.events import to_plain
 
         payload = serialize_request(request)
         payload["question_id"] = question_id
-        recorded = responder.recorded_question()
-        if recorded is not None:
-            # On the item's record as a proposal, and answered there: the same
-            # decision an agent makes on any other review. Answering the prompt
-            # would decide nothing, so it says so up front.
-            payload["answer_via"] = "decide"
-            payload["decide"] = {
-                "item_id": recorded[0],
-                "task_name": recorded[1],
-                "proposal_id": recorded[2],
-            }
+        dismissed = getattr(responder, "dismissed_reason", lambda: None)()
+        if dismissed is not None:
+            # The operator dismissed the agent's suggestion: say so, and why,
+            # to an agent reading the question again.
+            payload["suggestion_dismissed"] = {"reason": dismissed}
         live = self._peek_live(responder, request, question_id)
         if live is not None:
             try:
@@ -3204,8 +3142,8 @@ class AutoLamellaAppContext:
     def _view_picture(self, request, live) -> Optional[Dict[str, Any]]:
         """The FIB view's frame as a preview, with the question drawn over it
         when it draws (the milling question's patterns), or None."""
-        widget = getattr(self._host, "image_widget", None)
-        image = getattr(widget, "ib_image", None)
+        images = self._latest_images
+        image = images.get(BeamType.ION) if images is not None else None
         if image is None:
             return None
         from fibsem.applications.autolamella.server.prompts import _preview_payload
@@ -3228,10 +3166,8 @@ class AutoLamellaAppContext:
         entry["acquired_at"] = self._acquired_at(image)
         return entry
 
-    def _display_frame(self, attr: str) -> Optional[Dict[str, Any]]:
-        """One display-cache image as the standard preview payload, or None."""
-        widget = getattr(self._host, "image_widget", None)
-        image = getattr(widget, attr, None)
+    def _display_frame(self, image) -> Optional[Dict[str, Any]]:
+        """One of the latest images as the standard preview payload, or None."""
         if image is None:
             return None
         from fibsem.applications.autolamella.server.prompts import _preview_payload
@@ -3283,10 +3219,7 @@ class AutoLamellaAppContext:
         ``EditAlignmentArea``; a point (``{"x", "y"}``, metres in microscope
         image coordinates, origin centre, +y up) for ``PickPOI``; moved
         features (``{"features": [{"name", "px": {"x", "y"}}]}``, source-image
-        pixels, only the named ones move) for ``ConfirmDetection``; the action
-        and any edits (``{"action", "points": [{"x", "y"}], "milling_current",
-        "exposure_time"}``, points as fractions of the frame, origin top-left)
-        for ``RunSpotBurn``. The value is
+        pixels, only the named ones move) for ``ConfirmDetection``. The value is
         validated here — in bounds, non-degenerate, the right shape for the
         pending question — and refused as ``invalid_value`` without clicking
         anything when it is not. A valid value is placed into the widget as if
@@ -3296,25 +3229,10 @@ class AutoLamellaAppContext:
         responder = self._responder
         if responder is None:
             return {"available": False, "applied": False, "stale": False}
-        from fibsem.applications.autolamella.workflows.interaction import (
+        from fibsem.workflows.interaction import (
             InvalidAnswerValue,
             StalePromptError,
         )
-
-        recorded = responder.recorded_question()
-        _request, pending_question_id = responder.pending_question_and_id()
-        if recorded is not None and pending_question_id == int(question_id):
-            # Nothing was clicked. This question is decided, not answered: see
-            # ``answer_via`` on the pending prompt.
-            return {
-                "available": True,
-                "applied": False,
-                "stale": False,
-                "answer_via": "decide",
-                "item_id": recorded[0],
-                "task_name": recorded[1],
-                "proposal_id": recorded[2],
-            }
 
         request, parsed, refusal = self._parse_answer_value(
             responder, int(question_id), value
@@ -3342,7 +3260,7 @@ class AutoLamellaAppContext:
         if moved_from is not None:
             # The value moved the widget: say from where, in the value's own
             # shape. Absent when the widget already showed it (FIB-1420).
-            from fibsem.applications.autolamella.server.events import to_plain
+            from fibsem.workflows.events import to_plain
 
             result["moved_from"] = to_plain(request.value_to_wire(moved_from))
         return result
@@ -3368,7 +3286,7 @@ class AutoLamellaAppContext:
         responder = self._responder
         if responder is None or not hasattr(responder, "submit_suggestion"):
             return {"available": False, "suggested": False, "stale": False}
-        from fibsem.applications.autolamella.workflows.interaction import (
+        from fibsem.workflows.interaction import (
             StalePromptError,
         )
 
@@ -3411,7 +3329,7 @@ class AutoLamellaAppContext:
         answer must carry a value (the milling question's action) is refused
         without one.
         """
-        from fibsem.applications.autolamella.workflows.interaction import (
+        from fibsem.workflows.interaction import (
             InvalidAnswerValue,
         )
 
@@ -3452,7 +3370,7 @@ class AutoLamellaAppContext:
         Unavailable (rather than empty) when the hosting wired no buffer, so a
         client can tell "no events yet" from "this server has no event stream".
         """
-        from fibsem.applications.autolamella.server.events import (
+        from fibsem.workflows.events import (
             buffer_or_unavailable,
         )
 
@@ -3470,7 +3388,7 @@ class AutoLamellaAppContext:
         """
         from pathlib import Path
 
-        from fibsem.applications.autolamella.event_recording import (
+        from fibsem.workflows.event_recording import (
             EVENTS_FILENAME,
             LIVE_KINDS,
             read_events_before,
@@ -3514,6 +3432,7 @@ class AutoLamellaAppContext:
             {
                 "name": summary.name,
                 "path": summary.path,
+                "app": summary.app,
                 "created_at": to_iso(summary.created_at),
                 "num_items": summary.num_lamella,
                 "available": summary.available,

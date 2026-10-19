@@ -1,7 +1,7 @@
 """The verdict on a correlation: leave-one-out, jackknife, rejection (FIB-956).
 
-Not to be confused with :mod:`fibsem.correlation.fit_diagnostics`, which is
-the per-point local fitter's diagnostic (the panel behind the confirm dialog).
+Not to be confused with :func:`fibsem.correlation.point_fit.plot_fit_diagnostic`, which
+draws the per-point local fitter's diagnostic (the panel behind the confirm dialog).
 
 After a run the user needs one answer -- good, check, or poor -- with a reason
 they can act on. Everything here is computed from the placed pairs and the
@@ -41,16 +41,19 @@ from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from fibsem.correlation import solver
+from fibsem.correlation.config import MIN_FIDUCIAL_PAIRS
 from fibsem.correlation.geometry import NominalTransform
 
 __all__ = [
-    "FitDiagnostics",
+    "FitEvidence",
     "PairDiagnostic",
     "Reason",
     "Verdict",
     "diagnose",
     "reject_outliers",
     "verdict",
+    "verdict_tier",
 ]
 
 # ── thresholds (calibrated 2026-09-14, see module docstring) ──────────────
@@ -58,7 +61,6 @@ MIRROR_RATIO_AMBIGUOUS = 1.3  # below: the depth direction is not determined
 LOO_BAD_UM = 2.0  # a pair this far from the others is wrong
 LOO_CHECK_UM = 1.0  # worth a look
 LOO_CHECK_RATIO = 3.0  # ... or this many times the median
-MIN_PAIRS = 4
 HULL_CHECK_UM = 5.0  # target this far outside the fiducials
 JACKKNIFE_CHECK_UM = 0.5
 SCALE_CHECK = 0.03  # fitted scale vs the pixel-size ratio
@@ -75,7 +77,7 @@ class PairDiagnostic:
 
 
 @dataclass(frozen=True)
-class FitDiagnostics:
+class FitEvidence:
     rms_um: float
     pairs: List[PairDiagnostic]
     mirror_ratio: float
@@ -107,7 +109,7 @@ class FitDiagnostics:
         return max(self.rms_um, self.poi_jackknife_um or 0.0)
 
     @classmethod
-    def from_dict(cls, d: dict) -> "FitDiagnostics":
+    def from_dict(cls, d: dict) -> "FitEvidence":
         return cls(
             rms_um=float(d["rms_um"]),
             pairs=[
@@ -172,12 +174,10 @@ class Verdict:
 
 def _fit(fm_iso: np.ndarray, fib_xy: np.ndarray, prior: NominalTransform):
     """``(R, s, t, rms_px)``: the seeded fit and its centroid translation."""
-    from fibsem.correlation.correlation_v2 import _fit_from_seed
+    from fibsem.correlation.solver import fit_from_seed
 
-    fib_xyz = np.column_stack([fib_xy, np.zeros(len(fib_xy))])
-    R, s, rms = _fit_from_seed(fm_iso, fib_xyz, prior.eulers_deg(), prior.scale)
-    t = fib_xy.mean(axis=0) - (s * R[:2, :] @ fm_iso.mean(axis=0))
-    return R, s, t, rms
+    fit = fit_from_seed(fm_iso, fib_xy, prior.rotation, prior.scale)
+    return fit.rotation, fit.scale, fit.translation[:2], fit.rms
 
 
 def _project(R, s, t, fm_iso: np.ndarray) -> np.ndarray:
@@ -198,7 +198,7 @@ def diagnose(
     poi: Optional[Sequence[float]] = None,
     accepted: Optional[Sequence[bool]] = None,
     indices: Optional[Sequence[int]] = None,
-) -> FitDiagnostics:
+) -> FitEvidence:
     """Everything the verdict needs, from the pairs and the prior.
 
     ``fib_xy`` in FIB pixels, ``fm_xyz`` in FM pixels with z in *slices*;
@@ -212,7 +212,7 @@ def diagnose(
     fib = np.asarray(fib_xy, dtype=float).reshape(-1, 2)
     fm_raw = np.asarray(fm_xyz, dtype=float).reshape(-1, 3)
     n = len(fib)
-    if n != len(fm_raw) or n < 3:
+    if n != len(fm_raw) or n < solver.MIN_PAIRS:
         raise ValueError(f"need at least three pairs, got {n} FIB and {len(fm_raw)} FM")
     rows = list(range(n)) if indices is None else [int(i) for i in indices]
     if len(rows) != n:
@@ -242,7 +242,7 @@ def diagnose(
 
     worst = int(np.argmax(loo)) if n else None
     suggested_z = None
-    if worst is not None and n >= 4 and _flagged(loo, worst):
+    if worst is not None and n >= MIN_FIDUCIAL_PAIRS and _flagged(loo, worst):
         suggested_z = _best_z_for(worst, fib, fm_raw, zan, prior, um)
 
     jackknife = hull = None
@@ -251,7 +251,7 @@ def diagnose(
         hull = _hull_distance(fib, poi_full) * um
 
     expected_scale = fm_pixel_size / fib_pixel_size
-    return FitDiagnostics(
+    return FitEvidence(
         rms_um=float(rms_px * um),
         pairs=[
             PairDiagnostic(rows[i], float(residuals[i]), float(loo[i]))
@@ -324,7 +324,7 @@ def reject_outliers(
     fm_pixel_size: float,
     fm_pixel_size_z: float,
     max_um: float = LOO_BAD_UM,
-    keep_at_least: int = MIN_PAIRS,
+    keep_at_least: int = MIN_FIDUCIAL_PAIRS,
 ) -> List[int]:
     """Indices to leave out: the worst pair while it is plainly wrong.
 
@@ -365,7 +365,7 @@ def _fm(i: int) -> str:
     return f"FM {i + 1}"
 
 
-def verdict(d: FitDiagnostics, rejected: Sequence[int] = ()) -> Verdict:
+def verdict(d: FitEvidence, rejected: Sequence[int] = ()) -> Verdict:
     """Good / check / poor with at most two reasons, in the sample's terms.
 
     No fit vocabulary in the text: it says *fiducials*, what is wrong in
@@ -375,7 +375,7 @@ def verdict(d: FitDiagnostics, rejected: Sequence[int] = ()) -> Verdict:
     bad: List[Reason] = []
     check: List[Reason] = []
 
-    if d.n_pairs < MIN_PAIRS:
+    if d.n_pairs < MIN_FIDUCIAL_PAIRS:
         bad.append(Reason("Not enough fiducials; place more."))
     if d.mirror_ratio < MIRROR_RATIO_AMBIGUOUS:
         if d.depth_span_um < DEPTH_SPAN_COPLANAR_UM:
@@ -484,3 +484,16 @@ def verdict(d: FitDiagnostics, rejected: Sequence[int] = ()) -> Verdict:
             )
         ],
     )
+
+
+def verdict_tier(diagnostics: Optional[dict]) -> Optional[str]:
+    """The verdict's tier ("good" | "check" | "bad") for a result's saved
+    ``diagnostics`` dict; None for an unseeded fit or evidence that will not
+    read. Never raises: the tier is a detail of whatever record carries it."""
+    if not diagnostics:
+        return None
+    try:
+        return verdict(FitEvidence.from_dict(diagnostics)).tier
+    except Exception:  # noqa: BLE001 - the tier is a detail of the record
+        logging.debug("could not read the fit verdict", exc_info=True)
+        return None

@@ -10,6 +10,7 @@ is what the tab reports, with nothing left over from the call before. That was
 true of the old code too — it is a pin, not a bug fix — and it is the invariant
 a sixth field, added later and assigned in only one of two branches, would break.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -27,14 +28,6 @@ from fibsem.correlation.structures import (
     PointXYZ,
 )
 from fibsem.structures import Point
-
-
-@pytest.fixture(autouse=True)
-def _no_lut_download(monkeypatch):
-    """Never hit the network for the zeta LUT during widget construction."""
-    import fibsem.ui.correlation.widgets.refractive_index_widget as riw
-
-    monkeypatch.setattr(riw, "_ensure_lut", lambda: None)
 
 
 @pytest.fixture
@@ -115,11 +108,11 @@ def test_a_new_snapshot_replaces_every_view(tab):
 
     tab.set_result(None, input_data=post)
 
-    assert tab._fm_surface_coordinate is None       # the FM surface is gone
+    assert tab._fm_surface_coordinate is None  # the FM surface is gone
     assert tab._surface_coordinate is post.surface_coordinate
     assert tab._surface_y == 200.0
     assert tab._input_poi == post.poi_coordinates
-    assert tab._input_pre_factor is None            # the armed factor went with it
+    assert tab._input_pre_factor is None  # the armed factor went with it
 
 
 def test_the_mode_follows_the_snapshot(tab):

@@ -203,11 +203,7 @@ class FibsemMicroscope(ABC):
     # known: stage moves and image reprojection assume the stage origin (FIB-1081).
     rotation_centre: Optional[Tuple[float, float]] = None
 
-    # Images sent to the app's SEM and FIB views by whoever wants one shown (a
-    # milling task's result, a route's image). Live frames are not sent here: the
-    # views take them from each beam's ``live_frame``.
-    sem_acquisition_signal = Signal(FibsemImage)
-    fib_acquisition_signal = Signal(FibsemImage)
+    # An image for the app's SEM and FIB views is sent with ``imaging.show(image)``.
     # One acquisition at a time on this microscope's imaging view. Devices claim the
     # same lock as the `imaging_channel` resource (`resources` below).
     _threading_lock = _PerInstance(lambda _: threading.RLock())
@@ -235,13 +231,9 @@ class FibsemMicroscope(ABC):
     # fluorescence: none until a backend builds one on connect
     fm: Optional[FluorescenceMicroscope] = None
 
-    stage_position_changed = Signal(FibsemStagePosition)
-    _stage_position: FibsemStagePosition = None
-    # The sample holder changed: slots calibrated, or the stage rebuilt around another
-    # holder. Carries the holder. On the microscope rather than the `Stage`, because
-    # applying a configuration that names a holder rebuilds the `Stage`, and a signal
-    # on it would take every subscriber with it.
-    holder_changed = Signal(object)
+    # A stage move is on the stage device: ``stage.position.changed``, with its last
+    # value in ``stage.position.last_known``.
+    # A holder change is on the sample handling service: ``sample_handling.holder_changed``.
 
     @abstractmethod
     def connect_to_microscope(
@@ -416,14 +408,6 @@ class FibsemMicroscope(ABC):
             raise TypeError(f"Expected FibsemStagePosition, got {type(stage_position)}")
 
         logging.debug({"msg": "get_stage_position", "pos": stage_position.to_dict()})
-
-        if self._stage_position is None:
-            self._stage_position = deepcopy(stage_position)
-
-        if not self._stage_position.is_close2(stage_position, tol=1e-6):
-            self._stage_position = deepcopy(stage_position)
-            self.stage_position_changed.emit(self._stage_position)
-
         return deepcopy(stage_position)
 
     def _read_stage_capabilities(self) -> None:
@@ -462,8 +446,6 @@ class FibsemMicroscope(ABC):
         self._read_hardware_capabilities()
 
         self.sample_handling = bind_sample_handling(self)
-        if self.sample_handling is not None:
-            self.holder_changed.emit(self.sample_handling.holder)
 
     # ---- fitted subsystems ---------------------------------------------------
     #
@@ -1665,10 +1647,14 @@ class FibsemMicroscope(ABC):
                 self.system.stage.active_holder = previous_stage.active_holder
             else:
                 # The file chose a holder, so the sample handling service -- built
-                # once at connect -- has to be rebuilt around it, or `system.stage`
-                # says one holder while `sample_handling.holder` still moves to the
-                # slots of another.
-                self._build_sample_handling()
+                # once at connect -- has to load it, or `system.stage` says one
+                # holder while `sample_handling.holder` still moves to the slots of
+                # another. Loaded into the same service rather than a new one, so
+                # what listens on its `holder_changed` stays connected.
+                if self.sample_handling is not None:
+                    self.sample_handling.load_holder()
+                else:
+                    self._build_sample_handling()
 
         # `system_settings.manipulator` is not taken from the incoming settings:
         # what is fitted is not in the file, so the incoming record only carries

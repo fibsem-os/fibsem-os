@@ -9,14 +9,16 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.ui.agent_card import AgentCard  # noqa: E402
-from fibsem.applications.autolamella.ui.agent_level_chip import (  # noqa: E402
+from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
+from fibsem.ai.agent.recent import RecentRow  # noqa: E402
+from fibsem.structures import BeamType  # noqa: E402
+from fibsem.ui.agent.card import AgentCard  # noqa: E402
+from fibsem.ui.agent.level_chip import (  # noqa: E402
     AgentLevelChip,
     last_heard_text,
     request_outcome,
 )
-from fibsem.server.levels import AgentLevel  # noqa: E402
-from fibsem.structures import BeamType  # noqa: E402
+from tests.run_state import StubRunner
 
 
 def _labels(widget):
@@ -132,6 +134,31 @@ def test_the_card_opens_the_event_log_and_offers_to_connect_an_agent(qapp):
     chip.deleteLater()
 
 
+def test_the_operator_messages_the_agent_once_one_is_heard_from(qapp):
+    # FIB-1423: a line on the card; Enter or Send says what was written.
+    card = AgentCard()
+    assert not card.message_row.isVisibleTo(card)  # no one listens yet
+    card.set_last_heard("Agent · last heard 4 s ago", heard=True)
+    assert card.message_row.isVisibleTo(card)
+    sent = []
+    card.message_sent.connect(sent.append)
+    card.message_edit.setText("   ")
+    card.send_button.click()
+    card.message_edit.setText("  skip 03 ")
+    card.message_edit.returnPressed.emit()
+    assert sent == ["skip 03"]
+    assert card.message_edit.text() == ""
+    card.deleteLater()
+
+
+def test_folded_recent_adds_no_outcome_a_message_does_not_have(qapp):
+    card = AgentCard()
+    card.set_level(AgentLevel.ASSIST)
+    card.set_recent([RecentRow("06:12", "Reply: skipping 03", "", "muted", "drive")])
+    assert card.recent_last.text() == "last: Reply: skipping 03"
+    card.deleteLater()
+
+
 def test_the_last_heard_line():
     assert last_heard_text(None) == "Agent · not heard from yet"
     assert last_heard_text(200) == "Agent · last heard 3 min ago"
@@ -191,7 +218,7 @@ def test_the_image_shows_beside_the_steps_and_follows_the_card_s_width(qapp):
     # wider as the card is; stacked under them with details open.
     from PyQt5.QtGui import QImage
 
-    from fibsem.applications.autolamella.ui.agent_card import PICTURE_MIN
+    from fibsem.ui.agent.card import PICTURE_MIN
 
     card = AgentCard()
     card.resize(780, 400)
@@ -273,7 +300,7 @@ def _request(status="pending", results=(), request_id="ab12"):
             {
                 "tool": "stage_move_relative",
                 "what": "Stage",
-                "change": "Move by x 1 µm",
+                "change": "Move 1 µm in x",
             },
         ],
         "results": list(results),
@@ -322,7 +349,7 @@ def test_approve_and_reject_say_which_request_and_why(qapp):
     card.reject_button.click()
     assert card.reason_edit is not None and card.approve_button is None
     # Re-rendered, the actions are shown once.
-    assert _labels(card).count("Move by x 1 µm") == 1
+    assert _labels(card).count("Move 1 µm in x") == 1
     card.back_button.click()
     assert card.approve_button is not None
     card.reject_button.click()
@@ -369,7 +396,7 @@ def test_a_suggestion_turns_the_chip_and_the_card_offers_accept(qapp):
     chip.set_suggestion(_SUGGESTION)
     assert chip.text() == "Agent suggests"
     # In the level's look, not amber: the run's Attention Required is.
-    from fibsem.applications.autolamella.ui.agent_style import LEVEL_STYLES
+    from fibsem.ui.agent.style import LEVEL_STYLES
 
     assert chip.styleSheet() == LEVEL_STYLES[AgentLevel.ASSIST]
     card = chip.card
@@ -493,7 +520,7 @@ class _Host:
         return self.auth.seconds_since_seen()
 
     def stop_agent(self, microscope):
-        from fibsem.applications.autolamella.server.hosting import AppServerHost
+        from fibsem.server.hosting import AppServerHost
 
         return AppServerHost.stop_agent(self, microscope)
 
@@ -534,15 +561,17 @@ class _Store:
 def host(main_ui):
     pytest.importorskip("fastapi")
     ui = main_ui.autolamella_ui
-    previous = ui._app_server_host
-    ui._app_server_host = _Host()
-    yield ui._app_server_host
-    ui._app_server_host = previous
+    previous = ui.session.app_server, ui.session.agent_auth
+    ui.session.app_server = _Host()
+    # As the real host does, the session holds the auth the host checks.
+    ui.session.agent_auth = ui.session.app_server.auth
+    yield ui.session.app_server
+    ui.session.app_server, ui.session.agent_auth = previous
     main_ui._refresh_agent_chip()
 
 
 def test_the_chip_is_hidden_without_a_running_app_server(main_ui):
-    main_ui.autolamella_ui._app_server_host = None
+    main_ui.autolamella_ui.session.app_server = None
     main_ui._refresh_agent_chip()
     assert main_ui.agent_chip.isHidden()
 
@@ -569,14 +598,14 @@ def test_the_chip_shows_the_running_server_s_level_and_sets_it(main_ui, host):
 
 def test_stop_agent_drops_to_watch_and_is_the_operator_s_on_the_record(main_ui, host):
     from fibsem import utils
-    from fibsem.applications.autolamella.event_recording import EventRecorder
+    from fibsem.workflows.event_recording import EventRecorder
 
     os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
     microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
     ui = main_ui.autolamella_ui
-    previous = ui._event_recorder
+    previous = ui.session.recorder
     recorder = EventRecorder(microscope, default_actor="operator")
-    ui._event_recorder = recorder
+    ui.session.recorder = recorder
     try:
         main_ui.agent_chip.level_chosen.emit(AgentLevel.DRIVE)
         main_ui.agent_chip.stop_clicked.emit()
@@ -594,7 +623,7 @@ def test_stop_agent_drops_to_watch_and_is_the_operator_s_on_the_record(main_ui, 
         ]
         assert all(e["actor"] == "operator" for e in events)
     finally:
-        ui._event_recorder = previous
+        ui.session.recorder = previous
         recorder.close()
         microscope.disconnect()
 
@@ -682,15 +711,13 @@ def test_the_window_shows_a_suggestion_on_the_card_and_says_when_it_is_dropped(
 
     # Taken down by an answer that took it: no toast.
     prompt.suggestion_changed.emit(None)
-    main_ui._on_question_event(
-        "prompt_answered", {"answered_by": "operator", "suggested_by": "agent"}
-    )
+    main_ui._on_question_event("prompt_answered", {"suggested_by": "agent"}, "operator")
     assert shown == []
 
     # Dropped by the operator answering otherwise: a toast says so.
     prompt.suggestion_changed.emit(_SUGGESTION)
     prompt.suggestion_changed.emit(None)
-    main_ui._on_question_event("prompt_answered", {"answered_by": "operator"})
+    main_ui._on_question_event("prompt_answered", {}, "operator")
     assert shown == [
         ("Agent's suggestion dropped: you answered the question yourself", "info")
     ]
@@ -740,8 +767,8 @@ def test_the_window_draws_a_waiting_request_s_mill_on_the_card_and_takes_it_down
 def test_the_card_is_narrow_until_something_waits(qapp):
     from PyQt5.QtWidgets import QMainWindow
 
-    from fibsem.applications.autolamella.ui.agent_card import STACK_BELOW
-    from fibsem.applications.autolamella.ui.agent_level_chip import (
+    from fibsem.ui.agent.card import STACK_BELOW
+    from fibsem.ui.agent.level_chip import (
         NARROW_WIDTH,
         WIDE_WIDTH,
     )
@@ -891,7 +918,7 @@ def test_a_tall_details_table_scrolls_inside_the_card(qapp):
 def test_the_level_is_drawn_as_the_chip_and_opens_a_menu_of_the_four(qapp):
     from PyQt5.QtWidgets import QLabel
 
-    from fibsem.applications.autolamella.ui.agent_style import LEVEL_STYLES
+    from fibsem.ui.agent.style import LEVEL_STYLES
 
     card = AgentCard()
     card.set_level(AgentLevel.ASSIST)
@@ -957,7 +984,7 @@ def test_the_floating_card_can_be_kept_on_top_of_every_window(qapp):
 
 
 def _row(text, outcome="done", tone="ok", level=""):
-    from fibsem.applications.autolamella.ui.agent_recent import RecentRow
+    from fibsem.ai.agent.recent import RecentRow
 
     return RecentRow("16:08", text, outcome, tone, level)
 
@@ -969,7 +996,7 @@ def _called(action, status=200, level="drive"):
 
 def test_a_long_recent_line_wraps_rather_than_being_cut(qapp):
     # Patrick 2026-10-16: at Drive the card stays narrow and a long line wraps.
-    from fibsem.applications.autolamella.ui.agent_level_chip import NARROW_WIDTH
+    from fibsem.ui.agent.level_chip import NARROW_WIDTH
 
     long = "Imaging · Acquire FIB image: field of view 150 → 80 µm, " * 3
     card = AgentCard()
@@ -981,6 +1008,24 @@ def test_a_long_recent_line_wraps_rather_than_being_cut(qapp):
     card.setFixedWidth(NARROW_WIDTH)
     card.adjustSize()
     assert line.heightForWidth(line.width()) > line.fontMetrics().height() * 2
+    card.deleteLater()
+
+
+def test_the_folded_recent_line_ends_with_an_ellipsis_where_it_is_cut(qapp):
+    """Sim session 2026-10-16: cut mid-word at 440 px, "Stage · Stable move in
+    the", with no sign it went on."""
+    from PyQt5.QtWidgets import QLabel
+
+    card = AgentCard()
+    text = "Stage · Stable move in the ion beam: 33 µm right, 27 µm down"
+    card.set_recent([_row(text)])
+    card.set_level(AgentLevel.ASSIST)
+    card.show()
+    card.recent_last.resize(120, 20)
+    qapp.processEvents()
+    assert card.recent_last.text().startswith("last: Stage")
+    shown = QLabel.text(card.recent_last)
+    assert shown.endswith("…") and len(shown) < len(card.recent_last.text())
     card.deleteLater()
 
 
@@ -1033,10 +1078,10 @@ def test_at_drive_what_the_agent_does_shows_in_the_card_now_then_recent(qapp):
     from types import SimpleNamespace
 
     from fibsem.acting import AGENT, acting
-    from fibsem.applications.autolamella.server.events import EventBuffer
-    from fibsem.applications.autolamella.ui.agent_activity import AgentActivity
     from fibsem.control import Control
+    from fibsem.ui.agent.activity import AgentActivity
     from fibsem.ui.widgets.status_bar import FibsemStatusBar
+    from fibsem.workflows.events import EventBuffer
 
     bar = FibsemStatusBar()
     activity = AgentActivity(bar)
@@ -1046,23 +1091,23 @@ def test_at_drive_what_the_agent_does_shows_in_the_card_now_then_recent(qapp):
     activity.now_changed.connect(chip.set_now)
     activity.recent_changed.connect(chip.set_recent)
     chip.set_level(AgentLevel.DRIVE)
-    buffer = EventBuffer(stamp=lambda kind, payload: {"actor": AGENT})
+    buffer = EventBuffer(stamp=lambda kind, payload, actor: {"actor": AGENT})
     activity.follow_events(buffer)
     with acting(AGENT), control.take(AGENT, "move stage relative"):
         assert "move stage relative" in _labels(chip.card)
-        buffer.append("agent_called", _called("Stage · Move by x 2 µm"))
+        buffer.append("agent_called", _called("Stage · Move 2 µm in x"))
     buffer.append(
         "milling", {"milling_task_name": "agent test mill", "status": "completed"}
     )
     buffer.append(
-        "prompt_answered", {"question_id": "q", "response": True, "answered_by": AGENT}
+        "prompt_answered", {"question_id": "q", "response": True}, actor=AGENT
     )
     qapp.processEvents()
     texts = [b.text() for b in chip.card.recent_buttons]
     assert texts == [
-        "Answered 'the run's question': yes",
+        "Yes to 'the run's question'",
         "Milled 'agent test mill'",
-        "Stage · Move by x 2 µm",
+        "Stage · Move 2 µm in x",
     ]
     assert "move stage relative" not in _labels(chip.card)
     activity.follow_events(None)
@@ -1078,10 +1123,10 @@ def test_at_drive_each_direct_call_shows_in_now_then_recent_with_its_level(qapp)
     from types import SimpleNamespace
 
     from fibsem.acting import AGENT, acting
-    from fibsem.applications.autolamella.server.events import EventBuffer
-    from fibsem.applications.autolamella.ui.agent_activity import AgentActivity
     from fibsem.control import Control
+    from fibsem.ui.agent.activity import AgentActivity
     from fibsem.ui.widgets.status_bar import FibsemStatusBar
+    from fibsem.workflows.events import EventBuffer
 
     bar = FibsemStatusBar()
     activity = AgentActivity(bar)
@@ -1091,7 +1136,7 @@ def test_at_drive_each_direct_call_shows_in_now_then_recent_with_its_level(qapp)
     activity.now_changed.connect(chip.set_now)
     activity.recent_changed.connect(chip.set_recent)
     chip.set_level(AgentLevel.DRIVE)
-    buffer = EventBuffer(stamp=lambda kind, payload: {"actor": AGENT})
+    buffer = EventBuffer(stamp=lambda kind, payload, actor: {"actor": AGENT})
     activity.follow_events(buffer)
 
     def now():
@@ -1102,7 +1147,7 @@ def test_at_drive_each_direct_call_shows_in_now_then_recent_with_its_level(qapp)
             else None
         )
 
-    move, image = "Stage · Move by x 2 µm", "FIB · Take an image, 150 µm wide"
+    move, image = "Stage · Move 2 µm in x", "FIB · Take an image, 150 µm wide"
     overview = "FIB · Overview, 3 × 3 tiles"
     with acting(AGENT):
         with control.take(AGENT, move):
@@ -1144,7 +1189,7 @@ def test_at_drive_each_direct_call_shows_in_now_then_recent_with_its_level(qapp)
 def test_a_row_s_outcome_changes_on_the_card(qapp):
     # Round 8 screenshots: an overview read "running" after it ended, since
     # the row was changed in place and the card saw the same rows.
-    from fibsem.applications.autolamella.ui.agent_recent import RecentActions
+    from fibsem.ai.agent.recent import RecentActions
 
     recent = RecentActions()
     run = {"service": "imaging", "run_id": "o", "action": "Overview", "level": "drive"}
@@ -1172,6 +1217,11 @@ def test_a_card_with_no_picture_keeps_no_empty_column(qapp):
     image = QImage(300, 200, QImage.Format_RGB32)
     card.set_image(image, "FIB")
     assert not card._stacked()
+    # Sim session 2026-10-16: a note in the picture's place is a line under
+    # the steps, not the picture's column.
+    card.set_image(None, "No FIB image of 01 yet to draw on")
+    assert card._stacked()
+    assert "No FIB image of 01 yet to draw on" in _labels(card)
     card.deleteLater()
 
 
@@ -1254,12 +1304,88 @@ def test_the_border_is_the_agent_s_purple_while_it_drives(main_ui, host):
     main_ui._set_border_state("idle")
 
 
+def test_the_agent_s_workflow_stop_turns_the_border_red(main_ui, qapp):
+    """The agent's workflow_stop goes through the app's own stop, from the App
+    Server's thread, and the border shows stopping as for the operator's Stop."""
+    import threading
+
+    from fibsem.applications.autolamella.server import AutoLamellaAppContext
+
+    ui = main_ui.autolamella_ui
+    previous = ui.session.runner
+    ui.session.runner = StubRunner(ui.session, is_running=True)
+    main_ui._set_border_state("automated")
+    answers = []
+    try:
+        context = AutoLamellaAppContext(ui.session, window=ui)
+        server = threading.Thread(
+            target=lambda: answers.append(context.stop_workflow())
+        )
+        server.start()
+        server.join(timeout=5)
+        # Painted on the GUI thread, not the server's: nothing until it runs.
+        assert main_ui._border_frame.property("borderState") == "automated"
+        qapp.processEvents()
+        assert answers == [{"available": True, "stopped": True}]
+        assert main_ui._border_frame.property("borderState") == "stopping"
+    finally:
+        ui.session.runner = previous
+        main_ui._border_state = None
+        main_ui._set_border_state("idle")
+
+
+def test_the_coincidence_viewer_follows_the_border_switch(
+    main_ui, tmp_path, monkeypatch
+):
+    """Show Workflow Border hides the coincidence viewer's border too, when it is
+    turned off and when the viewer opens with it off."""
+    from fibsem import config as cfg
+    from fibsem import utils
+
+    # The switch saves itself: to a file of this test's, not the user's.
+    monkeypatch.setattr(cfg, "USER_PREFERENCES_PATH", str(tmp_path / "prefs.yaml"))
+    from fibsem.applications.autolamella.structures import Experiment
+    from fibsem.applications.autolamella.ui.fluorescence_coincidence_viewer_widget import (
+        FluorescenceCoincidenceViewerWidget,
+    )
+
+    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
+    ui = main_ui.autolamella_ui
+    viewer = FluorescenceCoincidenceViewerWidget(
+        microscope=microscope,
+        experiment=Experiment(path=str(tmp_path), name="border-switch"),
+    )
+    enabled, driving = main_ui._border_enabled, main_ui._agent_driving
+    previous = getattr(ui, "_coincidence_viewer_window", None)
+
+    def shown():
+        return viewer._border_frame.property("borderState")
+
+    try:
+        main_ui._agent_driving = True
+        main_ui._on_border_toggle(True)
+        viewer._set_border_state("supervised")
+        # Opened: it takes the switch and the agent's purple from the window.
+        ui._coincidence_viewer_window = viewer
+        main_ui._sync_coincidence_viewer_border()
+        assert shown() == "agent"
+        main_ui._on_border_toggle(False)
+        assert shown() == "idle"
+        main_ui._on_border_toggle(True)
+        assert shown() == "agent"
+    finally:
+        ui._coincidence_viewer_window = previous
+        main_ui._agent_driving = driving
+        main_ui._on_border_toggle(enabled)
+        viewer.deleteLater()
+
+
 def test_the_chip_pulses_while_the_agent_acts_and_ends_a_whole_cycle(qapp):
-    from fibsem.applications.autolamella.ui.agent_level_chip import (
+    from fibsem.ui.agent.level_chip import (
         PULSE_MS,
         PULSE_STEP_MS,
     )
-    from fibsem.applications.autolamella.ui.agent_style import LEVEL_STYLES
+    from fibsem.ui.agent.style import LEVEL_STYLES
 
     chip = AgentLevelChip()
     chip.set_level(AgentLevel.DRIVE)

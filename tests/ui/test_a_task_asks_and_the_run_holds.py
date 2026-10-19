@@ -1,9 +1,9 @@
 """A supervised task that asks with ``ask`` holds the run until the decision.
 
 The hold is the task manager's, not the responder's: the task records the
-question, the manager raises the hold, the main window fronts the Review tab,
-and the decision -- from the tab, from an agent -- releases the task with the
-decided values. Stop withdraws the question. No prompt, no adapter.
+question, the manager raises the hold, the main window puts the question up
+on its widget, and the decision -- from Continue, from an agent -- releases
+the task with the decided values. Stop withdraws the question. No prompt, no adapter.
 """
 
 import os
@@ -20,17 +20,11 @@ pytest.importorskip("PyQt5")
 from psygnal.containers import EventedDict
 from PyQt5.QtCore import QCoreApplication, QEvent
 
-from fibsem.applications.autolamella.proposals import (
-    DETECTION,
-    AuthorKind,
-    Decision,
-    DecisionOutcome,
-)
+from fibsem.acting import ActorKind
+from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import (
-    Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     AutoLamellaWorkflowConfig,
     Experiment,
 )
@@ -39,15 +33,17 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
     MillRoughTask,
     MillRoughTaskConfig,
 )
-from fibsem.applications.autolamella.workflows.tasks.status import HoldKind
 from fibsem.structures import Point
+from fibsem.workflows.attention import Attention
+from fibsem.workflows.proposals import DETECTION, Decision, DecisionOutcome
+from fibsem.workflows.status import HoldKind, TaskStatus
 
 ROUGH = "Rough Milling"
 PROPOSED = {"features": [{"name": "LamellaCentre", "px": Point(10, 20)}]}
 
 
 class _AsksForADetection(MillRoughTask):
-    questions = (DETECTION,)
+    questions = (DETECTION, POINT_OF_INTEREST)
 
 
 @pytest.fixture
@@ -75,8 +71,6 @@ def window(qapp, tmp_path):
     experiment.positions[0].path.mkdir(parents=True, exist_ok=True)
     ui.experiment = experiment
     win._on_experiment_update()
-    win._preferences.features.proposer_reviewer_workflow_enabled = True
-    win._apply_review_visibility()
     win.tab_widget.setCurrentIndex(0)
     win._started = []  # (manager, thread) pairs, stopped before teardown
 
@@ -115,26 +109,31 @@ def _pump(qapp, predicate, timeout_s=10.0) -> bool:
 def _task(window):
     ui = window.autolamella_ui
     experiment = ui.experiment
-    manager = TaskManager(microscope=ui.microscope, experiment=experiment, parent_ui=ui)
-    manager.review_enabled = True
+    manager = TaskManager(
+        microscope=ui.microscope,
+        experiment=experiment,
+        responder=ui.ui_responder,
+        answerers=ui.session.answerers,
+    )
+    # The window hears it as it hears a run the runner starts.
+    ui.session.runner.relay(manager)
     lamella = experiment.positions[0]
     task = _AsksForADetection(
         microscope=ui.microscope,
         config=lamella.task_config[ROUGH],
         lamella=lamella,
-        parent_ui=ui,
         task_manager=manager,
     )
     return task, manager
 
 
-def _start(window):
+def _start(window, kind=DETECTION, values=PROPOSED):
     """Run a real task on a worker thread whose body asks and keeps the answer."""
     task, manager = _task(window)
     seen = {}
 
     def _run():
-        seen["decision"] = task.ask(DETECTION, PROPOSED, image="ml-1_ib.tif")
+        seen["decision"] = task.ask(kind, values, image="ml-1_ib.tif")
 
     task._run = _run  # type: ignore[method-assign]
 
@@ -156,19 +155,17 @@ def test_the_run_holds_on_the_question_until_it_is_decided(window, qapp):
     task, thread, seen = _start(window)
 
     assert _pump(qapp, lambda: ui.hold is not None), "the run is held"
-    assert ui.hold.kind is HoldKind.decision
+    assert ui.hold.kind is HoldKind.question
     assert ui.hold.items == (f"{lamella.name}/{ROUGH}",)
-    # The hold is set from the worker thread; the notification that fronts
-    # the tab is queued to this one, so it may land a moment later.
-    assert _pump(
-        qapp, lambda: window.tab_widget.currentWidget() is window.review_tab
-    ), "fronted"
-    assert any("Holding" in s for s in window.review_tab.row_summaries()), (
-        window.review_tab.row_summaries()
-    )
+    # The hold is set from the worker thread; the notification that puts the
+    # question up is queued to this one, so it may land a moment later.
+    assert _pump(qapp, lambda: ui._widget_question is not None), "put up"
+    assert ui.pushButton_yes.text() == "Continue"
+    if ui.det_widget is not None:
+        assert ui.question_host() is ui.det_widget, "on the Detection tab"
     assert _pump(
         qapp,
-        lambda: "waiting for your decision" in ui.label_workflow_information.text(),
+        lambda: "waiting for you to answer" in ui.label_workflow_information.text(),
     ), ui.label_workflow_information.text()
     proposal = lamella.proposal(ROUGH)
     assert proposal.kind == DETECTION and proposal.pending and proposal.asking
@@ -180,7 +177,7 @@ def test_the_run_holds_on_the_question_until_it_is_decided(window, qapp):
         ROUGH,
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values=moved,
             proposal_id=proposal.id,
         ),
@@ -191,16 +188,72 @@ def test_the_run_holds_on_the_question_until_it_is_decided(window, qapp):
     decision = seen["decision"]
     assert decision.outcome is DecisionOutcome.Confirmed
     assert decision.values["features"][0]["px"] == Point(12, 26), "the decided value"
-    assert decision.author.kind is AuthorKind.human
+    assert decision.actor.kind is ActorKind.operator
     assert ui.hold is None
     assert "error" not in seen
-    # The question is decided; the task's own result is not: supervised with
-    # the preference on and no inline confirmation of the result, it waits for
-    # one in the Review tab, as any supervised task's does.
-    question, result_proposal = lamella.proposals[ROUGH]
+    assert _pump(qapp, lambda: ui._widget_question is None), "the prompt came down"
+    # The question is decided, and nothing waits on the task's own result.
+    question, result_proposal = lamella.proposals_from(ROUGH)
     assert question is proposal and result_proposal.kind == "task_result"
-    assert not question.pending and result_proposal.pending
-    assert lamella.task_state.status is AutoLamellaTaskStatus.AwaitingDecision
+    assert not question.pending
+    assert lamella.task_state.status is TaskStatus.Completed
+
+
+def test_a_window_that_starts_listening_mid_hold_puts_the_question_up(window, qapp):
+    """A run can be asking before the window listens to its experiment (a run
+    started without it). The question already standing is put up at once."""
+    ui = window.autolamella_ui
+    lamella = ui.experiment.positions[0]
+    task, thread, seen = _start(window)
+    assert _pump(qapp, lambda: ui._widget_question is not None)
+    experiment = ui.experiment
+    window._listen_for_questions(None)
+    ui.clear_widget_question(lamella.id, ROUGH)
+    assert ui._widget_question is None
+
+    window._listen_for_questions(experiment)
+
+    assert ui._widget_question is not None, "the standing question is up again"
+    assert ui.pushButton_yes.text() == "Continue"
+
+
+def test_continue_on_a_question_the_widget_never_got_confirms_it_as_proposed(
+    window, qapp
+):
+    """The task asked without loading its detection into the window (a window
+    that started listening mid-question has none): Continue confirms what was
+    proposed instead of reading an empty Detection tab."""
+    ui = window.autolamella_ui
+    lamella = ui.experiment.positions[0]
+    task, thread, seen = _start(window)
+    assert _pump(qapp, lambda: ui._widget_question is not None)
+
+    ui.pushButton_yes.click()
+
+    assert _pump(qapp, lambda: not thread.is_alive()), "released"
+    assert "error" not in seen
+    assert seen["decision"].outcome is DecisionOutcome.Confirmed
+    assert seen["decision"].values == {}, "as proposed"
+    assert lamella.proposal(ROUGH, DETECTION).current.actor.kind is ActorKind.operator
+
+
+def test_a_point_asked_with_no_frame_to_show_it_on_is_confirmed_as_proposed(
+    window, qapp
+):
+    """No FIB frame on the view and no reference image on disk: the marker
+    cannot go up, and Continue confirms the point as proposed."""
+    ui = window.autolamella_ui
+    ui.image_widget.ib_image = None
+    task, thread, seen = _start(window, POINT_OF_INTEREST, {"poi": Point(1e-6, 2e-6)})
+    assert _pump(qapp, lambda: ui._widget_question is not None), "put up"
+    assert not ui.poi_marker.shown
+
+    ui.pushButton_yes.click()
+
+    assert _pump(qapp, lambda: not thread.is_alive()), "released"
+    assert "error" not in seen
+    assert seen["decision"].outcome is DecisionOutcome.Confirmed
+    assert seen["decision"].values == {}, "as proposed"
 
 
 def test_stop_withdraws_the_question_and_cancels_the_task(window, qapp):
@@ -217,19 +270,21 @@ def test_stop_withdraws_the_question_and_cancels_the_task(window, qapp):
     assert isinstance(seen.get("error"), InterruptedError)
     assert proposal.withdrawn
     assert ui.hold is None
-    assert lamella.task_state.status is AutoLamellaTaskStatus.Cancelled
+    assert lamella.task_state.status is TaskStatus.Cancelled
 
 
-def test_every_declared_question_has_a_renderer_to_answer_it_in():
-    """A task says what it asks; the Review tab has to be able to show it."""
-    from fibsem.applications.autolamella.ui.review_tab_widget import REVIEW_RENDERERS
+def test_every_declared_question_has_a_widget_to_answer_it_on():
+    """A task says what it asks; the window has to be able to put it up: on
+    the widget its value is edited on, or the prompt bar for a state."""
+    from fibsem.applications.autolamella.ui.AutoLamellaMainUI import WIDGET_KINDS
+    from fibsem.applications.autolamella.ui.loop_question import LOOP_KINDS
     from fibsem.applications.autolamella.workflows.tasks import get_tasks
+    from fibsem.workflows.proposals import STATE
 
+    shown = set(WIDGET_KINDS) | set(LOOP_KINDS) | {STATE}
     for name, cls in get_tasks().items():
         for kind in cls.questions:
-            assert kind in REVIEW_RENDERERS, (
-                f"{name} asks {kind!r}, which nothing renders"
-            )
+            assert kind in shown, f"{name} asks {kind!r}, which nothing puts up"
 
 
 def test_the_run_lends_control_while_the_question_stands(window, qapp):
@@ -308,7 +363,7 @@ def test_the_run_lends_control_while_the_question_stands(window, qapp):
             ROUGH,
             Decision(
                 outcome=DecisionOutcome.Confirmed,
-                author="human:op",
+                actor="operator:op",
                 values=PROPOSED,
                 proposal_id=proposal.id,
             ),

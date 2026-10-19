@@ -5,20 +5,21 @@ Covers:
 - run_correlation_from_data applying the correction transiently
 - CorrelationInputData serialization of the new fields (incl. legacy files)
 """
+
 import math
 
 import numpy as np
 import pytest
 
-import fibsem.correlation.correlation_v2 as correlation_v2
-from fibsem.correlation.correlation_v2 import run_correlation_from_data
+import fibsem.correlation.fit as fit
+from fibsem.correlation.fit import run_correlation_from_data
+from fibsem.correlation.refractive_index import apply_z_surface_correction
 from fibsem.correlation.structures import (
     Coordinate,
     CorrelationInputData,
     CorrelationResult,
     PointType,
     PointXYZ,
-    apply_z_surface_correction,
 )
 
 
@@ -32,7 +33,6 @@ def _coord(x=0.0, y=0.0, z=0.0, pt=PointType.FIB) -> Coordinate:
 
 
 class TestApplyZSurfaceCorrection:
-
     def test_basic_scaling(self):
         poi = np.array([[10.0, 20.0, 30.0]], dtype=np.float32)
         out = apply_z_surface_correction(poi, surface_z=10.0, correction_factor=1.5)
@@ -84,7 +84,7 @@ class TestApplyZSurfaceCorrection:
 
 
 def _fake_run_correlation(captured):
-    """Stub for correlation_v2.run_correlation that records its POI input."""
+    """Stub for fit.run_correlation that records its POI input."""
 
     def fake(
         fib_coords,
@@ -92,7 +92,6 @@ def _fake_run_correlation(captured):
         poi_coords,
         image_props,
         rotation_center,
-        path=None,
         fib_image_filename="",
         fm_image_filename="",
     ):
@@ -105,9 +104,9 @@ def _fake_run_correlation(captured):
                 "transformation": {
                     "scale": 1.0,
                     "rotation_eulers": [0.0, 0.0, 0.0],
-                    # NOTE: despite the name, this field stores Rigid3D.q,
-                    # the 3x3 rotation matrix (identity here)
-                    "rotation_quaternion": np.eye(3).tolist(),
+                    # NOTE: despite the name, this field stores the 3x3
+                    # rotation matrix (identity here)
+                    "rotation_matrix": np.eye(3).tolist(),
                     "translation_around_rotation_center_zero": [0.0, 0.0, 0.0],
                     "translation_around_rotation_center_custom": [0.0, 0.0, 0.0],
                 },
@@ -144,13 +143,10 @@ def _make_input_data(**kwargs) -> CorrelationInputData:
 
 
 class TestRunCorrelationPreCorrection:
-
     @pytest.fixture
     def captured(self, monkeypatch):
         captured = {}
-        monkeypatch.setattr(
-            correlation_v2, "run_correlation", _fake_run_correlation(captured)
-        )
+        monkeypatch.setattr(fit, "run_correlation", _fake_run_correlation(captured))
         return captured
 
     def test_correction_applied_to_all_pois(self, captured):
@@ -245,7 +241,6 @@ class TestRunCorrelationPreCorrection:
 
 
 class TestSerialization:
-
     def test_input_data_roundtrip(self):
         data = _make_input_data(
             fm_surface_coordinate=_coord(x=1.0, y=2.0, z=10.0, pt=PointType.SURFACE_FM),

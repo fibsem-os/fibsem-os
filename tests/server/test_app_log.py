@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 
 from fibsem.applications.autolamella.server import log_tail
+from tests.run_state import stub_session
 
 T0 = datetime(2026, 10, 12, 9, 0, 0)
 
@@ -147,13 +148,6 @@ TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 
-class Host:
-    experiment = None
-    microscope = None
-    _task_manager = None
-    is_workflow_running = False
-
-
 @pytest.fixture(scope="module")
 def microscope():
     # The route tests need the [server] extra; the reader tests above do not.
@@ -168,7 +162,7 @@ def microscope():
 
 @pytest.fixture
 def host(tmp_path):
-    host = Host()
+    host = stub_session()
     # the log route reads only the experiment's folder
     host.experiment = SimpleNamespace(path=tmp_path)
     _a_long_log(tmp_path / "logfile.log", count=3000)
@@ -236,7 +230,7 @@ def test_no_experiment_is_unavailable(client, host):
 
 def test_the_tool_passes_the_window(client):
     pytest.importorskip("mcp")
-    from fibsem.mcp.sidecar import build_sidecar
+    from fibsem.ai.agent.mcp.sidecar import build_sidecar
 
     client.headers["Authorization"] = f"Bearer {TOKEN}"
     sidecar = build_sidecar(client, client.get("/capabilities").json())

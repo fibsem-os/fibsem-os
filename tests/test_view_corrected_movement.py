@@ -42,6 +42,7 @@ from fibsem.fm.structures import (
     AutoFocusMode,
     CameraImageTransform,
     ChannelSettings,
+    EmissionFilter,
     OverviewParameters,
 )
 from fibsem.structures import BeamType, FibsemHardwareGeometry, FibsemStagePosition
@@ -1084,7 +1085,7 @@ class TestFmConsumersUseTheFmProjection:
                 channel_settings=ChannelSettings(
                     name="DAPI",
                     excitation_wavelength=358,
-                    emission_wavelength=461,
+                    emission_filter=EmissionFilter("461 nm", low=461),
                     power=0.1,
                     exposure_time=0.1,
                 ),

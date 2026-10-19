@@ -53,7 +53,7 @@ path, so a demo named after a package it imports would shadow it.
 
 | Demo | Shows |
 |---|---|
-| `demo_correlation_canvas.py` | `CorrelationCanvasWidget`, the FIB correlation surface |
+| `demo_correlation_canvas.py` | `PointCanvasWidget`, the FIB correlation surface |
 | `demo_correlation_fm_canvas.py` | `CorrelationFMCanvasWidget`, the FM correlation surface |
 | `demo_correlation_setup_section.py` | the correlation window's lamella Setup tab, on mock data |
 | `demo_correlation_tab_widget.py` | `CorrelationTabWidget`, loaded from a project folder |
@@ -109,7 +109,7 @@ the app yet.
 |---|---|
 | `demo_countdown_progress.py` | a countdown progress bar |
 | `demo_dual_beam_widget.py` | `FibsemDualBeamWidget`, on the Demo |
-| `demo_hooks_manual.py` | the hook system, with toasts and its config widget |
+| `demo_hooks_manual.py` | the hook system, with toasts |
 | `demo_icon_tool_button.py` | every way to use `IconToolButton` |
 | `demo_image_settings_widget.py` | `FibsemImageSettingsWidget` |
 | `demo_overview_widget.py` | `FibsemOverviewWidget`, on the Demo |

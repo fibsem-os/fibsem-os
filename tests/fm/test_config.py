@@ -120,7 +120,8 @@ def test_loading_a_configuration_loads_its_fm_working_state(tmp_path, monkeypatc
     import fibsem.session_state as session_state
     from fibsem import utils
 
-    monkeypatch.setattr(session_state, "SESSION_STATE_DIRECTORY", str(tmp_path))
+    session = tmp_path / "session"
+    monkeypatch.setattr(session_state, "SESSION_STATE_DIRECTORY", str(session))
     monkeypatch.setattr(
         fibsem_cfg, "FM_CONFIGURATION_PATH", str(tmp_path / "no-old-file.yaml")
     )
@@ -130,7 +131,7 @@ def test_loading_a_configuration_loads_its_fm_working_state(tmp_path, monkeypatc
     )
     save_fm_configuration(
         _make_config(),
-        SessionState(str(config), writable=True, directory=str(tmp_path)),
+        SessionState(str(config), writable=True, directory=str(session)),
     )
 
     settings = utils.load_microscope_configuration(str(config))

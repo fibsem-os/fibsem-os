@@ -45,7 +45,6 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem import conversions
-from fibsem.applications.autolamella.event_recording import EVENTS_FILENAME
 from fibsem.applications.autolamella.structures import find_overviews
 from fibsem.applications.autolamella.tools.replay import (
     EventKind,
@@ -95,6 +94,7 @@ from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
 from fibsem.ui.widgets.canvas.overlays.point_overlay import PointsOverlay
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, chip
 from fibsem.ui.widgets.stored_overview_canvas import StoredOverviewCanvas
+from fibsem.workflows.event_recording import EVENTS_FILENAME
 
 logger = logging.getLogger(__name__)
 
@@ -219,7 +219,7 @@ def _pixel(
 ) -> Optional[Tuple[float, float]]:
     """A question's or decision's point as the pixel it falls on (see
     ``proposal_marks`` for the units). A point in metres is placed as the
-    Review tab places the point of interest; None without a pixel size."""
+    FIB view places the point of interest; None without a pixel size."""
     if unit != "m":
         return (point[0], point[1])
     pixel_size = _pixel_size(image)
@@ -382,7 +382,7 @@ class ExperimentReplayWidget(QWidget):
         self.spot_overlay = PointsOverlay(color=ORANGE_COLOR, marker="o", size=6)
         self.fib_canvas.add_overlay(self.spot_overlay)
         # A question's or decision's values, on whichever image they sit on:
-        # proposed in orange, decided in magenta, as the Review tab draws them.
+        # proposed in orange, decided in magenta.
         # Points are markers of a fixed size on screen, an x for the proposed
         # one so it shows over the canvas's own centre cross; an alignment area
         # is its rectangle.

@@ -19,21 +19,6 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid.fluorescence import (
-    FluorescenceOverviewGridTaskConfig,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (
-    BeamOverviewGridTaskConfig,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-    LOAD_ENTRY_NAME,
-    UNLOAD_ENTRY_NAME,
-    plan_grid_run,
-)
-from fibsem.applications.autolamella.workflows.workflow_estimate import (
-    estimate_grid_run,
-    grid_item_seconds,
-)
 from fibsem.autofunctions.autofocus import AutoFocusSettings, FocusSweepPass
 from fibsem.drivers.autoscript.devices import AutoscriptSampleLoader
 from fibsem.fm.structures import ChannelSettings, OverviewParameters
@@ -44,12 +29,28 @@ from fibsem.structures import (
     ImageSettings,
     OverviewAcquisitionSettings,
 )
+from fibsem.workflows.grid.estimate import (
+    estimate_grid_run,
+    grid_item_seconds,
+)
+from fibsem.workflows.grid.fluorescence import (
+    FluorescenceOverviewGridTaskConfig,
+)
+from fibsem.workflows.grid.imaging import (
+    BeamOverviewGridTaskConfig,
+)
+from fibsem.workflows.grid.manager import (
+    LOAD_ENTRY_NAME,
+    UNLOAD_ENTRY_NAME,
+    plan_grid_run,
+)
 from tests.fixtures.demo_stage import demo_grid_loader
 
 NOW = datetime(2026, 10, 5, 14, 0, 0)
 
 
 def _overview(nrows=3, ncols=3, **kwargs) -> OverviewAcquisitionSettings:
+    kwargs.setdefault("autocontrast_mode", AutoContrastMode.NONE)
     return OverviewAcquisitionSettings(
         image_settings=ImageSettings(
             resolution=(1536, 1024), dwell_time=1e-6, hfw=500e-6
@@ -210,7 +211,7 @@ def test_a_three_grid_run_prices_an_exchange_per_grid_and_each_task_per_grid(
         experiment, ["SEM", "FIB", "FM"], grids, exchanges, loader.exchange_seconds, NOW
     )
 
-    assert [(t.name, t.lamella_count) for t in est.tasks] == [
+    assert [(t.name, t.count) for t in est.tasks] == [
         (LOAD_ENTRY_NAME, 3),
         ("SEM", 3),
         ("FIB", 3),

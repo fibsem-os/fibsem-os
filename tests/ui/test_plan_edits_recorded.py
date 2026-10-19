@@ -7,7 +7,6 @@ the handler its widget calls, and read back from the recorder's buffer.
 
 import os
 import time
-from concurrent.futures import Future
 from copy import deepcopy
 from types import SimpleNamespace
 
@@ -21,7 +20,6 @@ from psygnal.containers import EventedDict  # noqa: E402
 from PyQt5.QtTest import QTest  # noqa: E402
 
 from fibsem.acting import OPERATOR  # noqa: E402
-from fibsem.applications.autolamella.event_recording import EventRecorder  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
@@ -41,6 +39,7 @@ from fibsem.applications.autolamella.workflows.tasks.tasks import (  # noqa: E40
     SpotBurnFiducialTaskConfig,
 )
 from fibsem.structures import MicroscopeState, Point  # noqa: E402
+from fibsem.workflows.event_recording import EventRecorder  # noqa: E402
 
 TASK = "Rough Milling"
 KEY = "mill_rough"
@@ -707,19 +706,26 @@ def test_the_replay_shows_a_correlation_before_the_point_it_moved(
 # ── the agent ────────────────────────────────────────────────────────────────
 
 
+def _agent_edit(window, level, item_name, task_name, patch, version):
+    """An agent's config edit as the App Server makes it, with this window."""
+    from fibsem.applications.autolamella.server import AutoLamellaAppContext
+
+    ui = window.autolamella_ui
+    context = AutoLamellaAppContext(ui.session, window=ui)
+    return context._config_edit(level, item_name, task_name, patch, version, 10.0)
+
+
 def _agent_patch(window, lamella, patch):
     from fibsem.applications.autolamella.server.context import config_version
 
-    outcome = Future()
-    window.autolamella_ui._apply_agent_config_patch(
+    return _agent_edit(
+        window,
         "item",
         lamella.name,
         TASK,
         patch,
         config_version(lamella.task_config[TASK]),
-        outcome,
     )
-    return outcome.result(timeout=5)
 
 
 def test_an_agent_patch_is_the_agent_s_edit(window, experiment, edits):
@@ -743,16 +749,14 @@ def test_an_agent_moving_the_point_of_interest_records_the_patterns_it_moved(
 
     lamella = experiment.positions[0]
     lamella.poi = Point(x=1e-6, y=2e-6)  # floats: the patch keeps each field's type
-    outcome = Future()
-    window.autolamella_ui._apply_agent_config_patch(
+    result = _agent_edit(
+        window,
         "item_fields",
         lamella.name,
         None,
         {"poi.x": 4e-6},
         item_fields_version(lamella),
-        outcome,
     )
-    result = outcome.result(timeout=5)
     assert result["applied"] is True, result
 
     by_target = {e["payload"]["target"]: e for e in edits()}
@@ -784,7 +788,7 @@ def test_an_edit_whose_record_cannot_be_taken_is_still_made(
 ):
     """Snapshots are taken before an edit applies: one that fails must cost the
     record, never the edit."""
-    from fibsem.applications.autolamella.ui import edit_recording
+    from fibsem.applications.autolamella import edit_recording
 
     def broken(value):
         raise RuntimeError("cannot describe it")

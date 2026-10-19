@@ -1,7 +1,7 @@
 import json
 import os
 import threading
-from unittest.mock import Mock, call, patch
+from unittest.mock import Mock
 
 import numpy as np
 import pytest
@@ -26,6 +26,7 @@ from fibsem.fm.structures import (
     AutoFocusMode,
     AutoFocusSettings,
     ChannelSettings,
+    EmissionFilter,
     FluorescenceImage,
     ObjectiveStartPosition,
     OverviewParameters,
@@ -226,14 +227,14 @@ def test_acquire_channels(demo_microscope):
         ChannelSettings(
             name="DAPI",
             excitation_wavelength=365,
-            emission_wavelength="Fluorescence",
+            emission_filter=EmissionFilter("Fluorescence", multi_band=True),
             power=0.1,
             exposure_time=0.5,
         ),
         ChannelSettings(
             name="GFP",
             excitation_wavelength=450,
-            emission_wavelength="Fluorescence",
+            emission_filter=EmissionFilter("Fluorescence", multi_band=True),
             power=0.2,
             exposure_time=0.3,
         ),
@@ -249,13 +250,17 @@ def test_acquire_channels(demo_microscope):
     assert len(result.metadata.channels) == 2
     assert result.metadata.channels[0].name == "DAPI"
     assert result.metadata.channels[0].excitation_wavelength == 365
-    assert result.metadata.channels[0].emission_wavelength == "Fluorescence"
+    assert result.metadata.channels[0].emission_filter == EmissionFilter(
+        "Fluorescence", multi_band=True
+    )
     assert result.metadata.channels[0].power == 0.1
     assert result.metadata.channels[0].exposure_time == 0.5
 
     assert result.metadata.channels[1].name == "GFP"
     assert result.metadata.channels[1].excitation_wavelength == 450
-    assert result.metadata.channels[1].emission_wavelength == "Fluorescence"
+    assert result.metadata.channels[1].emission_filter == EmissionFilter(
+        "Fluorescence", multi_band=True
+    )
     assert result.metadata.channels[1].power == 0.2
     assert result.metadata.channels[1].exposure_time == 0.3
 
@@ -274,7 +279,7 @@ def test_acquire_z_stack(demo_microscope):
     channel = ChannelSettings(
         name="DAPI",
         excitation_wavelength=365,
-        emission_wavelength="Fluorescence",
+        emission_filter=EmissionFilter("Fluorescence", multi_band=True),
         power=0.1,
         exposure_time=0.1,
     )
@@ -294,7 +299,9 @@ def test_acquire_z_stack(demo_microscope):
     assert len(result.metadata.channels) == 1
     assert result.metadata.channels[0].name == "DAPI"
     assert result.metadata.channels[0].excitation_wavelength == 365
-    assert result.metadata.channels[0].emission_wavelength == "Fluorescence"
+    assert result.metadata.channels[0].emission_filter == EmissionFilter(
+        "Fluorescence", multi_band=True
+    )
     assert result.metadata.channels[0].power == 0.1
     assert result.metadata.channels[0].exposure_time == 0.1
 
@@ -324,21 +331,21 @@ Z_ORDER_CHANNELS = [
     ChannelSettings(
         name="DAPI",
         excitation_wavelength=358,
-        emission_wavelength=461,
+        emission_filter=EmissionFilter("461 nm", low=461),
         power=0.1,
         exposure_time=0.01,
     ),
     ChannelSettings(
         name="GFP",
         excitation_wavelength=488,
-        emission_wavelength=509,
+        emission_filter=EmissionFilter("509 nm", low=509),
         power=0.2,
         exposure_time=0.01,
     ),
     ChannelSettings(
         name="RFP",
         excitation_wavelength=555,
-        emission_wavelength=580,
+        emission_filter=EmissionFilter("580 nm", low=580),
         power=0.3,
         exposure_time=0.01,
     ),
@@ -584,7 +591,7 @@ def test_acquire_image(fm_microscope):
     channel = ChannelSettings(
         name="GFP",
         excitation_wavelength=450,
-        emission_wavelength="Fluorescence",
+        emission_filter=EmissionFilter("Fluorescence", multi_band=True),
         power=0.2,
         exposure_time=0.3,
     )
@@ -599,7 +606,9 @@ def test_acquire_image(fm_microscope):
     assert len(result.metadata.channels) == 1
     assert result.metadata.channels[0].name == "GFP"
     assert result.metadata.channels[0].excitation_wavelength == 450
-    assert result.metadata.channels[0].emission_wavelength == "Fluorescence"
+    assert result.metadata.channels[0].emission_filter == EmissionFilter(
+        "Fluorescence", multi_band=True
+    )
     assert result.metadata.channels[0].power == 0.2
     assert result.metadata.channels[0].exposure_time == 0.3
 
@@ -631,7 +640,7 @@ def test_acquire_image_saves_and_names_the_description_from_the_filename(
     channel = ChannelSettings(
         name="GFP",
         excitation_wavelength=488,
-        emission_wavelength=509,
+        emission_filter=EmissionFilter("509 nm", low=509),
         power=0.2,
         exposure_time=0.3,
     )
@@ -660,7 +669,7 @@ def test_acquire_image_description_keeps_an_unrecognised_extension(
     channel = ChannelSettings(
         name="GFP",
         excitation_wavelength=488,
-        emission_wavelength=509,
+        emission_filter=EmissionFilter("509 nm", low=509),
         power=0.2,
         exposure_time=0.3,
     )
@@ -695,7 +704,7 @@ def test_acquire_fm_tiled_overview(fm_microscope):
     channel = ChannelSettings(
         name="DAPI",
         excitation_wavelength=358,
-        emission_wavelength=461,
+        emission_filter=EmissionFilter("461 nm", low=461),
         power=0.1,
         exposure_time=0.1,
     )
@@ -729,14 +738,14 @@ def test_acquire_fm_tiled_overview(fm_microscope):
         ChannelSettings(
             name="DAPI",
             excitation_wavelength=358,
-            emission_wavelength=461,
+            emission_filter=EmissionFilter("461 nm", low=461),
             power=0.1,
             exposure_time=0.1,
         ),
         ChannelSettings(
             name="GFP",
             excitation_wavelength=488,
-            emission_wavelength=509,
+            emission_filter=EmissionFilter("509 nm", low=509),
             power=0.2,
             exposure_time=0.1,
         ),
@@ -872,7 +881,7 @@ def _run_tileset(microscope, rows, cols, overlap=0.1):
         channel_settings=ChannelSettings(
             name="DAPI",
             excitation_wavelength=358,
-            emission_wavelength=461,
+            emission_filter=EmissionFilter("461 nm", low=461),
             power=0.1,
             exposure_time=0.1,
         ),
@@ -1011,7 +1020,7 @@ def _runner(microscope, rows, cols, stop_event=None, overlap=0.1):
         channel_settings=ChannelSettings(
             name="DAPI",
             excitation_wavelength=358,
-            emission_wavelength=461,
+            emission_filter=EmissionFilter("461 nm", low=461),
             power=0.1,
             exposure_time=0.1,
         ),
@@ -2027,7 +2036,7 @@ def _acquired_at(monkeypatch, microscope, mode, rows=1, cols=2, order=None):
         channel_settings=ChannelSettings(
             name="DAPI",
             excitation_wavelength=358,
-            emission_wavelength=461,
+            emission_filter=EmissionFilter("461 nm", low=461),
             power=0.1,
             exposure_time=0.1,
         ),
@@ -2129,7 +2138,7 @@ def _start_from(monkeypatch, microscope, start, focus=SAVED_FOCUS):
         channel_settings=ChannelSettings(
             name="DAPI",
             excitation_wavelength=358,
-            emission_wavelength=461,
+            emission_filter=EmissionFilter("461 nm", low=461),
             power=0.1,
             exposure_time=0.1,
         ),
@@ -2199,7 +2208,7 @@ def test_the_objective_is_moved_before_a_sweep_would_search(fm_microscope, monke
         channel_settings=ChannelSettings(
             name="DAPI",
             excitation_wavelength=358,
-            emission_wavelength=461,
+            emission_filter=EmissionFilter("461 nm", low=461),
             power=0.1,
             exposure_time=0.1,
         ),
@@ -2235,7 +2244,7 @@ def test_a_failed_tileset_autofocus_fails_the_run_rather_than_cancelling_it(
         channel_settings=ChannelSettings(
             name="DAPI",
             excitation_wavelength=358,
-            emission_wavelength=461,
+            emission_filter=EmissionFilter("461 nm", low=461),
             power=0.1,
             exposure_time=0.1,
         ),
@@ -2482,7 +2491,7 @@ def test_a_run_writes_its_tile_layout_beside_the_tiles(fm_microscope, tmp_path):
     )
     runner.run()
 
-    record = json.loads((tmp_path / "tile-layout.json").read_text())
+    record = json.loads((tmp_path / "overview-metadata.json").read_text())
     # Four tiles in a 2x2 are four neighbour pairs, matched or not.
     assert len(record["layout"]["pairs"]) == 4
     assert runner.layout_warning == record["warning"]
@@ -2546,7 +2555,7 @@ def test_a_run_asked_to_align_records_what_it_did(fm_microscope, tmp_path):
     )
     mosaic = runner.run_and_stitch()
 
-    record = json.loads((tmp_path / "tile-layout.json").read_text())
+    record = json.loads((tmp_path / "overview-metadata.json").read_text())
     registration = record["registration"]
     assert set(registration) >= {"applied", "note"}
     # Aligned or not, the mosaic is the planned one's size.

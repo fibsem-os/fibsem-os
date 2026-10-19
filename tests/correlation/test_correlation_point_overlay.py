@@ -1,4 +1,4 @@
-"""CorrelationPointOverlay: Coordinate identity survives the index-based base.
+"""CoordinateOverlay: Coordinate identity survives the index-based base.
 
 The point of the subclass is that callers address points by object identity while
 PointOverlay addresses them by index. These tests pin the seam between the two --
@@ -19,13 +19,12 @@ pytest.importorskip("PyQt5")  # CI installs .[test] without the UI extra
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.correlation.structures import Coordinate, PointType, PointXYZ
-from fibsem.ui.correlation.widgets.correlation_point_overlay import (
-    POINT_COLORS,
-    CorrelationPointOverlay,
-    CorrelationResultOverlay,
-    generate_names,
-)
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
+from fibsem.ui.widgets.canvas.overlays.coordinate_overlay import (
+    POINT_COLORS,
+    CoordinateOverlay,
+    CorrelationResultOverlay,
+)
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -37,14 +36,14 @@ def _coord(x, y, pt=PointType.FIB):
 def _attached(coords):
     canvas = FibsemImageCanvas()
     canvas.set_array(np.zeros((64, 64), dtype=np.uint8))
-    ov = CorrelationPointOverlay()
+    ov = CoordinateOverlay()
     canvas.add_overlay(ov)
     ov.set_coordinates(coords)
     return canvas, ov
 
 
 def _with_results(coords):
-    """A canvas carrying both overlays, wired as CorrelationCanvasWidget wires them."""
+    """A canvas carrying both overlays, wired as PointCanvasWidget wires them."""
     canvas, points = _attached(coords)
     results = CorrelationResultOverlay(legend_host=points)
     canvas.add_overlay(results)
@@ -172,15 +171,6 @@ def test_unfilled_markers_thicken_rather_than_whiten():
 
 
 # ── labels ────────────────────────────────────────────────────────────────
-
-
-def test_names_are_numbered_within_a_type():
-    coords = [
-        _coord(0, 0, PointType.FIB),
-        _coord(1, 1, PointType.POI),
-        _coord(2, 2, PointType.FIB),
-    ]
-    assert generate_names(coords) == ["FIB 1", "POI 1", "FIB 2"]
 
 
 def test_labels_renumber_after_a_removal():

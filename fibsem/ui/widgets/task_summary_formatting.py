@@ -1,57 +1,19 @@
 """
-Shared formatting helpers for task summary / task history tables.
-
-Used by both TaskHistoryTableWidget (full experiment history) and
-WorkflowSummaryDialog (per-run summary) so the two stay visually consistent.
+Shared status labels and colours for the task summary and the lamella and grid lists,
+so they stay visually consistent.
 """
-
-from typing import Callable, List, Optional
-
-import pandas as pd
 
 from fibsem.ui.tokens import (
     ACCENT_COLOR,
     ERROR_COLOR,
     OK_COLOR,
-    ORANGE_COLOR,
     TEXT_MUTED_COLOR,
     WARN_COLOR,
 )
-from fibsem.util.durations import format_duration_as_clock
-
-# Default per-run summary columns (in display order)
-SUMMARY_COLUMNS: List[str] = [
-    "lamella_name",
-    "task_name",
-    "task_status",
-    "completed_at",
-    "duration",
-]
-
-# Map raw dataframe columns to nice display titles
-COLUMN_NAME_MAPPING = {
-    "lamella_name": "Lamella",
-    "task_name": "Task Name",
-    "task_status": "Status",
-    "task_status_message": "Status Message",
-    "completed_at": "Completed At",
-    "duration": "Duration",
-}
-
-# Foreground colour for each status value (plain table cells)
-STATUS_COLORS = {
-    "Failed": "red",
-    "Completed": "white",
-    "Skipped": "gray",
-    "InProgress": "cyan",
-    "Cancelled": "orange",
-    "AwaitingDecision": "orange",
-}
 
 # How a status name reads to a person; anything not listed reads as its name.
 STATUS_LABELS = {
     "InProgress": "in progress",
-    "AwaitingDecision": "awaiting decision",
 }
 
 
@@ -67,57 +29,7 @@ STATUS_BADGE_COLORS = {
     "Skipped": (TEXT_MUTED_COLOR, "#aeb4b9"),
     "InProgress": (ACCENT_COLOR, "#9cc7f5"),
     "Cancelled": (WARN_COLOR, "#e8c37f"),  # amber: user-aborted, not an error
-    # orange: the border's colour for "waiting on you" -- the run is over, the
-    # task is not finished until someone decides in the Review tab
-    "AwaitingDecision": (ORANGE_COLOR, "#f2b56b"),
 }
 
 # Status order for count chips (these three are always shown, even at zero)
 STATUS_CHIP_ORDER = ["Completed", "Failed", "Skipped"]
-
-
-def prepare_summary_dataframe(
-    df: Optional[pd.DataFrame], columns: Optional[List[str]] = None
-) -> Optional[pd.DataFrame]:
-    """Select summary columns, format the duration column, and rename to display titles.
-
-    Args:
-        df: raw dataframe (e.g. from task_history_dataframe / build_run_summary_dataframe)
-        columns: raw column names to keep (defaults to SUMMARY_COLUMNS)
-
-    Returns:
-        A new dataframe with display titles, or the input unchanged if empty/None.
-    """
-    if df is None or df.empty:
-        return df
-
-    if columns is None:
-        columns = SUMMARY_COLUMNS
-
-    available = [col for col in columns if col in df.columns]
-    df = df[available].copy()
-
-    if "duration" in df.columns:
-        df["duration"] = df["duration"].apply(format_duration_as_clock)
-
-    return df.rename(columns=COLUMN_NAME_MAPPING)
-
-
-def make_status_cell_formatter(df: pd.DataFrame) -> Callable[[int, int, object], dict]:
-    """Return a DataFrameTableWidget cell_formatter that colours rows by Status.
-
-    The dataframe passed here must already use display titles (i.e. have a
-    'Status' column), as produced by prepare_summary_dataframe.
-    """
-
-    def format_cell(row_idx: int, col_idx: int, value) -> dict:
-        format_dict: dict = {}
-        if "Status" in df.columns:
-            status_col_idx = df.columns.get_loc("Status")
-            status_value = str(df.iloc[row_idx, status_col_idx])
-            color = STATUS_COLORS.get(status_value)
-            if color:
-                format_dict["color"] = color
-        return format_dict
-
-    return format_cell

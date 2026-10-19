@@ -1,6 +1,6 @@
 """A task run writes nothing outside the experiment (FIB-1252).
 
-Every built-in task that runs headless on Demo, through ``run_tasks``, with the
+Every built-in task that runs headless on Demo, through the session's runner, with the
 working directory and the two global data folders (``DATA_CC_PATH``,
 ``DATA_ML_PATH``) pointed at empty temporary folders. Those are where core code
 falls back to when a caller does not say where to save, so a run that reaches
@@ -27,12 +27,12 @@ from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     AutoLamellaWorkflowConfig,
     Experiment,
 )
 from fibsem.applications.autolamella.workflows.tasks import get_tasks
-from fibsem.applications.autolamella.workflows.tasks.manager import run_tasks
+from fibsem.workflows.status import TaskStatus
+from tests.run_state import run_lamellae
 
 CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
 
@@ -124,10 +124,10 @@ def test_a_task_run_writes_only_into_its_lamella_folder(
     exp = _experiment(microscope, tmp_path / "experiment", task_type)
     lamella = exp.positions[0]
 
-    run_tasks(microscope, exp, [exp.task_protocol.workflow_config.tasks[0].name])
+    run_lamellae(microscope, exp, [exp.task_protocol.workflow_config.tasks[0].name])
 
     # a task that stopped early wrote nothing, and would pass for that reason
-    assert lamella.task_state.status is AutoLamellaTaskStatus.Completed, (
+    assert lamella.task_state.status is TaskStatus.Completed, (
         f"{task_type} did not run headless on Demo "
         f"({lamella.task_state.status_message!r}); "
         "if it cannot, list it in CANNOT_RUN_HERE with the reason"

@@ -12,21 +12,33 @@ from scipy import ndimage as ndi
 
 from fibsem import utils
 from fibsem.drivers.demo.sim_scene import SampleScene, fm_channel_weights
-from fibsem.fm.structures import ChannelSettings
+from fibsem.fm.structures import REFLECTION, ChannelSettings, EmissionFilter
 from fibsem.geometry.projection import FMStageProjection
 from fibsem.structures import FibsemStagePosition
 
 REFLECTION = ChannelSettings(
-    name="reflection", excitation_wavelength=550, emission_wavelength=None, color="gray"
+    name="reflection",
+    excitation_wavelength=550,
+    emission_filter=REFLECTION,
+    color="gray",
 )
 GREEN = ChannelSettings(
-    name="green", excitation_wavelength=488, emission_wavelength=520, color="green"
+    name="green",
+    excitation_wavelength=488,
+    emission_filter=EmissionFilter("520 nm", low=520),
+    color="green",
 )
 RED = ChannelSettings(
-    name="red", excitation_wavelength=561, emission_wavelength=610, color="red"
+    name="red",
+    excitation_wavelength=561,
+    emission_filter=EmissionFilter("610 nm", low=610),
+    color="red",
 )
 BLUE = ChannelSettings(
-    name="blue", excitation_wavelength=405, emission_wavelength=450, color="blue"
+    name="blue",
+    excitation_wavelength=405,
+    emission_filter=EmissionFilter("450 nm", low=450),
+    color="blue",
 )
 
 

@@ -18,9 +18,8 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
-from fibsem.applications.autolamella.workflows.interaction import (
+from fibsem.workflows.interaction import (
     Confirm,
-    answered_by,
     ask,
 )
 
@@ -138,7 +137,7 @@ def test_an_answer_naming_the_question_applies(ui, qapp):
 
 
 def test_a_wrong_question_id_is_refused_and_clicks_nothing(ui, qapp):
-    from fibsem.applications.autolamella.workflows.interaction import (
+    from fibsem.workflows.interaction import (
         StalePromptError,
     )
 
@@ -179,7 +178,7 @@ def test_each_posting_gets_a_fresh_question_id(ui, qapp):
 def test_question_lifecycle_events_carry_who_answered(ui, qapp):
     events = []
     dispose = ui.ui_responder.add_question_observer(
-        lambda kind, payload: events.append((kind, payload))
+        lambda kind, payload, actor: events.append((kind, payload, actor))
     )
     try:
         # Operator answers via the button path.
@@ -196,60 +195,27 @@ def test_question_lifecycle_events_carry_who_answered(ui, qapp):
     finally:
         dispose()
 
-    kinds = [k for k, _ in events]
+    kinds = [k for k, _, _ in events]
     assert kinds == [
         "prompt_raised",
         "prompt_answered",
         "prompt_raised",
         "prompt_answered",
     ]
-    first_answer, second_answer = events[1][1], events[3][1]
-    assert first_answer["answered_by"] == "operator"
+    (_, first_answer, first_by), (_, second_answer, second_by) = events[1], events[3]
+    assert first_by == "operator"
     assert first_answer["response"] is True
-    assert second_answer["answered_by"] == "agent"
+    assert second_by == "agent"
     assert second_answer["response"] is False
+    assert "answered_by" not in first_answer  # who is the envelope's
     # The raise and its answer name the same posting.
     assert events[0][1]["question_id"] == events[1][1]["question_id"]
     assert events[2][1]["question_id"] == events[3][1]["question_id"]
     assert events[2][1]["message"] == "Second?"
 
 
-def _ask_and_hear_who_answered(ui, qapp, answer):
-    """Ask on a worker, answer with ``answer()``, and return who the asker,
-    on its own thread, heard answered."""
-    heard = {}
-
-    def target():
-        ask(ui.ui_responder, Confirm("Go on?"))
-        heard["by"] = answered_by()
-
-    thread = threading.Thread(target=target, daemon=True)
-    thread.start()
-    _spin_until(qapp, lambda: ui.ui_responder.pending_question() is not None)
-    answer()
-    _spin_until(qapp, lambda: "by" in heard)
-    thread.join(timeout=5)
-    return heard["by"]
-
-
-def test_the_asker_hears_who_answered(ui, qapp):
-    # The task records the decision the answer makes, on its own thread, and
-    # names who made it from this (FIB-1328).
-    def agent():
-        _, question_id = ui.ui_responder.pending_question_and_id()
-        ui.ui_responder.submit_answer(True, question_id=question_id)
-
-    assert _ask_and_hear_who_answered(ui, qapp, agent) == "agent"
-    assert (
-        _ask_and_hear_who_answered(
-            ui, qapp, lambda: ui.ui_responder.answer_confirm(True)
-        )
-        == "operator"
-    )
-
-
 def test_a_broken_observer_cannot_break_the_click(ui, qapp):
-    def broken(kind, payload):
+    def broken(kind, payload, actor):
         raise RuntimeError("observer fell over")
 
     dispose = ui.ui_responder.add_question_observer(broken)
@@ -265,7 +231,7 @@ def test_a_broken_observer_cannot_break_the_click(ui, qapp):
 def test_an_abandoned_question_reports_cancelled(ui, qapp):
     events = []
     dispose = ui.ui_responder.add_question_observer(
-        lambda kind, payload: events.append(kind)
+        lambda kind, payload, actor: events.append(kind)
     )
     try:
         thread, _ = _ask_on_worker(ui, qapp, Confirm("Continue?"))

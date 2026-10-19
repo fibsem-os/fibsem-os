@@ -1,11 +1,15 @@
 """The alignment-area question over the Responder seam: EditAlignmentArea.
 
-The old flow needed two handshakes and a read-back: ``update_alignment_area_ui``
+The old flow needed two handshakes and a read-back: the workflow helper
 emitted the area and polled ``WAITING_FOR_USER_INTERACTION``; after the click it
 emitted ``"clear"`` and polled ``WAITING_FOR_UI_UPDATE``; then it read
 ``image_widget.get_alignment_area()`` across the seam. Now the answer IS the
 area: the Continue click reads it and hides the overlay on the GUI thread, and
 the future carries the rect back — one wait, no flags, no read-back.
+
+No workflow task sends this request any more: the alignment area is asked on
+the record (``AutoLamellaTask._validate_alignment_area``). The renderer stays
+while the request does, so these ask it directly.
 
 The real widgets answer here: the overlay round-trips through the actual quad-view
 controller, which lives on the main window — so the fixture is the full offscreen
@@ -24,9 +28,11 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.workflows.tasks.status import Hold, HoldKind
-from fibsem.applications.autolamella.workflows.ui import update_alignment_area_ui
+from fibsem.applications.autolamella.workflows.ui import _abort_requested
 from fibsem.structures import FibsemRectangle
+from fibsem.workflows.interaction import EditAlignmentArea, ask
+from fibsem.workflows.status import Hold, HoldKind
+from tests.run_state import Stopped
 
 INITIAL = FibsemRectangle(left=0.3, top=0.3, width=0.2, height=0.25)
 
@@ -57,13 +63,15 @@ def ui(qapp):
 
 
 def _edit_on_worker_thread(ui, qapp, msg="Adjust the area, then Continue."):
-    """Start update_alignment_area_ui on a worker thread; spin until the prompt is up."""
+    """Ask EditAlignmentArea on a worker thread; spin until the prompt is up."""
     outcome = {}
 
     def target():
         try:
-            outcome["area"] = update_alignment_area_ui(
-                alignment_area=INITIAL, parent_ui=ui, msg=msg, validate=True
+            outcome["area"] = ask(
+                ui.ui_responder,
+                EditAlignmentArea(initial=INITIAL, message=msg),
+                abort=lambda: _abort_requested(ui.session.runner),
             )
         except Exception as exc:  # noqa: BLE001 - the test inspects it
             outcome["error"] = exc
@@ -144,7 +152,7 @@ def _answer_with_value_on_worker(ui, qapp, response, question_id, value):
     """
     from fibsem.applications.autolamella.server import AutoLamellaAppContext
 
-    ctx = AutoLamellaAppContext(ui)
+    ctx = AutoLamellaAppContext(ui.session, window=ui)
     outcome = {}
 
     def target():
@@ -166,7 +174,7 @@ def test_a_value_answer_moves_the_area_and_answers_with_it(ui, qapp):
 
     events = []
     dispose = ui.ui_responder.add_question_observer(
-        lambda kind, payload: events.append((kind, payload))
+        lambda kind, payload, actor: events.append((kind, {**payload, "actor": actor}))
     )
     proposed = {"left": 0.1, "top": 0.2, "width": 0.3, "height": 0.25}
     try:
@@ -185,7 +193,7 @@ def test_a_value_answer_moves_the_area_and_answers_with_it(ui, qapp):
     assert area.height == pytest.approx(proposed["height"])
     # The record shows the agent changed the geometry, not just accepted it.
     answered = [p for k, p in events if k == "prompt_answered"][-1]
-    assert answered["answered_by"] == "agent"
+    assert answered["actor"] == "agent"
     assert answered["adjusted"] is True
 
 
@@ -197,7 +205,7 @@ def test_echoing_the_area_is_not_an_adjustment(ui, qapp):
 
     events = []
     dispose = ui.ui_responder.add_question_observer(
-        lambda kind, payload: events.append((kind, payload))
+        lambda kind, payload, actor: events.append((kind, {**payload, "actor": actor}))
     )
     try:
         result = _answer_with_value_on_worker(ui, qapp, True, question_id, current)
@@ -237,18 +245,13 @@ def test_an_invalid_value_is_refused_and_the_prompt_stands(ui, qapp):
     assert isinstance(outcome.get("area"), FibsemRectangle)
 
 
-def test_headless_and_unvalidated_return_the_input(ui):
-    assert update_alignment_area_ui(INITIAL, parent_ui=None, validate=True) is INITIAL
-    assert update_alignment_area_ui(INITIAL, parent_ui=ui, validate=False) is INITIAL
-
-
 def test_a_stop_interrupts_an_edit_nobody_confirms(ui, qapp):
     thread, outcome = _edit_on_worker_thread(ui, qapp)
 
-    ui._workflow_stop_event.set()
+    ui.session.runner.manager = Stopped()
     try:
         _finish(thread, qapp)
     finally:
-        ui._workflow_stop_event.clear()
+        ui.session.runner.manager = None
 
     assert isinstance(outcome.get("error"), InterruptedError)

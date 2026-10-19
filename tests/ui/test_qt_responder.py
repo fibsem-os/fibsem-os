@@ -24,9 +24,10 @@ pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 from fibsem.applications.autolamella.workflows import ui as workflow_ui
-from fibsem.applications.autolamella.workflows.interaction import ask
 from fibsem.applications.autolamella.workflows.ui import set_images_ui
 from fibsem.structures import BeamType
+from fibsem.workflows.interaction import ask
+from tests.run_state import Stopped
 
 
 @pytest.fixture
@@ -57,6 +58,21 @@ def ui(qapp, monkeypatch):
     if widget.microscope is not None:
         widget.microscope.disconnect()
     widget.close()
+
+
+class _Run:
+    """The run ``set_images_ui`` is handed, as the window's runner would make
+    it: the window answers, the session keeps the images, and the runner's stop
+    is its stop."""
+
+    def __init__(self, ui):
+        self._runner = ui.session.runner
+        self.responder = ui.ui_responder
+        self.images = ui.session.images
+
+    @property
+    def should_abort(self) -> bool:
+        return self._runner.should_abort
 
 
 def _call_on_worker_thread(qapp, fn, timeout_s=10.0):
@@ -90,7 +106,7 @@ def test_images_land_in_the_widget_from_a_worker_thread(ui, qapp):
     assert fib.metadata.beam_type is BeamType.ION
 
     outcome = _call_on_worker_thread(
-        qapp, lambda: set_images_ui(ui, eb_image=sem, ib_image=fib)
+        qapp, lambda: set_images_ui(_Run(ui), eb_image=sem, ib_image=fib)
     )
 
     assert "error" not in outcome
@@ -109,7 +125,7 @@ def test_the_widget_update_runs_on_the_gui_thread(ui, qapp):
     ui.image_widget._on_acquire = recording
     sem = deepcopy(ui.image_widget.eb_image)
 
-    _call_on_worker_thread(qapp, lambda: set_images_ui(ui, eb_image=sem))
+    _call_on_worker_thread(qapp, lambda: set_images_ui(_Run(ui), eb_image=sem))
 
     assert threads == ["MainThread"]
 
@@ -124,7 +140,9 @@ def test_a_gui_side_failure_reraises_on_the_workflow_thread(ui, qapp):
     ui.image_widget._on_acquire = broken
     sem = deepcopy(ui.image_widget.eb_image)
 
-    outcome = _call_on_worker_thread(qapp, lambda: set_images_ui(ui, eb_image=sem))
+    outcome = _call_on_worker_thread(
+        qapp, lambda: set_images_ui(_Run(ui), eb_image=sem)
+    )
 
     assert isinstance(outcome.get("error"), RuntimeError)
     assert "display fell over" in str(outcome["error"])
@@ -137,7 +155,7 @@ def test_an_unhandled_request_type_fails_fast_not_by_timeout(ui, qapp):
     # this test survives every conversion.
     from dataclasses import dataclass
 
-    from fibsem.applications.autolamella.workflows.interaction import Request
+    from fibsem.workflows.interaction import Request
 
     @dataclass(frozen=True)
     class NeverHandled(Request[None]):
@@ -186,19 +204,19 @@ def test_a_stop_interrupts_the_wait(ui):
 
     def target():
         try:
-            set_images_ui(ui, eb_image=sem)
+            set_images_ui(_Run(ui), eb_image=sem)
         except Exception as exc:  # noqa: BLE001 - the test inspects it
             outcome["error"] = exc
 
     thread = threading.Thread(target=target, daemon=True)
     thread.start()
     time.sleep(0.3)  # past the entry check and into the wait
-    ui._workflow_stop_event.set()  # legacy event: no task manager in this harness
+    ui.session.runner.manager = Stopped()
     try:
         thread.join(timeout=10.0)
         assert not thread.is_alive(), "Stop did not interrupt the wait"
     finally:
-        ui._workflow_stop_event.clear()
+        ui.session.runner.manager = None
 
     assert isinstance(outcome.get("error"), InterruptedError)
 
@@ -208,7 +226,7 @@ def test_a_wedged_gui_thread_times_out_instead_of_hanging_forever(ui, monkeypatc
     sem = deepcopy(ui.image_widget.eb_image)
     started = time.monotonic()
 
-    outcome = _call_with_the_gui_wedged(lambda: set_images_ui(ui, eb_image=sem))
+    outcome = _call_with_the_gui_wedged(lambda: set_images_ui(_Run(ui), eb_image=sem))
 
     assert isinstance(outcome.get("error"), TimeoutError)
     assert time.monotonic() - started < 5
@@ -222,7 +240,7 @@ def test_a_milling_config_lands_in_the_editor_and_fronts_its_tab(ui, qapp):
 
     config = FibsemMillingTaskConfig(name="from-the-workflow")
 
-    from fibsem.applications.autolamella.workflows.interaction import (
+    from fibsem.workflows.interaction import (
         SetMillingConfig,
     )
 
@@ -238,11 +256,11 @@ def test_a_milling_config_lands_in_the_editor_and_fronts_its_tab(ui, qapp):
 
 
 def test_clearing_the_milling_config_resets_the_editor(ui, qapp):
-    from fibsem.applications.autolamella.workflows.interaction import (
+    from fibsem.milling.tasks import FibsemMillingTaskConfig
+    from fibsem.workflows.interaction import (
         ClearMillingConfig,
         SetMillingConfig,
     )
-    from fibsem.milling.tasks import FibsemMillingTaskConfig
 
     _call_on_worker_thread(
         qapp,
@@ -281,7 +299,7 @@ def test_fluorescence_channels_reach_the_fm_widget(ui, qapp):
     channels = [ChannelSettings(name="channel-from-the-workflow")]
 
     class _Task:
-        parent_ui = ui
+        responder = ui.ui_responder
         _check_for_abort = staticmethod(lambda *a, **k: False)
 
     from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask

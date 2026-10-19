@@ -177,7 +177,7 @@ class AutoLamellaFluorescenceOverviewTab(AutoLamellaOverviewTabBase):
             text=(
                 f"Move {name} to {poses.fluorescence.stage_position.pretty_string}?"
                 f"\n\nThis moves the milling pose with it, to "
-                f"{poses.milling.stage_position.pretty_string}."
+                f"{poses.beam.stage_position.pretty_string}."
                 f"{history}"
             ),
             parent=self,
@@ -187,7 +187,7 @@ class AutoLamellaFluorescenceOverviewTab(AutoLamellaOverviewTabBase):
         # Only the stage positions are replaced, so anything else the poses carry --
         # notably the objective position on a lamella that was focused by hand -- is
         # kept. `stage_position` is the milling pose's, via the property.
-        lamella.stage_position = poses.milling.stage_position
+        lamella.stage_position = poses.beam.stage_position
         lamella.update_milling_angle(self.microscope)
         if lamella.fluorescence_pose is None:
             lamella.fluorescence_pose = poses.fluorescence

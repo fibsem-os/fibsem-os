@@ -58,8 +58,13 @@ from PyQt5.QtWidgets import (
 from superqt import ensure_main_thread
 
 from fibsem import conversions
-from fibsem.applications.autolamella.poses import sync_fluorescence_pose
-from fibsem.applications.autolamella.task_outputs import run_folder
+from fibsem.applications.autolamella.poses import (
+    current_objective_position,
+    set_objective_position,
+    set_objective_position_on_all,
+    stored_objective_position,
+    sync_fluorescence_pose,
+)
 from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
     LamellaNameListWidget,
 )
@@ -73,12 +78,14 @@ from fibsem.milling.progress import (
     MillingProgress,
     MillingProgressStatus,
 )
-from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy
+from fibsem.milling.strategy.coincidence import (
+    CoincidenceMillingStrategy,
+    CoincidenceMillingStrategyConfig,
+)
 from fibsem.structures import (
     BeamType,
     DeviceImagingState,
     FibsemImage,
-    InsertableDeviceState,
     Point,
 )
 from fibsem.ui import notification_service, stylesheets
@@ -104,6 +111,7 @@ from fibsem.ui.widgets.custom_widgets import (
     scrollable,
 )
 from fibsem.util import timestamps
+from fibsem.workflows.task import run_folder
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment, Lamella
@@ -118,6 +126,11 @@ _HEADER_BG = CANVAS_BG
 
 # name used for the coincidence entry in the lamella History panel / task history
 COINCIDENCE_REVIEW_TASK_NAME = "Coincidence Milling"
+
+
+def _beam_type(image) -> Optional[BeamType]:
+    """The beam an image came from, or None when it has no metadata."""
+    return getattr(getattr(image, "metadata", None), "beam_type", None)
 
 
 def _fmt_timestamp(ts: float) -> str:
@@ -814,14 +827,14 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                         scan_direction="BottomToTop",
                         cross_section=CrossSectionPattern.CleaningCrossSection,
                     ),
-                    strategy=CoincidenceMillingStrategy(),
+                    strategy=CoincidenceMillingStrategyConfig(),
                 )
             ],
         )
         DEFAULT_MILLING_TASK_CONFIG.alignment.enabled = False
         DEFAULT_MILLING_TASK_CONFIG.acquisition.acquire_fib = False
         DEFAULT_MILLING_TASK_CONFIG.acquisition.acquire_sem = False
-        DEFAULT_MILLING_TASK_CONFIG.stages[0].strategy.config.save_rate_limit = 0.0
+        DEFAULT_MILLING_TASK_CONFIG.stages[0].strategy.save_rate_limit = 0.0
 
         milling_task_config = self._load_milling_config() or DEFAULT_MILLING_TASK_CONFIG
 
@@ -1314,10 +1327,13 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         # Live FM acquisition → FM canvas
         self.microscope.fm.acquisition_signal.connect(self._on_fm_live_image)
 
-        # FIB acquisition signal (e.g. post-milling) → FIB canvas
-        self.microscope.fib_acquisition_signal.connect(
-            lambda image: self._fib_image_ready.emit(image)
-        )
+        # A FIB image someone asked to show (e.g. post-milling) → FIB canvas
+        def show_fib(image) -> None:
+            if _beam_type(image) is BeamType.ION:
+                self._fib_image_ready.emit(image)
+
+        if self.microscope.imaging is not None:
+            self.microscope.imaging.image_shown.connect(show_fib)
         # Live FIB view → FIB canvas, from the ion beam itself
         ion = getattr(self.microscope, "beams", {}).get(BeamType.ION)
         if ion is not None:
@@ -1350,9 +1366,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         lamella = self._selected_lamella
         if lamella is None or lamella.fluorescence_pose is None:
             return
-        lamella.fluorescence_pose.objective_position = value_um * MICRON_TO_METRE
-        if self.experiment is not None:
-            self.experiment.save()
+        set_objective_position(self.experiment, lamella, value_um * MICRON_TO_METRE)
 
     def _on_slw_use_current_objective(self):
         """Read the current FM objective position and store it on the lamella."""
@@ -1363,20 +1377,13 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         if lamella is None or lamella.fluorescence_pose is None:
             notification_service.show_toast("No lamella selected.", "warning")
             return
-        obj = self.microscope.fm.objective
-        value_m = (
-            obj.position
-            if obj.state is InsertableDeviceState.INSERTED
-            else obj.focus_position
-        )
+        value_m = current_objective_position(self.microscope.fm)
         if value_m is None:
             notification_service.show_toast(
                 "Objective position unavailable.", "warning"
             )
             return
-        lamella.fluorescence_pose.objective_position = value_m
-        if self.experiment is not None:
-            self.experiment.save()
+        set_objective_position(self.experiment, lamella, value_m)
         self.selected_lamella_widget.set_lamella(lamella)
         notification_service.show_toast(
             f"Set objective position to {value_m * METRE_TO_MICRON:.1f} µm "
@@ -1389,14 +1396,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         if self.experiment is None:
             return
         value_um = self.selected_lamella_widget.objective_value_um()
-        value_m = value_um * MICRON_TO_METRE
-        count = 0
-        for lamella in self.experiment.positions:
-            if lamella.fluorescence_pose is not None:
-                lamella.fluorescence_pose.objective_position = value_m
-                count += 1
+        count = set_objective_position_on_all(
+            self.experiment, value_um * MICRON_TO_METRE
+        )
         if count:
-            self.experiment.save()
             notification_service.show_toast(
                 f"Applied objective position ({value_um:.1f} µm) to {count} lamella.",
                 "info",
@@ -1411,18 +1414,12 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         if lamella is None or lamella.fluorescence_pose is None:
             notification_service.show_toast("No lamella selected.", "warning")
             return
-        objective_position = lamella.fluorescence_pose.objective_position
-        if objective_position is None:
-            notification_service.show_toast(
-                f"{lamella.name} has no stored objective position.", "warning"
-            )
+        try:
+            objective_position = stored_objective_position(self.microscope.fm, lamella)
+        except ValueError as e:
+            notification_service.show_toast(str(e), "warning")
             return
         obj = self.microscope.fm.objective
-        if obj.state is not InsertableDeviceState.INSERTED:
-            notification_service.show_toast(
-                "Insert the objective before moving to a stored position.", "warning"
-            )
-            return
 
         ret = QMessageBox.question(
             self,
@@ -1863,12 +1860,11 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self, milling_task_config: "FibsemMillingTaskConfig"
     ) -> None:
         """Find CoincidenceMillingStrategy instances and seed their bbox from the FM rectangle."""
-        from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy
-
+        # The strategies the stages will mill with, so the viewer hears their run.
         self._active_strategies: list[CoincidenceMillingStrategy] = [
-            stage.strategy
+            stage.get_strategy()
             for stage in milling_task_config.enabled_stages
-            if isinstance(stage.strategy, CoincidenceMillingStrategy)
+            if isinstance(stage.strategy, CoincidenceMillingStrategyConfig)
         ]
 
         # Seed bbox from the current FM rectangle position if image is loaded
@@ -2027,8 +2023,8 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         logging.info(f"Channel field changed: {field} -> {value}")
         if field == "excitation_wavelength":
             fm.filter_set.excitation_wavelength = value
-        elif field == "emission_wavelength":
-            fm.filter_set.emission_wavelength = value
+        elif field == "emission_filter":
+            fm.filter_set.emission_filter = value
         elif field == "exposure_time":
             fm.set_exposure_time(value)
         elif field == "gain":
@@ -2266,26 +2262,23 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         image = self._latest_fib_image
         if lamella is None or self.experiment is None or image is None:
             return
-        from fibsem.applications.autolamella.structures import (
-            AutoLamellaTaskState,
-            AutoLamellaTaskStatus,
-        )
+        from fibsem.workflows.status import TaskState, TaskStatus
 
         try:
             now = timestamps.now()
             filename = os.path.join(
-                run_folder(lamella, COINCIDENCE_REVIEW_TASK_NAME, now),
+                run_folder(lamella.path, COINCIDENCE_REVIEW_TASK_NAME, now),
                 f"ref_{COINCIDENCE_REVIEW_TASK_NAME}_final_res_01_ib.tif",
             )
             written = image.save(filename)
 
             lamella.task_history.append(
-                AutoLamellaTaskState(
+                TaskState(
                     name=COINCIDENCE_REVIEW_TASK_NAME,
                     task_type="MILL_COINCIDENT",
-                    lamella_id=lamella.id,
+                    item_id=lamella.id,
                     end_timestamp=now,
-                    status=AutoLamellaTaskStatus.Completed,
+                    status=TaskStatus.Completed,
                     status_message="Coincidence milling (recorded from viewer)",
                     outputs={"final_fib": [os.path.relpath(written, lamella.path)]},
                 )

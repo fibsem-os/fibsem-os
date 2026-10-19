@@ -143,8 +143,8 @@ class WorkflowSummaryDialog(QDialog):
         Args:
             dataframe: raw run-summary dataframe with columns
                 lamella_name, task_name, task_status, completed_at, duration
-            note: why the run ended short of done, if it did ("Timed out ...
-                waiting for a review ..."); shown as a headline so the dialog
+            note: why the run ended short of done, if it did ("1 task(s)
+                cannot run: ..."); shown as a headline so the dialog
                 never reads as a finish when it was not one
             parent: the parent widget
         """

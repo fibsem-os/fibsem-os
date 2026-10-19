@@ -115,6 +115,12 @@ class Imaging(Service):
     # however it was started: each tile, the stitch, and how the run ended. Emitted
     # on the acquiring thread. A Signal, not a Parameter: it carries a preview image.
     tiled_progress = Signal(TiledProgress)
+    # Images someone asked the app's SEM and FIB views to show (`show`): a milling
+    # task's result, a route's image. Not every acquisition: alignment and other
+    # reduced-area images have no place in the views, and click-to-move and pattern
+    # placement work on the image shown until something replaces it on purpose.
+    # Live frames are not here either; the views take them from ``live_frame``.
+    image_shown = Signal(FibsemImage)
 
     def __init__(self, name: str = "imaging", **kwargs: Any):
         super().__init__(name, **kwargs)
@@ -167,6 +173,13 @@ class Imaging(Service):
     def stop_live(self, beam_type: BeamType = BeamType.ELECTRON) -> None:
         """Stop ``beam_type``'s live view. Safe when it isn't live."""
         self.beam(beam_type).stop_live()
+
+    # -- images for the views ------------------------------------------------------
+
+    def show(self, image: FibsemImage) -> None:
+        """Send ``image`` to the app's SEM or FIB view, by its own beam type. Only
+        what is sent here is shown; an acquisition alone never is."""
+        self.image_shown.emit(image)
 
     # -- images for the record -----------------------------------------------------
 
@@ -475,11 +488,13 @@ class Imaging(Service):
         settings: Optional[AutoFocusSettings] = None,
         path: Optional[str] = None,
         name: str = "autofocus",
+        channel: Optional[ChannelSettings] = None,
     ) -> Dict[str, Any]:
         """Focus the fluorescence microscope by sweeping its objective, a coarse
         then a fine pass by default, scoring a frame at each step on its current
-        channel (``settings.channel_name`` picks another), as the FM tab's
-        auto-focus does (`fibsem.fm.calibration.run_coarse_fine_autofocus`).
+        channel (``settings.channel_name`` picks another, and ``channel`` sets
+        one outright, as the FM tab's selected channel does)
+        (`fibsem.fm.calibration.run_coarse_fine_autofocus`).
 
         Refused while the FM is in use (live view, the device's own included, a
         tileset, the tab's own sweep), and unless the stage is at the FM's pose:
@@ -503,6 +518,7 @@ class Imaging(Service):
             result = run_coarse_fine_autofocus(
                 fm,
                 autofocus_settings=settings or AutoFocusSettings(),
+                channel_settings=channel,
                 stop_event=self._stop_requested,
                 path=path,
                 name=name,
@@ -858,7 +874,16 @@ def _overview_answer(result: "OverviewResult", image: Any) -> Dict[str, Any]:
 
 def _save_path(image_settings: ImageSettings) -> str:
     """Where an image taken with ``image_settings`` is saved:
-    ``<path>/<filename>_eb``, or ``_ib`` for the ion beam."""
+    ``<path>/<filename>_eb``, or ``_ib`` for the ion beam.
+
+    Raises:
+        ValueError: the settings name no folder to save in.
+    """
+    if image_settings.path is None:
+        raise ValueError(
+            "The image settings ask to save the image but name no folder: "
+            "set image_settings.path."
+        )
     suffix = "eb" if image_settings.beam_type is BeamType.ELECTRON else "ib"
     return os.path.join(image_settings.path, f"{image_settings.filename}_{suffix}")
 

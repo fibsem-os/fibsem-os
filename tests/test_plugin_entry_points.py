@@ -1,7 +1,7 @@
 """The plugin entry point contract.
 
-fibsem exposes extension points -- ``fibsem.patterns``, ``fibsem.strategies``,
-``fibsem.tasks`` and ``fibsem.drivers`` -- and for patterns and strategies a
+fibsem exposes extension points -- ``fibsem.milling.patterns``, ``fibsem.milling.strategies``,
+``fibsem.autolamella.tasks`` and ``fibsem.drivers`` -- and for patterns and strategies a
 packaged plugin is the *only* way in. Nothing in the test suite exercised that
 path, so a refactor could break every third-party plugin in existence without a
 single test failing; the breakage would surface months later on a user's
@@ -33,9 +33,11 @@ import pytest
 PATTERN_NAME = "Fixture Pattern"
 STRATEGY_NAME = "Fixture Strategy"
 TASK_TYPE = "FIXTURE_TASK"
+GRID_TASK_TYPE = "FIXTURE_GRID_TASK"
 CLASHING_PATTERN_NAME = "Rectangle"  # a built-in name the fixture claims on purpose
 FAILING_ENTRY_POINTS = ("wrong_base_class", "missing_module")  # declared to fail
 DRIVER_MANUFACTURER = "Fixture Microscopes"
+DEVICE_DRIVER = "Fixture Scanners"  # builds a scan generator and no microscope
 
 
 def _fixture_installed() -> bool:
@@ -50,7 +52,8 @@ def _fixture_installed() -> bool:
     from importlib.metadata import entry_points
 
     return any(
-        ep.name == "fixture_pattern" for ep in entry_points(group="fibsem.patterns")
+        ep.name == "fixture_pattern"
+        for ep in entry_points(group="fibsem.milling.patterns")
     )
 
 
@@ -142,6 +145,17 @@ def test_task_plugin_survives_protocol_load():
 
     assert "Fixture" in loaded, dict(loaded)
     assert loaded["Fixture"].number == 42
+
+
+def test_grid_task_plugin_resolves_through_the_registry():
+    from fibsem.workflows.grid import (
+        get_grid_tasks,
+        load_grid_task_configs,
+    )
+
+    assert GRID_TASK_TYPE in get_grid_tasks(), sorted(get_grid_tasks())
+    loaded = load_grid_task_configs({"Fixture": {"task_type": GRID_TASK_TYPE}})
+    assert type(loaded["Fixture"]).__name__ == "FixtureGridTaskConfig"
     assert loaded["Fixture"].task_name == "Fixture"
 
 
@@ -160,7 +174,7 @@ def test_milling_stage_built_from_yaml_uses_both_plugin_classes():
     )
 
     assert stage.pattern.name == PATTERN_NAME
-    assert stage.strategy.name == STRATEGY_NAME
+    assert stage.strategy.strategy_name == STRATEGY_NAME
 
     ddict = stage.to_dict()
     assert ddict["pattern"]["name"] == PATTERN_NAME
@@ -253,7 +267,9 @@ def test_shadowed_plugin_is_reported_rather_than_vanishing():
     """
     from fibsem.plugins.report import ExtensionSource, collect_extensions
 
-    patterns = next(g for g in collect_extensions() if g.group == "fibsem.patterns")
+    patterns = next(
+        g for g in collect_extensions() if g.group == "fibsem.milling.patterns"
+    )
     shadowed = [e for e in patterns.extensions if e.shadowed]
 
     assert [e.name for e in shadowed] == [CLASHING_PATTERN_NAME]
@@ -278,7 +294,9 @@ def test_failed_entry_point_becomes_a_row_that_spells_out_the_consequence():
     """
     from fibsem.plugins.report import ExtensionSource, collect_extensions
 
-    tasks = next(g for g in collect_extensions() if g.group == "fibsem.tasks")
+    tasks = next(
+        g for g in collect_extensions() if g.group == "fibsem.autolamella.tasks"
+    )
     failed = [e for e in tasks.extensions if e.source is ExtensionSource.FAILED]
 
     assert len(failed) == len(FAILING_ENTRY_POINTS), [e.target for e in failed]
@@ -295,14 +313,21 @@ def test_report_lists_the_fixture_across_every_group():
 
     groups = collect_extensions()
     assert [g.group for g in groups] == [
-        "fibsem.patterns",
-        "fibsem.strategies",
-        "fibsem.tasks",
+        "fibsem.milling.patterns",
+        "fibsem.milling.strategies",
+        "fibsem.autolamella.tasks",
+        "fibsem.grid.tasks",
         "fibsem.drivers",
     ]
 
     text = render_report(groups)
-    for name in (PATTERN_NAME, STRATEGY_NAME, TASK_TYPE, DRIVER_MANUFACTURER):
+    for name in (
+        PATTERN_NAME,
+        STRATEGY_NAME,
+        TASK_TYPE,
+        GRID_TASK_TYPE,
+        DRIVER_MANUFACTURER,
+    ):
         assert name in text
 
     # Failures are in the text too, which is the difference between this and
@@ -356,6 +381,62 @@ def test_driver_plugins_record_what_they_could_not_register():
     assert get_driver("Demo").microscope_class == (
         "fibsem.drivers.demo.microscope:DemoMicroscope"
     )
+
+
+def test_a_device_driver_plugin_is_found_and_is_no_manufacturer():
+    from fibsem.drivers.registry import (
+        device_setups,
+        get_driver,
+        get_driver_plugin_records,
+        registered_manufacturers,
+    )
+
+    records = {r.entry_point: r for r in get_driver_plugin_records()}
+    assert records["fixture_device_driver"].loaded
+    assert set(get_driver(DEVICE_DRIVER).devices) == {"scan_generator"}
+    assert DEVICE_DRIVER not in registered_manufacturers()
+    offered = {driver: device.type for driver, device in device_setups()}
+    assert offered[DEVICE_DRIVER] == "scan_generator"
+
+
+def _connect_with_scanner(tmp_path, **keys):
+    """The Demo, with the fixture's scan generator as the electron beam's scanner."""
+    import yaml
+
+    import fibsem.config as cfg
+    from fibsem import utils
+
+    with open(cfg.DEFAULT_CONFIGURATION_PATH) as f:
+        config = yaml.safe_load(f)
+    config["info"]["manufacturer"] = "Demo"
+    devices = config["hardware"]["devices"]
+    entry = {"name": "plugin_scanner", "type": "scan_generator"}
+    devices.append({**entry, "driver": DEVICE_DRIVER, **keys})
+    electron = next(e for e in devices if e.get("name") == "electron")
+    electron["roles"] = {"scanner": "plugin_scanner"}
+    path = tmp_path / "configuration.yaml"
+    path.write_text(yaml.safe_dump(config))
+    microscope, _ = utils.setup_session(setup_logging=False, config_path=str(path))
+    return microscope
+
+
+def test_an_entry_naming_a_device_driver_plugin_builds_and_binds_the_beam(tmp_path):
+    from fibsem.structures import BeamType
+
+    microscope = _connect_with_scanner(tmp_path, address="10.0.0.2")
+    try:
+        scanner = microscope.devices["plugin_scanner"]
+        assert microscope.beams[BeamType.ELECTRON].scanner is scanner
+        assert scanner.driver == DEVICE_DRIVER
+    finally:
+        microscope.disconnect()
+
+
+def test_an_entry_naming_a_device_driver_plugin_is_checked_against_its_keys(tmp_path):
+    from fibsem.devices.entries import DeviceBuildError
+
+    with pytest.raises(DeviceBuildError, match="unknown keys"):
+        _connect_with_scanner(tmp_path, adress="10.0.0.2")
 
 
 def test_the_report_says_why_a_driver_plugin_is_inactive():

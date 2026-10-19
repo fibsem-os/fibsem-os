@@ -258,8 +258,7 @@ async function renderCard(name) {
       fib: (files.final_fib || []).slice(-1)[0],
     };
   };
-  // Review rows: every completed task's final pair, protocol order — the
-  // review tab in miniature.
+  // Review rows: every completed task's final pair, protocol order.
   const review = reviewOrder.map(taskName => {
     const p = pairOf(taskName);
     if (!p.sem && !p.fib) return "";
@@ -408,7 +407,9 @@ function eventLine(e) {
   if (k === "prompt_raised")
     return `<span class="ts">${ts}</span><span class="kind">?</span> ${esc(p.type)} <span class="muted">n${esc(p.question_id)}</span>`;
   if (k === "agent_note")
-    return `<span class="ts">${ts}</span><span class="who-agent">note</span> ${esc(p.text)}${p.item_name ? ` · ${esc(p.item_name)}` : ""}`;
+    return `<span class="ts">${ts}</span><span class="who-agent">${p.reply_to ? "reply" : "note"}</span> ${esc(p.text)}${p.item_name ? ` · ${esc(p.item_name)}` : ""}`;
+  if (k === "operator_message")
+    return `<span class="ts">${ts}</span><span class="who-op">message</span> ${esc(p.text)}`;
   if (k === "prompt_cancelled")
     return `<span class="ts">${ts}</span><span class="muted">withdrawn</span> ${esc(p.type)}`;
   if (["task_started", "task_completed", "task_failed", "task_cancelled", "task_skipped"].includes(k)) {
@@ -440,7 +441,7 @@ function appendEvents(events) {
 
 async function refreshTop() {
   const [status, protocol, runSummary] = await Promise.all([
-    api("/app/workflow/status"), api("/app/experiment/protocol"), api("/app/workflow/run_summary"),
+    api("/app/workflow/status"), api("/app/experiment/protocol"), api("/app/workflow/summary"),
   ]);
   protocolTasks = protocol.tasks || [];
   renderHeader(status);

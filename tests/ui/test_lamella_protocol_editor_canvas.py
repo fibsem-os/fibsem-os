@@ -510,19 +510,14 @@ def test_view_toggles_are_overlay_controls_on_the_fib_canvas():
 def test_task_rows_are_chipped_from_the_lamella_record_and_the_running_task():
     """Completed comes from the lamella's own task history; In Progress from what the
     workflow told the editor it is running. Everything else shows nothing."""
-    from fibsem.applications.autolamella.structures import (
-        AutoLamellaTaskState,
-        AutoLamellaTaskStatus,
-    )
+    from fibsem.workflows.status import TaskState, TaskStatus
 
     editor, exp = _editor()
     lamella = exp.positions[0]
     lamella.task_config = {"Setup": None, "Mill Fiducial": None, "Rough Milling": None}
+    lamella.task_history.append(TaskState(name="Setup", status=TaskStatus.Completed))
     lamella.task_history.append(
-        AutoLamellaTaskState(name="Setup", status=AutoLamellaTaskStatus.Completed)
-    )
-    lamella.task_history.append(
-        AutoLamellaTaskState(name="Mill Fiducial", status=AutoLamellaTaskStatus.Failed)
+        TaskState(name="Mill Fiducial", status=TaskStatus.Failed)
     )
     editor._selected_lamella = lamella
     editor.listWidget_selected_task.set_tasks(list(lamella.task_config))

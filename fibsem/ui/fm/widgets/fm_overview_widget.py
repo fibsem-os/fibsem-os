@@ -238,7 +238,7 @@ class FMOverviewWidget(QWidget):
     # hands a slot whatever was emitted. Both marshal to `PyQt_PyObject` regardless, so
     # `object` is the honest declaration rather than a looser one.
     _fm_progress_received = pyqtSignal(object)
-    # Same hop for stage moves: `stage_position_changed` is a psygnal, so it fires
+    # Same hop for stage moves: `stage.position.changed` is a psygnal, so it fires
     # on whichever thread moved the stage -- a worker, during an acquisition.
     _stage_moved = pyqtSignal(object)
     # And for something starting or finishing on the FM, which is reported from
@@ -352,7 +352,8 @@ class FMOverviewWidget(QWidget):
         # builds a new wrapper on every access, so psygnal cannot weakref it, cannot
         # match it at disconnect time -- and says nothing when the disconnect therefore
         # removes nothing. Emitting into a widget Qt had already torn down was a segfault.
-        self.microscope.stage_position_changed.connect(self._on_stage_signal)
+        if self.microscope.stage is not None:
+            self.microscope.stage.position.changed.connect(self._on_stage_signal)
         self._fm_acquiring_changed.connect(self._on_fm_acquiring_changed)
         self.fm.acquiring_changed.connect(self._on_fm_acquiring_signal)
         # Marshalled by `@ensure_main_thread` on the slot rather than by relaying
@@ -366,8 +367,12 @@ class FMOverviewWidget(QWidget):
         # rather than re-read, so nothing else would notice it moved (FIB-521).
         self.fm.transform_changed.connect(self._on_transform_changed)
         # Same contract again. The holder's slots are drawn from its calibration, and
-        # a stage move no longer redraws them, so a recalibration has to say so.
-        self.microscope.holder_changed.connect(self._on_holder_changed)
+        # a stage move no longer redraws them, so a recalibration has to say so. On
+        # the sample handling service, which a microscope with no stage doesn't have.
+        if self.microscope.sample_handling is not None:
+            self.microscope.sample_handling.holder_changed.connect(
+                self._on_holder_changed
+            )
         self._refresh_current_position()
         self._refresh_objective_info()
         self._refresh_orientation_banner()
@@ -1735,8 +1740,8 @@ class FMOverviewWidget(QWidget):
     def _current_stage_position(self) -> Optional[FibsemStagePosition]:
         """Where the stage is, polling the microscope only when nothing has said yet.
 
-        `stage_position_changed` fires from *inside* `get_stage_position`, so it means
-        "a poll found it had moved" rather than "the stage moved". Polling here on
+        `stage.position.changed` fires from a read or a move of the stage device, so
+        it means "a read found it had moved" rather than "the stage moved". Polling on
         every use would therefore add a round trip per keystroke on a spin box without
         making the answer any fresher than the last poll anyone did -- so this reads
         what the signal delivered, and everything drawn from the stage position stays
@@ -1895,7 +1900,7 @@ class FMOverviewWidget(QWidget):
             logging.info(f"Moved to the {device} device")
         except Exception as e:
             logging.error(f"Failed to move to the {device} device: {e}")
-        # Not followed by a refresh: the move raises `stage_position_changed`, which
+        # Not followed by a refresh: the move raises `stage.position.changed`, which
         # arrives at `_on_stage_moved` and re-derives everything the pose feeds.
 
     def _where_the_stage_is(self) -> str:
@@ -2287,7 +2292,7 @@ class FMOverviewWidget(QWidget):
             # part-way has still left the stage somewhere, and the marker should say
             # where rather than where it set off from.
             #
-            # Publishes the new position through `stage_position_changed`, which is what
+            # Publishes the new position through `stage.position.changed`, which is what
             # re-marks it -- rather than assuming the stage arrived exactly where it was
             # asked to, which on a real instrument it does not.
             try:
@@ -3066,18 +3071,27 @@ class FMOverviewWidget(QWidget):
         # anywhere else in the application was a hard segfault, not an exception.
         subscriptions = [
             (self.fm.acquisition_progress_signal, self._on_fm_progress),
-            (self.microscope.stage_position_changed, self._on_stage_signal),
             (self.fm.objective.position_changed, self._on_objective_moved),
             # Subscribed since FIB-441 and never in this list, though the comment above
             # has always claimed "without exception".
             (self.fm.acquiring_changed, self._on_fm_acquiring_signal),
             (self.fm.transform_changed, self._on_transform_changed),
-            (self.microscope.holder_changed, self._on_holder_changed),
         ]
+        if self.microscope.sample_handling is not None:
+            subscriptions.append(
+                (
+                    self.microscope.sample_handling.holder_changed,
+                    self._on_holder_changed,
+                )
+            )
         # Subscribed since FIB-725, on the imaging service when there is one.
         if self.microscope.imaging is not None:
             subscriptions.append(
                 (self.microscope.imaging.tiled_progress, self._on_tile_progress)
+            )
+        if self.microscope.stage is not None:
+            subscriptions.append(
+                (self.microscope.stage.position.changed, self._on_stage_signal)
             )
         for signal, slot in subscriptions:
             try:

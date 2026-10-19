@@ -17,9 +17,7 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskState,
     Experiment,
-    GridRecord,
 )
 from fibsem.applications.autolamella.ui.screen_grids_dialog import (
     NOT_SCANNED,
@@ -34,6 +32,8 @@ from fibsem.services.sample_handling import (
     bind_sample_handling,
 )
 from fibsem.structures import FibsemStagePosition
+from fibsem.workflows.grids import GridRecord
+from fibsem.workflows.status import TaskState
 from tests.fixtures.demo_stage import demo_grid_loader
 
 
@@ -212,7 +212,7 @@ def test_the_review_says_how_the_run_ends(qapp, arctis, experiment):
 
 def test_a_grid_that_has_run_keeps_its_name(qapp, arctis, experiment):
     ran = experiment.add_grid(GridRecord(name="Grid-01"))
-    ran.task_history.append(AutoLamellaTaskState(name="overview_sem"))
+    ran.task_history.append(TaskState(name="overview_sem"))
     dialog = _dialog(arctis, experiment)
     row = dialog._rows["Slot-01"]
     assert row.field.isReadOnly()
@@ -284,16 +284,16 @@ def test_screen_all_grids_from_the_window_runs_on_the_named_grids(
     The tasks themselves are stood in for: this is about the wiring."""
     from PyQt5.QtTest import QTest
 
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
     from fibsem.applications.autolamella.ui import AutoLamellaUI as ui_module
-    from fibsem.applications.autolamella.workflows.tasks.grid import (
+    from fibsem.workflows.grid import (
         BeamOverviewGridTaskConfig,
     )
-    from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+    from fibsem.workflows.grid.manager import (
         LOAD_ENTRY_NAME,
         GridTaskManager,
     )
+    from fibsem.workflows.status import TaskStatus
 
     class _NoDialog:
         def __init__(self, *args, **kwargs):
@@ -308,8 +308,8 @@ def test_screen_all_grids_from_the_window_runs_on_the_named_grids(
     def _run_single_task(self, task_name, grid):
         ran.append((grid.name, task_name))
         grid.task_state.name = task_name
-        grid.task_state.status = AutoLamellaTaskStatus.Completed
-        grid.task_history.append(AutoLamellaTaskState(name=task_name))
+        grid.task_state.status = TaskStatus.Completed
+        grid.task_history.append(TaskState(name=task_name))
         return None
 
     monkeypatch.setattr(GridTaskManager, "_run_single_task", _run_single_task)
@@ -357,8 +357,8 @@ def test_screen_all_grids_from_the_window_runs_on_the_named_grids(
         window.workflow_left_tabs.setCurrentWidget(window.grid_workflow_widget)
 
         window._on_screen_all_grids()
-        assert ui.is_workflow_running
-        _wait(lambda: not ui.is_workflow_running, 90.0)
+        assert ui.session.runner.is_running
+        _wait(lambda: not ui.session.runner.is_running, 90.0)
         QTest.qWait(200)  # let the finished signal land
 
         assert ran == [
@@ -385,10 +385,10 @@ def test_the_quote_is_for_the_grids_the_scan_found(qapp, unscanned, experiment):
     and the exchanges they need, not the grids known before it."""
     from datetime import datetime
 
-    from fibsem.applications.autolamella.workflows.tasks.grid import (
+    from fibsem.workflows.grid import (
         BeamOverviewGridTaskConfig,
     )
-    from fibsem.applications.autolamella.workflows.workflow_estimate import (
+    from fibsem.workflows.grid.estimate import (
         estimate_grid_run,
     )
 

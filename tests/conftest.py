@@ -128,6 +128,17 @@ def _isolate_session_state(tmp_path_factory, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_plain_experiments(tmp_path_factory, monkeypatch):
+    """A session's plain experiment (made when the agent is first let act with
+    no experiment open) goes to a per-test directory, not the log folder."""
+    import fibsem.workflows.session as session
+
+    monkeypatch.setattr(
+        session, "SESSIONS_PATH", str(tmp_path_factory.mktemp("sessions"))
+    )
+
+
+@pytest.fixture(autouse=True)
 def _isolate_cwd(tmp_path, monkeypatch):
     """Run every test from its own tmp dir.
 
@@ -143,26 +154,10 @@ def _isolate_cwd(tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _refuse_downloads(monkeypatch):
-    """Refuse ``urllib.request.urlretrieve`` in every test.
-
-    It is here for the refractive-index lookup table. When
-    ``fibsem/correlation/data/table_refractive_index_lookup.csv`` is absent (as in
-    every fresh checkout and CI runner), ``_ensure_lut`` downloads it -- 9 MB from
-    the GitHub data release -- and building a ``RefractiveIndexWidget`` reaches it
-    twice: directly, and through ``_default_factor`` -> ``lookup_zeta`` ->
-    ``SliceScalingFactorLUT``. The per-file ``monkeypatch.setattr(riw, "_ensure_lut",
-    ...)`` in tests/correlation/ only covers the first, and tests/ui/ builds
-    ``CorrelationTabWidget`` without either, so the suite fetched the table partway
-    through a run and a test that checks for it at run time passed or skipped
-    depending on what ran before it.
-
-    The guard sits on ``urlretrieve`` rather than on ``_ensure_lut`` because the widget
-    module binds ``_ensure_lut`` by name at import, so patching the defining module
-    would miss it, and importing that module here would pull pandas and scipy into
-    every session. ``_ensure_lut`` looks ``urlretrieve`` up at call time, so this
-    catches every path to it, and the widget already treats a failed download as "no
-    table": tests see what an offline machine sees, and the LUT-gated tests skip
-    whenever the file is absent.
+    """Refuse ``urllib.request.urlretrieve`` in every test: a test that fetches
+    a file passes or fails with the network, and an offline microscope PC is the
+    case that matters. (The refractive-index table used to be downloaded on first
+    use; it ships in the package now.)
     """
     import urllib.request
 

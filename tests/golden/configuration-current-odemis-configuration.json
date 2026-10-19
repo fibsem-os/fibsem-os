@@ -1,0 +1,112 @@
+{
+  "calibration": {
+    "active_holder": "",
+    "holders": {},
+    "objective": {
+      "focus_position": null,
+      "limit_position": null
+    },
+    "shuttle_pre_tilt": 35.0
+  },
+  "defaults": {
+    "apply_on_connect": false,
+    "beams_on_at_connect": false,
+    "electron": {
+      "current": 5e-11,
+      "detector_mode": "SecondaryElectrons",
+      "detector_type": "ETD",
+      "dwell_time": 1e-06,
+      "hfw": 0.00015,
+      "preset": null,
+      "resolution": [
+        1536,
+        1024
+      ],
+      "scan_rotation": 0.0,
+      "voltage": 2000.0
+    },
+    "imaging": {
+      "autocontrast": true,
+      "beam_type": "ELECTRON",
+      "drift_correction": false,
+      "dwell_time": 1e-06,
+      "frame_integration": null,
+      "hfw": 0.00015,
+      "line_integration": null,
+      "resolution": [
+        1536,
+        1024
+      ],
+      "save": false,
+      "scan_interlacing": null
+    },
+    "ion": {
+      "current": 2e-11,
+      "detector_mode": "SecondaryElectrons",
+      "detector_type": "ETD",
+      "dwell_time": 1e-06,
+      "hfw": 0.00015,
+      "preset": null,
+      "resolution": [
+        1536,
+        1024
+      ],
+      "scan_rotation": 0.0,
+      "voltage": 30000.0
+    }
+  },
+  "hardware": {
+    "devices": [
+      {
+        "enabled": true,
+        "milling_angle": 15.0,
+        "name": "stage",
+        "rotation": true,
+        "rotation_reference": 0,
+        "type": "stage"
+      },
+      {
+        "column_tilt": 0,
+        "enabled": true,
+        "eucentric_height": 0.007,
+        "name": "electron",
+        "type": "beam"
+      },
+      {
+        "column_tilt": 52,
+        "enabled": true,
+        "eucentric_height": 0.0165,
+        "name": "ion",
+        "plasma_gas": null,
+        "type": "beam"
+      },
+      {
+        "address": null,
+        "driver": null,
+        "enabled": null,
+        "name": "fm",
+        "port": null,
+        "required": null,
+        "type": "fm"
+      }
+    ]
+  },
+  "info": {
+    "application": null,
+    "fibsem_revision": "pinned-revision",
+    "fibsem_version": "0.6.0.dev0",
+    "hardware_version": "Unknown",
+    "ip_address": "192.168.0.1",
+    "manufacturer": "Odemis",
+    "model": "Unknown",
+    "name": "odemis-microscope-configuration",
+    "port": null,
+    "serial_number": "Unknown",
+    "software_version": "Unknown"
+  },
+  "protocol": {
+    "name": "demo"
+  },
+  "sim": {},
+  "version": 2
+}

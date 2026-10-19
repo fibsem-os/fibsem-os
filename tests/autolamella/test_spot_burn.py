@@ -13,7 +13,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from fibsem.applications.autolamella.structures import Attention
 from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
     SpotBurnFiducialTaskConfig,
 )
@@ -25,6 +24,7 @@ from fibsem.imaging.spot import (
 )
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, Point
+from fibsem.workflows.attention import Attention
 
 # The widget-dispatch tests need the UI stack (PyQt5/superqt, the [ui] extra), which
 # isn't installed in the core CI env (`pip install .`). napari is not part of it: it
@@ -214,9 +214,7 @@ def _make_headless_spot_burn_task(coordinates, tmp_path):
     config = SpotBurnFiducialTaskConfig(
         task_name="Spot Burn Fiducial", coordinates=coordinates
     )
-    return SpotBurnFiducialTask(
-        microscope=MagicMock(), config=config, lamella=lamella, parent_ui=None
-    )
+    return SpotBurnFiducialTask(microscope=MagicMock(), config=config, lamella=lamella)
 
 
 def test_update_spot_burn_ui_skips_when_no_coordinates(monkeypatch, tmp_path):
@@ -235,21 +233,68 @@ def test_update_spot_burn_ui_skips_when_no_coordinates(monkeypatch, tmp_path):
 
 
 def test_update_spot_burn_ui_runs_stored_coordinates_headless(monkeypatch, tmp_path):
-    """Unsupervised/headless with coordinates burns them directly."""
+    """Unsupervised with coordinates burns them once, each pass on the record
+    unreviewed: run, then accept."""
+    import os
+
+    from psygnal.containers import EventedDict
+
     import fibsem.applications.autolamella.workflows.tasks.spot_burn as sb_mod
+    import fibsem.config as cfg
+    from fibsem import utils
+    from fibsem.applications.autolamella.structures import (
+        AutoLamellaTaskDescription,
+        AutoLamellaTaskProtocol,
+        AutoLamellaWorkflowConfig,
+        Experiment,
+    )
+    from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
+    from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
+        SpotBurnFiducialTask,
+    )
+    from fibsem.workflows.proposals import SPOT_BURN, DecisionOutcome
 
     calls = []
     monkeypatch.setattr(sb_mod, "run_spot_burn", lambda **kw: calls.append(kw))
 
+    name = "Spot Burn Fiducial"
     coords = [Point(0.5, 0.5), Point(0.6, 0.6)]
-    task = _make_headless_spot_burn_task(coords, tmp_path)
-    task.update_spot_burn_parameters_ui()
+    microscope, _ = utils.setup_session(
+        manufacturer="Demo",
+        config_path=os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml"),
+    )
+    try:
+        exp = Experiment(path=tmp_path, name="spot-exp")
+        exp.task_protocol = AutoLamellaTaskProtocol(
+            workflow_config=AutoLamellaWorkflowConfig(
+                tasks=[AutoLamellaTaskDescription(name=name, required=True)]
+            )
+        )
+        os.makedirs(exp.path, exist_ok=True)
+        config = SpotBurnFiducialTaskConfig(task_name=name, coordinates=coords)
+        exp.add_new_lamella(
+            microscope.get_microscope_state(), EventedDict({name: config})
+        )
+        lamella = exp.positions[0]
+        lamella.path.mkdir(parents=True, exist_ok=True)
+        task = SpotBurnFiducialTask(
+            microscope=microscope,
+            config=lamella.task_config[name],
+            lamella=lamella,
+            task_manager=TaskManager(microscope=microscope, experiment=exp),
+        )
+        task.update_spot_burn_parameters_ui()
+    finally:
+        microscope.disconnect()
 
     assert len(calls) == 1
     settings = calls[0]["settings"]
     assert settings.coordinates == coords
     assert settings.milling_current == task.config.milling_current
     assert settings.exposure_time == task.config.exposure_time
+    passes = [p for p in lamella.proposals if p.kind == SPOT_BURN]
+    assert [p.current.action for p in passes] == ["run", "accept"]
+    assert {p.current.outcome for p in passes} == {DecisionOutcome.Unreviewed}
 
 
 # The supervised loop is covered with real widgets in

@@ -24,6 +24,7 @@ pytest.importorskip("PyQt5")
 
 from fibsem.correlation.structures import CorrelationInputData
 from fibsem.fm.structures import (
+    EmissionFilter,
     FluorescenceChannelMetadata,
     FluorescenceImage,
     FluorescenceImageMetadata,
@@ -35,13 +36,6 @@ from fibsem.structures import FibsemImage, ImageSettings
 FIB_PATH = "/lam/01-grand-dodo/ref_Mill Fiducial_start.tif"
 FIB_REQUESTED_NAME = "ref_Mill Fiducial_start"
 FM_PATH = "/lam/01-grand-dodo/fm_stack.ome.tiff"
-
-
-@pytest.fixture(autouse=True)
-def _no_lut_download(monkeypatch):
-    import fibsem.ui.correlation.widgets.refractive_index_widget as riw
-
-    monkeypatch.setattr(riw, "_ensure_lut", lambda: None)
 
 
 def _fib_image(filepath=FIB_PATH, requested_name=FIB_REQUESTED_NAME):
@@ -68,7 +62,7 @@ def _fm_image(filepath=FM_PATH, requested_name="fm_stack_as_acquired"):
                 name="GFP",
                 color="#00FF00",
                 excitation_wavelength=488,
-                emission_wavelength=509,
+                emission_filter=EmissionFilter("509 nm", low=509),
                 power=1.0,
                 exposure_time=0.1,
                 gain=1.0,
@@ -95,14 +89,14 @@ def test_a_runs_image_names_survive_being_read_and_written_again():
     from fibsem.correlation.structures import CorrelationInputData
 
     written = CorrelationInputData().to_dict()
-    written["fib_image_filename"] = "ref_Spot Burn Fiducial_final_res_02_ib.tif"
-    written["fm_image_filename"] = "02-pro-moose-zstack-20-51-25.ome.tiff"
+    written["stored_fib_image_filename"] = "ref_Spot Burn Fiducial_final_res_02_ib.tif"
+    written["stored_fm_image_filename"] = "02-pro-moose-zstack-20-51-25.ome.tiff"
 
     reread = CorrelationInputData.from_dict(written)
     assert reread.fib_image_filename == "ref_Spot Burn Fiducial_final_res_02_ib.tif"
     assert reread.fm_image_filename == "02-pro-moose-zstack-20-51-25.ome.tiff"
-    assert reread.to_dict()["fib_image_filename"] == written["fib_image_filename"]
-    assert reread.to_dict()["fm_image_filename"] == written["fm_image_filename"]
+    for key in ("stored_fib_image_filename", "stored_fm_image_filename"):
+        assert reread.to_dict()[key] == written[key]
 
 
 def test_a_loaded_image_outranks_the_name_the_file_recorded():
@@ -262,8 +256,8 @@ def test_the_record_names_the_file_it_correlated(qapp):
 
     assert data.fib_image_filename == "ref_Mill Fiducial_start.tif"
     assert data.fm_image_filename == "fm_stack.ome.tiff"
-    assert data.to_dict()["fib_image_filename"] == "ref_Mill Fiducial_start.tif"
-    assert data.to_dict()["fm_image_filename"] == "fm_stack.ome.tiff"
+    assert data.to_dict()["stored_fib_image_filename"] == "ref_Mill Fiducial_start.tif"
+    assert data.to_dict()["stored_fm_image_filename"] == "fm_stack.ome.tiff"
 
 
 def test_a_plain_tiff_is_still_named(qapp):
@@ -280,7 +274,7 @@ def test_a_plain_tiff_is_still_named(qapp):
 
     data = CorrelationInputData(fib_image=image)
 
-    assert data.to_dict()["fib_image_filename"] == "from_another_program.tif"
+    assert data.to_dict()["stored_fib_image_filename"] == "from_another_program.tif"
 
 
 # ---------------------------------------------------------------------------
@@ -295,7 +289,7 @@ def test_an_interpolated_volume_is_still_that_files_volume(qapp):
     name at all -- worse than before, since the metadata copy used to carry the
     acquisition name forward. The resampled volume is still the source file's.
     """
-    from fibsem.correlation.util import interpolate_fm_volume
+    from fibsem.fm.interpolation import interpolate_fm_volume
 
     source = _fm_image()
     source.metadata.pixel_size_z = 5e-7
@@ -325,7 +319,7 @@ def test_no_image_and_no_file_stay_none(qapp):
     assert CorrelationInputData().fm_image_filename is None
     assert (
         CorrelationInputData(fib_image=_fib_image(filepath=None)).to_dict()[
-            "fib_image_filename"
+            "stored_fib_image_filename"
         ]
         is None
     )

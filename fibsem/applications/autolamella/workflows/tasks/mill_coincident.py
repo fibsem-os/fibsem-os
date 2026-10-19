@@ -37,7 +37,7 @@ from fibsem.applications.autolamella.workflows.tasks.setup_coincidence_milling i
     SetupCoincidenceMillingTaskConfig,
 )
 from fibsem.fm.acquisition import acquire_image
-from fibsem.fm.structures import ChannelSettings
+from fibsem.fm.structures import ChannelSettings, EmissionFilter
 from fibsem.milling.base import FibsemMillingSettings
 from fibsem.milling.patterning.patterns import RectanglePattern
 from fibsem.milling.strategy.coincidence import (
@@ -51,6 +51,7 @@ from fibsem.structures import (
     InsertableDeviceState,
     param,
 )
+from fibsem.workflows.proposals import MILLING
 
 MILL_COINCIDENT_KEY = "mill_coincident"
 DEFAULT_SETUP_TASK_NAME = "Setup Coincidence Milling"
@@ -70,7 +71,7 @@ DEFAULT_MILLING_CONFIG[MILL_COINCIDENT_KEY] = FibsemMillingTaskConfig(
                 height=20e-6,
                 cross_section=CrossSectionPattern.CleaningCrossSection,
             ),
-            strategy=CoincidenceMillingStrategy(),
+            strategy=CoincidenceMillingStrategyConfig(),
         )
     ],
 )
@@ -103,7 +104,7 @@ class MillCoincidentTaskConfig(AutoLamellaTaskConfig):
         default_factory=lambda: ChannelSettings(
             name="Monitoring",
             excitation_wavelength=550,
-            emission_wavelength="Fluorescence",
+            emission_filter=EmissionFilter("Fluorescence", multi_band=True),
             power=0.1,
             exposure_time=0.1,
         ),
@@ -151,7 +152,7 @@ class MillCoincidentTaskConfig(AutoLamellaTaskConfig):
 class MillCoincidentTask(AutoLamellaTask):
     """Mill the coincident trench for a lamella, stopping on the intensity drop."""
 
-    sessions = ("coincidence milling",)
+    questions = (MILLING,)
 
     config: MillCoincidentTaskConfig
     config_cls: ClassVar[Type[MillCoincidentTaskConfig]] = MillCoincidentTaskConfig
@@ -269,11 +270,9 @@ class MillCoincidentTask(AutoLamellaTask):
         supervised = self.validate
         for stage in milling_task_config.enabled_stages:
             stage.pattern.point = deepcopy(setup.pattern_offset)
-            if not isinstance(stage.strategy, CoincidenceMillingStrategy):
-                stage.strategy = CoincidenceMillingStrategy(
-                    config=CoincidenceMillingStrategyConfig()
-                )
-            strategy_config = stage.strategy.config
+            if not isinstance(stage.strategy, CoincidenceMillingStrategyConfig):
+                stage.strategy = CoincidenceMillingStrategyConfig()
+            strategy_config = stage.strategy
             strategy_config.bbox = deepcopy(setup.fm_roi)
             strategy_config.intensity_drop_fraction = setup.intensity_drop_fraction
             # unsupervised: the drop stops the beam; supervised: it alerts, the
@@ -291,7 +290,7 @@ class MillCoincidentTask(AutoLamellaTask):
         """Say why each coincidence stage ended, so a batch reads without the folders."""
         reasons = []
         for stage in milling_task_config.enabled_stages:
-            strategy = stage.strategy
+            strategy = stage.get_strategy()
             if isinstance(strategy, CoincidenceMillingStrategy):
                 reasons.append(f"{stage.name}: {strategy.end_reason or 'unknown'}")
         if reasons:

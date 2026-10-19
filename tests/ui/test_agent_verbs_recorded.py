@@ -24,23 +24,24 @@ from fastapi.testclient import TestClient  # noqa: E402
 from psygnal.containers import EventedDict  # noqa: E402
 
 from fibsem.acting import OPERATOR, current_actor  # noqa: E402
-from fibsem.applications.autolamella.event_recording import (  # noqa: E402
-    EventRecorder,
-)
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     Experiment,
-    GridRecord,
 )
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI  # noqa: E402
-from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (  # noqa: E402
-    BeamOverviewGridTaskConfig,
-)
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.structures import MicroscopeState  # noqa: E402
-from fibsem.ui.qt.threading import FunctionWorker  # noqa: E402
+from fibsem.workflows.event_recording import (  # noqa: E402
+    EventRecorder,
+)
+from fibsem.workflows.grid.imaging import (  # noqa: E402
+    BeamOverviewGridTaskConfig,
+)
+from fibsem.workflows.grids import GridRecord  # noqa: E402
+from fibsem.workflows.runner import GRIDS, ITEMS, RunRequest
+from tests.run_state import hold_runs
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -75,7 +76,6 @@ def ui(qapp, monkeypatch, tmp_path):
     widget.experiment = experiment
 
     yield widget
-    widget._task_worker_thread = None
     widget.experiment = None
     if widget.microscope is not None:
         widget.microscope.disconnect()
@@ -95,7 +95,9 @@ def recorder(ui):
 def _client(ui, recorder):
     app = build_server(
         ui.microscope,
-        app_context=AutoLamellaAppContext(ui, event_buffer=recorder.buffer),
+        app_context=AutoLamellaAppContext(
+            ui.session, window=ui, event_buffer=recorder.buffer
+        ),
         auth=AuthConfig.generate(level="drive", token=TOKEN),
     )
     return TestClient(app, raise_server_exceptions=False)
@@ -130,47 +132,61 @@ def _actors(recorder, kind):
     ]
 
 
-def _run_that_announces_itself(ui, recorder, seen):
-    """A start that does what the real one does first: start the run's worker
-    from the GUI thread, and the worker reports the run started."""
+def _runs_that_announce_themselves(monkeypatch, kind, recorder, seen):
+    """Runs that do what a real one does first: on the run's thread, report
+    that the run started."""
 
-    def start(*_args, **_kwargs):
+    def announce():
         seen.append(current_actor())
-        worker = FunctionWorker(lambda: recorder.buffer.append("workflow_started", {}))
-        worker.start()
-        worker.join(5)
-        ui._task_worker_thread = worker  # not alive: the next start may go
+        recorder.buffer.append("workflow_started", {})
 
-    return start
+    return hold_runs(monkeypatch, kind, on_execute=announce)
 
 
-def test_a_workflow_the_agent_starts_is_the_agent_s(ui, recorder, qapp):
+def _wait_for(seen, timeout_s=5.0):
+    deadline = time.monotonic() + timeout_s
+    while not seen and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+
+def test_a_workflow_the_agent_starts_is_the_agent_s(ui, recorder, qapp, monkeypatch):
     seen = []
-    ui._start_run_workflow_thread = _run_that_announces_itself(ui, recorder, seen)
+    held = _runs_that_announce_themselves(monkeypatch, ITEMS, recorder, seen)
     with _client(ui, recorder) as client:
         started = _post(
             qapp, client, "/app/workflow/start", {"task_names": [TASK_NAME]}
         ).json()
-    assert started["started"] is False  # the stand-in worker has already ended
+    assert started["started"] is True
+    _wait_for(seen)
+    held.end(ui.session.runner)
     assert seen == ["agent"]
     assert _actors(recorder, "workflow_started") == ["agent"]
 
 
-def test_a_grid_run_the_agent_starts_is_the_agent_s(ui, recorder, qapp):
+def test_a_grid_run_the_agent_starts_is_the_agent_s(ui, recorder, qapp, monkeypatch):
     seen = []
-    ui._start_run_grid_workflow_thread = _run_that_announces_itself(ui, recorder, seen)
+    held = _runs_that_announce_themselves(monkeypatch, GRIDS, recorder, seen)
     with _client(ui, recorder) as client:
         _post(
             qapp, client, "/app/workflow/grids/start", {"task_names": ["overview_sem"]}
         )
+    _wait_for(seen)
+    held.end(ui.session.runner)
     assert seen == ["agent"]
     assert _actors(recorder, "workflow_started") == ["agent"]
 
 
-def test_a_workflow_the_operator_starts_is_still_the_operator_s(ui, recorder, qapp):
+def test_a_workflow_the_operator_starts_is_still_the_operator_s(
+    ui, recorder, qapp, monkeypatch
+):
     seen = []
-    ui._start_run_workflow_thread = _run_that_announces_itself(ui, recorder, seen)
-    ui._start_workflow_for_agent([TASK_NAME], None)  # unmarked, as a click is
+    held = _runs_that_announce_themselves(monkeypatch, ITEMS, recorder, seen)
+    # Unmarked, as a click is.
+    ui.session.runner.start(
+        ui.experiment, RunRequest(kind=ITEMS, task_names=(TASK_NAME,))
+    )
+    _wait_for(seen)
+    held.end(ui.session.runner)
     assert seen == [None]
     assert _actors(recorder, "workflow_started") == ["operator"]
 
@@ -178,7 +194,7 @@ def test_a_workflow_the_operator_starts_is_still_the_operator_s(ui, recorder, qa
 def test_the_agent_s_other_recorded_verbs_are_the_agent_s(ui, recorder, qapp):
     with _client(ui, recorder) as client:
         assert _post(
-            qapp, client, "/app/agent/notes", {"text": "fiducial looks clean"}
+            qapp, client, "/app/experiment/notes", {"text": "fiducial looks clean"}
         ).json()["recorded"]
         assert _post(
             qapp,

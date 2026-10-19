@@ -17,10 +17,10 @@ pytest.importorskip("mcp")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from fibsem import utils  # noqa: E402
-from fibsem.mcp.sidecar import build_sidecar  # noqa: E402
+from fibsem.ai.agent.catalog import CATALOG  # noqa: E402
+from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
+from fibsem.ai.agent.mcp.sidecar import build_sidecar  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.auth import AgentLevel  # noqa: E402
-from fibsem.server.catalog import CATALOG  # noqa: E402
 
 TOKEN = "test-token"
 
@@ -51,7 +51,9 @@ def _tool_names(sidecar):
 
 def test_armed_sidecar_registers_the_full_microscope_catalog(armed_sidecar):
     # No app_context on this server, so app tools must not register even armed.
-    expected = {t.name for t in CATALOG if t.router in ("microscope", "base")}
+    expected = {
+        t.name for t in CATALOG if t.router in ("microscope", "base", "services")
+    }
     assert _tool_names(armed_sidecar) == expected
 
 
@@ -101,9 +103,7 @@ def test_hardware_tools_are_offered_at_watch():
     client.headers["Authorization"] = f"Bearer {TOKEN}"
     sidecar = build_sidecar(client, _capabilities(client))
     assert "stage_move_relative" in _tool_names(sidecar)
-    result = asyncio.run(sidecar.call_tool("stage_move_relative", {"dx": 1e-6}))
-    text = "".join(getattr(c, "text", "") for c in _contents(result))
-    assert "level" in text
+    assert "level" in _refused(sidecar, "stage_move_relative", {"dx": 1e-6})
 
 
 def test_each_description_names_the_level_it_needs(armed_sidecar):
@@ -229,14 +229,24 @@ def test_image_tool_returns_image_content(armed_sidecar):
     assert getattr(image, "mime_type", None) == "image/jpeg"
 
 
-def test_hardware_refusal_is_readable_text_not_an_error():
-    # Registered tools + a server at Watch = the server refuses; the agent should
-    # see the structured refusal as text, not a raised exception.
+def _refused(sidecar, tool, arguments):
+    """The text of a tool's refusal, which the sidecar flags an error: the MCP
+    client gets is_error with this text, not a result to read as an answer."""
+    from mcp.server.mcpserver.exceptions import ToolError
+
+    with pytest.raises(ToolError) as refused:
+        asyncio.run(sidecar.call_tool(tool, arguments))
+    return str(refused.value)
+
+
+def test_a_hardware_refusal_is_an_error_with_the_server_s_text():
+    # Registered tools + a server at Watch = the server refuses (403). The agent
+    # gets it flagged an error, with the server's structured refusal as its text.
     read_client = _make_client("watch")
     armed_shape = {"routers": {"microscope": True, "app": False}, "level": "drive"}
     sidecar = build_sidecar(read_client, armed_shape)
-    result = asyncio.run(sidecar.call_tool("stage_move_relative", {"dx": 1e-6}))
-    text = "".join(getattr(c, "text", "") for c in _contents(result))
+    text = _refused(sidecar, "stage_move_relative", {"dx": 1e-6})
+    assert "refused (403): " in text
     assert "level" in text
 
 
@@ -326,7 +336,7 @@ def test_a_command_that_images_answers_the_agent_an_image(armed_sidecar, device)
 
 def test_the_milling_state_is_answered_by_name(armed_sidecar):
     """The tool says IDLE, RUNNING, ...; the wire carries the enum's number."""
-    from fibsem.mcp.sidecar import _MILLING_STATES
+    from fibsem.ai.agent.mcp.sidecar import _MILLING_STATES
     from fibsem.structures import MillingState
 
     assert _MILLING_STATES == tuple(state.name for state in MillingState)
@@ -357,13 +367,11 @@ def test_the_milling_angle_move_keeps_the_current_rotation(armed_sidecar):
 def test_a_tool_taking_a_name_passes_it_on(armed_sidecar):
     """An overview's file name is `name`; it reached the route's arguments
     rather than clashing with the tool's own name (a TypeError every call)."""
-    result = asyncio.run(
-        armed_sidecar.call_tool(
-            "beam_acquire_overview",
-            {"settings": {}, "path": "/tmp/elsewhere", "name": "ov"},
-        )
+    text = _refused(
+        armed_sidecar,
+        "beam_acquire_overview",
+        {"settings": {}, "path": "/tmp/elsewhere", "name": "ov"},
     )
-    text = "".join(getattr(c, "text", "") for c in _contents(result))
     assert "not_allowed" in text  # the server's answer: it got as far as the route
 
 
@@ -419,5 +427,33 @@ def test_an_acting_tool_names_itself_to_the_server():
     calls = [p for kind, p in recorded if kind == "agent_called"]
     assert len(calls) == 1
     assert calls[0]["tool"] == "stage_move_relative"
-    assert calls[0]["action"] == "Stage · Move by x 2 µm"
+    assert calls[0]["action"] == "Stage · Move 2 µm in x"
     assert calls[0]["level"] == "drive" and calls[0]["ok"]
+
+
+def test_a_name_with_a_slash_reaches_its_route_whole():
+    """An item named `Lamella 01/2` is one path parameter: the sidecar
+    percent-encodes it once, in `_route`, so the server sees the whole name
+    and not a longer path. Every app tool with a path parameter goes that way."""
+    import httpx
+
+    seen = []
+
+    def answer(request):
+        seen.append(request.url.raw_path.decode())  # as sent, before decoding
+        return httpx.Response(200, json={"name": "Lamella 01/2"})
+
+    client = httpx.Client(transport=httpx.MockTransport(answer), base_url="http://x")
+    shape = {"routers": {"microscope": True, "app": True}, "level": "drive"}
+    sidecar = build_sidecar(client, shape)
+    asyncio.run(sidecar.call_tool("item_get", {"item_name": "Lamella 01/2"}))
+    asyncio.run(
+        sidecar.call_tool(
+            "item_update",
+            {"item_name": "Lamella 01/2", "patch": {}, "version": "v"},
+        )
+    )
+    assert seen == [
+        "/app/experiment/items/Lamella%2001%2F2",
+        "/app/experiment/items/Lamella%2001%2F2",
+    ]

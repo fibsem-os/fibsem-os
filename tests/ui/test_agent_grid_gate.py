@@ -1,6 +1,6 @@
 """The agent's start and requeue pass the same grid gate as the Run click and Add
 to queue: a lamella whose grid is not on the stage is refused, by name, before
-anything moves (FIB-71). See `workflows/grid_gate.py`."""
+anything moves (FIB-71). See `workflows/runs.py`."""
 
 import os
 
@@ -14,7 +14,6 @@ from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     Experiment,
 )
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI  # noqa: E402
@@ -22,6 +21,9 @@ from fibsem.applications.autolamella.workflows.tasks.manager import (  # noqa: E
     TaskManager,
 )
 from fibsem.structures import MicroscopeState  # noqa: E402
+from fibsem.workflows.runner import ITEMS, RunRequest
+from fibsem.workflows.status import TaskStatus  # noqa: E402
+from tests.run_state import hold_runs, started_with
 
 TASK_NAME = "Mill Fiducial"
 
@@ -60,7 +62,7 @@ def ui(qapp, monkeypatch, tmp_path):
     widget.experiment = experiment
 
     yield widget
-    widget._task_manager = None
+    widget.session.runner.manager = None
     widget.experiment = None
     if widget.microscope is not None:
         widget.microscope.disconnect()
@@ -70,33 +72,42 @@ def ui(qapp, monkeypatch, tmp_path):
 
 
 def test_the_agent_s_start_is_refused_while_the_grid_is_off_the_stage(ui, monkeypatch):
-    started = []
-    monkeypatch.setattr(
-        ui, "_start_run_workflow_thread", lambda *args: started.append(args)
-    )
+    held = hold_runs(monkeypatch, ITEMS)
+
+    def start(names):
+        return ui.session.runner.start(
+            ui.experiment,
+            RunRequest(
+                kind=ITEMS,
+                task_names=(TASK_NAME,),
+                names=tuple(names) if names is not None else None,
+            ),
+        ).as_dict()
+
     assert ui.microscope.sample_handling.loaded_grids == []
 
-    refused = ui._start_workflow_for_agent([TASK_NAME], ["on-two"])
+    refused = start(["on-two"])
     assert refused["started"] is False
     assert "Grid-02" in refused["reason"] and "on-two" in refused["reason"]
-    assert started == []
+    assert started_with(held) == []
 
     # Every item, by omission, is gated the same way.
-    assert ui._start_workflow_for_agent([TASK_NAME], None)["started"] is False
-    assert started == []
+    assert start(None)["started"] is False
+    assert started_with(held) == []
 
     ui.microscope.sample_handling.ensure_loaded("Grid-02")
-    ui._start_workflow_for_agent([TASK_NAME], ["on-two"])
-    assert started == [([TASK_NAME], ["on-two"])]
+    assert start(["on-two"])["started"] is True
+    held.end(ui.session.runner)
+    assert started_with(held) == [([TASK_NAME], ["on-two"])]
 
 
 def test_the_agent_s_requeue_is_refused_while_the_grid_is_off_the_stage(ui):
-    manager = TaskManager(ui.microscope, ui.experiment, parent_ui=None)
+    manager = TaskManager(ui.microscope, ui.experiment)
     manager.queue.build_from_matrix([TASK_NAME], ["on-two"])
     # Run once already, so asking again is a re-run, not a pair still waiting.
-    manager.queue.mark_done(manager.queue.items[0], AutoLamellaTaskStatus.Completed)
-    ui._task_manager = manager
-    ctx = AutoLamellaAppContext(ui)
+    manager.queue.mark_done(manager.queue.items[0], TaskStatus.Completed)
+    ui.session.runner.manager = manager
+    ctx = AutoLamellaAppContext(ui.session, window=ui)
     before = len(manager.queue.items)
 
     refused = ctx.requeue_task("on-two", TASK_NAME)

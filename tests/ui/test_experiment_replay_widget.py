@@ -92,8 +92,8 @@ def _decision_on_a_real_image(tmp_path, kind, proposed, decided):
     import json
 
     from fibsem import utils
-    from fibsem.applications.autolamella.event_recording import EVENTS_FILENAME
     from fibsem.structures import BeamType, ImageSettings
+    from fibsem.workflows.event_recording import EVENTS_FILENAME
 
     # A real acquisition, so the saved file carries its pixel size as a
     # recorded one does (a blank image's metadata does not survive a save).
@@ -128,7 +128,7 @@ def _decision_on_a_real_image(tmp_path, kind, proposed, decided):
                 "decided": decided,
                 "decision": 0,
                 "outcome": "Confirmed",
-                "author": "human:op",
+                "actor": "operator:op",
                 "via": "review",
             },
         },
@@ -228,7 +228,7 @@ def _by_whom(qapp, tmp_path):
     the stream could not attribute."""
     import json
 
-    from fibsem.applications.autolamella.event_recording import EVENTS_FILENAME
+    from fibsem.workflows.event_recording import EVENTS_FILENAME
 
     def record(t, kind, actor, payload):
         return {

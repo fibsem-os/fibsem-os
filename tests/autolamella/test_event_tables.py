@@ -1,7 +1,7 @@
 """The record's tables, read from ``events.jsonl``, which the second version of
 the report is built from (FIB-1036).
 
-The first tests run real tasks through ``run_tasks`` on Demo and read the file
+The first tests run real tasks through the session's runner on Demo and read the file
 the run wrote, so a producer changing the shape of a record the tables read
 fails them. What a headless Demo run cannot produce -- a question someone
 waited on, a failed or cancelled run, a decision that moved something -- is in
@@ -19,16 +19,7 @@ from psygnal.containers import EventedDict
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.applications.autolamella.event_recording import (
-    EVENTS_FILENAME,
-    read_events,
-)
-from fibsem.applications.autolamella.proposals import (
-    ALIGNMENT_AREA,
-    DETECTION,
-    POINT_OF_INTEREST,
-    STATE,
-)
+from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
@@ -47,12 +38,16 @@ from fibsem.applications.autolamella.tools.event_tables import (
     event_tables,
     read_event_tables,
 )
-from fibsem.applications.autolamella.workflows.tasks import manager as manager_module
-from fibsem.applications.autolamella.workflows.tasks.manager import run_tasks
 from fibsem.applications.autolamella.workflows.tasks.rough import MillRoughTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTaskConfig,
 )
+from fibsem.workflows.event_recording import (
+    EVENTS_FILENAME,
+    read_events,
+)
+from fibsem.workflows.proposals import ALIGNMENT_AREA, DETECTION, STATE
+from tests.run_state import run_lamellae
 
 SETUP = "Setup Lamella Position"
 ROUGH = "Rough Milling"
@@ -99,7 +94,7 @@ def experiment(microscope, tmp_path):
 
 
 def test_a_run_s_tasks_steps_and_milling_are_read(microscope, experiment):
-    run_tasks(microscope, experiment, [SETUP, ROUGH])
+    run_lamellae(microscope, experiment, [SETUP, ROUGH])
 
     tables = read_event_tables(experiment.path)
 
@@ -135,7 +130,24 @@ def test_a_run_s_tasks_steps_and_milling_are_read(microscope, experiment):
     assert list(milling["depth"]) == [stage.pattern.depth for stage in planned]
     assert set(milling["task_id"]) == set(runs[runs["task"] == ROUGH]["task_id"])
 
-    assert tables.decisions.empty
+    # Setup's two state questions, its point of interest and its alignment
+    # area, then its result; Rough Milling's two passes (run, then accept),
+    # then its result. On the record unasked: nobody decided, and each result
+    # was used as proposed when its run ended.
+    decisions = tables.decisions
+    assert list(decisions["kind"]) == [
+        "state",
+        "state",
+        "point_of_interest",
+        "alignment_area",
+        "task_result",
+        "milling",
+        "milling",
+        "task_result",
+    ]
+    assert list(decisions["task"]) == [SETUP] * 5 + [ROUGH] * 3
+    assert list(decisions["action"])[5:7] == ["run", "accept"]
+    assert set(decisions["outcome"]) == {"Unreviewed"}
 
     # every record counted once, and a run's steps are the task's
     actors = tables.actors
@@ -146,14 +158,10 @@ def test_a_run_s_tasks_steps_and_milling_are_read(microscope, experiment):
     assert steps["count"].iloc[0] == len(tables.steps)
 
 
-def test_decisions_nobody_was_asked_are_read_as_the_task_s(
-    microscope, experiment, monkeypatch
-):
-    """With review on and no window to ask in, Setup's questions go straight
-    on the record as Unreviewed: nobody waited, and nothing moved."""
-    monkeypatch.setattr(manager_module, "review_enabled", lambda: True)
-
-    run_tasks(microscope, experiment, [SETUP])
+def test_decisions_nobody_was_asked_are_read_as_the_task_s(microscope, experiment):
+    """With no window to ask in, Setup's questions go straight on the record
+    as Unreviewed: nobody waited, and nothing moved."""
+    run_lamellae(microscope, experiment, [SETUP])
 
     decisions = read_event_tables(experiment.path).decisions
     assert len(decisions) > 0
@@ -240,7 +248,7 @@ def test_waiting_for_an_answer_is_not_the_machine_s_time():
         _record(
             "prompt_answered",
             50,
-            {"type": "RunMillingTask", "question_id": 3, "answered_by": "operator"},
+            {"type": "RunMillingTask", "question_id": 3},
             actor="operator",
         ),
         _step(60, "ACQUIRE_REFERENCE_IMAGES"),
@@ -371,7 +379,7 @@ def _decided(second, kind, proposed, decided, proposal_id="p1", index=0, **field
         "proposed": proposed,
         "decided": decided,
         "outcome": "Confirmed",
-        "author": "human:op",
+        "actor": "operator:op",
         "via": "review",
         **fields,
     }
@@ -486,7 +494,7 @@ def test_a_second_look_did_not_wait():
 
 
 def test_read_from_the_file_or_its_folder(microscope, experiment):
-    run_tasks(microscope, experiment, [SETUP])
+    run_lamellae(microscope, experiment, [SETUP])
     folder = Path(experiment.path)
 
     by_folder = read_event_tables(folder).runs

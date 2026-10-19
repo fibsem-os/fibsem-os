@@ -6,7 +6,7 @@ fastapi = pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 pytest.importorskip("mcp")
 
-from fibsem.mcp import sidecar  # noqa: E402
+from fibsem.ai.agent.mcp import sidecar  # noqa: E402
 
 
 class _FakeResponse:

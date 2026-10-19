@@ -59,15 +59,10 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskStatus,
     Experiment,
-    GridRecord,
     Lamella,
 )
 from fibsem.applications.autolamella.ui.grid_results_widget import image_for
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-    LOAD_ENTRY_NAME,
-)
 from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.geometry.projection import BeamStageProjection
@@ -86,6 +81,11 @@ from fibsem.ui.widgets.stored_overview_canvas import (
     _view_of_beam_image,
 )
 from fibsem.util.timestamps import format_time, from_posix
+from fibsem.workflows.grid.manager import (
+    LOAD_ENTRY_NAME,
+)
+from fibsem.workflows.grids import GridRecord
+from fibsem.workflows.status import TaskStatus
 
 logger = logging.getLogger(__name__)
 
@@ -374,7 +374,7 @@ class QuadOverviewPage(QWidget):
             for state in grid.task_history:
                 if (
                     state.name == LOAD_ENTRY_NAME
-                    or state.status is not AutoLamellaTaskStatus.Completed
+                    or state.status is not TaskStatus.Completed
                 ):
                     continue
                 path = image_for(experiment, grid, state)

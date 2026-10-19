@@ -22,16 +22,10 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
 )
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.structures import MicroscopeState  # noqa: E402
+from tests.run_state import stub_session
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
-
-
-class Host:
-    experiment = None
-    microscope = None
-    _task_manager = None
-    is_workflow_running = False
 
 
 @pytest.fixture(scope="module")
@@ -43,7 +37,7 @@ def microscope():
 
 @pytest.fixture
 def host(tmp_path, microscope):
-    host = Host()
+    host = stub_session()
     exp = Experiment(path=tmp_path / "exp", name="router-exp")
     exp.task_protocol = AutoLamellaTaskProtocol()
     (tmp_path / "exp").mkdir(parents=True, exist_ok=True)
@@ -55,7 +49,7 @@ def host(tmp_path, microscope):
 
 @pytest.fixture
 def event_buffer():
-    from fibsem.applications.autolamella.server.events import EventBuffer
+    from fibsem.workflows.events import EventBuffer
 
     return EventBuffer()
 
@@ -73,7 +67,7 @@ def client(microscope, host, event_buffer):
 
 def test_capabilities_reports_the_app_router(client):
     body = client.get("/capabilities", headers=AUTH).json()
-    assert body["routers"] == {"microscope": True, "app": True}
+    assert body["routers"] == {"microscope": True, "services": True, "app": True}
 
 
 def test_without_app_context_the_routes_do_not_exist(microscope):
@@ -108,7 +102,7 @@ def test_output_images_serve_jpeg_and_refuse_unknown_names(client, host):
     import numpy as np
     import tifffile
 
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+    from fibsem.workflows.status import TaskState
 
     lamella = host.experiment.positions[0]
     os.makedirs(lamella.path, exist_ok=True)
@@ -118,7 +112,7 @@ def test_output_images_serve_jpeg_and_refuse_unknown_names(client, host):
         (np.random.rand(64, 96) * 65535).astype(np.uint16),
     )
     lamella.task_history.append(
-        AutoLamellaTaskState(name="Rough Milling", outputs={"final_fib": [fname]})
+        TaskState(name="Rough Milling", outputs={"final_fib": [fname]})
     )
 
     served = client.get(
@@ -146,10 +140,7 @@ def test_every_listed_output_is_served_and_only_completed_runs_count(client, hos
     import numpy as np
     import tifffile
 
-    from fibsem.applications.autolamella.structures import (
-        AutoLamellaTaskState,
-        AutoLamellaTaskStatus,
-    )
+    from fibsem.workflows.status import TaskState, TaskStatus
 
     lamella = host.experiment.positions[0]
     os.makedirs(lamella.path, exist_ok=True)
@@ -159,14 +150,14 @@ def test_every_listed_output_is_served_and_only_completed_runs_count(client, hos
         (np.random.rand(64, 96) * 65535).astype(np.uint16),
     )
     lamella.task_history.append(
-        AutoLamellaTaskState(
+        TaskState(
             name="Rough Milling",
-            status=AutoLamellaTaskStatus.Completed,
+            status=TaskStatus.Completed,
             outputs={"start_fib": [start]},
         )
     )
     lamella.task_history.append(
-        AutoLamellaTaskState(name="Polishing", status=AutoLamellaTaskStatus.Cancelled)
+        TaskState(name="Polishing", status=TaskStatus.Cancelled)
     )
 
     listed = client.get(
@@ -188,18 +179,14 @@ def test_every_listed_output_is_served_and_only_completed_runs_count(client, hos
 def test_task_history_is_in_time_order(client, host):
     from datetime import datetime, timedelta
 
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+    from fibsem.workflows.status import TaskState
 
     host.experiment.add_new_lamella(MicroscopeState(), EventedDict())
     first, second = host.experiment.positions[:2]
     t0 = datetime(2026, 10, 12, 9).timestamp()
     # The second item ran first: listing by item would put it last.
-    first.task_history.append(
-        AutoLamellaTaskState(name="Polishing", start_timestamp=t0 + 60)
-    )
-    second.task_history.append(
-        AutoLamellaTaskState(name="Rough Milling", start_timestamp=t0)
-    )
+    first.task_history.append(TaskState(name="Polishing", start_timestamp=t0 + 60))
+    second.task_history.append(TaskState(name="Rough Milling", start_timestamp=t0))
 
     items = client.get("/app/experiment/task_history", headers=AUTH).json()["items"]
     assert [i["task_name"] for i in items] == ["Rough Milling", "Polishing"]
@@ -212,8 +199,8 @@ def test_sidecar_returns_a_saved_output_as_image_content(client, host):
     import numpy as np
     import tifffile
 
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
-    from fibsem.mcp.sidecar import build_sidecar
+    from fibsem.ai.agent.mcp.sidecar import build_sidecar
+    from fibsem.workflows.status import TaskState
 
     lamella = host.experiment.positions[0]
     os.makedirs(lamella.path, exist_ok=True)
@@ -223,7 +210,7 @@ def test_sidecar_returns_a_saved_output_as_image_content(client, host):
         (np.random.rand(64, 96) * 65535).astype(np.uint16),
     )
     lamella.task_history.append(
-        AutoLamellaTaskState(name="Rough Milling", outputs={"final_fib": [fname]})
+        TaskState(name="Rough Milling", outputs={"final_fib": [fname]})
     )
 
     client.headers["Authorization"] = f"Bearer {TOKEN}"
@@ -245,9 +232,13 @@ def test_sidecar_returns_a_saved_output_as_image_content(client, host):
     assert image.mime_type == "image/jpeg"
     assert fname in "".join(getattr(c, "text", "") for c in contents)
 
-    refused = "".join(getattr(c, "text", "") for c in call("nope.tif"))
-    assert "refused (404)" in refused
-    assert fname in refused  # the valid names come back with the refusal
+    from mcp.server.mcpserver.exceptions import ToolError
+
+    # A refusal is an error to the MCP client, its text the server's answer.
+    with pytest.raises(ToolError) as refused:
+        call("nope.tif")
+    assert "refused (404)" in str(refused.value)
+    assert fname in str(refused.value)  # the valid names come with the refusal
 
 
 def test_task_config_reads_over_http(client, host):
@@ -287,15 +278,14 @@ def test_summaries_and_protocol_over_http(client):
         body = client.get(path, headers=AUTH).json()
         assert body["available"] is True, path
     assert (
-        client.get("/app/workflow/run_summary", headers=AUTH).json()["available"]
-        is False
+        client.get("/app/workflow/summary", headers=AUTH).json()["available"] is False
     )
 
 
 def test_sidecar_grows_the_app_tools_from_capabilities(client):
     pytest.importorskip("mcp")
-    from fibsem.mcp.sidecar import build_sidecar
-    from fibsem.server.catalog import CATALOG
+    from fibsem.ai.agent.catalog import CATALOG
+    from fibsem.ai.agent.mcp.sidecar import build_sidecar
 
     client.headers["Authorization"] = f"Bearer {TOKEN}"
     capabilities = client.get("/capabilities").json()
@@ -350,7 +340,7 @@ def test_event_history_reads_the_record_before_the_live_buffer(
     import json
     from pathlib import Path
 
-    from fibsem.applications.autolamella.event_recording import EVENTS_FILENAME
+    from fibsem.workflows.event_recording import EVENTS_FILENAME
 
     event_buffer.append("task_started", {"task_name": "Polishing"})
     held = event_buffer.events_since(0)["events"][0]
@@ -382,13 +372,11 @@ def test_event_history_reads_the_record_before_the_live_buffer(
 
 
 def test_task_schedule_verb_sets_clears_and_refuses(microscope, host, event_buffer):
-    from fibsem.applications.autolamella.structures import (
-        Attention,
-        AutoLamellaTaskDescription,
-    )
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskDescription
     from fibsem.applications.autolamella.workflows.tasks.rough import (
         MillRoughTaskConfig,
     )
+    from fibsem.workflows.attention import Attention
 
     # A real workflow entry to schedule.
     protocol = host.experiment.task_protocol
@@ -503,7 +491,7 @@ def test_agent_notes_land_on_the_record(microscope, host, event_buffer):
     with TestClient(armed, raise_server_exceptions=False) as client:
         item = host.experiment.positions[0].name
         ok = client.post(
-            "/app/agent/notes",
+            "/app/experiment/notes",
             headers=AUTH,
             json={"text": "curtaining on the face, accepted anyway", "item_name": item},
         )
@@ -514,18 +502,33 @@ def test_agent_notes_land_on_the_record(microscope, host, event_buffer):
         assert note["payload"]["item_id"] == host.experiment.positions[0].id
 
         unknown = client.post(
-            "/app/agent/notes",
+            "/app/experiment/notes",
             headers=AUTH,
             json={"text": "x", "item_name": "nope"},
         )
         assert unknown.status_code == 404
-        empty = client.post("/app/agent/notes", headers=AUTH, json={"text": "   "})
+        empty = client.post("/app/experiment/notes", headers=AUTH, json={"text": "   "})
         assert empty.status_code == 422
+
+        # Its answer to the operator's message names the message (FIB-1423).
+        reply = client.post(
+            "/app/experiment/notes",
+            headers=AUTH,
+            json={"text": "skipping 03", "reply_to": "ab12"},
+        )
+        assert reply.status_code == 200
+        events = client.get("/app/events?since=0", headers=AUTH).json()["events"]
+        note = [e for e in events if e["kind"] == "agent_note"][-1]
+        assert note["payload"]["reply_to"] == "ab12"
+        bad = client.post(
+            "/app/experiment/notes", headers=AUTH, json={"text": "x", "reply_to": 3}
+        )
+        assert bad.status_code == 422
 
 
 def test_agent_notes_need_only_the_read_scope(client):
     # A watching agent notes what it sees (FIB-1035); a note changes nothing.
-    resp = client.post("/app/agent/notes", headers=AUTH, json={"text": "x"})
+    resp = client.post("/app/experiment/notes", headers=AUTH, json={"text": "x"})
     assert resp.status_code == 200
 
 
@@ -536,17 +539,14 @@ def test_agent_notes_need_only_the_read_scope(client):
 def grid_with_overview(host, microscope):
     """A grid whose history recorded a real Demo SEM overview, one lamella
     linked to it posed at the overview's centre and one posed far outside."""
-    from fibsem.applications.autolamella.structures import (
-        AutoLamellaTaskState,
-        AutoLamellaTaskStatus,
-        GridRecord,
-    )
     from fibsem.structures import (
         BeamType,
         FibsemStagePosition,
         ImageSettings,
         MicroscopeState,
     )
+    from fibsem.workflows.grids import GridRecord
+    from fibsem.workflows.status import TaskState, TaskStatus
 
     experiment = host.experiment
     grid = experiment.add_grid(GridRecord(name="grid-aspen"))
@@ -557,9 +557,9 @@ def grid_with_overview(host, microscope):
     )
     image.save(str(outdir / "overview.tif"))
     grid.task_history.append(
-        AutoLamellaTaskState(
+        TaskState(
             name="overview_sem",
-            status=AutoLamellaTaskStatus.Completed,
+            status=TaskStatus.Completed,
             outputs={"overview_sem": ["overview_sem/overview.tif"]},
         )
     )
@@ -629,7 +629,7 @@ def test_grid_overview_serves_jpeg_and_refuses_unlisted_names(
 
 def test_sidecar_returns_a_grid_overview_as_image_content(client, grid_with_overview):
     pytest.importorskip("mcp")
-    from fibsem.mcp.sidecar import build_sidecar
+    from fibsem.ai.agent.mcp.sidecar import build_sidecar
 
     client.headers["Authorization"] = f"Bearer {TOKEN}"
     sidecar = build_sidecar(client, client.get("/capabilities").json())
@@ -654,9 +654,12 @@ def test_sidecar_returns_a_grid_overview_as_image_content(client, grid_with_over
     )
     assert meta["metadata"]["beam_type"] == "ELECTRON"
     assert meta["metadata"]["pixel_size"] == pytest.approx(200e-6 / 128)
-    refused = "".join(getattr(c, "text", "") for c in call("nope.tif"))
-    assert "refused (404)" in refused
-    assert "overview.tif" in refused
+    from mcp.server.mcpserver.exceptions import ToolError
+
+    with pytest.raises(ToolError) as refused:
+        call("nope.tif")
+    assert "refused (404)" in str(refused.value)
+    assert "overview.tif" in str(refused.value)
 
 
 def test_a_saved_beam_image_carries_its_metadata_block(client, grid_with_overview):
@@ -680,8 +683,8 @@ def test_a_plain_tiff_has_no_metadata_header(client, host):
     import numpy as np
     import tifffile
 
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
     from fibsem.server.app_routes import IMAGE_METADATA_HEADER
+    from fibsem.workflows.status import TaskState
 
     lamella = host.experiment.positions[0]
     os.makedirs(lamella.path, exist_ok=True)
@@ -689,7 +692,7 @@ def test_a_plain_tiff_has_no_metadata_header(client, host):
         os.path.join(lamella.path, "plain.tif"), np.zeros((8, 8), np.uint8)
     )
     lamella.task_history.append(
-        AutoLamellaTaskState(name="Rough Milling", outputs={"final_fib": ["plain.tif"]})
+        TaskState(name="Rough Milling", outputs={"final_fib": ["plain.tif"]})
     )
     served = client.get(
         f"/app/experiment/items/{lamella.name}/outputs/plain.tif", headers=AUTH
@@ -775,13 +778,13 @@ def test_grid_markers_report_unplaceable_items(client, host, grid_with_overview)
 
 
 def test_grid_workflow_plan_is_the_preflight_without_hardware(client, host):
-    from fibsem.applications.autolamella.structures import GridRecord
-    from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (
+    from fibsem.workflows.grid.imaging import (
         BeamOverviewGridTaskConfig,
     )
-    from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+    from fibsem.workflows.grid.manager import (
         LOAD_ENTRY_NAME,
     )
+    from fibsem.workflows.grids import GridRecord
 
     experiment = host.experiment
     experiment.grid_protocol.add(BeamOverviewGridTaskConfig(task_name="overview_sem"))
@@ -844,16 +847,13 @@ def test_fm_overview_previews_in_colour_and_places_markers(
     import numpy as np
     from PIL import Image
 
-    from fibsem.applications.autolamella.structures import (
-        AutoLamellaTaskState,
-        AutoLamellaTaskStatus,
-    )
     from fibsem.fm.structures import (
         FluorescenceChannelMetadata,
         FluorescenceImage,
         FluorescenceImageMetadata,
     )
     from fibsem.structures import FibsemHardwareGeometry, FibsemStagePosition
+    from fibsem.workflows.status import TaskState, TaskStatus
 
     experiment = host.experiment
     grid = grid_with_overview
@@ -903,9 +903,9 @@ def test_fm_overview_previews_in_colour_and_places_markers(
         str(outdir / "overview.ome.tiff")
     )
     grid.task_history.append(
-        AutoLamellaTaskState(
+        TaskState(
             name="overview_fm",
-            status=AutoLamellaTaskStatus.Completed,
+            status=TaskStatus.Completed,
             outputs={"overview_fm": ["overview_fm/overview.ome.tiff"]},
         )
     )
@@ -955,7 +955,7 @@ def test_fm_overview_previews_in_colour_and_places_markers(
 def test_unlinked_items_fall_back_only_on_a_single_grid_experiment(
     client, host, grid_with_overview
 ):
-    from fibsem.applications.autolamella.structures import GridRecord
+    from fibsem.workflows.grids import GridRecord
 
     experiment = host.experiment
     for lamella in experiment.positions:
@@ -1100,24 +1100,24 @@ def test_a_pose_is_not_set_from_the_stage_while_a_run_is_on(driver, host):
     """The run moves the stage, so the pose would be wherever it left it."""
     name = host.experiment.positions[0].name
     before = host.experiment.get_lamella_by_name(name).milling_pose
-    host.is_workflow_running = True
+    host.runner.is_running = True
     try:
         refused = driver.post(f"/app/experiment/items/{name}/poses/MILLING")
         assert refused.status_code == 409
         assert refused.json()["detail"]["error_type"] == "task_running"
     finally:
-        host.is_workflow_running = False
+        host.runner.is_running = False
     assert host.experiment.get_lamella_by_name(name).milling_pose is before
 
 
 def test_an_item_is_removed_but_not_while_a_run_is_on(driver, host):
     host.experiment.add_new_lamella(MicroscopeState(), EventedDict(), name="spare")
-    host.is_workflow_running = True
+    host.runner.is_running = True
     try:
         refused = driver.delete("/app/experiment/items/spare")
         assert refused.status_code == 409
     finally:
-        host.is_workflow_running = False
+        host.runner.is_running = False
     removed = driver.delete("/app/experiment/items/spare")
     assert removed.status_code == 200
     assert host.experiment.get_lamella_by_name("spare") is None
@@ -1126,7 +1126,7 @@ def test_an_item_is_removed_but_not_while_a_run_is_on(driver, host):
 def test_an_item_is_not_added_where_the_stage_is_while_a_run_is_on(driver, host):
     """The run has moved the stage, so "here" is wherever it left it; a given
     stage_position is still taken."""
-    host.is_workflow_running = True
+    host.runner.is_running = True
     try:
         refused = driver.post("/app/experiment/items", json={"name": "here"})
         assert refused.status_code == 409
@@ -1140,7 +1140,7 @@ def test_an_item_is_not_added_where_the_stage_is_while_a_run_is_on(driver, host)
         )
         assert given.status_code == 200, given.text
     finally:
-        host.is_workflow_running = False
+        host.runner.is_running = False
     assert host.experiment.get_lamella_by_name("here") is None
 
 
@@ -1272,7 +1272,7 @@ def test_sidecar_reads_experiment_files_as_tools_and_resources(
     client, host, grid_with_overview
 ):
     pytest.importorskip("mcp")
-    from fibsem.mcp.sidecar import build_sidecar
+    from fibsem.ai.agent.mcp.sidecar import build_sidecar
 
     (Path(host.experiment.path) / "notes.md").write_text("# notes\n")
     client.headers["Authorization"] = f"Bearer {TOKEN}"
@@ -1315,9 +1315,9 @@ def test_thickness_reads_a_saved_fib_image_over_http_and_mcp(client, host):
     """FIB-1434: the band measured off an item's saved FIB image, around its
     POI, by the route and by the Watch tool, with the result's plot."""
     pytest.importorskip("mcp")
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
-    from fibsem.mcp.sidecar import build_sidecar
+    from fibsem.ai.agent.mcp.sidecar import build_sidecar
     from fibsem.structures import BeamType
+    from fibsem.workflows.status import TaskState
     from tests.test_lamella_thickness import band_image
 
     lamella = host.experiment.positions[0]
@@ -1331,9 +1331,7 @@ def test_thickness_reads_a_saved_fib_image_over_http_and_mcp(client, host):
     image.metadata.image_settings.beam_type = BeamType.ELECTRON
     image.save(os.path.join(lamella.path, sem))
     lamella.task_history.append(
-        AutoLamellaTaskState(
-            name="Polishing", outputs={"final_fib": [fname], "final_sem": [sem]}
-        )
+        TaskState(name="Polishing", outputs={"final_fib": [fname], "final_sem": [sem]})
     )
     route = f"/app/experiment/items/{lamella.name}/outputs/{fname}/thickness"
 

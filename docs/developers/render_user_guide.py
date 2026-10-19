@@ -315,7 +315,7 @@ class Harness:
             al_cfg.TASK_PROTOCOL_PATH
         )
         experiment.task_protocol.save(os.path.join(experiment.path, "protocol.yaml"))
-        self.ui._adopt_experiment(experiment)
+        self.ui.adopt_experiment(experiment)
         self.pump(1500)
         return experiment
 
@@ -1305,7 +1305,7 @@ def render_sample_holder(h: Harness) -> None:
 @page("fluorescence")
 def render_fluorescence(h: Harness) -> None:
     """The Fluorescence tab and the FM view, on the simulated Arctis."""
-    from fibsem.fm.structures import ChannelSettings
+    from fibsem.fm.structures import REFLECTION, ChannelSettings, EmissionFilter
 
     h.first_run(False)
     h.show_tab(0)
@@ -1386,7 +1386,7 @@ def render_fluorescence(h: Harness) -> None:
         ChannelSettings(
             name="Reflection",
             excitation_wavelength=nearest(550),
-            emission_wavelength=None,
+            emission_filter=REFLECTION,
             color="gray",
             exposure_time=0.05,
             power=0.1,
@@ -1394,7 +1394,7 @@ def render_fluorescence(h: Harness) -> None:
         ChannelSettings(
             name="DAPI",
             excitation_wavelength=nearest(405),
-            emission_wavelength="Fluorescence",
+            emission_filter=EmissionFilter("Fluorescence", multi_band=True),
             color="blue",
             exposure_time=0.1,
             power=0.2,
@@ -1402,7 +1402,7 @@ def render_fluorescence(h: Harness) -> None:
         ChannelSettings(
             name="GFP",
             excitation_wavelength=nearest(488),
-            emission_wavelength="Fluorescence",
+            emission_filter=EmissionFilter("Fluorescence", multi_band=True),
             color="green",
             exposure_time=0.1,
             power=0.2,
@@ -1410,7 +1410,7 @@ def render_fluorescence(h: Harness) -> None:
         ChannelSettings(
             name="mCherry",
             excitation_wavelength=nearest(561),
-            emission_wavelength="Fluorescence",
+            emission_filter=EmissionFilter("Fluorescence", multi_band=True),
             color="red",
             exposure_time=0.1,
             power=0.2,
@@ -1864,6 +1864,21 @@ def render_tasks(h: Harness) -> None:
 
 
 @page("workflows")
+def _question_up(ui) -> Tuple[str, Optional[str]]:
+    """What the prompt bar asks now, and which milling config: a pass of a
+    loop (``milling``, ``spot_burn``) is on the record, any other question on
+    the responder."""
+    shown = getattr(ui, "_loop_question", None)
+    if shown is not None:
+        proposal = shown[2]
+        config = proposal.values.get("milling_config")
+        return proposal.kind, getattr(config, "name", None)
+    question = ui.ui_responder.pending_question
+    if callable(question):
+        question = question()
+    return (type(question).__name__ if question is not None else "Confirm"), None
+
+
 def render_workflows(h: Harness) -> None:
     """The Workflow tab, a supervised run with its prompts, and the Grids view."""
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as main_module
@@ -1966,14 +1981,10 @@ def render_workflows(h: Harness) -> None:
                     h.shot("queue-row-menu", target=menu)
                     menu.close()
                     h.pump(200)
-            question = h.ui.ui_responder.pending_question
-            if callable(question):
-                question = question()
-            kind = type(question).__name__ if question is not None else "Confirm"
-            key = getattr(getattr(question, "config", None), "name", None)
+            kind, key = _question_up(h.ui)
             # a milling prompt is one image per task, the others one each
             shot_name = f"prompt-{kind.lower()}"
-            if kind == "RunMillingTask" and key:
+            if kind == "milling" and key:
                 shot_name += "-" + key.lower().replace(" ", "-")
             if shot_name not in seen:
                 if not seen:
@@ -1998,10 +2009,10 @@ def render_workflows(h: Harness) -> None:
                 )
             # a milling prompt comes back after the run (Yes = Run Milling
             # again, No = Continue): Yes once per task, then Continue
-            if kind == "RunMillingTask" and key in answered_milling:
+            if kind == "milling" and key in answered_milling:
                 h.ui.pushButton_no.click()
             else:
-                if kind == "RunMillingTask":
+                if kind == "milling":
                     answered_milling.add(key)
                 h.ui.pushButton_yes.click()
             h.pump(800)
@@ -2047,7 +2058,6 @@ def render_grid_workflow(h: Harness) -> None:
     from PyQt5.QtGui import QTextCursor
     from PyQt5.QtWidgets import QDialog, QInputDialog, QMenu, QPlainTextEdit
 
-    from fibsem.applications.autolamella.structures import Verdict
     from fibsem.applications.autolamella.tools import grid_report_pdf
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as main_module
     from fibsem.applications.autolamella.ui import grid_workflow_widget as gww
@@ -2058,10 +2068,11 @@ def render_grid_workflow(h: Harness) -> None:
     from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
         StepStatus,
     )
-    from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (
+    from fibsem.ui.widgets.workflow_summary_dialog import WorkflowSummaryDialog
+    from fibsem.workflows.grid.imaging import (
         BeamOverviewGridTaskConfig,
     )
-    from fibsem.ui.widgets.workflow_summary_dialog import WorkflowSummaryDialog
+    from fibsem.workflows.quality import Verdict
 
     h.first_run(False)
     h.show_tab(0)
@@ -2417,10 +2428,7 @@ def render_correlation(h: Harness) -> None:
     import numpy as np
     from scipy import ndimage as ndi
 
-    from fibsem.applications.autolamella.structures import (
-        Attention,
-        AutoLamellaTaskDescription,
-    )
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskDescription
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as main_module
     from fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence import (
         AcquireFluorescenceImageConfig,
@@ -2429,9 +2437,15 @@ def render_correlation(h: Harness) -> None:
         SpotBurnFiducialTaskConfig,
     )
     from fibsem.correlation.structures import PointType
-    from fibsem.fm.structures import ChannelSettings, ZParameters
+    from fibsem.fm.structures import (
+        REFLECTION,
+        ChannelSettings,
+        EmissionFilter,
+        ZParameters,
+    )
     from fibsem.structures import BeamType, ImageSettings, Point
     from fibsem.ui.correlation.widgets import correlation_tab_widget as ctw
+    from fibsem.workflows.attention import Attention
 
     h.first_run(False)
     h.show_tab(0)
@@ -2452,13 +2466,13 @@ def render_correlation(h: Harness) -> None:
         ChannelSettings(
             name="Reflection",
             excitation_wavelength=nearest(550),
-            emission_wavelength=None,
+            emission_filter=REFLECTION,
             color="gray",
         ),
         ChannelSettings(
             name="GFP",
             excitation_wavelength=nearest(488),
-            emission_wavelength="Fluorescence",
+            emission_filter=EmissionFilter("Fluorescence", multi_band=True),
             color="green",
         ),
     ]
@@ -2570,11 +2584,8 @@ def render_correlation(h: Harness) -> None:
         if h.ui.hold is None:
             continue
         h.pump(1200)
-        question = h.ui.ui_responder.pending_question
-        if callable(question):
-            question = question()
-        kind = type(question).__name__ if question is not None else "Confirm"
-        if kind == "RunSpotBurn":
+        kind, key = _question_up(h.ui)
+        if kind == "spot_burn":
             if not burn_shot_taken:
                 # the question, on the Experiment tab, and the points on the FIB
                 # view with the Spot Burn tab open
@@ -2610,9 +2621,8 @@ def render_correlation(h: Harness) -> None:
                 h.ui.pushButton_yes.click()  # Run Spot Burn; re-asks when done
             else:
                 h.ui.pushButton_no.click()  # Continue
-        elif kind == "RunMillingTask":
-            # Run Milling once per task, then Continue when it re-asks
-            key = getattr(getattr(question, "config", None), "name", None)
+        elif kind == "milling":
+            # Run Milling once per task, then Accept when it re-asks
             if key in milled:
                 h.ui.pushButton_no.click()
             else:

@@ -30,6 +30,7 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
 )
 from fibsem.milling.patterning.utils import get_patterns_bounding_box
 from fibsem.structures import FibsemImage, FibsemRectangle, Point
+from tests.autolamella._on_the_record import manager_for
 
 CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
 SETUP, FIDUCIAL, ROUGH = "Setup", "Mill Fiducial", "Rough Milling"
@@ -90,6 +91,7 @@ def _run_setup(microscope, lamella, **config) -> SelectMillingPositionTask:
             task_name=SETUP, use_autofocus=False, select_poi=False, **config
         ),
         lamella=lamella,
+        task_manager=manager_for(microscope, lamella),
     )
     task._run()
     return task
@@ -161,7 +163,7 @@ def test_setup_again_after_the_fiducial_saves_and_reloads(
     from fibsem.applications.autolamella.workflows.tasks.fiducial import (
         MillFiducialTask,
     )
-    from fibsem.applications.autolamella.workflows.tasks.manager import run_tasks
+    from tests.run_state import run_lamellae
 
     exp = Experiment(path=tmp_path, name="fid-save")
     exp.task_protocol = AutoLamellaTaskProtocol(
@@ -198,8 +200,8 @@ def test_setup_again_after_the_fiducial_saves_and_reloads(
         MillFiducialTask, "update_milling_config_ui", lambda self, cfg, msg: cfg
     )
 
-    run_tasks(microscope, exp, [SETUP, FIDUCIAL])
-    run_tasks(microscope, exp, [SETUP])
+    run_lamellae(microscope, exp, [SETUP, FIDUCIAL])
+    run_lamellae(microscope, exp, [SETUP])
 
     assert lamella.has_completed_task(SETUP)
     assert lamella.has_completed_task(FIDUCIAL)
@@ -257,10 +259,7 @@ def test_an_area_edit_after_setup_moves_the_fiducial(microscope, tmp_path):
 
 
 def test_before_setup_or_once_milled_the_fiducial_stays(microscope, tmp_path):
-    from fibsem.applications.autolamella.structures import (
-        AutoLamellaTaskState,
-        AutoLamellaTaskStatus,
-    )
+    from fibsem.workflows.status import TaskState, TaskStatus
 
     lamella = _lamella(tmp_path, microscope, AREA)
     stage = lamella.task_config[FIDUCIAL].milling[FIDUCIAL_KEY].stages[0]
@@ -268,8 +267,6 @@ def test_before_setup_or_once_milled_the_fiducial_stays(microscope, tmp_path):
     assert follow_alignment_area(lamella) == []  # no reference: Setup syncs
 
     _save_alignment_reference(microscope, lamella)
-    lamella.task_history.append(
-        AutoLamellaTaskState(name=FIDUCIAL, status=AutoLamellaTaskStatus.Completed)
-    )
+    lamella.task_history.append(TaskState(name=FIDUCIAL, status=TaskStatus.Completed))
     assert follow_alignment_area(lamella) == []  # on the sample already
     assert stage.pattern.point == before

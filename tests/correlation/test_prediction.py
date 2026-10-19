@@ -29,6 +29,7 @@ from fibsem.correlation.structures import (
     PointType,
     PointXYZ,
 )
+from fibsem.correlation.upgrade import OLD_STATUS, upgrade_input_data
 
 FIXTURE = Path(__file__).parent / "fixtures" / "nominal_transform.json"
 ENTRIES = json.loads(FIXTURE.read_text())["entries"]
@@ -233,10 +234,20 @@ def test_many_pairs_still_move_only_the_translation(nominal):
 
 
 def test_legacy_status_strings_read_back_into_the_vocabulary():
-    for old, new in PointStatus.LEGACY.items():
-        c = Coordinate.from_dict(
-            {"point": {"x": 1, "y": 2, "z": 3}, "point_type": "FM", "status": old}
+    for old, new in OLD_STATUS.items():
+        data = upgrade_input_data(
+            {
+                "fib_coordinates": [],
+                "fm_coordinates": [
+                    {
+                        "point": {"x": 1, "y": 2, "z": 3},
+                        "point_type": "FM",
+                        "status": old,
+                    }
+                ],
+            }
         )
+        c = Coordinate.from_dict(data["fm_coordinates"][0])
         assert c.status == new
         assert not c.suggested
     assert (

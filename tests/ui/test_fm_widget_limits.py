@@ -50,27 +50,25 @@ def _range(spin):
 
 
 def test_the_limits_come_from_the_fm(fm):
-    assert fm_limits.exposure_range_ms(fm) == (5.0, 2000.0)
-    assert fm_limits.power_range_percent(fm) == (0.0, 80.0)
+    assert fm_limits.channel_range(fm, "exposure_time") == (5.0, 2000.0)
+    assert fm_limits.channel_range(fm, "power") == (0.0, 80.0)
     assert fm_limits.available_binnings(fm) == (1, 2)
 
 
-def test_without_an_fm_the_widgets_keep_their_old_ranges():
-    assert fm_limits.exposure_range_ms(None) == (1.0, 10000.0)
-    assert fm_limits.power_range_percent(None) == (0.0, 100.0)
+def test_without_an_fm_the_widgets_offer_what_the_devices_declare():
+    assert fm_limits.channel_range(None, "exposure_time") == (1.0, 10000.0)
+    assert fm_limits.channel_range(None, "power") == (0.0, 100.0)
     assert fm_limits.available_binnings(None) == (1, 2, 4, 8)
 
 
-def test_an_fm_that_cannot_answer_gets_the_old_ranges():
+def test_an_fm_that_cannot_answer_gets_what_the_devices_declare():
     class Unreachable:
         @property
-        def camera(self):
+        def devices(self):
             raise ConnectionError("the FM's computer is gone")
 
-        light_source = camera
-
-    assert fm_limits.exposure_range_ms(Unreachable()) == (1.0, 10000.0)
-    assert fm_limits.power_range_percent(Unreachable()) == (0.0, 100.0)
+    assert fm_limits.channel_range(Unreachable(), "exposure_time") == (1.0, 10000.0)
+    assert fm_limits.channel_range(Unreachable(), "power") == (0.0, 100.0)
     assert fm_limits.available_binnings(Unreachable()) == (1, 2, 4, 8)
 
 
@@ -78,7 +76,7 @@ def test_the_minimum_is_one_the_box_can_show():
     """A 1 µs camera minimum would show as 0.0 ms in a one-decimal box."""
     sim = DemoFluorescenceMicroscope()
     assert sim.camera.exposure_time_limits[0] == pytest.approx(1e-6)
-    assert fm_limits.exposure_range_ms(sim) == (0.1, 60000.0)
+    assert fm_limits.channel_range(sim, "exposure_time") == (0.1, 60000.0)
 
 
 def test_the_channel_settings_offer_the_fms_ranges(qapp, fm):

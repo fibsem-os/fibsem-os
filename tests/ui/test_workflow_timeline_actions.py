@@ -10,6 +10,7 @@ between the menu opening and the click, which the owner handles via QueueResult.
 
 Uses the shared offscreen ``qapp`` fixture from tests/conftest.py.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -18,11 +19,11 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus as Status
 from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
     WorkflowProgressWidget,
 )
-from fibsem.applications.autolamella.workflows.tasks.queue import QueueOp, TaskQueue
+from fibsem.workflows.queue import QueueOp, TaskQueue
+from fibsem.workflows.status import TaskStatus as Status
 
 
 @pytest.fixture
@@ -52,11 +53,12 @@ def actions(widget: WorkflowProgressWidget, index: int) -> dict:
 
 # ── What each row state offers ────────────────────────────────────────────────
 
+
 def test_a_pending_row_offers_every_move(widget):
     assert actions(widget, 2) == {
-        "move_up": False,       # already the first pending item
+        "move_up": False,  # already the first pending item
         "move_down": True,
-        "run_next": False,      # already runs next
+        "run_next": False,  # already runs next
         "remove": True,
     }
 
@@ -74,8 +76,10 @@ def test_the_running_row_offers_only_stop_task(widget):
     """It cannot be moved or removed — but it can be abandoned (FIB-499). The
     greyed entries are still what explain the rest of the rule."""
     assert actions(widget, 1) == {
-        "move_up": False, "move_down": False,
-        "run_next": False, "remove": False,
+        "move_up": False,
+        "move_down": False,
+        "run_next": False,
+        "remove": False,
         "stop_task": True,
     }
 
@@ -99,8 +103,10 @@ def test_only_the_running_row_can_be_stopped(widget):
 
 def test_a_finished_row_offers_only_run_again(widget):
     assert actions(widget, 0) == {
-        "move_up": False, "move_down": False,
-        "run_next": False, "remove": False,
+        "move_up": False,
+        "move_down": False,
+        "run_next": False,
+        "remove": False,
         "run_again": True,
     }
 
@@ -124,6 +130,7 @@ def test_no_menu_for_a_row_that_is_gone(widget):
 
 
 # ── The signal the owner acts on ──────────────────────────────────────────────
+
 
 def test_triggering_an_action_reports_it_against_the_row_id(widget, queue):
     seen = []
@@ -152,6 +159,7 @@ def test_the_id_survives_the_row_moving_under_the_menu(widget, queue):
 
 
 # ── Actions off ───────────────────────────────────────────────────────────────
+
 
 def test_the_button_appears_on_hover_and_leaves_again(widget):
     """Right-click alone is undiscoverable; a permanent button on every row of a
@@ -196,6 +204,7 @@ def test_rows_added_later_inherit_the_current_setting(widget, queue):
 
 # ── The queue calls the menu maps onto ────────────────────────────────────────
 
+
 def test_each_action_does_what_the_menu_says(queue):
     """Guards the mapping in AutoLamellaMainUI._on_queue_action."""
     queue.next()  # item 0 running; 1, 2, 3 pending
@@ -215,8 +224,11 @@ def test_each_action_does_what_the_menu_says(queue):
 def test_acting_on_the_running_row_is_refused_not_misapplied(queue):
     """What the owner turns into "... is already running"."""
     active = queue.next()
-    for result in (queue.nudge(active.id, -1), queue.move_to_front(active.id),
-                   queue.remove(active.id)):
+    for result in (
+        queue.nudge(active.id, -1),
+        queue.move_to_front(active.id),
+        queue.remove(active.id),
+    ):
         assert result.op is QueueOp.NOT_PENDING
 
 
@@ -224,7 +236,7 @@ def test_run_again_queues_a_fresh_item_without_touching_the_original(queue):
     done = queue.next()
     queue.mark_done(done, Status.Failed)
 
-    added = queue.add(done.lamella_name, done.task_name, front=True)
+    added = queue.add(done.item_name, done.task_name, front=True)
 
     assert added.id != done.id
     assert queue.pending[0].id == added.id
@@ -233,36 +245,168 @@ def test_run_again_queues_a_fresh_item_without_touching_the_original(queue):
 
 # ── What the user is told ─────────────────────────────────────────────────────
 
-def describe(action: str, op: QueueOp) -> str:
+
+def describe(action: str, edit) -> str:
     from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
         AutoLamellaSingleWindowUI,
     )
-    from fibsem.applications.autolamella.workflows.tasks.queue import QueueResult
+    from fibsem.workflows.queue import WorkItem
+
     return AutoLamellaSingleWindowUI._queue_action_message(
-        action, "Trench for L1", QueueResult(op, 1)
+        action, WorkItem(item_name="L1", task_name="Trench"), edit
     )
 
 
 def test_every_successful_action_is_confirmed():
     """There is no modal on remove, so the status line is the only acknowledgement
     the user gets that a queued task is gone."""
-    assert describe("remove", QueueOp.OK) == "Removed Trench for L1 from the queue."
-    assert describe("run_next", QueueOp.OK) == "Trench for L1 will run next."
-    assert describe("move_up", QueueOp.OK) == "Moved Trench for L1 up."
-    assert describe("move_down", QueueOp.OK) == "Moved Trench for L1 down."
+    from fibsem.workflows.runner import QueueEdit
 
-
-def test_a_row_that_started_running_says_so_rather_than_nothing():
-    assert describe("remove", QueueOp.NOT_PENDING) == "Trench for L1 is already running."
+    done = QueueEdit(applied=True, changed=True)
+    assert describe("remove", done) == "Removed Trench for L1 from the queue."
+    assert describe("run_next", done) == "Trench for L1 will run next."
+    assert describe("move_up", done) == "Moved Trench for L1 up."
+    assert describe("move_down", done) == "Moved Trench for L1 down."
 
 
 def test_hitting_the_end_of_the_queue_says_nothing():
     """Already first or last — the user can see that; a message would be noise."""
-    assert describe("move_up", QueueOp.NO_OP) == ""
+    from fibsem.workflows.runner import QueueEdit
+
+    assert describe("move_up", QueueEdit(applied=True, changed=False)) == ""
 
 
-def test_a_vanished_row_is_reported():
-    assert describe("move_up", QueueOp.NOT_FOUND) == "Trench for L1 is no longer in the queue."
+def test_a_refusal_is_said_as_the_runner_says_it():
+    from fibsem.workflows.runner import not_edited
+
+    refused = not_edited("Trench for L1 is no longer in the queue.", "not_found")
+    assert describe("move_up", refused) == "Trench for L1 is no longer in the queue."
+
+
+@pytest.fixture
+def experiment(tmp_path):
+    """L1 and L2, and the protocol's Trench and Undercut: what the run rules
+    check a requeue against."""
+    from pathlib import Path
+
+    from fibsem.applications.autolamella.structures import (
+        AutoLamellaTaskDescription,
+        AutoLamellaTaskProtocol,
+        AutoLamellaWorkflowConfig,
+        Experiment,
+        Lamella,
+    )
+    from fibsem.applications.autolamella.workflows.tasks.reference_image import (
+        AcquireReferenceImageConfig,
+    )
+
+    tasks = ["Trench", "Undercut"]
+    exp = Experiment(path=tmp_path, name="test-exp")
+    exp.task_protocol = AutoLamellaTaskProtocol(
+        workflow_config=AutoLamellaWorkflowConfig(
+            tasks=[AutoLamellaTaskDescription(name=n, required=False) for n in tasks]
+        ),
+        task_config={n: AcquireReferenceImageConfig(task_name=n) for n in tasks},
+    )
+    for i, name in enumerate(("L1", "L2"), start=1):
+        lamella = Lamella(path=Path(exp.path) / name, number=i, petname=name)
+        for n in tasks:
+            lamella.task_config[n] = AcquireReferenceImageConfig(task_name=n)
+        exp.positions.append(lamella)
+    return exp
+
+
+def _window(queue, experiment=None, microscope=None):
+    """Just what _on_queue_action reads off the window, over a runner whose run
+    is ``queue``'s."""
+    from types import SimpleNamespace
+
+    from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
+        AutoLamellaSingleWindowUI,
+    )
+    from fibsem.workflows.runner import ITEMS
+    from tests.run_state import stub_session
+
+    manager = SimpleNamespace(
+        queue=queue,
+        notify_queue_changed=lambda: None,
+        experiment=experiment,
+        microscope=microscope,
+        RUN_KIND=ITEMS,
+        ITEM_NOUN="lamellae",
+    )
+    window = SimpleNamespace(
+        autolamella_ui=SimpleNamespace(session=stub_session(manager)),
+        messages=[],
+        _queue_action_message=AutoLamellaSingleWindowUI._queue_action_message,
+    )
+    window._show_queue_message = window.messages.append
+    return window, AutoLamellaSingleWindowUI._on_queue_action
+
+
+def test_a_row_that_started_running_says_so_rather_than_nothing(queue):
+    window, on_queue_action = _window(queue)
+    active = queue.next()
+
+    on_queue_action(window, "remove", active.id)
+
+    assert window.messages == ["Trench for L1 is running now; stop it instead."]
+
+
+def test_run_again_twice_queues_the_pair_once(queue, experiment):
+    """FIB-1453: the timeline's Run again checks what the App Server's requeue does."""
+    done = queue.next()
+    queue.mark_done(done, Status.Completed)
+    window, on_queue_action = _window(queue, experiment)
+
+    on_queue_action(window, "run_again", done.id)
+    on_queue_action(window, "run_again", done.id)
+
+    waiting = [
+        i
+        for i in queue.pending
+        if (i.item_name, i.task_name) == (done.item_name, done.task_name)
+    ]
+    assert len(waiting) == 1
+    assert window.messages == [
+        f"Queued {done.task_name} for {done.item_name} to run next.",
+        f"{done.task_name} for {done.item_name} is already waiting in the queue; "
+        "it runs once.",
+    ]
+
+
+def test_run_again_refuses_a_lamella_whose_grid_is_not_on_the_stage(
+    queue, experiment, monkeypatch
+):
+    from types import SimpleNamespace
+
+    from fibsem.applications.autolamella.workflows import runs
+
+    monkeypatch.setattr(
+        runs, "run_refusal", lambda *args: "L1's grid is not on the stage."
+    )
+    done = queue.next()
+    queue.mark_done(done, Status.Completed)
+    window, on_queue_action = _window(
+        queue, experiment, SimpleNamespace(sample_handling=object())
+    )
+    before = len(queue.pending)
+
+    on_queue_action(window, "run_again", done.id)
+
+    assert len(queue.pending) == before
+    assert window.messages == ["L1's grid is not on the stage."]
+
+
+def test_the_grid_load_step_stays_put():
+    q = TaskQueue(fixed_tasks=["Load grid"])
+    q.build_from_pairs([("grid-1", "Load grid"), ("grid-1", "Overview")])
+    window, on_queue_action = _window(q)
+
+    on_queue_action(window, "remove", q.pending[0].id)
+
+    assert [i.task_name for i in q.pending] == ["Load grid", "Overview"]
+    assert window.messages == ["Load grid stays with grid-1's tasks."]
 
 
 def test_the_dark_theme_greys_disabled_menu_items():
@@ -273,4 +417,5 @@ def test_the_dark_theme_greys_disabled_menu_items():
     pixel-identical to an available one, and the menu teaches nothing.
     """
     from fibsem.ui.stylesheets import NAPARI_STYLE
+
     assert "QMenu::item:disabled" in NAPARI_STYLE

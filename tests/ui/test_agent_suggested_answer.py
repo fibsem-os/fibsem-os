@@ -18,15 +18,14 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from fibsem.acting import current_actor  # noqa: E402
+from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI  # noqa: E402
-from fibsem.applications.autolamella.workflows.interaction import (  # noqa: E402
+from fibsem.server import AuthConfig, build_server  # noqa: E402
+from fibsem.workflows.interaction import (  # noqa: E402
     Confirm,
     ask,
 )
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.auth import AgentLevel  # noqa: E402
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -65,7 +64,11 @@ def auth():
 
 @pytest.fixture
 def client(ui, auth):
-    app = build_server(ui.microscope, app_context=AutoLamellaAppContext(ui), auth=auth)
+    app = build_server(
+        ui.microscope,
+        app_context=AutoLamellaAppContext(ui.session, window=ui),
+        auth=auth,
+    )
     with TestClient(app, raise_server_exceptions=False) as client:
         yield client
 
@@ -112,7 +115,7 @@ def _record(ui):
     """``(kind, payload, actor)`` for each question event, as the record marks it."""
     events = []
     ui.ui_responder.add_question_observer(
-        lambda kind, payload: events.append((kind, dict(payload), current_actor()))
+        lambda kind, payload, actor: events.append((kind, dict(payload), actor))
     )
     return events
 
@@ -161,10 +164,10 @@ def test_the_operator_takes_the_agent_s_suggestion(ui, qapp, client):
     kinds = [kind for kind, _, _ in events]
     assert kinds == ["prompt_raised", "prompt_suggested", "prompt_answered"]
     assert events[1][1]["reason"] == "trench is clear"
-    # The suggestion is the agent's on the record; the prompt is the task's.
-    assert [actor for _, _, actor in events] == ["task", "agent", "task"]
+    # The suggestion is the agent's on the record, the prompt the task's, and
+    # the answer the operator's, who took it.
+    assert [actor for _, _, actor in events] == ["task", "agent", "operator"]
     answered = events[2][1]
-    assert answered["answered_by"] == "operator"
     assert answered["suggested_by"] == "agent"
     assert "agent suggested" in ui.question_timeline.current_text()
 
@@ -193,7 +196,7 @@ def test_answering_otherwise_drops_the_suggestion(ui, qapp, client):
 def test_the_operator_dismisses_the_suggestion_with_why(ui, qapp, client):
     # FIB-1424: the card had Accept only; declining by answering another way
     # dropped the suggestion silently, so the agent never learned why.
-    from fibsem.applications.autolamella.ui.agent_recent import RecentActions
+    from fibsem.ai.agent.recent import RecentActions
 
     events = _record(ui)
     thread, outcome = _ask_on_worker(ui, qapp)
@@ -214,6 +217,10 @@ def test_the_operator_dismisses_the_suggestion_with_why(ui, qapp, client):
     assert payload["question_id"] == question_id
     assert payload["reason"] == "the face still curtains"
     assert ui.dismiss_suggestion("again") is False  # gone already
+    # Read again, the question says the suggestion was dismissed, and why
+    # (sim session 2026-10-16).
+    pending = client.get("/app/workflow/prompt", headers=AUTH).json()["pending"]
+    assert pending["suggestion_dismissed"] == {"reason": "the face still curtains"}
 
     # Recent says so, with the reason.
     recent = RecentActions()
@@ -277,7 +284,11 @@ def test_a_suggestion_carries_the_image_its_evidence_is_in(
     inside.write_bytes(b"tif")
     outside = tmp_path.parent / "elsewhere.tif"
     outside.write_bytes(b"tif")
-    app = build_server(ui.microscope, app_context=AutoLamellaAppContext(ui), auth=auth)
+    app = build_server(
+        ui.microscope,
+        app_context=AutoLamellaAppContext(ui.session, window=ui),
+        auth=auth,
+    )
     events = _record(ui)
     with TestClient(app, raise_server_exceptions=False) as client:
         thread, outcome = _ask_on_worker(ui, qapp)

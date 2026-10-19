@@ -1,12 +1,12 @@
 """Tests for AutoLamellaAppContext: the read-side facade the embedded server will use.
 
 Real domain objects throughout — a real Experiment with real lamellae, the real
-TaskQueue mechanics, the Demo microscope — held by a plain host object standing
-where AutoLamellaUI stands in production (the real-window pairing lives in
-tests/ui/test_agent_context_host.py)."""
+TaskQueue mechanics, the Demo microscope — held by a session with no window
+(the real-window pairing lives in tests/ui/test_agent_context_host.py)."""
 
 import json
 import os
+from types import SimpleNamespace
 
 import pytest
 from psygnal.containers import EventedDict
@@ -14,21 +14,13 @@ from psygnal.containers import EventedDict
 from fibsem import utils
 from fibsem.applications.autolamella.server import AutoLamellaAppContext
 from fibsem.applications.autolamella.structures import (
-    Attention,
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     Experiment,
 )
 from fibsem.structures import MicroscopeState
-
-
-class Host:
-    """The four attributes the facade resolves through; all start empty."""
-
-    experiment = None
-    microscope = None
-    _task_manager = None
-    is_workflow_running = False
+from fibsem.workflows.attention import Attention
+from fibsem.workflows.status import TaskStatus
+from tests.run_state import stub_session
 
 
 @pytest.fixture
@@ -53,7 +45,7 @@ def _assert_json_safe(payload):
 
 
 def test_every_method_tolerates_an_empty_host():
-    ctx = AutoLamellaAppContext(Host())
+    ctx = AutoLamellaAppContext(stub_session())
     payloads = [
         ctx.status(),
         ctx.queue(),
@@ -63,7 +55,6 @@ def test_every_method_tolerates_an_empty_host():
         ctx.protocol(),
         ctx.task_outputs("anything"),
         ctx.item_detail("anything"),
-        ctx.stage_position(),
     ]
     for payload in payloads:
         _assert_json_safe(payload)
@@ -74,7 +65,7 @@ def test_every_method_tolerates_an_empty_host():
 def test_resolution_is_call_time_not_construction_time(experiment):
     # The app rebinds `experiment` on load; a facade built earlier must see the
     # new binding, not the one from construction (the ScriptContext hazard).
-    host = Host()
+    host = stub_session()
     ctx = AutoLamellaAppContext(host)
     assert ctx.status()["experiment"] is None
     host.experiment = experiment
@@ -84,7 +75,7 @@ def test_resolution_is_call_time_not_construction_time(experiment):
 
 
 def test_status_and_summaries_reflect_a_real_experiment(experiment):
-    host = Host()
+    host = stub_session()
     host.experiment = experiment
     ctx = AutoLamellaAppContext(host)
 
@@ -103,7 +94,7 @@ def test_status_and_summaries_reflect_a_real_experiment(experiment):
 
 
 def test_task_outputs_for_a_real_item_and_a_missing_one(experiment):
-    host = Host()
+    host = stub_session()
     host.experiment = experiment
     ctx = AutoLamellaAppContext(host)
 
@@ -116,15 +107,10 @@ def test_task_outputs_for_a_real_item_and_a_missing_one(experiment):
 
     # With history: the live-run 500 — the field is `name`, and an empty
     # history hid the read of a field that doesn't exist.
-    from fibsem.applications.autolamella.structures import (
-        AutoLamellaTaskState,
-        AutoLamellaTaskStatus,
-    )
+    from fibsem.workflows.status import TaskState, TaskStatus
 
     experiment.positions[0].task_history.append(
-        AutoLamellaTaskState(
-            name="Rough Milling", status=AutoLamellaTaskStatus.Completed
-        )
+        TaskState(name="Rough Milling", status=TaskStatus.Completed)
     )
     completed = ctx.task_outputs(name)
     assert completed["completed_tasks"] == ["Rough Milling"]
@@ -139,9 +125,9 @@ def test_output_image_renders_recorded_outputs_only(experiment):
     import numpy as np
     import tifffile
 
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+    from fibsem.workflows.status import TaskState
 
-    host = Host()
+    host = stub_session()
     host.experiment = experiment
     ctx = AutoLamellaAppContext(host)
     lamella = experiment.positions[0]
@@ -159,7 +145,7 @@ def test_output_image_renders_recorded_outputs_only(experiment):
         photometric="minisblack",
     )
     lamella.task_history.append(
-        AutoLamellaTaskState(
+        TaskState(
             name="Rough Milling",
             outputs={"final_fib": [fname], "fluorescence": [zname]},
         )
@@ -195,7 +181,7 @@ def test_task_config_documents_carry_the_full_config_and_a_version(experiment):
         MillRoughTaskConfig,
     )
 
-    host = Host()
+    host = stub_session()
     host.experiment = experiment
     ctx = AutoLamellaAppContext(host)
     config = MillRoughTaskConfig(task_name="Rough Milling")
@@ -236,7 +222,7 @@ def test_item_detail_serves_the_durable_item_facts(experiment):
     readable here rather than raced out of the live prompt mirror."""
     from fibsem.structures import FibsemRectangle, MicroscopeState, Point
 
-    host = Host()
+    host = stub_session()
     host.experiment = experiment
     ctx = AutoLamellaAppContext(host)
 
@@ -249,7 +235,7 @@ def test_item_detail_serves_the_durable_item_facts(experiment):
     detail = ctx.item_detail(lamella.name)
     assert detail["available"] is True
     assert detail["item_name"] == lamella.name
-    assert detail["poi"] == {"x": 1.5e-6, "y": -2.5e-6}
+    assert detail["poi"] == {"x": 1.5e-6, "y": -2.5e-6, "name": None}
     assert detail["alignment_area"]["left"] == 0.6
     assert detail["milling_angle"] == 15.0
     assert detail["is_failure"] is False
@@ -264,12 +250,12 @@ def test_item_detail_serves_the_durable_item_facts(experiment):
 def test_stop_workflow_takes_the_stop_path_only_while_running():
     calls = []
 
-    class StoppableHost(Host):
+    class Window:
         def stop_task_workflow(self):
             calls.append("stop")
 
-    host = StoppableHost()
-    ctx = AutoLamellaAppContext(host)
+    host = stub_session()
+    ctx = AutoLamellaAppContext(host, window=Window())
     idle = ctx.stop_workflow()
     assert idle == {
         "available": True,
@@ -278,12 +264,19 @@ def test_stop_workflow_takes_the_stop_path_only_while_running():
     }
     assert calls == []
 
-    host.is_workflow_running = True
+    host.runner.is_running = True
     assert ctx.stop_workflow() == {"available": True, "stopped": True}
     assert calls == ["stop"]
+    assert host.runner.stops == [], "the window's Stop stops the run"
 
-    # A host without the stop path at all reads as unavailable, not an error.
-    assert AutoLamellaAppContext(Host()).stop_workflow()["available"] is False
+
+def test_stop_workflow_with_no_window_stops_the_run():
+    host = stub_session(is_running=True)
+    assert AutoLamellaAppContext(host).stop_workflow() == {
+        "available": True,
+        "stopped": True,
+    }
+    assert host.runner.stops == ["run"]
 
 
 def test_set_supervision_flips_the_live_protocol(experiment):
@@ -294,7 +287,7 @@ def test_set_supervision_flips_the_live_protocol(experiment):
     experiment.task_protocol.workflow_config.tasks.append(
         AutoLamellaTaskDescription(name="Rough Milling", required=True)
     )
-    host = Host()
+    host = stub_session()
     host.experiment = experiment
     ctx = AutoLamellaAppContext(host)
 
@@ -311,12 +304,13 @@ def test_set_supervision_flips_the_live_protocol(experiment):
     _assert_json_safe(unknown)
 
     assert (
-        AutoLamellaAppContext(Host()).set_supervision("x", True)["available"] is False
+        AutoLamellaAppContext(stub_session()).set_supervision("x", True)["available"]
+        is False
     )
 
 
 def test_set_workflow_options_turns_the_run_summary_off_and_saves(experiment):
-    host = Host()
+    host = stub_session()
     host.experiment = experiment
     ctx = AutoLamellaAppContext(host)
     assert ctx.protocol()["options"]["show_run_summary"] is True  # the default
@@ -332,7 +326,7 @@ def test_set_workflow_options_turns_the_run_summary_off_and_saves(experiment):
     assert ctx.protocol()["options"]["show_run_summary"] is False
     _assert_json_safe(applied)
 
-    assert AutoLamellaAppContext(Host()).set_workflow_options(
+    assert AutoLamellaAppContext(stub_session()).set_workflow_options(
         show_run_summary=False
     ) == {
         "available": False,
@@ -352,7 +346,7 @@ def test_supervision_sets_attention_and_names_no_supervisor(experiment):
             name="Rough Milling", attention=Attention.automated, required=True
         )
     )
-    host = Host()
+    host = stub_session()
     host.experiment = experiment
     ctx = AutoLamellaAppContext(host)
 
@@ -380,7 +374,7 @@ def test_supervision_is_saved_with_the_protocol(experiment):
             name="Rough Milling", attention=Attention.automated, required=True
         )
     )
-    host = Host()
+    host = stub_session()
     host.experiment = experiment
     ctx = AutoLamellaAppContext(host)
 
@@ -400,7 +394,7 @@ def test_requeue_task_reruns_a_completed_pair(experiment, microscope):
     experiment.task_protocol.workflow_config.tasks.append(
         AutoLamellaTaskDescription(name="Rough Milling", required=True)
     )
-    host = Host()
+    host = stub_session()
     host.experiment = experiment
     ctx = AutoLamellaAppContext(host)
 
@@ -409,11 +403,11 @@ def test_requeue_task_reruns_a_completed_pair(experiment, microscope):
     assert idle["queued"] is False
     assert "no workflow is running" in idle["reason"]
 
-    manager = TaskManager(microscope, experiment, parent_ui=None)
+    manager = TaskManager(microscope, experiment)
     manager.queue.build_from_matrix(
         ["Rough Milling"], [p.name for p in experiment.positions]
     )
-    host._task_manager = manager
+    host.runner.manager = manager
     name = experiment.positions[0].name
 
     # A pair still waiting runs once: asking again is refused, not queued twice.
@@ -422,7 +416,7 @@ def test_requeue_task_reruns_a_completed_pair(experiment, microscope):
     assert waiting["error_type"] == "already_queued"
 
     first = next(i for i in manager.queue.items if i.item_name == name)
-    manager.queue.mark_done(first, AutoLamellaTaskStatus.Completed)
+    manager.queue.mark_done(first, TaskStatus.Completed)
     before = len(manager.queue.items)
     queued = ctx.requeue_task(name, "Rough Milling")
     assert queued["queued"] is True
@@ -443,13 +437,13 @@ def test_requeue_task_reruns_a_completed_pair(experiment, microscope):
 def test_queue_snapshot_uses_item_name_vocabulary(experiment, microscope):
     from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 
-    manager = TaskManager(microscope, experiment, parent_ui=None)
+    manager = TaskManager(microscope, experiment)
     names = [p.name for p in experiment.positions]
     manager.queue.build_from_matrix(["Task A", "Task B"], names)
 
-    host = Host()
+    host = stub_session()
     host.experiment = experiment
-    host._task_manager = manager
+    host.runner.manager = manager
     ctx = AutoLamellaAppContext(host)
 
     queue = ctx.queue()
@@ -458,7 +452,7 @@ def test_queue_snapshot_uses_item_name_vocabulary(experiment, microscope):
     first = queue["items"][0]
     assert set(first) == {"id", "item_name", "task_name", "status"}
     assert "lamella_name" not in first  # the deprecated alias never crosses the wire
-    assert first["status"] == AutoLamellaTaskStatus.NotStarted.name
+    assert first["status"] == TaskStatus.NotStarted.name
     assert queue["version"] == manager.queue.version
     _assert_json_safe(queue)
 
@@ -467,43 +461,29 @@ def test_queue_snapshot_uses_item_name_vocabulary(experiment, microscope):
     assert status["workflow"]["current_task"] is None  # nothing running
 
 
-def test_stage_position_reads_the_cache_only(microscope):
-    host = Host()
-    host.microscope = microscope
-    ctx = AutoLamellaAppContext(host)
-
-    microscope.get_stage_position()  # populate the cache, as the app would
-    cached = ctx.stage_position()
-    assert cached["available"] is True
-    _assert_json_safe(cached)
-
-    # The facade must not have issued a hardware read itself: poking the cache
-    # attribute directly proves which side it reads from.
-    microscope._stage_position = None
-    assert ctx.stage_position() == {"available": False, "position": None}
-
-
 def test_recent_experiments_is_json_safe():
-    ctx = AutoLamellaAppContext(Host())
+    ctx = AutoLamellaAppContext(stub_session())
     _assert_json_safe(ctx.recent_experiments())
 
 
 def test_edit_queue_removes_or_moves_a_waiting_pair(experiment, microscope):
-    from fibsem.applications.autolamella.server.events import EventBuffer
     from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
+    from fibsem.workflows.events import EventBuffer
 
-    host = Host()
+    host = stub_session()
     host.experiment = experiment
     buffer = EventBuffer()
+    # The App Server's stream, which the runner records queue edits to.
+    host.app_server = SimpleNamespace(event_buffer=buffer, running=False)
     ctx = AutoLamellaAppContext(host, event_buffer=buffer)
     first, second = (p.name for p in experiment.positions[:2])
 
     # No run, no queue: a structured refusal.
     assert ctx.edit_queue(first, "Rough Milling", "remove")["applied"] is False
 
-    manager = TaskManager(microscope, experiment, parent_ui=None)
+    manager = TaskManager(microscope, experiment)
     manager.queue.build_from_matrix(["Rough Milling"], [first, second])
-    host._task_manager = manager
+    host.runner.manager = manager
 
     running = manager.queue.next()
     assert running.item_name == first
@@ -532,6 +512,28 @@ def test_edit_queue_removes_or_moves_a_waiting_pair(experiment, microscope):
     bad = ctx.edit_queue(second, "Rough Milling", "shuffle")
     assert bad["error_type"] == "invalid"
     assert "remove" in bad["action_names"]
+
+
+def test_edit_queue_keeps_the_grid_load_step(experiment, microscope):
+    """FIB-1454: the server refuses what the timeline refuses."""
+    from fibsem.workflows.grid.manager import (
+        LOAD_ENTRY_NAME,
+        GridTaskManager,
+    )
+
+    host = stub_session()
+    host.experiment = experiment
+    ctx = AutoLamellaAppContext(host)
+    manager = GridTaskManager(microscope, experiment)
+    manager.queue.build_from_pairs(
+        [("grid-1", LOAD_ENTRY_NAME), ("grid-1", "Overview")]
+    )
+    host.runner.manager = manager
+
+    refused = ctx.edit_queue("grid-1", LOAD_ENTRY_NAME, "remove")
+
+    assert refused["applied"] is False and refused["error_type"] == "fixed"
+    assert [i.task_name for i in manager.queue.pending] == [LOAD_ENTRY_NAME, "Overview"]
 
 
 def test_item_version_changes_when_a_pose_moves(experiment):

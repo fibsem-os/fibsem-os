@@ -6,11 +6,8 @@ import time
 
 import pytest
 
+from fibsem.acting import AGENT, OPERATOR, SCRIPT, WORKFLOW
 from fibsem.control import (
-    AGENT,
-    OPERATOR,
-    SCRIPT,
-    WORKFLOW,
     Control,
     MicroscopeBusy,
     lending,
@@ -173,3 +170,83 @@ def test_last_is_the_most_recent_take_and_outlives_release():
             with control.take(AGENT, "move"):
                 pass
     assert control.last.by == WORKFLOW  # a refused take is not a take
+
+
+def _opened(control, by, action):
+    """A long command's control, as the App Server keeps it: taken, then let
+    its starter act beside it."""
+    taking = control.take(by, action)
+    entry = taking.__enter__()
+    control.let_act_beside(entry)
+    return taking
+
+
+def test_the_starter_of_a_long_command_acts_beside_it_one_action_at_a_time():
+    control = Control()
+    mill = _opened(control, AGENT, "milling run_stage")
+    with control.take(AGENT, "FIB · Take an image") as image:
+        assert control.last is image
+        assert control.current.action == "milling run_stage"
+        with pytest.raises(MicroscopeBusy) as refused:
+            with control.take(AGENT, "Stage · Move"):
+                pass
+        assert refused.value.in_control.action == "FIB · Take an image"
+    for other in (OPERATOR, WORKFLOW):
+        with pytest.raises(MicroscopeBusy):
+            with control.take(other, "acquire"):
+                pass
+    mill.__exit__(None, None, None)
+    assert control.current is None
+    # A command not opened is acted beside by nobody.
+    with control.take(AGENT, "move"):
+        with pytest.raises(MicroscopeBusy):
+            with control.take(AGENT, "image"):
+                pass
+
+
+def test_a_long_command_ends_after_what_acts_beside_it():
+    control = Control()
+    mill = _opened(control, AGENT, "milling run_stage")
+    beside = threading.Event()
+    order = []
+
+    def image():
+        with control.take(AGENT, "image"):
+            beside.set()
+            time.sleep(0.2)
+            order.append("image done")
+
+    thread = threading.Thread(target=image)
+    thread.start()
+    assert beside.wait(5)
+    mill.__exit__(None, None, None)
+    order.append("mill released")
+    thread.join(5)
+    assert order == ["image done", "mill released"]
+    assert control.current is None
+
+
+def test_a_run_lending_control_waits_for_the_agent_s_mill():
+    """The run's question ends while the agent's mill goes on: the run waits
+    for the mill, not only for the request that started it."""
+    control = Control()
+    released = threading.Event()
+    order = []
+
+    with control.take(WORKFLOW, "run"):
+        with control.lend():
+            mill = _opened(control, AGENT, "milling run_stage")
+            with control.take(AGENT, "image"):  # beside the mill, not refused
+                pass
+
+            def end_mill():
+                time.sleep(0.2)
+                order.append("mill ended")
+                mill.__exit__(None, None, None)
+                released.set()
+
+            threading.Thread(target=end_mill).start()
+        order.append("run carries on")
+        assert control.current.by == WORKFLOW
+    assert released.wait(5)
+    assert order == ["mill ended", "run carries on"]

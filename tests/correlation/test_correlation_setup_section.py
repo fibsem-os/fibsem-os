@@ -23,6 +23,7 @@ from fibsem.correlation.structures import (
     PointType,
     PointXYZ,
 )
+from fibsem.fm.structures import EmissionFilter
 from fibsem.structures import FibsemImage, Point
 from fibsem.ui.correlation.widgets.correlation_setup_section import (
     SEED_NONE,
@@ -31,15 +32,6 @@ from fibsem.ui.correlation.widgets.correlation_setup_section import (
     CorrelationSetupSection,
     format_run_timestamp,
 )
-
-
-@pytest.fixture(autouse=True)
-def _no_lut_download(monkeypatch):
-    """Never hit the network for the zeta LUT during widget construction."""
-    import fibsem.ui.correlation.widgets.refractive_index_widget as riw
-
-    monkeypatch.setattr(riw, "_ensure_lut", lambda: None)
-
 
 OLD = "2026-07-20_09-00-00"
 NEW = "2026-07-24_14-32-00"
@@ -221,7 +213,7 @@ def test_manual_edits_prompt_before_reseeding(qapp, monkeypatch):
 
     # user drags the seeded point
     w.data.fib_coordinates[0].point.x = 111.0
-    assert w._has_manual_edits()
+    assert w.session.has_manual_edits()
 
     monkeypatch.setattr(
         ctw.QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Cancel)
@@ -249,7 +241,7 @@ def _fm_image(nz=11, pixel_size_z=200e-9):
     ch = FluorescenceChannelMetadata(
         name="GFP",
         excitation_wavelength=488.0,
-        emission_wavelength=520.0,
+        emission_filter=EmissionFilter("520 nm", low=520.0),
         power=0.3,
         exposure_time=0.05,
         gain=1.5,

@@ -14,6 +14,10 @@ widget deciding for itself whether it may.
 * **A run lends control during a question.** While the workflow waits on an
   answer, whoever answers may act, one action at a time; when the question
   ends, the run waits for that action to finish and carries on.
+* **A long command can be acted beside.** A mill the App Server runs on holds
+  control until it ends, so a run lending control waits for it too. Whoever
+  started it may still act beside it, one action at a time (an image during a
+  coincidence mill, or a move, however unwise): ``let_act_beside``.
 
 Lives on the microscope (``microscope.control``), not in the app, so headless
 runs, scripts and the bench server share it.
@@ -27,17 +31,9 @@ from typing import Dict, Iterator, List, Optional
 
 from psygnal import Signal
 
-from fibsem.acting import AGENT, OPERATOR
-
-# Who can be in control, beside the actors fibsem.acting already names.
-WORKFLOW = "workflow"
-SCRIPT = "script"
+from fibsem.acting import OPERATOR, ActorKind
 
 __all__ = [
-    "AGENT",
-    "OPERATOR",
-    "SCRIPT",
-    "WORKFLOW",
     "Control",
     "InControl",
     "MicroscopeBusy",
@@ -49,7 +45,7 @@ __all__ = [
 class InControl:
     """Who is in control, doing what, since when (epoch seconds)."""
 
-    by: str
+    by: ActorKind
     action: str
     since: float
 
@@ -89,6 +85,10 @@ class Control:
         self._owner_thread: Optional[int] = None
         self._lent = False
         self._borrower: Optional[InControl] = None
+        # The holder its own actor may act beside (`let_act_beside`), and the
+        # action beside it.
+        self._open: Optional[InControl] = None
+        self._beside: Optional[InControl] = None
         # The last take, owner or borrower, kept after release: an action that
         # starts something and returns (start_milling) has let go of control
         # while what it started runs on (FIB-1267's Stop agent).
@@ -109,34 +109,47 @@ class Control:
             return self._last
 
     @contextmanager
-    def take(self, by: str, action: str) -> Iterator[InControl]:
+    def take(self, by: "ActorKind | str", action: str) -> Iterator[InControl]:
         """Be in control for the block, or raise :class:`MicroscopeBusy` at once.
 
         While the one in control has lent it (a question is standing), the take
-        borrows instead: it succeeds if nobody else has borrowed it.
+        borrows instead: it succeeds if nobody else has borrowed it. While the
+        holder is open to its own actor (`let_act_beside`), that actor's take
+        acts beside it.
         """
+        by = ActorKind(by)
         entry = InControl(by=by, action=action, since=time.time())
         with self._cond:
+            holder = self._borrower or self._owner
+            beside = borrowed = False
             if self._owner is None:
-                borrowed = False
                 self._owner = entry
                 self._owner_thread = threading.get_ident()
-                self._note_operator(by)
             elif self._lent and self._borrower is None:
                 borrowed = True
                 self._borrower = entry
-                self._note_operator(by)
+            elif holder is self._open and holder.by == by and self._beside is None:
+                beside = True
+                self._beside = entry
             else:
-                raise MicroscopeBusy(self._borrower or self._owner)
+                raise MicroscopeBusy(self._beside or holder)
+            self._note_operator(by)
             self._last = entry
-        if not borrowed:
+        if not (borrowed or beside):
             _remember(self._owner_thread, self)
         self.changed.emit(entry)
         try:
             yield entry
         finally:
             with self._cond:
-                if borrowed:
+                if self._open is entry:
+                    self._open = None
+                    # What acts beside it ends first: nobody takes over mid-action.
+                    while self._beside is not None:
+                        self._cond.wait()
+                if beside:
+                    self._beside = None
+                elif borrowed:
                     self._borrower = None
                 else:
                     _forget(self._owner_thread, self)
@@ -147,6 +160,14 @@ class Control:
                 self._cond.notify_all()
                 now = self._borrower or self._owner
             self.changed.emit(now)
+
+    def let_act_beside(self, entry: InControl) -> None:
+        """Let *entry*'s actor take control beside it while it holds it, one
+        action at a time: for a long command that runs on after its request
+        (`fibsem.devices.runs`), whose starter may image or move during it."""
+        with self._cond:
+            if entry is (self._borrower or self._owner):
+                self._open = entry
 
     @contextmanager
     def lend(self) -> Iterator[None]:

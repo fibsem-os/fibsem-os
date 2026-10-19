@@ -27,27 +27,11 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskStatus,
-    Experiment,
-    GridRecord,
-    Verdict,
-)
-from fibsem.applications.autolamella.task_outputs import latest_grid_output
+from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.ui.lamella_list_widget import (
     VERDICT_LOOK,
     add_verdict_actions,
     mark_current_verdict,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-    EXCHANGE_ENTRY_NAMES as _EXCHANGE_ENTRY_NAMES,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-    LOAD_ENTRY_NAME as _LOAD_ENTRY_NAME,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-    NAME_FIXED_REASON,
-    grid_has_run,
 )
 from fibsem.config import CARD_MODES, MODE_COMPACT, MODE_COZY, MODE_STANDARD
 from fibsem.structures import GridInventoryEntry, GridSlotState
@@ -66,6 +50,17 @@ from fibsem.ui.tokens import (
 )
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, chip
 from fibsem.ui.widgets.sample_loader_widget import ICON_LOAD, ICON_UNLOAD
+from fibsem.workflows.grid.manager import (
+    EXCHANGE_ENTRY_NAMES as _EXCHANGE_ENTRY_NAMES,
+)
+from fibsem.workflows.grid.manager import (
+    LOAD_ENTRY_NAME as _LOAD_ENTRY_NAME,
+)
+from fibsem.workflows.grid.naming import NAME_FIXED_REASON, grid_has_run
+from fibsem.workflows.grids import GridRecord
+from fibsem.workflows.outputs import latest_item_output
+from fibsem.workflows.quality import Verdict
+from fibsem.workflows.status import TaskStatus
 
 _CARD_WIDTH = 300
 _THUMB_PADDING = 6
@@ -120,26 +115,11 @@ def grid_headline(grid: GridRecord) -> Tuple[str, str]:
     says nothing, rather than "Not run" on every grid of a fresh magazine.
     """
     state = grid.task_state
-    if state.status is AutoLamellaTaskStatus.InProgress:
+    if state.status is TaskStatus.InProgress:
         return f"Running {state.name}", ACCENT_COLOR
     history = grid.task_history
     if not history:
         return "", NEUTRAL_550
-    # A task waiting on a decision is the grid's news whichever run it came
-    # from: a run that moved on and came back loads the grid again, and the
-    # waiting task sits before that load. Named, since there is one thing to do.
-    waiting = [
-        name
-        for name in dict.fromkeys(t.name for t in history)
-        if name not in _EXCHANGE_ENTRY_NAMES and grid.is_awaiting_decision(name)
-    ]
-    if waiting:
-        return (
-            f"{waiting[0]} awaits a decision"
-            if len(waiting) == 1
-            else f"{len(waiting)} tasks await a decision",
-            stylesheets.DEFECT_ORANGE_COLOR,
-        )
     start = 0
     for i in range(len(history) - 1, -1, -1):
         if history[i].name == _LOAD_ENTRY_NAME:
@@ -147,12 +127,12 @@ def grid_headline(grid: GridRecord) -> Tuple[str, str]:
             break
     load = history[start] if history[start].name == _LOAD_ENTRY_NAME else None
     tasks = [t for t in history[start:] if t.name not in _EXCHANGE_ENTRY_NAMES]
-    if load is not None and load.status is AutoLamellaTaskStatus.Failed:
+    if load is not None and load.status is TaskStatus.Failed:
         return "Load failed", ERROR_COLOR
     if not tasks:
         return "", NEUTRAL_550
-    failed = sum(1 for t in tasks if t.status is AutoLamellaTaskStatus.Failed)
-    cancelled = sum(1 for t in tasks if t.status is AutoLamellaTaskStatus.Cancelled)
+    failed = sum(1 for t in tasks if t.status is TaskStatus.Failed)
+    cancelled = sum(1 for t in tasks if t.status is TaskStatus.Cancelled)
     if failed:
         return f"{failed} task{'s' if failed != 1 else ''} failed", ERROR_COLOR
     if cancelled:
@@ -179,7 +159,7 @@ def _stamp(path: str) -> Optional[tuple]:
 def grid_thumbnail_path(experiment: Experiment, grid: GridRecord) -> Optional[str]:
     """The latest overview thumbnail a run recorded for the grid, SEM first."""
     for role in _THUMBNAIL_ROLES:
-        path = latest_grid_output(experiment, grid, role)
+        path = latest_item_output(experiment, grid, role)
         if path is not None:
             return path
     return None

@@ -4,11 +4,10 @@ from dataclasses import dataclass
 from typing import ClassVar, Literal, Optional, Type
 
 from fibsem import utils
-from fibsem.applications.autolamella.proposals import STATE
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
-from fibsem.applications.autolamella.workflows.ui import ask_user
 from fibsem.structures import param
+from fibsem.workflows.proposals import STATE
 
 
 @dataclass
@@ -45,22 +44,15 @@ class AcquireReferenceImageTask(AutoLamellaTask):
         self._move_to_milling_pose()
 
         msg = f"Acquire reference image for {self.lamella.name}. Press Continue when ready."
-        if getattr(self.task_manager, "review_enabled", False):
-            # The question on the record: the position as arrived at is the
-            # proposal, Continue confirms it, and the position as it stands
-            # then is the decision -- so a move made first is the delta.
-            self.ask(
-                STATE,
-                {"stage_position": self.microscope.get_stage_position()},
-                message=msg,
-                decided=lambda: {
-                    "stage_position": self.microscope.get_stage_position()
-                },
-            )
-        elif self.validate:
-            # The prompt as it has always been, kept as it is while the review
-            # preference is off.
-            ask_user(self.parent_ui, msg=msg, pos="Continue")
+        # The question on the record: the position as arrived at is the
+        # proposal, Continue confirms it, and the position as it stands then is
+        # the decision -- so a move made first is the delta.
+        self.ask(
+            STATE,
+            {"stage_position": self.microscope.get_stage_position()},
+            message=msg,
+            decided=lambda: {"stage_position": self.microscope.get_stage_position()},
+        )
 
         # bookkeeping
         image_settings = self.config.imaging

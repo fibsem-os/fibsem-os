@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from fibsem.correlation import correlation_v2
+from fibsem.correlation import fit, solver
 from fibsem.correlation.geometry import (
     NominalTransform,
     NominalTransformError,
@@ -162,36 +162,27 @@ def test_mirror_is_a_proper_rotation_on_the_other_branch():
     assert branch_of(mirror.rotation, nominal)[0] == "mirror"
 
 
-def test_eulers_round_trip_through_pyto():
-    from fibsem.correlation.pyto.rigid_3d import Rigid3D
+def test_eulers_round_trip():
+    from fibsem.correlation.solver import rotation_from_eulers_deg
 
     nominal = _nominal(ENTRIES[0])
-    ck = Rigid3D.euler_to_ck(np.radians(nominal.eulers_deg()), mode="x")
-    rebuilt = Rigid3D.make_r_ck(ck)
+    rebuilt = rotation_from_eulers_deg(nominal.eulers_deg())
     assert rotation_angle_deg(rebuilt, nominal.rotation) < 1e-6
 
 
 # ── seeding the solver ────────────────────────────────────────────────────
 
 
-# One METEOR entry settles in a worse local minimum (rms 17.5 px, 7.3 elsewhere)
-# under the oldest scipy the CI matrix runs (the Windows 3.8 job); the branch
-# and angle checks above still hold there, so the seed did its job. Seen twice.
-_LOOSE_RMS_PX = {"meteor-salmonella-01-sweet-swan-2026-08-18_13-01-06": 20.0}
-
-
 @pytest.mark.parametrize("entry", ENTRIES, ids=IDS)
 def test_seeded_fit_finds_the_saved_solution(entry):
     nominal = _nominal(entry)
     fib, fm = _isotropic_coords(entry, nominal)
-    rotation, scale, rms = correlation_v2._fit_from_seed(
-        fm, fib, nominal.eulers_deg(), nominal.scale
-    )
+    rotation, scale, rms = fit._fit_from_seed(fm, fib, nominal.rotation, nominal.scale)
     assert branch_of(rotation, nominal)[0] == "nominal"
     assert rotation_angle_deg(rotation, _fitted_rotation(entry)) < 8.0
     # the saved fits were on raw slices (bar the interpolated Arctis one), so their
     # RMS is only a loose reference; what matters is that the seed converged
-    assert rms < max(3 * entry["fit"]["rms"], 6.0, _LOOSE_RMS_PX.get(entry["name"], 0))
+    assert rms < max(3 * entry["fit"]["rms"], 6.0)
 
 
 @pytest.mark.parametrize("entry", ENTRIES, ids=IDS)
@@ -199,20 +190,18 @@ def test_mirror_seed_finds_the_mirror_branch(entry):
     nominal = _nominal(entry)
     fib, fm = _isotropic_coords(entry, nominal)
     mirror = nominal.mirrored()
-    rotation, _, _ = correlation_v2._fit_from_seed(
-        fm, fib, mirror.eulers_deg(), mirror.scale
-    )
+    rotation, _, _ = fit._fit_from_seed(fm, fib, mirror.rotation, mirror.scale)
     assert branch_of(rotation, nominal)[0] == "mirror"
 
 
 def test_correlate_rejects_a_malformed_seed():
-    with pytest.raises(ValueError, match="rotation_init"):
-        correlation_v2.correlate(
+    with pytest.raises(ValueError, match="3x3"):
+        solver.correlate(
             markers_3d=np.zeros((3, 3)),
             markers_2d=np.zeros((3, 2)),
             poi_3d=np.zeros((0, 3)),
             rotation_center=(0, 0, 0),
-            optimiser_params={"rotation_init": 45.0, "random_rotations": False},
+            seed=(np.array([0.0, 45.0, 0.0]), 1.0),
         )
 
 
@@ -308,7 +297,7 @@ def test_run_seeds_when_the_images_carry_geometry():
     assert result.branch_check["angle_to_nominal_deg"] < 8.0
     # raw slices were scaled to xy pixels for the fit
     assert result.fm_z_scale == pytest.approx(nominal.z_anisotropy)
-    assert branch_of(np.asarray(result.rotation_quaternion), nominal)[0] == "nominal"
+    assert branch_of(np.asarray(result.rotation_matrix), nominal)[0] == "nominal"
     # depth per *slice*, back in the picked stack's units, on the fit's z column
     dz = result.dimage_dz_px_per_slice
     assert dz[1] == pytest.approx(nominal.dimage_dz_px_per_slice[1], rel=0.2)
@@ -357,7 +346,7 @@ def test_an_unseeded_fit_keeps_the_better_branch_whatever_the_draw(index):
 
 
 def test_the_mirror_warning_is_for_branches_within_a_quarter():
-    warn = correlation_v2._unseeded_mirror_warning
+    warn = fit._unseeded_mirror_warning
     assert warn(10.0, None) is None  # no mirror solved
     assert warn(10.0, 12.4).startswith("The mirror branch fits nearly as well")
     assert warn(10.0, 12.6) is None  # more than 25 % apart: the points decide
@@ -386,7 +375,7 @@ def test_pre_correction_scales_with_the_stack():
 
 
 def run(data: CorrelationInputData, nominal) -> CorrelationResult:
-    return correlation_v2.run_correlation_from_data(data, nominal=nominal)
+    return fit.run_correlation_from_data(data, nominal=nominal)
 
 
 # ── refusing to guess ─────────────────────────────────────────────────────

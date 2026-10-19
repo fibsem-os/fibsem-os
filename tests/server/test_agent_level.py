@@ -2,6 +2,7 @@
 notes, Drive acts on the session and, with the devices service on, on the
 microscope (FIB-1267). The dashboard's token ignores the level."""
 
+import json
 import os
 
 import pytest
@@ -14,16 +15,19 @@ from psygnal.containers import EventedDict  # noqa: E402
 
 from fibsem import utils  # noqa: E402
 from fibsem.acting import AGENT as AGENT_ACTOR  # noqa: E402
-from fibsem.acting import current_actor  # noqa: E402
+from fibsem.acting import (
+    WORKFLOW,
+    current_actor,  # noqa: E402
+)
+from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.control import WORKFLOW  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.auth import AgentLevel  # noqa: E402
 from fibsem.structures import MicroscopeState  # noqa: E402
+from tests.run_state import stub_session
 
 AGENT = {"Authorization": "Bearer agent"}
 STOP_MILLING = "/microscope/services/milling/commands/stop"
@@ -47,13 +51,6 @@ _NUDGE = {
 DASHBOARD = {"Authorization": "Bearer dashboard"}
 
 
-class Host:
-    experiment = None
-    microscope = None
-    _task_manager = None
-    is_workflow_running = False
-
-
 @pytest.fixture(scope="module")
 def microscope():
     os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
@@ -70,7 +67,7 @@ def auth():
 
 @pytest.fixture
 def client(tmp_path, microscope, auth):
-    host = Host()
+    host = stub_session()
     exp = Experiment(path=tmp_path / "exp", name="level-exp")
     exp.task_protocol = AutoLamellaTaskProtocol()
     (tmp_path / "exp").mkdir(parents=True, exist_ok=True)
@@ -96,7 +93,7 @@ def test_watch_reads_and_notes_but_acts_on_nothing(client):
     capabilities = client.get("/capabilities", headers=AGENT).json()
     assert capabilities["level"] == "watch"
     assert client.get("/app/workflow/status", headers=AGENT).status_code == 200
-    note = client.post("/app/agent/notes", headers=AGENT, json={"text": "seen"})
+    note = client.post("/app/experiment/notes", headers=AGENT, json={"text": "seen"})
     assert note.status_code == 200
 
     for path in ("/app/workflow/stop", STOP_MILLING, "/app/workflow/prompt/answer"):
@@ -173,7 +170,7 @@ def test_off_refuses_the_agent_everything_but_not_the_dashboard(client, auth):
         ("GET", "/capabilities"),
         ("GET", "/app/workflow/status"),
         ("GET", "/microscope/devices/stage/position"),
-        ("POST", "/app/agent/notes"),
+        ("POST", "/app/experiment/notes"),
     ):
         response = client.request(method, path, headers=AGENT, json={"text": "x"})
         assert response.status_code == 403, path
@@ -384,16 +381,21 @@ def test_a_direct_call_is_described_and_recorded(client, auth, microscope):
     try:
         assert client.post(MOVE_RELATIVE, headers=named, json=_NUDGE).status_code == 200
         assert client.post(MOVE_RELATIVE, headers=AGENT, json=_NUDGE).status_code == 200
-        # A read is not on the record.
+        # A read is not on the record, nor a query posted (sim session
+        # 2026-10-16 F2: describing a request filled Recent with these).
         assert client.get("/app/workflow/status", headers=AGENT).status_code == 200
+        query = "/microscope/services/stage_movement/queries/geometry"
+        assert client.post(query, headers=AGENT, json={"kwargs": {}}).status_code < 500
     finally:
         microscope.session.record_signal.disconnect(record)
         microscope.control.changed.disconnect(control)
-    assert actions == ["Stage · Move by x 1 µm", "move relative"]
+    # Read from where the stage is: ", from x ..." (sim session 2026-10-16).
+    assert actions[0].startswith("Stage · Move 1 µm in x, from x ")
+    assert actions[1] == "move relative"
     calls = [p for kind, p in recorded if kind == "agent_called"]
+    assert calls[0].pop("action") == actions[0]
     assert calls == [
         {
-            "action": "Stage · Move by x 1 µm",
             "route": f"POST {MOVE_RELATIVE}",
             "status": 200,
             "ok": True,
@@ -430,3 +432,32 @@ def test_a_refused_request_at_watch_says_what_was_tried(client, auth, microscope
     assert refused.status_code == 403
     refusal = next(p for kind, p in recorded if kind == "agent_refused")
     assert refusal["action"] == "file a request"
+
+
+def test_a_direct_call_reads_the_state_it_changes(client, auth, microscope):
+    """Sim session 2026-10-16 F7: a direct set read "Set hfw to 0.0003" in
+    Recent, where its request's card says the field of view, old -> new."""
+    auth.set_level(AgentLevel.DRIVE)
+    before = client.get("/microscope/devices/ion/hfw", headers=AGENT).json()["value"]
+    recorded = []
+
+    def record(kind, payload):
+        recorded.append((kind, payload))
+
+    arguments = {"device": "ion", "parameter": "hfw", "value": before * 2}
+    named = {
+        **AGENT,
+        "X-Agent-Tool": "device_set_parameter",
+        "X-Agent-Arguments": json.dumps(arguments),
+    }
+    microscope.session.record_signal.connect(record)
+    try:
+        answer = client.put(
+            "/microscope/devices/ion/hfw", headers=named, json={"value": before * 2}
+        )
+    finally:
+        microscope.session.record_signal.disconnect(record)
+    assert answer.status_code == 200, answer.text
+    (call,) = [p for kind, p in recorded if kind == "agent_called"]
+    assert call["action"].startswith("Ion · Set ")
+    assert "→" in call["action"] and "hfw" not in call["action"]

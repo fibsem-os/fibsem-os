@@ -10,6 +10,10 @@ overlay down on the GUI thread. ``SELECTED_POI`` is gone.
 The overlay lives on the main window's quad-view controller, so the fixture is
 the full offscreen ``AutoLamellaSingleWindowUI`` — same harness as the
 alignment-area tests.
+
+No workflow task sends this request any more: the point of interest is
+Select Position's result, proposed at the end of the task and decided on the
+record. The renderer stays while the request does, so these ask it directly.
 """
 
 import os
@@ -24,9 +28,11 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.workflows.tasks.status import Hold, HoldKind
-from fibsem.applications.autolamella.workflows.ui import select_poi_ui
+from fibsem.applications.autolamella.workflows.ui import _abort_requested
 from fibsem.structures import BeamType, Point
+from fibsem.workflows.interaction import PickPOI, ask
+from fibsem.workflows.status import Hold, HoldKind
+from tests.run_state import Stopped
 
 
 @pytest.fixture(scope="module")
@@ -68,8 +74,10 @@ def _pick_on_worker_thread(ui, qapp, image, initial=None, msg="Pick the point.")
 
     def target():
         try:
-            outcome["poi"] = select_poi_ui(
-                parent_ui=ui, image=image, msg=msg, validate=True, initial_poi=initial
+            outcome["poi"] = ask(
+                ui.ui_responder,
+                PickPOI(image=image, initial=initial, message=msg),
+                abort=lambda: _abort_requested(ui.session.runner),
             )
         except Exception as exc:  # noqa: BLE001 - the test inspects it
             outcome["error"] = exc
@@ -245,7 +253,9 @@ def test_the_prompt_serves_the_frame_the_view_shows(window, ui, qapp):
         thread, _ = _pick_on_worker_thread(ui, qapp, old)
         fetched = {}
         getter = threading.Thread(
-            target=lambda: fetched.update(AutoLamellaAppContext(ui).pending_prompt()),
+            target=lambda: fetched.update(
+                AutoLamellaAppContext(ui.session, window=ui).pending_prompt()
+            ),
             daemon=True,
         )
         getter.start()
@@ -285,12 +295,6 @@ def test_the_second_handshake_is_gone(ui, qapp):
     assert not hasattr(ui, "WAITING_FOR_UI_UPDATE")
 
 
-def test_no_image_or_no_validation_answers_none(ui):
-    assert select_poi_ui(parent_ui=ui, image=None) is None
-    assert select_poi_ui(parent_ui=None, image=_fib_image(ui)) is None
-    assert select_poi_ui(parent_ui=ui, image=_fib_image(ui), validate=False) is None
-
-
 def _pending_prompt_on_worker(ui, qapp):
     """Read the serialized prompt from a worker thread, as the server does.
 
@@ -299,7 +303,7 @@ def _pending_prompt_on_worker(ui, qapp):
     """
     from fibsem.applications.autolamella.server import AutoLamellaAppContext
 
-    ctx = AutoLamellaAppContext(ui)
+    ctx = AutoLamellaAppContext(ui.session, window=ui)
     outcome = {}
 
     def target():
@@ -348,7 +352,7 @@ def _answer_with_value_on_worker(ui, qapp, response, question_id, value):
     """Call AutoLamellaAppContext.answer_prompt from a worker thread, as the server does."""
     from fibsem.applications.autolamella.server import AutoLamellaAppContext
 
-    ctx = AutoLamellaAppContext(ui)
+    ctx = AutoLamellaAppContext(ui.session, window=ui)
     outcome = {}
 
     def target():
@@ -432,10 +436,10 @@ def test_an_out_of_bounds_point_is_refused_and_the_marker_stands(window, ui, qap
 def test_a_stop_interrupts_a_pick_nobody_confirms(ui, qapp):
     thread, outcome = _pick_on_worker_thread(ui, qapp, _fib_image(ui))
 
-    ui._workflow_stop_event.set()
+    ui.session.runner.manager = Stopped()
     try:
         _finish(thread, qapp)
     finally:
-        ui._workflow_stop_event.clear()
+        ui.session.runner.manager = None
 
     assert isinstance(outcome.get("error"), InterruptedError)

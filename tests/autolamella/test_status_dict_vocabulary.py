@@ -12,12 +12,12 @@ import pytest
 
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     Experiment,
     Lamella,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.hooks import HookContext
+from fibsem.workflows.status import TaskStatus
 
 
 class _FakeSignal:
@@ -29,10 +29,17 @@ class _FakeSignal:
 
 
 class _FakeUI:
-    """Just enough parent_ui for _emit_status: it only touches this one signal."""
+    """Hears the run's ``status`` as the window does, which is all
+    _emit_status says on."""
 
-    def __init__(self) -> None:
+    def __init__(self, manager: TaskManager) -> None:
         self.workflow_status_signal = _FakeSignal()
+        manager.status.connect(self.workflow_status_signal.emit)
+
+
+def _listened(manager: TaskManager) -> TaskManager:
+    manager.ui = _FakeUI(manager)
+    return manager
 
 
 @pytest.fixture
@@ -42,10 +49,11 @@ def manager(tmp_path: Path) -> TaskManager:
 
     experiment = Experiment(path=tmp_path, name="test-exp")
     experiment.task_protocol = AutoLamellaTaskProtocol()
-    return TaskManager(
-        microscope=_NoMicroscope(),
-        experiment=experiment,
-        parent_ui=_FakeUI(),
+    return _listened(
+        TaskManager(
+            microscope=_NoMicroscope(),
+            experiment=experiment,
+        )
     )
 
 
@@ -55,9 +63,9 @@ def _emit(manager: TaskManager, name: str = "lam-1") -> dict:
     manager._emit_status(
         item=items[0],
         lamella=lamella,
-        status=AutoLamellaTaskStatus.InProgress,
+        status=TaskStatus.InProgress,
     )
-    return manager.parent_ui.workflow_status_signal.payloads[-1].report
+    return manager.ui.workflow_status_signal.payloads[-1].report
 
 
 def test_the_status_dict_names_the_item_the_way_the_hook_does(manager: TaskManager):
@@ -66,13 +74,6 @@ def test_the_status_dict_names_the_item_the_way_the_hook_does(manager: TaskManag
     assert status.item_name == "lam-1"
     # the hook payload names it identically
     assert "item_name" in HookContext(event="task_started").__dict__
-
-
-def test_the_old_key_is_still_emitted_for_outside_consumers(manager: TaskManager):
-    """Same deprecation shape as the HookContext shims: emit both until v0.6."""
-    status = _emit(manager, name="lam-7")
-
-    assert status.lamella_name == status.item_name
 
 
 def test_the_positioning_fields_keep_their_names(manager: TaskManager):
@@ -86,7 +87,7 @@ def test_the_positioning_fields_keep_their_names(manager: TaskManager):
     """
     import dataclasses
 
-    from fibsem.applications.autolamella.workflows.tasks.status import (
+    from fibsem.workflows.status import (
         WorkflowStatusUpdate,
     )
 
@@ -96,4 +97,4 @@ def test_the_positioning_fields_keep_their_names(manager: TaskManager):
     # record (FIB-827). A stronger check than membership: a field cannot be present
     # on one emission and absent on another.
     fields = {f.name for f in dataclasses.fields(WorkflowStatusUpdate)}
-    assert {"lamella_names", "queue_position", "queue_total"} <= fields
+    assert {"queue_position", "queue_total"} <= fields

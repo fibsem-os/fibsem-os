@@ -15,9 +15,8 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QApplication, QMenu, QWidgetAction
 
-from fibsem import config as cfg
 from fibsem.fm import config as fm_config
-from fibsem.fm.structures import ChannelSettings
+from fibsem.fm.structures import REFLECTION, ChannelSettings, EmissionFilter
 from fibsem.ui.fm.widgets import channel_list_widget as clw
 
 
@@ -36,7 +35,10 @@ def recents_env():
 
 class _FakeFilterSet:
     available_excitation_wavelengths = [405.0, 488.0, 550.0]
-    available_emission_wavelengths = [450.0, 520.0]
+    available_emission_filters = [
+        EmissionFilter("450 nm", low=450.0),
+        EmissionFilter("520 nm", low=520.0),
+    ]
 
 
 class _FakeMicroscope:
@@ -51,7 +53,9 @@ class _FakeFM:
 
 def _widget(qapp):
     channel = ChannelSettings(
-        name="Channel-01", excitation_wavelength=405.0, emission_wavelength=450.0
+        name="Channel-01",
+        excitation_wavelength=405.0,
+        emission_filter=EmissionFilter("450 nm", low=450.0),
     )
     return clw.ChannelListWidget(fm=_FakeFM(), channel_settings=[channel])
 
@@ -72,25 +76,31 @@ def test_channel_available_matches_filter_set(qapp):
     w = _widget(qapp)
     assert w._channel_available(
         ChannelSettings(
-            name="GFP", excitation_wavelength=488.0, emission_wavelength=520.0
+            name="GFP",
+            excitation_wavelength=488.0,
+            emission_filter=EmissionFilter("520 nm", low=520.0),
         )
     )
     # emission None (reflection) is always allowed
     assert w._channel_available(
         ChannelSettings(
-            name="Refl", excitation_wavelength=405.0, emission_wavelength=None
+            name="Refl", excitation_wavelength=405.0, emission_filter=REFLECTION
         )
     )
     # excitation not on the filter set
     assert not w._channel_available(
         ChannelSettings(
-            name="Bad", excitation_wavelength=999.0, emission_wavelength=520.0
+            name="Bad",
+            excitation_wavelength=999.0,
+            emission_filter=EmissionFilter("520 nm", low=520.0),
         )
     )
     # emission not on the filter set
     assert not w._channel_available(
         ChannelSettings(
-            name="Bad", excitation_wavelength=405.0, emission_wavelength=999.0
+            name="Bad",
+            excitation_wavelength=405.0,
+            emission_filter=EmissionFilter("999 nm", low=999.0),
         )
     )
 
@@ -115,10 +125,14 @@ def test_menu_lists_new_channel_then_recents(qapp, monkeypatch):
     w = _widget(qapp)
     recents = [
         ChannelSettings(
-            name="GFP", excitation_wavelength=488.0, emission_wavelength=520.0
+            name="GFP",
+            excitation_wavelength=488.0,
+            emission_filter=EmissionFilter("520 nm", low=520.0),
         ),
         ChannelSettings(
-            name="Bad", excitation_wavelength=999.0, emission_wavelength=520.0
+            name="Bad",
+            excitation_wavelength=999.0,
+            emission_filter=EmissionFilter("520 nm", low=520.0),
         ),
     ]
     monkeypatch.setattr(clw, "load_recent_channels", lambda state: recents)
@@ -157,7 +171,9 @@ def test_new_channel_selected_adds_default(qapp):
 def test_recent_selected_adds_copy_and_uniquifies_name(qapp):
     w = _widget(qapp)  # already contains "Channel-01"
     recent = ChannelSettings(
-        name="Channel-01", excitation_wavelength=405.0, emission_wavelength=450.0
+        name="Channel-01",
+        excitation_wavelength=405.0,
+        emission_filter=EmissionFilter("450 nm", low=450.0),
     )
     before = w._list.count()
     w._on_recent_selected(QMenu(), recent)
@@ -178,10 +194,14 @@ def test_recent_removed_updates_store(qapp, recents_env):
     fm_config.record_recent_channels(
         [
             ChannelSettings(
-                name="GFP", excitation_wavelength=488.0, emission_wavelength=520.0
+                name="GFP",
+                excitation_wavelength=488.0,
+                emission_filter=EmissionFilter("520 nm", low=520.0),
             ),
             ChannelSettings(
-                name="DAPI", excitation_wavelength=405.0, emission_wavelength=450.0
+                name="DAPI",
+                excitation_wavelength=405.0,
+                emission_filter=EmissionFilter("450 nm", low=450.0),
             ),
         ],
         recents_env,
@@ -203,7 +223,9 @@ def test_removing_last_recent_empties_store(qapp, recents_env):
     w = _widget(qapp)
     fm_config.record_recent_channels(
         ChannelSettings(
-            name="GFP", excitation_wavelength=488.0, emission_wavelength=520.0
+            name="GFP",
+            excitation_wavelength=488.0,
+            emission_filter=EmissionFilter("520 nm", low=520.0),
         ),
         recents_env,
     )

@@ -160,7 +160,12 @@ def test_the_moved_keys_are_the_ones_routed(recording, plasma, beam):
     gas = ["plasma_gas"] if plasma and beam == "ION" else []
     electron = beam == "ELECTRON"
     keys = ANGULAR_KEYS if electron else []
-    parameters = ["angular_correction", "tilt_correction"] if electron else []
+    # source tilt and lens alignment are new: no old key had them
+    parameters = (
+        ["angular_correction", "tilt_correction", "source_tilt", "lens_alignment"]
+        if electron
+        else []
+    )
     assert facts["routed"] == sorted(MOVED + gas + keys)
     # live is the beam's own (is a live view running), not an AutoScript key.
     assert facts["parameters"] == sorted(MOVED + gas + parameters + ["live"])

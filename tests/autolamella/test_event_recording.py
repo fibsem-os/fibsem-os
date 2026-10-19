@@ -15,8 +15,9 @@ from datetime import datetime
 import pytest
 
 from fibsem import utils
-from fibsem.applications.autolamella import event_recording
-from fibsem.applications.autolamella.event_recording import (
+from fibsem.structures import FibsemStagePosition
+from fibsem.workflows import event_recording
+from fibsem.workflows.event_recording import (
     EVENTS_FILENAME,
     EventFileWriter,
     EventRecorder,
@@ -24,8 +25,7 @@ from fibsem.applications.autolamella.event_recording import (
     read_events_before,
     read_new_events,
 )
-from fibsem.applications.autolamella.server.events import EventBuffer
-from fibsem.structures import FibsemStagePosition
+from fibsem.workflows.events import EventBuffer
 
 
 @pytest.fixture(scope="module")
@@ -60,15 +60,25 @@ def test_every_record_says_when_with_its_utc_offset():
 
 
 def test_a_stamp_adds_fields_but_cannot_replace_the_record_s_own():
-    buffer = EventBuffer(stamp=lambda kind, payload: {"where": kind, "seq": -1})
+    buffer = EventBuffer(stamp=lambda kind, payload, actor: {"where": kind, "seq": -1})
     buffer.append("thing", {"a": 1})
     (record,) = buffer.events_since(0)["events"]
     assert record["where"] == "thing"
     assert record["seq"] == 1 and record["payload"] == {"a": 1}
 
 
+def test_the_writer_s_actor_is_on_the_envelope_with_or_without_a_stamp():
+    # Who acted is the envelope's, never the payload's: an answer delivered on
+    # the GUI thread still names whoever answered.
+    for buffer in (EventBuffer(), EventBuffer(stamp=lambda kind, payload, actor: {})):
+        buffer.append("prompt_answered", {"question_id": 1}, actor="agent")
+        (record,) = buffer.events_since(0)["events"]
+        assert record["actor"] == "agent"
+        assert record["payload"] == {"question_id": 1}
+
+
 def test_a_failing_stamp_costs_the_stamp_not_the_event():
-    def stamp(kind, payload):
+    def stamp(kind, payload, actor):
         raise RuntimeError("no context")
 
     buffer = EventBuffer(stamp=stamp)
@@ -270,7 +280,7 @@ def test_each_event_says_where_in_the_run_it_happened(
             item_id="L1", item_name="01-lamella", task_id="T1", task_name="Mill"
         )
         recorder.buffer.append("inside", {})
-        recorder.buffer.append("prompt_answered", {"answered_by": "agent"})
+        recorder.buffer.append("prompt_answered", {}, actor="agent")
     finally:
         ref.clear_workflow_metadata()
         recorder.close()
@@ -609,8 +619,8 @@ def test_a_failing_subscriber_costs_the_record_not_the_acquisition(
 def test_a_tap_that_fails_never_reaches_the_emitting_thread(microscope):
     """psygnal hands a subscriber's exception back to the emitter -- for milling
     progress, the milling thread. The taps swallow their own failures."""
-    from fibsem.applications.autolamella.server.events import attach_microscope_taps
     from fibsem.milling.progress import MillingProgress, MillingProgressStatus
+    from fibsem.workflows.events import attach_microscope_taps
 
     class BrokenBuffer(EventBuffer):
         def append(self, kind, payload):
@@ -634,6 +644,7 @@ def test_a_task_records_its_steps_and_every_image_it_saved(tmp_path, microscope)
         SelectMillingPositionTask,
         SelectMillingPositionTaskConfig,
     )
+    from tests.autolamella._on_the_record import manager_for
 
     lamella = Lamella(path=tmp_path / "01-test", number=1, petname="test")
     lamella.path.mkdir(parents=True)
@@ -642,6 +653,7 @@ def test_a_task_records_its_steps_and_every_image_it_saved(tmp_path, microscope)
         microscope=microscope,
         config=SelectMillingPositionTaskConfig(use_autofocus=False),
         lamella=lamella,
+        task_manager=manager_for(microscope, lamella),
     )
     recorder = EventRecorder(microscope, experiment_path=tmp_path)
     try:

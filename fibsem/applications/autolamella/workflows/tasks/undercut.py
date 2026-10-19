@@ -8,7 +8,6 @@ import numpy as np
 
 from fibsem import config as fcfg
 from fibsem import constants
-from fibsem.applications.autolamella.proposals import DETECTION
 from fibsem.applications.autolamella.protocol.constants import UNDERCUT_KEY
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows._default_milling_config import (
@@ -18,6 +17,7 @@ from fibsem.applications.autolamella.workflows.core import align_feature_coincid
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.detection.detection import LamellaBottomEdge, LamellaCentre, LamellaTopEdge
 from fibsem.structures import BeamType, param
+from fibsem.workflows.proposals import DETECTION, MILLING
 
 
 @dataclass
@@ -48,10 +48,8 @@ class MillUndercutTask(AutoLamellaTask):
     """Task to mill the undercut for a lamella."""
 
     # Asked while it runs: the detections the stage moves follow, through
-    # ``detect`` (on the record with the review preference on, the Detection
-    # tab prompt without); then the milling session.
-    questions = (DETECTION,)
-    sessions = ("milling",)
+    # ``detect``, on the record; then the milling session.
+    questions = (DETECTION, MILLING)
 
     config: MillUndercutTaskConfig
     config_cls: ClassVar[Type[MillUndercutTaskConfig]] = MillUndercutTaskConfig
@@ -78,8 +76,7 @@ class MillUndercutTask(AutoLamellaTask):
             image_settings=image_settings,
             lamella=self.lamella,
             checkpoint=checkpoint,
-            parent_ui=self.parent_ui,
-            validate=self.validate,
+            run=self.task_manager,
             feature=feature,
             detect=self.detect,
         )

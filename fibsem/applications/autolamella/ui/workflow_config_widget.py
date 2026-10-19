@@ -18,7 +18,6 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.structures import (
-    Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
@@ -47,6 +46,7 @@ from fibsem.ui.tokens import (
     NEUTRAL_700,
 )
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, IconToolButton
+from fibsem.workflows.attention import Attention
 
 # The dependency column: present, but never competing with the name it belongs to.
 # Fixed width, so the entries line up down the list and the text elides inside it
@@ -94,30 +94,12 @@ class _DraggableTaskList(QListWidget):
         self.reordered.emit(tasks)
 
 
-def _review_available() -> bool:
-    """Whether the Review toggle exists at all: the propose-and-review flag.
-    Off, a stored ``review: true`` is not shown and not honoured."""
-    import fibsem.config as fibsem_cfg
-
-    try:
-        return bool(
-            fibsem_cfg.load_user_preferences().features.proposer_reviewer_workflow_enabled
-        )
-    except Exception:
-        return False
-
-
-def attention_state(
-    task: AutoLamellaTaskDescription,
-    review_available: Optional[bool] = None,
-) -> str:
+def attention_state(task: AutoLamellaTaskDescription) -> str:
     """Which of the chip's states the task is in: the one question the user
     has about a task, *when am I involved?*, read from the task's attention.
 
     There is no Agent state (FIB-1035): a supervised question goes to the
-    operator and any connected agent alike. ``review_available`` is accepted
-    and unused: the preference no longer changes what a task's attention reads
-    as.
+    operator and any connected agent alike.
     """
     if task.attention is Attention.supervised:
         return "supervised"
@@ -131,8 +113,8 @@ def _attention_chip(
 ) -> tuple[str, str, str]:
     """(label, colour, tooltip) for the chip: the word is the state, the
     colour is the mode's, and the tooltip says what the state means for this
-    task -- whether it needs you there while it runs, and what waits on you
-    afterwards -- when the task's type is known (``attendance``)."""
+    task -- whether it needs you there while it runs -- when the task's
+    type is known (``attendance``)."""
     label, colour, tip = _attention_chip_words(task, has_dependents)
     if attendance is not None:
         tip = f"{label} — {attendance.line} Click to change."
@@ -147,17 +129,13 @@ def _attention_chip_words(
     if state == "supervised":
         tip = (
             "Supervised — you decide. A question the task needs answered is "
-            "asked in the workflow, at the microscope; a result it leaves for "
-            "afterwards waits for your decision in the Review tab, and the "
-            "tasks that require it wait with it. Click to change."
-            if _review_available()
-            else "Supervised — asks you in the workflow, at the microscope; your "
-            "answer is the decision on the record. Click to change."
+            "asked while it runs, on the widget it is answered on, and the "
+            "run waits for your answer. Click to change."
         )
         return label, stylesheets.PRIMARY_COLOR, tip
     tip = (
-        "Automated — runs without anyone; what it did is listed in the Review "
-        "tab to check. Click to change."
+        "Automated — runs without anyone; what it did is recorded for you to "
+        "check. Click to change."
     )
     return label, stylesheets.AUTOMATED_COLOR, tip
 
@@ -172,7 +150,6 @@ def _requires_text(
     task: AutoLamellaTaskDescription,
     font: QFont,
     schedule: bool = True,
-    reviewed: Optional[set] = None,
 ) -> str:
     """What the task waits for, and when it is scheduled, sized to the
     column that holds them.
@@ -182,18 +159,13 @@ def _requires_text(
     dialog; the row only says when, in the same column, so a scheduled row
     is not a wider row.
 
-    ``reviewed`` names the tasks set to Review: a requirement on one of them
-    is a wait for a decision, and the row says so where the wait is felt --
-    "after review of Setup Lamella Position" -- so the reader of this row does
-    not need the rule.
-
     Elided rather than left to run. A task waiting on four others produced a
     label wider than the row, and Qt cut it off mid-word; the row's tooltip
     carries the full list.
     """
     parts = []
     if task.requires:
-        parts.append("after " + _requires_phrase(task.requires, reviewed or set()))
+        parts.append("after " + _requires_phrase(task.requires))
     if schedule and task.scheduled_at is not None:
         parts.append("at " + task.scheduled_at.strftime("%d %b %H:%M"))
     if not parts:
@@ -203,19 +175,14 @@ def _requires_text(
     )
 
 
-def _requires_phrase(requires: List[str], reviewed: set) -> str:
-    """The wait, said where it is felt: "review of Setup Lamella Position"
-    when what it waits for is reviewed. The marker leads, because task names
-    are long and the column elides the tail. A mixed list marks the reviewed
-    names: "Setup (reviewed), Fiducial"."""
-    if requires and all(r in reviewed for r in requires):
-        return "review of " + ", ".join(requires)
-    return ", ".join(f"{r} (reviewed)" if r in reviewed else r for r in requires)
+def _requires_phrase(requires: List[str]) -> str:
+    """The tasks a task waits for, as a row says them."""
+    return ", ".join(requires)
 
 
 class WorkflowTaskRowWidget(QWidget):
     """One task: its name, what it waits for, and one chip for when a person
-    is involved (Automated / Supervised / Review), plus schedule, edit, remove.
+    is involved (Automated / Supervised), plus schedule, edit, remove.
 
     The chip writes the task's ``attention`` and emits ``attention_changed``.
     """
@@ -281,7 +248,6 @@ class WorkflowTaskRowWidget(QWidget):
         self.btn_attention.setFocusPolicy(Qt.NoFocus)
         layout.addWidget(self.btn_attention)
         self._has_dependents = True
-        self._reviewed: set = set()
         self._attendance: Optional[Attendance] = None
         self._schedule_visible = True
 
@@ -314,8 +280,7 @@ class WorkflowTaskRowWidget(QWidget):
         self.refresh()
 
     def set_has_dependents(self, has_dependents: bool) -> None:
-        """Whether any later task requires this one. A Review state on a
-        task nothing requires gates nothing, and the row says so."""
+        """Whether any later task requires this one."""
         if has_dependents != self._has_dependents:
             self._has_dependents = has_dependents
             self.refresh()
@@ -325,13 +290,6 @@ class WorkflowTaskRowWidget(QWidget):
         the chip's tooltip and the row's, so the mode reads as what it does."""
         if attendance != self._attendance:
             self._attendance = attendance
-            self.refresh()
-
-    def set_reviewed(self, reviewed: set) -> None:
-        """The tasks set to Review, so a requirement on one reads as the wait
-        for a decision it is."""
-        if reviewed != self._reviewed:
-            self._reviewed = set(reviewed)
             self.refresh()
 
     def _on_attention_clicked(self) -> None:
@@ -354,7 +312,6 @@ class WorkflowTaskRowWidget(QWidget):
             self.task,
             self.requires_label.font(),
             self._schedule_visible,
-            self._reviewed,
         )
         self.requires_label.setText(requires)
         # The column only where there is something in it: on the rows without a
@@ -362,9 +319,7 @@ class WorkflowTaskRowWidget(QWidget):
         self.requires_label.setVisible(bool(requires))
         tips = []
         if self.task.requires:
-            tips.append(
-                "Requires: " + _requires_phrase(self.task.requires, self._reviewed)
-            )
+            tips.append("Requires: " + _requires_phrase(self.task.requires))
         if self.task.scheduled_at is not None and self._schedule_visible:
             tips.append(
                 "Scheduled: "
@@ -494,30 +449,23 @@ class WorkflowConfigWidget(QWidget):
         return row
 
     def _refresh_dependents(self) -> None:
-        """Tell each row whether a later task requires it: the fact the
-        Review state needs to be honest about."""
+        """Tell each row whether a later task requires it, and what its task
+        needs from a person."""
         tasks = self.get_tasks()
         required = {req for task in tasks for req in task.requires}
-        reviewed = (
-            {t.name for t in tasks if t.attention is Attention.supervised}
-            if _review_available()
-            else set()
-        )
         protocol = self._protocol
-        review_on = _review_available()
         for i in range(self._list.count()):
             row = self._row(i)
             row.set_has_dependents(row.task.name in required)
-            row.set_reviewed(reviewed)
             row.set_attendance(
-                attendance_for(protocol, row.task.name, review_on)
+                attendance_for(protocol, row.task.name)
                 if protocol is not None
                 else None
             )
 
     def _connect_row(self, row: WorkflowTaskRowWidget) -> None:
         row.attention_changed.connect(self.attention_changed)
-        # a task moving to or from Review changes what its consumers' rows say
+        # what the task needs from a person is said by its mode
         row.attention_changed.connect(lambda _t: self._refresh_dependents())
         row.edit_clicked.connect(self.edit_requested)
         row.selection_changed.connect(self._on_row_selection_changed)
@@ -533,11 +481,6 @@ class WorkflowConfigWidget(QWidget):
         self._btn_visible["supervise"] = visible
         for i in range(self._list.count()):
             self._row(i).btn_attention.setVisible(visible)
-
-    def enable_review_button(self, _visible: bool) -> None:
-        """The Review state is offered by the preference, not by a host; a
-        host that flips the preference re-reads the rows through here."""
-        self.refresh_all()
 
     def enable_edit_button(self, visible: bool) -> None:
         self._btn_visible["edit"] = visible

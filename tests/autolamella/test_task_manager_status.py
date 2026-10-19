@@ -19,14 +19,16 @@ import pytest
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskState,
     AutoLamellaWorkflowConfig,
     DefectType,
     Experiment,
     Lamella,
 )
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus as Status
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
+from fibsem.workflows.status import TaskState
+from fibsem.workflows.status import TaskStatus as Status
+from tests.proposal_records import set_proposals
+from tests.run_state import stub_session
 
 
 class RecordingUI:
@@ -38,11 +40,21 @@ class RecordingUI:
     one would take it out of CI, where PyQt5 is not installed.
     """
 
-    def __init__(self):
-        # Everything the workflow says arrives on workflow_status_signal now
-        # (the dict signal is gone).
+    def __init__(self, manager: TaskManager):
+        # Everything the run says arrives on its status, and who holds it on
+        # held: the window listens to both.
         self.workflow_status_signal = _Recorder()
-        self._task_manager = None  # _check_for_abort reads this
+        self.hold = None
+        manager.status.connect(self.workflow_status_signal.emit)
+        manager.held.connect(self._on_held)
+
+    def _on_held(self, hold) -> None:
+        self.hold = hold
+
+
+def _listened(manager: TaskManager) -> TaskManager:
+    manager.ui = RecordingUI(manager)
+    return manager
 
 
 class _Recorder:
@@ -74,9 +86,7 @@ def make_lamella(
     if is_failure:
         lamella.defect.state = DefectType.FAILURE
     for task_name in completed:
-        lamella.task_history.append(
-            AutoLamellaTaskState(name=task_name, status=Status.Completed)
-        )
+        lamella.task_history.append(TaskState(name=task_name, status=Status.Completed))
     experiment.positions.append(lamella)
     return lamella
 
@@ -125,7 +135,6 @@ def run_queue_with(manager: TaskManager, on_task=None):
             on_task(task_name, lamella)
         return None
 
-    manager.parent_ui._task_manager = manager
     manager._run_single_task = _run_single_task
     manager._run_queue()
     return executed
@@ -133,17 +142,18 @@ def run_queue_with(manager: TaskManager, on_task=None):
 
 @pytest.fixture
 def manager(tmp_path) -> TaskManager:
-    m = TaskManager(
-        microscope=NoMicroscope(),
-        experiment=make_experiment(tmp_path),
-        parent_ui=RecordingUI(),
+    m = _listened(
+        TaskManager(
+            microscope=NoMicroscope(),
+            experiment=make_experiment(tmp_path),
+        )
     )
     m.queue.build_from_matrix(["Trench", "Undercut"], ["L1", "L2"])
     return m
 
 
 def last_status(manager: TaskManager):
-    return manager.parent_ui.workflow_status_signal.emitted[-1].report
+    return manager.ui.workflow_status_signal.emitted[-1].report
 
 
 # ── _emit_status ──────────────────────────────────────────────────────────────
@@ -153,7 +163,7 @@ def test_emit_reports_position_in_the_live_queue(manager):
     item = manager.queue.items[2]
     manager._emit_status(
         item=item,
-        lamella=manager.experiment.get_lamella_by_name(item.lamella_name),
+        lamella=manager.experiment.get_lamella_by_name(item.item_name),
         status=Status.InProgress,
     )
     status = last_status(manager)
@@ -164,7 +174,6 @@ def test_emit_reports_position_in_the_live_queue(manager):
 def test_emit_for_a_task_outside_the_launch_plan(manager):
     """Regression: this raised ValueError out of task_names.index()."""
     added = manager.queue.add("L1", "Polishing")
-    assert added.task_name not in manager.queue.task_names
 
     manager._emit_status(
         item=added,
@@ -186,8 +195,6 @@ def test_emit_for_a_lamella_outside_the_launch_plan(manager):
     )
     status = last_status(manager)
     assert status.item_name == "L99"
-    # deprecated alias, dropped with the HookContext shims after v0.6 (FIB-464)
-    assert status.lamella_name == "L99"
     assert status.queue_position == 5
 
 
@@ -196,22 +203,10 @@ def test_emit_position_follows_a_reorder(manager):
     manager.queue.move_to_front(item.id)
     manager._emit_status(
         item=item,
-        lamella=manager.experiment.get_lamella_by_name(item.lamella_name),
+        lamella=manager.experiment.get_lamella_by_name(item.item_name),
         status=Status.InProgress,
     )
     assert last_status(manager).queue_position == 1
-
-
-def test_emit_carries_the_launch_plan_as_context(manager):
-    item = manager.queue.items[0]
-    manager._emit_status(
-        item=item,
-        lamella=manager.experiment.get_lamella_by_name("L1"),
-        status=Status.InProgress,
-    )
-    status = last_status(manager)
-    assert status.task_names == ["Trench", "Undercut"]
-    assert status.lamella_names == ["L1", "L2"]
 
 
 def test_emit_includes_a_queue_snapshot(manager):
@@ -240,12 +235,12 @@ def test_emit_passes_through_error_and_skip_detail(manager):
     status = last_status(manager)
     assert status.error_message == "it broke"
     assert status.task_duration == 12.5
-    assert manager.parent_ui.workflow_status_signal.emitted[-1].message == "boom"
+    assert manager.ui.workflow_status_signal.emitted[-1].message == "boom"
 
 
 def test_emit_is_a_noop_headless(tmp_path):
     experiment = make_experiment(tmp_path, lamella_names=["L1"])
-    m = TaskManager(microscope=NoMicroscope(), experiment=experiment, parent_ui=None)
+    m = TaskManager(microscope=NoMicroscope(), experiment=experiment)
     m.queue.build_from_matrix(["Trench"], ["L1"])
     m._emit_status(
         item=m.queue.items[0],
@@ -260,7 +255,6 @@ def test_emit_is_a_noop_headless(tmp_path):
 def test_lamella_outside_the_launch_selection_is_not_skipped(manager):
     """Regression: the old allow-list check skipped anything added mid-run."""
     lamella = make_lamella(manager.experiment, "L99")
-    assert "L99" not in manager.queue.lamella_names
     assert manager._should_skip(lamella, "Trench") is None
 
 
@@ -274,16 +268,12 @@ def test_missing_prerequisites_are_skipped(tmp_path):
     experiment = make_experiment(
         tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1"]
     )
-    m = TaskManager(
-        microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
-    )
+    m = _listened(TaskManager(microscope=NoMicroscope(), experiment=experiment))
     m.queue.build_from_matrix(["Trench", "Undercut"], ["L1"])
     lamella = experiment.get_lamella_by_name("L1")
     assert m._should_skip(lamella, "Undercut") == "missing_prereqs"
 
-    lamella.task_history.append(
-        AutoLamellaTaskState(name="Trench", status=Status.Completed)
-    )
+    lamella.task_history.append(TaskState(name="Trench", status=Status.Completed))
     assert m._should_skip(lamella, "Undercut") is None
 
 
@@ -305,14 +295,15 @@ def test_a_skip_names_the_requirement_and_the_end_says_nothing_ran(tmp_path):
         tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1"]
     )
     experiment.get_lamella_by_name("L1").task_history.append(
-        AutoLamellaTaskState(name="Trench", status=Status.Cancelled)
+        TaskState(name="Trench", status=Status.Cancelled)
     )
     hooks, fired = _recorded_hooks()
-    m = TaskManager(
-        microscope=NoMicroscope(),
-        experiment=experiment,
-        parent_ui=RecordingUI(),
-        hook_manager=hooks,
+    m = _listened(
+        TaskManager(
+            microscope=NoMicroscope(),
+            experiment=experiment,
+            hook_manager=hooks,
+        )
     )
     m.queue.build_from_matrix(["Undercut"], ["L1"])
 
@@ -331,11 +322,12 @@ def test_the_end_of_a_run_counts_how_its_tasks_ended(tmp_path):
     )
     make_lamella(experiment, "L3", is_failure=True)
     hooks, fired = _recorded_hooks()
-    m = TaskManager(
-        microscope=NoMicroscope(),
-        experiment=experiment,
-        parent_ui=RecordingUI(),
-        hook_manager=hooks,
+    m = _listened(
+        TaskManager(
+            microscope=NoMicroscope(),
+            experiment=experiment,
+            hook_manager=hooks,
+        )
     )
     m.queue.build_from_matrix(["Trench"], ["L1", "L2", "L3"])
 
@@ -354,19 +346,14 @@ def test_a_prerequisite_still_in_the_queue_defers_rather_than_skips(tmp_path):
     experiment = make_experiment(
         tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1"]
     )
-    m = TaskManager(
-        microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
-    )
-    m.review_enabled = True
+    m = _listened(TaskManager(microscope=NoMicroscope(), experiment=experiment))
     m.queue.build_from_pairs([("L1", "Undercut"), ("L1", "Trench")])
     lamella = experiment.get_lamella_by_name("L1")
     assert m._defer_reason(lamella, "Undercut") == "prereq_pending"
     assert m._should_skip(lamella, "Undercut") == "missing_prereqs"
 
     def record_completion(task_name, lam):
-        lam.task_history.append(
-            AutoLamellaTaskState(name=task_name, status=Status.Completed)
-        )
+        lam.task_history.append(TaskState(name=task_name, status=Status.Completed))
 
     executed = run_queue_with(m, record_completion)
     assert executed == [("L1", "Trench"), ("L1", "Undercut")]
@@ -377,10 +364,7 @@ def _one_lamella_manager(tmp_path):
     experiment = make_experiment(
         tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1"]
     )
-    m = TaskManager(
-        microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
-    )
-    m.review_enabled = True
+    m = _listened(TaskManager(microscope=NoMicroscope(), experiment=experiment))
     return m, experiment.get_lamella_by_name("L1")
 
 
@@ -388,50 +372,9 @@ def test_an_old_success_does_not_satisfy_a_requirement_whose_rerun_failed(tmp_pa
     """FIB-1006: the latest run of a requirement is the answer."""
     m, lamella = _one_lamella_manager(tmp_path)
     m.queue.build_from_matrix(["Undercut"], ["L1"])
-    lamella.task_history.append(
-        AutoLamellaTaskState(name="Trench", status=Status.Completed)
-    )
-    lamella.task_history.append(
-        AutoLamellaTaskState(name="Trench", status=Status.Failed)
-    )
+    lamella.task_history.append(TaskState(name="Trench", status=Status.Completed))
+    lamella.task_history.append(TaskState(name="Trench", status=Status.Failed))
     assert lamella.has_completed_task("Trench"), "the old success is still history"
-    assert m._should_skip(lamella, "Undercut") == "missing_prereqs"
-
-
-def test_an_old_success_does_not_satisfy_a_requirement_whose_rerun_was_rejected(
-    tmp_path,
-):
-    from fibsem.applications.autolamella.proposals import (
-        Decision,
-        DecisionOutcome,
-        Proposal,
-    )
-
-    m, lamella = _one_lamella_manager(tmp_path)
-    m.queue.build_from_matrix(["Undercut"], ["L1"])
-    lamella.task_history.append(
-        AutoLamellaTaskState(name="Trench", status=Status.Completed)
-    )
-    lamella.task_history.append(
-        AutoLamellaTaskState(name="Trench", status=Status.AwaitingDecision)
-    )
-    lamella.proposals["Trench"] = [
-        Proposal(kind="task_result", provenance={"task_id": "run-2"})
-    ]
-    assert m._defer_reason(lamella, "Undercut") == "awaiting_decision"
-
-    m.experiment._decide(
-        lamella.id,
-        "Trench",
-        Decision(
-            outcome=DecisionOutcome.Rejected,
-            author="human:op",
-            reason="no",
-            task_id="run-2",
-        ),
-    )
-
-    assert m._defer_reason(lamella, "Undercut") is None
     assert m._should_skip(lamella, "Undercut") == "missing_prereqs"
 
 
@@ -439,15 +382,13 @@ def test_a_queued_rerun_of_a_requirement_outranks_its_old_success(tmp_path):
     """Undercut is selected before Trench's rerun: it waits for the rerun, and
     is skipped when the rerun fails, whatever the earlier Trench did."""
     m, lamella = _one_lamella_manager(tmp_path)
-    lamella.task_history.append(
-        AutoLamellaTaskState(name="Trench", status=Status.Completed)
-    )
+    lamella.task_history.append(TaskState(name="Trench", status=Status.Completed))
     m.queue.build_from_pairs([("L1", "Undercut"), ("L1", "Trench")])
     assert m._defer_reason(lamella, "Undercut") == "prereq_pending"
 
     def rerun_fails(task_name, lam):
         status = Status.Failed if task_name == "Trench" else Status.Completed
-        lam.task_history.append(AutoLamellaTaskState(name=task_name, status=status))
+        lam.task_history.append(TaskState(name=task_name, status=status))
 
     executed = run_queue_with(m, rerun_fails)
 
@@ -456,254 +397,16 @@ def test_a_queued_rerun_of_a_requirement_outranks_its_old_success(tmp_path):
     assert undercut.status is Status.Skipped
 
 
-def test_a_task_awaiting_a_decision_defers_its_consumer(tmp_path):
-    """Trench ran and waits on a decision: it is not finished, so Undercut waits.
-    It stays pending -- not Skipped -- and runs once the decision lands, which
-    finishes Trench."""
-    from fibsem.applications.autolamella.proposals import (
-        Decision,
-        DecisionOutcome,
-        Proposal,
-    )
-
-    experiment = make_experiment(
-        tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1", "L2"]
-    )
-    m = TaskManager(
-        microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
-    )
-    m.review_enabled = True
-    experiment.task_protocol.options.review_wait = 0  # do not park on the review
-    m.queue.build_from_matrix(["Undercut"], ["L1", "L2"])
-    l1 = experiment.get_lamella_by_name("L1")
-    l1.task_history.append(
-        AutoLamellaTaskState(name="Trench", status=Status.AwaitingDecision)
-    )
-    l1.proposals["Trench"] = [
-        Proposal(kind="task_result", provenance={"task_id": "run-1"})
-    ]
-    experiment.get_lamella_by_name("L2").task_history.append(
-        AutoLamellaTaskState(name="Trench", status=Status.Completed)
-    )
-    assert m._defer_reason(l1, "Undercut") == "awaiting_decision"
-
-    executed = run_queue_with(m)
-    assert executed == [("L2", "Undercut")], "L1 waits, L2 does not"
-    assert m.queue.has_pending_pair("L1", "Undercut")
-    assert [(i.lamella_name, r) for i, r in m.deferred_items()] == [
-        ("L1", "awaiting_decision")
-    ]
-
-    experiment.decide(
-        l1.id,
-        "Trench",
-        Decision(outcome=DecisionOutcome.Confirmed, author="human:op", task_id="run-1"),
-    )
-    assert l1.has_completed_task("Trench"), "the decision finished it"
-    assert m._defer_reason(l1, "Undercut") is None
-    assert run_queue_with(m) == [("L1", "Undercut")]
-
-
-def test_with_the_flag_off_nothing_is_deferred(tmp_path):
-    """The whole path is behind proposer_reviewer_workflow_enabled: off, the
-    prerequisite check is terminal exactly as it was."""
-    experiment = make_experiment(
-        tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1"]
-    )
-    m = TaskManager(
-        microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
-    )
-    m.review_enabled = False
-    m.queue.build_from_pairs([("L1", "Undercut"), ("L1", "Trench")])
-    executed = run_queue_with(m)
-    assert executed == [("L1", "Trench")]
-    assert [i.status for i in m.queue.items] == [Status.Skipped, Status.Completed]
-
-
-def test_the_flag_reads_fail_closed(monkeypatch):
-    from fibsem.applications.autolamella.workflows.tasks import manager as M
-
-    class _Prefs:
-        class features:
-            proposer_reviewer_workflow_enabled = True
-
-    monkeypatch.setattr(M.fibsem_cfg, "load_user_preferences", lambda: _Prefs())
-    assert M.review_enabled() is True
-
-    def boom():
-        raise OSError("unreadable")
-
-    monkeypatch.setattr(M.fibsem_cfg, "load_user_preferences", boom)
-    assert M.review_enabled() is False
-
-
-def test_a_rejected_task_is_failed_so_its_consumer_is_skipped(tmp_path):
-    """Reject finishes the waiting task as Failed. Its consumer is then Skipped
-    for a missing prerequisite, the ordinary rule; the lamella itself is not
-    marked defective -- that stays a person's call."""
-    from fibsem.applications.autolamella.proposals import (
-        Decision,
-        DecisionOutcome,
-        Proposal,
-    )
-
-    experiment = make_experiment(
-        tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1"]
-    )
-    m = TaskManager(
-        microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
-    )
-    m.queue.build_from_matrix(["Undercut"], ["L1"])
-    l1 = experiment.get_lamella_by_name("L1")
-    l1.task_history.append(
-        AutoLamellaTaskState(name="Trench", status=Status.AwaitingDecision)
-    )
-    l1.proposals["Trench"] = [
-        Proposal(kind="task_result", provenance={"task_id": "run-1"})
-    ]
-    experiment.decide(
-        l1.id,
-        "Trench",
-        Decision(
-            outcome=DecisionOutcome.Rejected,
-            author="human:op",
-            reason="no site",
-            task_id="run-1",
-        ),
-    )
-    assert l1.task_history[-1].status is Status.Failed
-    assert l1.task_history[-1].status_message == "Rejected by op: no site"
-    assert not l1.is_failure
-    assert run_queue_with(m) == []
-    assert [i.status for i in m.queue.items] == [Status.Skipped]
-    reports = [e.report for e in m.parent_ui.workflow_status_signal.emitted if e.report]
-    assert reports[-1].skip_reason == "missing_prereqs"
-
-
-# ── stalled: drained with work waiting on a decision ─────────────────────────
-
-
-def _review_manager(tmp_path, review_wait, hook_manager=None):
-    """L1 has Trench awaiting a decision; Undercut requires it."""
-    from fibsem.applications.autolamella.proposals import Proposal
-
-    experiment = make_experiment(
-        tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1"]
-    )
-    experiment.task_protocol.options.review_wait = review_wait
-    m = TaskManager(
-        microscope=NoMicroscope(),
-        experiment=experiment,
-        parent_ui=RecordingUI(),
-        hook_manager=hook_manager,
-    )
-    m.review_enabled = True
-    m.queue.build_from_matrix(["Undercut"], ["L1"])
-    l1 = experiment.get_lamella_by_name("L1")
-    l1.task_history.append(
-        AutoLamellaTaskState(name="Trench", status=Status.AwaitingDecision)
-    )
-    l1.proposals["Trench"] = [
-        Proposal(kind="task_result", provenance={"task_id": "run-1"})
-    ]
-    return m, l1
-
-
-def test_a_run_that_drains_on_pending_reviews_is_stalled_not_completed(tmp_path):
-    from fibsem.hooks import FunctionHook, HookEvent, HookManager
-
-    fired = []
-    hooks = HookManager()
-    hooks.register(
-        FunctionHook(name="rec", events=list(HookEvent), callback=fired.append)
-    )
-    m, l1 = _review_manager(tmp_path, review_wait=0, hook_manager=hooks)
-
-    assert run_queue_with(m) == []
-    assert m.stalled is True
-    assert [c.event for c in fired] == ["workflow_started", "workflow_stalled"]
-    assert fired[-1].decisions_pending == 1
-    assert m.queue.has_pending_pair("L1", "Undercut"), "nothing was retired"
-    assert l1.proposal("Trench").pending
-
-
-def test_a_decision_during_the_wait_wakes_the_run(tmp_path, caplog):
-    import logging
-    import threading
-
-    from fibsem.applications.autolamella.proposals import Decision, DecisionOutcome
-
-    m, l1 = _review_manager(tmp_path, review_wait=10.0)
-    caplog.set_level(logging.INFO)
-
-    def decide_soon():
-        time.sleep(0.3)
-        # _decide, the unmarshalled inner: with a QApplication in the process
-        # (the UI suites share it) decide() would park on a main thread this
-        # test holds in run_queue_with. The wake-up is the subject, not the
-        # marshalling, which tests/ui/test_decide_main_thread.py covers.
-        m.experiment._decide(
-            l1.id,
-            "Trench",
-            Decision(
-                outcome=DecisionOutcome.Confirmed, author="human:op", task_id="run-1"
-            ),
-        )
-
-    t = threading.Thread(target=decide_soon, daemon=True)
-    started = time.monotonic()
-    t.start()
-    assert run_queue_with(m) == [("L1", "Undercut")]
-    assert time.monotonic() - started < 5.0, "woke on the decision, not the timeout"
-    assert m.stalled is False
-    # the one place "why is nothing happening" is a fair question says so
-    messages = [r.message for r in caplog.records]
-    assert any(
-        m_.startswith("Parked: 1 task(s) wait on 1 decision(s) in the Review tab")
-        and "L1/Undercut" in m_
-        and "giving up after" in m_
-        for m_ in messages
-    ), messages
-    assert any(m_.startswith("A decision landed after") for m_ in messages)
-
-
-def test_the_wait_is_measured_as_inactivity_and_gives_up(tmp_path, caplog):
-    import logging
-
-    m, _l1 = _review_manager(tmp_path, review_wait=0.5)
-    caplog.set_level(logging.INFO)
-    started = time.monotonic()
-    assert run_queue_with(m) == []
-    elapsed = time.monotonic() - started
-    assert 0.4 < elapsed < 3.0
-    assert m.stalled is True
-    assert "pending" in m.stall_reason
-    warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
-    assert any(
-        "Timed out after" in w and "waiting for a review" in w for w in warnings
-    ), warnings
-
-
-def test_stop_ends_the_wait_as_cancelled(tmp_path):
-    import threading
-
-    m, _l1 = _review_manager(tmp_path, review_wait=None)  # wait forever
-    threading.Timer(0.3, m.stop).start()
-    assert run_queue_with(m) == []
-    assert m.is_stopped
-    assert m.stalled is False
+# ── stalled: drained with work that cannot run ──────────────────────────────
 
 
 def test_unrunnable_work_with_nothing_to_unblock_it_exits_with_an_error(tmp_path):
-    """Deferred, but on a prerequisite that is neither queued nor under review:
-    a plan bug, not a stall to wait on."""
+    """Deferred, on a prerequisite that is not queued: a plan bug, said as one,
+    and the run ends at once."""
     experiment = make_experiment(
         tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1"]
     )
-    m = TaskManager(
-        microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
-    )
-    m.review_enabled = True
+    m = _listened(TaskManager(microscope=NoMicroscope(), experiment=experiment))
     m.queue.build_from_matrix(["Undercut"], ["L1"])
     # Make the scan defer it, then remove what it was waiting on.
     m._is_deferred = lambda item: True
@@ -711,36 +414,9 @@ def test_unrunnable_work_with_nothing_to_unblock_it_exits_with_an_error(tmp_path
     started = time.monotonic()
     assert run_queue_with(m) == []
     assert time.monotonic() - started < 2.0
-    assert m.stalled is True and "no decision would change that" in m.stall_reason
-
-
-def test_run_leaves_out_a_task_awaiting_a_decision(tmp_path):
-    """Run re-runs completed pairs -- that is how a task is re-run -- but a task
-    whose record waits in the Review tab is left out: running it again would
-    supersede the proposal someone is about to decide."""
-    experiment = make_experiment(tmp_path, lamella_names=["L1", "L2"])
-    m = TaskManager(
-        microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
-    )
-    experiment.get_lamella_by_name("L1").task_history.append(
-        AutoLamellaTaskState(name="Trench", status=Status.AwaitingDecision)
-    )
-    experiment.get_lamella_by_name("L2").task_history.append(
-        AutoLamellaTaskState(name="Trench", status=Status.Completed)
-    )
-    m._run_queue = lambda: None
-    m.review_enabled = True
-    m.run(["Trench", "Undercut"], ["L1", "L2"])
-    assert [(i.lamella_name, i.task_name) for i in m.queue.items] == [
-        ("L2", "Trench"),
-        ("L1", "Undercut"),
-        ("L2", "Undercut"),
-    ]
-    # With the Review surface off nobody can decide, so the exception is not
-    # made and Run re-runs it, as it re-runs any other completed pair.
-    m.review_enabled = False
-    m.run(["Trench", "Undercut"], ["L1", "L2"])
-    assert len(m.queue.items) == 4
+    assert m.stalled is True
+    assert m.stall_reason == "1 task(s) cannot run: L1/Undercut"
+    assert m.queue.has_pending_pair("L1", "Undercut"), "nothing was retired"
 
 
 def test_no_requirements_runs(manager):
@@ -800,7 +476,7 @@ def test_item_moved_to_front_mid_run_runs_next(manager):
         if not moved:
             last = manager.queue.pending[-1]
             manager.queue.move_to_front(last.id)
-            moved.append((last.lamella_name, last.task_name))
+            moved.append((last.item_name, last.task_name))
 
     executed = run_queue_with(manager, on_task)
     assert executed[1] == moved[0]
@@ -813,7 +489,7 @@ def test_item_removed_mid_run_never_executes(manager):
         if not removed:
             target = manager.queue.pending[-1]
             manager.queue.remove(target.id)
-            removed.append((target.lamella_name, target.task_name))
+            removed.append((target.item_name, target.task_name))
 
     executed = run_queue_with(manager, on_task)
     assert removed[0] not in executed
@@ -829,7 +505,7 @@ def test_status_bar_text_is_derivable_for_added_items(manager):
             added.append(manager.queue.add("L99", "Polishing"))
 
     run_queue_with(manager, on_task)
-    for event in manager.parent_ui.workflow_status_signal.emitted:
+    for event in manager.ui.workflow_status_signal.emitted:
         status = event.report
         if status is None:
             continue
@@ -837,46 +513,8 @@ def test_status_bar_text_is_derivable_for_added_items(manager):
         assert 1 <= status.queue_position <= status.queue_total
 
 
-def test_a_parked_run_holds_the_window_and_says_who_releases_it(tmp_path):
-    """Parked on decisions, the manager hands the window one Hold: kind review,
-    the lamella/task pairs waiting, and the sentence that releases it. Gone
-    again when the park ends; the give-up says it gave up, on the status bar
-    too, so it never reads as a finish."""
-    from fibsem.applications.autolamella.workflows.tasks.status import HoldKind
-
-    experiment = make_experiment(
-        tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1", "L2"]
-    )
-    ui = RecordingUI()
-    m = TaskManager(microscope=NoMicroscope(), experiment=experiment, parent_ui=ui)
-    m.review_enabled = True
-    experiment.task_protocol.options.review_wait = 0.2
-    m.queue.build_from_matrix(["Undercut"], ["L1", "L2"])
-    for name in ("L1", "L2"):
-        experiment.get_lamella_by_name(name).task_history.append(
-            AutoLamellaTaskState(name="Trench", status=Status.AwaitingDecision)
-        )
-    holds = []
-    real = m._set_hold
-    m._set_hold = lambda hold: (holds.append(hold), real(hold))  # type: ignore
-
-    run_queue_with(m)
-
-    parked, released = holds
-    assert parked.kind is HoldKind.decision
-    assert parked.items == ("L1/Undercut", "L2/Undercut")
-    assert parked.releases == "decide L1 and L2 in the Review tab"
-    assert released is None and ui.hold is None
-    bars = [e.status_bar for e in ui.workflow_status_signal.emitted if e.status_bar]
-    assert bars[0] == "Waiting on 2 decisions: decide L1 and L2 in the Review tab."
-    assert bars[-1].startswith("Workflow stalled: Timed out after")
-    assert "waiting for a review: 2 decision(s) still pending." in bars[-1]
-    assert bars[-1].endswith("Decide in the Review tab, then Run again.")
-    assert m.stalled and m.closing_note() == bars[-1][len("Workflow stalled: ") :]
-
-
 def test_the_names_a_hold_reads_out():
-    from fibsem.applications.autolamella.workflows.tasks.manager import _named
+    from fibsem.workflows.manager import _named
 
     assert _named([]) == ""
     assert _named(["L1"]) == "L1"

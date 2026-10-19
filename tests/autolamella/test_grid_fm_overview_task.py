@@ -14,24 +14,24 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     Experiment,
-    GridRecord,
-)
-from fibsem.applications.autolamella.task_outputs import (
-    grid_outputs,
-    latest_grid_output,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid import (
-    GRID_TASK_REGISTRY,
-    FluorescenceOverviewGridTask,
-    FluorescenceOverviewGridTaskConfig,
-    run_grid_task,
 )
 from fibsem.fm.acquisition import OverviewDestination, acquire_fm_tiled_overview
 from fibsem.fm.structures import ChannelSettings, OverviewParameters, ZParameters
 from fibsem.services.sample_handling import BUILTIN_SLOT_NAME
 from fibsem.structures import InsertableDeviceState, SampleGrid
+from fibsem.workflows.grid import (
+    FluorescenceOverviewGridTask,
+    FluorescenceOverviewGridTaskConfig,
+    get_grid_tasks,
+    run_grid_task,
+)
+from fibsem.workflows.grids import GridRecord
+from fibsem.workflows.outputs import (
+    item_outputs,
+    latest_item_output,
+)
+from fibsem.workflows.status import TaskStatus
 
 
 @pytest.fixture
@@ -69,7 +69,7 @@ def experiment(tmp_path):
 
 class TestConfig:
     def test_registered(self):
-        assert GRID_TASK_REGISTRY["FM_OVERVIEW_GRID"] is FluorescenceOverviewGridTask
+        assert get_grid_tasks()["FM_OVERVIEW_GRID"] is FluorescenceOverviewGridTask
 
     def test_round_trips_through_protocol_yaml_with_a_channel_list(
         self, experiment, tmp_path
@@ -100,14 +100,14 @@ class TestRun:
         run_grid_task(microscope, "overview_fm", experiment, grid)
 
         entry = grid.task_history[-1]
-        assert entry.status is AutoLamellaTaskStatus.Completed
+        assert entry.status is TaskStatus.Completed
         assert set(entry.outputs) == {"overview_fm", "overview_fm_thumbnail"}
-        (mosaic,) = grid_outputs(experiment, grid, "overview_fm")
+        (mosaic,) = item_outputs(experiment, grid, "overview_fm")
         assert mosaic.startswith(
             str(tmp_path / "exp" / "grids" / "grid-aspen" / "overview_fm")
         )
         assert mosaic.endswith(".ome.tiff")
-        thumbnail = latest_grid_output(experiment, grid, "overview_fm_thumbnail")
+        thumbnail = latest_item_output(experiment, grid, "overview_fm_thumbnail")
         from PIL import Image
 
         with Image.open(thumbnail) as im:
@@ -147,7 +147,7 @@ class TestRun:
         grid = experiment.get_grid_by_name("grid-aspen")
         with pytest.raises(RuntimeError, match="no fluorescence microscope"):
             run_grid_task(plain, "overview_fm", experiment, grid)
-        assert grid.task_state.status is AutoLamellaTaskStatus.Failed
+        assert grid.task_state.status is TaskStatus.Failed
 
 
 class TestProgressEndsTheRun:
