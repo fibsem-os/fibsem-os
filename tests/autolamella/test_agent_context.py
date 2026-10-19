@@ -236,7 +236,7 @@ def test_item_detail_serves_the_durable_item_facts(experiment):
     detail = ctx.item_detail(lamella.name)
     assert detail["available"] is True
     assert detail["item_name"] == lamella.name
-    assert detail["poi"] == {"x": 1.5e-6, "y": -2.5e-6}
+    assert detail["poi"] == {"x": 1.5e-6, "y": -2.5e-6, "name": None}
     assert detail["alignment_area"]["left"] == 0.6
     assert detail["milling_angle"] == 15.0
     assert detail["is_failure"] is False

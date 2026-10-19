@@ -73,7 +73,7 @@ def test_an_alignment_is_one_event_with_every_step(microscope, recorded, tmp_pat
     assert alignment["steps"] == 2
     assert alignment["aborted"] is False
     assert [r["shift"] for r in alignment["results"]] == [
-        {"x": pytest.approx(r.shift.x), "y": pytest.approx(r.shift.y)}
+        {"x": pytest.approx(r.shift.x), "y": pytest.approx(r.shift.y), "name": None}
         for r in run.results
     ]
     assert alignment["validation"] is None

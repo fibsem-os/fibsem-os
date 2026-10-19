@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from fibsem.codec import Array, NamedEnum, Tagged, Timestamp, decode, encode
+from fibsem.codec import Array, NamedEnum, Tagged, Timestamp, decode, encode, saved
 
 
 class Beam(NamedEnum, Enum):
@@ -174,3 +174,60 @@ def test_a_timestamp_reads_the_older_forms():
     assert legacy == datetime(2026, 7, 16, 11, 7, 27)
     assert legacy.tzinfo is None  # a naive time stays naive
     assert decode(Outer, {"when": None}).when is None
+
+
+@saved(
+    keys={"settings": "image"},
+    reads={"current": "beam_current"},
+    absent={"rotation": 0.0},
+)
+@dataclass
+class Saved:
+    settings: Inner = field(default_factory=Inner)
+    current: Optional[float] = None
+    rotation: Optional[float] = None
+
+
+@dataclass
+class HoldsSaved:
+    saved: Saved = field(default_factory=Saved)
+
+
+def test_saved_writes_and_reads_a_field_under_its_key():
+    value = Saved(Inner(2.0), current=1e-9, rotation=3.0)
+    data = encode(value)
+    assert data == {
+        "image": {"x": 2.0, "beam": "ELECTRON"},
+        "current": 1e-9,
+        "rotation": 3.0,
+    }
+    assert decode(Saved, data) == value
+
+
+def test_saved_reads_another_spelling_and_an_absent_value():
+    value = decode(Saved, {"beam_current": 1e-9})
+    assert value.current == 1e-9
+    assert value.rotation == 0.0  # absent, not the dataclass default
+    assert Saved().rotation is None
+
+
+def test_saved_rules_hold_inside_another_structure():
+    data = encode(HoldsSaved(Saved(Inner(1.0))))
+    assert "image" in data["saved"]
+    assert decode(HoldsSaved, {"saved": {"beam_current": 2.0}}).saved == Saved(
+        current=2.0, rotation=0.0
+    )
+
+
+@saved(required=("x", "y"))
+@dataclass
+class Required:
+    x: float = 0.0
+    y: float = 0.0
+
+
+def test_saved_refuses_a_required_key_that_is_absent():
+    assert decode(Required, {"x": 1.0, "y": 2.0}) == Required(1.0, 2.0)
+    with pytest.raises(ValidationError, match="missing y"):
+        decode(Required, {"x": 1.0})
+    assert Required() == Required(0.0, 0.0)  # a new instance still has defaults

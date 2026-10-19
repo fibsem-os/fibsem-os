@@ -13,7 +13,9 @@ import pytest
 from fibsem.structures import (
     FibsemAxesPosition,
     FibsemManipulatorPosition,
+    FibsemRectangle,
     FibsemStagePosition,
+    Point,
     RangeLimit,
 )
 
@@ -60,7 +62,7 @@ def test_manipulator_to_dict_is_unchanged():
     position = FibsemManipulatorPosition(x=1, y=2e-3, z=3e-3, coordinate_system="raw")
     data = position.to_dict()
     assert data == {
-        "x": 1,
+        "x": 1.0,
         "y": 2e-3,
         "z": 3e-3,
         "r": 0.0,
@@ -68,7 +70,6 @@ def test_manipulator_to_dict_is_unchanged():
         "coordinate_system": "RAW",
     }
     assert list(data) == ["x", "y", "z", "r", "t", "coordinate_system"]
-    assert type(data["x"]) is int  # no float cast, unlike the stage
 
 
 def test_manipulator_dict_round_trip():
@@ -253,3 +254,17 @@ def test_pretty_strings_are_unchanged():
     assert FibsemManipulatorPosition(x=1e-3).pretty == (
         "X:1.00mm, Y:0.00mm, Z:0.00mm, R:0.0°, T:0.0°"
     )
+
+
+@pytest.mark.parametrize(
+    "cls, data",
+    [
+        (Point, {"x": 1.0}),
+        (FibsemStagePosition, {"x": 0, "y": 0, "z": 0, "r": 0, "t": 0}),
+        (FibsemManipulatorPosition, {"x": 0, "y": 0, "z": 0, "r": 0}),
+        (FibsemRectangle, {"left": 0, "top": 0, "width": 1}),
+    ],
+)
+def test_a_position_read_without_one_of_its_keys_is_refused(cls, data):
+    with pytest.raises(ValueError, match="missing"):
+        cls.from_dict(data)

@@ -41,6 +41,7 @@ import yaml
 from numpy.typing import NDArray
 
 import fibsem
+from fibsem.codec import NamedEnum, decode, encode, saved
 from fibsem.config import (
     DEFAULT_STANDARD_RESOLUTION_LIST,
     METADATA_VERSION,
@@ -67,6 +68,7 @@ TFibsemPatternSettings = TypeVar(
 )
 
 
+@saved(required=("min", "max"))
 @dataclass
 class RangeLimit:
     min: float
@@ -76,11 +78,11 @@ class RangeLimit:
         return max(self.min, min(self.max, value))
 
     def to_dict(self) -> dict:
-        return {"min": self.min, "max": self.max}
+        return encode(self)
 
     @staticmethod
     def from_dict(d: dict) -> "RangeLimit":
-        return RangeLimit(min=d["min"], max=d["max"])
+        return decode(RangeLimit, d)
 
 
 Limits = Union[RangeLimit, Mapping[str, RangeLimit]]
@@ -638,6 +640,7 @@ def _plain_number(value: Any) -> Any:
     return value
 
 
+@saved(required=("x", "y"))
 @dataclass
 class Point(Configurable):
     x: float = param(
@@ -656,13 +659,11 @@ class Point(Configurable):
         self.y = _plain_number(self.y)
 
     def to_dict(self) -> dict:
-        return {"x": self.x, "y": self.y}
+        return encode(self)
 
     @staticmethod
     def from_dict(d: dict) -> "Point":
-        x = float(d["x"])
-        y = float(d["y"])
-        return Point(x, y)
+        return decode(Point, d)
 
     def to_list(self) -> list:
         return [self.x, self.y]
@@ -718,7 +719,7 @@ class Point(Configurable):
         return float(np.linalg.norm(self.distance(other).to_list()))
 
 
-class BeamType(Enum):
+class BeamType(NamedEnum, Enum):
     """Enumerator Class for Beam Type
     1: Electron Beam
     2: Ion Beam
@@ -1070,6 +1071,7 @@ class FibsemAxesPosition(Configurable):
         return self._pretty_axes(self.AXES, units=True)
 
 
+@saved(required=("x", "y", "z", "r", "t", "coordinate_system"))
 @dataclass
 class FibsemStagePosition(FibsemAxesPosition):
     """Data class for storing stage position data.
@@ -1131,38 +1133,14 @@ class FibsemStagePosition(FibsemAxesPosition):
     )
 
     def to_dict(self) -> dict:
-        position_dict = {}
-
-        position_dict["name"] = self.name if self.name is not None else None
-        position_dict["x"] = float(self.x) if self.x is not None else None
-        position_dict["y"] = float(self.y) if self.y is not None else None
-        position_dict["z"] = float(self.z) if self.z is not None else None
-        position_dict["r"] = float(self.r) if self.r is not None else None
-        position_dict["t"] = float(self.t) if self.t is not None else None
-        position_dict["coordinate_system"] = self.coordinate_system
-
-        return position_dict
+        return encode(self)
 
     @classmethod
     def from_dict(cls, data: dict) -> "FibsemStagePosition":
-        items = ["x", "y", "z", "r", "t"]
-
-        for item in items:
-            value = data[item]
-
-            assert isinstance(value, float) or isinstance(value, int) or value is None
-
-        return cls(
-            name=data.get("name", None),
-            x=data["x"],
-            y=data["y"],
-            z=data["z"],
-            r=data["r"],
-            t=data["t"],
-            coordinate_system=data["coordinate_system"],
-        )
+        return decode(cls, data)
 
 
+@saved(required=("x", "y", "z", "r", "t"))
 @dataclass
 class FibsemManipulatorPosition(FibsemAxesPosition):
     """Data class for storing manipulator position data.
@@ -1219,38 +1197,21 @@ class FibsemManipulatorPosition(FibsemAxesPosition):
         None, doc="The frame the coordinates are in, as the driver names it."
     )
 
-    def to_dict(self) -> dict:
-        position_dict = {}
-        position_dict["x"] = self.x
-        position_dict["y"] = self.y
-        position_dict["z"] = self.z
-        position_dict["r"] = self.r
-        position_dict["t"] = self.t
-        position_dict["coordinate_system"] = (
-            self.coordinate_system.upper() if self.coordinate_system else None
-        )
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        # in capitals, as it has always been saved
+        if self.coordinate_system:
+            self.coordinate_system = self.coordinate_system.upper()
 
-        return position_dict
+    def to_dict(self) -> dict:
+        return encode(self)
 
     @classmethod
     def from_dict(cls, data: dict) -> "FibsemManipulatorPosition":
-        items = ["x", "y", "z", "r", "t"]
-
-        for item in items:
-            value = data[item]
-
-            assert isinstance(value, float) or isinstance(value, int) or value is None
-
-        return cls(
-            x=data["x"],
-            y=data["y"],
-            z=data["z"],
-            r=data["r"],
-            t=data["t"],
-            coordinate_system=data.get("coordinate_system"),
-        )
+        return decode(cls, data)
 
 
+@saved(required=("left", "top", "width", "height"))
 @dataclass
 class FibsemRectangle(Configurable):
     """Universal Rectangle class used for ReducedArea"""
@@ -1299,30 +1260,12 @@ class FibsemRectangle(Configurable):
         )
 
     @classmethod
-    def from_dict(cls, settings: dict) -> "FibsemRectangle":
-        if settings is None:
-            return None
-        points = ["left", "top", "width", "height"]
-
-        for point in points:
-            value = settings[point]
-
-            assert isinstance(value, float) or isinstance(value, int) or value is None
-
-        return FibsemRectangle(
-            left=settings["left"],
-            top=settings["top"],
-            width=settings["width"],
-            height=settings["height"],
-        )
+    def from_dict(cls, settings: Optional[dict]) -> Optional["FibsemRectangle"]:
+        """None for None: a reduced area that isn't set."""
+        return None if settings is None else decode(cls, settings)
 
     def to_dict(self) -> dict:
-        return {
-            "left": float(self.left),
-            "top": float(self.top),
-            "width": float(self.width),
-            "height": float(self.height),
-        }
+        return encode(self)
 
     @property
     def is_valid_reduced_area(self) -> bool:
@@ -1517,63 +1460,10 @@ class ImageSettings(Configurable):
 
     @staticmethod
     def from_dict(settings: dict) -> "ImageSettings":
-        if "reduced_area" in settings and settings["reduced_area"] is not None:
-            reduced_area = FibsemRectangle.from_dict(settings["reduced_area"])
-        else:
-            reduced_area = None
-
-        # default to Electron if not specified
-        beam_name = settings.get("beam_type", "Electron")
-        if beam_name is None:
-            beam_name = "Electron"
-
-        image_settings = ImageSettings(
-            resolution=settings.get("resolution", (1536, 1024)),
-            dwell_time=settings.get("dwell_time", 1.0e-6),
-            hfw=settings.get("hfw", 150e-6),
-            autocontrast=settings.get("autocontrast", False),
-            beam_type=BeamType[beam_name.upper()],
-            save=settings.get("save", False),
-            path=settings.get("path", os.getcwd()),
-            filename=settings.get("filename", "default_image"),
-            reduced_area=reduced_area,
-            line_integration=settings.get("line_integration", None),
-            scan_interlacing=settings.get("scan_interlacing", None),
-            frame_integration=settings.get("frame_integration", None),
-            drift_correction=settings.get("drift_correction", False),
-        )
-
-        return image_settings
+        return decode(ImageSettings, settings)
 
     def to_dict(self) -> dict:
-        settings_dict = {
-            "beam_type": self.beam_type.name if self.beam_type is not None else None,
-            "resolution": list(self.resolution)
-            if self.resolution is not None
-            else None,
-            "dwell_time": self.dwell_time if self.dwell_time is not None else None,
-            "hfw": self.hfw if self.hfw is not None else None,
-            "autocontrast": self.autocontrast
-            if self.autocontrast is not None
-            else None,
-            "save": self.save if self.save is not None else None,
-            "path": str(self.path) if self.path is not None else None,
-            "filename": self.filename if self.filename is not None else None,
-            "reduced_area": {
-                "left": self.reduced_area.left,
-                "top": self.reduced_area.top,
-                "width": self.reduced_area.width,
-                "height": self.reduced_area.height,
-            }
-            if self.reduced_area is not None
-            else None,
-            "line_integration": self.line_integration,
-            "scan_interlacing": self.scan_interlacing,
-            "frame_integration": self.frame_integration,
-            "drift_correction": self.drift_correction,
-        }
-
-        return settings_dict
+        return encode(self)
 
     @property
     def field_of_view(self) -> float:
@@ -1639,19 +1529,11 @@ class FocusStackSettings(Configurable):
     )
 
     def to_dict(self) -> dict:
-        return {
-            "enabled": self.enabled,
-            "n_steps": self.n_steps,
-            "auto_focus": self.auto_focus,
-        }
+        return encode(self)
 
     @staticmethod
     def from_dict(d: dict) -> "FocusStackSettings":
-        return FocusStackSettings(
-            enabled=d.get("enabled", False),
-            n_steps=d.get("n_steps", 3),
-            auto_focus=d.get("auto_focus", True),
-        )
+        return decode(FocusStackSettings, d)
 
 
 def _default_autofocus_settings() -> "AutoFocusSettings":
