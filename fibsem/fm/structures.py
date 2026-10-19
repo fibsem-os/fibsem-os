@@ -317,14 +317,6 @@ def matching_emission_filter(
     return matches[0]
 
 
-def emission_filter_from_dict(data: Dict[str, Any]) -> EmissionFilter:
-    """A saved channel's filter: ``emission_filter``, or the ``emission_wavelength``
-    value of a channel saved before FIB-1439."""
-    from fibsem.codec.upgrades.fluorescence import channel
-
-    return decode(EmissionFilter, channel(data)["emission_filter"])
-
-
 def ome_emission_wavelength(found: EmissionFilter) -> Optional[float]:
     """A channel's OME ``EmissionWavelength``, in nm: the band's centre, or its
     bottom edge when that is all that is known. None for reflection and for a
