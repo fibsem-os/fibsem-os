@@ -392,3 +392,157 @@ def test_a_mill_part_of_a_spot_burn_reports_to_it_not_as_milling(scripted):
     assert burn, "the run's ticks go to the spot burn"
     service.run()
     assert mills, "and to milling progress again once it is over"
+
+
+# ── mill steps and how they end (FIB-1480) ───────────────────────────────────
+
+
+def _on_first_wait(service, act):
+    """Call *act* at the run's first wait, as another thread would."""
+    waits = service._wait
+
+    def wait(seconds):
+        if not getattr(wait, "done", False):
+            wait.done = True
+            act()
+        waits(seconds)
+
+    service._wait = wait
+
+
+def test_a_step_that_mills_out_is_finished_by_the_instrument(scripted):
+    service = scripted([RUNNING, RUNNING, IDLE])
+    with service.stage_run("s") as stage_run:
+        assert service.run() == "completed"
+    (step,) = stage_run.steps
+    assert step.end.to_dict() == {
+        "kind": "finished",
+        "by": "instrument",
+        "reason": None,
+    }
+    assert step.started_at <= step.ended_at
+    assert step.milled_time == 1  # as the progress counts it
+
+
+def test_ending_the_stage_completes_the_step_and_mills_no_more(scripted):
+    service = scripted([RUNNING] * 10)
+    _on_first_wait(service, lambda: service.end("drop seen", by="agent"))
+    with service.stage_run("s") as stage_run:
+        assert service.run() == "completed"
+        assert service.steps.count("stop") == 1
+        service.steps.clear()
+        assert service.run() == "completed"  # the strategy's next step
+    assert service.steps == ["clear"], "nothing starts once the stage is ended"
+    (step,) = stage_run.steps
+    end = {"kind": "ended", "by": "agent", "reason": "drop seen"}
+    assert step.end.to_dict() == end
+    assert stage_run.ended() == end
+    with service.stage_run("next") as stage_run:
+        service.states = [RUNNING, IDLE]
+        assert service.run() == "completed"  # a new stage mills again
+    assert stage_run.steps[0].end.kind == "finished"
+
+
+def test_a_stop_ends_the_step_stopped(scripted):
+    service = scripted([RUNNING] * 10)
+    _on_first_wait(service, service.stop)
+    with service.stage_run("s") as stage_run:
+        assert service.run() == "cancelled"
+    assert stage_run.steps[0].end.to_dict() == {
+        "kind": "stopped",
+        "by": None,
+        "reason": "Milling stopped.",
+    }
+    assert service.steps.count("stop") == 1
+
+
+def test_a_strategy_s_stop_pattern_ends_only_the_step(scripted):
+    service = scripted([RUNNING] * 10)
+    _on_first_wait(service, service.stop_pattern)
+    with service.stage_run("s") as stage_run:
+        assert service.run() == "completed"
+        service.states = [RUNNING, IDLE]
+        assert service.run() == "completed"
+    first, second = stage_run.steps
+    assert (first.end.kind, first.end.by) == ("ended", "strategy")
+    assert second.end.kind == "finished"
+
+
+def test_a_failed_step_says_why(scripted):
+    service = scripted([RUNNING])
+
+    def broken():
+        raise RuntimeError("lost")
+
+    service._poll = broken
+    with service.stage_run("s") as stage_run:
+        with pytest.raises(RuntimeError):
+            service.run()
+    assert stage_run.steps[0].end.to_dict() == {
+        "kind": "failed",
+        "by": None,
+        "reason": "RuntimeError: lost",
+    }
+
+
+def test_ending_with_nothing_milling_is_refused(scripted):
+    from fibsem.cancellation import NothingToStop
+
+    service = scripted([])
+    with pytest.raises(NothingToStop):
+        service.end("nothing", by="agent")
+
+
+def test_an_end_the_beam_ignores_gives_up(scripted):
+    service = scripted([RUNNING] * 100, stop_timeout=3)
+    service._stop = lambda: service.steps.append("stop")  # never stops
+    _on_first_wait(service, lambda: service.end("enough", by="operator"))
+    assert service.run() == "completed"
+    assert service.steps.count("stop") == 1
+    assert service.steps.count("poll") == 5
+
+
+def test_an_end_wakes_the_step_at_once(scripted):
+    """The step waits on its end, not a sleep: an hour between looks, and the
+    end still lands at once."""
+    import types
+
+    service = scripted([RUNNING] * 10)
+    service._wait = types.MethodType(Milling._wait, service)
+    service.poll_interval = 3600
+    started = threading.Event()
+    service._start = lambda: (service.steps.append("start"), started.set())
+
+    def end_when_started():
+        started.wait(5)
+        service.end("enough", by="operator")
+
+    ended = threading.Thread(target=end_when_started)
+    ended.start()
+    with service.stage_run("s"):
+        assert service.run() == "completed"
+    ended.join(5)
+
+
+def test_a_stop_that_raises_is_tried_again(scripted):
+    """A driver's stop that fails (AutoScript raising) must not leave the beam
+    milling until the stop timeout: the step's next look stops it again."""
+    service = scripted([RUNNING] * 10)
+    stops = service._stop
+
+    def flaky():
+        if "stop" not in service.steps:
+            service.steps.append("stop")
+            raise RuntimeError("busy")
+        stops()
+
+    service._stop = flaky
+
+    def end():
+        with pytest.raises(RuntimeError):
+            service.end("enough", by="operator")
+
+    _on_first_wait(service, end)
+    with service.stage_run("s"):
+        assert service.run() == "completed"
+    assert service.steps.count("stop") == 2
