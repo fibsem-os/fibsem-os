@@ -16,9 +16,10 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 
-from fibsem.ai.agent import allowlist
+from fibsem.ai.agent.calls import current_call
 from fibsem.server import files
 from fibsem.server.auth import take_control
+from fibsem.workflows import evidence
 
 __all__ = [
     "build_app_config_router",
@@ -98,6 +99,21 @@ def _missing_field(message: str) -> HTTPException:
     return HTTPException(
         status_code=422, detail={"error_type": "missing_field", "message": message}
     )
+
+
+def _recorded_or_not_found(result: Dict[str, Any]) -> Dict[str, Any]:
+    """*result* of putting something on the record, or the 404 for the item it
+    named that is not there."""
+    if not result.get("recorded") and result.get("error"):
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error_type": "not_found",
+                "message": result["error"],
+                "item_names": result.get("item_names", []),
+            },
+        )
+    return result
 
 
 def _required_text(body: Dict[str, Any], key: str, what: str) -> str:
@@ -383,17 +399,40 @@ def build_app_router(context: Any) -> APIRouter:
                 "Pass text (a non-empty string, at most 4000 characters); "
                 "item_name and reply_to (strings) are optional."
             )
-        result = context.add_note(text, item_name, reply_to)
-        if not result.get("recorded") and result.get("error"):
-            raise HTTPException(
-                status_code=404,
-                detail={
-                    "error_type": "not_found",
-                    "message": result["error"],
-                    "item_names": result.get("item_names", []),
-                },
+        cited = cited_evidence(context)
+        result = context.add_note(
+            text,
+            item_name,
+            reply_to,
+            **({"evidence": cited["evidence_id"]} if cited else {}),
+        )
+        return _recorded_or_not_found(result)
+
+    @router.post("/experiment/evidence")
+    def add_evidence(body: Dict[str, Any]):
+        # What the agent judged from, kept in the experiment: an image of the
+        # experiment's or one it made (uploaded, saved here), what it saw in it
+        # and marks on it. Changes nothing, like a note.
+        item_name = body.get("item_name")
+        if item_name is not None and not isinstance(item_name, str):
+            raise _missing_field("item_name, when given, is a string.")
+
+        def save() -> Dict[str, Any]:
+            return evidence.save(
+                lambda: context.experiment_path,
+                body.get("text"),
+                image=body.get("image"),
+                upload=body.get("upload"),
+                marks=body.get("marks"),
+                source=body.get("source"),
+                item_name=item_name,
             )
-        return result
+
+        try:
+            result = context.add_evidence(item_name, save)
+        except evidence.EvidenceRefused as refusal:
+            raise _evidence_refused(refusal)
+        return _recorded_or_not_found(result)
 
     @router.get("/events")
     def events(since: int = 0, timeout: float = 0.0):
@@ -409,6 +448,24 @@ def build_app_router(context: Any) -> APIRouter:
         return context.event_history(before=before, limit=limit)
 
     return router
+
+
+def _evidence_refused(refusal: evidence.EvidenceRefused) -> HTTPException:
+    return HTTPException(status_code=refusal.status_code, detail=refusal.detail)
+
+
+def cited_evidence(context: Any) -> Optional[Dict[str, Any]]:
+    """The record of the evidence the agent's call cites
+    (`calls.EVIDENCE_HEADER`); None when it cites none."""
+    call = current_call()
+    if call is None or not call.evidence:
+        return None
+    try:
+        return evidence.load(
+            lambda: getattr(context, "experiment_path", None), call.evidence
+        )
+    except evidence.EvidenceRefused as refusal:
+        raise _evidence_refused(refusal)
 
 
 def build_app_control_router(context: Any) -> APIRouter:
@@ -469,6 +526,7 @@ def build_app_control_router(context: Any) -> APIRouter:
             )
         if outcome == "Rejected" and not str(body.get("reason", "")).strip():
             raise _missing_field("A reject needs a reason; it is recorded on the item.")
+        cited = cited_evidence(context)
         result = context.decide(
             item_id,
             task_name,
@@ -480,6 +538,7 @@ def build_app_control_router(context: Any) -> APIRouter:
             proposal_id=proposal_id,
             action=action,
             patch=patch,
+            **({"evidence": cited["evidence_id"]} if cited else {}),
         )
         if result.get("invalid_value"):
             raise HTTPException(
@@ -624,17 +683,7 @@ def build_app_suggest_router(context: Any) -> APIRouter:
                         "message": f"{name}, when given, is a JSON object {shape}.",
                     },
                 )
-        image = body.get("image") or None
-        if image is not None:
-            refusal = allowlist.image_refusal(
-                image, lambda: getattr(context, "experiment_path", None)
-            )
-            if refusal is not None:
-                status, error_type, message = refusal
-                raise HTTPException(
-                    status_code=status,
-                    detail={"error_type": error_type, "message": message},
-                )
+        cited = cited_evidence(context)
         result = context.suggest(
             item_id,
             task_name,
@@ -644,7 +693,7 @@ def build_app_suggest_router(context: Any) -> APIRouter:
             values=body.get("values"),
             patch=body.get("patch"),
             action=str(body.get("action") or ""),
-            image=image,
+            evidence=cited,
             actor=str(body.get("actor", "")),
         )
         if not result.get("applied", False) and result.get("available", True):

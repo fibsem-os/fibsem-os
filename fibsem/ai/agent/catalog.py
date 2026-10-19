@@ -80,6 +80,12 @@ class ToolSpec:
         return self.level == "watch" and self.name not in _WRITES_AT_WATCH
 
     @property
+    def takes_evidence(self) -> bool:
+        """Takes the optional ``evidence`` (`EVIDENCE_PARAM`): any tool that
+        acts or adds to the record. The sidecar keeps it and the call cites it."""
+        return not self.read_only
+
+    @property
     def destructive(self) -> bool:
         """Changes or removes what is there, as MCP means it: every write but
         the few that only add. A client may ask before one."""
@@ -90,6 +96,21 @@ class ToolSpec:
         """Calling it twice with the same arguments does no more than once."""
         return self.read_only or self.method == "PUT"
 
+
+# The optional argument every acting tool takes (`ToolSpec.takes_evidence`):
+# what the agent judged from, kept in the experiment (fibsem.workflows.evidence).
+EVIDENCE_PARAM = (
+    "optional: what you judged from, kept in the experiment and shown to the "
+    "operator with this call (the card, Recent, the event log). "
+    "{text, image | file, marks?, source?, item_name?}: text, what you saw in "
+    "it, in a sentence or two; image, a path inside the experiment as the image "
+    "tools answered it; or file, an image you made yourself on this machine (an "
+    "overlay your code drew, a plot; PNG or JPEG, at most 4 MB, saved at most "
+    "2048 px), with source, the experiment image it was drawn from; marks, "
+    "{points: [{x, y, label?}], areas: [{x, y, width, height, label?}]} in the "
+    "image's pixels from its top left. Attach it whenever an image decided "
+    "what you do; without it the operator sees 'No evidence'"
+)
 
 # Group first, then verb (plans: mcp-tool-naming). A new tool joins a group
 # here, or the group is added on purpose; the title names it.
@@ -1562,10 +1583,8 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         router="app",
         params={
             "actions": "list of {tool, arguments}, at most 20",
-            "reason": "why, for the operator, in two or three short sentences: the evidence first (what you saw, in which image, when), then why these actions follow. The card already says what each action does: don't restate it",
-            "image": "optional: the path of the image your evidence is in, as the image tools answered it (inside the experiment). The card shows it under Why with the actions' points, areas and patterns drawn on it; without it, the card uses the image the values were measured on",
+            "reason": "why, for the operator, in two or three short sentences: what you saw, then why these actions follow. The card already says what each action does: don't restate it. Attach the image you judged from as evidence: the card shows it under Why, and draws the actions' points, areas and patterns on its beam image; without it, on the image the values were measured on",
         },
-        optional=("image",),
         note="Works at Assist only: at Drive make the calls yourself; refused (403 level) at Drive and Watch.",
     ),
     ToolSpec(
@@ -2086,10 +2105,9 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "values": "optional: the values you suggest, as for proposal_decide",
             "patch": "optional, on a milling pass: {dotted path: value} set on the proposed config",
             "action": "on a milling or spot_burn pass: one of its provenance.actions",
-            "image": "optional: the path of the image your evidence is in, inside the experiment (as the image tools answered it); the card shows it",
             "actor": "optional agent/model name, recorded as agent:<name>",
         },
-        optional=("outcome", "values", "patch", "action", "image", "actor"),
+        optional=("outcome", "values", "patch", "action", "actor"),
         note="Works at Assist and Drive; refused (403) at Watch. At Drive you may proposal_decide directly instead.",
     ),
     ToolSpec(
@@ -2151,6 +2169,7 @@ NOT_TOOLS: Dict[str, str] = {
     "GET /health": "Open liveness check, no token; the agent's first read is server_get_capabilities.",
     "GET /dashboard": "The operator's monitor page, HTML.",
     "GET /dashboard/log": "The operator's event log page, HTML; app_get_events is the agent's read.",
+    "POST /app/experiment/evidence": "Every acting tool's evidence argument: the sidecar keeps it here first, then the call cites it.",
     "GET /app/events/history": "The event log page's read of the run before the live buffer; an agent reads a finished run from its experiment folder.",
     "GET /microscope/devices/{device}": "device_list carries every device's description.",
     "GET /microscope/devices/{device}/{parameter}/metadata": "device_list carries limits, choices and settable.",

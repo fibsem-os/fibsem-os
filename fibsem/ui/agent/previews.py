@@ -496,6 +496,63 @@ def _key_past_field(frame, layer: "_Layer") -> None:
         layer.key(OUTLINE, "past the field", layer.patterns)
 
 
+def evidence_picture(evidence: Optional[Dict[str, Any]]):
+    """The image of the agent's *evidence*, its marks drawn on it in the agent's
+    purple, at most `PICTURE_WIDTH` wide: a QImage, or None when there is no
+    image to show."""
+    from PyQt5.QtCore import QPointF, QRectF, Qt
+    from PyQt5.QtGui import QColor, QFont, QImage, QPainter, QPen
+
+    path = (evidence or {}).get("image")
+    if not path:
+        return None
+    image = QImage(str(path))
+    if image.isNull():
+        # A beam image (TIFF): as the card draws a frame.
+        from fibsem.imaging.export import _to_uint8
+        from fibsem.ui.utils import arr_to_qimage
+
+        try:
+            frame = _load_beam_image(str(path))
+            image = arr_to_qimage(_to_uint8(frame.data))
+        except Exception:  # noqa: BLE001 - shown without it
+            return None
+    width = image.width()
+    scale = min(1.0, PICTURE_WIDTH / max(width, 1))
+    if scale < 1.0:
+        image = image.scaledToWidth(int(width * scale), Qt.SmoothTransformation)  # type: ignore
+    image = image.convertToFormat(QImage.Format_RGB32)
+    marks = (evidence or {}).get("marks") or {}
+    if not marks:
+        return image
+    painter = QPainter(image)
+    painter.setRenderHint(QPainter.Antialiasing)
+    line = max(2.0, image.width() / 150)
+    painter.setPen(QPen(QColor(PURPLE_COLOR), line))
+    font = QFont()
+    font.setPixelSize(max(11, int(image.width() / 45)))
+    painter.setFont(font)
+    size = line * 5
+    for point in marks.get("points") or []:
+        x, y = point["x"] * scale, point["y"] * scale
+        painter.drawLine(QPointF(x - size, y), QPointF(x + size, y))
+        painter.drawLine(QPointF(x, y - size), QPointF(x, y + size))
+        if point.get("label"):
+            painter.drawText(QPointF(x + size + line, y - line), point["label"])
+    for area in marks.get("areas") or []:
+        rect = QRectF(
+            area["x"] * scale,
+            area["y"] * scale,
+            area["width"] * scale,
+            area["height"] * scale,
+        )
+        painter.drawRect(rect)
+        if area.get("label"):
+            painter.drawText(rect.topLeft() + QPointF(0, -line), area["label"])
+    painter.end()
+    return image
+
+
 def draw_picture(frame, layers: List[_Layer]):
     """*frame* with *layers* drawn on it, as the card shows it: a QImage at most
     `PICTURE_WIDTH` wide (FIB-1411). Patterns are drawn as the milling view

@@ -102,10 +102,12 @@ saw, where you saw it (an image, a value, an event), and what the actions
 will do. Two sentences is usually right. The reason is kept on the record
 with the request, so you don't need a separate note for it.
 
-**Show the image you mean.** When your evidence is in an image, pass its
-path as `image` (the path the image tools answered, inside the experiment).
-The card shows it under Why with your actions' points, areas and patterns
-drawn on it. Without it, the card shows the image the values were measured on.
+**Show the image you mean.** When an image decided what you do, pass it as
+`evidence` on the call: `{text, image}` with the path the image tools answered
+(inside the experiment), or `{text, file, source}` for an overlay you drew
+yourself, with `marks` for points and areas on it. Every acting tool takes it.
+The card shows your text and image under Why, with your actions' points, areas
+and patterns drawn on its beam image; without it, the card says "No evidence".
 
 **Read just before you ask.** Read the config (`item_get_task_config`) or
 the stage position before filing, and pass the `version` you read. Until
@@ -152,7 +154,7 @@ area, a detection, a mill's or a spot burn's pass), read it with
 image freshness, and separate reading from acting. At Assist you don't
 decide it: suggest the decision with `proposal_suggest` (the same outcome,
 values or patch and action `proposal_decide` takes, with your reason and,
-optionally, the image your evidence is in). The operator sees it on your card
+optionally, your `evidence`). The operator sees it on your card
 and approves it, which decides the proposal as you suggested, or declines it,
 or decides it another way. The watcher prints `SUGGESTION APPROVED` or
 `SUGGESTION DECLINED` with the operator's reason; read a decline's reason

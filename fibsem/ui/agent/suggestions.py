@@ -6,6 +6,7 @@ import os
 from typing import Any, Dict, Optional, Tuple
 
 from fibsem.ai.agent.request_text import _values_text
+from fibsem.workflows.evidence import find as find_evidence
 from fibsem.workflows.proposals import (
     ACTION_ACCEPT,
     ACTION_EDIT,
@@ -54,14 +55,21 @@ def decision_text(proposal: Proposal) -> str:
     return text
 
 
-def suggestion_card(item: Any, task_name: str, proposal: Proposal) -> Dict[str, str]:
-    """The card's suggestion: ``proposal``, ``decision`` and ``reason``."""
+def suggestion_card(
+    item: Any,
+    task_name: str,
+    proposal: Proposal,
+    experiment_path: Optional[str] = None,
+) -> Dict[str, Any]:
+    """The card's suggestion: ``proposal``, ``decision``, ``reason`` and the
+    ``evidence`` it cites (its record, or None)."""
     message = str(proposal.provenance.get("message") or "")
     asked = f"{item.name} · {task_name} · {kind_label(proposal.kind)}"
     return {
         "proposal": f"{asked}: {message}" if message else asked,
         "decision": decision_text(proposal),
         "reason": proposal.suggestion.reason,
+        "evidence": find_evidence(experiment_path, proposal.suggestion.evidence),
     }
 
 
