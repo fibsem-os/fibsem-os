@@ -192,3 +192,24 @@ def test_the_setup_tasks_none_fields_patch():
 
     assert config.objective_position == 1.0e-3
     assert config.fm_roi.width == 1.0
+
+
+def test_a_float_field_holding_a_whole_number_takes_a_float():
+    """A Point made with ints, as a saved file can hold it, still patches as the
+    float its fields are declared (sim session 2026-10-19 F3)."""
+    from fibsem.structures import Point
+
+    point = Point(0, 0)
+    assert apply_patch(point, {"x": -3e-6}) == [("x", 0, -3e-6)]
+    assert point.x == -3e-6
+
+
+def test_check_patch_refuses_as_apply_does_and_sets_nothing(config):
+    from fibsem.server.config_patch import check_patch
+
+    path = "milling.mill_rough.stages.0.pattern.depth"
+    before = config.milling["mill_rough"].stages[0].pattern.depth
+    check_patch(config, {path: 2.5e-6})
+    assert config.milling["mill_rough"].stages[0].pattern.depth == before
+    with pytest.raises(PatchError, match="not used"):
+        check_patch(config, {"milling.mill_rough.alignment.interval": 5.0})

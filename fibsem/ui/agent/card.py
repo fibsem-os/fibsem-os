@@ -861,10 +861,13 @@ class AgentCard(QFrame):
             row.addWidget(mark)
             text = QVBoxLayout()
             text.setSpacing(1)
+            # Wraps: a long one ("01-meet-ghoul · Setup Lamella Position")
+            # would widen the steps past STEPS_MIN, pushing Approve off the card.
             what = _label(
                 action.get("what") or action.get("tool", ""),
                 TEXT_MUTED_COLOR,
                 small=True,
+                wrap=True,
             )
             if index == 0 and self.details_link is not None:
                 # Top right of the list.
