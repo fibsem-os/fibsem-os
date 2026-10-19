@@ -405,7 +405,7 @@ def test_a_grid_task_added_on_the_protocol_tab_reaches_the_run_view(main_ui, tmp
     ui.experiment = exp
     main_ui.minimap_widget = _NoMinimap()
     main_ui._on_experiment_update()
-    run_view = main_ui.grid_workflow_widget
+    run_view = main_ui.workflow_tab.grid_workflow_widget
     assert list(run_view._task_rows) == []
 
     main_ui.task_widget.grid_protocol.add_task("BEAM_OVERVIEW_GRID", "SEM Overview")
@@ -474,7 +474,7 @@ def _window_with_magazine(main_ui, tmp_path):
     exp.task_protocol = AutoLamellaTaskProtocol()
     ui.experiment = exp
     main_ui.grids_tab.set_experiment(exp)
-    main_ui.grid_workflow_widget.set_experiment(exp)
+    main_ui.workflow_tab.grid_workflow_widget.set_experiment(exp)
     main_ui.tab_widget.setTabEnabled(
         main_ui.tab_widget.indexOf(main_ui.grids_tab), True
     )
