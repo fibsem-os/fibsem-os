@@ -990,7 +990,14 @@ def build_app_config_router(context: Any) -> APIRouter:
             raise _missing_field(
                 "Pass note: text, at most 4000 characters ('' clears)."
             )
-        return _answer_or_refusal(context.set_grid_note(grid_name, note))
+        cited = cited_evidence(context)
+        result = context.set_grid_note(
+            grid_name, note, **({"evidence": cited["evidence_id"]} if cited else {})
+        )
+        call = current_call()
+        if call is not None and note and result.get("applied"):
+            call.recorded = True  # its note is the record of it
+        return _answer_or_refusal(result)
 
     @router.delete("/experiment/grids/{grid_name}")
     def remove_grid(grid_name: str):

@@ -1492,20 +1492,26 @@ class AutoLamellaAppContext:
             "quality": grid.quality.to_dict(),
         }
 
-    def set_grid_note(self, grid_name: str, note: str) -> Dict[str, Any]:
+    def set_grid_note(
+        self, grid_name: str, note: str, evidence: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Keep a note on a grid's record, as the Grids tab's Note does; an empty
         note clears it. Apart from the verdict, so judging the grid again keeps
-        it. Saved."""
+        it. Saved, and a note (not a clearing) put on the record as the
+        agent's, citing the *evidence* (its id) it rests on."""
         experiment, grid, refusal = self._grid_record(grid_name)
         if refusal:
             return refusal
 
         def keep():
-            grid.description = note
+            record = grid.set_note(note, evidence=evidence)
             experiment.save()
             self._grids_changed()
+            return record
 
-        self._agent_call(keep)
+        record = self._agent_call(keep)
+        if record is not None:
+            self.record_event(NOTE, record)
         return {"applied": True, "grid_name": grid_name, "note": note}
 
     def remove_grid(self, grid_name: str) -> Dict[str, Any]:

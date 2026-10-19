@@ -258,6 +258,21 @@ def test_the_operator_s_note_is_a_message(app):
     assert not any("my own note" in line for line in lines)
 
 
+def test_the_operator_s_grid_note_is_a_note_not_a_message(app):
+    def run():
+        app.buffer.append(
+            "note",
+            {"text": "thin ice", "item_id": "g1", "item_name": "G1"},
+            actor="operator",
+        )
+        app.buffer.append("workflow_completed", {})
+
+    code, lines = _watch({2: run})
+
+    assert lines[0] == "NOTE from the operator on G1: thin ice"
+    assert not any(line.startswith("MESSAGE") for line in lines)
+
+
 def test_the_agent_s_request_decided_on_the_record(app):
     def decided(proposal_id, outcome, reason=""):
         payload = dict(proposal_id=proposal_id, kind="actions", outcome=outcome)

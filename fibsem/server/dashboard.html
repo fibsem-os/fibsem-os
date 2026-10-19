@@ -399,7 +399,9 @@ const RUN_ENDS = new Set(
 function eventLine(e) {
   const k = e.kind, p = e.payload || {}, ts = ep(e.timestamp);
   if (k === "note" && e.actor === "operator")
-    return `<span class="ts">${ts}</span><span class="who-op">message</span> ${esc(p.text)}`;
+    return p.id
+      ? `<span class="ts">${ts}</span><span class="who-op">message</span> ${esc(p.text)}`
+      : `<span class="ts">${ts}</span><span class="who-op">note</span> ${esc(p.text)}${p.item_name ? ` · ${esc(p.item_name)}` : ""}`;
   if (k === "evidence")
     return `<span class="ts">${ts}</span><span class="who-agent">evidence</span> ${esc(String(p.image || "").split(/[\\/]/).pop())}${p.item_name ? ` · ${esc(p.item_name)}` : ""}`;
   if (k === "agent_note" || k === "note")
