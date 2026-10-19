@@ -684,8 +684,11 @@ def _suggestion_payload(suggestion: Any) -> Dict[str, Any]:
         "suggested_by": doc["actor"],
         "outcome": doc["outcome"],
         "reason": doc["reason"],
-        **{k: doc[k] for k in ("values", "patch", "action") if k in doc},
-        **({"evidence": doc["image"]} if "image" in doc else {}),
+        **{
+            k: doc[k]
+            for k in ("values", "patch", "action", "image", "evidence")
+            if k in doc
+        },
     }
 
 
@@ -705,4 +708,6 @@ def _proposal_payload(item: Any, task_name: str, proposal: Any) -> Dict[str, Any
     checkpoint = proposal.provenance.get("checkpoint")
     if checkpoint:
         payload["checkpoint"] = checkpoint
+    if proposal.provenance.get("evidence"):
+        payload["evidence"] = proposal.provenance["evidence"]
     return payload

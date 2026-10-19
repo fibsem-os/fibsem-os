@@ -69,7 +69,11 @@ def test_each_tool_takes_the_arguments_its_catalog_entry_names():
     }
     for spec in CATALOG:
         schema = schemas[spec.name]
-        assert set(schema.get("properties", {})) == set(spec.params), spec.name
+        # An acting tool also takes the evidence it cites.
+        evidence = {"evidence"} if spec.takes_evidence else set()
+        assert set(schema.get("properties", {})) == set(spec.params) | evidence, (
+            spec.name
+        )
         assert set(schema.get("required", [])) == (
             set(spec.params) - set(spec.optional)
         ), spec.name

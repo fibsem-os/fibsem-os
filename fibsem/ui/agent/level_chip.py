@@ -291,7 +291,7 @@ class AgentLevelChip(QPushButton):
     def suggestion(self) -> Optional[Dict[str, str]]:
         return self._suggestion
 
-    def set_suggestion(self, suggestion: Optional[Dict[str, str]]) -> None:
+    def set_suggestion(self, suggestion: Optional[Dict[str, Any]]) -> None:
         """Show the agent's suggestion (see `AgentCard.set_suggestion`),
         or None for none. Does not emit: this is the window telling the chip."""
         arrived = suggestion is not None and dict(suggestion) != self._suggestion
