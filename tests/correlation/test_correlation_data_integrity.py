@@ -101,9 +101,9 @@ def test_serialisation_survives_an_image_without_metadata():
     data = CorrelationInputData(fib_image=img, fib_coordinates=[_fib()])
 
     payload = data.to_dict()  # must not raise
-    assert payload["fib_image_pixel_size"] is None
-    assert payload["fib_image_filename"] is None
-    assert tuple(payload["fib_image_shape"]) == (200, 300)
+    assert payload["stored_fib_image_pixel_size"] is None
+    assert payload["stored_fib_image_filename"] is None
+    assert tuple(payload["stored_fib_image_shape"]) == (200, 300)
 
 
 def test_autosave_failure_is_reported_not_swallowed(qapp, tmp_path, monkeypatch):
