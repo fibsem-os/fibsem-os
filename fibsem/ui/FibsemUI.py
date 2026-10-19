@@ -32,6 +32,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.imaging.overview_session import OverviewSession
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import MicroscopeSettings
 from fibsem.tools.app_identity import set_app_identity
@@ -285,7 +286,7 @@ class FibsemUI(QMainWindow):
         """Fill the Overview tab in, now that there is an instrument to scale it."""
         self._drop_overview()
         self.overview_widget = FibsemOverviewWidget(
-            microscope=self.microscope,
+            OverviewSession(self.microscope),
             parent=self.overview_container,
         )
         # Where the rest of this application already writes. Left unset, a run falls

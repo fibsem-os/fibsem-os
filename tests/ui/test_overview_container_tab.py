@@ -42,7 +42,9 @@ def _destroy_widgets(destroy_widgets_after_test):
 
 
 def _ui(microscope=None, experiment=None):
-    return type("_UI", (), {"microscope": microscope, "experiment": experiment})()
+    from tests.fixtures.overview_host import OverviewHost
+
+    return OverviewHost(microscope, experiment)
 
 
 def _fm_microscope():

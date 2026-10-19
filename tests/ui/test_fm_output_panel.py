@@ -5,10 +5,11 @@ fluorescence one took a directory from its host and named every run `overview-HH
 So the two tabs wrote to different places under different rules, and only one of them
 could be pointed somewhere else.
 
-Both now hold a base name that the run stamps with the time it started, defaulting to
-`overview-image`. The stamp is not decoration: the stem is a *directory*, and two runs
-sharing one land on each other -- the second overwrites the first's tiles and its mosaic,
-and only the canvas, holding both in memory, still shows two.
+Both now hold a base name that the imaging service stamps with the time the run
+started, defaulting to `overview-image`. The stamp is not decoration: the stem is a
+*directory*, and two runs sharing one land on each other -- the second overwrites the
+first's tiles and its mosaic, and only the canvas, holding both in memory, still shows
+two.
 """
 
 import os
@@ -24,6 +25,7 @@ pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is delibe
 
 from PyQt5.QtWidgets import QApplication
 
+from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession
 from fibsem.imaging.tiled import stamped_overview_name
 from fibsem.structures import DEFAULT_OVERVIEW_FILENAME
 from fibsem.ui.fm.widgets.fm_overview_settings_widget import FMOverviewSettingsWidget
@@ -53,15 +55,13 @@ def test_it_opens_on_the_same_default_as_the_fibsem_tab(settings):
     """One constant, not two spellings of it. The tabs write into the same experiment
     folder, and a reader globbing `*overview*` should find both runs alike."""
     assert settings.filename_edit.text() == DEFAULT_OVERVIEW_FILENAME
-    assert base_of(settings.basename) == DEFAULT_OVERVIEW_FILENAME
+    assert settings.basename == DEFAULT_OVERVIEW_FILENAME
 
 
-def test_a_name_you_type_is_stamped_with_the_time(settings):
-    """Applied to whatever the box says, not only to the default -- a memorable name
-    invites being reused, so it is *more* prone to collision, not less."""
+def test_a_name_you_type_is_the_name_the_run_asks_for(settings):
     settings.filename_edit.setText("grid1")
 
-    assert base_of(settings.basename) == "grid1"
+    assert settings.basename == "grid1"
 
 
 def test_an_empty_name_falls_back_rather_than_making_an_unnamed_folder(settings):
@@ -69,7 +69,7 @@ def test_an_empty_name_falls_back_rather_than_making_an_unnamed_folder(settings)
     to create a folder called nothing at all."""
     settings.filename_edit.setText("   ")
 
-    assert base_of(settings.basename) == DEFAULT_OVERVIEW_FILENAME
+    assert settings.basename == DEFAULT_OVERVIEW_FILENAME
 
 
 def test_the_panel_says_what_the_run_will_be_called(settings):
@@ -90,12 +90,7 @@ def test_an_emptied_name_previews_the_fallback_and_not_a_bare_stamp(settings):
     )
 
 
-def test_both_tabs_stamp_through_the_same_helper():
-    """Structural, and the point of moving it out of the FIB/SEM tab: two copies of this
-    rule would drift, and the drift would only show up as files in the wrong place."""
-    import fibsem.ui.widgets.overview_widget as beam
-
-    assert beam.stamped_overview_name is stamped_overview_name
+def test_the_stamp_keeps_the_base_as_a_prefix():
     assert base_of(stamped_overview_name("x")) == "x"
 
 
@@ -141,57 +136,100 @@ def microscope():
 
 
 @pytest.fixture
-def widget(microscope, tmp_path):
+def widget(microscope, tmp_path, monkeypatch):
+    from PyQt5.QtWidgets import QDialog
+
+    from fibsem.ui.fm.widgets import fm_overview_widget as module
     from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget
 
-    built = FMOverviewWidget(microscope)
+    class _Dialog:
+        def __init__(self, **kwargs):
+            pass
+
+        def exec_(self):
+            return QDialog.Accepted
+
+    class _Worker:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr(module, "FMOverviewConfirmationDialog", _Dialog)
+    monkeypatch.setattr(module, "FunctionWorker", _Worker)
+    microscope.fm.objective.insert()
+    built = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
+    monkeypatch.setattr(built, "at_acquisition_orientation", lambda: True)
     built.set_save_directory(str(tmp_path))
     yield built
     built.deleteLater()
 
 
-def test_a_run_claims_the_folder_and_the_name_the_panel_shows(widget, tmp_path):
+def _tiles_directory(widget, monkeypatch) -> str:
+    """Run an overview from the tab, through the imaging service, and say where its
+    tiles went. Cancelled at the first tile: where they go is decided before."""
+    from fibsem.cancellation import OperationCancelledError
+    from fibsem.fm import acquisition
+
+    claimed = []
+
+    class _Runner:
+        def __init__(self, **kwargs):
+            claimed.append(kwargs["save_directory"])
+
+        def run_and_stitch(self):
+            raise OperationCancelledError()
+
+    monkeypatch.setattr(acquisition, "FMTiledAcquisitionRunner", _Runner)
+    widget.acquire()
+    widget._acquire_worker()
+    widget._set_running(False)
+    return claimed[0]
+
+
+def test_a_run_claims_the_folder_and_the_name_the_panel_shows(
+    widget, tmp_path, monkeypatch
+):
     """The end of the chain, and the only part a user can check: the panel is not a
     display of where a run goes, it is where it goes."""
     widget.settings_widget.filename_edit.setText("grid1")
 
-    destination = widget._claim_destination()
+    tiles = _tiles_directory(widget, monkeypatch)
 
-    assert os.path.dirname(destination.tiles_directory) == str(tmp_path)
-    assert base_of(os.path.basename(destination.tiles_directory)) == "grid1"
-    # The mosaic sits beside the tile directory under the same name, so both move
-    # together when the name changes -- otherwise a renamed run splits in two.
-    assert destination.mosaic_path == f"{destination.tiles_directory}.ome.tiff"
+    assert os.path.dirname(tiles) == str(tmp_path)
+    assert base_of(os.path.basename(tiles)) == "grid1"
 
 
-def test_two_runs_in_the_same_second_do_not_land_on_each_other(widget):
+def test_two_runs_in_the_same_second_do_not_land_on_each_other(widget, monkeypatch):
     """What the stamp cannot cover on its own: it is good to the second, and a
     single-tile overview at a short exposure takes far less."""
     widget.settings_widget.filename_edit.setText("grid1")
 
-    first = widget._claim_destination()
-    second = widget._claim_destination()
+    first = _tiles_directory(widget, monkeypatch)
+    second = _tiles_directory(widget, monkeypatch)
 
-    assert first.tiles_directory != second.tiles_directory
-    assert os.path.isdir(first.tiles_directory)
-    assert os.path.isdir(second.tiles_directory)
+    assert first != second
+    assert os.path.isdir(first)
+    assert os.path.isdir(second)
 
 
-def test_editing_the_folder_moves_where_the_run_goes(widget, tmp_path):
+def test_editing_the_folder_moves_where_the_run_goes(widget, tmp_path, monkeypatch):
     """The reason the field is editable at all -- the host's default is a starting
     point, not a cage."""
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     widget.settings_widget.path_edit.setText(str(elsewhere))
 
-    destination = widget._claim_destination()
+    tiles = _tiles_directory(widget, monkeypatch)
 
-    assert os.path.dirname(destination.tiles_directory) == str(elsewhere)
+    assert os.path.dirname(tiles) == str(elsewhere)
 
 
-def test_with_no_folder_the_run_goes_ahead_unsaved(widget):
-    """Unchanged by this panel, and worth pinning while it is being rewired: an overview
-    you can see is worth more than no overview at all."""
+def test_with_no_folder_the_run_saves_in_the_working_directory(widget, monkeypatch):
+    """As the beam tab does: the imaging service always takes a path."""
     widget.settings_widget.set_save_directory(None)
 
-    assert widget._claim_destination() is None
+    tiles = _tiles_directory(widget, monkeypatch)
+
+    assert os.path.dirname(tiles) == os.getcwd()

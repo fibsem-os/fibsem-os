@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 from PyQt5.QtWidgets import QApplication, QDialog
 
 from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
+from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession
 from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget
 
 if TYPE_CHECKING:
@@ -51,7 +52,7 @@ def _stop(fm) -> None:
 def widget(qapp):
     from tests.fixtures.fm_microscope import build_microscope
 
-    widget = FMOverviewWidget(build_microscope())
+    widget = FMOverviewWidget(OverviewSession(build_microscope(), FLUORESCENCE))
     # `build_microscope` leaves the objective retracted, which `acquire` refuses
     # (FIB-417) before it ever reaches the busy flag this file is about. Without
     # this, the tests that assert the flag is *given back* would pass on a run that
@@ -182,19 +183,51 @@ class TestTheThreeQuestions:
 
 
 class TestTheOverviewMarksTheInstrument:
-    def test_a_run_marks_the_microscope(self, widget, accept_dialog, no_worker):
+    @staticmethod
+    def _during_the_run(widget, monkeypatch):
+        """What the FM said while the run was under way: the imaging service
+        marks it for the run."""
+        seen = {}
+
+        class _Recording(_RunnerStub):
+            def run_and_stitch(self):
+                fm = widget.fm
+                seen.update(
+                    acquiring=fm.is_acquiring,
+                    reason=fm.acquiring_reason,
+                    streaming=fm.is_streaming,
+                    interactive=fm.is_interactive,
+                )
+                return super().run_and_stitch()
+
+        from fibsem.fm import acquisition
+
+        monkeypatch.setattr(
+            acquisition, "FMTiledAcquisitionRunner", lambda **kwargs: _Recording()
+        )
         widget.acquire()
+        widget._acquire_worker()
+        return seen
 
-        assert widget.fm.is_acquiring is True
-        assert widget.fm.acquiring_reason == "overview acquisition"
+    def test_a_run_marks_the_microscope(
+        self, widget, accept_dialog, no_worker, monkeypatch, tmp_path
+    ):
+        widget.set_save_directory(str(tmp_path))
+        seen = self._during_the_run(widget, monkeypatch)
 
-    def test_a_run_is_not_a_stream(self, widget, accept_dialog, no_worker):
+        assert seen["acquiring"] is True
+        assert seen["reason"] == "overview acquisition"
+
+    def test_a_run_is_not_a_stream(
+        self, widget, accept_dialog, no_worker, monkeypatch, tmp_path
+    ):
         """The distinction the hazard rests on: a widget watching `is_streaming` sees an
         idle microscope right through somebody else's tileset."""
-        widget.acquire()
+        widget.set_save_directory(str(tmp_path))
+        seen = self._during_the_run(widget, monkeypatch)
 
-        assert widget.fm.is_streaming is False
-        assert widget.fm.is_interactive is False
+        assert seen["streaming"] is False
+        assert seen["interactive"] is False
 
     def test_the_worker_gives_it_back(
         self, widget, accept_dialog, no_worker, monkeypatch

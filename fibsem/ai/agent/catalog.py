@@ -136,6 +136,12 @@ _ADDITIVE = _WRITES_AT_WATCH | {
     "workflow_queue_grids",
 }
 
+# An overview's centre_position parameter.
+_OVERVIEW_CENTRE = (
+    "stage position dict (x, y, z, r, t, coordinate_system) to centre the grid "
+    "on; the stage comes back to where it was (default where the stage is)"
+)
+
 # Titles the name, read out, gets wrong.
 _TITLES: Dict[str, str] = {
     "beam_auto_brightness_contrast": "Beam: Auto brightness and contrast",
@@ -890,7 +896,8 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="beam_acquire_overview",
         description=(
-            "A tiled SEM or FIB overview centred where the stage is: tiles of "
+            "A tiled SEM or FIB overview centred on centre_position, or where the "
+            "stage is: tiles of "
             "image_settings (hfw is one tile's field of view, beam_type the beam) "
             "in nrows x ncols, stitched into one image. The stage moves to each "
             "tile and comes back after. path must be a folder inside the open "
@@ -918,8 +925,9 @@ CATALOG: Tuple[ToolSpec, ...] = (
             ),
             "path": "a folder inside the open experiment to save it in",
             "name": "the file name, stamped with the time (default overview)",
+            "centre_position": _OVERVIEW_CENTRE,
         },
-        optional=("name",),
+        optional=("name", "centre_position"),
     ),
     ToolSpec(
         name="beam_estimate_overview",
@@ -1019,7 +1027,8 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="fm_acquire_overview",
         description=(
-            "A tiled fluorescence overview centred where the stage is: rows x cols "
+            "A tiled fluorescence overview centred on centre_position, or where the "
+            "stage is: rows x cols "
             "camera fields in each of the channels, stitched into one mosaic. The "
             "stage moves to each tile, and it and the objective come back after. "
             "The objective must be in, at the FM pose; refused while the FM is in "
@@ -1049,8 +1058,9 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "path": "a folder inside the open experiment to save it in",
             "name": "the file name, stamped with the time (default overview)",
             "zparams": "ZParameters dict (zmin, zmax, zstep), with use_zstack",
+            "centre_position": _OVERVIEW_CENTRE,
         },
-        optional=("name", "zparams"),
+        optional=("name", "zparams", "centre_position"),
     ),
     ToolSpec(
         name="fm_estimate_overview",
