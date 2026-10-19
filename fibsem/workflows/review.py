@@ -498,8 +498,7 @@ class ProposalReview:
                     "synced_tasks": list(result.synced_tasks),
                 }
             )
-            if proposal.values:
-                self.save()
+            self.save()
         try:
             self.decided.emit(item_id, task_name)
         except Exception:

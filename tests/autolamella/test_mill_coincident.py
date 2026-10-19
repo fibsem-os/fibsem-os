@@ -126,6 +126,7 @@ def _experiment(lamella: Lamella) -> Experiment:
     experiment = Experiment(path=lamella.path.parent, name="coincidence-exp")
     experiment.task_protocol = AutoLamellaTaskProtocol()
     experiment.positions.append(lamella)
+    os.makedirs(experiment.path, exist_ok=True)  # a task's end saves it
     return experiment
 
 
