@@ -117,13 +117,11 @@ lists where each key went.
   `confirm_position` (both on), turn either prompt off: the task
   then tilts, or uses the position as arrived at, and the record says nobody was
   asked. Off, `confirm_position` is only as safe as the automatic positioning that
-  put the stage there. The Tilt/Skip choice is gone: Continue tilts; an agent
-  rejecting the question is the way not to, and the task then carries on at the
-  angle it is at.
-- **A supervised task asks whoever can answer.** Its questions are asked while
-  someone can answer them: you, at the window, or a connected agent at Drive. With
-  nobody to answer, a run with no window and no agent, each question is recorded
-  as used unreviewed instead of holding the run.
+  put the stage there. The tilt has Tilt and Skip: Skip (or an agent rejecting
+  the question) leaves the stage at the angle it is at, and the task carries on.
+- **A supervised question always waits for an answer.** You answer it at the
+  window, or a connected agent at Drive does. With nobody to answer, a run with
+  no window and no agent, the run holds on the question until someone does.
 - **The fluorescence tasks' confirmations are on the record.** Select Fluorescence
   Position's "move to the fluorescence position" and Acquire Fluorescence Image's
   "run autofocus" prompts are asked on the prompt bar as before, and each Continue

@@ -34,6 +34,7 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
         self._setup_ui()
 
         self.parent = parent
+        self.det: Optional[DetectedFeatures] = None  # what is shown to correct
         self.has_user_corrected: bool = False
 
         # quad-view: a "mask" MaskSpec + a modal "detection" PointsSpec on a beam
@@ -214,6 +215,7 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
             if self._host_beam is not None:
                 self._detach_detection(self._host_beam)
             self._host_beam = None
+        self.det = None
 
     def confirm_button_clicked(self):
         """Confirm the detected features, save the data and clear the overlays."""

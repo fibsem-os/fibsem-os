@@ -78,14 +78,17 @@ class PoiMarker:
         fallback: Optional["FibsemImage"] = None,
     ) -> bool:
         """Put the marker on the FIB view at *poi* (the centre for None),
-        armed so the FIB canvas drags it. False when there is no view."""
+        armed so the FIB canvas drags it. False when there is no view, or no
+        frame to put it on."""
         controller = self.controller()
         if controller is None:
             return False
-        from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
-
         self._fallback = fallback
         image = self.view_frame(fallback)
+        if image is None:
+            return False
+        from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
+
         self.frame = image
         if poi is not None:
             col, row = poi_pixel(image, poi)
