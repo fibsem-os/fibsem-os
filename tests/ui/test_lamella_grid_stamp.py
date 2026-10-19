@@ -82,7 +82,7 @@ class TestWithALoader:
         exp.positions.events.inserted.connect(
             lambda index, value: seen.append(value.grid_id)
         )
-        lamella = arctis.add_new_lamella()
+        lamella = arctis.panel.experiment_tab.add_new_lamella()
         assert lamella.grid_id == record.id
         assert seen == [record.id]  # already there when the listeners redraw
         assert exp.get_lamellae_for_grid(record) == [lamella]
@@ -95,19 +95,22 @@ class TestWithALoader:
         exp.sync_grids_from_inventory(stage)
         stage.ensure_loaded("Grid-02")
         other = exp.get_grid_by_name("Grid-01")
-        assert arctis.add_new_lamella(grid_id=other.id).grid_id == other.id
+        assert (
+            arctis.panel.experiment_tab.add_new_lamella(grid_id=other.id).grid_id
+            == other.id
+        )
 
     def test_nothing_loaded_leaves_it_none(self, arctis):
         exp = arctis.experiment
         exp.sync_grids_from_inventory(arctis.microscope.sample_handling)
         assert arctis.microscope.sample_handling.loaded_grids == []
-        assert arctis.add_new_lamella().grid_id is None
+        assert arctis.panel.experiment_tab.add_new_lamella().grid_id is None
 
     def test_a_grid_with_no_record_leaves_it_none_and_creates_none(self, arctis):
         exp = arctis.experiment
         arctis.microscope.sample_handling.ensure_loaded("Grid-01")
         assert exp.grids == []
-        assert arctis.add_new_lamella().grid_id is None
+        assert arctis.panel.experiment_tab.add_new_lamella().grid_id is None
         assert exp.grids == []
 
 
@@ -127,9 +130,15 @@ class TestOnAFixedHolder:
         exp.add_grid(GridRecord(name="grid-ash"))
         oak = exp.add_grid(GridRecord(name="grid-oak"))
         near_oak = FibsemStagePosition(x=4.3e-3, y=1.2e-3, z=4e-3, r=0, t=0)
-        assert fixed.add_new_lamella(stage_position=near_oak).grid_id == oak.id
+        assert (
+            fixed.panel.experiment_tab.add_new_lamella(stage_position=near_oak).grid_id
+            == oak.id
+        )
         far = FibsemStagePosition(x=0.0, y=1e-3, z=4e-3, r=0, t=0)
-        assert fixed.add_new_lamella(stage_position=far).grid_id is None
+        assert (
+            fixed.panel.experiment_tab.add_new_lamella(stage_position=far).grid_id
+            is None
+        )
 
     def test_an_uncalibrated_slot_never_matches(self, fixed):
         stage = fixed.microscope.sample_handling
@@ -138,4 +147,7 @@ class TestOnAFixedHolder:
         slot.loaded_grid = SampleGrid(name="grid-ash")
         fixed.experiment.add_grid(GridRecord(name="grid-ash"))
         at_origin = FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=0, t=0)
-        assert fixed.add_new_lamella(stage_position=at_origin).grid_id is None
+        assert (
+            fixed.panel.experiment_tab.add_new_lamella(stage_position=at_origin).grid_id
+            is None
+        )

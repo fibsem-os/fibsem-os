@@ -59,7 +59,7 @@ def test_a_status_report_reaches_both_overview_lists(main_ui, tmp_path):
     ui.experiment = exp
     main_ui._on_experiment_update()
     for i, name in enumerate(("one", "two")):
-        ui.add_new_lamella(
+        ui.panel.experiment_tab.add_new_lamella(
             stage_position=FibsemStagePosition(x=i * 1e-4, y=0, z=0, r=0, t=0),
             name=name,
         )
@@ -82,4 +82,6 @@ def test_a_status_report_reaches_both_overview_lists(main_ui, tmp_path):
     )
     assert _statuses(beam) == ["Trench", ""]
     assert _statuses(fm) == ["Trench", ""]
-    assert [r.status_label.text() for r in ui.lamella_list._rows()] == ["Trench", ""]
+    assert [
+        r.status_label.text() for r in ui.panel.experiment_tab.lamella_list._rows()
+    ] == ["Trench", ""]

@@ -62,7 +62,7 @@ def test_nothing_grid_aware_gets_in_the_way(main_ui, tmp_path, monkeypatch):
     assert exp.grids == []
 
     for i in range(2):
-        ui.add_new_lamella(
+        ui.panel.experiment_tab.add_new_lamella(
             stage_position=FibsemStagePosition(x=i * 1e-4, y=0, z=0, r=0, t=0)
         )
     main_ui._on_experiment_update()
@@ -78,7 +78,7 @@ def test_nothing_grid_aware_gets_in_the_way(main_ui, tmp_path, monkeypatch):
         row = workflow_list._row(i)
         assert not row.grid_label.isVisibleTo(row)
     assert not workflow_list.grid_filter.isVisibleTo(workflow_list)
-    for row in ui.lamella_list._rows():
+    for row in ui.panel.experiment_tab.lamella_list._rows():
         assert not row.grid_label.isVisibleTo(row)
         assert row.action_move_to.isEnabled() and row.action_update.isEnabled()
 

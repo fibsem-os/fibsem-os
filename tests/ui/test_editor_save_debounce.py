@@ -84,7 +84,7 @@ def experiment(tmp_path):
 @pytest.fixture
 def editor(connected_ui, experiment):
     connected_ui.experiment = experiment
-    widget = AutoLamellaProtocolEditorWidget(parent=connected_ui)
+    widget = AutoLamellaProtocolEditorWidget(session=connected_ui.session)
     yield widget
     widget._save_timer.stop()  # never let one fire into a later test
     widget.close()
@@ -167,7 +167,7 @@ class TestTheFlushPoints:
         """
         editor._save_experiment()
         replacement = Experiment(path=str(tmp_path / "next"), name="next")
-        editor.parent_widget.experiment = replacement
+        editor.session.experiment = replacement
 
         editor.set_experiment()
 

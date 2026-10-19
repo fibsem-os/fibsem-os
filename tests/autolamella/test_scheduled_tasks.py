@@ -237,24 +237,24 @@ def test_the_workflow_config_finds_a_task_schedule():
 
 
 class RecordingUI:
-    """Listens to the run the way AutoLamellaUI does: ``pending`` sets its
-    WORKFLOW_PENDING, and each ``status`` samples it, where the real window
+    """Listens to the run the way RunRelay does: ``pending`` sets its
+    ``pending``, and each ``status`` samples it, where the real window
     reads it (the border block runs at the end of `_on_workflow_status`). That
     makes these tests about what the border can *see*, not merely about a flag
     being written and rewritten around the call.
     """
 
     def __init__(self, manager: TaskManager):
-        self.WORKFLOW_PENDING = False
+        self.pending = False
         self.pending_at_each_emit: List[bool] = []
         manager.pending.connect(self._on_pending)
         manager.status.connect(self._on_status)
 
     def _on_pending(self, pending: bool) -> None:
-        self.WORKFLOW_PENDING = pending
+        self.pending = pending
 
     def _on_status(self, event) -> None:
-        self.pending_at_each_emit.append(self.WORKFLOW_PENDING)
+        self.pending_at_each_emit.append(self.pending)
 
 
 @pytest.fixture
@@ -269,7 +269,7 @@ def test_the_border_sees_pending_while_the_wait_is_happening(manager, ui):
     elapsed_running(manager, scheduled_at=datetime.now() + timedelta(seconds=0.3))
 
     assert ui.pending_at_each_emit == [True]
-    assert ui.WORKFLOW_PENDING is False
+    assert ui.pending is False
 
 
 def test_pending_clears_once_the_scheduled_time_arrives(manager, ui):
@@ -281,7 +281,7 @@ def test_pending_clears_once_the_scheduled_time_arrives(manager, ui):
         lamella=manager.experiment.positions[0],
     )
 
-    assert ui.WORKFLOW_PENDING is False
+    assert ui.pending is False
 
 
 def test_pending_clears_when_a_stop_ends_the_wait(manager, ui):
@@ -290,7 +290,7 @@ def test_pending_clears_when_a_stop_ends_the_wait(manager, ui):
 
     elapsed_running(manager, scheduled_at=datetime.now() + timedelta(hours=6))
 
-    assert ui.WORKFLOW_PENDING is False
+    assert ui.pending is False
 
 
 def test_pending_clears_if_the_wait_raises(manager, ui, monkeypatch):
@@ -305,7 +305,7 @@ def test_pending_clears_if_the_wait_raises(manager, ui, monkeypatch):
     with pytest.raises(RuntimeError):
         elapsed_running(manager, scheduled_at=datetime.now() + timedelta(hours=6))
 
-    assert ui.WORKFLOW_PENDING is False
+    assert ui.pending is False
 
 
 def test_an_unscheduled_task_never_sets_pending(manager, ui):
@@ -318,4 +318,4 @@ def test_an_unscheduled_task_never_sets_pending(manager, ui):
 
     assert ui.pending_at_each_emit, "expected the queue to emit at all"
     assert not any(ui.pending_at_each_emit)
-    assert ui.WORKFLOW_PENDING is False
+    assert ui.pending is False

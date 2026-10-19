@@ -39,7 +39,7 @@ from fibsem.applications.autolamella.ui.autolamella_overview_tab import (  # noq
 )
 from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition  # noqa: E402
 from fibsem.workflows.grids import OverlayRecord  # noqa: E402
-from tests.fixtures.overview_host import OverviewHost  # noqa: E402
+from tests.fixtures.overview_host import OverviewHost, tab_args  # noqa: E402
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -120,7 +120,8 @@ def tab(microscope, tmp_path):
     experiment = Experiment(path=tmp_path, name="overview-tab-test")
     os.makedirs(str(experiment.path), exist_ok=True)
     window = _StubWindow(microscope, experiment)
-    tab = AutoLamellaOverviewTab(window)
+    tab = AutoLamellaOverviewTab(window.session, window.add_lamella)
+    tab._test_host = window
     tab.refresh_microscope()
     assert tab.is_available, "the tab did not build its widget"
     yield tab
@@ -135,9 +136,7 @@ def _at(base, dx=0.0, dy=0.0):
 
 def _lamella(tab, microscope, dx=0.0, dy=0.0):
     """A lamella added the way the canvas adds one."""
-    return tab.autolamella_ui.add_new_lamella(
-        stage_position=_at(microscope.get_stage_position(), dx, dy)
-    )
+    return tab._add_lamella(stage_position=_at(microscope.get_stage_position(), dx, dy))
 
 
 class TestItMarksTheBeamSidePose:
@@ -299,7 +298,7 @@ class TestLifecycle:
         assert tab.overview is first, "rebuilt for the same microscope"
 
         other, _ = utils.setup_session(manufacturer="Demo")
-        tab.autolamella_ui.microscope = other
+        tab.session.microscope = other
         tab.refresh_microscope()
         assert tab.overview is not first, "kept a widget bound to the old microscope"
         assert tab.overview is not None
@@ -310,7 +309,7 @@ class TestLifecycle:
         hand a dead C++ object back to `add_settings_section`."""
         listed = tab.lamella_list
         other, _ = utils.setup_session(manufacturer="Demo")
-        tab.autolamella_ui.microscope = other
+        tab.session.microscope = other
         tab.refresh_microscope()
 
         assert tab.lamella_list is listed
@@ -352,7 +351,7 @@ class TestTheFlagOff:
         )
         before = [len(s) for s in signals]
 
-        tab = AutoLamellaOverviewTab(_StubWindow(microscope, experiment))
+        tab = AutoLamellaOverviewTab(*tab_args(_StubWindow(microscope, experiment)))
         tab.set_enabled(False)
         tab.refresh_microscope()
 
@@ -407,7 +406,7 @@ def fm_tab(microscope, tmp_path):
     experiment = Experiment(path=tmp_path, name="fm-overview-tab-test")
     os.makedirs(str(experiment.path), exist_ok=True)
     window = _StubWindow(microscope, experiment)
-    tab = AutoLamellaFluorescenceOverviewTab(window)
+    tab = AutoLamellaFluorescenceOverviewTab(window.session, window.add_lamella)
     tab.refresh_microscope()
     assert tab.is_available, "the fluorescence tab did not build its widget"
     yield tab
@@ -607,7 +606,7 @@ class TestALamellaMarkedOnAGridOverviewBelongsToThatGrid:
         tab._on_add_requested(position, record_id)
         tab._on_add_requested(position, None)
         tab._on_add_requested(position, "no-such-record")
-        host = tab.autolamella_ui
+        host = tab._test_host
         assert [k.get("grid_id") for k in host.kwargs] == [birch.id, None, None]
 
 
@@ -722,7 +721,7 @@ class TestTheGridBarPlacementIsKeptOnTheGrid:
             reopened = Experiment.load(
                 os.path.join(str(tab.experiment.path), "experiment.yaml")
             )
-            again = AutoLamellaOverviewTab(_StubWindow(microscope, reopened))
+            again = AutoLamellaOverviewTab(*tab_args(_StubWindow(microscope, reopened)))
             again.refresh_microscope()
             try:
                 assert again.overview.gridbar_placement == (3e-6, -4e-6, 12.0)
@@ -915,7 +914,7 @@ class TestAnAlignedImageIsKeptOnTheGrid:
             reopened = Experiment.load(
                 os.path.join(str(tab.experiment.path), "experiment.yaml")
             )
-            again = AutoLamellaOverviewTab(_StubWindow(microscope, reopened))
+            again = AutoLamellaOverviewTab(*tab_args(_StubWindow(microscope, reopened)))
             again.refresh_microscope()
             try:
                 self._show(again, microscope)
@@ -1026,7 +1025,7 @@ class TestAnAlignedImageIsKeptOnTheGrid:
             reopened = Experiment.load(
                 os.path.join(str(tab.experiment.path), "experiment.yaml")
             )
-            again = AutoLamellaOverviewTab(_StubWindow(microscope, reopened))
+            again = AutoLamellaOverviewTab(*tab_args(_StubWindow(microscope, reopened)))
             again.refresh_microscope()
             saves = []
             real = reopened.save
@@ -1064,7 +1063,7 @@ class TestAnAlignedImageIsKeptOnTheGrid:
             reopened = Experiment.load(
                 os.path.join(str(tab.experiment.path), "experiment.yaml")
             )
-            again = AutoLamellaOverviewTab(_StubWindow(microscope, reopened))
+            again = AutoLamellaOverviewTab(*tab_args(_StubWindow(microscope, reopened)))
             again.refresh_microscope()
             try:
                 self._show(again, microscope)

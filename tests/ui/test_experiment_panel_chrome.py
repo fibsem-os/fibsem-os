@@ -61,23 +61,23 @@ def test_idle_says_nothing_in_the_panel(panel, tmp_path):
     panel.update_ui()
 
     # Not merely empty -- gone. An empty label still reserves its line.
-    assert not panel.prompt_bar.message.isVisible()
-    assert panel.prompt_bar.message.text() == ""
+    assert not panel.panel.prompt_bar.message.isVisible()
+    assert panel.panel.prompt_bar.message.text() == ""
 
 
 def test_a_workflow_prompt_still_shows_with_its_buttons(panel):
-    panel.prompt_bar.ask("Move to the milling position?", "Yes", "No")
+    panel.panel.prompt_bar.ask("Move to the milling position?", "Yes", "No")
 
-    assert panel.prompt_bar.message.text() == "Move to the milling position?"
-    assert panel.prompt_bar.message.isVisible()
-    assert panel.prompt_bar.yes.isVisible()
-    assert panel.prompt_bar.no.isVisible()
+    assert panel.panel.prompt_bar.message.text() == "Move to the milling position?"
+    assert panel.panel.prompt_bar.message.isVisible()
+    assert panel.panel.prompt_bar.yes.isVisible()
+    assert panel.panel.prompt_bar.no.isVisible()
 
     # And clears again when the workflow stops asking.
-    panel.prompt_bar.ask("")
+    panel.panel.prompt_bar.ask("")
 
-    assert not panel.prompt_bar.message.isVisible()
-    assert not panel.prompt_bar.yes.isVisible()
+    assert not panel.panel.prompt_bar.message.isVisible()
+    assert not panel.panel.prompt_bar.yes.isVisible()
 
 
 def test_the_name_boxes_are_gone(panel):

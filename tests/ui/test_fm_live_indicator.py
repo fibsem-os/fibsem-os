@@ -131,18 +131,10 @@ class TestTheStreamDrivesIt:
             manufacturer="Demo", config_path=_ARCTIS_CONFIG
         )
 
-        class _Host(QWidget):
-            """The chain `_view_controller` walks: parent -> parent_widget -> the UI
-            holding `view_controller`."""
-
-            def __init__(self):
-                super().__init__()
-                self.view_controller = controller
-                self.parent_widget = self
-                self.microscope = microscope
-
-        host = _Host()
-        w = FMControlWidget(microscope=microscope, parent=host)
+        host = QWidget()
+        w = FMControlWidget(
+            microscope=microscope, parent=host, view_controller=lambda: controller
+        )
         yield w
         w.close()
 

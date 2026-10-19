@@ -36,6 +36,7 @@ from fibsem.ui.widgets.canvas.quad_view import (
 )
 from fibsem.ui.widgets.custom_widgets import IconToolButton
 from fibsem.ui.widgets.spot_burn_coordinates_widget import SpotBurnCoordinatesWidget
+from tests.fixtures.app_session import app_session
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -553,9 +554,9 @@ def test_button_wiring_on_the_real_editor():
             ),
             "Other Task": AutoLamellaTaskConfig(task_name="Other Task"),
         }
-        parent = QWidget()
-        parent.experiment, parent.microscope = exp, microscope
-        editor = AutoLamellaProtocolTaskConfigEditor(parent=parent)
+        editor = AutoLamellaProtocolTaskConfigEditor(
+            session=app_session(microscope, exp)
+        )
         editor.show()
         for _ in range(8):
             _app.processEvents()

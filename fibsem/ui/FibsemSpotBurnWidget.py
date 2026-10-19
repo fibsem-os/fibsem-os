@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from typing import Any, Callable, Optional
 
 from PyQt5.QtCore import QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
@@ -84,10 +85,19 @@ class FibsemSpotBurnWidget(QWidget):
     # finished_milling_signal); listeners take it to mean the widget is idle again
     finished_spot_burn_signal = pyqtSignal()
 
-    def __init__(self, parent: QWidget):
+    def __init__(
+        self,
+        microscope: FibsemMicroscope,
+        image_widget: QWidget,
+        view_controller: Callable[[], Any],
+        parent: Optional[QWidget] = None,
+    ):
+        """*image_widget*: the Image tab whose FIB image the spots sit on;
+        *view_controller*: returns the quad view, or None."""
         super().__init__(parent=parent)
-        self.parent = parent
-        self.microscope: FibsemMicroscope = parent.microscope
+        self.microscope = microscope
+        self._host_image_widget = image_widget
+        self._host_view_controller = view_controller
         self.worker = None  # FunctionWorker while a burn is running
         self.stop_event: threading.Event = threading.Event()
         self._is_burning = False  # guards the Run/Cancel button while a burn runs
@@ -196,11 +206,10 @@ class FibsemSpotBurnWidget(QWidget):
 
     def _view_controller(self):
         """Return the quad-view MicroscopeViewController, or None."""
-        parent_ui = getattr(self.parent, "parent_widget", None)
-        return getattr(parent_ui, "view_controller", None)
+        return self._host_view_controller()
 
     def _image_widget(self):
-        return getattr(self.parent, "image_widget", None)
+        return self._host_image_widget
 
     def _feed_image_shape(self, *args) -> None:
         """Push the current FIB image shape to the editor (for 0-1 <-> px conversion)."""

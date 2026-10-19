@@ -158,9 +158,9 @@ def _prompt_says(ui, words: str) -> bool:
     # Text and enabled state, not isVisible(): the window is never shown
     # offscreen, so nothing in it is "visible".
     return (
-        words in ui.prompt_bar.message.text()
-        and not ui.prompt_bar.message.isHidden()
-        and ui.prompt_bar.yes.isEnabled()
+        words in ui.panel.prompt_bar.message.text()
+        and not ui.panel.prompt_bar.message.isHidden()
+        and ui.panel.prompt_bar.yes.isEnabled()
     )
 
 
@@ -173,24 +173,27 @@ def test_the_tilt_and_the_position_are_confirmed_on_the_prompt_bar(window, qapp)
 
     # 1. the tilt
     assert _pump(qapp, lambda: _prompt_says(ui, "Tilt to the milling angle")), (
-        ui.prompt_bar.message.text(),
-        ui.hold,
+        ui.panel.prompt_bar.message.text(),
+        ui.run_relay.hold,
         seen,
     )
-    assert (ui.prompt_bar.yes.text(), ui.prompt_bar.no.text()) == ("Tilt", "Skip")
-    assert ui.prompt_bar.no.isEnabled(), "Skip is how not to tilt"
-    assert ui.hold is not None and ui.hold.kind is HoldKind.proposal
+    assert (ui.panel.prompt_bar.yes.text(), ui.panel.prompt_bar.no.text()) == (
+        "Tilt",
+        "Skip",
+    )
+    assert ui.panel.prompt_bar.no.isEnabled(), "Skip is how not to tilt"
+    assert ui.run_relay.hold is not None and ui.run_relay.hold.kind is HoldKind.proposal
     tilt = lamella.proposal(SETUP, STATE)
     assert tilt is not None and tilt.pending and tilt.asking
     assert microscope.get_current_milling_angle() == pytest.approx(38.0), (
         "not tilted until confirmed"
     )
 
-    ui.prompt_bar.yes.click()
+    ui.panel.prompt_bar.yes.click()
 
     # 2. the position, on the image taken at the milling angle
     assert _pump(qapp, lambda: _prompt_says(ui, "Double click the image")), (
-        ui.prompt_bar.message.text(),
+        ui.panel.prompt_bar.message.text(),
         seen,
     )
     assert microscope.get_current_milling_angle() == pytest.approx(MILLING_ANGLE)
@@ -201,30 +204,33 @@ def test_the_tilt_and_the_position_are_confirmed_on_the_prompt_bar(window, qapp)
     position = lamella.proposal(SETUP, STATE)
     assert position is not tilt and position.asking
     assert position.provenance["reference_image"].endswith("_post_tilt_ib.tif")
-    assert ui.prompt_bar.yes.text() == "Continue" and ui.prompt_bar.no.isHidden()
+    assert (
+        ui.panel.prompt_bar.yes.text() == "Continue"
+        and ui.panel.prompt_bar.no.isHidden()
+    )
 
-    ui.prompt_bar.yes.click()
+    ui.panel.prompt_bar.yes.click()
 
     # 3. the point of interest, as the marker on the FIB view
     assert _pump(qapp, lambda: _prompt_says(ui, "Move the marker")), (
-        ui.prompt_bar.message.text(),
+        ui.panel.prompt_bar.message.text(),
         seen,
     )
     pose = position.current.values["stage_position"]
     assert isinstance(pose, FibsemStagePosition), "filled in by the task"
     point = lamella.proposal(SETUP, POINT_OF_INTEREST)
-    assert point.asking and ui.hold.kind is HoldKind.proposal
+    assert point.asking and ui.run_relay.hold.kind is HoldKind.proposal
     controller = window.view_controller
     marker = controller.overlay_points(BeamType.ION, "poi")
     assert marker, "the marker is up"
     col, row = marker[0]
     controller.set_points(BeamType.ION, "poi", [(col + 40, row)])
 
-    ui.prompt_bar.yes.click()
+    ui.panel.prompt_bar.yes.click()
 
     # 4. the alignment area, as the rectangle on the FIB view
     assert _pump(qapp, lambda: _prompt_says(ui, "alignment area")), (
-        ui.prompt_bar.message.text(),
+        ui.panel.prompt_bar.message.text(),
         seen,
     )
     assert point.current.outcome is DecisionOutcome.Confirmed
@@ -236,7 +242,7 @@ def test_the_tilt_and_the_position_are_confirmed_on_the_prompt_bar(window, qapp)
     assert area.provenance["reference_image"].endswith("_post_tilt_ib.tif")
     assert isinstance(area.values["alignment_area"], FibsemRectangle)
 
-    ui.prompt_bar.yes.click()
+    ui.panel.prompt_bar.yes.click()
 
     assert _pump(qapp, lambda: not thread.is_alive()), "the task went on"
     assert "error" not in seen, seen
@@ -263,14 +269,14 @@ def test_skip_does_not_tilt(window, qapp):
     task, thread, seen = _start(window)
 
     assert _pump(qapp, lambda: _prompt_says(ui, "Tilt to the milling angle")), (
-        ui.prompt_bar.message.text(),
+        ui.panel.prompt_bar.message.text(),
         seen,
     )
     tilt = lamella.proposal(SETUP, STATE)
-    ui.prompt_bar.no.click()
+    ui.panel.prompt_bar.no.click()
 
     assert _pump(qapp, lambda: _prompt_says(ui, "Double click the image")), (
-        ui.prompt_bar.message.text(),
+        ui.panel.prompt_bar.message.text(),
         seen,
     )
     assert "error" not in seen, seen

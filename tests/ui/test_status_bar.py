@@ -549,7 +549,7 @@ def test_a_run_that_fails_a_task_leaves_a_line_until_the_next_run(
     window = module.AutoLamellaSingleWindowUI()
     # A report locks the protocol editor, whose UI the first connect builds.
     window.autolamella_ui.system_widget.connect_to_microscope()
-    signal = window.autolamella_ui.workflow_status_signal
+    signal = window.autolamella_ui.run_relay.status
     from fibsem.workflows.queue import WorkItem
 
     def _queue(second):
@@ -623,14 +623,16 @@ def test_a_held_run_says_so_on_the_line(no_quit, qapp):
     window = module.AutoLamellaSingleWindowUI()
     ui = window.autolamella_ui
     ui.system_widget.connect_to_microscope()
-    ui.workflow_status_signal.emit(_report(TaskStatus.InProgress))
-    ui.hold = Hold(HoldKind.proposal, "answer the question on the Microscope tab")
-    ui.workflow_status_signal.emit(WorkflowStatusEvent())
+    ui.run_relay.status.emit(_report(TaskStatus.InProgress))
+    ui.run_relay.hold = Hold(
+        HoldKind.proposal, "answer the question on the Microscope tab"
+    )
+    ui.run_relay.status.emit(WorkflowStatusEvent())
     assert window.status_bar.text.startswith(
         "02-civil-cub › Polishing answer the question on the Microscope tab · waiting"
     )
-    ui.hold = None
-    ui.workflow_status_signal.emit(WorkflowStatusEvent())
+    ui.run_relay.hold = None
+    ui.run_relay.status.emit(WorkflowStatusEvent())
     assert "waiting" not in window.status_bar.text
     ui.microscope.disconnect()
     _close(window, qapp)

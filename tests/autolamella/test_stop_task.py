@@ -215,6 +215,7 @@ def test_both_stop_paths_interrupt_the_hardware_the_same_way():
 
     ui_dir = Path(fibsem.__path__[0]) / "applications" / "autolamella" / "ui"
     autolamella_ui = (ui_dir / "AutoLamellaUI.py").read_text(encoding="utf-8")
+    panel = (ui_dir / "microscope_panel.py").read_text(encoding="utf-8")
     main_ui = (ui_dir / "AutoLamellaMainUI.py").read_text(encoding="utf-8")
     workflow_tab = (ui_dir / "workflow_tab.py").read_text(encoding="utf-8")
 
@@ -225,7 +226,7 @@ def test_both_stop_paths_interrupt_the_hardware_the_same_way():
         end = rest.find("\n    def ")
         return rest[: end if end != -1 else len(rest)]
 
-    halt = body(autolamella_ui, "stop_current_operations")
+    halt = body(panel, "stop_current_operations")
     assert "stop_milling()" in halt
     assert "cancel_spot_burn()" in halt
 

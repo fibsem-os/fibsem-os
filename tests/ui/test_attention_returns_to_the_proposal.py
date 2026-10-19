@@ -53,9 +53,9 @@ def ui(qapp):
     widget = AutoLamellaUI(parent_ui=None)
     widget.system_widget.connect_to_microscope()
     det_widget = _DetWidget()
-    widget.det_widget = det_widget
-    index = widget.tabWidget.addTab(det_widget, "Detection")
-    widget.tabWidget.setTabVisible(index, False)
+    widget.panel.det_widget = det_widget
+    index = widget.panel.tabWidget.addTab(det_widget, "Detection")
+    widget.panel.tabWidget.setTabVisible(index, False)
     yield widget
     if widget.microscope is not None:
         widget.microscope.disconnect()
@@ -74,24 +74,24 @@ def _detection() -> DetectedFeatures:
 
 def _put_up(ui):
     """Put a detection proposal up, as the window does when a task asks it."""
-    ui.det_widget.set_detected_features(_detection())
-    ui.show_widget_proposal(ITEM, TASK, Proposal(kind=DETECTION))
+    ui.panel.det_widget.set_detected_features(_detection())
+    ui.proposals.show_widget_proposal(ITEM, TASK, Proposal(kind=DETECTION))
 
 
 def _decided(ui):
-    ui.clear_widget_proposal(ITEM, TASK)
+    ui.proposals.clear_widget_proposal(ITEM, TASK)
 
 
 def test_the_window_says_which_tab_its_proposal_is_on(ui, qapp):
     _put_up(ui)
 
-    assert ui.proposal_host() is ui.det_widget
+    assert ui.proposals.proposal_host() is ui.panel.det_widget
 
     _decided(ui)
 
 
 def test_there_is_no_host_when_nothing_is_being_asked(ui, qapp):
-    assert ui.proposal_host() is None
+    assert ui.proposals.proposal_host() is None
 
 
 def test_the_host_is_forgotten_once_the_proposal_is_decided(ui, qapp):
@@ -100,22 +100,26 @@ def test_the_host_is_forgotten_once_the_proposal_is_decided(ui, qapp):
     _put_up(ui)
     _decided(ui)
 
-    assert ui.proposal_host() is None
+    assert ui.proposals.proposal_host() is None
 
 
 def test_navigating_away_and_coming_back_lands_on_the_proposal(ui, qapp):
     """The whole point: the proposal's tab is fronted when it is asked, the
     operator leaves, and ``front_proposal`` brings it back."""
     _put_up(ui)
-    assert ui.tabWidget.currentWidget() is ui.det_widget, "asked on its own tab"
+    assert ui.panel.tabWidget.currentWidget() is ui.panel.det_widget, (
+        "asked on its own tab"
+    )
 
-    ui.tabWidget.setCurrentIndex(0)
+    ui.panel.tabWidget.setCurrentIndex(0)
     qapp.processEvents()
-    assert ui.tabWidget.currentWidget() is not ui.det_widget, "looked elsewhere"
+    assert ui.panel.tabWidget.currentWidget() is not ui.panel.det_widget, (
+        "looked elsewhere"
+    )
 
-    ui.front_proposal()
+    ui.proposals.front_proposal()
 
-    assert ui.tabWidget.currentWidget() is ui.det_widget
+    assert ui.panel.tabWidget.currentWidget() is ui.panel.det_widget
     _decided(ui)
 
 
@@ -123,27 +127,27 @@ def test_coming_back_un_hides_a_tab_that_hides_itself(ui, qapp):
     """Detection's tab is hidden until it is asked for, and fronting a hidden
     tab is a silent no-op -- so the way back has to un-hide it first."""
     _put_up(ui)
-    index = ui.tabWidget.indexOf(ui.det_widget)
-    ui.tabWidget.setCurrentIndex(0)
-    ui.tabWidget.setTabVisible(index, False)
+    index = ui.panel.tabWidget.indexOf(ui.panel.det_widget)
+    ui.panel.tabWidget.setCurrentIndex(0)
+    ui.panel.tabWidget.setTabVisible(index, False)
     qapp.processEvents()
 
-    ui.front_proposal()
+    ui.proposals.front_proposal()
 
-    assert ui.tabWidget.isTabVisible(index)
-    assert ui.tabWidget.currentWidget() is ui.det_widget
+    assert ui.panel.tabWidget.isTabVisible(index)
+    assert ui.panel.tabWidget.currentWidget() is ui.panel.det_widget
     _decided(ui)
 
 
 def test_it_does_nothing_when_no_proposal_is_up(ui, qapp):
     """A hold with no proposal on a tab of its own -- an agent working, a
     proposal on the shared bar -- leaves the tab where the caller put it."""
-    ui.tabWidget.setCurrentIndex(0)
-    before = ui.tabWidget.currentWidget()
+    ui.panel.tabWidget.setCurrentIndex(0)
+    before = ui.panel.tabWidget.currentWidget()
 
-    ui.front_proposal()
+    ui.proposals.front_proposal()
 
-    assert ui.tabWidget.currentWidget() is before
+    assert ui.panel.tabWidget.currentWidget() is before
 
 
 # ---------------------------------------------------------------------------
@@ -175,7 +179,7 @@ def test_a_proposal_on_one_of_the_windows_own_tabs_is_fronted_there(main_ui, qap
     standing in for a proposal's host."""
     host = main_ui.grids_tab
     main_ui.tab_widget.setTabEnabled(main_ui.tab_widget.indexOf(host), True)
-    main_ui.autolamella_ui.proposal_host = lambda: host
+    main_ui.autolamella_ui.proposals.proposal_host = lambda: host
     main_ui.tab_widget.setCurrentIndex(0)
 
     main_ui.attention.attention_clicked()
@@ -186,7 +190,7 @@ def test_a_proposal_on_one_of_the_windows_own_tabs_is_fronted_there(main_ui, qap
 def test_a_proposal_elsewhere_still_lands_on_the_microscope_tab(main_ui, qapp):
     """A proposal on the shared prompt bar has no tab of its own and must not
     be dragged into whatever the last host was."""
-    main_ui.autolamella_ui.proposal_host = lambda: None
+    main_ui.autolamella_ui.proposals.proposal_host = lambda: None
     main_ui.tab_widget.setCurrentWidget(main_ui.grids_tab)
 
     main_ui.attention.attention_clicked()

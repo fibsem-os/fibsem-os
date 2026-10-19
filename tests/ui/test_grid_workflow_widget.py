@@ -557,7 +557,7 @@ def test_an_inventory_on_the_sample_view_reaches_the_grids_tab_and_run_view(
     assert exp.grids == []
     assert main_ui.workflow_tab.grid_workflow_widget._grid_rows == {}
 
-    loader = ui.sample_widget.loader_widget
+    loader = ui.panel.sample_widget.loader_widget
     assert loader is not None
     ui.microscope.sample_handling.get_inventory()
     loader.loader_changed.emit()  # what the Sample view does after an inventory

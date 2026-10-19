@@ -200,15 +200,20 @@ class TestWhatItStillFollows:
         # every report — the same every-update cadence the dict handler had.
         source = inspect.getsource(AutoLamellaSingleWindowUI._apply_status_report)
 
-        # `autolamella_ui.lamella_list`, not `lamella_list_widget`. Those are different
+        # `autolamella_ui.panel.experiment_tab.lamella_list`, not `lamella_list_widget`. Those are different
         # widgets -- `lamella_list_widget` is the *workflow* list, which was already
         # refreshed here and is not the one this file is about. An earlier version
         # asserted the wrong one and passed while proving nothing.
-        assert "autolamella_ui.lamella_list.refresh_lamella(" in source, (
+        assert (
+            "autolamella_ui.panel.experiment_tab.lamella_list.refresh_lamella("
+            in source
+        ), (
             "`_apply_status_report` no longer refreshes the name list, so nothing "
             "follows a running workflow now that the subscription is gone"
         )
-        assert "autolamella_ui.lamella_list.refresh_all()" in source, (
+        assert (
+            "autolamella_ui.panel.experiment_tab.lamella_list.refresh_all()" in source
+        ), (
             "the name list is not refreshed when the update names no lamella, so it "
             "goes stale on exactly the updates the other two lists still handle"
         )

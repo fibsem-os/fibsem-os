@@ -77,7 +77,7 @@ def test_an_agent_at_drive_moves_the_stage_and_the_window_follows(window, qapp):
     client = TestClient(
         build_server(ui.microscope, auth=auth), raise_server_exceptions=False
     )
-    readout = ui.movement_widget.position_widget.spinbox_x
+    readout = ui.panel.movement_widget.position_widget.spinbox_x
     before = ui.microscope.get_stage_position().x
     qapp.processEvents()
 
