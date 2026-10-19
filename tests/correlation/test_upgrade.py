@@ -13,6 +13,7 @@ commit's classes and loading it with that commit's code; it is not regenerated.
 import dataclasses
 import json
 import os
+import re
 import time
 from datetime import datetime, timedelta, timezone
 from enum import Enum
@@ -139,9 +140,21 @@ def _point_types(value):
             yield from _point_types(v)
 
 
+def _reads_local_time(case) -> bool:
+    """Whether a pin holds a POSIX ``updated_at``, which reads in local time."""
+    return bool(re.search(r'"updated_at": -?[0-9]', json.dumps(case["file"])))
+
+
 @pytest.fixture(autouse=True)
-def _zone_of_the_pins(monkeypatch):
+def _zone_of_the_pins(request, monkeypatch):
     """The zone the pins were recorded in: a POSIX updated_at reads in local time."""
+    if not hasattr(time, "tzset"):
+        params = getattr(getattr(request.node, "callspec", None), "params", {})
+        case = params.get("case")
+        if case is not None and _reads_local_time(case):
+            pytest.skip("time.tzset is POSIX-only")
+        yield
+        return
     monkeypatch.setenv("TZ", "XST+6")
     time.tzset()
     yield
