@@ -21,6 +21,7 @@ from fibsem.milling import (
     MillingStrategyResult,
     setup_milling,
 )
+from fibsem.milling.monitors.intensity import IntensityDropRule
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.services.milling import report_progress
 from fibsem.structures import (
@@ -164,10 +165,8 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         self.camera_resolution: tuple[int, int]
         self._last_save_time: float = time.time()  # for rate limiting image saves
         # Intensity drop detection state
-        self._peak_rolling_mean: float = 0.0
-        self._consecutive_trigger_count: int = 0
+        self._rule = self._drop_rule()
         self._acquisition_start_time: Optional[float] = None
-        self._warmup_complete: bool = False
         self._drop_detected: bool = False  # latched when a drop event fires
         # Key images captured during the run
         self.first_fm_acq: Optional[FluorescenceImage] = None
@@ -286,9 +285,7 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
 
         # reset detection state before acquisition starts
         self.end_reason = None
-        self._peak_rolling_mean = 0.0
-        self._consecutive_trigger_count = 0
-        self._warmup_complete = False
+        self._rule = self._drop_rule()
         self._drop_detected = False
         self._stats_records = []
 
@@ -422,6 +419,17 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
 
             continue
 
+    def _drop_rule(self) -> IntensityDropRule:
+        """The drop rule for a run, over the run's intensities."""
+        rule = IntensityDropRule(
+            drop_fraction=self.config.intensity_drop_fraction,
+            rolling_window=self.config.rolling_window,
+            warmup_duration=self.config.warmup_duration,
+            consecutive_triggers=self.config.consecutive_triggers,
+        )
+        rule.values = self.intensities
+        return rule
+
     def _save_intensities(self):
         if self.path is None:
             logging.warning("Path is not set. Cannot save intensities.")
@@ -493,88 +501,34 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         if np.isnan(mean_intensity):
             return
 
-        # save intensities and timestamps
-        self.intensities.append(mean_intensity)
+        # the rule keeps the intensity (`intensities`); the time is kept here
         self.timestamps.append(time.time())
 
-        # --- rolling stats ---
-        n = int(self.config.rolling_window)
-        rolling_mean = float(np.mean(self.intensities[-n:]))
-
-        # --- warmup guard ---
         elapsed = time.time() - (self._acquisition_start_time or time.time())
-        if not self._warmup_complete:
-            if elapsed >= self.config.warmup_duration:
-                self._warmup_complete = True
-            self.intensity_stats_signal.emit(
-                {
-                    "value": mean_intensity,
-                    "rolling_mean": rolling_mean,
-                    "peak_rolling_mean": self._peak_rolling_mean,
-                    "threshold_value": 0.0,
-                    "warmup_complete": False,
-                }
-            )
-            self._stats_records.append(
-                {
-                    "timestamp": time.time(),
-                    "elapsed_time": elapsed,
-                    "value": mean_intensity,
-                    "rolling_mean": rolling_mean,
-                    "peak_rolling_mean": self._peak_rolling_mean,
-                    "threshold_value": 0.0,
-                    "warmup_complete": False,
-                    "drop_detected": False,
-                    "drop_fraction": 1.0,
-                    "threshold_fraction": 1.0 - self.config.intensity_drop_fraction,
-                    "consecutive_count": 0,
-                }
-            )
-            return
-
-        # update peak after warmup
-        if rolling_mean > self._peak_rolling_mean:
-            self._peak_rolling_mean = rolling_mean
-
-        threshold_value = (
-            1.0 - self.config.intensity_drop_fraction
-        ) * self._peak_rolling_mean
-
-        # --- drop detection ---
-        if rolling_mean < threshold_value:
-            self._consecutive_trigger_count += 1
-        else:
-            self._consecutive_trigger_count = 0
-
-        drop_detected = self._consecutive_trigger_count >= int(
-            self.config.consecutive_triggers
-        )
-        if drop_detected:
-            self._consecutive_trigger_count = 0  # reset so it fires once per event
+        rule = self._rule.update(float(mean_intensity), elapsed)
+        if rule["drop_detected"]:
             self._drop_detected = True  # latch for the monitor loop (auto-stop)
             logging.warning(
-                f"Intensity drop detected: rolling_mean={rolling_mean:.2f} < "
-                f"threshold={threshold_value:.2f} (peak={self._peak_rolling_mean:.2f})"
+                f"Intensity drop detected: rolling_mean={rule['rolling_mean']:.2f} < "
+                f"threshold={rule['threshold_value']:.2f} (peak={rule['peak_rolling_mean']:.2f})"
             )
-
-        drop_fraction = (
-            rolling_mean / self._peak_rolling_mean
-            if self._peak_rolling_mean > 0
-            else 1.0
-        )
-        stats = {
-            "timestamp": time.time(),
-            "elapsed_time": elapsed,
-            "value": mean_intensity,
-            "rolling_mean": rolling_mean,
-            "peak_rolling_mean": self._peak_rolling_mean,
-            "threshold_value": threshold_value,
-            "warmup_complete": True,
-            "drop_detected": drop_detected,
-            "drop_fraction": drop_fraction,
-            "threshold_fraction": 1.0 - self.config.intensity_drop_fraction,
-            "consecutive_count": self.config.consecutive_triggers,
-        }
+        stats = {"timestamp": time.time(), "elapsed_time": elapsed, **rule}
+        if not rule["warmup_complete"]:
+            # the live display has only the rule's numbers during the warmup
+            self.intensity_stats_signal.emit(
+                {
+                    k: rule[k]
+                    for k in (
+                        "value",
+                        "rolling_mean",
+                        "peak_rolling_mean",
+                        "threshold_value",
+                        "warmup_complete",
+                    )
+                }
+            )
+            self._stats_records.append(stats)
+            return
         self.intensity_stats_signal.emit(stats)
         self._stats_records.append(stats)
 

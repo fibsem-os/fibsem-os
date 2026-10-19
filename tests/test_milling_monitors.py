@@ -400,7 +400,7 @@ def test_a_live_monitor_gets_its_view_back_after_a_pause_and_resume(
     assert status == "completed"
     pauses = service.steps.count("pause")
     assert pauses == service.steps.count("resume") >= 1
-    assert LiveLook.restored == 2 * pauses, "after each pause, and each resume"
+    assert LiveLook.restored == 1 + 2 * pauses, "after the start, each pause and resume"
     last_resume = len(service.steps) - 1 - service.steps[::-1].index("resume")
     assert (
         last_resume < service.steps.index("poll") and service.steps.count("poll") == 1

@@ -846,6 +846,8 @@ class Milling(Service):
                 monitor.start(step)
             if not step.ending.is_set():
                 self._start()
+                # Starting may select the milling view (AutoScript).
+                step.restore_view()
                 milled = 0.0
                 if step.view not in (None, "fib"):
                     # A live monitor holds another view: no looks at the
@@ -1118,6 +1120,10 @@ class MillingClock:
                 step.end_as(MillingStepEnd(STOPPED, reason="Milling stopped."))
                 break
             held = step.held or step.pausing.is_set()
+            step.set_milled_time(
+                milled,
+                until=None if held else min(total, milled + milling.poll_interval),
+            )
             milling._report(
                 progress_update(
                     state=MillingState.PAUSED if held else MillingState.RUNNING,
@@ -1131,7 +1137,7 @@ class MillingClock:
             milling._wait(milling.poll_interval)
             if not (step.held or step.pausing.is_set()):
                 milled += milling.poll_interval
-                step.set_milled_time(milled)
+        step.set_milled_time(milled)
         return milled
 
 

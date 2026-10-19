@@ -96,6 +96,10 @@ class MillingStep:
         self.pauses: List[Dict[str, Any]] = []
         self.notable: List[Dict[str, Any]] = []
         self._milled = 0.0
+        # While counted by the clock: when it was set, and up to what it may
+        # run on in real time until the next count.
+        self._milled_at = 0.0
+        self._milled_until: Optional[float] = None
         # Numbers each reading; the service's numbers run on across steps.
         self._next_seq = seq or itertools.count(1).__next__
         # The live monitors (those with a view) and the view they share.
@@ -124,10 +128,17 @@ class MillingStep:
 
     def milled_time(self) -> float:
         """Seconds milled so far in this step, paused time left out."""
-        return self._milled
+        until = self._milled_until
+        if until is None or self._held or self.pausing.is_set() or self.ending.is_set():
+            return self._milled
+        return min(self._milled + time.monotonic() - self._milled_at, until)
 
-    def set_milled_time(self, seconds: float) -> None:
+    def set_milled_time(self, seconds: float, until: Optional[float] = None) -> None:
+        """*seconds* milled; with *until*, the time runs on in real time up to
+        it until the next count (the clock counts once a wait)."""
         self._milled = float(seconds)
+        self._milled_at = time.monotonic()
+        self._milled_until = until
 
     def hold(self) -> None:
         """The pattern is paused: no milled time until ``release``."""
@@ -162,7 +173,7 @@ class MillingStep:
         entry = {
             "monitor": monitor,
             "seq": seq,
-            "milled_time": round(self._milled, 3),
+            "milled_time": round(self.milled_time(), 3),
             "notable": notable,
             "reading": reading,
         }
