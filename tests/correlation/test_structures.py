@@ -15,6 +15,7 @@ from fibsem.correlation.structures import (
     PointType,
     PointXYZ,
 )
+from fibsem.correlation.upgrade import upgrade_result
 from fibsem.structures import Point
 
 # ---------------------------------------------------------------------------
@@ -227,7 +228,9 @@ class TestCorrelationResultSerialization:
         d = CorrelationResult().to_dict()
         del d["rotation_matrix"]
         d["rotation_quaternion"] = rotation
-        assert CorrelationResult.from_dict(d).rotation_matrix == rotation
+        assert (
+            CorrelationResult.from_dict(upgrade_result(d)).rotation_matrix == rotation
+        )
 
     def test_save_load(self, tmp_path):
         r = _make_result()

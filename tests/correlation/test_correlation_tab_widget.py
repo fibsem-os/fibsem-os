@@ -23,6 +23,7 @@ from fibsem.correlation.structures import (
     PointType,
     PointXYZ,
 )
+from fibsem.correlation.upgrade import CORRELATION_FILE_VERSION
 from fibsem.structures import Point
 from fibsem.ui.tokens import ERROR_COLOR, TEXT_MUTED_COLOR, WARN_COLOR
 
@@ -110,7 +111,7 @@ def test_set_data_prefers_fm_surface_when_both_present(qapp):
 def test_data_includes_fm_surface_and_factor(qapp):
     w = _widget(qapp)
     w._on_canvas_add_requested(3.0, 4.0, PointType.SURFACE_FM)
-    w._ri_pre_correction_factor = 1.33
+    w.session.ri_pre_correction_factor = 1.33
     d = w.data
     assert d.fm_surface_coordinate is not None
     assert d.fm_surface_coordinate.point_type is PointType.SURFACE_FM
@@ -124,7 +125,7 @@ def test_set_data_restores_factor(qapp):
         ri_pre_correction_factor=1.47,
     )
     w.set_data(data)
-    assert w._ri_pre_correction_factor == pytest.approx(1.47)
+    assert w.session.ri_pre_correction_factor == pytest.approx(1.47)
     assert w.data.ri_pre_correction_factor == pytest.approx(1.47)
 
 
@@ -231,13 +232,13 @@ def test_apply_pre_stores_factor_and_reruns(qapp):
     runs = []
     w._run = lambda: runs.append(True)
     # stands in for a runnable set of points; _update_run_button passes the data
-    w._can_run = lambda data=None: True
+    w.session.can_run = lambda data=None: True
 
     w._ri_tab._ri_widget.set_factor(1.5)
     w._ri_tab._chk_rerun.setChecked(True)
     w._ri_tab._apply()
 
-    assert w._ri_pre_correction_factor == pytest.approx(1.5)
+    assert w.session.ri_pre_correction_factor == pytest.approx(1.5)
     assert w.data.ri_pre_correction_factor == pytest.approx(1.5)
     assert runs == [True]
 
@@ -250,13 +251,13 @@ def test_apply_pre_does_not_rerun_what_cannot_run(qapp):
 
     runs = []
     w._run = lambda: runs.append(True)
-    assert not w._can_run()  # no images, no fiducials
+    assert not w.session.can_run()  # no images, no fiducials
 
     w._ri_tab._ri_widget.set_factor(1.5)
     w._ri_tab._chk_rerun.setChecked(True)
     w._ri_tab._apply()
 
-    assert w._ri_pre_correction_factor == pytest.approx(1.5)  # still stored
+    assert w.session.ri_pre_correction_factor == pytest.approx(1.5)  # still stored
     assert runs == []
     assert "run correlation to apply" in w._lbl_status.text()
 
@@ -272,7 +273,7 @@ def test_apply_pre_without_rerun_only_stores(qapp):
     w._ri_tab._chk_rerun.setChecked(False)
     w._ri_tab._apply()
 
-    assert w._ri_pre_correction_factor == pytest.approx(1.4)
+    assert w.session.ri_pre_correction_factor == pytest.approx(1.4)
     assert runs == []
     # preview table shows the armed correction for the POI
     assert w._ri_tab._table.rowCount() == 1
@@ -332,6 +333,7 @@ def test_apply_post_creates_ghost_and_status(qapp):
         poi=[CorrelationPointOfInterest(image_px=Point(x=100.0, y=300.0))],
         input_data=w.data,
     )
+    w.session.set_result(result)  # the session corrects its own result
     w._ri_tab.set_result(result, input_data=w.data)
     w._ri_tab._ri_widget.set_factor(1.5)
     w._ri_tab._apply()
@@ -355,7 +357,7 @@ def _run_without_surface(w):
     w.set_fib_image(FibsemImage.generate_blank_image(resolution=(512, 512), hfw=100e-6))
     result = CorrelationResult(
         poi=[CorrelationPointOfInterest(image_px=Point(x=100.0, y=300.0))],
-        input_data=copy.deepcopy(w.fit_data),
+        input_data=copy.deepcopy(w.session.fit_data),
     )
     w._on_run_finished(result)
     assert not w._btn_continue.isHidden()
@@ -433,26 +435,26 @@ def test_factor_cleared_when_fm_surface_removed(qapp):
     """The pre-correction factor's lifecycle is tied to the FM surface."""
     w = _widget(qapp)
     _setup_pre_mode(w)
-    w._ri_pre_correction_factor = 1.5
+    w.session.ri_pre_correction_factor = 1.5
 
     # canvas removal
     coord = w._coords_tab.fm_surface_list.coordinates[0]
     _delete_on_canvas(w, coord)
-    assert w._ri_pre_correction_factor is None
+    assert w.session.ri_pre_correction_factor is None
     assert w.data.ri_pre_correction_factor is None
 
     # replacement by a FIB surface
     w._on_canvas_add_requested(1.0, 2.0, PointType.SURFACE_FM)
-    w._ri_pre_correction_factor = 1.5
+    w.session.ri_pre_correction_factor = 1.5
     w._on_canvas_add_requested(1.0, 200.0, PointType.SURFACE)
-    assert w._ri_pre_correction_factor is None
+    assert w.session.ri_pre_correction_factor is None
 
     # list-row removal (generic handler bound to the SURFACE_FM spec)
     w._on_canvas_add_requested(1.0, 2.0, PointType.SURFACE_FM)
-    w._ri_pre_correction_factor = 1.5
+    w.session.ri_pre_correction_factor = 1.5
     coord = w._coords_tab.fm_surface_list.coordinates[0]
     w._coords_tab.fm_surface_list._on_remove(coord)  # the row's trash button
-    assert w._ri_pre_correction_factor is None
+    assert w.session.ri_pre_correction_factor is None
 
 
 # ---------------------------------------------------------------------------
@@ -557,7 +559,7 @@ def test_set_data_does_not_arm_factor_without_fm_surface(qapp):
     w = _widget(qapp)
     data = CorrelationInputData(ri_pre_correction_factor=1.5)
     w.set_data(data)
-    assert w._ri_pre_correction_factor is None
+    assert w.session.ri_pre_correction_factor is None
 
 
 def test_typed_factor_survives_refresh_and_armed_priority(qapp):
@@ -566,7 +568,7 @@ def test_typed_factor_survives_refresh_and_armed_priority(qapp):
     tab = w._ri_tab
 
     # armed input factor (1.6) outranks an older result factor (1.5)
-    w._ri_pre_correction_factor = 1.6
+    w.session.ri_pre_correction_factor = 1.6
     result = CorrelationResult(
         poi=[CorrelationPointOfInterest(image_px=Point(x=1.0, y=2.0))],
         refractive_index_correction_factor=1.5,
@@ -603,7 +605,7 @@ def test_placing_the_fm_surface_arms_the_factor_on_screen(qapp):
 
     w._on_canvas_add_requested(1.0, 2.0, PointType.SURFACE_FM)
 
-    assert w._ri_pre_correction_factor == pytest.approx(1.42)
+    assert w.session.ri_pre_correction_factor == pytest.approx(1.42)
     assert w.data.ri_pre_correction_factor == pytest.approx(1.42)
     assert "not applied" not in w._ri_tab._lbl_warning.text()
     # named as it lands; the next edit is free to reclaim the status line
@@ -619,7 +621,7 @@ def test_auto_arm_does_not_overwrite_a_chosen_factor(qapp):
     w._ri_tab._apply()
 
     w._on_canvas_add_requested(7.0, 8.0, PointType.SURFACE_FM)  # moved the point
-    assert w._ri_pre_correction_factor == pytest.approx(1.2)
+    assert w.session.ri_pre_correction_factor == pytest.approx(1.2)
 
 
 def test_a_loaded_surface_without_a_factor_asks_for_apply(qapp):
@@ -628,7 +630,7 @@ def test_a_loaded_surface_without_a_factor_asks_for_apply(qapp):
     w = _widget(qapp)
     _loaded_surface_without_a_factor(w)
 
-    assert w._ri_pre_correction_factor is None
+    assert w.session.ri_pre_correction_factor is None
     assert w.data.ri_pre_correction_factor is None  # a run here corrects nothing
     assert "press Apply" in w._ri_tab._lbl_warning.text()
     # and the banner must not claim the run does it by itself
@@ -695,7 +697,7 @@ def test_mirroring_a_stored_factor_is_not_an_unapplied_edit(qapp):
     _setup_pre_mode(w)
     tab = w._ri_tab
 
-    w._ri_pre_correction_factor = 1.5950000000000002  # as loaded from JSON
+    w.session.ri_pre_correction_factor = 1.5950000000000002  # as loaded from JSON
     result = CorrelationResult(
         poi=[CorrelationPointOfInterest(image_px=Point(x=1.0, y=2.0))],
         refractive_index_correction_factor=1.5950000000000002,
@@ -1102,7 +1104,7 @@ def test_rms_badge_reports_physical_distance(qapp):
     """With a FIB pixel size the badge shows nm, so the number means something
     independent of the HFW the image was taken at."""
     w = _widget(qapp)
-    w._fib_image = _fake_fib(pixel_size_m=52.1e-9)
+    w.session.fib_image = _fake_fib(pixel_size_m=52.1e-9)
     w._on_result_ready(_result_fit(rms=1.82))
 
     # 1.82 px x 52.1 nm/px = 95 nm
@@ -1125,7 +1127,7 @@ def test_rms_badge_falls_back_to_px_without_pixel_size(qapp):
 
 def test_rms_tooltip_explains_what_is_measured(qapp):
     w = _widget(qapp)
-    w._fib_image = _fake_fib(pixel_size_m=52.1e-9)
+    w.session.fib_image = _fake_fib(pixel_size_m=52.1e-9)
     w._on_result_ready(_result_fit(rms=1.82, n=6, worst=(3.0, 1.0)))
     tip = w._lbl_result.toolTip()
 
@@ -1139,7 +1141,7 @@ def test_rms_tooltip_flags_a_minimum_fiducial_fit(qapp):
     """At 4 pairs the rigid fit has almost no redundancy, so a small residual is
     structural rather than evidence of a good correlation."""
     w = _widget(qapp)
-    w._fib_image = _fake_fib()
+    w.session.fib_image = _fake_fib()
 
     w._on_result_ready(_result_fit(n=4))
     assert "no redundancy" in w._lbl_result.toolTip()
@@ -1461,6 +1463,31 @@ def test_load_result_rejects_a_coordinates_file(qapp, tmp_path):
     with pytest.raises(ValueError) as exc:
         w.load_result(data_path)
     assert "Load Coordinates" in str(exc.value)
+
+
+def test_an_unreadable_file_leaves_a_pending_save_armed(qapp, tmp_path):
+    """Opening a file that cannot be read changes nothing: an edit made after
+    the last load is still saved on the next change. The file used to be read
+    inside the read guard, whose exit disarmed the save."""
+    w = _widget(qapp)
+    run = tmp_path / "run"
+    w.set_project_dir(str(run))
+    saved = tmp_path / "saved.json"
+    data = _input(fib=(1.0, 2.0))
+    CorrelationState(input_data=data, result=_result_from(data)).save(str(saved))
+    w.load_correlation(str(saved))
+    coord = w.data.fib_coordinates[0]
+    coord.point.x = 3.0
+    _drag(w, coord)
+    assert w.session.auto_save_due()
+
+    corrupt = tmp_path / "corrupt.json"
+    corrupt.write_text("{ not json")
+    with pytest.raises(ValueError):
+        w.load_correlation(str(corrupt))
+
+    assert w.session.auto_save_due()
+    assert w.data.fib_coordinates[0].point.x == 3.0
 
 
 def test_menu_load_correlation_accepts_a_legacy_result_file(
@@ -2065,7 +2092,9 @@ def test_run_point_fit_does_not_mutate_coordinate(qapp, monkeypatch):
     from fibsem.ui.correlation.widgets.fit_confirmation_dialog import FitStatus
 
     w = _widget(qapp)
-    w._fib_image = SimpleNamespace(filtered_data=np.zeros((64, 64), dtype=np.float32))
+    w.session.fib_image = SimpleNamespace(
+        filtered_data=np.zeros((64, 64), dtype=np.float32)
+    )
     diag = object()  # stand-in PointFitDiagnostic
     monkeypatch.setattr(
         localise, "hole_fitting_FIB", lambda img, x, y: (x + 3.0, y + 4.0, diag)
@@ -2093,7 +2122,9 @@ def test_refit_applies_on_accept_not_on_reject(qapp, monkeypatch):
     import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
 
     w = _widget(qapp)
-    w._fib_image = SimpleNamespace(filtered_data=np.zeros((64, 64), dtype=np.float32))
+    w.session.fib_image = SimpleNamespace(
+        filtered_data=np.zeros((64, 64), dtype=np.float32)
+    )
     monkeypatch.setattr(
         localise, "hole_fitting_FIB", lambda img, x, y: (x + 3.0, y + 4.0, None)
     )
@@ -2321,7 +2352,7 @@ def test_auto_save_writes_one_correlation_json(qapp, tmp_path):
     assert not (tmp_path / "correlation_result.json").exists()
 
     raw = json.loads(single.read_text(encoding="utf-8"))
-    assert raw["version"] == 1
+    assert raw["version"] == CORRELATION_FILE_VERSION
     assert raw["result"] is None
     assert raw["input_data"]["fib_coordinates"][0]["point"]["x"] == 3.0
 
@@ -2329,7 +2360,8 @@ def test_auto_save_writes_one_correlation_json(qapp, tmp_path):
     w._on_result_ready(_result_from(_input(fib=(3.0, 4.0))))
     raw = json.loads(single.read_text(encoding="utf-8"))
     assert raw["result"] is not None
-    assert "computed_from" in raw["result"]  # the snapshot, renamed
+    assert "input_data" in raw["result"]  # the snapshot it was fitted to
+    assert "computed_from" not in raw["result"]  # its name before version 2
 
 
 def test_load_correlation_round_trips_a_consolidated_file(qapp, tmp_path):
@@ -2360,7 +2392,7 @@ def test_load_correlation_flags_a_stale_consolidated_file(qapp, tmp_path):
 
     raw = json.loads((tmp_path / "correlation.json").read_text(encoding="utf-8"))
     assert raw["input_data"]["fib_coordinates"][0]["point"]["x"] == 9.0
-    assert raw["result"]["computed_from"]["fib_coordinates"][0]["point"]["x"] == 1.0
+    assert raw["result"]["input_data"]["fib_coordinates"][0]["point"]["x"] == 1.0
 
     fresh = _widget(qapp)
     fresh.load_correlation(str(tmp_path / "correlation.json"))
@@ -2410,7 +2442,7 @@ def test_load_correlation_reads_a_legacy_data_file(qapp, tmp_path):
     assert [(c.point.x, c.point.y) for c in w._coords_tab.fib_list.coordinates] == [
         (7.0, 8.0)
     ]
-    assert w._result is None  # a bare data file carries no result
+    assert w.session.result is None  # a bare data file carries no result
 
 
 def test_load_correlation_file_dispatches_on_every_shape(tmp_path):
@@ -2435,16 +2467,17 @@ def test_load_correlation_file_dispatches_on_every_shape(tmp_path):
     st = load_correlation_file(str(dpath))
     assert st.result is None and st.input_data.fib_coordinates[0].point.x == 2.0
 
-    # legacy result file (current computed_from key)
+    # legacy result file (its snapshot under computed_from, as version 1 wrote it)
     rpath = tmp_path / "correlation_result.json"
-    _result_from(_input(fib=(3.0, 3.0))).save(str(rpath))
+    written = _result_from(_input(fib=(3.0, 3.0))).to_dict()
+    written["computed_from"] = written.pop("input_data")
+    rpath.write_text(json.dumps(written))
     st = load_correlation_file(str(rpath))
     assert st.result is not None and st.input_data.fib_coordinates[0].point.x == 3.0
 
     # legacy result file written with the OLD "input_data" snapshot key
     opath = tmp_path / "old_result.json"
     old = _result_from(_input(fib=(4.0, 4.0))).to_dict()
-    old["input_data"] = old.pop("computed_from")
     opath.write_text(json.dumps(old))
     st = load_correlation_file(str(opath))
     assert st.input_data.fib_coordinates[0].point.x == 4.0
@@ -2603,10 +2636,10 @@ def test_stored_fm_pixel_size_z_round_trips():
         fib_coordinates=[_coord(1.0, 2.0, pt=PointType.FIB)],
         stored_fm_pixel_size_z=500e-9,
     )
-    assert d.to_dict()["fm_pixel_size_z"] == 500e-9
+    assert d.to_dict()["stored_fm_pixel_size_z"] == 500e-9
     assert CorrelationInputData.from_dict(d.to_dict()).stored_fm_pixel_size_z == 500e-9
     legacy = d.to_dict()
-    del legacy["fm_pixel_size_z"]  # a file written before FIB-299
+    del legacy["stored_fm_pixel_size_z"]  # a file written before FIB-299
     assert CorrelationInputData.from_dict(legacy).stored_fm_pixel_size_z is None
 
 
@@ -2614,7 +2647,7 @@ def test_seed_rescales_fm_z_across_a_different_zstep(qapp):
     """A seed picked at 500 nm/slice, reloaded into a 100 nm/slice (interpolated)
     volume, must land at the same physical depth — index 10 -> 50."""
     w = _widget(qapp)
-    w._fm_image = _fm_at_zstep(100e-9, n_z=105)  # current volume, interpolated
+    w.session.fm_image = _fm_at_zstep(100e-9, n_z=105)  # current volume, interpolated
     source = CorrelationInputData(
         fm_coordinates=[_coord(2.0, 2.0, z=10.0, pt=PointType.FM)],
         stored_fm_pixel_size_z=500e-9,  # source volume z-step
@@ -2622,12 +2655,12 @@ def test_seed_rescales_fm_z_across_a_different_zstep(qapp):
     w.seed_coordinates(source)
 
     assert w._coords_tab.fm_list.coordinates[0].point.z == pytest.approx(50.0)
-    assert w._result is None  # previous result not carried in
+    assert w.session.result is None  # previous result not carried in
 
 
 def test_seed_is_a_noop_when_the_zstep_matches(qapp):
     w = _widget(qapp)
-    w._fm_image = _fm_at_zstep(500e-9)
+    w.session.fm_image = _fm_at_zstep(500e-9)
     source = CorrelationInputData(
         fm_coordinates=[_coord(2.0, 2.0, z=10.0, pt=PointType.FM)],
         stored_fm_pixel_size_z=500e-9,
@@ -2639,7 +2672,7 @@ def test_seed_is_a_noop_when_the_zstep_matches(qapp):
 def test_seed_without_a_stored_zstep_does_not_rescale(qapp):
     """A legacy seed with no stored z-step is loaded as-is (can't reconcile)."""
     w = _widget(qapp)
-    w._fm_image = _fm_at_zstep(100e-9, n_z=105)
+    w.session.fm_image = _fm_at_zstep(100e-9, n_z=105)
     source = CorrelationInputData(
         fm_coordinates=[_coord(2.0, 2.0, z=10.0, pt=PointType.FM)],
         stored_fm_pixel_size_z=None,
