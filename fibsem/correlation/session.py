@@ -731,7 +731,7 @@ class CorrelationSession:
         The whole state, every time, so the points and the result can never drift
         apart on disk (which the split data/result files could; FIB-264,
         FIB-295). A post-run edit rewrites with the (now-stale) result still
-        attached -- by design. The result carries its own ``computed_from``
+        attached -- by design. The result carries its own ``input_data``
         snapshot, so staleness stays derivable on load (``matches_inputs``) and
         the result remains available to inspect; it is not silently discarded.
         """
