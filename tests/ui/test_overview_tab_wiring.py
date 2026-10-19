@@ -1,28 +1,15 @@
 """Both overview modalities are wired into every lifecycle point the other is.
 
 The two used to be separate tabs. They are now two pages of one Overview tab
-(`AutoLamellaOverviewContainerTab`, FIB-780) -- but both host tabs stay built and stay
-subscribed under the stack, and the window still tells each of them the things only it
-can answer, so the parity these tests check is exactly as necessary as it was. What
-changed is that a third name has to be checked too: anything the *container* is told
-reaches both, and anything a host tab is told individually must be told to both.
+(`AutoLamellaOverviewContainerTab`, FIB-780), and both host tabs stay built and
+subscribed under the stack. The window tells the container; the container tells
+both pages. What these check is that fan-out, and that the window goes through it:
+a page left out of a connection, a loaded experiment, a workflow lock or a
+selection keeps showing something stale rather than raising.
 
-Checked *statically*, against the window's source, because the window cannot be built
-here: it still constructs the napari minimap, and a `napari.Viewer` segfaults under the
-offscreen platform (measured, exit 139 — the same reason FIB-405 could not verify the
-standalone host headless). A test that tried would take the whole run down.
-
-That is a weaker check than constructing it, and it is chosen deliberately over no check
-at all. What it catches is the failure that actually happens with a tab added beside an
-existing one: it gets created, and then someone forgets to tell it about a connection, a
-loaded experiment, a workflow lock or a selection — each of which is silent, and each of
-which leaves the tab showing something stale rather than raising.
-
-The behaviour behind these calls is tested for real in `test_overview_tab_host.py`,
-which builds the tab against a live simulator.
-
-Run directly:
-    python -m pytest tests/ui/test_overview_tab_wiring.py
+Checked statically, against the source: this is one of the few CI runs without
+PyQt5. The behaviour behind these calls is tested for real in
+`test_overview_tab_host.py`, which builds the tabs against a live simulator.
 """
 
 from __future__ import annotations
@@ -51,14 +38,6 @@ CONTAINER_SOURCE = (
     / "overview_container_tab.py"
 )
 
-# The two host tabs, under the names the window keeps for them. Anything the
-# fluorescence one is told, the beam one has to be told too -- they are the same shape of
-# thing in the same window, and they were the pair that kept drifting (FIB-765).
-TWIN = "fm_overview_tab"
-NEW = "beam_overview_tab"
-# The tab that holds them both, and the only thing in the tab bar.
-CONTAINER = "overview_tab"
-
 
 @pytest.fixture(scope="module")
 def window_source() -> str:
@@ -66,12 +45,13 @@ def window_source() -> str:
 
 
 @pytest.fixture(scope="module")
-def self_calls(window_source):
-    """Map of `self.<method>` -> the window methods that call it.
+def container_tree() -> ast.Module:
+    return ast.parse(CONTAINER_SOURCE.read_text(encoding="utf-8"))
 
-    Separate from `methods_calling`, which records calls *through* an attribute. The
-    per-tab builders are plain self-calls, and they are what a connection reaches.
-    """
+
+@pytest.fixture(scope="module")
+def self_calls(window_source):
+    """Map of `self.<method>` -> the window methods that call it."""
     tree = ast.parse(window_source)
     calls: dict = {}
     for node in ast.walk(tree):
@@ -88,48 +68,25 @@ def self_calls(window_source):
     return calls
 
 
-@pytest.fixture(scope="module")
-def methods_calling(window_source):
-    """Map of `attribute.method` -> the window methods that call it."""
-    tree = ast.parse(window_source)
-    calls: dict = {}
-    for node in ast.walk(tree):
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
-        for inner in ast.walk(node):
-            if not isinstance(inner, ast.Call):
-                continue
-            func = inner.func
-            if not isinstance(func, ast.Attribute):
-                continue
-            owner = func.value
-            # `self.<attr>.<method>(...)`, and the `getattr(self, "<attr>", None)` form
-            # the window uses where the tab may not exist yet.
-            name = None
-            if isinstance(owner, ast.Attribute) and isinstance(owner.value, ast.Name):
-                if owner.value.id == "self":
-                    name = owner.attr
-            if name is None:
-                continue
-            calls.setdefault(f"{name}.{func.attr}", set()).add(node.name)
-    return calls
+def _method(tree: ast.Module, cls: str, name: str) -> ast.FunctionDef:
+    owner = next(
+        n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name == cls
+    )
+    for node in owner.body:
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            return node
+    pytest.fail(f"{cls} has no {name}; this test is stale")
 
 
-def _stem(tab_attribute: str) -> str:
-    """`fm_overview_tab` -> `fm_overview`, the name the window builds its methods from."""
-    return tab_attribute[: -len("_tab")]
-
-
-def _is_own_method(caller: str, tab_attribute: str) -> bool:
-    """Whether a window method belongs to *this* tab rather than being shared.
-
-    Each tab has a `_apply_<stem>_visibility` that builds it, and a
-    `_on_<stem>_lamella_selected` that its own list raises. Neither has a counterpart
-    obligation on the other tab -- the first is the per-tab builder, and the second
-    must *not* re-select the list that raised it. So they are excluded from the
-    comparison rather than treated as calls the other tab is missing.
-    """
-    return _stem(tab_attribute) in caller
+def _reads_self(node: ast.AST, attr: str) -> bool:
+    """Whether *node* reads `self.<attr>` as an attribute, not in a comment."""
+    return any(
+        isinstance(inner, ast.Attribute)
+        and inner.attr == attr
+        and isinstance(inner.value, ast.Name)
+        and inner.value.id == "self"
+        for inner in ast.walk(node)
+    )
 
 
 def test_the_overview_tab_is_created(window_source):
@@ -138,58 +95,16 @@ def test_the_overview_tab_is_created(window_source):
     )
 
 
-def test_both_host_tabs_are_reachable_from_the_window(window_source):
-    """The container owns them; the window keeps its own names for them.
-
-    Not cosmetic. Every per-tab call below goes through these names, and the pair is what
-    `_apply_overview_locks` reads to decide whether either may drive the stage -- a
-    binding dropped here would take the lock's second input with it silently (FIB-706).
-    """
-    assert "self.fm_overview_tab = self.overview_tab.fm_tab" in window_source
-    assert "self.beam_overview_tab = self.overview_tab.beam_tab" in window_source
-
-
-@pytest.mark.parametrize(
-    "method",
-    # `refresh_microscope` is not here any more: it is asked of the container, which
-    # fans it out to both. `test_the_container_rebuilds_both` is what covers it.
-    ["refresh_experiment", "set_interactive", "set_selected"],
-)
-def test_the_new_tab_is_told_what_its_twin_is_told(method, methods_calling):
-    """Each of these is a way the window's state changes underneath a tab.
-
-    Missing one is silent: the tab keeps showing the previous experiment's lamellae, or
-    stays interactive through a workflow that has taken the instrument.
-    """
-    twin_callers = methods_calling.get(f"{TWIN}.{method}", set())
-    new_callers = methods_calling.get(f"{NEW}.{method}", set())
-    assert twin_callers, f"the twin no longer calls {method}; this test is stale"
-
-    # Every window method that tells the twin has to tell the new tab, not merely one
-    # of them. `refresh_microscope` in particular is reached from two places -- a
-    # preferences change and a connection -- and only the second matters for a tab that
-    # holds its microscope for life. Asserting "called from somewhere" let a mutation
-    # removing the connection path pass.
-    missing = {
-        caller
-        for caller in twin_callers - new_callers
-        if not _is_own_method(caller, TWIN) and not _is_own_method(caller, NEW)
-    }
-    assert not missing, (
-        f"{NEW}.{method}() is not called from {sorted(missing)}, where "
-        f"{TWIN}.{method}() is"
-    )
+def test_the_window_has_no_names_of_its_own_for_the_pages(window_source):
+    """The window reaches the pages through the container, so a call it makes reaches
+    both, and nothing it tells one page alone can drift from the other (FIB-765)."""
+    assert "fm_overview_tab" not in window_source
+    assert "beam_overview_tab" not in window_source
 
 
 def test_the_container_is_rebuilt_on_every_connection(self_calls):
-    """The per-tab builders were self-calls, so the attribute-based check above could not
-    see them. There is one builder now, and it is the same story one level up.
-
-    This is the one that matters most: the builder is what hands each tab the current
-    microscope, and a tab that holds its microscope for life and is not told about a
-    reconnection goes on reading geometry from an instrument nobody is driving. A
-    mutation removing the connection call site survived until a test like this existed.
-    """
+    """The builder hands each tab the current microscope; a tab not told about a
+    reconnection goes on reading geometry from an instrument nobody is driving."""
     callers = self_calls.get("_refresh_overview_microscope", set())
     assert "_on_microscope_connected" in callers, (
         "the overview tabs are not rebuilt on a connection; each would go on driving "
@@ -197,47 +112,43 @@ def test_the_container_is_rebuilt_on_every_connection(self_calls):
     )
 
 
-def test_the_container_rebuilds_both(self_calls):
-    """One call has to reach two tabs, or the merge quietly halved this.
+@pytest.mark.parametrize(
+    "method",
+    ["refresh_microscope", "refresh_experiment", "refresh_positions", "set_selected"],
+)
+def test_the_container_tells_both_pages(method, container_tree):
+    node = _method(container_tree, "AutoLamellaOverviewContainerTab", method)
+    assert _reads_self(node, "_tabs"), f"{method} no longer fans out over both tabs"
 
-    Checked against the container's source rather than the window's: the window can no
-    longer tell them apart, which is the point, so the fan-out is the container's promise
-    to keep.
-    """
-    container = ast.parse(CONTAINER_SOURCE.read_text(encoding="utf-8"))
-    for node in ast.walk(container):
-        if isinstance(node, ast.FunctionDef) and node.name == "refresh_microscope":
-            break
-    else:
-        pytest.fail("the container has no refresh_microscope; this test is stale")
 
-    # Matching the node is stricter than a substring: it finds `self._tabs` as an
-    # actual attribute access and not as a mention in a comment.
-    reaches_both = any(
-        isinstance(inner, ast.Attribute)
-        and inner.attr == "_tabs"
-        and isinstance(inner.value, ast.Name)
-        and inner.value.id == "self"
-        for inner in ast.walk(node)
+def test_a_selection_on_one_page_reaches_the_other(container_tree):
+    node = _method(
+        container_tree, "AutoLamellaOverviewContainerTab", "_on_tab_selected"
     )
-    assert reaches_both, "refresh_microscope no longer fans out over both tabs"
+    assert _reads_self(node, "_tabs")
 
 
-def test_every_selection_handler_reaches_the_new_tab(methods_calling):
-    """Selection is synced from several handlers, one per list. A tab left out of one
-    of them updates from three lists and not the fourth, which reads as a bug in
-    whichever list was clicked."""
-    twin_handlers = methods_calling.get(f"{TWIN}.set_selected", set())
-    new_handlers = methods_calling.get(f"{NEW}.set_selected", set())
-    # A tab's own handler is excluded on both sides: it must *not* re-select the list
-    # that raised the selection, which would move it out from under a click that is
-    # still happening. Each tab is therefore expected to be absent from its own.
-    missing = {
-        caller
-        for caller in twin_handlers - new_handlers
-        if not _is_own_method(caller, TWIN) and not _is_own_method(caller, NEW)
-    }
-    assert not missing, f"the new tab is not synced from: {sorted(missing)}"
+def test_the_lock_is_derived_from_both_pages(container_tree):
+    """One overview must not drive the stage while the other acquires (FIB-706), so
+    both report to the locks and the locks set both."""
+    init = _method(container_tree, "OverviewLocks", "__init__")
+    connected = ast.get_source_segment(CONTAINER_SOURCE.read_text(), init) or ""
+    assert "beam.acquiring_changed.connect(self.apply)" in connected
+    assert "fluorescence.acquiring_changed.connect(self.apply)" in connected
+    apply = _method(container_tree, "OverviewLocks", "apply")
+    assert _reads_self(apply, "_beam") and _reads_self(apply, "_fluorescence")
+    built = _method(container_tree, "AutoLamellaOverviewContainerTab", "__init__")
+    assert any(
+        isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Name)
+        and n.func.id == "OverviewLocks"
+        for n in ast.walk(built)
+    ), "the container never locks its pages"
+
+
+def test_a_run_locks_the_overviews(window_source):
+    assert "self.overview_tab.locks.set_run_allows(False)" in window_source
+    assert "self.overview_tab.locks.set_run_allows(True)" in window_source
 
 
 def test_the_retired_flag_is_gone_everywhere(window_source):
@@ -416,21 +327,9 @@ def test_the_base_owns_the_signals_the_window_connects_to():
 
 
 def test_a_lamella_added_anywhere_reaches_both_canvases(window_source):
-    """The window's position-change handler has to re-mark *both* overviews.
-
-    Neither tab subscribes to the experiment itself -- deliberately, since a tab is
-    rebuilt when the microscope changes and a subscription holding the old one's bound
-    method would be stale and undisconnectable -- so this handler is the only thing that
-    can see a lamella added, removed or re-posed anywhere in the window.
-
-    It reached only the fluorescence tab. The beam tab papered over its own edits by
-    re-marking inline, and went stale for everything else: a lamella marked on the FM
-    overview, added from the Microscope tab, or moved by a workflow, none of which
-    appeared on the FIB/SEM canvas (FIB-709). That is the mirror of the bug
-    `_wire_position_events` was written to fix, and it survived because the parity test
-    above lists the calls the window makes *directly* on each tab, and this one is made
-    through a handler.
-    """
+    """The window's position-change handler re-marks the Overview tab, which re-marks
+    both pages. Neither page subscribes to the experiment itself, so this handler is
+    the only thing that sees a lamella added, removed or re-posed anywhere (FIB-709)."""
     tree = ast.parse(window_source)
     handler = next(
         (
@@ -445,37 +344,10 @@ def test_a_lamella_added_anywhere_reaches_both_canvases(window_source):
         "the window has no `_refresh_overview_positions`; if it was renamed, this test "
         "and the events wired to it need to follow"
     )
-
-    # Read as text rather than by attribute access: the handler loops over tab names, so
-    # `self.<tab>.refresh_positions` never appears as an attribute chain to walk.
     body = ast.get_source_segment(window_source, handler) or ""
-    for tab in (TWIN, NEW):
-        assert tab in body, (
-            f"{tab} is not re-marked when the experiment's lamellae change"
-        )
-    assert "refresh_positions" in body
+    assert "self.overview_tab.refresh_positions()" in body
 
-    # And the handler has to be what the experiment's events actually reach.
     for event in ("inserted", "removed", "changed"):
         assert f"events.{event}.connect" in window_source, (
             f"nothing follows the experiment's `{event}` event any more"
         )
-
-
-def test_both_tabs_tell_the_window_when_they_start_acquiring(window_source):
-    """The cross-tab stage lock is derived from both tabs, so both have to report.
-
-    `test_overview_tab_host.py` checks the rule itself against real widgets, with the
-    signal connected by the fixture. That fixture cannot notice production forgetting to
-    connect it -- which is the likely failure, since the connection lives in each tab's
-    builder rather than anywhere the two are handled together (FIB-706).
-    """
-    for tab in (TWIN, NEW):
-        assert f"self.{tab}.acquiring_changed.connect(" in window_source, (
-            f"{tab} never tells the window it is acquiring, so the other overview is "
-            "free to drive the stage during its run"
-        )
-    assert (
-        window_source.count("acquiring_changed.connect(self._apply_overview_locks)")
-        == 2
-    ), "the tabs report to something other than the one place that derives the lock"

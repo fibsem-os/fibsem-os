@@ -29,8 +29,8 @@ and all three are wanted:
   view it was left on, because nothing destroyed it. FIB-780 asks for this explicitly;
   here it costs nothing.
 * **FIB-706 still applies unchanged.** One overview must not drive the stage while the
-  other is acquiring. Both can still be acquiring, so the window's `_apply_overview_locks`
-  is as necessary as it was, and reads both tabs the same way.
+  other is acquiring. Both can still be acquiring, so `OverviewLocks` derives each
+  tab's lock from the other tab and from the run.
 * **A hidden tab is still doing work.** Which is why unavailability is answered by
   dropping the widget (`set_enabled`, `_can_build`) rather than by hiding a page -- the
   same build-or-drop answer both tabs already give.
@@ -128,6 +128,44 @@ MODALITY_LABELS = {
 MODALITY_ORDER = (MODALITY_FIBSEM, MODALITY_FLUORESCENCE)
 
 
+class OverviewLocks:
+    """Whether each overview may work right now, from two facts decided together.
+
+    A running workflow owns the instrument; and one overview must not drive the stage
+    while the other is acquiring, because the other's run goes on placing tiles at the
+    poses it planned, so its mosaic comes out plausible and wrong (FIB-706). Derived
+    from both every time: a workflow finishing while an overview runs must not unlock
+    the other tab. Each tab keeps its Cancel live whatever this says.
+    """
+
+    def __init__(self, beam, fluorescence) -> None:
+        self._beam = beam
+        self._fluorescence = fluorescence
+        self._run_allows = True
+        # The bool is not read: the tabs are asked, so a missed or repeated signal
+        # cannot leave this disagreeing with them.
+        beam.acquiring_changed.connect(self.apply)
+        fluorescence.acquiring_changed.connect(self.apply)
+
+    def set_run_allows(self, allowed: bool) -> None:
+        """Whether a workflow lets the overviews work (False while one runs)."""
+        self._run_allows = bool(allowed)
+        self.apply()
+
+    def apply(self, *_) -> None:
+        self._fluorescence.set_interactive(*self._may_work(self._beam))
+        self._beam.set_interactive(*self._may_work(self._fluorescence))
+
+    def _may_work(self, other) -> Tuple[bool, str]:
+        """Whether a tab may work given what *other* is doing, and why not. The
+        workflow is named first when both hold: it is what has to change first."""
+        if not self._run_allows:
+            return False, "a workflow is running"
+        if other.is_acquiring:
+            return False, "the other overview is acquiring"
+        return True, ""
+
+
 class AutoLamellaOverviewContainerTab(QWidget):
     """The Overview tab: a modality strip, and one host tab per modality beneath it."""
 
@@ -135,13 +173,9 @@ class AutoLamellaOverviewContainerTab(QWidget):
     # all. The window listens so it can enable or disable the tab; this object does not
     # touch the tab bar, exactly as neither host tab does.
     availability_changed = pyqtSignal(bool)
-    # Forwarded from whichever host tab raised it. The window syncs the other lists; the
-    # host tabs go on emitting their own, and the window may still connect to them
-    # directly -- this is the tab-shaped signal, not a replacement for theirs.
+    # Forwarded from whichever host tab raised it, once the other has followed it.
     lamella_selected = pyqtSignal(object)
-    # True while *either* modality is acquiring. The window uses it to lock the other
-    # overview (FIB-706); both host tabs stay alive under the stack, so the situation it
-    # guards against is unchanged by the merge.
+    # True while *either* modality is acquiring.
     acquiring_changed = pyqtSignal(bool)
     # The modality now showing, for a host that wants to say so somewhere.
     modality_changed = pyqtSignal(str)
@@ -179,11 +213,11 @@ class AutoLamellaOverviewContainerTab(QWidget):
             tab.availability_changed.connect(
                 partial(self._on_tab_availability, modality)
             )
-            tab.lamella_selected.connect(self.lamella_selected)
+            tab.lamella_selected.connect(partial(self._on_tab_selected, tab))
             # Re-derived from both rather than forwarded: the bool arriving here says
-            # what *one* tab is doing, and a host locking on it would unlock while the
-            # other was still running.
+            # what *one* tab is doing.
             tab.acquiring_changed.connect(self._on_tab_acquiring)
+        self.locks = OverviewLocks(self.beam_tab, self.fm_tab)
 
         self._refresh_chips()
 
@@ -445,9 +479,17 @@ class AutoLamellaOverviewContainerTab(QWidget):
         for tab in self._tabs.values():
             tab.set_selected(lamella)
 
-    def set_interactive(self, enabled: bool, reason: str = "") -> None:
+    def lamella_lists(self) -> list:
+        """The lamella list beside each page."""
+        return [tab.lamella_list for tab in self._tabs.values()]
+
+    def _on_tab_selected(self, source, lamella) -> None:
+        """The other page follows a selection on one; the page that raised it is
+        not told again, as it is mid-click."""
         for tab in self._tabs.values():
-            tab.set_interactive(enabled, reason)
+            if tab is not source:
+                tab.set_selected(lamella)
+        self.lamella_selected.emit(lamella)
 
     # ── availability ─────────────────────────────────────────────────────
 

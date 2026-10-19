@@ -248,6 +248,7 @@ def test_the_window_feeds_the_page_its_experiment(world):
     page = QuadOverviewPage()
     window = SimpleNamespace(
         quad_overview_page=page,
+        overview_tab=SimpleNamespace(refresh_positions=lambda: None),
         view_controller=None,
         autolamella_ui=SimpleNamespace(experiment=world.experiment),
     )
@@ -456,7 +457,7 @@ def test_the_window_tells_the_page_to_look_for_new_overviews(window, source):
         BeamType.ELECTRON,
     )
     if source == "overview acquired":
-        window.beam_overview_tab.acquiring_changed.emit(False)
+        window.overview_tab.beam_tab.acquiring_changed.emit(False)
     else:
         window.autolamella_ui.workflow_status_signal.emit(WorkflowStatusEvent())
     assert [o.path for o in page._index.get(NO_GRID, [])] == [

@@ -490,31 +490,10 @@ class TestBothTabsAnswerIsAcquiring:
 
 @pytest.fixture
 def locked_pair(tab, fm_tab):
-    """Both tabs under a host that derives their locks the way the window does.
+    """Both tabs under the locks the Overview tab holds them with."""
+    from fibsem.applications.autolamella.ui.overview_container_tab import OverviewLocks
 
-    The window itself cannot be built here (napari), so its two decision methods are
-    borrowed rather than reimplemented -- if the rule changes, this moves with it. That
-    the real window *connects* the signal to that rule is checked separately, in
-    `test_overview_tab_wiring.py`, because a fixture wiring it by hand would go on
-    passing if production stopped.
-    """
-    from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
-        AutoLamellaSingleWindowUI as _Real,
-    )
-
-    class _Host:
-        _overviews_allowed = _Real._overviews_allowed
-        _apply_overview_locks = _Real._apply_overview_locks
-        _overview_may_work = _Real._overview_may_work
-        _set_overviews_allowed = _Real._set_overviews_allowed
-
-        def __init__(self, beam, fluorescence):
-            self.beam_overview_tab = beam
-            self.fm_overview_tab = fluorescence
-            for one in (beam, fluorescence):
-                one.acquiring_changed.connect(self._apply_overview_locks)
-
-    return _Host(tab, fm_tab), tab, fm_tab
+    return OverviewLocks(tab, fm_tab), tab, fm_tab
 
 
 class TestOneOverviewDoesNotDriveTheStageWhileTheOtherAcquires:
@@ -526,7 +505,7 @@ class TestOneOverviewDoesNotDriveTheStageWhileTheOtherAcquires:
     """
 
     def test_a_fluorescence_run_locks_the_beam_tab(self, locked_pair, monkeypatch):
-        host, beam, fluorescence = locked_pair
+        locks, beam, fluorescence = locked_pair
         toasts = []
         monkeypatch.setattr(
             "fibsem.ui.widgets.overview_widget.notification_service.show_toast",
@@ -546,7 +525,7 @@ class TestOneOverviewDoesNotDriveTheStageWhileTheOtherAcquires:
         pose, which it is here -- so "it said no" is a test that passes with the lock
         removed entirely. It did, until this was written this way.
         """
-        host, beam, fluorescence = locked_pair
+        locks, beam, fluorescence = locked_pair
         toasts = []
         monkeypatch.setattr(
             "fibsem.ui.fm.widgets.fm_overview_widget.notification_service.show_toast",
@@ -560,7 +539,7 @@ class TestOneOverviewDoesNotDriveTheStageWhileTheOtherAcquires:
             beam.overview._set_running(False)
 
     def test_the_lock_lifts_when_the_run_ends(self, locked_pair):
-        host, beam, fluorescence = locked_pair
+        locks, beam, fluorescence = locked_pair
         fluorescence.overview._set_running(True)
         fluorescence.overview._set_running(False)
         assert beam.overview.session.interactive is True
@@ -568,7 +547,7 @@ class TestOneOverviewDoesNotDriveTheStageWhileTheOtherAcquires:
     def test_a_run_does_not_lock_the_tab_running_it(self, locked_pair):
         """Its own controls are managed by the run itself -- Cancel above all, which a
         lock must never take away."""
-        host, beam, fluorescence = locked_pair
+        locks, beam, fluorescence = locked_pair
         fluorescence.overview._set_running(True)
         try:
             assert fluorescence.overview.session.interactive is True
@@ -579,11 +558,11 @@ class TestOneOverviewDoesNotDriveTheStageWhileTheOtherAcquires:
         """Both facts, derived together. Two callers each setting the flag from their
         own half of the truth is how a control gets stuck on: the workflow says "you may
         work again" while a tileset is still walking the grid."""
-        host, beam, fluorescence = locked_pair
-        host._set_overviews_allowed(False)
+        locks, beam, fluorescence = locked_pair
+        locks.set_run_allows(False)
         fluorescence.overview._set_running(True)
         try:
-            host._set_overviews_allowed(True)
+            locks.set_run_allows(True)
             assert beam.overview._may_move() is False, (
                 "the workflow finishing unlocked a tab the other run still owns"
             )
@@ -594,7 +573,7 @@ class TestOneOverviewDoesNotDriveTheStageWhileTheOtherAcquires:
         """A reconnection rebuilds the widget mid-run. The widget that would have said
         the run ended is the one being destroyed, so the tab says it instead -- without
         which the other overview stays locked for the rest of the session."""
-        host, beam, fluorescence = locked_pair
+        locks, beam, fluorescence = locked_pair
         fluorescence.overview._set_running(True)
         assert beam.overview._may_move() is False
         fluorescence._drop_overview()

@@ -82,7 +82,7 @@ def test_nothing_grid_aware_gets_in_the_way(main_ui, tmp_path, monkeypatch):
         assert row.action_move_to.isEnabled() and row.action_update.isEnabled()
 
     # The Overview canvas marks every lamella.
-    beam = main_ui.beam_overview_tab
+    beam = main_ui.overview_tab.beam_tab
     if beam.overview is not None:
         beam.refresh_positions()
         assert len(beam.overview.session.positions) == 2

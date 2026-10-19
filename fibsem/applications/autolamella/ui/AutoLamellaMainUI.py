@@ -341,12 +341,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     which open windows of their own (FIB-407).
     """
 
-    # Whether a workflow currently permits the overview tabs to work. Held rather than
-    # applied where it arrives, because each tab's interactivity is derived from this
-    # *and* from whether the other tab is acquiring -- and two callers each setting one
-    # control from their own half of the truth is how a control gets stuck on.
-    _overviews_allowed = True
-
     # CoincidenceProgress from the align-loop worker, delivered on the GUI thread
     coincidence_progress = pyqtSignal(object)
 
@@ -1821,7 +1815,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._run_total = 0
             self.status_bar.dismiss_failure()
         self.workflow_controls.set_running(True)
-        self._set_overviews_allowed(False)
+        self.overview_tab.locks.set_run_allows(False)
         # A run owns the loader: no manual exchange from the Grids tab meanwhile.
         if getattr(self, "grids_tab", None) is not None:
             self.grids_tab.set_controls_enabled(False)
@@ -1844,76 +1838,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.status_bar.set_waiting(None)
         self.status_bar.set_run(None)
         self.workflow_controls.set_running(False)
-        self._set_overviews_allowed(True)
+        self.overview_tab.locks.set_run_allows(True)
         # The timeline stays on screen after a run, but there is no longer a
         # queue behind it — offering to reorder one would be a lie.
         if hasattr(self, "workflow_timeline"):
             self.workflow_timeline.set_actions_enabled(False)
-
-    def _set_overviews_allowed(self, enabled: bool):
-        """Record whether a workflow currently permits the overviews to work.
-
-        A running workflow owns the instrument, so neither tab should be able to start
-        competing for it. Both tabs keep their Cancel button live regardless -- see
-        `set_interactive` on either widget -- so a lock arriving mid-run cannot strand
-        an acquisition with no way to stop it.
-
-        The answer is recorded rather than applied: `_apply_overview_locks` is what
-        reaches the tabs, because it is not the only fact that decides.
-        """
-        self._overviews_allowed = bool(enabled)
-        self._apply_overview_locks()
-
-    def _apply_overview_locks(self, *_) -> None:
-        """Decide, for each overview tab, whether it may work right now.
-
-        Two facts, and both have to be answered in one place. A workflow owning the
-        instrument is one; the *other* overview being mid-run is the other, and it was
-        not asked at all. Each tab locked itself while it ran, so nothing stopped a
-        click-to-move on the beam overview during a fluorescence tileset -- and that
-        does not fail loudly. The runner goes on placing tiles at the poses it planned,
-        so the mosaic comes out plausible and wrong (FIB-706).
-
-        Derived from both every time rather than each caller setting the flag it knows
-        about: a workflow finishing while an overview runs must not re-enable the other
-        tab, and a run finishing inside a locked window must not either.
-
-        Takes and ignores an argument so it can be connected straight to
-        `acquiring_changed`, whose bool it deliberately does not read -- it asks the tabs
-        instead, so a missed or duplicated signal cannot leave this holding a state the
-        tabs disagree with.
-
-        Written out per tab rather than looped, so that `test_overview_tab_wiring.py`
-        can still see `self.<tab>.set_interactive` in the window's source. That test is
-        the parity check between the two tabs and one of the few CI runs without PyQt5;
-        a loop over local variables hides the calls from it.
-        """
-        fm = getattr(self, "fm_overview_tab", None)
-        beam = getattr(self, "beam_overview_tab", None)
-        if fm is not None:
-            allowed, reason = self._overview_may_work(beam)
-            self.fm_overview_tab.set_interactive(allowed, reason)
-        if beam is not None:
-            allowed, reason = self._overview_may_work(fm)
-            self.beam_overview_tab.set_interactive(allowed, reason)
-
-    def _overview_may_work(self, other) -> Tuple[bool, str]:
-        """Whether an overview tab may work given what *other* is doing, and why not.
-
-        The reason travels with the answer because the widget cannot work it out: both
-        causes are the same `False` by the time they reach it, and a refusal that blames
-        a workflow when the real reason is the other overview sends someone looking in
-        the wrong place.
-
-        The workflow is named first when both hold. It is the outer authority -- the
-        overview run would not have started under it -- so it is the fact that has to
-        change first.
-        """
-        if not self._overviews_allowed:
-            return False, "a workflow is running"
-        if other is not None and other.is_acquiring:
-            return False, "the other overview is acquiring"
-        return True, ""
 
     def _running_border_state(self, task_name: Optional[str]) -> str:
         """The border for a running workflow: automated or supervised."""
@@ -2170,8 +2099,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if self.autolamella_ui.experiment is None:
             return
 
-        self.fm_overview_tab.refresh_experiment()
-        self.beam_overview_tab.refresh_experiment()
+        self.overview_tab.refresh_experiment()
         self.task_widget.set_experiment(self.autolamella_ui.experiment)
         self.lamella_widget.set_experiment()
         self.grids_tab.set_experiment(self.autolamella_ui.experiment)
@@ -2675,8 +2603,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
 
         self._selected_card_lamella = lamella
-        self.fm_overview_tab.set_selected(lamella)
-        self.beam_overview_tab.set_selected(lamella)
+        self.overview_tab.set_selected(lamella)
         self.lamella_task_image_widget.set_lamella(lamella)
         self.lamella_widget.select_lamella(lamella.name if lamella else None)
         self._protocol_page.setCurrentIndex(0 if lamella is None else 1)
@@ -2690,8 +2617,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _on_experiment_lamella_selected(self, lamella):
         """Sync card container and overviews when experiment-tab list selection changes."""
-        self.fm_overview_tab.set_selected(lamella)
-        self.beam_overview_tab.set_selected(lamella)
+        self.overview_tab.set_selected(lamella)
         self.quad_overview_page.set_selected(lamella)
         if getattr(self, "_syncing_selection", False) or lamella is None:
             return
@@ -3092,13 +3018,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.autolamella_ui.lamella_list.refresh_lamella(lamella)
             # The Overview pages' lists carry the same status column; without
             # this they sat stale for the whole run (FIB-995).
-            for lamella_list in self._overview_lamella_lists():
+            for lamella_list in self.overview_tab.lamella_lists():
                 lamella_list.refresh_lamella(lamella)
         else:
             self.lamella_list_widget.refresh_all()
             self.lamella_card_container.refresh_all()
             self.autolamella_ui.lamella_list.refresh_all()
-            for lamella_list in self._overview_lamella_lists():
+            for lamella_list in self.overview_tab.lamella_lists():
                 lamella_list.refresh_all()
         selected = getattr(self, "_selected_card_lamella", None)
         self._on_lamella_card_selected(selected)
@@ -3119,17 +3045,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             and hasattr(self, "lamella_task_image_widget")
         ):
             self.lamella_task_image_widget.refresh()
-
-    def _overview_lamella_lists(self):
-        """The lamella list beside each Overview page, whichever pages exist."""
-        return [
-            tab.lamella_list
-            for tab in (
-                getattr(self, "beam_overview_tab", None),
-                getattr(self, "fm_overview_tab", None),
-            )
-            if tab is not None and getattr(tab, "lamella_list", None) is not None
-        ]
 
     def _on_app_server_dialog(self) -> None:
         """Open Tools → App Server: status, services, clients, the dashboard."""
@@ -3363,28 +3278,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         connection and says so through `availability_changed`.
         """
         self.overview_tab = AutoLamellaOverviewContainerTab(self.autolamella_ui)
-        # The two host tabs, under the names the window has always used for them. Aliases
-        # rather than a rename: these are the same objects, every lifecycle call the
-        # window makes still goes to the tab that owns the answer, and
-        # `test_overview_tab_wiring.py` still reads the calls out of this source.
-        self.fm_overview_tab = self.overview_tab.fm_tab
-        self.beam_overview_tab = self.overview_tab.beam_tab
-
         self.overview_tab.availability_changed.connect(self._on_overview_availability)
-        self.fm_overview_tab.lamella_selected.connect(
-            self._on_fm_overview_lamella_selected
-        )
-        self.beam_overview_tab.lamella_selected.connect(
-            self._on_beam_overview_lamella_selected
-        )
-        # Per host tab rather than through the container's own `acquiring_changed`: the
-        # lock is derived from both tabs every time it is applied, and connecting to each
-        # keeps the two sources of that derivation the same two objects it reads.
-        self.fm_overview_tab.acquiring_changed.connect(self._apply_overview_locks)
-        self.beam_overview_tab.acquiring_changed.connect(self._apply_overview_locks)
+        self.overview_tab.lamella_selected.connect(self._on_overview_lamella_selected)
         # A finished run has saved its overview by the time it says so.
-        self.fm_overview_tab.acquiring_changed.connect(self._refresh_quad_overviews)
-        self.beam_overview_tab.acquiring_changed.connect(self._refresh_quad_overviews)
+        self.overview_tab.acquiring_changed.connect(self._refresh_quad_overviews)
 
         self.tab_widget.insertTab(
             2,
@@ -3435,41 +3332,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _on_quad_overview_lamella_selected(self, lamella):
         """A lamella clicked on the Microscope tab's overview page: select it in the
         lists and the Overview tabs, as a click on either Overview tab does."""
-        self.fm_overview_tab.set_selected(lamella)
-        self.beam_overview_tab.set_selected(lamella)
-        if getattr(self, "_syncing_selection", False) or lamella is None:
-            return
-        self._syncing_selection = True
-        try:
-            self.autolamella_ui.lamella_list.select(lamella.name)
-            if hasattr(self, "lamella_card_container"):
-                self.lamella_card_container.select_lamella(lamella.name)
-        finally:
-            self._syncing_selection = False
+        self.overview_tab.set_selected(lamella)
+        self._on_overview_lamella_selected(lamella)
 
-    def _on_beam_overview_lamella_selected(self, lamella):
-        """Sync the other lists when the rebuilt Overview tab's list changes.
-
-        The same shape as its fluorescence twin below, minus the call back into the
-        tab that raised it -- that list already shows the selection.
-        """
-        self.fm_overview_tab.set_selected(lamella)
-        if getattr(self, "_syncing_selection", False) or lamella is None:
-            return
-        self._syncing_selection = True
-        try:
-            self.autolamella_ui.lamella_list.select(lamella.name)
-            if hasattr(self, "lamella_card_container"):
-                self.lamella_card_container.select_lamella(lamella.name)
-        finally:
-            self._syncing_selection = False
-
-    def _on_fm_overview_lamella_selected(self, lamella):
-        """Sync the other lists when the FM overview's list selection changes.
-
-        The same shape as its beam-side twin above, minus the call back into the
-        FM tab: it raised this, and it has already highlighted what was clicked.
-        """
+    def _on_overview_lamella_selected(self, lamella):
+        """A lamella selected on either Overview page: select it in the lists."""
         if getattr(self, "_syncing_selection", False) or lamella is None:
             return
         self._syncing_selection = True
@@ -3488,26 +3355,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             page.refresh()
 
     def _refresh_overview_positions(self):
-        """Re-mark **both** overview canvases, tolerating either tab being absent.
-
-        A method on the window rather than connecting each tab's `refresh_positions`
-        straight to the experiment's signal: a tab is rebuilt when the microscope
-        changes, and a subscription holding the old one's bound method would be both
-        stale and undisconnectable. This one is stable for the window's lifetime, which
-        is what `_wire_position_events`' disconnect needs.
-
-        Both, because for a long time it was only the fluorescence one -- so a lamella
-        marked on the FIB/SEM overview appeared on the FM canvas, and one marked on the
-        FM overview never appeared on the beam canvas at all. The beam tab papered over
-        its own edits by re-marking inline and went stale for everything else: a lamella
-        added from the FM tab, from the Microscope tab, or by a workflow, and any pose
-        replaced in place (FIB-709). Neither tab subscribes to the experiment itself, so
-        this is the only place that can see all of it.
-        """
-        for name in ("fm_overview_tab", "beam_overview_tab"):
-            tab = getattr(self, name, None)
-            if tab is not None:
-                tab.refresh_positions()
+        """Re-mark every canvas that shows the lamellae (FIB-709). A method on the
+        window rather than each tab connected to the experiment: a tab is rebuilt
+        when the microscope changes, and a subscription holding its bound method
+        would go stale."""
+        self.overview_tab.refresh_positions()
         # The Microscope tab's stage map and overview page mark the same lamellae,
         # from the same place.
         experiment = getattr(self.autolamella_ui, "experiment", None)
