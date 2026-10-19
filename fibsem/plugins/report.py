@@ -304,6 +304,12 @@ _GROUPS: Tuple[Tuple[str, str, str, Callable[[], ExtensionGroup]], ...] = (
         "GRID_TASK_PLUGINS",
     ),
     _group(
+        "fibsem.volume.tasks",
+        "Volume tasks",
+        "fibsem.applications.volume.tasks",
+        "VOLUME_TASK_PLUGINS",
+    ),
+    _group(
         "fibsem.drivers",
         "Microscope drivers",
         "fibsem.drivers.registry",

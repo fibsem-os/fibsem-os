@@ -1145,37 +1145,35 @@ def test_a_hidden_chip_opens_no_card(qapp):
 
 def test_the_border_is_the_agent_s_purple_while_it_drives(main_ui, host):
     def shown():
-        return main_ui._border_frame.property("borderState")
+        return main_ui.run_border.shown
 
-    main_ui._set_border_state("supervised")
+    main_ui.run_border.set_state("supervised")
     main_ui.agent_chip.level_chosen.emit(AgentLevel.DRIVE)
     assert shown() == "agent"
     for state in ("idle", "automated", "pending", "waiting"):
-        main_ui._set_border_state(state)
+        main_ui.run_border.set_state(state)
         assert shown() == "agent"
     # Stopping is the one state shown over the agent's.
-    main_ui._set_border_state("stopping")
+    main_ui.run_border.set_state("stopping")
     assert shown() == "stopping"
 
-    main_ui._set_border_state("supervised")
+    main_ui.run_border.set_state("supervised")
     main_ui.agent_chip.level_chosen.emit(AgentLevel.ASSIST)
     assert shown() == "supervised"
 
     # The border's switch turns the purple off too.
     main_ui.agent_chip.level_chosen.emit(AgentLevel.DRIVE)
-    enabled = main_ui._border_enabled
-    main_ui._border_enabled = False
-    main_ui._apply_border()
+    enabled = main_ui.run_border.on
+    main_ui.run_border.set_on(False)
     assert shown() == "idle"
-    main_ui._border_enabled = enabled
-    main_ui._apply_border()
+    main_ui.run_border.set_on(enabled)
     assert shown() == "agent"
 
     # No App Server, no agent: the run's own colour.
     host.running = False
     main_ui._refresh_agent_chip()
     assert shown() == "supervised"
-    main_ui._set_border_state("idle")
+    main_ui.run_border.set_state("idle")
 
 
 def test_the_agent_s_workflow_stop_turns_the_border_red(main_ui, qapp):
@@ -1188,7 +1186,7 @@ def test_the_agent_s_workflow_stop_turns_the_border_red(main_ui, qapp):
     ui = main_ui.autolamella_ui
     previous = ui.session.runner
     ui.session.runner = StubRunner(ui.session, is_running=True)
-    main_ui._set_border_state("automated")
+    main_ui.run_border.set_state("automated")
     answers = []
     try:
         context = AutoLamellaAppContext(ui.session, window=ui)
@@ -1198,14 +1196,14 @@ def test_the_agent_s_workflow_stop_turns_the_border_red(main_ui, qapp):
         server.start()
         server.join(timeout=5)
         # Painted on the GUI thread, not the server's: nothing until it runs.
-        assert main_ui._border_frame.property("borderState") == "automated"
+        assert main_ui.run_border.shown == "automated"
         qapp.processEvents()
         assert answers == [{"available": True, "stopped": True}]
-        assert main_ui._border_frame.property("borderState") == "stopping"
+        assert main_ui.run_border.shown == "stopping"
     finally:
         ui.session.runner = previous
-        main_ui._border_state = None
-        main_ui._set_border_state("idle")
+        main_ui.run_border.state = None
+        main_ui.run_border.set_state("idle")
 
 
 def test_the_coincidence_viewer_follows_the_border_switch(
@@ -1229,16 +1227,16 @@ def test_the_coincidence_viewer_follows_the_border_switch(
         microscope=microscope,
         experiment=Experiment(path=str(tmp_path), name="border-switch"),
     )
-    enabled, driving = main_ui._border_enabled, main_ui._agent_driving
+    enabled, driving = main_ui.run_border.on, main_ui.run_border.agent_driving
     previous = getattr(ui, "_coincidence_viewer_window", None)
 
     def shown():
-        return viewer._border_frame.property("borderState")
+        return viewer.run_border.shown
 
     try:
-        main_ui._agent_driving = True
+        main_ui.run_border.agent_driving = True
         main_ui._on_border_toggle(True)
-        viewer._set_border_state("supervised")
+        viewer.run_border.set_state("supervised")
         # Opened: it takes the switch and the agent's purple from the window.
         ui._coincidence_viewer_window = viewer
         main_ui._sync_coincidence_viewer_border()
@@ -1249,7 +1247,7 @@ def test_the_coincidence_viewer_follows_the_border_switch(
         assert shown() == "agent"
     finally:
         ui._coincidence_viewer_window = previous
-        main_ui._agent_driving = driving
+        main_ui.run_border.agent_driving = driving
         main_ui._on_border_toggle(enabled)
         viewer.deleteLater()
 

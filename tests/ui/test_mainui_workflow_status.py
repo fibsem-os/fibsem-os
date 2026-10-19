@@ -14,12 +14,9 @@ thing that ever prevented it was the napari Minimap tab, whose vispy canvas call
 fixture used to stub that one method out. The tab is gone (#585/#586), so every
 tab here is real.
 
-Latent init gap, found by these tests and now fixed: `_border_state` used to be
-first assigned on the Run-workflow click, never in `__init__`, and every workflow
-handler reads it unconditionally — an AttributeError inside a queued slot is a
-process abort (FIB-329). It is initialised in `__init__` now, and this fixture
-deliberately adds no workaround, so any regression fails the first status these
-tests deliver to a fresh window.
+This fixture deliberately sets no border state first, so a handler that reads
+one before the window has set it fails the first status these tests deliver to a
+fresh window (an AttributeError in a queued slot is a process abort, FIB-329).
 """
 
 import os
