@@ -462,7 +462,9 @@ class Milling(Service):
     def end(self, reason: str, by: str) -> None:
         """End this stage, completed: the mill step now stops, and its stage run
         starts no further step. A run in progress answers ``completed``; the
-        milling task goes on to its next stage.
+        milling task goes on to its next stage. Only a stage that mills
+        through ``run`` has steps to end: coincidence milling, which starts
+        its own mill, ignores it until it moves to monitors (FIB-1484).
 
         Refused with `NothingToStop` when nothing is milling and no stage runs.
         """
@@ -915,7 +917,9 @@ class Milling(Service):
         by default nothing."""
 
     def _wait(self, seconds: float) -> None:
-        """Wait between looks at the instrument; an end of the step wakes it."""
+        """Wait between looks at the instrument; an end of the step wakes it.
+        A driver that overrides it (the Demo's simulated clock) sees the end
+        at its next look instead."""
         step = self._step
         if step is not None and not step.ending.is_set():
             step.ending.wait(seconds)

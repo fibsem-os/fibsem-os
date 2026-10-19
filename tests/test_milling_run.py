@@ -522,3 +522,27 @@ def test_an_end_wakes_the_step_at_once(scripted):
     with service.stage_run("s"):
         assert service.run() == "completed"
     ended.join(5)
+
+
+def test_a_stop_that_raises_is_tried_again(scripted):
+    """A driver's stop that fails (AutoScript raising) must not leave the beam
+    milling until the stop timeout: the step's next look stops it again."""
+    service = scripted([RUNNING] * 10)
+    stops = service._stop
+
+    def flaky():
+        if "stop" not in service.steps:
+            service.steps.append("stop")
+            raise RuntimeError("busy")
+        stops()
+
+    service._stop = flaky
+
+    def end():
+        with pytest.raises(RuntimeError):
+            service.end("enough", by="operator")
+
+    _on_first_wait(service, end)
+    with service.stage_run("s"):
+        assert service.run() == "completed"
+    assert service.steps.count("stop") == 2

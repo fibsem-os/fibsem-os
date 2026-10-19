@@ -87,12 +87,18 @@ class MillingStep:
         return True
 
     def stop_beam(self, stop: Callable[[], None]) -> bool:
-        """Stop the pattern with *stop*, once per step; whether it was called."""
+        """Stop the pattern with *stop*, once per step; whether it was called.
+        A stop that raises is not counted, so the next caller tries again."""
         with self._lock:
             if self._beam_stopped:
                 return False
             self._beam_stopped = True
-        stop()
+        try:
+            stop()
+        except BaseException:
+            with self._lock:
+                self._beam_stopped = False
+            raise
         return True
 
     def to_dict(self) -> Dict[str, Any]:
