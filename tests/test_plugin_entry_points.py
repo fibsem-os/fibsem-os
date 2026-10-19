@@ -315,6 +315,7 @@ def test_report_lists_the_fixture_across_every_group():
     assert [g.group for g in groups] == [
         "fibsem.milling.patterns",
         "fibsem.milling.strategies",
+        "fibsem.milling.monitors",
         "fibsem.autolamella.tasks",
         "fibsem.grid.tasks",
         "fibsem.drivers",
