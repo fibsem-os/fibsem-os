@@ -1461,14 +1461,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _on_coincidence_progress(self, progress) -> None:
         self.show_toast(progress.describe(), "info", temporary=True)
         # show each measured pair in the views as it lands, the same way a
-        # spot burn pushes its post-burn image: the acquisition signals are
-        # what the image widget listens to
+        # spot burn pushes its post-burn image: `imaging.show` is what the image
+        # widget listens to
         m = progress.measurement
         if m is None or m.sem_image is None or m.fib_image is None:
             return
-        microscope = self.autolamella_ui.microscope
-        microscope.sem_acquisition_signal.emit(m.sem_image)
-        microscope.fib_acquisition_signal.emit(m.fib_image)
+        imaging = self.autolamella_ui.microscope.imaging
+        if imaging is not None:
+            imaging.show(m.sem_image)
+            imaging.show(m.fib_image)
 
     def _on_ensure_coincidence_finished(self, result) -> None:
         final_dz = result.final.dz * 1e6

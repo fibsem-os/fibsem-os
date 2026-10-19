@@ -203,11 +203,7 @@ class FibsemMicroscope(ABC):
     # known: stage moves and image reprojection assume the stage origin (FIB-1081).
     rotation_centre: Optional[Tuple[float, float]] = None
 
-    # Images sent to the app's SEM and FIB views by whoever wants one shown (a
-    # milling task's result, a route's image). Live frames are not sent here: the
-    # views take them from each beam's ``live_frame``.
-    sem_acquisition_signal = Signal(FibsemImage)
-    fib_acquisition_signal = Signal(FibsemImage)
+    # An image for the app's SEM and FIB views is sent with ``imaging.show(image)``.
     # One acquisition at a time on this microscope's imaging view. Devices claim the
     # same lock as the `imaging_channel` resource (`resources` below).
     _threading_lock = _PerInstance(lambda _: threading.RLock())

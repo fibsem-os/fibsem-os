@@ -96,14 +96,14 @@ def test_live_view_runs_on_the_beam_and_its_frames_stay_there(microscope):
 
     sem.live_frame.connect(on_frame)
     sem.image_acquired.connect(acquired.append)
-    microscope.sem_acquisition_signal.connect(relayed.append)
+    microscope.imaging.image_shown.connect(relayed.append)
     try:
         microscope.start_acquisition(BeamType.ELECTRON)
         assert sem.is_live and microscope.is_acquiring
         assert done.wait(10)
     finally:
         microscope.stop_acquisition()
-        microscope.sem_acquisition_signal.disconnect(relayed.append)
+        microscope.imaging.image_shown.disconnect(relayed.append)
     assert not sem.is_live and not microscope.is_acquiring
     assert len(pushed) >= 2 and all(isinstance(i, FibsemImage) for i in pushed)
     assert acquired[: len(pushed)] == pushed[: len(acquired)]

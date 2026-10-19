@@ -276,7 +276,8 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
                 path=os.path.join(self.path, "pre-milling-fib-image.tif"),
             )
             self.pre_fib_acq = image
-            self.microscope.fib_acquisition_signal.emit(image)
+            if self.microscope.imaging is not None:
+                self.microscope.imaging.show(image)
 
         # connect acquisition signals
         self._connect_signals()
@@ -313,7 +314,8 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
                 path=os.path.join(self.path, "post-milling-fib-image.tif"),
             )
             self.post_fib_acq = image
-            self.microscope.fib_acquisition_signal.emit(image)
+            if self.microscope.imaging is not None:
+                self.microscope.imaging.show(image)
 
         # save summary figure
         summary = self.save_run_summary_figure()

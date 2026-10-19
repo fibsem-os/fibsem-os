@@ -115,6 +115,12 @@ class Imaging(Service):
     # however it was started: each tile, the stitch, and how the run ended. Emitted
     # on the acquiring thread. A Signal, not a Parameter: it carries a preview image.
     tiled_progress = Signal(TiledProgress)
+    # Images someone asked the app's SEM and FIB views to show (`show`): a milling
+    # task's result, a route's image. Not every acquisition: alignment and other
+    # reduced-area images have no place in the views, and click-to-move and pattern
+    # placement work on the image shown until something replaces it on purpose.
+    # Live frames are not here either; the views take them from ``live_frame``.
+    image_shown = Signal(FibsemImage)
 
     def __init__(self, name: str = "imaging", **kwargs: Any):
         super().__init__(name, **kwargs)
@@ -167,6 +173,13 @@ class Imaging(Service):
     def stop_live(self, beam_type: BeamType = BeamType.ELECTRON) -> None:
         """Stop ``beam_type``'s live view. Safe when it isn't live."""
         self.beam(beam_type).stop_live()
+
+    # -- images for the views ------------------------------------------------------
+
+    def show(self, image: FibsemImage) -> None:
+        """Send ``image`` to the app's SEM or FIB view, by its own beam type. Only
+        what is sent here is shown; an acquisition alone never is."""
+        self.image_shown.emit(image)
 
     # -- images for the record -----------------------------------------------------
 

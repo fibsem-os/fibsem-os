@@ -220,6 +220,11 @@ def _image_metadata(image: Any) -> Dict[str, Any]:
     return payload
 
 
+def _beam_type(image: Any) -> Any:
+    """The beam an image came from, or None when it has no metadata."""
+    return getattr(getattr(image, "metadata", None), "beam_type", None)
+
+
 def attach_microscope_taps(buffer: EventBuffer, microscope) -> List[Callable[[], None]]:
     """Subscribe the buffer to a microscope's progress signals.
 
@@ -290,8 +295,19 @@ def attach_microscope_taps(buffer: EventBuffer, microscope) -> List[Callable[[],
             "stage_position_changed",
             lambda position: {"position": to_plain(position.to_dict())},
         )
-    tap(microscope.sem_acquisition_signal, "sem_acquisition", _image_metadata)
-    tap(microscope.fib_acquisition_signal, "fib_acquisition", _image_metadata)
+    # Images shown in the app's views, under the kinds the old microscope signals had.
+    imaging = getattr(microscope, "imaging", None)
+    if imaging is not None:
+        for beam_type, kind in (
+            (BeamType.ELECTRON, "sem_acquisition"),
+            (BeamType.ION, "fib_acquisition"),
+        ):
+            tap(
+                imaging.image_shown,
+                kind,
+                _image_metadata,
+                keep=lambda image, beam_type=beam_type: _beam_type(image) is beam_type,
+            )
     # Live frames come from the beams themselves, under the same kinds.
     for beam_type, beam in getattr(microscope, "beams", {}).items():
         kind = (
