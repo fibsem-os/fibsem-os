@@ -25,7 +25,8 @@ from fibsem.devices.runs import Runs, current_run_id
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.base import FibsemMillingStage, MillingStrategyResult
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
-from fibsem.services.milling import report_progress
+from fibsem.milling.steps import MillingStageRun
+from fibsem.services.milling import report_progress, stage_running
 from fibsem.services.milling import task_running as _task_running
 from fibsem.structures import (
     BeamType,
@@ -616,13 +617,23 @@ class FibsemMillingTask:
             "strategy": {"name": stage.strategy.name},
         }
         self._stage_records.append(record)
-        try:
-            result = self._run_stage(stage, idx, start_time)
-        except BaseException as e:
-            record.update(ended_by(e), ended_at=now_iso())
-            raise
+        with stage_running(self.microscope, stage.name) as stage_run:
+            error: Optional[BaseException] = None
+            try:
+                result = self._run_stage(stage, idx, start_time)
+                # Before the cancel check: a stopped stage keeps what its
+                # strategy said.
+                record["strategy"].update(_strategy_result(stage, result))
+                # A stop of the service while the stage milled: the run answered
+                # cancelled, which a strategy need not pass on.
+                raise_if_cancelled(self._stopped, "Milling stopped.")
+            except BaseException as e:
+                error = e
+                record.update(ended_by(e), ended_at=now_iso())
+                raise
+            finally:
+                record.update(_stage_run_ended(stage_run, error))
         record.update(status=COMPLETED, ended_at=now_iso())
-        record["strategy"].update(_strategy_result(stage, result))
 
         # optionally acquire images after milling
         if self.config.acquisition.enabled:
@@ -665,9 +676,6 @@ class FibsemMillingTask:
             stage=stage,
             stop_event=self._stop_token,
         )
-        # A stop of the service while the stage milled: the run answered
-        # cancelled, which a strategy need not pass on, so the stage was cut short.
-        raise_if_cancelled(self._stopped, "Milling stopped.")
         # TODO: pass task as parent into strategy.run()?, allow logging from strategy?
         # performance logging
         msgd = {
@@ -880,6 +888,23 @@ def _strategy_result(stage: FibsemMillingStage, result: Any) -> Dict[str, Any]:
         return result.to_dict()
     except Exception:  # noqa: BLE001 - recording must not matter
         logging.debug(f"could not record {stage.name}'s strategy result", exc_info=True)
+        return {}
+
+
+def _stage_run_ended(
+    stage_run: Optional[MillingStageRun], error: Optional[BaseException]
+) -> Dict[str, Any]:
+    """How a stage run ended and its mill steps, as its record holds them:
+    ``end`` beside its status, and ``steps``. Never raises."""
+    if not isinstance(stage_run, MillingStageRun):
+        stage_run = MillingStageRun()
+    try:
+        return {
+            "end": stage_run.ended(error),
+            "steps": [step.to_dict() for step in stage_run.steps],
+        }
+    except Exception:  # noqa: BLE001 - recording must not matter
+        logging.debug("could not record how a stage run ended", exc_info=True)
         return {}
 
 

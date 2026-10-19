@@ -83,6 +83,14 @@ from fibsem.devices.core import DeviceParameter, ParameterMetadata, Role, comman
 from fibsem.devices.runs import current_run_id
 from fibsem.milling.base import FibsemMillingStage, estimate_milling_time
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
+from fibsem.milling.steps import (
+    ENDED,
+    FINISHED,
+    STOPPED,
+    MillingStageRun,
+    MillingStep,
+    MillingStepEnd,
+)
 from fibsem.services.core import Service, save_beam_conditions
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
@@ -193,8 +201,9 @@ class Milling(Service):
         # updates that follow it; empty outside a milling task.
         self._run_context: Dict[str, Any] = {}
         self._drawn: List[FibsemPatternSettings] = []
-        # Set by ``stop`` while a run is on, so the run can say it was stopped.
-        self._stop_requested = threading.Event()
+        # The mill step running now, and the stage run it is part of, if any.
+        self._step: Optional[MillingStep] = None
+        self._stage_run: Optional[MillingStageRun] = None
         # The stop of the milling task running on this service, if one is: ``stop``
         # sets it, so the task starts no later stage (FIB-1398).
         self._task_stop: Optional[threading.Event] = None
@@ -448,14 +457,49 @@ class Milling(Service):
             raise NothingToStop("Nothing is milling.")
         if task_stop is not None:
             task_stop.set()
-        self.stop_pattern()
+        self._end_step(MillingStepEnd(STOPPED, reason="Milling stopped."))
+
+    def end(self, reason: str, by: str) -> None:
+        """End this stage, completed: the mill step now stops, and its stage run
+        starts no further step. A run in progress answers ``completed``; the
+        milling task goes on to its next stage.
+
+        Refused with `NothingToStop` when nothing is milling and no stage runs.
+        """
+        stage_run = self._stage_run
+        if stage_run is None and not self._is_milling():
+            raise NothingToStop("Nothing is milling.")
+        end = MillingStepEnd(ENDED, by=by, reason=reason)
+        if stage_run is not None:
+            stage_run.end_as(end)
+        self._end_step(end)
 
     def stop_pattern(self) -> None:
-        """Stop the pattern milling now, and nothing more: a milling task goes on
-        to its next stage. For a strategy that ends a mill on purpose (coincidence
-        milling); ``stop`` is the way to stop a mill."""
-        self._stop_requested.set()
-        self._stop()
+        """Stop the pattern milling now, and nothing more: the mill step ends
+        ``ended`` and a milling task goes on. For a strategy that ends a mill on
+        purpose (coincidence milling); ``stop`` is the way to stop a mill."""
+        self._end_step(
+            MillingStepEnd(ENDED, by="strategy", reason="The pattern was stopped.")
+        )
+
+    def _end_step(self, end: MillingStepEnd) -> None:
+        """End the mill step running now with *end*, and stop the beam at once."""
+        step = self._step
+        if step is None:
+            self._stop()
+            return
+        step.end_as(end)
+        step.stop_beam(self._stop)
+
+    @contextmanager
+    def stage_run(self, name: Optional[str] = None) -> Iterator[MillingStageRun]:
+        """A strategy carries out a stage in the block: the runs in it are its
+        mill steps, and once ``end`` is called none starts."""
+        previous, self._stage_run = self._stage_run, MillingStageRun(name)
+        try:
+            yield self._stage_run
+        finally:
+            self._stage_run = previous
 
     @contextmanager
     def task_running(self, stop_event: threading.Event) -> Iterator[None]:
@@ -502,7 +546,6 @@ class Milling(Service):
         Outside a milling task, the run is on the record as one ``milling`` event,
         with the name ``setup`` was given and how it ended.
         """
-        self._stop_requested.clear()
         if self._run_context or getattr(self._part_of, "depth", 0):
             # A task's run, or a spot burn's: that records the whole.
             return self._run(stop_event)
@@ -714,13 +757,26 @@ class Milling(Service):
         return status
 
     def _run(self, stop_event: Optional[Union[threading.Event, AnyStopEvent]]) -> str:
+        stage_run = self._stage_run
+        if stage_run is not None and stage_run.ending.is_set():
+            # The stage was ended: it mills no further step.
+            try:
+                self._clear()
+            finally:
+                self._set_drawn([])
+            return COMPLETED
+        step = MillingStep(index=len(stage_run.steps) if stage_run else 0)
+        if stage_run is not None:
+            stage_run.steps.append(step)
+        self._step = step
         self._before_run()
         self._running = True
         try:
             total = float(self._estimate() or 0.0)
             self._start()
-            self._monitor(total, stop_event)
-        except BaseException:
+            MillingStateMonitor(self, step, stop_event).watch(total)
+        except BaseException as error:
+            step.end_as(MillingStepEnd.from_error(error))
             self._abort()
             raise
         finally:
@@ -730,54 +786,10 @@ class Milling(Service):
             finally:
                 self._clear()
                 self._set_drawn([])
+                step.ended_at = now_iso()
+                self._step = None
         raise_if_cancelled(stop_event, "Milling stopped.")
-        return CANCELLED if self._stop_requested.is_set() else COMPLETED
-
-    def _monitor(
-        self,
-        total: float,
-        stop_event: Optional[Union[threading.Event, AnyStopEvent]],
-    ) -> None:
-        """Look at the instrument every ``poll_interval`` until the run is over."""
-        start_time = time.time()
-        began = last = time.monotonic()
-        elapsed = 0.0
-        started = False
-        stop_deadline: Optional[float] = None
-        while True:
-            poll = self._poll()
-            now = time.monotonic()
-            state = poll.milling_state
-            if state is MillingState.RUNNING:
-                elapsed += now - last
-            last = now
-            started = started or state in ACTIVE_MILLING_STATES
-            if poll.estimated_time is not None:
-                total = float(poll.estimated_time)
-            if poll.remaining_time is not None:
-                elapsed = max(0.0, total - float(poll.remaining_time))
-            self._report(
-                progress_update(
-                    state=state,
-                    start_time=start_time,
-                    total=total,
-                    remaining=max(0.0, total - elapsed),
-                )
-            )
-            if state not in ACTIVE_MILLING_STATES:
-                if started or now - began >= self.start_timeout:
-                    break
-            if stop_event is not None and stop_event.is_set():
-                if stop_deadline is None:
-                    logging.info("Milling stop requested; stopping the beam.")
-                    self._stop()
-                    stop_deadline = now + self.stop_timeout
-                elif now >= stop_deadline:
-                    logging.warning(
-                        f"Milling did not stop within {self.stop_timeout} s."
-                    )
-                    break
-            self._wait(self.poll_interval)
+        return step.end.status if step.end is not None else COMPLETED
 
     def _abort(self) -> None:
         """Stop the beam after a failure, without hiding the failure."""
@@ -903,8 +915,78 @@ class Milling(Service):
         by default nothing."""
 
     def _wait(self, seconds: float) -> None:
-        """Wait between looks at the instrument."""
-        time.sleep(seconds)
+        """Wait between looks at the instrument; an end of the step wakes it."""
+        step = self._step
+        if step is not None and not step.ending.is_set():
+            step.ending.wait(seconds)
+        else:
+            time.sleep(seconds)
+
+
+class MillingStateMonitor:
+    """The monitor every mill step runs: it looks at the instrument every
+    ``poll_interval``, reports ``progress``, and ends the step ``finished`` when
+    the pattern goes idle. Once something else ends the step, it stops the beam
+    and waits up to ``stop_timeout`` for it to go idle."""
+
+    name = "state"
+
+    def __init__(
+        self,
+        milling: Milling,
+        step: MillingStep,
+        stop_event: Optional[Union[threading.Event, AnyStopEvent]],
+    ):
+        self.milling = milling
+        self.step = step
+        self.stop_event = stop_event
+
+    def watch(self, total: float) -> None:
+        """Look at the instrument until the step is over."""
+        milling, step = self.milling, self.step
+        start_time = time.time()
+        began = last = time.monotonic()
+        elapsed = 0.0
+        started = False
+        stop_deadline: Optional[float] = None
+        while True:
+            poll = milling._poll()
+            now = time.monotonic()
+            state = poll.milling_state
+            if state is MillingState.RUNNING:
+                elapsed += now - last
+            last = now
+            started = started or state in ACTIVE_MILLING_STATES
+            if poll.estimated_time is not None:
+                total = float(poll.estimated_time)
+            if poll.remaining_time is not None:
+                elapsed = max(0.0, total - float(poll.remaining_time))
+            step.milled_time = elapsed
+            milling._report(
+                progress_update(
+                    state=state,
+                    start_time=start_time,
+                    total=total,
+                    remaining=max(0.0, total - elapsed),
+                )
+            )
+            if state not in ACTIVE_MILLING_STATES:
+                if started or now - began >= milling.start_timeout:
+                    step.end_as(MillingStepEnd(FINISHED, by="instrument"))
+                    break
+            if self.stop_event is not None and self.stop_event.is_set():
+                step.end_as(MillingStepEnd(STOPPED, reason="Milling stopped."))
+            if step.ending.is_set():
+                if stop_deadline is None:
+                    if step.stop_beam(milling._stop):
+                        logging.info("Milling stop requested; stopping the beam.")
+                    stop_deadline = now + milling.stop_timeout
+                elif now >= stop_deadline:
+                    logging.warning(
+                        f"Milling did not stop within {milling.stop_timeout} s."
+                    )
+                    break
+            milling._wait(milling.poll_interval)
 
 
 class _Drawn:
@@ -973,6 +1055,19 @@ def report_progress(microscope: Any, progress: MillingProgress) -> None:
     milling = getattr(microscope, "milling", None)
     if milling is not None:
         milling.report(progress)
+
+
+@contextmanager
+def stage_running(microscope: Any, name: Optional[str] = None) -> Iterator[Any]:
+    """A strategy carries out a stage on *microscope*'s milling service in the
+    block (`Milling.stage_run`); yields the stage run, or None without a milling
+    service."""
+    milling = getattr(microscope, "milling", None)
+    if milling is None:
+        yield None
+        return
+    with milling.stage_run(name) as stage_run:
+        yield stage_run
 
 
 @contextmanager
