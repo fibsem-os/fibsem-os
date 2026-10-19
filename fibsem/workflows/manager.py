@@ -49,8 +49,6 @@ class WorkflowExperiment(Protocol):
 
     def register_metadata(self, microscope: FibsemMicroscope) -> None: ...
 
-    def expire_open(self, item_id: str, task_name: str, reason: str) -> int: ...
-
 
 class WorkflowWindow(Protocol):
     """What the manager tells a window about a run: who holds it, whether it
@@ -271,34 +269,6 @@ class BaseTaskManager:
         record = getattr(self.microscope, "record_event", None)
         if callable(record):
             record(kind, payload)
-
-    def _requirements_of(self, task_name: str) -> List[str]:
-        """The tasks ``task_name`` requires, by this manager's protocol."""
-        raise NotImplementedError
-
-    def _upstream_of(self, task_name: str) -> List[str]:
-        """Every task ``task_name`` requires, directly or through another:
-        Rough Milling requires Mill Fiducial, which requires Setup, and it is
-        Setup's point that Rough Milling mills on."""
-        seen: List[str] = []
-        queue = list(self._requirements_of(task_name))
-        while queue:
-            req = queue.pop(0)
-            if req in seen or req == task_name:
-                continue
-            seen.append(req)
-            queue.extend(self._requirements_of(req))
-        return seen
-
-    def _expire_what_this_consumes(self, item_id: str, task_name: str) -> None:
-        """The task is about to start on the values of the tasks upstream of
-        it: whichever of those are still open are used as they stand, and
-        recorded so. After this a change to them is a re-run, not a
-        correction."""
-        for req in self._upstream_of(task_name):
-            self.experiment.expire_open(
-                item_id, req, f"{task_name} started before anyone looked"
-            )
 
     # --- Iterations: items that repeat their tasks ---
 

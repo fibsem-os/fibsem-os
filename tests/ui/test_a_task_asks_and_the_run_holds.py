@@ -198,6 +198,24 @@ def test_the_run_holds_on_the_question_until_it_is_decided(window, qapp):
     assert lamella.task_state.status is TaskStatus.Completed
 
 
+def test_a_window_that_starts_listening_mid_hold_puts_the_question_up(window, qapp):
+    """A run can be asking before the window listens to its experiment (a run
+    started without it). The question already standing is put up at once."""
+    ui = window.autolamella_ui
+    lamella = ui.experiment.positions[0]
+    task, thread, seen = _start(window)
+    assert _pump(qapp, lambda: ui._widget_question is not None)
+    experiment = ui.experiment
+    window._listen_for_questions(None)
+    ui.clear_widget_question(lamella.id, ROUGH)
+    assert ui._widget_question is None
+
+    window._listen_for_questions(experiment)
+
+    assert ui._widget_question is not None, "the standing question is up again"
+    assert ui.pushButton_yes.text() == "Continue"
+
+
 def test_stop_withdraws_the_question_and_cancels_the_task(window, qapp):
     ui = window.autolamella_ui
     lamella = ui.experiment.positions[0]

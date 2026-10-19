@@ -331,9 +331,6 @@ class GridTaskManager(BaseTaskManager):
                 self._end_escaped_run(e)
                 raise
 
-    def _requirements_of(self, task_name: str) -> List[str]:
-        return self._requirements(task_name)
-
     def _run_items(self) -> None:
         while not self.is_stopped:
             item = self._next_item()
@@ -397,8 +394,6 @@ class GridTaskManager(BaseTaskManager):
                     item_id=grid.id,
                 )
                 continue
-
-            self._expire_what_this_consumes(grid.id, item.task_name)
 
             try:
                 loaded = self._ensure_loaded(grid)

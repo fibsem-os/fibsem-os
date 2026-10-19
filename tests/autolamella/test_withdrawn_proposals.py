@@ -149,19 +149,6 @@ def test_a_withdrawn_question_cannot_be_answered_afterwards(experiment):
     assert "withdrawn" in result.reason
 
 
-def test_it_is_never_to_check(experiment):
-    """Nobody should be asked to acknowledge a question that was taken back:
-    a withdrawal is authored automatically, which is otherwise exactly what
-    puts a proposal in the to-check group."""
-    lamella = experiment.positions[0]
-    proposal = _asked(experiment)
-
-    experiment.withdraw_proposal(lamella.id, TASK, "the run was stopped")
-
-    assert not proposal.to_check
-    assert proposal not in [p for _, _, p in experiment.proposals_to_check()]
-
-
 def test_it_leaves_the_waiting_list(experiment):
     lamella = experiment.positions[0]
     proposal = _asked(experiment)

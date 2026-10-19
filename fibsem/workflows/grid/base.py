@@ -65,7 +65,7 @@ class GridTaskConfig(Configurable, ABC):
     # of the config.
     attention: Attention = param(
         Attention.automated,
-        doc="Whether the task's questions are asked while it runs (supervised) or recorded for someone to check (automated).",
+        doc="Whether the task's questions are asked while it runs (supervised) or recorded Unreviewed without asking (automated).",
         display=Display("Attention"),
     )
     # The tasks, by name, whose result this one uses, as on the lamella

@@ -1,5 +1,5 @@
 """The App Server's review surface: GET /app/workflow/reviews lists the
-questions a task is stopped on (and what is left to check), POST
+questions a task is stopped on, POST
 /app/workflow/decide answers one through the same Experiment.decide the
 operator's Continue goes through -- on the main thread, blocking the server
 worker until applied, with the agent recorded as author.
@@ -181,56 +181,6 @@ def test_reviews_lists_the_pending_proposal_with_its_image(ui):
     assert review["reference_image"]["image_b64_jpeg"]
 
 
-def test_to_check_is_listed_and_an_agent_look_does_not_clear_it(ui, qapp):
-    """An agent's acknowledgement is recorded, writes nothing, and leaves the
-    row to check: it is not automatic (a decider acted) and not a person
-    (someone may still want to look). A person's look clears it."""
-    lamella = ui.experiment.positions[0]
-    _finished(lamella)
-    proposal = lamella.proposal(SETUP)
-    proposal.decisions.append(
-        Decision(
-            outcome=DecisionOutcome.Confirmed,
-            actor="task:centre-of-image",
-            values=dict(proposal.values),
-        )
-    )
-    with _client(ui) as client:
-        doc = client.get("/app/workflow/reviews", headers=AUTH).json()
-        assert doc["reviews"] == [], "nothing waits on it"
-        (check,) = doc["to_check"]
-        assert check["item_id"] == lamella.id and check["task_name"] == SETUP
-        assert check["decisions"][-1]["actor"] == "task:centre-of-image"
-
-        resp = _post_on_worker(
-            qapp,
-            client,
-            "/app/workflow/decide",
-            {
-                "item_id": lamella.id,
-                "task_name": SETUP,
-                "task_id": RUN,
-                "outcome": "Confirmed",
-                "actor": "test-model",
-            },
-        )
-        assert resp.status_code == 200, resp.text
-        assert resp.json()["synced_tasks"] == [], "an acknowledgement writes nothing"
-        (check,) = client.get("/app/workflow/reviews", headers=AUTH).json()["to_check"]
-        assert check["decisions"][-1]["actor"] == "agent:test-model"
-    assert proposal.to_check, "an agent looked; a person has not"
-    assert (
-        str(proposal.current.actor) == "agent:test-model"
-        and proposal.current.values == {}
-    )
-    ui.experiment._decide(
-        lamella.id,
-        SETUP,
-        Decision(outcome=DecisionOutcome.Confirmed, actor="operator:op", task_id=RUN),
-    )
-    assert not proposal.to_check
-
-
 def test_confirm_from_a_worker_writes_through_as_the_agent(ui, qapp):
     buffer = EventBuffer()
     lamella = ui.experiment.positions[0]
@@ -359,11 +309,10 @@ def test_decide_refuses_what_is_not_pending_or_is_running(ui, qapp):
     assert lamella.proposal(SETUP).pending
 
 
-def test_decide_refuses_a_missing_or_stale_run_and_an_edit_disguised_as_a_look(
-    ui, qapp
-):
-    """FIB-1003 through the route: a missing task_id and an acknowledgement
-    carrying values are 422; a run that has been replaced is 409. None writes."""
+def test_decide_refuses_a_missing_or_stale_run_and_a_second_decision(ui, qapp):
+    """FIB-1003 through the route: a missing task_id and a decision on a
+    proposal already decided are 422; a run that has been replaced is 409.
+    None writes."""
     lamella = ui.experiment.positions[0]
     _finished(lamella)
     base = {"item_id": lamella.id, "task_name": SETUP, "outcome": "Confirmed"}

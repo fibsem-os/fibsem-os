@@ -1950,10 +1950,7 @@ class AutoLamellaAppContext:
             return doc
 
         reviews = [describe(*entry) for entry in experiment.pending_proposals()]
-        # Applied by the producer (advise mode), nobody has looked: an agent
-        # acknowledges one with Confirmed and no values, which writes nothing.
-        to_check = [describe(*entry) for entry in experiment.proposals_to_check()]
-        return {"available": True, "reviews": reviews, "to_check": to_check}
+        return {"available": True, "reviews": reviews}
 
     def decide(
         self,

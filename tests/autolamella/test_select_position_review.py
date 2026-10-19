@@ -188,9 +188,11 @@ def test_supervised_the_point_asked_is_the_one_already_set(microscope, tmp_path)
     assert MILLING not in SelectMillingPositionTask.questions, "nothing milled"
 
 
-def test_automated_the_point_is_recorded_unasked_and_listed_to_check(
+def test_automated_the_point_is_recorded_unasked_and_nothing_waits(
     microscope, tmp_path
 ):
+    """Nobody is asked: the questions and the result all go on the record
+    Unreviewed, and nothing is left pending."""
     exp = _experiment(tmp_path, microscope)
     task = _task(microscope, exp)
     assert task.supervised is False
@@ -200,13 +202,16 @@ def test_automated_the_point_is_recorded_unasked_and_listed_to_check(
 
     assert lamella.poi == Point(0.0, 0.0), "used as it stands"
     assert lamella.has_completed_task(SETUP)
-    assert [p.kind for _i, _t, p in exp.proposals_to_check()] == [
+    recorded = lamella.proposals_from(SETUP)
+    assert [p.kind for p in recorded] == [
         STATE,
         STATE,
         POINT_OF_INTEREST,
         ALIGNMENT_AREA,
         TASK_RESULT,
-    ], "the questions nobody was asked, and the result, to check"
+    ], "the questions nobody was asked, and the result"
+    assert all(p.unreviewed for p in recorded)
+    assert exp.pending_proposals() == []
 
 
 def test_with_select_poi_off_the_point_is_not_asked(microscope, tmp_path):

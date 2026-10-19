@@ -98,16 +98,8 @@ def propose(
         )
     elif decided is not None:
         logging.info(
-            f"{item.name}: {task.task_name} re-run; the decided "
-            "proposal stays on the record and a new one is pending."
-        )
-    experiment = getattr(getattr(task, "task_manager", None), "experiment", None)
-    if experiment is not None:
-        # A re-run while the last run's value is still open: nobody looked at
-        # it, and it was used as it stood, so it is closed as such rather than
-        # dropped as a question nobody answered.
-        experiment.expire_open(
-            item.id, task.task_name, f"{task.task_name} re-ran before anyone looked"
+            f"{item.name}: {task.task_name} re-run; the earlier "
+            "proposal stays on the record and this run's follows it."
         )
     item.record_proposal(task.task_name, proposal)
     logging.debug(
@@ -144,21 +136,22 @@ def settle(
     same write-through, one place that appends. Which decision: the
     operator's inline answer when the task asked one (a mill's Accept;
     recorded without a second write-through of a value that is already
-    applied), else none: the values are used as proposed, so nothing waits on
-    a decision after the task ends. A failed task stays Failed; its record
-    waits for someone to look, but no decision changes the outcome.
+    applied), else none: the values are used as proposed and recorded
+    Unreviewed, so nothing waits on a decision after the task ends. A failed
+    task stays Failed; no decision changes the outcome.
     """
     proposal = propose(task, item, proposer, result_images, failure=failure)
     if proposal is None:
         return
     decision = inline_decision
     if decision is None:
-        # Nobody decides this: the values are used as proposed, live from now,
-        # and the proposal stays open to correct until the task that consumes
-        # them starts, when it is recorded Unreviewed. Not a decision by the
-        # producer: nobody agreed to anything.
-        if experiment is not None and proposal.values:
-            result = experiment.apply_proposed(item.id, task.task_name, proposal.id)
+        # Nobody decides this: the values are used as proposed and the record
+        # says Unreviewed. Not a decision by the producer: nobody agreed to
+        # anything.
+        if experiment is not None:
+            result = experiment.apply_proposed(
+                item.id, task.task_name, proposal.id, "nobody was asked"
+            )
             if not result.applied:
                 logging.warning(
                     f"{item.name}: the proposed {task.task_name} values were not "

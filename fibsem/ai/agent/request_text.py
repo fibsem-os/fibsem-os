@@ -1123,9 +1123,7 @@ def _recent_experiment_about(get, path: str) -> Optional[str]:
 def _review_item(reviews: Any, item_id: Any) -> Optional[str]:
     if not isinstance(reviews, dict):
         return None
-    for review in list(reviews.get("reviews") or []) + list(
-        reviews.get("to_check") or []
-    ):
+    for review in reviews.get("reviews") or []:
         if isinstance(review, dict) and review.get("item_id") == item_id:
             return review.get("item_name")
     return None

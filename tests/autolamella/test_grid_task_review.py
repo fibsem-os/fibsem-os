@@ -41,9 +41,7 @@ from fibsem.workflows.proposals import (
     OVERVIEW_POSITIONS,
     Decision,
     DecisionOutcome,
-    Standing,
 )
-from fibsem.workflows.review import standing
 from fibsem.workflows.status import TaskStatus
 from tests.run_state import stub_session
 
@@ -179,20 +177,20 @@ class TestAttentionOnTheConfig:
 
 
 class TestAGridTaskProposes:
-    def test_automated_leaves_its_positions_open_for_the_task_that_uses_them(
+    def test_automated_records_its_positions_unreviewed_when_the_run_ends(
         self, microscope, experiment
     ):
         """Nobody is asked and nobody confirms: the positions are used as
-        proposed and stay open to correct until the task that consumes them
-        starts. The run ending does not close them; a run of the overview on
-        its own is how they get looked at before screening."""
+        proposed and the record says Unreviewed the moment the run ends.
+        Nothing is left waiting on a decision."""
         _run(microscope, experiment)
         grid = experiment.get_grid_by_name(GRID)
 
         assert grid.task_history[-1].status is TaskStatus.Completed
         proposal = grid.proposal(OVERVIEW)
         assert proposal.kind == OVERVIEW_POSITIONS
-        assert standing(grid, OVERVIEW, proposal) is Standing.Open
+        assert not proposal.pending and proposal.unreviewed
+        assert experiment.pending_proposals() == []
 
     def test_the_proposal_points_at_the_stitched_overview_not_the_thumbnail(
         self, microscope, experiment
@@ -207,18 +205,19 @@ class TestAGridTaskProposes:
         # the record keeps a forward slash on every platform; compare the files
         assert path.exists() and os.path.normpath(path) == os.path.normpath(overview)
 
-    def test_supervised_the_task_completes_and_its_positions_can_be_decided(
+    def test_supervised_the_task_completes_and_its_positions_are_already_decided(
         self, microscope, experiment
     ):
         """Nothing waits once the task has ended: it is Completed, its
-        positions used as proposed, and a decision on them is a record."""
+        positions used as proposed and recorded Unreviewed, and a later
+        decision on them is refused -- changing them is a re-run."""
         experiment.grid_protocol.task_config[OVERVIEW].attention = Attention.supervised
         _run(microscope, experiment)
         grid = experiment.get_grid_by_name(GRID)
 
         assert grid.task_state.status is TaskStatus.Completed
         assert grid.has_completed_task(OVERVIEW)
-        assert grid.proposal(OVERVIEW).pending
+        assert grid.proposal(OVERVIEW).unreviewed
         assert grid.proposal(OVERVIEW).task_id == grid.task_history[-1].task_id
 
         result = experiment.decide(
@@ -231,9 +230,10 @@ class TestAGridTaskProposes:
                 task_id=grid.proposal(OVERVIEW).task_id,
             ),
         )
-        assert result.applied is True
+        assert not result.applied and result.error_type == "invalid_value", result
+        assert "already decided" in result.reason
         assert grid.has_completed_task(OVERVIEW)
-        assert not grid.proposal(OVERVIEW).pending
+        assert len(grid.proposal(OVERVIEW).decisions) == 1
 
     def test_a_failed_task_proposes_its_failure_and_stays_failed(
         self, microscope, experiment

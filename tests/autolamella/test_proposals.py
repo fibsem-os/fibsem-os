@@ -41,7 +41,6 @@ from fibsem.workflows.proposals import (
     DecisionOutcome,
     Proposal,
     ProposalKind,
-    Standing,
     ValueRefused,
     compute_delta,
     prepare_values,
@@ -49,7 +48,6 @@ from fibsem.workflows.proposals import (
     rejected_fails_task,
 )
 from fibsem.workflows.quality import Verdict
-from fibsem.workflows.review import standing
 from fibsem.workflows.status import TaskState, TaskStatus
 from tests.proposal_records import set_proposals
 
@@ -238,8 +236,8 @@ def test_a_runs_questions_of_one_kind_all_stand_and_a_rerun_replaces_them():
 
 def test_recording_replaces_only_an_unanswered_proposal_of_the_same_kind():
     """A re-run's first question lands after the point the last run left
-    open. That point is another kind: it stays for ``expire_open`` to close,
-    rather than being dropped as if it were the question asked again."""
+    pending. That point is another kind: it is kept, rather than being
+    dropped as if it were the question asked again."""
     from fibsem.workflows.proposals import STATE, record
 
     open_point = _proposal()
@@ -311,40 +309,6 @@ def test_an_author_is_a_kind_and_a_name_and_travels_as_kind_colon_name():
     assert d.to_dict()["actor"] == "task:current-poi", "the file form is unchanged"
 
 
-def test_standing_is_one_lifecycle_read_off_the_item(tmp_path):
-    """Pending (open, or asking while the task waits), then unchecked, then
-    closed."""
-    exp = _experiment(tmp_path)
-    lamella = exp.positions[0]
-    p = Proposal(
-        kind=POINT_OF_INTEREST,
-        values={"poi": Point(0.0, 0.0)},
-        provenance={"task_id": RUN},
-    )
-    assert standing(lamella, SETUP, p) is Standing.Open, "nobody waits"
-
-    p.asking = True
-    assert standing(lamella, SETUP, p) is Standing.Asking, "the task waits"
-    p.asking = False
-
-    p.decisions.append(
-        Decision(task_id=RUN, outcome=DecisionOutcome.Unreviewed, actor="task:x")
-    )
-    assert standing(lamella, SETUP, p) is Standing.Unchecked
-    p.decisions.append(
-        Decision(task_id=RUN, outcome=DecisionOutcome.Confirmed, actor="operator:op")
-    )
-    assert standing(lamella, SETUP, p) is Standing.Closed
-
-    withdrawn = Proposal(kind=TASK_RESULT, provenance={"task_id": RUN})
-    withdrawn.decisions.append(
-        Decision(task_id=RUN, outcome=DecisionOutcome.Withdrawn, actor="task:x")
-    )
-    assert standing(lamella, SETUP, withdrawn) is Standing.Closed, (
-        "taken back: nothing for anyone to do"
-    )
-
-
 def test_an_alignment_area_is_a_kind_with_a_rectangle_that_round_trips(tmp_path):
     """FIB-1053: asked mid-task, written nowhere; a rectangle outside the
     frame is refused before the run is released on it."""
@@ -381,31 +345,6 @@ def test_an_alignment_area_is_a_kind_with_a_rectangle_that_round_trips(tmp_path)
     ), "per edge: how far it was dragged, by how much it was resized"
 
 
-def test_to_check_clears_only_when_a_person_looked():
-    p = Proposal(
-        kind=POINT_OF_INTEREST,
-        values={"poi": Point(0.0, 0.0)},
-        provenance={"task_id": RUN},
-    )
-    assert not p.to_check, "nothing decided yet: it is pending, not to check"
-    p.decisions.append(
-        Decision(
-            task_id=RUN,
-            outcome=DecisionOutcome.Confirmed,
-            actor=Actor.task("current-poi"),
-        )
-    )
-    assert p.to_check
-    p.decisions.append(
-        Decision(task_id=RUN, outcome=DecisionOutcome.Confirmed, actor="agent:x")
-    )
-    assert p.to_check, "an agent looked; a person has not"
-    p.decisions.append(
-        Decision(task_id=RUN, outcome=DecisionOutcome.Confirmed, actor="operator:op")
-    )
-    assert not p.to_check
-
-
 def test_kinds_declare_their_values_in_code():
     assert PROPOSAL_KINDS[POINT_OF_INTEREST].values == ("poi",)
     register_proposal_kind(ProposalKind(name="site_pick", values=("sites",)))
@@ -428,12 +367,8 @@ def test_items_persist_their_proposals(tmp_path):
     assert again.positions[0].proposal(SETUP).values["poi"] == Point(1e-6, 2e-6)
     assert again.positions[0].proposal(SETUP).pending
     assert again.grids[0].proposal("overview").values == {"n": 3}
-    # Pending with nothing waiting on them: open, listed to check, not waiting.
+    # Pending with no task waiting on them: not questions, so not listed.
     assert again.pending_proposals() == []
-    assert [(item.name, name) for item, name, _p in again.proposals_to_check()] == [
-        (again.positions[0].name, SETUP),
-        ("Grid-01", "overview"),
-    ]
 
 
 def test_old_experiments_load_with_no_proposals(tmp_path):
@@ -908,36 +843,6 @@ def _running(lamella, task_name, task_id="run-2"):
     lamella.task_state.status = TaskStatus.InProgress
 
 
-def test_looking_at_an_earlier_result_is_not_refused_by_a_later_run(tmp_path):
-    """FIB-1008: a grid's tasks run back to back, so something is nearly always
-    running on the item whose earlier result is being looked at. An
-    acknowledgement writes nothing, so it lands."""
-    exp = _experiment(tmp_path)
-    lamella = exp.positions[0]
-    lamella.task_history.append(TaskState(name=SETUP, status=TaskStatus.Completed))
-    set_proposals(lamella, SETUP, [_proposal()])
-    lamella.proposal(SETUP).decisions.append(
-        Decision(
-            task_id=RUN,
-            outcome=DecisionOutcome.Confirmed,
-            actor=Actor.task("centre"),
-            values={"poi": Point(1e-6, 2e-6)},
-        )
-    )
-    _running(lamella, ROUGH)
-    before = _snapshot(lamella)
-
-    result = exp.decide(
-        lamella.id,
-        SETUP,
-        Decision(task_id=RUN, outcome=DecisionOutcome.Confirmed, actor="operator:op"),
-    )
-
-    assert result.applied is True and result.running is False
-    assert not lamella.proposal(SETUP).to_check, "the look is recorded"
-    assert _snapshot(lamella)[:2] == before[:2], "poi and patterns untouched"
-
-
 def test_rejecting_a_task_that_is_not_the_one_running_lands(tmp_path):
     exp = _experiment(tmp_path)
     lamella = _finished(exp, _proposal())
@@ -1033,32 +938,7 @@ def test_decide_refuses_a_value_written_under_any_running_task(tmp_path):
     assert lamella.poi == Point(0.0, 0.0)
 
 
-def test_decisions_append_and_the_latest_is_current(tmp_path):
-    """A second decision is appended beside the first, never over it. On a
-    decided proposal a confirm is a look: it carries no values, so the applied
-    decision stays the first."""
-    exp = _experiment(tmp_path)
-    lamella = exp.positions[0]
-    set_proposals(lamella, SETUP, [_proposal(Point(0.0, 0.0))])
-    first = Decision(
-        task_id=RUN,
-        outcome=DecisionOutcome.Confirmed,
-        actor="operator:a",
-        values={"poi": Point(1e-6, 0)},
-    )
-    second = Decision(
-        task_id=RUN, outcome=DecisionOutcome.Confirmed, actor="operator:b"
-    )
-    assert exp.decide(lamella.id, SETUP, first).applied
-    assert exp.decide(lamella.id, SETUP, second).applied
-    proposal = lamella.proposal(SETUP)
-    assert [str(d.actor) for d in proposal.decisions] == ["operator:a", "operator:b"]
-    assert proposal.current is second
-    assert proposal.applied is first
-    assert lamella.poi == Point(1e-6, 0)
-
-
-# ── a decision names the run it saw; a look cannot edit (FIB-1003) ───────────
+# ── a decision names the run it saw (FIB-1003) ───────────────────────────────
 
 
 def test_a_decision_that_names_no_run_is_refused(tmp_path):
@@ -1131,9 +1011,9 @@ def test_a_proposal_recorded_before_runs_were_named_cannot_be_decided(tmp_path):
     assert lamella.proposal(ROUGH).pending
 
 
-def test_an_acknowledgement_with_values_is_refused_and_nothing_moves(tmp_path):
-    """A producer-applied proposal is to check. Confirming it records a look;
-    with values it would be an edit, and is refused."""
+def test_a_decision_on_a_decided_proposal_is_refused_and_nothing_moves(tmp_path):
+    """Once a proposal is decided, a second decision is refused: changing a
+    value is a re-run, not an edit of the record."""
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
     lamella.task_history.append(TaskState(name=SETUP, status=TaskStatus.Completed))
@@ -1148,7 +1028,7 @@ def test_an_acknowledgement_with_values_is_refused_and_nothing_moves(tmp_path):
             values={"poi": Point(1e-6, 0)},
         ),
     ).applied
-    assert lamella.proposal(SETUP).to_check
+    assert not lamella.proposal(SETUP).pending
     before = _snapshot(lamella)
 
     result = exp.decide(
@@ -1165,7 +1045,7 @@ def test_an_acknowledgement_with_values_is_refused_and_nothing_moves(tmp_path):
     assert result.applied is False and result.error_type == "invalid_value"
     assert "already decided" in result.reason
     assert _snapshot(lamella) == before
-    assert lamella.proposal(SETUP).to_check, "the refused look is not a look"
+    assert len(lamella.proposal(SETUP).decisions) == 1, "nothing appended"
 
 
 def test_an_empty_confirm_on_a_pending_proposal_with_values_is_refused(tmp_path):
@@ -1183,38 +1063,6 @@ def test_an_empty_confirm_on_a_pending_proposal_with_values_is_refused(tmp_path)
     assert "needs its values ['poi']" in result.reason
     assert _snapshot(lamella) == before
     assert lamella.task_history[-1].status is TaskStatus.Completed
-
-
-def test_a_producer_applied_proposal_is_to_check_until_someone_looks(tmp_path):
-    """Advise mode: every decision is the producer's own, so a look is owed.
-    An acknowledgement carries no values (writes nothing) and clears it; the
-    applied decision is still the one whose values were written."""
-    exp = _experiment(tmp_path)
-    lamella = exp.positions[0]
-    set_proposals(lamella, SETUP, [_proposal(Point(0.0, 0.0))])
-    proposal = lamella.proposal(SETUP)
-    assert not proposal.to_check and proposal.applied is None, "pending, not applied"
-    auto = Decision(
-        task_id=RUN,
-        outcome=DecisionOutcome.Confirmed,
-        actor="task:centre-of-image",
-        values={"poi": Point(2e-6, 0)},
-    )
-    assert exp.decide(lamella.id, SETUP, auto).applied
-    assert proposal.to_check and proposal.applied is auto
-    assert lamella.poi == Point(2e-6, 0)
-    assert exp.pending_proposals() == []
-    assert [t for _i, t, _p in exp.proposals_to_check()] == [SETUP]
-
-    ack = Decision(
-        task_id=RUN, outcome=DecisionOutcome.Confirmed, actor="operator:a", values={}
-    )
-    result = exp.decide(lamella.id, SETUP, ack)
-    assert result.applied and result.synced_tasks == [] and result.delta == {}
-    assert not proposal.to_check and proposal.current is ack
-    assert proposal.applied is auto, "the acknowledgement did not apply anything"
-    assert lamella.poi == Point(2e-6, 0)
-    assert exp.proposals_to_check() == []
 
 
 def test_author_names_the_declared_operator(tmp_path):

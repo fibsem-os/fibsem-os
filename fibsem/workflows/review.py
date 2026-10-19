@@ -1,8 +1,8 @@
 """Deciding what tasks proposed: the one way a decision reaches an experiment.
 
 :class:`ProposalReview` is what an experiment does with the proposals on its
-items -- decide, ask, apply as proposed, expire, record unasked, withdraw --
-and the two lists the review inbox shows. It reads the items through
+items -- decide, ask, use as proposed, record unasked, withdraw -- and the list
+of questions tasks are waiting on. It reads the items through
 ``items()`` and ``get_item_by_id``, saves through ``save``, and fires the
 experiment's ``decided`` and ``asked``; which item field a confirmed value is
 written to is the value writer's, registered per proposal kind
@@ -22,9 +22,7 @@ from fibsem.workflows.proposals import (
     DecisionOutcome,
     DecisionResult,
     Proposal,
-    Standing,
     ValueRefused,
-    _encode_values,
     _quietly,
     kind_label,
     prepare_values,
@@ -64,26 +62,6 @@ def _call_on_main_thread(func, *args, **kwargs):
     if error is not None:
         raise error
     return result
-
-
-def _same_values(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
-    """Whether two value sets say the same thing, compared in their file form
-    so a Point and a re-read Point agree."""
-    try:
-        return _encode_values(a) == _encode_values(b)
-    except Exception:  # noqa: BLE001 - a value that cannot be encoded is a change
-        return False
-
-
-def standing(item: Any, task_name: str, proposal: Proposal) -> Standing:
-    """The one lifecycle, read off the item: see ``Standing``. Pending is
-    asking while the task waits on it, else open. Decided is unchecked until
-    a person looks."""
-    if proposal.pending:
-        if proposal.asking:
-            return Standing.Asking
-        return Standing.Open
-    return Standing.Unchecked if proposal.to_check else Standing.Closed
 
 
 def _emit_on_main_thread(signal, *args) -> None:
@@ -130,16 +108,13 @@ class ProposalReview:
         carrying values on one is refused. The proposed values are left as
         they were, so the delta survives. A decision never moves a task's
         status: a question's decision releases the task asking it, which
-        carries on (or fails, on a reject that fails it); a decision on a task
-        that already finished (a result someone checks) changes nothing but
-        the record and its values.
+        carries on (or fails, on a reject that fails it).
 
-        Refused, without a write, when there is no such proposal; when the run
+        Refused, without a write, when there is no such proposal; when it is
+        already decided (to change a value, re-run the task); when the run
         being decided is the run in progress (a decision then is a stop, not a
         decision); or when a decision carrying values arrives while any task
-        runs on the item. Looking at what an earlier run did, while a later one
-        runs, is not refused: it writes nothing -- including an earlier run of
-        the task that is running now.
+        runs on the item.
         """
         return _call_on_main_thread(self._decide, item_id, task_name, decision)
 
@@ -177,24 +152,22 @@ class ProposalReview:
                     reason=f"{task_name} on {item.name} was withdrawn before it "
                     f"was answered; re-run {task_name} to be asked again.",
                 )
+            if not proposal.pending:
+                # Decided already: by a person, an agent, or the record when
+                # nobody was asked. Changing a value is a re-run.
+                return DecisionResult(
+                    applied=False,
+                    error_type="invalid_value",
+                    reason=f"{task_name} on {item.name} is already decided. "
+                    f"To change a value, re-run {task_name}.",
+                )
             # A decision while something runs on the item is refused only where
             # it could reach that run: the proposal is from the run in progress
             # (the answer there is Stop, not a decision), or the decision writes
             # values the running task may be reading. The run, not the task
-            # name -- a task that has re-run is still running when its earlier
-            # result is looked at, and that look writes nothing. A grid's tasks
-            # run back to back, so anything stricter refuses the ordinary case
-            # (FIB-1008).
+            # name. A grid's tasks run back to back, so anything stricter
+            # refuses the ordinary case (FIB-1008).
             running = item.task_state.status is TaskStatus.InProgress
-            # An open value was written through when its task ended. Confirming
-            # it as it stands writes nothing again, so it is a look and lands
-            # even while the item is busy with another task; a changed value
-            # is a write and waits.
-            unchanged_open = (
-                standing(item, task_name, proposal) is Standing.Open
-                and bool(decision.values)
-                and _same_values(decision.values, proposal.values)
-            )
             # The one case a decision may land on a running task: the task is
             # parked on this very proposal, waiting to be told the answer
             # (FIB-1025). The hazard both refusals below guard against is a
@@ -218,7 +191,7 @@ class ProposalReview:
                         reason=f"{item.name} is running {task_name}; "
                         "stop it rather than deciding under it.",
                     )
-                if decision.values and not unchanged_open:
+                if decision.values:
                     return DecisionResult(
                         applied=False,
                         running=True,
@@ -312,21 +285,8 @@ class ProposalReview:
                         "were named; re-run it to decide it."
                     ),
                 )
-            # An acknowledgement cannot become an edit: a proposal that already
-            # has a decision is looked at, not changed (changing a value is a
-            # re-run). A pending proposal is confirmed with its values, as
-            # proposed or adjusted, never with none.
-            if decision.outcome is DecisionOutcome.Confirmed:
-                if not proposal.pending and decision.values:
-                    return DecisionResult(
-                        applied=False,
-                        error_type="invalid_value",
-                        reason=f"{task_name} on {item.name} is already decided; "
-                        "confirming it again records a look and carries no values. "
-                        f"To change a value, re-run {task_name}.",
-                    )
             apply_values = None
-            if decision.outcome is DecisionOutcome.Confirmed and not unchanged_open:
+            if decision.outcome is DecisionOutcome.Confirmed:
                 # All or nothing: every value is checked and every write planned
                 # before the decision is appended, so a refusal -- or a planning
                 # error -- leaves the record, the item and the task as they were.
@@ -357,7 +317,7 @@ class ProposalReview:
                 # (``fill_in_decision``), so nothing here has to be told what
                 # the values are to confirm them.
                 as_it_stands = proposal.asking and not decision.values
-                if proposal.pending and missing and not as_it_stands:
+                if missing and not as_it_stands:
                     return DecisionResult(
                         applied=False,
                         error_type="invalid_value",
@@ -468,19 +428,18 @@ class ProposalReview:
         return True
 
     def apply_proposed(
-        self, item_id: str, task_name: str, proposal_id: str
+        self, item_id: str, task_name: str, proposal_id: str, reason: str
     ) -> DecisionResult:
-        """Write a proposal's values through as they stand, with no decision:
-        what an automated task's value being live from the moment it is
-        proposed means. On the main thread, through the same planned writes a
-        decision uses; nothing is appended to the record, so the proposal
-        stays open to correct until its consumer starts."""
+        """Use a proposal nobody was asked about as it stands: its values are
+        written through, on the main thread and through the same planned
+        writes a decision uses, and it is recorded ``Unreviewed`` with
+        ``reason``. Nothing waits on it after."""
         return _call_on_main_thread(
-            self._apply_proposed, item_id, task_name, proposal_id
+            self._apply_proposed, item_id, task_name, proposal_id, reason
         )
 
     def _apply_proposed(
-        self, item_id: str, task_name: str, proposal_id: str
+        self, item_id: str, task_name: str, proposal_id: str, reason: str
     ) -> DecisionResult:
         with EXPERIMENT_WRITE_LOCK:
             item = self.get_item_by_id(item_id)
@@ -496,39 +455,56 @@ class ProposalReview:
                 return DecisionResult(
                     applied=False, reason=f"{item.name} has no such proposal."
                 )
-            if not proposal.values:
-                return DecisionResult(applied=True)
-            try:
-                writes = prepare_values(self, item, proposal.kind, proposal.values)
-            except ValueRefused as e:
+            if not proposal.pending:
                 return DecisionResult(
-                    applied=False, error_type="invalid_value", reason=str(e)
-                )
-            except Exception as e:
-                logging.exception(
-                    f"{item.name}: could not plan the proposed {task_name} values"
-                )
-                return DecisionResult(
-                    applied=False, reason=f"Could not apply the values: {e}"
+                    applied=False,
+                    reason=f"{task_name} on {item.name} is already decided.",
                 )
             result = DecisionResult(applied=True)
-            try:
-                result.synced_tasks.extend(writes.apply())
-            except Exception as e:
-                logging.exception(
-                    f"{item.name}: applying the proposed {task_name} values failed; "
-                    "undoing."
-                )
+            if proposal.values:
                 try:
-                    writes.undo()
-                except Exception:
-                    logging.exception(f"{item.name}: could not undo {task_name}")
-                return DecisionResult(
-                    applied=False, reason=f"Could not apply the values: {e}"
+                    writes = prepare_values(self, item, proposal.kind, proposal.values)
+                except ValueRefused as e:
+                    return DecisionResult(
+                        applied=False, error_type="invalid_value", reason=str(e)
+                    )
+                except Exception as e:
+                    logging.exception(
+                        f"{item.name}: could not plan the proposed {task_name} values"
+                    )
+                    return DecisionResult(
+                        applied=False, reason=f"Could not apply the values: {e}"
+                    )
+                try:
+                    result.synced_tasks.extend(writes.apply())
+                except Exception as e:
+                    logging.exception(
+                        f"{item.name}: applying the proposed {task_name} values "
+                        "failed; undoing."
+                    )
+                    try:
+                        writes.undo()
+                    except Exception:
+                        logging.exception(f"{item.name}: could not undo {task_name}")
+                    return DecisionResult(
+                        applied=False, reason=f"Could not apply the values: {e}"
+                    )
+            proposal.decisions.append(
+                Decision(
+                    outcome=DecisionOutcome.Unreviewed,
+                    actor=Actor.task(
+                        str(proposal.provenance.get("proposer") or task_name)
+                    ),
+                    values=dict(proposal.values),
+                    reason=reason,
+                    via="workflow",
+                    task_id=proposal.task_id,
+                    proposal_id=proposal.id,
                 )
+            )
             logging.debug(
                 {
-                    "msg": "proposal_applied_as_proposed",
+                    "msg": "proposal_unreviewed",
                     "item": item.name,
                     "task_name": task_name,
                     "kind": proposal.kind,
@@ -536,75 +512,20 @@ class ProposalReview:
                     "synced_tasks": list(result.synced_tasks),
                 }
             )
-            self.save()
+            if proposal.values:
+                self.save()
+        try:
+            self.decided.emit(item_id, task_name)
+        except Exception:
+            logging.exception(f"a subscriber to decided raised for {task_name}")
         return result
-
-    def expire_open(self, item_id: str, task_name: str, reason: str) -> int:
-        """Close every open proposal from ``task_name`` on the item as
-        ``Unreviewed``, carrying the values as proposed: the task that
-        consumes them has started before anyone looked, or the task re-ran.
-        Under the write lock, so a decision landing at the same moment either
-        got there first or is refused as a late edit. Returns how many.
-
-        Only those two moments close an open proposal. A run's end does not:
-        a value is for the task that uses it, whichever run that is, and a
-        result is consumed by nothing, so it stays open until a person looks.
-        """
-        expired = 0
-        with EXPERIMENT_WRITE_LOCK:
-            item = self.get_item_by_id(item_id)
-            if item is None:
-                return 0
-            for proposal in item.current_proposals(task_name):
-                if standing(item, task_name, proposal) is not Standing.Open:
-                    continue
-                proposal.decisions.append(
-                    Decision(
-                        outcome=DecisionOutcome.Unreviewed,
-                        actor=Actor.task(
-                            str(proposal.provenance.get("proposer") or task_name)
-                        ),
-                        values=dict(proposal.values),
-                        reason=reason,
-                        via="workflow",
-                        task_id=proposal.task_id,
-                        proposal_id=proposal.id,
-                    )
-                )
-                expired += 1
-                logging.debug(
-                    {
-                        "msg": "proposal_unreviewed",
-                        "item": item.name,
-                        "task_name": task_name,
-                        "kind": proposal.kind,
-                        "proposal_id": proposal.id,
-                        "reason": reason,
-                    }
-                )
-        if expired:
-            try:
-                _emit_on_main_thread(self.decided, item_id, task_name)
-            except Exception:
-                logging.exception(f"a subscriber to decided raised for {task_name}")
-        return expired
-
-    def expire_all_open(self, reason: str) -> int:
-        """Close every open proposal on every item. A supervised task's
-        result the run is holding for is not open, and is left for the
-        decision it waits on."""
-        expired = 0
-        for item in self.items():
-            for task_name in item.asking_tasks():
-                expired += self.expire_open(item.id, task_name, reason)
-        return expired
 
     def record_unasked(
         self, item_id: str, task_name: str, proposal: Proposal, reason: str
     ) -> bool:
         """Put a question nobody was asked on the record: the proposal, and an
         ``Unreviewed`` decision on it carrying the values the task went on
-        to use. What an automated task leaves behind for someone to check.
+        to use. What an automated task leaves on the record.
 
         Written by the task, on its own thread, the way ``ask_proposal`` is:
         the write is under the lock every writer takes, and only the
@@ -793,28 +714,10 @@ class ProposalReview:
     ) -> List[Tuple[Any, str, Proposal]]:
         """Every question a task is waiting on, in item order. Derived, never
         stored, so it is the same list from the GUI and the server."""
-        return self._with_standing(Standing.Asking)
-
-    def proposals_to_check(
-        self,
-    ) -> List[Tuple[Any, str, Proposal]]:
-        """Every proposal nobody was asked about and nobody has looked at: an
-        automated task's value or result, open to correct until its consumer
-        starts and unchecked after; a decision an agent made. The inbox's
-        second group. Derived like the first. Not a loop's passes: the task's
-        result is what someone checks (``ProposalKind.listed_to_check``)."""
-        return [
-            entry
-            for entry in self._with_standing(Standing.Open, Standing.Unchecked)
-            if PROPOSAL_KINDS.get(entry[2].kind) is None
-            or PROPOSAL_KINDS[entry[2].kind].listed_to_check
-        ]
-
-    def _with_standing(self, *standings: Standing) -> List[Tuple[Any, str, Proposal]]:
         listed = []
         for item in self.items():
             for task_name in item.asking_tasks():
                 for proposal in item.current_proposals(task_name):
-                    if standing(item, task_name, proposal) in standings:
+                    if proposal.pending and proposal.asking:
                         listed.append((item, task_name, proposal))
         return listed

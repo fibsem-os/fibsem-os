@@ -178,8 +178,6 @@ class TaskManager(BaseTaskManager):
                 if self.is_stopped:
                     break
 
-            self._expire_what_this_consumes(lamella.id, item.task_name)
-
             # Emit InProgress status
             self._emit_status(
                 item=item,
@@ -424,11 +422,6 @@ class TaskManager(BaseTaskManager):
             # A stranded flag would leave the border reading "nothing is running"
             # for the rest of the run.
             self._set_workflow_pending(False)
-
-    def _requirements_of(self, task_name: str) -> List[str]:
-        return list(
-            self.experiment.task_protocol.workflow_config.requirements(task_name)
-        )
 
     def _defer_reason(self, lamella: "Lamella", task_name: str) -> Optional[str]:
         """Why this task cannot run *yet* -- as opposed to _should_skip, which

@@ -19,7 +19,7 @@ class Attention(str, Enum):
                   it can carry on is asked in the workflow, where its widget
                   is, and holds the run until it is answered. Nothing waits
                   on a decision after the task ends.
-    automated  -- nobody is asked; the record is made and listed to check.
+    automated  -- nobody is asked; the record is made, Unreviewed.
 
     Where the run waits is not a third setting: a "Review later" mode existed
     on development builds before 0.6.0 and is read as supervised.

@@ -1677,7 +1677,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _listen_for_questions(self, experiment) -> None:
         """A question a task asks mid-run (``AutoLamellaTask.ask``) is put up
         on the widget its kind is answered on when it is recorded. One
-        subscription per experiment; the previous experiment's is dropped."""
+        subscription per experiment; the previous experiment's is dropped. A
+        question already standing when the window starts listening (a run that
+        began without it) is put up at once."""
         previous = getattr(self, "_asked_experiment", None)
         if previous is experiment:
             return
@@ -1691,6 +1693,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if experiment is not None:
             experiment.asked.connect(self._on_question_asked)
             experiment.decided.connect(self._on_question_decided)
+            for item, task_name, _proposal in experiment.pending_proposals():
+                self._on_question_asked(item.id, task_name)
 
     def _on_question_asked(self, item_id: str, task_name: str) -> None:
         """Put a question a task just asked in front of the operator, where
