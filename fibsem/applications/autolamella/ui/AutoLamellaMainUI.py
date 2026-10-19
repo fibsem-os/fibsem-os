@@ -1338,6 +1338,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         experiment = self.autolamella_ui.experiment
         self.quad_overview_page.set_experiment(experiment)
         self.attention.listen(experiment)
+        self.agent_host.listen(experiment)
         if experiment is not None and experiment.task_protocol is not None:
             self.workflow_tab.lamella_workflow_widget.set_experiment(experiment)
             self.workflow_tab.lamella_workflow_widget.set_workflow_config(

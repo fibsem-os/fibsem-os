@@ -2005,6 +2005,66 @@ class AutoLamellaAppContext:
         doc["available"] = True
         return doc
 
+    def suggest(
+        self,
+        item_id: str,
+        task_name: str,
+        proposal_id: str,
+        reason: str,
+        outcome: str = "Confirmed",
+        values: Optional[Dict[str, Any]] = None,
+        patch: Optional[Dict[str, Any]] = None,
+        action: str = "",
+        image: Optional[str] = None,
+        actor: str = "",
+    ) -> Dict[str, Any]:
+        """Suggest a decision on a pending proposal, for the operator to
+        approve or decline in the window. Nothing is decided. Checked as the
+        decision would be, so one that could not be approved is refused now."""
+        experiment = self._experiment
+        if experiment is None:
+            return {"available": False, "applied": False, "reason": "No experiment."}
+        from fibsem.workflows.proposals import (
+            DecisionOutcome,
+            Suggestion,
+            _decode_values,
+        )
+
+        if outcome not in ("Confirmed", "Rejected"):
+            return {
+                "available": True,
+                "applied": False,
+                "error_type": "invalid_value",
+                "reason": f"outcome is Confirmed or Rejected, not {outcome!r}",
+            }
+        try:
+            decoded = _decode_values(values or {})
+        except Exception as exc:  # noqa: BLE001 - any bad document is refused
+            return {
+                "available": True,
+                "applied": False,
+                "error_type": "invalid_value",
+                "reason": f"values could not be read: {exc}",
+            }
+        if image:
+            root = self.experiment_path
+            image = os.path.relpath(image, root) if root else image
+        suggestion = Suggestion(
+            actor=Actor.agent(actor or "remote"),
+            reason=reason,
+            outcome=DecisionOutcome[outcome],
+            values=decoded,
+            patch=dict(patch or {}),
+            action=action,
+            image=image or "",
+        )
+        result = experiment.suggest(item_id, task_name, proposal_id, suggestion)
+        doc = result.to_dict()
+        doc["available"] = True
+        if result.applied:
+            doc["suggestion_id"] = suggestion.id
+        return doc
+
     def add_note(
         self,
         text: str,

@@ -241,6 +241,9 @@ def test_the_image_shows_beside_the_steps_and_follows_the_card_s_width(qapp):
     card.image_label.enlarge()
     assert card.image_label.window_.isVisible()
     card.image_label.window_.close()
+    # A suggestion's image is its own: the request's stays with the request.
+    card.set_image(None, suggestion=True)
+    assert card.image_label is not None
     card.set_image(None)
     assert card.image_label is None
     # No image to draw on: why, in its place (FIB-1424).
@@ -403,6 +406,75 @@ def test_an_ended_request_leaves_the_card(qapp):
     shown = _labels(chip.card)
     assert not any("Approved by you" in text for text in shown)
     chip.deleteLater()
+
+
+_SUGGESTION = {
+    "proposal": "01-causal-pony · Setup Lamella Position · State: Is the lamella centred?",
+    "decision": "Continue",
+    "reason": "the trench is centred on 01",
+}
+
+
+def test_a_suggestion_turns_the_chip_and_the_card_offers_approve(qapp):
+    chip = AgentLevelChip()
+    chip.set_level(AgentLevel.ASSIST)
+    chip.set_suggestion(_SUGGESTION)
+    assert chip.text() == "Agent suggests"
+    # In the level's look, not amber: the run's Attention Required is.
+    from fibsem.ui.agent.style import LEVEL_STYLES
+
+    assert chip.styleSheet() == LEVEL_STYLES[AgentLevel.ASSIST]
+    card = chip.card
+    assert card.approve_suggestion_button is not None and card.approve_button is None
+    assert card.approve_suggestion_button.text() == "Approve"
+    assert {
+        "Agent suggests",
+        _SUGGESTION["proposal"],
+        "Continue",
+        "the trench is centred on 01",
+    } <= set(_labels(card))
+
+    approved = []
+    chip.suggestion_approved.connect(lambda: approved.append(True))
+    chip.toggle_card()
+    card.approve_suggestion_button.click()
+    assert approved == [True]
+    assert not chip.popup.isVisible()
+
+    chip.set_suggestion(None)
+    assert chip.text() == "Agent: Assisting"
+    assert card.approve_suggestion_button is None
+
+
+def test_a_suggestion_can_be_declined_with_why(qapp):
+    chip = AgentLevelChip()
+    chip.set_level(AgentLevel.ASSIST)
+    chip.set_suggestion(_SUGGESTION)
+    card = chip.card
+    declined = []
+    chip.suggestion_declined.connect(declined.append)
+    assert card.decline_button.text() == "Decline…"
+    card.decline_button.click()  # asks why, optionally
+    assert card.reason_edit is not None and card.approve_suggestion_button is None
+    card.back_button.click()
+    assert card.reason_edit is None and card.approve_suggestion_button is not None
+    card.decline_button.click()
+    card.reason_edit.setText("the trench is off to the left")
+    card.decline_button.click()
+    assert declined == ["the trench is off to the left"]
+    chip.set_suggestion(None)
+    assert card.decline_button is None and card.reason_edit is None
+
+
+def test_a_request_shows_before_a_suggestion(qapp):
+    chip = AgentLevelChip()
+    chip.set_suggestion(_SUGGESTION)
+    chip.set_request(_request())
+    assert chip.text() == "Agent asks"
+    assert chip.card.approve_button is not None
+    assert chip.card.approve_suggestion_button is None
+    chip.set_request(None)
+    assert chip.text() == "Agent suggests"
 
 
 def test_the_card_stacks_when_narrow(qapp):

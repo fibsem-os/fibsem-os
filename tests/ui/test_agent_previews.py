@@ -140,7 +140,8 @@ class _Card:
         self.shown = None
         self.notes = ""
 
-    def __call__(self, image, caption, legend=()):
+    def __call__(self, image, caption, suggestion=False, legend=()):
+        self.suggestion = suggestion
         self.shown = (image, caption) if image is not None else None
         self.notes = caption if image is None else ""
 
@@ -358,6 +359,39 @@ def test_a_review_decision_s_point_is_drawn_on_the_card_on_its_own_image():
     assert layer.keys == [("cross", "point of interest")]
     previews.show_request(None)
     assert previews.request_picture is None and card.shown is None
+
+
+def test_a_suggestion_is_drawn_on_its_proposal_s_image_in_its_own_picture():
+    from fibsem.structures import FibsemRectangle
+    from fibsem.ui.agent.suggestions import suggestion_request
+    from fibsem.workflows.proposals import ALIGNMENT_AREA, Proposal, Suggestion
+
+    reference = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=200e-6)
+    card = _Card()
+    previews = AgentPreviews(
+        lambda: _Controller(),
+        reference_image=lambda arguments: reference,
+        show_picture=card,
+    )
+    proposal = Proposal(kind=ALIGNMENT_AREA, provenance={"task_id": "run-1"})
+    proposal.suggestion = Suggestion(
+        actor="agent:claude",
+        reason="around the lamella",
+        values={"alignment_area": FibsemRectangle(0.25, 0.25, 0.5, 0.5)},
+    )
+
+    class _Item:
+        id, name = "01", "01-full-magpie"
+
+    previews.show_suggestion(suggestion_request(_Item(), "Setup", proposal, None))
+
+    frame, layers = previews.suggestion_picture
+    assert frame is reference and previews.request_picture is None
+    assert card.suggestion is True
+    (area,) = [m for layer in layers for m in layer.areas]
+    assert area == [pytest.approx((50.0, 25.0)), pytest.approx((150.0, 75.0))]
+    previews.show_suggestion(None)
+    assert previews.suggestion_picture is None and card.shown is None
 
 
 def _pass_request(proposal, **arguments):

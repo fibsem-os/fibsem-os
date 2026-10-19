@@ -1487,6 +1487,36 @@ def build_sidecar(client, capabilities):
             body["patch"] = dict(patch)
         return _app_post("/app/workflow/decide", body)
 
+    def proposal_suggest(
+        item_id: str,
+        task_name: str,
+        proposal_id: str,
+        reason: str,
+        outcome: str = "Confirmed",
+        values: Optional[dict] = None,
+        patch: Optional[dict] = None,
+        action: str = "",
+        image: str = "",
+        actor: str = "",
+    ):
+        body = {
+            "item_id": str(item_id),
+            "task_name": str(task_name),
+            "proposal_id": str(proposal_id),
+            "reason": str(reason),
+            "outcome": str(outcome),
+            "actor": str(actor),
+        }
+        if values is not None:
+            body["values"] = dict(values)
+        if patch is not None:
+            body["patch"] = dict(patch)
+        if action:
+            body["action"] = str(action)
+        if image:
+            body["image"] = str(image)
+        return _app_post("/app/workflow/proposals/suggest", body)
+
     implementations = {
         fn.__name__: fn
         for fn in (
@@ -1619,6 +1649,7 @@ def build_sidecar(client, capabilities):
             app_get_display_images,
             proposal_list,
             proposal_decide,
+            proposal_suggest,
             workflow_stop,
             workflow_plan_grids,
             workflow_start_grids,

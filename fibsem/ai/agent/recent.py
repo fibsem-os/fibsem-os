@@ -1,8 +1,9 @@
 """What the agent did lately, one line each with how it ended (FIB-1414).
 
 The agent card's Recent list: the agent's requests (asked, then approved,
-applying, then applied or failed, or rejected with the operator's why), and
-what it does itself at Drive or was refused. The operator's messages to it are rows too, "You: ...",
+applying, then applied or failed, or rejected with the operator's why), its
+suggestions on proposals (approved, declined with the why, or decided otherwise),
+and what it does itself at Drive or was refused. The operator's messages to it are rows too, "You: ...",
 and its answers "Reply: ..." (FIB-1423). Read from the session's record, the event stream the event
 log shows, so the list and the log never disagree; only the agent's own entries
 make a row. Each row says the level it was done at (FIB-1426).
@@ -253,6 +254,39 @@ class RecentActions:
         if not p.get("withdrawn") and p.get("why"):
             outcome = f"cancelled: {_cut(p['why'], 120)}"
         return self._end(("request", p.get("request_id")), outcome, MUTED)
+
+    # --- its suggestions on proposals ---------------------------------------------
+
+    def _on_proposal_suggested(self, record, p, agent):
+        if not agent:
+            return False
+        item = (p.get("item") or {}).get("name") or ""
+        text = f"Suggested on {item} · {p.get('task')}: {p.get('reason') or ''}"
+        return self._put(
+            ("suggestion", p.get("proposal_id")),
+            record,
+            text.rstrip(": "),
+            "waiting",
+            WAITING,
+            ASSIST,
+        )
+
+    def _on_suggestion_declined(self, record, p, agent):
+        reason = str(p.get("reason") or "").strip()
+        return self._end(
+            ("suggestion", p.get("proposal_id")),
+            f"declined: {reason}" if reason else "declined",
+            MUTED,
+        )
+
+    def _on_proposal_decided(self, record, p, agent):
+        key = ("suggestion", p.get("proposal_id"))
+        if p.get("suggestion_id"):
+            return self._end(key, "approved", OK)
+        row = self._rows.get(key)
+        if row is not None and row.tone == WAITING:
+            return self._end(key, "decided otherwise", MUTED)
+        return False
 
     # --- what it does itself -----------------------------------------------------
 

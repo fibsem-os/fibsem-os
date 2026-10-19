@@ -35,6 +35,7 @@ from fibsem.server.app_routes import (
     build_app_control_router,
     build_app_router,
     build_app_stop_router,
+    build_app_suggest_router,
 )
 from fibsem.server.auth import (
     AgentLevel,
@@ -241,6 +242,7 @@ def _words(name) -> str:
 # little ("Tried to requests").
 _REFUSED_ACTIONS = {
     "/app/agent/requests": "file a request",
+    "/app/workflow/proposals/suggest": "suggest on a proposal",
 }
 
 
@@ -289,8 +291,12 @@ def _record_refusal(request: Request, exc: StarletteHTTPException) -> None:
 
 
 # Routes that put the agent's call on the record themselves: its requests, its
-# notes. A stop says so as it stops (`_stop_reason`).
-_RECORDS_ITSELF = ("/app/agent/", "/app/experiment/notes")
+# notes, its suggestions. A stop says so as it stops (`_stop_reason`).
+_RECORDS_ITSELF = (
+    "/app/agent/",
+    "/app/experiment/notes",
+    "/app/workflow/proposals/suggest",
+)
 # POST routes that only read: a query, and the grid run's plan. Not the agent
 # acting, and the request store reads them to describe each request.
 _POSTED_READS = ("/queries/", "/app/workflow/grids/plan")
@@ -617,6 +623,11 @@ def build_server(
         app.include_router(
             build_app_stop_router(app_context),
             dependencies=[Depends(_drive), Depends(_stop_reason)],
+        )
+        # Suggesting on a pending proposal: Assist and Drive, with no request,
+        # since the operator's approval is what decides.
+        app.include_router(
+            build_app_suggest_router(app_context), dependencies=[Depends(_assist)]
         )
         # The agent's requests (FIB-1283): actions the operator approves in the
         # app, run through the routes above. The app decides them through

@@ -7,7 +7,8 @@ The chip in the status bar opens it. It holds, top to bottom:
   line each as the server wrote them (FIB-1403), "Show details" for every value,
   the agent's reason, under it the image the reason's values were measured on
   with them drawn on it (FIB-1411), and Reject… and Approve; while an approved
-  request runs, each action's progress;
+  request runs, each action's progress. Or the agent's suggestion on the
+  pending proposal, with Decline… and Approve;
 * what the agent did lately, Recent: open at first at Drive, where it acts
   without asking, folded to its last line below it (FIB-1414); the event log
   at its right;
@@ -468,6 +469,8 @@ class AgentCard(QFrame):
     connect_clicked = pyqtSignal()
     approve_clicked = pyqtSignal(str)  # request id
     reject_clicked = pyqtSignal(str, str)  # request id, the operator's reason
+    suggestion_approved = pyqtSignal()  # the suggestion shown
+    suggestion_declined = pyqtSignal(str)  # the suggestion shown, the operator's why
     float_clicked = pyqtSignal()  # float the card, or put it back on the chip
     keep_on_top_toggled = pyqtSignal(bool)  # the floating card over every window
     message_sent = pyqtSignal(str)  # the operator's message to the agent
@@ -478,8 +481,12 @@ class AgentCard(QFrame):
         self.setAttribute(Qt.WA_StyledBackground)  # type: ignore
         self.setStyleSheet(_CARD)
         self._request: Optional[Dict[str, Any]] = None
+        self._suggestion: Optional[Dict[str, str]] = None
+        self.approve_suggestion_button: Optional[QPushButton] = None
+        self.decline_button: Optional[QPushButton] = None
         self._now: Optional[str] = None
-        # The images under Why, with their captions: the request's.
+        # The images under Why, with their captions: the request's, the
+        # suggestion's.
         self._images: Dict[str, Tuple[QImage, str, Tuple]] = {}
         # Why there is no image, in its place: "No FIB image of 05 yet".
         self._notes: Dict[str, str] = {}
@@ -681,17 +688,38 @@ class AgentCard(QFrame):
         self._request = request
         self._render()
 
+    @property
+    def suggestion(self) -> Optional[Dict[str, str]]:
+        return self._suggestion
+
+    def set_suggestion(self, suggestion: Optional[Dict[str, str]]) -> None:
+        """The agent's suggestion on the pending proposal -- ``proposal`` (what
+        the task asks), ``decision`` (what approving it decides) and
+        ``reason`` -- or None for none. A request, when one waits, shows first."""
+        suggestion = dict(suggestion) if suggestion is not None else None
+        if suggestion == self._suggestion:
+            return
+        if suggestion is None or suggestion.get("proposal") != (
+            self._suggestion or {}
+        ).get("proposal"):
+            self._rejecting = False
+        if (suggestion or {}).get("reason") != (self._suggestion or {}).get("reason"):
+            self._why_open = False
+        self._suggestion = suggestion
+        self._render()
+
     def set_image(
         self,
         image: Optional[QImage],
         caption: str = "",
+        suggestion: bool = False,
         legend: Sequence = (),
     ) -> None:
-        """The image the waiting request's values were measured on, drawn on
-        it, with what it is ("FIB · 07:41") and its *legend*
-        (`previews.draw_legend`'s entries); None for none, *caption* then why
-        there is none."""
-        key = "request"
+        """The image the waiting request's (or, *suggestion*, the suggestion's)
+        values were measured on, drawn on it, with what it is
+        ("FIB · 07:41") and its *legend* (`previews.draw_legend`'s
+        entries); None for none, *caption* then why there is none."""
+        key = "suggestion" if suggestion else "request"
         if image is None or image.isNull():
             had = self._images.pop(key, None) is not None
             note = self._notes.pop(key, "")
@@ -794,11 +822,12 @@ class AgentCard(QFrame):
         # The body's widgets are gone: so is the picture (else a resize touches it).
         self._picture_holder = self.image_label = None
         request = self._request
-        self.details_link = self.why_link = None
+        self.approve_suggestion_button = self.details_link = self.why_link = None
+        self.decline_button = None
         self.approve_button = self.reject_button = None
         self.confirm_reject_button = self.back_button = None
         self.reason_edit = None
-        if request is None:
+        if request is None and self._suggestion is None:
             self._dot.setStyleSheet(f"color: {PURPLE_COLOR};")
             self._title.setText("Agent")
             self._paint_now()
@@ -806,11 +835,15 @@ class AgentCard(QFrame):
             return
         self._dot.setStyleSheet(f"color: {WAITING_COLOR};")
         self._paint_now()
-        applying = request.get("status") == "applying"
-        self._title.setText(
-            "Agent is doing what you approved" if applying else "Agent wants to"
-        )
-        left, right = self._request_columns(request, applying)
+        if request is None:
+            self._title.setText("Agent suggests")
+            left, right = self._suggestion_columns(self._suggestion)
+        else:
+            applying = request.get("status") == "applying"
+            self._title.setText(
+                "Agent is doing what you approved" if applying else "Agent wants to"
+            )
+            left, right = self._request_columns(request, applying)
         self._body.addLayout(left, 1)
         holder = QWidget()
         holder.setLayout(right)
@@ -938,6 +971,69 @@ class AgentCard(QFrame):
         right.addLayout(buttons)
         return left, right
 
+    def _suggestion_columns(self, suggestion: Dict[str, str]):
+        left = QVBoxLayout()
+        left.setSpacing(6)
+        box = QFrame()
+        box.setObjectName("agentActions")
+        rows = QVBoxLayout(box)
+        rows.setContentsMargins(10, 8, 10, 8)
+        rows.setSpacing(1)
+        if suggestion.get("proposal"):
+            rows.addWidget(
+                _label(suggestion["proposal"], TEXT_MUTED_COLOR, small=True, wrap=True)
+            )
+        answer = _label(suggestion.get("decision", ""), TEXT_STRONG_COLOR, wrap=True)
+        answer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        rows.addWidget(answer)
+        left.addWidget(box)
+        left.addSpacing(4)
+        self._add_reason(left, suggestion.get("reason", ""))
+        left.addStretch(1)
+
+        right = QVBoxLayout()
+        right.setContentsMargins(0, 0, 0, 0)
+        right.setSpacing(8)
+        self._add_picture(right, "suggestion")
+        right.addStretch(1)
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        self.back_button = self.confirm_reject_button = self.reason_edit = None
+        if self._rejecting and self._request is None:
+            # Decline, with why if the operator likes: recorded for the agent
+            # (FIB-1424). The proposal stays up.
+            self.reason_edit = QLineEdit()
+            self.reason_edit.setPlaceholderText("Tell the agent why (optional)")
+            right.addWidget(self.reason_edit)
+            self.back_button = _button("Back")
+            self.back_button.clicked.connect(lambda: self._set_rejecting(False))
+            self.decline_button = _button("Decline", primary=True)
+            self.decline_button.clicked.connect(
+                lambda: self.suggestion_declined.emit(
+                    self.reason_edit.text() if self.reason_edit else ""
+                )
+            )
+            buttons.addWidget(self.back_button)
+            buttons.addWidget(self.decline_button)
+            right.addLayout(buttons)
+            return left, right
+        self.decline_button = _button("Decline…")
+        self.decline_button.setToolTip(
+            "Decline the suggestion and tell the agent why. The proposal stays "
+            "up for you to decide."
+        )
+        self.decline_button.clicked.connect(lambda: self._set_rejecting(True))
+        self.approve_suggestion_button = _button("Approve", primary=True)
+        self.approve_suggestion_button.setToolTip(
+            "Decide the proposal as suggested, as your decision. The record names "
+            "the agent as the one who suggested it."
+        )
+        self.approve_suggestion_button.clicked.connect(self.suggestion_approved)
+        buttons.addWidget(self.decline_button)
+        buttons.addWidget(self.approve_suggestion_button)
+        right.addLayout(buttons)
+        return left, right
+
     def _stacked(self) -> bool:
         """The picture under the steps and the reason, not beside them: narrow,
         or with details open, so their table has the card's width. With no
@@ -953,7 +1049,8 @@ class AgentCard(QFrame):
         """Whether what waits has a picture. A note in its place ("No FIB image
         of 05 yet") is a line under the steps, not a column of its own (sim
         session 2026-10-16: it took the picture's 650 px)."""
-        return "request" in self._images
+        key = "suggestion" if self._request is None else "request"
+        return key in self._images
 
     def _inner_width(self) -> int:
         margins = self.layout().contentsMargins()
