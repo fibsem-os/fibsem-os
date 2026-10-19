@@ -18,6 +18,7 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.fm.structures import OverviewParameters
+from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession
 from fibsem.structures import BeamType, FibsemStagePosition, ImageSettings
 from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget
 from fibsem.ui.fm.widgets.fm_sparse_selection_dialog import (
@@ -137,7 +138,7 @@ def test_nowhere_to_look_is_not_an_error(microscope, directory):
 
 @pytest.fixture()
 def widget(microscope, experiment):
-    built = FMOverviewWidget(microscope)
+    built = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
     built.set_save_directory(experiment)
     return built
 
@@ -195,7 +196,7 @@ def test_with_no_overviews_it_says_so_rather_than_opening_an_empty_dialog(
     microscope, tmp_path
 ):
     """A dialog offering nothing to select on is a dead end with a Cancel button."""
-    built = FMOverviewWidget(microscope)
+    built = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
     built.set_save_directory(str(tmp_path))
 
     with dialog_never_opens() as opened:
@@ -216,7 +217,7 @@ def test_an_empty_folder_and_no_folder_at_all_are_not_the_same_message(
     is that one directs at Output and the other at acquiring, and a test pinning the
     wording would pass with the two advices swapped.
     """
-    no_folder = FMOverviewWidget(microscope)
+    no_folder = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
     no_folder.set_save_directory(None)
     said = _toasts(monkeypatch)
     with dialog_never_opens():
@@ -225,7 +226,7 @@ def test_an_empty_folder_and_no_folder_at_all_are_not_the_same_message(
     assert "Output" in said[0] or "experiment" in said[0]
     assert "Acquire one" not in said[0], "told to acquire when there is nowhere to look"
 
-    empty_folder = FMOverviewWidget(microscope)
+    empty_folder = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
     empty_folder.set_save_directory(str(tmp_path))
     said = _toasts(monkeypatch)
     with dialog_never_opens():

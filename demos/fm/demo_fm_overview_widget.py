@@ -24,6 +24,7 @@ from PyQt5.QtWidgets import QApplication, QMainWindow
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession
 from fibsem.ui import stylesheets
 from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget
 
@@ -58,7 +59,7 @@ def main() -> int:
     window = QMainWindow()
     tilt = np.rad2deg(microscope.get_stage_position().t)
     window.setWindowTitle(f"FM Overview · t = {tilt:.0f}°")
-    widget = FMOverviewWidget(microscope)
+    widget = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
     if args.output:
         os.makedirs(args.output, exist_ok=True)
         widget.set_save_directory(args.output)

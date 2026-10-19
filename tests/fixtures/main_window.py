@@ -1,10 +1,10 @@
 """The main window over an experiment with one lamella, for tests that run a
-task's questions through it.
+task's proposals through it.
 
-A question a task asks on the record is put in front of the operator by the
+A proposal a task asks on the record is put in front of the operator by the
 main window (``AttentionRouter``): a state or a loop's pass on the prompt
-bar, anything else in the Review tab. A test that answers a pass on the
-prompt bar needs that window, not the bare ``AutoLamellaUI`` inside it.
+bar. A test that decides a pass on the prompt bar needs that window, not the
+bare ``AutoLamellaUI`` inside it.
 """
 
 import os

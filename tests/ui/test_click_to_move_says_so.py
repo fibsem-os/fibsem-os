@@ -33,6 +33,7 @@ from PyQt5.QtCore import QObject, pyqtSignal  # noqa: E402
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 
 from fibsem import utils  # noqa: E402
+from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession  # noqa: E402
 from fibsem.structures import FibsemStagePosition  # noqa: E402
 from fibsem.ui.widgets import overview_widget as beam_module  # noqa: E402
 from fibsem.ui.widgets.overview_widget import FibsemOverviewWidget  # noqa: E402
@@ -89,7 +90,7 @@ def microscope():
 @pytest.fixture
 def widget(microscope, monkeypatch):
     monkeypatch.setattr(beam_module, "FunctionWorker", SynchronousWorker)
-    w = FibsemOverviewWidget(microscope)
+    w = FibsemOverviewWidget(OverviewSession(microscope))
     w.resize(900, 700)
     yield w
     w.close()
@@ -274,7 +275,7 @@ def fm_widget(qapp):
 
     scope = build_microscope()
     scope.fm.objective.insert()
-    w = FMOverviewWidget(scope)
+    w = FMOverviewWidget(OverviewSession(scope, FLUORESCENCE))
     w.resize(1200, 800)
     w.show()
     qapp.processEvents()

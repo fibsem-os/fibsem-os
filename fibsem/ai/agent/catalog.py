@@ -57,7 +57,7 @@ class ToolSpec:
         if self.hardware:
             return (
                 f"{note} Refused (409) while a run or script is in control, "
-                "except while a run waits on a question: then one action at a "
+                "except while a run waits on a proposal: then one action at a "
                 "time, and the run waits for it to finish."
             )
         return f"{note} The operator sets the level from the Agent chip in AutoLamella."
@@ -110,8 +110,7 @@ GROUP_TITLES: Dict[str, str] = {
     "item": "Item",
     "grid": "Grid",
     "workflow": "Workflow",
-    "prompt": "Prompt",
-    "review": "Review",
+    "proposal": "Proposal",
     "request": "Request",
 }
 
@@ -126,15 +125,20 @@ _WRITES_AT_WATCH = frozenset(
     }
 )
 
-# Writes that only add: notes, the agent's own requests and suggestions, a new
+# Writes that only add: notes, the agent's own requests, a new
 # item or experiment. Every other write changes or removes something.
 _ADDITIVE = _WRITES_AT_WATCH | {
-    "prompt_suggest_answer",
     "item_add",
     "experiment_create",
     "protocol_add_task",
     "workflow_queue_grids",
 }
+
+# An overview's centre_position parameter.
+_OVERVIEW_CENTRE = (
+    "stage position dict (x, y, z, r, t, coordinate_system) to centre the grid "
+    "on; the stage comes back to where it was (default where the stage is)"
+)
 
 # Titles the name, read out, gets wrong.
 _TITLES: Dict[str, str] = {
@@ -890,7 +894,8 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="beam_acquire_overview",
         description=(
-            "A tiled SEM or FIB overview centred where the stage is: tiles of "
+            "A tiled SEM or FIB overview centred on centre_position, or where the "
+            "stage is: tiles of "
             "image_settings (hfw is one tile's field of view, beam_type the beam) "
             "in nrows x ncols, stitched into one image. The stage moves to each "
             "tile and comes back after. path must be a folder inside the open "
@@ -918,8 +923,9 @@ CATALOG: Tuple[ToolSpec, ...] = (
             ),
             "path": "a folder inside the open experiment to save it in",
             "name": "the file name, stamped with the time (default overview)",
+            "centre_position": _OVERVIEW_CENTRE,
         },
-        optional=("name",),
+        optional=("name", "centre_position"),
     ),
     ToolSpec(
         name="beam_estimate_overview",
@@ -1019,7 +1025,8 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="fm_acquire_overview",
         description=(
-            "A tiled fluorescence overview centred where the stage is: rows x cols "
+            "A tiled fluorescence overview centred on centre_position, or where the "
+            "stage is: rows x cols "
             "camera fields in each of the channels, stitched into one mosaic. The "
             "stage moves to each tile, and it and the objective come back after. "
             "The objective must be in, at the FM pose; refused while the FM is in "
@@ -1049,8 +1056,9 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "path": "a folder inside the open experiment to save it in",
             "name": "the file name, stamped with the time (default overview)",
             "zparams": "ZParameters dict (zmin, zmax, zstep), with use_zstack",
+            "centre_position": _OVERVIEW_CENTRE,
         },
-        optional=("name", "zparams"),
+        optional=("name", "zparams", "centre_position"),
     ),
     ToolSpec(
         name="fm_estimate_overview",
@@ -1967,7 +1975,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="protocol_set_supervision",
-        description="Set whether a task asks for supervision, in the live protocol. Takes effect at the workflow's next prompt-or-proceed decision, mid-run — the same behaviour as the GUI's supervised/automated toggle.",
+        description="Set whether a task asks for supervision, in the live protocol. Takes effect at the workflow's next decision point, mid-run — the same behaviour as the GUI's supervised/automated toggle.",
         method="POST",
         path="/app/experiment/protocol/supervision",
         level="drive",
@@ -2025,32 +2033,24 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         router="app",
     ),
     ToolSpec(
-        name="prompt_get",
-        description="The supervision question awaiting an answer, if any — message, options, and context images. suggestion_dismissed: {reason} when the operator dismissed your suggested answer to it.",
+        name="proposal_list",
+        description="Every pending proposal: what a task is stopped on, waiting for a decision. Which item and task, its own id (proposal_id, which proposal_decide passes back), the run it is from (task_id), its kind, the proposed values (a point of interest in metres, milling frame), provenance, and the reference image the values sit on as a JPEG preview. An empty list when nothing is pending.",
         method="GET",
-        path="/app/workflow/prompt",
+        path="/app/workflow/proposals",
         level="watch",
         router="app",
     ),
     ToolSpec(
-        name="review_list",
-        description="Every question a task is stopped on, waiting for an answer (`reviews`): which item and task, its own id (proposal_id, which review_decide passes back) and the run it is from (task_id), holding_the_run (true: the task that asked it is stopped on the answer), what rejecting it does (rejected_fails_task, from its kind), the proposed values (a point of interest in metres, milling frame), confidence and alternatives when the proposer gave any, provenance, its review mode, and the reference image the values sit on as a JPEG preview. An empty list when nothing is pending.",
-        method="GET",
-        path="/app/workflow/reviews",
-        level="watch",
-        router="app",
-    ),
-    ToolSpec(
-        name="review_decide",
-        description="Answer a question a task is stopped on (confirm or reject it), as the operator's Continue would. Pass the proposal_id review_list gave for it: the decision is on that proposal, and is refused (409 stale_review) if it is no longer the one on the record -- the task re-ran, or asked again in the same run -- so re-read and decide the current one. (task_id, the run, is accepted in its place but cannot tell two questions from one run apart.) Confirming a pending proposal needs all its values (e.g. {'poi': {'x','y'}} metres, milling frame), as proposed or adjusted; they are written through, the task carries on with them, and the delta against the proposal is computed, so pass the values you actually judge right. A proposal already decided (by anyone, or recorded Unreviewed when nobody was asked) is refused (422 invalid_value); to change a value, re-run the task. A wrong, missing or foreign value is refused (422 invalid_value) with nothing written. Rejected needs a reason, and does what the proposal's rejected_fails_task in review_list says: true, it fails the task that asked it, so nothing that requires it runs (the lamella itself is not marked defective); false (a state question: tilt now?, is this the position?), it means don't -- the task does not do what it asked and carries on. Refused (409) when the item has a task running -- stop it instead -- unless that task is the one stopped on this very proposal (holding_the_run), which a decision releases: Confirmed hands the values back and the task carries on, Rejected does what rejected_fails_task says. Also refused when there is no proposal for that item and task. A milling or spot_burn proposal is one pass of a loop the task runs: Confirm it with action, one of the pass's provenance.actions -- run (mill or burn the value as decided, then the task asks again), edit (take the value as decided and ask again; nothing runs), skip (go on without running it; before any pass), accept (go on with what was run; after a pass) -- and with no values to run it as proposed. values.milling_config is a whole config document (for adding, removing or reordering stages); patch then sets fields by dotted path, SI units, a stage named by its name or index (e.g. {'stages.Polish 1.pattern.depth': 1e-6}); values.spot_burn is {coordinates: [{x, y}] fractions of the frame, origin top-left, milling_current A, exposure_time s}. The decision is recorded with the agent as its actor and the experiment saved; save_error is set when it landed but could not be saved (it is in the app, not yet on disk).",
+        name="proposal_decide",
+        description="Decide a proposal a task is stopped on (confirm or reject it), as the operator's Continue would. Pass the proposal_id proposal_list gave for it: the decision is on that proposal, and is refused (409 stale_proposal) if it is no longer the one on the record -- the task re-ran, or asked again in the same run -- so re-read and decide the current one. (task_id, the run, is accepted in its place but cannot tell two proposals from one run apart.) Confirming needs all its values (e.g. {'poi': {'x','y'}} metres, milling frame), as proposed or adjusted; the task carries on with them, so pass the values you actually judge right. A proposal already decided (by anyone, or recorded Unreviewed when nobody was asked) is refused (422 invalid_value); to change a value, re-run the task. A wrong, missing or foreign value is refused (422 invalid_value) with nothing written. Rejected needs a reason, and what it does depends on the kind: detection, alignment_area, and a milling or spot_burn pass fail the task, so nothing that requires it runs (the lamella itself is not marked defective); state at a tilt means don't tilt, and the task carries on; any other state and point_of_interest are recorded and the task carries on as if confirmed. Refused (409) when the item has a task running -- stop it instead -- unless that task is the one stopped on this very proposal, which a decision releases. Also refused when there is no proposal for that item and task. A milling or spot_burn proposal is one pass of a loop the task runs: Confirm it with action, one of the pass's provenance.actions -- run (mill or burn the value as decided, then the task asks again), edit (take the value as decided and ask again; nothing runs), skip (go on without running it; before any pass), accept (go on with what was run; after a pass) -- and with no values to run it as proposed. values.milling_config is a whole config document (for adding, removing or reordering stages); patch then sets fields by dotted path, SI units, a stage named by its name or index (e.g. {'stages.Polish 1.pattern.depth': 1e-6}); values.spot_burn is {coordinates: [{x, y}] fractions of the frame, origin top-left, milling_current A, exposure_time s}. The decision is recorded with the agent as its actor and the experiment saved; save_error is set when it landed but could not be saved (it is in the app, not yet on disk).",
         method="POST",
         path="/app/workflow/decide",
         level="drive",
         router="app",
         params={
-            "item_id": "the item id from review_list (by id, never name)",
-            "task_name": "the task name from review_list",
-            "proposal_id": "the proposal_id from review_list: the proposal you looked at",
+            "item_id": "the item id from proposal_list (by id, never name)",
+            "task_name": "the task name from proposal_list",
+            "proposal_id": "the proposal_id from proposal_list: the proposal you looked at",
             "task_id": "optional, and only in place of proposal_id: the run the proposal is from",
             "outcome": "Confirmed or Rejected",
             "values": "on Confirmed of a pending proposal: every value its kind carries, as proposed or adjusted",
@@ -2068,37 +2068,6 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "action",
             "patch",
         ),
-    ),
-    ToolSpec(
-        name="prompt_answer",
-        description="Answer the pending supervision question, exactly as clicking the matching button would. True = the positive option. Echo the question_id from prompt_get; if that question is no longer pending the answer is refused (409 stale_prompt) — re-read and answer the current one. A question whose prompt has a value field takes a value in the shape that field gives: the edit the operator could make in that widget, placed into it (the operator sees it land) and then answered through the same click path; value_required means the answer must carry one. When your value moved the widget, moved_from in the answer is what it showed before, in the same shape as value; absent when it already showed your value. The value is what is stored. An out-of-bounds or wrong-shape value is refused (422 invalid_value) without clicking anything.",
-        method="POST",
-        path="/app/workflow/prompt/answer",
-        level="drive",
-        router="app",
-        params={
-            "response": "true for the positive option, false for the negative",
-            "question_id": "the question_id from prompt_get, naming the question being answered",
-            "value": "the edit, in the shape the prompt's value field gives; only for a question that has one",
-        },
-        optional=("value",),
-    ),
-    ToolSpec(
-        name="prompt_suggest_answer",
-        description="Suggest an answer to the pending supervision question, for the operator to take or not. Nothing is answered: the prompt shows 'Agent suggests: <the button>' with your reason under it, and the operator's click on it answers as theirs, recorded with you as the one who suggested it (prompt_suggested, then prompt_answered with suggested_by). Answering any other way ignores it; the operator may dismiss it, saying why (prompt_suggestion_dismissed, with their reason); a new posting of the question drops it. Echo the question_id from prompt_get (409 stale_prompt if it has gone). value is as for prompt_answer, and is placed in the widget only when the operator takes the suggestion.",
-        method="POST",
-        path="/app/workflow/prompt/suggest",
-        level="assist",
-        router="app",
-        params={
-            "response": "true for the positive option, false for the negative",
-            "question_id": "the question_id from prompt_get",
-            "reason": "why: shown under the suggestion for the operator",
-            "value": "the edit, as for prompt_answer",
-            "image": "optional: the path of the image your evidence is in, inside the experiment (as the image tools answered it); the card shows it with the suggested value drawn on it",
-        },
-        optional=("value", "image"),
-        note="Works at Assist and Drive; refused (403) at Watch. At Drive you may prompt_answer directly instead.",
     ),
     ToolSpec(
         name="experiment_list_recent",

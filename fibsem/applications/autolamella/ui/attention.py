@@ -1,6 +1,6 @@
-"""Where a question a task asks mid-run goes up, and the way back to it.
+"""Where a proposal a task asks mid-run goes up, and the way back to it.
 
-A question is put up on the widget its kind is answered on as it is recorded,
+A proposal is put up on the widget its kind is decided on as it is recorded,
 and taken down however it is decided. While the run holds, Attention Required
 shows on the status bar, the line says what releases the hold, the timeline's
 countdown stops, and the window beeps once.
@@ -14,7 +14,7 @@ from PyQt5.QtCore import QObject
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
-from fibsem.applications.autolamella.ui.loop_question import LOOP_KINDS
+from fibsem.applications.autolamella.ui.loop_proposal import LOOP_KINDS
 from fibsem.workflows.proposals import ALIGNMENT_AREA, DETECTION
 
 # The kinds a task asks whose value is edited on a widget of its own.
@@ -35,20 +35,17 @@ class AttentionRouter(QObject):
         controls,
         status_bar,
         timeline,
-        agent_chip,
         sound_enabled: Callable[[], bool],
         parent: Optional[QObject] = None,
     ) -> None:
-        """*prompts* puts questions up and takes them down (``AutoLamellaUI``);
-        *controls* holds Attention Required; *agent_chip* holds the agent's
-        suggested answer."""
+        """*prompts* puts proposals up and takes them down (``AutoLamellaUI``);
+        *controls* holds Attention Required."""
         super().__init__(parent)
         self._prompts = prompts
         self._tabs = tab_widget
         self._controls = controls
         self._status_bar = status_bar
         self._timeline = timeline
-        self._agent_chip = agent_chip
         self._sound_enabled = sound_enabled
         self._sounded = False
         self._experiment = None
@@ -56,7 +53,7 @@ class AttentionRouter(QObject):
 
     def listen(self, experiment) -> None:
         """One subscription per experiment; the previous experiment's is
-        dropped. A question already standing when the window starts listening
+        dropped. A proposal already standing when the window starts listening
         (a run that began without it) is put up at once."""
         previous = self._experiment
         if previous is experiment:
@@ -75,8 +72,8 @@ class AttentionRouter(QObject):
                 self._on_asked(item.id, task_name)
 
     def _on_asked(self, item_id: str, task_name: str) -> None:
-        """Put a question a task just asked in front of the operator, where
-        its kind is answered: a mill's or a spot burn's pass on the prompt bar
+        """Put a proposal a task just asked in front of the operator, where
+        its kind is decided: a mill's or a spot burn's pass on the prompt bar
         over its widget, where the operator edits what runs; a detection, an
         alignment area or a point of interest on the widget it is edited on;
         anything else (a state) on the prompt bar of the Microscope tab, where
@@ -89,45 +86,42 @@ class AttentionRouter(QObject):
         if proposal is None or not proposal.asking:
             return
         if proposal.kind in LOOP_KINDS:
-            self._prompts.show_loop_question(item_id, task_name, proposal)
+            self._prompts.show_loop_proposal(item_id, task_name, proposal)
         elif proposal.kind in WIDGET_KINDS:
-            self._prompts.show_widget_question(item_id, task_name, proposal)
+            self._prompts.show_widget_proposal(item_id, task_name, proposal)
         else:
-            self._prompts.show_state_question(item_id, task_name, proposal)
+            self._prompts.show_state_proposal(item_id, task_name, proposal)
 
     def _on_decided(self, item_id: str, task_name: str) -> None:
-        """However a question was answered -- the prompt bar, an agent, or
+        """However a proposal was decided -- the prompt bar, an agent, or
         withdrawn by Stop -- the prompt comes down."""
-        self._prompts.clear_state_question(item_id, task_name)
-        self._prompts.clear_loop_question(item_id, task_name)
-        self._prompts.clear_widget_question(item_id, task_name)
+        self._prompts.clear_state_proposal(item_id, task_name)
+        self._prompts.clear_loop_proposal(item_id, task_name)
+        self._prompts.clear_widget_proposal(item_id, task_name)
 
     def attention_clicked(self) -> None:
-        """Attention Required: go to the question.
+        """Attention Required: go to the proposal.
 
-        A question asked on a tab of its own -- a detection, a mill -- is not on
+        A proposal asked on a tab of its own -- a detection, a mill -- is not on
         the Microscope tab, so landing there leaves the operator looking for a
-        prompt that is somewhere else. The destination comes from the question,
+        prompt that is somewhere else. The destination comes from the proposal,
         never from the hold's kind: the kind says only that something holds the
         run.
         """
-        # The agent's suggested answer is on its card, not on the prompt.
-        if self._agent_chip.suggestion is not None:
-            self._agent_chip.show_card()
-        host = self._prompts.question_host()
+        host = self._prompts.proposal_host()
         if host is not None and self._tabs.indexOf(host) != -1:
-            # A question answered on one of the window's own tabs.
+            # A proposal decided on one of the window's own tabs.
             self._tabs.setCurrentWidget(host)
             return
         self._tabs.setCurrentIndex(0)  # Microscope tab is index 0
-        self._prompts.front_question()
+        self._prompts.front_proposal()
 
     def show_hold(self, hold) -> None:
         """The run holds on *hold*, or nothing holds it (None)."""
         # The timeline freezes its countdown on a hold: a wait for an answer or
         # a decision is not machine time whoever is giving it.
         self._timeline.set_waiting_for_user(hold is not None)
-        # A question is a wait for the operator, whether or not an agent is
+        # A proposal is a wait for the operator, whether or not an agent is
         # connected and may answer first. The line says what releases a hold
         # the operator can release, and counts the wait.
         self._status_bar.set_waiting(hold.releases if hold is not None else None)

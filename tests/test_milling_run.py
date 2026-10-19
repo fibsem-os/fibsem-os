@@ -421,7 +421,7 @@ def test_a_step_that_mills_out_is_finished_by_the_instrument(scripted):
         "reason": None,
     }
     assert step.started_at <= step.ended_at
-    assert step.milled_time == 1  # as the progress counts it
+    assert step.milled_time() == 1  # as the progress counts it
 
 
 def test_ending_the_stage_completes_the_step_and_mills_no_more(scripted):

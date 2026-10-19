@@ -1,5 +1,5 @@
 """The image a proposal's values sit on, for whoever looks at it: an agent's
-review list, the agent card's preview."""
+proposal list, the agent card's preview."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from fibsem.fm.structures import FluorescenceImage
 from fibsem.structures import FibsemImage
 from fibsem.workflows.proposals import Proposal
 
-__all__ = ["load_reference_image", "review_preview"]
+__all__ = ["load_reference_image", "preview_of"]
 
 
 def load_reference_image(
@@ -26,7 +26,7 @@ def load_reference_image(
         return None
     path = os.path.join(str(experiment.item_path(item)), path)
     if not os.path.exists(path):
-        logging.warning(f"Reference image for review not found: {path}")
+        logging.warning(f"Reference image not found: {path}")
         return None
     fluorescence = path.lower().endswith((".ome.tif", ".ome.tiff"))
     try:
@@ -34,11 +34,11 @@ def load_reference_image(
             return FluorescenceImage.load(path)
         return FibsemImage.load(path)
     except Exception:
-        logging.exception(f"Could not load the reference image for review: {path}")
+        logging.exception(f"Could not load the reference image: {path}")
         return None
 
 
-def review_preview(image: Any) -> Optional[Any]:
+def preview_of(image: Any) -> Optional[Any]:
     """What an agent is shown of a proposal's image: the beam image itself,
     or a fluorescence result's channel composite (max over z, tinted per
     channel), the same one the FM canvas and the thumbnail show."""
@@ -48,6 +48,6 @@ def review_preview(image: Any) -> Optional[Any]:
         try:
             return composite_projection(image)
         except Exception:
-            logging.exception("Could not project the fluorescence image for review")
+            logging.exception("Could not project the fluorescence image")
             return None
     return image

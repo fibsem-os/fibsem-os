@@ -103,10 +103,10 @@ class SelectMillingPositionTask(AutoLamellaTask):
     # coincidence walk asks a detection when it is on; the point of interest
     # is placed once the position is confirmed; the alignment area is checked
     # before the reference is taken in it.
-    questions = (STATE, DETECTION, POINT_OF_INTEREST, ALIGNMENT_AREA)
+    asks = (STATE, DETECTION, POINT_OF_INTEREST, ALIGNMENT_AREA)
 
     @classmethod
-    def questions_for(cls, config) -> Tuple[str, ...]:
+    def asks_for(cls, config) -> Tuple[str, ...]:
         asked = {
             STATE: getattr(config, "confirm_position", True)
             or getattr(config, "confirm_tilt", True),
@@ -114,7 +114,7 @@ class SelectMillingPositionTask(AutoLamellaTask):
             POINT_OF_INTEREST: getattr(config, "select_poi", True),
             ALIGNMENT_AREA: getattr(config, "confirm_alignment_area", True),
         }
-        return tuple(k for k in cls.questions if asked.get(k, True))
+        return tuple(k for k in cls.asks if asked.get(k, True))
 
     config: SelectMillingPositionTaskConfig
     config_cls: ClassVar[Type[SelectMillingPositionTaskConfig]] = (

@@ -24,6 +24,7 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QApplication, QDialog, QMessageBox
 
+from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession
 from fibsem.ui.fm.widgets import fm_overview_widget as module
 from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget
 
@@ -37,7 +38,7 @@ def qapp():
 def widget(qapp):
     from tests.fixtures.fm_microscope import build_microscope
 
-    built = FMOverviewWidget(build_microscope())
+    built = FMOverviewWidget(OverviewSession(build_microscope(), FLUORESCENCE))
     # Everything except the pose has to be ready to run, or a test that varies only the
     # orientation is really testing whichever other guard `acquire` reaches first. The
     # objective is the one that bites: `build_microscope` leaves it retracted, and an
@@ -211,7 +212,7 @@ class TestOffsetMounts:
 
         config = os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
         microscope, _ = utils.setup_session(config_path=config)
-        built = FMOverviewWidget(microscope)
+        built = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
         built.fm.objective.insert()
         return built
 

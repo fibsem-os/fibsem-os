@@ -35,6 +35,7 @@ from matplotlib.text import Annotation  # noqa: E402
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 
 from fibsem import utils  # noqa: E402
+from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession  # noqa: E402
 from fibsem.structures import (  # noqa: E402
     BeamType,
     FibsemImage,
@@ -291,7 +292,7 @@ def microscope():
 
 @pytest.fixture
 def widget(microscope):
-    w = FibsemOverviewWidget(microscope)
+    w = FibsemOverviewWidget(OverviewSession(microscope))
     w.resize(900, 700)
     yield w
     w.close()
@@ -495,7 +496,7 @@ def fm_widget(qapp):
 
     microscope = build_microscope()
     microscope.fm.objective.insert()
-    w = FMOverviewWidget(microscope)
+    w = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
     w.resize(1200, 800)
     w.show()
     qapp.processEvents()

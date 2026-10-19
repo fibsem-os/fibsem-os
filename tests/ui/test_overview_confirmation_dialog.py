@@ -175,7 +175,7 @@ class TestWhatWillBeAcquired:
         """The filename names the tile sub-folder, so two runs under one name interleave
         on disk. It is worth a row."""
         rows = _rows(dialog(settings=_settings(image={"path": "/data/exp-1"})))
-        assert rows["Saving to"] == "/data/exp-1/overview-image"
+        assert rows["Saving to"] == "/data/exp-1/overview-image-HH-MM-SS"
 
     def test_no_destination_leaves_the_row_out(self, dialog):
         assert "Saving to" not in _rows(dialog(settings=_settings()))

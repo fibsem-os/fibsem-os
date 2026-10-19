@@ -1115,8 +1115,8 @@ class LamellaTaskImageWidget(QWidget):
         facts.setHorizontalSpacing(12)
         facts.setVerticalSpacing(2)
         # (name, text, indented, figure): the facts, then for a mill each stage
-        # with, indented under it, what its strategy said (FIB-1257) and the
-        # drift corrections it ran (FIB-1351)
+        # with, indented under it, what its strategy (FIB-1257) and monitors
+        # (FIB-1481) said and the drift corrections it ran (FIB-1351)
         rows: List[Tuple[str, str, bool, Optional[str]]] = [
             (name, value, False, None) for name, value in operation_facts(operation)
         ]
@@ -1125,6 +1125,7 @@ class LamellaTaskImageWidget(QWidget):
                 rows.append((stage.name, stage.text, False, None))
                 if stage.strategy:
                     rows.append((stage.strategy, stage.said, True, stage.figure))
+                rows.extend((m.name, m.said, True, m.figure) for m in stage.monitors)
                 rows.extend(
                     ("alignment", run.detail, True, run.plot) for run in stage.drift
                 )

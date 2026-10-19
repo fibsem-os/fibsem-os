@@ -1,4 +1,5 @@
 import logging
+import os
 import threading
 from pathlib import Path
 
@@ -779,3 +780,40 @@ def test_a_failed_stage_records_its_end(tmp_path):
         "reason": "_Rejected: could not load type",
     }
     assert stage["steps"] == []
+
+
+# ── monitors on a stage's mill steps (FIB-1481) ──────────────────────────────
+
+
+def test_a_stage_s_monitors_are_recorded_on_its_steps(tmp_path, monkeypatch):
+    from fibsem.milling.monitors import (
+        MONITOR_PLUGINS,
+        MillingMonitor,
+        MillingMonitorConfig,
+        MillingMonitorResult,
+    )
+
+    class Counts(MillingMonitor[MillingMonitorConfig]):
+        name = "Counts"
+
+        def on_start(self):
+            self.report({"started": True}, notable=True)
+
+        def result(self):
+            return MillingMonitorResult(facts={"Seen": True}, files=self.folder)
+
+    monkeypatch.setitem(MONITOR_PLUGINS.registered, Counts.name, Counts)
+    stage = FibsemMillingStage(name="rough")
+    stage.monitors = [MillingMonitorConfig().made_for(Counts)]
+    microscope, task = _task(tmp_path, stages=[stage], acquire_final_image=False)
+    events = _milling_events(microscope)
+
+    task.run()
+
+    (run,) = events
+    (step,) = run["stages"][0]["steps"]
+    (monitor,) = step["monitors"]
+    assert monitor["name"] == "Counts" and monitor["facts"] == {"Seen": True}
+    assert monitor["files"].endswith("monitors/Counts".replace("/", os.sep))
+    assert step["notable"][0]["reading"] == {"started": True}
+    assert step["pauses"] == []

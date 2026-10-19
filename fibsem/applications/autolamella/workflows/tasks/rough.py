@@ -62,7 +62,7 @@ class MillRoughTask(AutoLamellaTask):
 
     # Work at the microscope with the tools, then Continue: the milling
     # session. What needs a person present when the task is supervised.
-    questions = (MILLING,)
+    asks = (MILLING,)
 
     config: MillRoughTaskConfig
     config_cls: ClassVar[Type[MillRoughTaskConfig]] = MillRoughTaskConfig

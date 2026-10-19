@@ -1,4 +1,4 @@
-"""What the agent's waiting request or suggestion would do: on the card, on the
+"""What the agent's waiting request would do: on the card, on the
 image the values were measured on; on the views, what is about to happen there
 (FIB-1404, FIB-1411)."""
 
@@ -93,10 +93,10 @@ def test_a_waiting_request_is_drawn_on_the_card_only_and_comes_down_when_decided
     assert layer.targets == [pytest.approx((120.0, 60.0)), pytest.approx((100.0, 46.0))]
     assert layer.crosses == [] and ("target", "move target") in layer.keys
     assert controller.overlays == {}
-    assert card.shown[False] is not None
+    assert card.shown is not None
 
     previews.show_request(_request(status="applying"))
-    assert previews.request_picture is None and card.shown[False] is None
+    assert previews.request_picture is None and card.shown is None
 
 
 def test_a_new_request_replaces_the_last_one_s_picture():
@@ -123,49 +123,26 @@ def test_a_request_filed_before_the_views_had_images_is_drawn_once_they_do():
     previews.show_request(_request())
     frame, _ = _layer(previews.request_picture)
     assert frame is controller.image(BeamType.ION)
-    assert card.shown[False] is not None
+    assert card.shown is not None
 
 
 def test_without_views_nothing_is_drawn():
     card = _Card()
     previews = AgentPreviews(lambda: None, show_picture=card)
     previews.show_request(_request())
-    previews.show_suggested_point((1.0, 2.0))
-    assert previews.request_picture is None and previews.suggestion_picture is None
-
-
-def test_a_suggested_point_of_interest_is_in_the_view_s_pixels():
-    """In the FIB view's frame (FIB-1410); the question's when no view shows one."""
-    import types
-
-    from fibsem.applications.autolamella.ui.poi_marker import PoiMarker
-    from fibsem.applications.autolamella.ui.qt_responder import QtResponder
-    from fibsem.workflows.interaction import PickPOI
-
-    image = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=100e-6)
-    request = PickPOI(image=image)
-    no_view = types.SimpleNamespace(_marker=PoiMarker(None))
-    pixel = QtResponder._suggested_pixel(no_view, request, Point(-10e-6, 5e-6))
-    assert pixel == (80.0, 40.0)
-    assert QtResponder._suggested_pixel(no_view, request, None) is None
-
-    shown = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=50e-6)
-    window = types.SimpleNamespace(image_widget=types.SimpleNamespace(ib_image=shown))
-    view = types.SimpleNamespace(_marker=PoiMarker(window))
-    pixel = QtResponder._suggested_pixel(view, request, Point(-10e-6, 5e-6))
-    assert pixel == pytest.approx((60.0, 30.0))
+    assert previews.request_picture is None
 
 
 class _Card:
     """What the card was given to show under Why."""
 
     def __init__(self):
-        self.shown = {}
-        self.notes = {}
+        self.shown = None
+        self.notes = ""
 
-    def __call__(self, image, caption, suggestion=False, legend=()):
-        self.shown[suggestion] = (image, caption) if image is not None else None
-        self.notes[suggestion] = caption if image is None else ""
+    def __call__(self, image, caption, legend=()):
+        self.shown = (image, caption) if image is not None else None
+        self.notes = caption if image is None else ""
 
 
 def _layer(picture, colour=PURPLE_COLOR):
@@ -336,7 +313,7 @@ def test_a_pattern_s_outline_from_its_numbers():
 
 
 def test_a_review_decision_s_point_is_drawn_on_the_card_on_its_own_image():
-    # FIB-1411: review_decide's POI was only JSON on the card. It is drawn on
+    # FIB-1411: proposal_decide's POI was only JSON on the card. It is drawn on
     # the proposal's reference image, under Why; not on the views.
     reference = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=200e-6)
     asked = []
@@ -355,7 +332,7 @@ def test_a_review_decision_s_point_is_drawn_on_the_card_on_its_own_image():
         "status": "pending",
         "actions": [
             {
-                "tool": "review_decide",
+                "tool": "proposal_decide",
                 "what": "01-full-magpie · Setup Lamella",
                 "arguments": {
                     "item_id": "01",
@@ -374,13 +351,13 @@ def test_a_review_decision_s_point_is_drawn_on_the_card_on_its_own_image():
     # 10 µm right, 5 µm up of the centre, on a 1 µm/px image.
     assert layer.crosses == [pytest.approx((110.0, 45.0))]
     assert controller.overlays == {}
-    image, caption = card.shown[False]
+    image, caption = card.shown
     assert image.width() == 200
     assert caption.startswith("01-full-magpie · Setup Lamella · FIB")
     # The legend on it names what the cross is.
     assert layer.keys == [("cross", "point of interest")]
     previews.show_request(None)
-    assert previews.request_picture is None and card.shown[False] is None
+    assert previews.request_picture is None and card.shown is None
 
 
 def _pass_request(proposal, **arguments):
@@ -390,7 +367,7 @@ def _pass_request(proposal, **arguments):
         "status": "pending",
         "actions": [
             {
-                "tool": "review_decide",
+                "tool": "proposal_decide",
                 "what": "01-full-magpie · Rough Milling",
                 "arguments": {
                     "item_id": "01",
@@ -410,7 +387,7 @@ def _pass_previews(proposal, reference):
         lambda: _Controller(),
         reference_image=lambda arguments: reference,
         show_picture=card,
-        review_proposal=lambda arguments: (
+        pending_proposal=lambda arguments: (
             proposal if arguments.get("proposal_id") == proposal.id else None
         ),
     )
@@ -438,7 +415,7 @@ def test_a_request_to_run_a_mill_pass_draws_its_patterns_as_patched():
     assert purple.fill and len(purple.patterns) == len(
         config.stages[0].define_patterns()
     )
-    assert card.shown[False][1].startswith("01-full-magpie · Rough Milling · FIB")
+    assert card.shown[1].startswith("01-full-magpie · Rough Milling · FIB")
 
     wider = config.stages[0].pattern.width * 2
     previews.show_request(None)
@@ -547,7 +524,7 @@ def test_an_item_edit_s_point_and_alignment_area_are_drawn_on_the_item_s_image()
     assert layer.areas == [[pytest.approx((50.0, 50.0)), pytest.approx((150.0, 75.0))]]
     assert controller.overlays == {}
     # Captioned with whose image it is.
-    _, caption = card.shown[False]
+    _, caption = card.shown
     assert caption.startswith("01-full-magpie · FIB")
 
 
@@ -574,7 +551,7 @@ def test_an_item_edit_without_an_image_of_the_item_says_so():
     previews = AgentPreviews(lambda: controller, show_picture=card)
     previews.show_request(_item_edit("mn56"))
     assert previews.request_picture is None
-    assert card.notes[False] == "No FIB image of 01-full-magpie yet to draw on"
+    assert card.notes == "No FIB image of 01-full-magpie yet to draw on"
 
 
 def test_the_card_s_picture_is_the_image_with_its_marks_drawn():
@@ -641,97 +618,6 @@ def test_a_task_config_edit_draws_the_milling_as_it_would_be_and_as_it_is():
     assert purple.keys == [("fill", "after the edit")]
     # The item's own config is untouched: the edit was drawn on a copy.
     assert config.milling["milling"].stages[0].pattern.width == pytest.approx(width)
-
-
-def test_a_suggested_area_is_drawn_on_the_card():
-    # FIB-1411: a suggested area (left 0.03, top 0.30, 0.22 × 0.40) was not
-    # drawn: only the current green area showed.
-    from fibsem.structures import FibsemRectangle
-    from fibsem.workflows.interaction import EditAlignmentArea
-
-    controller = _Controller()  # 200 × 100 px, 0.5 µm/px
-    card = _Card()
-    previews = AgentPreviews(lambda: controller, show_picture=card)
-    area = FibsemRectangle(left=0.25, top=0.5, width=0.5, height=0.25)
-    previews.show_suggestion(EditAlignmentArea(initial=FibsemRectangle()), area)
-    _, layer = _layer(previews.suggestion_picture)
-    assert layer.areas == [[pytest.approx((50.0, 50.0)), pytest.approx((150.0, 75.0))]]
-    assert card.shown[True] is not None
-    assert layer.keys == [("area", "alignment area")]
-
-    assert controller.overlays == {}
-    previews.show_suggestion(None, None)
-    assert previews.suggestion_picture is None and card.shown[True] is None
-
-
-def test_suggested_features_are_drawn_on_the_image_they_were_found_in():
-    from types import SimpleNamespace
-
-    from fibsem.workflows.interaction import (
-        ConfirmDetection,
-    )
-
-    found_in = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=100e-6)
-    found_in.metadata.image_settings.beam_type = BeamType.ELECTRON
-    request = ConfirmDetection(detection=SimpleNamespace(fibsem_image=found_in))
-    controller = _Controller()
-    card = _Card()
-    AgentPreviews(lambda: controller, show_picture=card).show_suggestion(
-        request, {"LamellaCentre": Point(30.0, 40.0)}
-    )
-    assert card.shown[True][1].startswith("SEM")
-
-
-def test_a_suggested_answer_to_a_position_question_shows_both_beams():
-    # FIB-1424: "Continue" on Setup's position question showed nothing; the
-    # agent checked it on a fresh SEM and FIB pair.
-    from fibsem.workflows.interaction import Confirm
-
-    controller = _Controller()  # 200 × 100 px each
-    card = _Card()
-    previews = AgentPreviews(lambda: controller, show_picture=card)
-    previews.show_suggestion(Confirm(message="Is the lamella centred?"), None)
-    frames, layers = previews.suggestion_picture
-    assert frames == (
-        controller.image(BeamType.ELECTRON),
-        controller.image(BeamType.ION),
-    )
-    assert [layer.targets for layer in layers] == [[(100.0, 50.0)], [(100.0, 50.0)]]
-    image, caption = card.shown[True]
-    assert (image.width(), image.height()) == (404, 100)  # side by side
-    assert caption.startswith("SEM and FIB")
-
-
-def test_a_suggestion_shows_the_agent_s_own_image():
-    # FIB-1424: the agent judged a position on its own image; the card shows
-    # that image, not the live views.
-    from fibsem.workflows.interaction import Confirm
-
-    evidence = FibsemImage.generate_blank_image(resolution=(400, 200), hfw=100e-6)
-    evidence.metadata.image_settings.beam_type = BeamType.ION
-    controller = _Controller()
-    card = _Card()
-    previews = AgentPreviews(
-        lambda: controller, show_picture=card, load_image=lambda path: evidence
-    )
-    previews.show_suggestion(Confirm(message="Centred?"), None, image="/exp/a.tif")
-    frame, layer = _layer(previews.suggestion_picture)
-    assert frame is evidence and layer.targets == [(200.0, 100.0)]
-    assert card.shown[True][1].startswith("The agent's image · FIB")
-
-
-def test_a_suggested_point_is_on_the_card_until_the_suggestion_goes():
-    controller = _Controller()
-    card = _Card()
-    previews = AgentPreviews(lambda: controller, show_picture=card)
-    previews.show_suggested_point((40.0, 30.0))
-    _, layer = _layer(previews.suggestion_picture)
-    assert layer.crosses == [(40.0, 30.0)]
-    # The other suggestions' values do not take it down.
-    previews.show_suggestion(None, None)
-    assert card.shown[True] is not None
-    previews.show_suggested_point(None)
-    assert card.shown[True] is None
 
 
 def test_the_legend_is_drawn_on_the_picture_at_its_own_size(qapp):
@@ -975,36 +861,8 @@ def test_the_agent_s_own_image_is_the_picture_with_the_values_on_it():
     assert frame is evidence
     # 0.25 µm a pixel: 10 µm right of the centre (200, 100).
     assert layer.targets == [pytest.approx((240.0, 100.0))]
-    assert card.shown[False][1].startswith("The agent's image · SEM")
+    assert card.shown[1].startswith("The agent's image · SEM")
     stop = _one("workflow_stop", {"reason": "the trench is off"})
     stop["image"] = "/exp/ref_trench.tif"
     previews.show_request(stop)
     assert previews.request_picture[0] is evidence
-
-
-def test_a_pair_of_views_labels_each_half(qapp):
-    """Sim session 2026-10-16: "SEM and FIB · 05:16" captioned two images with
-    no label on either."""
-    from PyQt5.QtGui import QColor, QImage
-
-    from fibsem.ui.agent.previews import side_by_side
-
-    def black():
-        image = QImage(200, 120, QImage.Format_RGB32)
-        image.fill(QColor(0, 0, 0))
-        return image
-
-    plain = side_by_side([black(), black()])
-    labelled = side_by_side([black(), black()], labels=["SEM", "FIB"])
-    assert plain.size() == labelled.size()
-
-    def white_in(image, x0, x1):
-        return any(
-            QColor(image.pixel(x, y)).lightness() > 200
-            for x in range(x0, x1)
-            for y in range(0, 30)
-        )
-
-    assert not white_in(plain, 0, 60)
-    assert white_in(labelled, 0, 60)  # "SEM", top-left of the first half
-    assert white_in(labelled, 204, 264)  # "FIB", top-left of the second

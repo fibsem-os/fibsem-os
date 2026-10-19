@@ -293,12 +293,12 @@ def test_sidecar_grows_the_app_tools_from_capabilities(client):
     listed = asyncio.run(sidecar.list_tools())
     names = {t.name for t in getattr(listed, "tools", listed)}
     # Every app tool registers whatever the level; the server's 403 is the
-    # gate, so the read-only server still lists answer_prompt.
+    # gate, so the read-only server still lists proposal_decide.
     assert {t.name for t in CATALOG if t.router == "app"} <= names
     assert "Needs the agent at Drive" in next(
         t.description
         for t in getattr(listed, "tools", listed)
-        if t.name == "prompt_answer"
+        if t.name == "proposal_decide"
     )
 
     result = asyncio.run(sidecar.call_tool("app_get_status", {}))

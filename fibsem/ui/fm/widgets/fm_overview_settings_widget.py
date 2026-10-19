@@ -31,7 +31,6 @@ from fibsem.fm.structures import (
     OverviewParameters,
     ZParameters,
 )
-from fibsem.imaging.tiled import stamped_overview_name
 from fibsem.structures import DEFAULT_OVERVIEW_FILENAME, TileOrderStrategy
 from fibsem.ui.fm.widgets.autofocus_widget import AutofocusWidget
 from fibsem.ui.fm.widgets.z_parameters_widget import ZParametersWidget
@@ -433,15 +432,13 @@ class FMOverviewSettingsWidget(QWidget):
 
     @property
     def basename(self) -> str:
-        """The name a run claims, stamped with the time it starts.
+        """The name a run asks for; the imaging service stamps it with the time.
 
         Empty falls back to the default rather than to an unnamed run: the stem is a
         directory name, and `OverviewDestination` would otherwise be handed an empty
         string to make a folder from.
         """
-        return stamped_overview_name(
-            self.filename_edit.text().strip() or DEFAULT_OVERVIEW_FILENAME
-        )
+        return self.filename_edit.text().strip() or DEFAULT_OVERVIEW_FILENAME
 
     def _refresh_destination(self) -> None:
         """Say what the run will actually be called, since the box does not show it."""

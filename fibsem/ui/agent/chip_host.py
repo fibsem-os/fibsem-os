@@ -1,9 +1,9 @@
 """The agent on a window's status bar (FIB-1035): its level chip and card,
 what it is doing on the microscope (FIB-1375), and the previews of what its
-waiting request or suggestion would do (FIB-1404).
+waiting request would do (FIB-1404).
 
-The window builds one and tells it the session's agent, the question now up
-and where the operator answers it; the chip's clicks are handled here.
+The window builds one and tells it the session's agent; the chip's clicks are
+handled here.
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ from typing import Any, Callable, Optional, Tuple
 
 from PyQt5.QtCore import QObject, QTimer, pyqtSignal
 
-from fibsem.acting import OPERATOR
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.ui import notification_service
 from fibsem.ui.agent.activity import AgentActivity
@@ -40,20 +39,13 @@ class AgentChipHost(QObject):
         session: Callable[[], Any],
         view_controller: Callable[[], Any],
         sources: Any,
-        responder: Callable[[], Any],
-        take_suggestion: Callable[[], bool],
-        dismiss_suggestion: Callable[[str], Any],
         on_driving: Callable[[bool], None],
         parent: Optional[QObject] = None,
     ) -> None:
         """*sources* reads what the previews draw (``PreviewSources``);
-        *responder* is the one putting the question up; *on_driving* paints
-        the agent's purple while it drives."""
+        *on_driving* paints the agent's purple while it drives."""
         super().__init__(parent)
         self._session = session
-        self._responder = responder
-        self._take_suggestion = take_suggestion
-        self._dismiss_suggestion = dismiss_suggestion
         self._on_driving = on_driving
 
         self.chip = AgentLevelChip(
@@ -68,8 +60,6 @@ class AgentChipHost(QObject):
         self.chip.stop_clicked.connect(self._on_stop)
         self.chip.approve_clicked.connect(self._on_approve)
         self.chip.reject_clicked.connect(self._on_reject)
-        self.chip.accept_clicked.connect(self._on_accept_suggestion)
-        self.chip.dismiss_clicked.connect(self._on_dismiss_suggestion)
         self.chip.message_sent.connect(self._on_operator_message)
         status_bar.add_action(self.chip)
         self.request_changed.connect(self.refresh)
@@ -82,19 +72,15 @@ class AgentChipHost(QObject):
 
         self.previews = AgentPreviews(
             view_controller,
-            reference_image=sources.review_image,
+            reference_image=sources.proposal_image,
             task_config=sources.task_config,
             show_picture=self.chip.card.set_image,
             item_pose=sources.item_pose,
             item_image=sources.item_image,
             overview_image=sources.overview_image,
             item_overview=sources.item_overview,
-            review_proposal=sources.review_proposal,
+            pending_proposal=sources.pending_proposal,
         )
-        # The suggestion the operator dropped by answering otherwise, until the
-        # answer that dropped it is heard (the responder takes the suggestion
-        # down before it says the question was answered).
-        self._dropped_suggestion: Optional[dict] = None
         # A waiting request's lines, read again while the operator looks at it.
         self._request_described: Tuple[Optional[str], float] = (None, 0.0)
 
@@ -239,52 +225,3 @@ class AgentChipHost(QObject):
             notification_service.show_toast(
                 "No experiment is recording: the agent can't hear messages", "warning"
             )
-
-    def on_question_event(self, kind: str, payload: dict, actor: str) -> None:
-        """A question was raised, answered or cancelled: say so when the
-        operator's own answer dropped the agent's suggestion."""
-        dropped, self._dropped_suggestion = self._dropped_suggestion, None
-        if (
-            dropped is not None
-            and kind == "prompt_answered"
-            and actor == OPERATOR
-            and not payload.get("suggested_by")
-        ):
-            notification_service.show(
-                "Agent's suggestion dropped: you answered the question yourself",
-                "info",
-            )
-
-    def on_suggestion(self, suggestion: Optional[dict]) -> None:
-        """The agent's suggested answer went up or came down. It shows on the
-        agent's card, not on the prompt (FIB-1407)."""
-        shown = self.chip.suggestion
-        self._dropped_suggestion = shown if suggestion is None else None
-        self.chip.set_suggestion(suggestion)
-        self.previews.show_suggested_point(
-            suggestion.get("point") if suggestion is not None else None
-        )
-        responder = self._responder()
-        standing = responder.suggestion if suggestion is not None else None
-        self.previews.show_suggestion(
-            responder.pending_question() if standing else None,
-            standing[2] if standing else None,
-            image=standing[4] if standing else None,
-        )
-
-    def _on_accept_suggestion(self) -> None:
-        """The operator answers with the agent's suggestion, as theirs."""
-        self._dropped_suggestion = None
-        if not self._take_suggestion():
-            notification_service.show(
-                "The agent's suggestion had gone: the question was answered or "
-                "taken down",
-                "info",
-            )
-
-    def _on_dismiss_suggestion(self, reason: str) -> None:
-        """The operator declines the suggestion, recorded with their reason for
-        the agent; the question stays up."""
-        self._dismiss_suggestion(reason)
-        # Declined, not dropped: no "you answered it yourself" later.
-        self._dropped_suggestion = None

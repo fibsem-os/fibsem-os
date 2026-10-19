@@ -77,6 +77,7 @@ from fibsem.structures import (
     DeviceImagingState,
     FibsemImage,
     FibsemRectangle,
+    FibsemStagePosition,
     ImageSettings,
     OverviewAcquisitionSettings,
 )
@@ -115,6 +116,10 @@ class Imaging(Service):
     # however it was started: each tile, the stitch, and how the run ended. Emitted
     # on the acquiring thread. A Signal, not a Parameter: it carries a preview image.
     tiled_progress = Signal(TiledProgress)
+    # An overview's mosaic once saved, beam (`FibsemImage`) or fluorescence
+    # (`FluorescenceImage`), with the path it was written to; before its run
+    # reports finished on ``tiled_progress``. Emitted on the acquiring thread.
+    overview_acquired = Signal(object, object)
     # Images someone asked the app's SEM and FIB views to show (`show`): a milling
     # task's result, a route's image. Not every acquisition: alignment and other
     # reduced-area images have no place in the views, and click-to-move and pattern
@@ -323,15 +328,17 @@ class Imaging(Service):
         settings: OverviewAcquisitionSettings,
         path: str,
         name: str = "overview",
+        centre_position: Optional[FibsemStagePosition] = None,
     ) -> Dict[str, Any]:
         """A tiled overview with ``settings.image_settings.beam_type``, centred
-        where the stage is, which it goes back to after
-        (`fibsem.imaging.tiled.acquire_tiled_overview`). Saved under ``path``:
-        the stitched image as ``<name>-<time>``, its tiles in a folder of that
-        name. ``stop`` ends it before the next tile, ``cancelled``, keeping the
-        tiles acquired. Answers the stitched image, the tiles' paths, and the
-        overview: the run's `OverviewResult.summary` (the settings as used, the
-        layout check, the registration, the timing and the record's path)."""
+        on ``centre_position`` (None for where the stage is); the stage goes back
+        to where it started after (`fibsem.imaging.tiled.acquire_tiled_overview`).
+        Saved under ``path``: the stitched image as ``<name>-<time>``, its tiles
+        in a folder of that name. ``stop`` ends it before the next tile,
+        ``cancelled``, keeping the tiles acquired. Answers the stitched image,
+        the tiles' paths, and the overview: the run's `OverviewResult.summary`
+        (the settings as used, the layout check, the registration, the timing and
+        the record's path)."""
         from fibsem.imaging.tiled import acquire_tiled_overview, stamped_overview_name
         from fibsem.imaging.tiling.progress import MODALITY_BEAM
         from fibsem.imaging.tiling.result import OverviewResult
@@ -344,11 +351,13 @@ class Imaging(Service):
                     settings,
                     path,
                     stamped_overview_name(name),
+                    centre_position=centre_position,
                     stop_event=self._stop_requested,
                     result=result,
                 )
         except OperationCancelledError:
             return _overview_answer(result, image=None)
+        self.overview_acquired.emit(result.image, result.mosaic_path)
         return _overview_answer(result, image=result.image)
 
     @query
@@ -574,10 +583,12 @@ class Imaging(Service):
         name: str = "overview",
         zparams: Optional[ZParameters] = None,
         autofocus_settings: Optional[AutoFocusSettings] = None,
+        centre_position: Optional[FibsemStagePosition] = None,
     ) -> Dict[str, Any]:
         """A fluorescence overview in ``channels``, a grid of ``parameters.rows``
-        x ``parameters.cols`` camera fields centred where the stage is, which it
-        and the objective go back to after
+        x ``parameters.cols`` camera fields centred on ``centre_position`` (None
+        for where the stage is); the stage and the objective go back to where
+        they started after
         (`fibsem.fm.acquisition.acquire_fm_tiled_overview`). Saved under
         ``path``: the mosaic as ``<name>-<time>.ome.tiff``, its tiles in a folder
         of that name. ``zparams`` z-stacks each tile when ``parameters.use_zstack``
@@ -611,7 +622,9 @@ class Imaging(Service):
                     OverviewDestination.create(path, stamped_overview_name(name)),
                     zparams=zparams if parameters.use_zstack else None,
                     autofocus_settings=autofocus_settings,
+                    centre_position=centre_position,
                     stop_event=self._stop_requested,
+                    on_acquired=self.overview_acquired.emit,
                     result=result,
                 )
         except OperationCancelledError:

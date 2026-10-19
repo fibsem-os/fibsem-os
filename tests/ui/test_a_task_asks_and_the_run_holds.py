@@ -43,7 +43,7 @@ PROPOSED = {"features": [{"name": "LamellaCentre", "px": Point(10, 20)}]}
 
 
 class _AsksForADetection(MillRoughTask):
-    questions = (DETECTION, POINT_OF_INTEREST)
+    asks = (DETECTION, POINT_OF_INTEREST)
 
 
 @pytest.fixture
@@ -113,7 +113,7 @@ def _task(window):
         microscope=ui.microscope,
         experiment=experiment,
         responder=ui.ui_responder,
-        answerers=ui.session.answerers,
+        deciders=ui.session.deciders,
     )
     # The window hears it as it hears a run the runner starts.
     ui.session.runner.relay(manager)
@@ -155,14 +155,14 @@ def test_the_run_holds_on_the_question_until_it_is_decided(window, qapp):
     task, thread, seen = _start(window)
 
     assert _pump(qapp, lambda: ui.hold is not None), "the run is held"
-    assert ui.hold.kind is HoldKind.question
+    assert ui.hold.kind is HoldKind.proposal
     assert ui.hold.items == (f"{lamella.name}/{ROUGH}",)
     # The hold is set from the worker thread; the notification that puts the
     # question up is queued to this one, so it may land a moment later.
-    assert _pump(qapp, lambda: ui._widget_question is not None), "put up"
+    assert _pump(qapp, lambda: ui._widget_proposal is not None), "put up"
     assert ui.pushButton_yes.text() == "Continue"
     if ui.det_widget is not None:
-        assert ui.question_host() is ui.det_widget, "on the Detection tab"
+        assert ui.proposal_host() is ui.det_widget, "on the Detection tab"
     assert _pump(
         qapp,
         lambda: "waiting for you to answer" in ui.label_workflow_information.text(),
@@ -191,10 +191,10 @@ def test_the_run_holds_on_the_question_until_it_is_decided(window, qapp):
     assert decision.actor.kind is ActorKind.operator
     assert ui.hold is None
     assert "error" not in seen
-    assert _pump(qapp, lambda: ui._widget_question is None), "the prompt came down"
-    # The question is decided, and nothing waits on the task's own result.
-    question, result_proposal = lamella.proposals_from(ROUGH)
-    assert question is proposal and result_proposal.kind == "task_result"
+    assert _pump(qapp, lambda: ui._widget_proposal is None), "the prompt came down"
+    # The proposal is decided, and the task proposes nothing when it ends.
+    (question,) = lamella.proposals_from(ROUGH)
+    assert question is proposal
     assert not question.pending
     assert lamella.task_state.status is TaskStatus.Completed
 
@@ -205,15 +205,15 @@ def test_a_window_that_starts_listening_mid_hold_puts_the_question_up(window, qa
     ui = window.autolamella_ui
     lamella = ui.experiment.positions[0]
     task, thread, seen = _start(window)
-    assert _pump(qapp, lambda: ui._widget_question is not None)
+    assert _pump(qapp, lambda: ui._widget_proposal is not None)
     experiment = ui.experiment
     window.attention.listen(None)
-    ui.clear_widget_question(lamella.id, ROUGH)
-    assert ui._widget_question is None
+    ui.clear_widget_proposal(lamella.id, ROUGH)
+    assert ui._widget_proposal is None
 
     window.attention.listen(experiment)
 
-    assert ui._widget_question is not None, "the standing question is up again"
+    assert ui._widget_proposal is not None, "the standing question is up again"
     assert ui.pushButton_yes.text() == "Continue"
 
 
@@ -226,7 +226,7 @@ def test_continue_on_a_question_the_widget_never_got_confirms_it_as_proposed(
     ui = window.autolamella_ui
     lamella = ui.experiment.positions[0]
     task, thread, seen = _start(window)
-    assert _pump(qapp, lambda: ui._widget_question is not None)
+    assert _pump(qapp, lambda: ui._widget_proposal is not None)
 
     ui.pushButton_yes.click()
 
@@ -245,7 +245,7 @@ def test_a_point_asked_with_no_frame_to_show_it_on_is_confirmed_as_proposed(
     ui = window.autolamella_ui
     ui.image_widget.ib_image = None
     task, thread, seen = _start(window, POINT_OF_INTEREST, {"poi": Point(1e-6, 2e-6)})
-    assert _pump(qapp, lambda: ui._widget_question is not None), "put up"
+    assert _pump(qapp, lambda: ui._widget_proposal is not None), "put up"
     assert not ui.poi_marker.shown
 
     ui.pushButton_yes.click()
@@ -254,6 +254,46 @@ def test_a_point_asked_with_no_frame_to_show_it_on_is_confirmed_as_proposed(
     assert "error" not in seen
     assert seen["decision"].outcome is DecisionOutcome.Confirmed
     assert seen["decision"].values == {}, "as proposed"
+
+
+def _swap_view_frame(ui, hfw):
+    """Put another FIB frame on the view, as a new image would, and say so."""
+    from fibsem.structures import BeamType, FibsemImage
+
+    frame = FibsemImage.generate_blank_image(resolution=(1536, 1024), hfw=hfw)
+    frame.metadata.image_settings.beam_type = BeamType.ION
+    ui.image_widget.ib_image = frame
+    ui.image_widget.viewer_update_signal.emit()
+    return frame
+
+
+def test_the_poi_marker_follows_the_view_to_another_frame(window, qapp):
+    """FIB-1410: the view takes a frame at another field of view while the
+    point waits. The marker moves to the same point on it, and Continue
+    decides the point the operator saw, not a pixel read on the wrong frame."""
+    from fibsem import conversions
+    from fibsem.structures import BeamType
+
+    ui = window.autolamella_ui
+    _swap_view_frame(ui, 150e-6)
+    initial = Point(x=5e-6, y=-3e-6)
+    task, thread, seen = _start(window, POINT_OF_INTEREST, {"poi": initial})
+    assert _pump(qapp, lambda: ui.poi_marker.shown), "the marker is up"
+
+    new = _swap_view_frame(ui, 80e-6)
+    (col, row), *_ = window.view_controller.overlay_points(BeamType.ION, "poi")
+    px = conversions.microscope_image_to_image_coordinates(
+        initial, new.data.shape, new.metadata.pixel_size.x
+    )
+    assert (col, row) == pytest.approx((px.x, px.y), abs=1)
+
+    ui.pushButton_yes.click()
+
+    assert _pump(qapp, lambda: not thread.is_alive()), "released"
+    assert "error" not in seen
+    decided = seen["decision"].values.get("poi", initial)
+    assert decided.x == pytest.approx(initial.x, abs=new.metadata.pixel_size.x)
+    assert decided.y == pytest.approx(initial.y, abs=new.metadata.pixel_size.x)
 
 
 def test_stop_withdraws_the_question_and_cancels_the_task(window, qapp):
@@ -277,13 +317,13 @@ def test_every_declared_question_has_a_widget_to_answer_it_on():
     """A task says what it asks; the window has to be able to put it up: on
     the widget its value is edited on, or the prompt bar for a state."""
     from fibsem.applications.autolamella.ui.attention import WIDGET_KINDS
-    from fibsem.applications.autolamella.ui.loop_question import LOOP_KINDS
+    from fibsem.applications.autolamella.ui.loop_proposal import LOOP_KINDS
     from fibsem.applications.autolamella.workflows.tasks import get_tasks
     from fibsem.workflows.proposals import STATE
 
     shown = set(WIDGET_KINDS) | set(LOOP_KINDS) | {STATE}
     for name, cls in get_tasks().items():
-        for kind in cls.questions:
+        for kind in cls.asks:
             assert kind in shown, f"{name} asks {kind!r}, which nothing puts up"
 
 

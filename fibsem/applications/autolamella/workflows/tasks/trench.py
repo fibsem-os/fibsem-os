@@ -45,7 +45,7 @@ class MillTrenchTask(AutoLamellaTask):
 
     # Work at the microscope with the tools, then Continue: the milling
     # session. What needs a person present when the task is supervised.
-    questions = (MILLING,)
+    asks = (MILLING,)
 
     config_cls: ClassVar[Type[MillTrenchTaskConfig]] = MillTrenchTaskConfig
     config: MillTrenchTaskConfig

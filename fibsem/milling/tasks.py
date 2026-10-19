@@ -622,7 +622,7 @@ class FibsemMillingTask:
             "strategy": {"name": stage.strategy.strategy_name},
         }
         self._stage_records.append(record)
-        with stage_running(self.microscope, stage.name) as stage_run:
+        with stage_running(self.microscope, stage) as stage_run:
             error: Optional[BaseException] = None
             try:
                 result = self._run_stage(stage, idx, start_time)

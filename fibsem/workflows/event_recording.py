@@ -392,8 +392,7 @@ class EventRecorder:
     """Records the event stream for one microscope connection: buffer, taps, file.
 
     Build it when the microscope connects and :meth:`close` it when it
-    disconnects. ``responder`` is the UI's ``QtResponder``, the source of the
-    prompt events; None where there is no UI. ``default_actor`` is who acted
+    disconnects. ``default_actor`` is who acted
     when the thread an event came from carries no mark (``fibsem.acting``):
     the operator in the app, where tasks and the agent mark theirs and nothing
     else calls the microscope; None, "not known", anywhere that is not so.
@@ -402,7 +401,6 @@ class EventRecorder:
     def __init__(
         self,
         microscope,
-        responder=None,
         experiment_path: Optional[Path] = None,
         default_actor: Optional[str] = None,
         experiment: Any = None,
@@ -418,10 +416,6 @@ class EventRecorder:
         ]
         try:
             self._disposers += attach_microscope_taps(self.buffer, microscope)
-            if responder is not None:
-                self._disposers.append(
-                    responder.add_question_observer(self.buffer.append)
-                )
             # Registered for each run by the task manager that runs it
             # (FIB-1044), so this object is handed over again every time.
             self.lifecycle_hook = make_lifecycle_hook(self.buffer)

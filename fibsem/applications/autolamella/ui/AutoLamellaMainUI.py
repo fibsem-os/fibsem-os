@@ -1464,11 +1464,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             session=lambda: self.autolamella_ui.session,
             view_controller=lambda: getattr(self, "view_controller", None),
             sources=PreviewSources(lambda: self.autolamella_ui.experiment),
-            responder=lambda: self.autolamella_ui.ui_responder,
-            take_suggestion=lambda: self.autolamella_ui.take_suggestion(),
-            dismiss_suggestion=lambda reason: self.autolamella_ui.dismiss_suggestion(
-                reason
-            ),
             on_driving=self.run_border.set_agent_driving,
             parent=self,
         )
@@ -2066,15 +2061,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._refresh_quad_overviews
         )
         self.autolamella_ui._hook_toast_signal.connect(self.show_toast)
-        # Question lifecycle refreshes the waiting chrome. GUI thread: the
-        # responder emits these where the lifecycle already runs.
-        self.autolamella_ui.ui_responder.add_question_observer(
-            self.agent_host.on_question_event
-        )
-        self.autolamella_ui.ui_responder.add_question_observer(
-            lambda *_: self._refresh_workflow_indicators()
-        )
-        self.autolamella_ui.suggestion_changed.connect(self.agent_host.on_suggestion)
         self.autolamella_ui.grids_changed.connect(self._refresh_after_naming)
         notification_service._get_service().toast.connect(self._on_notification_service)
         notification_service._get_service().toast_action.connect(
@@ -2153,7 +2139,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             controls=self.workflow_controls,
             status_bar=self.status_bar,
             timeline=self.workflow_timeline,
-            agent_chip=self.agent_host.chip,
             sound_enabled=lambda: self._sound_enabled,
             parent=self,
         )
@@ -2345,8 +2330,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         right_tabs = QTabWidget()
 
         # History tab: what was done to this lamella, task by task, with each
-        # task's images. Not "Review": that is the main tab where decisions
-        # are made, and one thing in the window is called that.
+        # task's images.
         self.lamella_task_image_widget = LamellaTaskImageWidget()
 
         # Protocol tab: matplotlib canvas (left) + editor (right). The editor owns its

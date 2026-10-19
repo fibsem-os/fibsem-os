@@ -39,6 +39,7 @@ from fibsem.applications.autolamella.ui.autolamella_overview_tab import (  # noq
 )
 from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition  # noqa: E402
 from fibsem.workflows.grids import OverlayRecord  # noqa: E402
+from tests.fixtures.overview_host import OverviewHost  # noqa: E402
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -70,7 +71,7 @@ def microscope():
     return scope
 
 
-class _StubWindow:
+class _StubWindow(OverviewHost):
     """Everything the tab reaches for on its host, and nothing else.
 
     Deliberately small: if this grows, the tab has started depending on the window
@@ -78,8 +79,7 @@ class _StubWindow:
     """
 
     def __init__(self, microscope, experiment):
-        self.microscope = microscope
-        self.experiment = experiment
+        super().__init__(microscope, experiment)
         self.added = []
         self.kwargs = []
 
@@ -158,7 +158,7 @@ class TestItMarksTheBeamSidePose:
         lamella = _lamella(tab, microscope, dx=120e-6)
         tab.refresh_positions()
 
-        marked = tab.overview._positions
+        marked = tab.overview.session.positions
         assert [p.name for p in marked] == [lamella.name]
         assert marked[0].x == pytest.approx(lamella.stage_position.x)
         assert marked[0].y == pytest.approx(lamella.stage_position.y)
@@ -179,7 +179,7 @@ class TestItMarksTheBeamSidePose:
         lamella = _lamella(tab, microscope)
         lamella.stage_position = None
         tab.refresh_positions()
-        assert tab.overview._positions == []
+        assert tab.overview.session.positions == []
         # Still in the list, though: that is where you find out it exists.
         assert tab.lamella_list._list.count() == 1
 
@@ -194,14 +194,14 @@ class TestDefects:
         bad.defect.state = DefectType.FAILURE
         tab.refresh_positions()
 
-        assert tab.overview._flagged == {bad.name}
-        assert ok.name not in tab.overview._flagged
+        assert tab.overview.session.flagged == {bad.name}
+        assert ok.name not in tab.overview.session.flagged
 
     def test_rework_is_flagged_as_well_as_failure(self, tab, microscope):
         lamella = _lamella(tab, microscope)
         lamella.defect.state = DefectType.REWORK
         tab.refresh_positions()
-        assert tab.overview._flagged == {lamella.name}
+        assert tab.overview.session.flagged == {lamella.name}
 
     def test_setting_a_defect_is_saved_and_redrawn(self, tab, microscope):
         """The row writes `lamella.defect` and emits; nothing was listening, so the
@@ -209,12 +209,12 @@ class TestDefects:
         saved, because the marker's colour is one of the things it decides."""
         lamella = _lamella(tab, microscope)
         tab.refresh_positions()
-        assert tab.overview._flagged == set()
+        assert tab.overview.session.flagged == set()
 
         lamella.defect.state = DefectType.FAILURE
         tab._on_defect_changed(lamella)
 
-        assert tab.overview._flagged == {lamella.name}
+        assert tab.overview.session.flagged == {lamella.name}
         assert os.path.exists(os.path.join(str(tab.experiment.path), "experiment.yaml"))
 
 
@@ -426,7 +426,7 @@ class TestItMarksTheFluorescenceSidePose:
         lamella = _lamella(fm_tab, microscope, dx=90e-6)
         fm_tab.refresh_positions()
 
-        marked = fm_tab.overview._positions
+        marked = fm_tab.overview.session.positions
         assert [p.name for p in marked] == [lamella.name]
 
         milling_tilt = lamella.milling_pose.stage_position.t
@@ -451,7 +451,7 @@ class TestItMarksTheFluorescenceSidePose:
         lamella.poses.pop("FLUORESCENCE", None)
         fm_tab.refresh_positions()
 
-        assert fm_tab.overview._positions == []
+        assert fm_tab.overview.session.positions == []
         assert [row.lamella.name for row in fm_tab.lamella_list._rows()] == [
             lamella.name
         ]
@@ -563,7 +563,7 @@ class TestOneOverviewDoesNotDriveTheStageWhileTheOtherAcquires:
         host, beam, fluorescence = locked_pair
         fluorescence.overview._set_running(True)
         fluorescence.overview._set_running(False)
-        assert beam.overview._interactive is True
+        assert beam.overview.session.interactive is True
 
     def test_a_run_does_not_lock_the_tab_running_it(self, locked_pair):
         """Its own controls are managed by the run itself -- Cancel above all, which a
@@ -571,7 +571,7 @@ class TestOneOverviewDoesNotDriveTheStageWhileTheOtherAcquires:
         host, beam, fluorescence = locked_pair
         fluorescence.overview._set_running(True)
         try:
-            assert fluorescence.overview._interactive is True
+            assert fluorescence.overview.session.interactive is True
         finally:
             fluorescence.overview._set_running(False)
 
@@ -649,18 +649,18 @@ class TestItMarksOnlyWhatIsOnTheStage:
         free = _lamella(tab, microscope, dx=-50e-6)
         try:
             tab.refresh_positions()
-            assert [p.name for p in tab.overview._positions] == [free.name]
+            assert [p.name for p in tab.overview.session.positions] == [free.name]
             assert tab.lamella_list._list.count() == 2
 
             stage.ensure_loaded("Grid-02")
             tab.refresh_positions()
-            assert sorted(p.name for p in tab.overview._positions) == sorted(
+            assert sorted(p.name for p in tab.overview.session.positions) == sorted(
                 [on_two.name, free.name]
             )
 
             stage.unload()
             tab.refresh_positions()
-            assert [p.name for p in tab.overview._positions] == [free.name]
+            assert [p.name for p in tab.overview.session.positions] == [free.name]
         finally:
             if stage.loaded_grids:
                 stage.unload()

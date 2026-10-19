@@ -277,3 +277,34 @@ def test_a_stop_survives_the_focus_sweep_inside_a_focus_stack(microscope, tmp_pa
     finally:
         del imaging.auto_focus
     assert result == {"status": "cancelled", "image": None}
+
+
+def test_an_overview_is_centred_where_asked_and_announces_its_mosaic(
+    microscope, tmp_path, monkeypatch
+):
+    """The Overview tab's path too: it centres on a dragged grid."""
+    from fibsem.imaging import tiled
+
+    centres, seen = [], []
+    runner = tiled.TiledAcquisitionRunner
+
+    def recording(*args, **kwargs):
+        centres.append(kwargs["centre_position"])
+        return runner(*args, **kwargs)
+
+    def record(*args):
+        seen.append(args)
+
+    monkeypatch.setattr(tiled, "TiledAcquisitionRunner", recording)
+    centre = microscope.get_stage_position()
+    microscope.imaging.overview_acquired.connect(record)
+    try:
+        result = microscope.imaging.acquire_overview(
+            _overview(), str(tmp_path), centre_position=centre
+        )
+    finally:
+        microscope.imaging.overview_acquired.disconnect(record)
+    assert centres == [centre]
+    ((mosaic, path),) = seen
+    assert mosaic is result["image"]
+    assert path == result["overview"]["paths"]["mosaic"]

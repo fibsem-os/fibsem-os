@@ -1864,19 +1864,18 @@ def render_tasks(h: Harness) -> None:
 
 
 @page("workflows")
-def _question_up(ui) -> Tuple[str, Optional[str]]:
-    """What the prompt bar asks now, and which milling config: a pass of a
-    loop (``milling``, ``spot_burn``) is on the record, any other question on
-    the responder."""
-    shown = getattr(ui, "_loop_question", None)
+def _proposal_up(ui) -> Tuple[str, Optional[str]]:
+    """The kind of proposal the prompt bar shows now, and which milling config
+    when it is a pass of a loop (``milling``, ``spot_burn``)."""
+    shown = getattr(ui, "_loop_proposal", None)
     if shown is not None:
         proposal = shown[2]
         config = proposal.values.get("milling_config")
         return proposal.kind, getattr(config, "name", None)
-    question = ui.ui_responder.pending_question
-    if callable(question):
-        question = question()
-    return (type(question).__name__ if question is not None else "Confirm"), None
+    shown = getattr(ui, "_widget_proposal", None)
+    if shown is not None:
+        return shown[2].kind, None
+    return "state", None
 
 
 def render_workflows(h: Harness) -> None:
@@ -1981,7 +1980,7 @@ def render_workflows(h: Harness) -> None:
                     h.shot("queue-row-menu", target=menu)
                     menu.close()
                     h.pump(200)
-            kind, key = _question_up(h.ui)
+            kind, key = _proposal_up(h.ui)
             # a milling prompt is one image per task, the others one each
             shot_name = f"prompt-{kind.lower()}"
             if kind == "milling" and key:
@@ -2584,7 +2583,7 @@ def render_correlation(h: Harness) -> None:
         if h.ui.hold is None:
             continue
         h.pump(1200)
-        kind, key = _question_up(h.ui)
+        kind, key = _proposal_up(h.ui)
         if kind == "spot_burn":
             if not burn_shot_taken:
                 # the question, on the Experiment tab, and the points on the FIB
