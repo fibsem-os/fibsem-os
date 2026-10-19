@@ -169,10 +169,6 @@ def test_the_run_summary_names_who_needs_you():
 
 def test_every_task_type_declares_tuples_the_words_are_known_for():
     for name, cls in get_tasks().items():
-        assert isinstance(cls.questions, tuple) and isinstance(cls.sessions, tuple), (
-            name
-        )
+        assert isinstance(cls.questions, tuple), name
         for kind in cls.questions:
             assert kind in KIND_LABELS, f"{name}: no words for {kind!r}"
-        for session in cls.sessions:
-            assert isinstance(session, str) and session, name

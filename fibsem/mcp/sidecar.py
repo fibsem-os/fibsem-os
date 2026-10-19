@@ -1480,6 +1480,8 @@ def build_sidecar(client, capabilities):
         reason: str = "",
         actor: str = "",
         task_id: str = "",
+        action: str = "",
+        patch: Optional[dict] = None,
     ):
         body = {
             "item_id": str(item_id),
@@ -1496,6 +1498,10 @@ def build_sidecar(client, capabilities):
             body["task_id"] = str(task_id)
         if values is not None:
             body["values"] = dict(values)
+        if action:
+            body["action"] = str(action)
+        if patch is not None:
+            body["patch"] = dict(patch)
         return _app_post("/app/workflow/decide", body)
 
     def prompt_suggest_answer(

@@ -51,6 +51,7 @@ from fibsem.structures import (
     InsertableDeviceState,
     param,
 )
+from fibsem.workflows.proposals import MILLING
 
 MILL_COINCIDENT_KEY = "mill_coincident"
 DEFAULT_SETUP_TASK_NAME = "Setup Coincidence Milling"
@@ -151,7 +152,7 @@ class MillCoincidentTaskConfig(AutoLamellaTaskConfig):
 class MillCoincidentTask(AutoLamellaTask):
     """Mill the coincident trench for a lamella, stopping on the intensity drop."""
 
-    sessions = ("coincidence milling",)
+    questions = (MILLING,)
 
     config: MillCoincidentTaskConfig
     config_cls: ClassVar[Type[MillCoincidentTaskConfig]] = MillCoincidentTaskConfig

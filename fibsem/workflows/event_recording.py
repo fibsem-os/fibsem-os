@@ -620,6 +620,8 @@ class ProposalTap:
             reason=record["reason"],
             decided=record["values"],
         )
+        if record.get("action"):
+            payload["action"] = record["action"]
         if seen is False:  # recorded before its values were filled in
             payload["filled_in"] = True
         self._buffer.append("proposal_decided", payload, actor=decision.actor.kind)

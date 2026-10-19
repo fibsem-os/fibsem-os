@@ -1864,6 +1864,21 @@ def render_tasks(h: Harness) -> None:
 
 
 @page("workflows")
+def _question_up(ui) -> Tuple[str, Optional[str]]:
+    """What the prompt bar asks now, and which milling config: a pass of a
+    loop (``milling``, ``spot_burn``) is on the record, any other question on
+    the responder."""
+    shown = getattr(ui, "_loop_question", None)
+    if shown is not None:
+        proposal = shown[2]
+        config = proposal.values.get("milling_config")
+        return proposal.kind, getattr(config, "name", None)
+    question = ui.ui_responder.pending_question
+    if callable(question):
+        question = question()
+    return (type(question).__name__ if question is not None else "Confirm"), None
+
+
 def render_workflows(h: Harness) -> None:
     """The Workflow tab, a supervised run with its prompts, and the Grids view."""
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as main_module
@@ -1966,14 +1981,10 @@ def render_workflows(h: Harness) -> None:
                     h.shot("queue-row-menu", target=menu)
                     menu.close()
                     h.pump(200)
-            question = h.ui.ui_responder.pending_question
-            if callable(question):
-                question = question()
-            kind = type(question).__name__ if question is not None else "Confirm"
-            key = getattr(getattr(question, "config", None), "name", None)
+            kind, key = _question_up(h.ui)
             # a milling prompt is one image per task, the others one each
             shot_name = f"prompt-{kind.lower()}"
-            if kind == "RunMillingTask" and key:
+            if kind == "milling" and key:
                 shot_name += "-" + key.lower().replace(" ", "-")
             if shot_name not in seen:
                 if not seen:
@@ -1998,10 +2009,10 @@ def render_workflows(h: Harness) -> None:
                 )
             # a milling prompt comes back after the run (Yes = Run Milling
             # again, No = Continue): Yes once per task, then Continue
-            if kind == "RunMillingTask" and key in answered_milling:
+            if kind == "milling" and key in answered_milling:
                 h.ui.pushButton_no.click()
             else:
-                if kind == "RunMillingTask":
+                if kind == "milling":
                     answered_milling.add(key)
                 h.ui.pushButton_yes.click()
             h.pump(800)
@@ -2573,11 +2584,8 @@ def render_correlation(h: Harness) -> None:
         if h.ui.hold is None:
             continue
         h.pump(1200)
-        question = h.ui.ui_responder.pending_question
-        if callable(question):
-            question = question()
-        kind = type(question).__name__ if question is not None else "Confirm"
-        if kind == "RunSpotBurn":
+        kind, key = _question_up(h.ui)
+        if kind == "spot_burn":
             if not burn_shot_taken:
                 # the question, on the Experiment tab, and the points on the FIB
                 # view with the Spot Burn tab open
@@ -2613,9 +2621,8 @@ def render_correlation(h: Harness) -> None:
                 h.ui.pushButton_yes.click()  # Run Spot Burn; re-asks when done
             else:
                 h.ui.pushButton_no.click()  # Continue
-        elif kind == "RunMillingTask":
-            # Run Milling once per task, then Continue when it re-asks
-            key = getattr(getattr(question, "config", None), "name", None)
+        elif kind == "milling":
+            # Run Milling once per task, then Accept when it re-asks
             if key in milled:
                 h.ui.pushButton_no.click()
             else:

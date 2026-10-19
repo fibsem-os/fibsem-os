@@ -12,7 +12,11 @@ import yaml
 
 import fibsem.config as fconfig
 from fibsem import utils
-from fibsem.applications.autolamella.structures import Lamella
+from fibsem.applications.autolamella.structures import (
+    AutoLamellaTaskProtocol,
+    Experiment,
+    Lamella,
+)
 from fibsem.applications.autolamella.workflows.tasks import get_tasks
 from fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence import (
     AcquireFluorescenceImageConfig,
@@ -37,11 +41,12 @@ SETUP_NAME = "Setup Coincidence Milling"
 
 
 class _Manager:
-    """What a task reads off its manager: the abort token, and who can answer
-    (nobody)."""
+    """What a task reads off its manager: the abort token, the experiment its
+    mill's passes go on the record of, and who can answer (nobody)."""
 
-    def __init__(self):
+    def __init__(self, experiment=None):
         self.abort_token = threading.Event()
+        self.experiment = experiment
 
     def answerers(self):
         return ()
@@ -104,9 +109,21 @@ def _mill_task(
         strategy.config.warmup_duration = 1.0
         strategy.config.save_fm_images = False
         strategy.config.acquire_fib_image = False
+    if manager is None:
+        manager = _Manager()
+    if manager.experiment is None:
+        manager.experiment = _experiment(lamella)
     return MillCoincidentTask(
         microscope=microscope, config=config, lamella=lamella, task_manager=manager
     )
+
+
+def _experiment(lamella: Lamella) -> Experiment:
+    """An experiment holding ``lamella``, with nothing supervised."""
+    experiment = Experiment(path=lamella.path.parent, name="coincidence-exp")
+    experiment.task_protocol = AutoLamellaTaskProtocol()
+    experiment.positions.append(lamella)
+    return experiment
 
 
 def test_registered_as_a_builtin_task():
@@ -115,7 +132,6 @@ def test_registered_as_a_builtin_task():
 
 def test_development_protocol_loads_both_tasks():
     import fibsem
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
 
     path = os.path.join(
         os.path.dirname(fibsem.__file__),

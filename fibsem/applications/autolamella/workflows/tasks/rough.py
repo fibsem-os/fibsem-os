@@ -19,6 +19,7 @@ from fibsem.applications.autolamella.workflows.tasks.base import (
 )
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import Display, Point, param
+from fibsem.workflows.proposals import MILLING
 
 
 @dataclass
@@ -61,7 +62,7 @@ class MillRoughTask(AutoLamellaTask):
 
     # Work at the microscope with the tools, then Continue: the milling
     # session. What needs a person present when the task is supervised.
-    sessions = ("milling",)
+    questions = (MILLING,)
 
     config: MillRoughTaskConfig
     config_cls: ClassVar[Type[MillRoughTaskConfig]] = MillRoughTaskConfig

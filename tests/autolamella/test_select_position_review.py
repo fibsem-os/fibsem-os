@@ -34,6 +34,7 @@ from fibsem.structures import Point
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import (
     ALIGNMENT_AREA,
+    MILLING,
     STATE,
     Decision,
     DecisionOutcome,
@@ -315,7 +316,7 @@ def test_supervised_nobody_is_asked_for_the_point_while_it_runs(
     assert task.inline_decision is None, "nothing decided in the workflow"
     assert lamella.is_awaiting_decision(SETUP)
     assert lamella.poi == Point(0.0, 0.0), "unchanged until it is decided"
-    assert SelectMillingPositionTask.sessions == (), "no session for the point"
+    assert MILLING not in SelectMillingPositionTask.questions, "nothing milled"
 
 
 def test_with_select_poi_off_the_point_is_not_proposed(microscope, tmp_path):

@@ -97,20 +97,20 @@ from fibsem.util.timestamps import now, now_iso
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.experiment import EXPERIMENT_WRITE_LOCK
 from fibsem.workflows.interaction import (
-    ACTION_ACCEPT,
-    ACTION_EDIT,
-    ACTION_RUN,
     ClearMillingConfig,
     Responder,
-    RunMillingTask,
     SetFluorescenceChannels,
     SetMillingConfig,
-    answered_by,
     ask,
 )
 from fibsem.workflows.proposals import (
+    ACTION_ACCEPT,
+    ACTION_EDIT,
+    ACTION_RUN,
+    ACTION_SKIP,
     ALIGNMENT_AREA,
     DETECTION,
+    MILLING,
     PROPOSAL_KINDS,
     TASK_RESULT,
     Decision,
@@ -149,10 +149,6 @@ class AutoLamellaTask(BaseTask):
     # what needs a person present is known before the run. ``ask`` refuses a
     # kind that is not here.
     questions: ClassVar[Tuple[str, ...]] = ()
-    # Work done at the microscope with the tools, then Continue: a mill, a
-    # spot burn. Declared so the same line can say the task needs someone
-    # there; not asked through ``ask`` and not yet recorded.
-    sessions: ClassVar[Tuple[str, ...]] = ()
     # The last final ion and electron images. The last is the tightest field
     # of view, the one the Review tab shows.
     result_images: ClassVar[Dict[str, str]] = {
@@ -166,11 +162,6 @@ class AutoLamellaTask(BaseTask):
         """The kinds this task asks under ``config``: a setting may turn one
         off (Setup's ``confirm_alignment_area``). By default, everything declared."""
         return cls.questions
-
-    @classmethod
-    def sessions_for(cls, config: AutoLamellaTaskConfig) -> Tuple[str, ...]:
-        """The sessions this task runs under ``config``; by default, all."""
-        return cls.sessions
 
     def __init__(
         self,
@@ -392,16 +383,8 @@ class AutoLamellaTask(BaseTask):
                 **(provenance or {}),
             },
         )
-        asked_under_config = enabled and kind in type(self).questions_for(self.config)
-        # Someone to answer: the operator at a window, or the agent at Drive.
-        if not asked_under_config or not self.supervised or not manager.answerers():
-            reason = (
-                "turned off in the task's settings"
-                if not asked_under_config
-                else "nobody was asked: the task is not supervised"
-                if not self.supervised
-                else "nobody was asked: nobody to answer"
-            )
+        reason = self.unasked_reason(kind, enabled=enabled)
+        if reason:
             experiment.record_unasked(item.id, self.task_name, proposal, reason)
             return proposal.current
 
@@ -451,6 +434,19 @@ class AutoLamellaTask(BaseTask):
                 item.id, self.task_name, proposal.id, dict(decided())
             )
         return decision
+
+    def unasked_reason(self, kind: str, *, enabled: bool = True) -> str:
+        """Why a question of ``kind`` would be recorded rather than asked now;
+        empty when it would be asked. Asked when this config asks it, the task
+        is supervised, and someone can answer: the operator at a window, or
+        the agent at Drive."""
+        if not enabled or kind not in type(self).questions_for(self.config):
+            return "turned off in the task's settings"
+        if not self.supervised:
+            return "nobody was asked: the task is not supervised"
+        if not self.task_manager.answerers():
+            return "nobody was asked: nobody to answer"
+        return ""
 
     def detect(
         self,
@@ -528,14 +524,15 @@ class AutoLamellaTask(BaseTask):
         as last used.
 
         The mill and its loop are the task's, on this thread (FIB-1236), headless
-        and with a window alike. Supervised, it asks :class:`RunMillingTask` what
-        to do: run mills the config as answered and asks again with the pass
-        counted (and the error, if the run failed); edit asks again with the
-        config as answered; skip and accept end the loop. Whoever answers, the
-        operator at the editor or an agent over the App Server, changes what is
-        milled by answering with it. Unsupervised, it mills once and a failure
-        fails the task (FIB-1112). Supervision is read at each decision, so a
-        change made during a mill applies when the mill ends.
+        and with a window alike. Each pass is a ``milling`` question through
+        ``ask``, on the record: the config this pass would mill, decided as run
+        (mill the config as decided, then ask again with the pass counted and
+        the error, if the mill failed), edit (ask again with the config as
+        decided), skip or accept (end the loop). Whoever decides, the operator
+        at the editor or an agent, changes what is milled by deciding with it.
+        Asked of nobody, a pass is recorded as the kind's silence: the first
+        mills once, the next accepts, and a failed mill then fails the task
+        (FIB-1112).
 
         Each run records how it ended (``FibsemMillingTask``). A task that mills
         nothing records that too, as a skipped ``milling`` event: with milling
@@ -546,47 +543,60 @@ class AutoLamellaTask(BaseTask):
                 self.microscope, milling_config, "milling is turned off for this task"
             )
         responder = self.responder
-        # The task's own config until an answer replaces it: an unasked mill
+        # The task's own config until a decision replaces it: an unasked mill
         # runs it, so what the run records on it (a strategy's end reason)
         # stays with the task even when the run is stopped. The question only
-        # ever shows, and answers with, copies.
+        # ever carries, and is decided with, copies.
         config = milling_config
-        passes, error, asked = 0, None, False
+        passes, error, watched = 0, None, None
         try:
             while True:
-                if responder is not None and self.validate:
-                    asked = True
-                    decision = ask(
-                        responder,
-                        RunMillingTask(
-                            config=deepcopy(config),
-                            enabled=milling_enabled,
-                            message=msg,
-                            output_dir=self.output_dir,
-                            passes=passes,
-                            last_error=None if error is None else str(error),
-                        ),
-                        abort=lambda: _abort_requested(self.parent_ui),
+                if not milling_enabled:
+                    actions = (ACTION_EDIT, ACTION_ACCEPT)
+                elif passes == 0:
+                    actions = (ACTION_RUN, ACTION_EDIT, ACTION_SKIP)
+                else:
+                    actions = (ACTION_RUN, ACTION_EDIT, ACTION_ACCEPT)
+                if responder is not None:
+                    # The editor shows what this pass would mill.
+                    self._set_milling_config_ui(config)
+                asked = deepcopy(config)
+                decision = self.ask(
+                    MILLING,
+                    {"milling_config": asked},
+                    image=self._last_fib_image_file(),
+                    provenance={
+                        "actions": list(actions),
+                        "passes": passes,
+                        "last_error": None if error is None else str(error),
+                        "enabled": milling_enabled,
+                    },
+                    message=msg,
+                    decided=lambda: {"milling_config": asked},
+                )
+                if decision.outcome is DecisionOutcome.Rejected:
+                    raise RuntimeError(
+                        f"{self.task_name} was rejected: "
+                        f"{decision.reason or 'no reason given'}"
                     )
-                    if decision.action == ACTION_ACCEPT and passes:
-                        # The config as milled, not an edit made after it: the
-                        # protocol must not claim what never ran (FIB-580).
-                        break
-                    config = decision.config
-                    if decision.action == ACTION_EDIT:
-                        continue
-                    if decision.action != ACTION_RUN:
-                        break
-                elif passes:
-                    if error is not None:
-                        # Nobody to ask: the task fails, rather than recording
+                if decision.outcome is not DecisionOutcome.Unreviewed:
+                    watched = decision
+                if decision.action == ACTION_ACCEPT and passes:
+                    if error is not None and watched is None:
+                        # Nobody looked: the task fails, rather than recording
                         # Completed with nothing milled (FIB-1112).
                         raise error
+                    # The config as milled, not an edit made after it: the
+                    # protocol must not claim what never ran (FIB-580).
                     break
-                elif not milling_enabled:
+                if watched is decision:
+                    # Unreviewed, it is decided as proposed: the task's own
+                    # config is milled, not the record's copy.
+                    config = decision.values.get("milling_config", config)
+                if decision.action == ACTION_EDIT:
+                    continue
+                if decision.action != ACTION_RUN:
                     break
-                elif responder is not None:
-                    self._set_milling_config_ui(config)
                 error = self._mill(config)
                 passes += 1
         finally:
@@ -596,10 +606,10 @@ class AutoLamellaTask(BaseTask):
             record_milling_skipped(
                 self.microscope, config, "skipped at the milling question"
             )
-        if milling_enabled and asked:
+        if milling_enabled and watched is not None:
             # Someone watched the mill and accepted it (or skipped it) in the
             # workflow.
-            self._decided_in_the_workflow()
+            self._decided_in_the_workflow(watched.actor)
         return config
 
     def _mill(self, config: FibsemMillingTaskConfig) -> Optional[Exception]:
@@ -625,26 +635,16 @@ class AutoLamellaTask(BaseTask):
             )
         return task.error
 
-    def _decided_in_the_workflow(self) -> None:
-        """The operator answered this run's session in the workflow: a mill's
-        Continue, a setup's Save. That is the decision on the run's result,
+    def _decided_in_the_workflow(self, actor: Actor) -> None:
+        """``actor`` answered this run's session in the workflow: a mill's
+        Accept, a setup's Save. That is the decision on the run's result,
         recorded as theirs rather than the producer's own, and the task does
         not wait a second time in the Review tab for a look it already had."""
         self.inline_decision = Decision(
             outcome=DecisionOutcome.Confirmed,
-            actor=self._answer_actor(),
+            actor=actor,
             via="workflow",
         )
-
-    def _answer_actor(self) -> Actor:
-        """Who answered the question this task just asked in the workflow: the
-        agent when it answered over the App Server, else the operator at the
-        window (FIB-1328). The agent is named as ``/app/workflow/decide`` names one
-        that gave no name."""
-        if answered_by() == AGENT:
-            return Actor.agent("remote")
-        experiment = getattr(self.task_manager, "experiment", None)
-        return experiment.actor() if experiment is not None else Actor.operator("")
 
     def _set_milling_config_ui(self, milling_config: FibsemMillingTaskConfig):
         """Set the milling config in the milling widget."""

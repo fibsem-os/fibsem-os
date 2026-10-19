@@ -125,7 +125,7 @@ At Drive the agent may:
 - **answer supervision questions** — through exactly the same path as your
   Yes/No buttons. First answer wins: you can always answer first, and your
   click beats the agent's every time. Every answer is attributed — the line
-  under the buttons reads `agent · answered Run Milling · 14:22:31`.
+  under the buttons reads `agent · answered Continue · 14:22:31`.
   For the two geometry questions (alignment area, point of interest) an
   answer can carry an adjustment: the agent's proposed rectangle or marker
   is placed on your screen through the same widgets you would drag, then

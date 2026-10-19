@@ -74,6 +74,7 @@ from fibsem.applications.autolamella.ui.lamella_task_image_widget import (
 from fibsem.applications.autolamella.ui.lamella_workflow_widget import (
     LamellaWorkflowWidget,
 )
+from fibsem.applications.autolamella.ui.loop_question import LOOP_KINDS
 from fibsem.applications.autolamella.ui.overview_container_tab import (
     AutoLamellaOverviewContainerTab,
 )
@@ -1649,6 +1650,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             item_image=self._agent_item_image,
             overview_image=self._agent_overview_image,
             item_overview=self._agent_item_overview,
+            review_proposal=self._agent_review_proposal,
         )
         self._agent_chip_timer = QTimer(self)
         self._agent_chip_timer.setInterval(1000)
@@ -1709,8 +1711,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _on_question_asked(self, item_id: str, task_name: str) -> None:
         """Put a question a task just asked in front of the operator, where
         its kind is answered: a state on the prompt bar of the Microscope tab
-        (the operator is at the instrument, and confirming needs no image);
-        anything else in the Review tab, which is fronted."""
+        (the operator is at the instrument, and confirming needs no image); a
+        mill's or a spot burn's pass on the prompt bar over its widget, where
+        the operator edits what runs; anything else in the Review tab, which
+        is fronted."""
         review_tab = getattr(self, "review_tab", None)
         experiment = getattr(self, "_asked_experiment", None)
         if review_tab is None or experiment is None:
@@ -1722,13 +1726,19 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if proposal.kind == STATE:
             self.autolamella_ui.show_state_question(item_id, task_name, proposal)
             return
+        if proposal.kind in LOOP_KINDS and self.autolamella_ui.show_loop_question(
+            item_id, task_name, proposal
+        ):
+            return
         self.tab_widget.setCurrentWidget(review_tab)
         review_tab.select(item_id, task_name)
 
     def _on_question_decided(self, item_id: str, task_name: str) -> None:
-        """However a state question was answered -- the prompt bar, the Review
-        tab, an agent, or withdrawn by Stop -- the prompt comes down."""
+        """However a state question or a pass was answered -- the prompt bar,
+        the Review tab, an agent, or withdrawn by Stop -- the prompt comes
+        down."""
         self.autolamella_ui.clear_state_question(item_id, task_name)
+        self.autolamella_ui.clear_loop_question(item_id, task_name)
 
     def _on_user_attention_clicked(self):
         """Handle user attention button click - switch to Microscope tab, or to
@@ -1756,7 +1766,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # The agent's suggested answer is on its card, not on the prompt.
         if self.agent_chip.suggestion is not None:
             self.agent_chip.show_card()
-        host = self.autolamella_ui.ui_responder.question_host()
+        host = (
+            self.autolamella_ui.loop_question_host()
+            or self.autolamella_ui.ui_responder.question_host()
+        )
         if host is not None and self.tab_widget.indexOf(host) != -1:
             # A question answered on one of this window's own tabs.
             self.tab_widget.setCurrentWidget(host)
@@ -4090,14 +4103,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 continue
         return None
 
-    def _agent_review_image(self, arguments: dict):
-        """The image a waiting ``review_decide``'s values sit on: its proposal's
-        reference image, found as the Review tab finds it. None when the
-        proposal is not pending or has none."""
-        from fibsem.applications.autolamella.ui.review_tab_widget import (
-            _load_reference_image,
-        )
-
+    def _agent_review_pending(self, arguments: dict):
+        """``(item, proposal)``: the pending proposal a waiting
+        ``review_decide`` decides, by its id, else its item and task; None."""
         experiment = self.autolamella_ui.experiment
         if experiment is None:
             return None
@@ -4107,8 +4115,26 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 and arguments.get("item_id") == item.id
                 and arguments.get("task_name") == task_name
             ):
-                return _load_reference_image(experiment, item, proposal)
+                return item, proposal
         return None
+
+    def _agent_review_proposal(self, arguments: dict):
+        """The pending proposal a waiting ``review_decide`` decides, or None."""
+        found = self._agent_review_pending(arguments)
+        return found[1] if found is not None else None
+
+    def _agent_review_image(self, arguments: dict):
+        """The image a waiting ``review_decide``'s values sit on: its proposal's
+        reference image, found as the Review tab finds it. None when the
+        proposal is not pending or has none."""
+        from fibsem.applications.autolamella.ui.review_tab_widget import (
+            _load_reference_image,
+        )
+
+        found = self._agent_review_pending(arguments)
+        if found is None:
+            return None
+        return _load_reference_image(self.autolamella_ui.experiment, *found)
 
     def _on_agent_suggestion(self, suggestion: Optional[dict]) -> None:
         """GUI thread: the agent's suggested answer went up or came down. It

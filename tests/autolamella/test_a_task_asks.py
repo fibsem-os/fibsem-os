@@ -255,7 +255,6 @@ def test_every_task_type_declares_kinds_the_record_knows():
     for name, cls in get_tasks().items():
         for kind in cls.questions:
             assert kind in PROPOSAL_KINDS, f"{name} asks an unknown kind {kind!r}"
-        assert isinstance(cls.sessions, tuple), name
 
 
 def test_a_question_and_the_runs_result_are_both_current(microscope, tmp_path):

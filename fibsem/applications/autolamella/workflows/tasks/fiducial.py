@@ -31,7 +31,7 @@ from fibsem.structures import (
     Point,
     param,
 )
-from fibsem.workflows.proposals import ALIGNMENT_AREA
+from fibsem.workflows.proposals import ALIGNMENT_AREA, MILLING
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Lamella
@@ -185,15 +185,14 @@ def follow_alignment_area(lamella: "Lamella") -> List[str]:
 class MillFiducialTask(AutoLamellaTask):
     """Task to setup the lamella for milling."""
 
-    # Work at the microscope, then Continue: the mill. Then the alignment
-    # area around the milled fiducial, asked on the post-mill image.
-    questions = (ALIGNMENT_AREA,)
-    sessions = ("milling",)
+    # The mill, a pass at a time. Then the alignment area around the
+    # milled fiducial, asked on the post-mill image.
+    questions = (MILLING, ALIGNMENT_AREA)
 
     @classmethod
     def questions_for(cls, config) -> Tuple[str, ...]:
         if not getattr(config, "confirm_alignment_area", True):
-            return ()
+            return (MILLING,)
         return cls.questions
 
     config: MillFiducialTaskConfig

@@ -1,10 +1,8 @@
 """What a task needs from a person, said before the run.
 
 A task declares what it asks while it runs (``questions``: the kinds it needs
-answered before its next line), what it does at the microscope with the
-tools (``sessions``), and what it leaves for afterwards (``proposer``). The
-protocol says whether a person decides (``attention``). From those, one line
-per task: whether the operator has to be there while it runs, and what waits
+answered before its next line, a mill's passes among them) and what it
+leaves for afterwards (``proposer``). The whether a person decides (``attention``). From those, one line per task: whether the operator has to be there while it runs, and what waits
 for their decision afterwards. Derived, never stored, so it cannot drift
 from what the task does.
 """
@@ -19,7 +17,9 @@ from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import (
     ALIGNMENT_AREA,
     DETECTION,
+    MILLING,
     OVERVIEW_POSITIONS,
+    SPOT_BURN,
     STATE,
     TASK_RESULT,
 )
@@ -42,6 +42,8 @@ KIND_LABELS = {
     POINT_OF_INTEREST: "the point of interest",
     TASK_RESULT: "its result",
     OVERVIEW_POSITIONS: "the lamella positions",
+    MILLING: "milling",
+    SPOT_BURN: "the spot burn",
 }
 
 
@@ -62,8 +64,8 @@ class Attendance:
 
     task_name: str
     attention: Attention
-    # what needs a person at the microscope while the task runs, in order:
-    # questions it asks, then sessions it runs
+    # what needs a person at the microscope while the task runs: the
+    # questions it asks, in order
     present: Tuple[str, ...]
     # what it leaves for afterwards, as its label, or None
     later: Optional[str]
@@ -116,10 +118,7 @@ def attendance(
     questions = (
         task_cls.questions_for(config) if config is not None else task_cls.questions
     )
-    sessions = (
-        task_cls.sessions_for(config) if config is not None else task_cls.sessions
-    )
-    present = tuple(kind_label(k) for k in questions) + tuple(sessions)
+    present = tuple(kind_label(k) for k in questions)
     proposer = task_cls.proposer
     later = kind_label(proposer.kind) if proposer is not None else None
     return Attendance(

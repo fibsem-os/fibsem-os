@@ -22,16 +22,7 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from psygnal.containers import EventedDict
-
 from fibsem.acting import ActorKind
-from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
-    AutoLamellaTaskProtocol,
-    AutoLamellaWorkflowConfig,
-    Experiment,
-)
-from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.applications.autolamella.workflows.tasks.rough import (
     MillRoughTask,
@@ -39,8 +30,8 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
 )
 from fibsem.milling import FibsemMillingStage
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import TASK_RESULT, DecisionOutcome
+from tests.fixtures.main_window import main_window
 
 ROUGH = "Rough Milling"
 MSG = "Run the rough mill."
@@ -49,34 +40,19 @@ FIRST = f"{MSG} Press Run Milling to mill, or Skip to go on without milling."
 
 @pytest.fixture
 def ui(qapp, monkeypatch, tmp_path):
-    """A real AutoLamellaUI (Demo) holding an experiment whose Rough Milling is
+    """A real main window (Demo) holding an experiment whose Rough Milling is
     supervised, with the beam time of the mill itself stubbed at the task."""
     from fibsem.applications.autolamella.workflows.tasks import base
 
     monkeypatch.setattr(base, "run_milling_task", _mill)
-    widget = AutoLamellaUI(parent_ui=None)
-    widget.system_widget.connect_to_microscope()
-    experiment = Experiment(path=tmp_path, name="continue-exp")
-    os.makedirs(experiment.path, exist_ok=True)
-    experiment.task_protocol = AutoLamellaTaskProtocol(
-        workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[
-                AutoLamellaTaskDescription(
-                    name=ROUGH, required=True, attention=Attention.supervised
-                )
-            ]
-        )
-    )
-    experiment.add_new_lamella(
-        widget.microscope.get_microscope_state(),
-        EventedDict({ROUGH: MillRoughTaskConfig(task_name=ROUGH)}),
-    )
-    experiment.positions[0].path.mkdir(parents=True, exist_ok=True)
-    widget.experiment = experiment
-    yield widget
-    if widget.microscope is not None:
-        widget.microscope.disconnect()
-    widget.close()
+    with main_window(
+        qapp,
+        tmp_path,
+        "continue-exp",
+        {ROUGH: MillRoughTaskConfig(task_name=ROUGH)},
+        supervised=[ROUGH],
+    ) as window:
+        yield window.autolamella_ui
 
 
 def _mill(*args, **kwargs):

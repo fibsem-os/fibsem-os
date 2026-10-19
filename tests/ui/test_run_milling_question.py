@@ -1,11 +1,12 @@
 """The milling question and its loop: the task mills, the question decides.
 
-The loop is the task's, on the workflow thread (FIB-1236): it asks
-:class:`RunMillingTask`, mills on ``run``, and asks again with the pass counted
-and the run's error. The responder only shows the config and answers with a
-:class:`MillingDecision`: the action and the config as the editor then held it.
-So whoever answers, the operator at the editor or an agent through a value,
-changes what is milled the same way, by answering with it.
+The loop is the task's, on the workflow thread (FIB-1236): each pass is a
+``milling`` question on the record, it mills on ``run``, and asks again with
+the pass counted and the run's error. The window shows the pass on the prompt
+bar over the editor, and a button decides it with the action and the config as
+the editor then held it. So whoever decides, the operator at the editor or an
+agent through ``decide``, changes what is milled the same way, by deciding
+with it.
 
 ``run_milling_task`` is stubbed at the task's import site: the loop, the
 prompt, the editor and the answers are real, only the beam time is gone.
@@ -23,16 +24,7 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from psygnal.containers import EventedDict
-
-from fibsem.acting import TASK, current_actor
-from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
-    AutoLamellaTaskProtocol,
-    AutoLamellaWorkflowConfig,
-    Experiment,
-)
-from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+from fibsem.acting import TASK, Actor, current_actor
 from fibsem.applications.autolamella.workflows.tasks import base
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.applications.autolamella.workflows.tasks.rough import (
@@ -41,13 +33,17 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
 )
 from fibsem.milling import FibsemMillingStage
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.workflows.attention import Attention
-from fibsem.workflows.interaction import (
+from fibsem.workflows.proposals import (
+    ACTION_ACCEPT,
     ACTION_EDIT,
     ACTION_RUN,
-    MillingEdit,
+    MILLING,
+    Decision,
+    DecisionOutcome,
+    patch_values,
 )
 from fibsem.workflows.status import HoldKind
+from tests.fixtures.main_window import main_window
 from tests.run_state import Stopped
 
 ROUGH = "Rough Milling"
@@ -88,34 +84,19 @@ def ui(qapp, monkeypatch, tmp_path):
     monkeypatch.setattr(
         base, "get_task_supervision", lambda *_: supervision["supervised"]
     )
-    widget = AutoLamellaUI(parent_ui=None)
-    widget.system_widget.connect_to_microscope()
-    experiment = Experiment(path=tmp_path, name="milling-question-exp")
-    os.makedirs(experiment.path, exist_ok=True)
-    experiment.task_protocol = AutoLamellaTaskProtocol(
-        workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[
-                AutoLamellaTaskDescription(
-                    name=ROUGH, required=True, attention=Attention.supervised
-                )
-            ]
-        )
-    )
-    experiment.add_new_lamella(
-        widget.microscope.get_microscope_state(),
-        EventedDict({ROUGH: MillRoughTaskConfig(task_name=ROUGH)}),
-    )
-    experiment.positions[0].path.mkdir(parents=True, exist_ok=True)
-    widget.experiment = experiment
-    widget._mills = mills  # for the tests to inspect
-    widget._mill_failures = failures  # errors the next runs end with, in order
-    widget._supervision = supervision
-    widget._on_mill = on_mill  # called at the end of each mill
-    yield widget
-    widget.session.runner.manager = None
-    if widget.microscope is not None:
-        widget.microscope.disconnect()
-    widget.close()
+    with main_window(
+        qapp,
+        tmp_path,
+        "milling-question-exp",
+        {ROUGH: MillRoughTaskConfig(task_name=ROUGH)},
+        supervised=[ROUGH],
+    ) as window:
+        widget = window.autolamella_ui
+        widget._mills = mills  # for the tests to inspect
+        widget._mill_failures = failures  # errors the next runs end with, in order
+        widget._supervision = supervision
+        widget._on_mill = on_mill  # called at the end of each mill
+        yield widget
 
 
 def _task(ui):
@@ -187,6 +168,14 @@ def _finish(thread, qapp, timeout_s=10.0):
     thread.join(timeout=1.0)
 
 
+def _pass(ui):
+    """The pass up on the prompt bar: the milling question being asked."""
+    assert ui._loop_question is not None, "no pass is up"
+    proposal = ui._loop_question[2]
+    assert proposal.kind == MILLING and proposal.asking
+    return proposal
+
+
 def _stop(ui, task):
     task._manager.stop()
     ui.session.runner.manager = Stopped()
@@ -204,14 +193,14 @@ def test_run_then_accept_mills_once_on_the_workflow_thread(ui, qapp):
 
     assert ui.pushButton_yes.text() == "Run Milling"
     assert ui.pushButton_no.text() == "Skip"
-    assert ui.ui_responder.pending_question().passes == 0
-    assert ui.hold is not None and ui.hold.kind is HoldKind.question
+    assert _pass(ui).provenance["passes"] == 0
+    assert ui.hold is not None and ui.hold.kind is HoldKind.decision
 
     ui.pushButton_yes.click()  # run
     _wait_for_prompt(ui, qapp, AGAIN)
     assert len(ui._mills) == 1
     assert ui._mills[0].thread is thread, "the task mills, not the GUI"
-    assert ui.ui_responder.pending_question().passes == 1
+    assert _pass(ui).provenance["passes"] == 1
     assert ui.pushButton_yes.text() == "Mill Again"
     assert ui.pushButton_no.text() == "Accept"
 
@@ -232,7 +221,7 @@ def test_mill_again_runs_a_second_pass(ui, qapp):
     ui.pushButton_yes.click()  # Mill Again
     _wait(qapp, lambda: len(ui._mills) == 2)
     _wait_for_prompt(ui, qapp, AGAIN)
-    assert ui.ui_responder.pending_question().passes == 2
+    assert _pass(ui).provenance["passes"] == 2
     ui.pushButton_no.click()
     _finish(thread, qapp)
 
@@ -248,12 +237,12 @@ def test_a_failed_mill_asks_again_with_the_error(ui, qapp):
     ui.pushButton_yes.click()  # run, and it fails
     _wait_for_prompt(ui, qapp, f"Milling failed: could not load type\n\n{AGAIN}")
     assert thread.is_alive(), "a failed mill does not end the question"
-    assert ui.ui_responder.pending_question().last_error == "could not load type"
+    assert _pass(ui).provenance["last_error"] == "could not load type"
 
     ui.pushButton_yes.click()  # retry, and it succeeds
     _wait_for_prompt(ui, qapp, AGAIN)
     assert len(ui._mills) == 2
-    assert ui.ui_responder.pending_question().passes == 2
+    assert _pass(ui).provenance["passes"] == 2
 
     ui.pushButton_no.click()
     _finish(thread, qapp)
@@ -354,35 +343,86 @@ def test_accept_returns_what_was_milled_not_a_later_edit(ui, qapp):
 
 
 def test_an_agents_edit_lands_in_the_editor_and_asks_again(ui, qapp):
-    """``edit`` makes the change and asks again; nothing mills. The edit is
+    """``edit`` takes the change and asks again; nothing mills. The edit is
     in the editor for the operator to see, and in the config the next run
     mills."""
     task, thread, outcome = _start(ui, qapp)
-    question_id = ui.ui_responder.pending_question_and_id()[1]
+    lamella = ui.experiment.positions[0]
+    asked = _pass(ui)
 
-    edit = MillingEdit(
-        action=ACTION_EDIT,
-        config=None,
-        patch={"stages.Rough 2.pattern.depth": 2.5e-6},
+    edited = patch_values(
+        MILLING, dict(asked.values), {"stages.Rough 2.pattern.depth": 2.5e-6}
     )
-    assert ui.ui_responder.submit_answer(True, question_id, value=edit).result(5)
-    _wait(
-        qapp,
-        lambda: ui.ui_responder.pending_question_and_id()[1] not in (None, question_id),
+    result = ui.experiment.decide(
+        lamella.id,
+        ROUGH,
+        Decision(
+            outcome=DecisionOutcome.Confirmed,
+            actor=Actor.agent("remote"),
+            values=edited,
+            via="server",
+            proposal_id=asked.id,
+            action=ACTION_EDIT,
+        ),
     )
+    assert result.applied, result.reason
+    _wait(qapp, lambda: ui._loop_question and ui._loop_question[2].id != asked.id)
     assert ui._mills == []
     shown = ui.milling_task_config_widget.get_config()
     assert shown.stages[1].pattern.depth == pytest.approx(2.5e-6)
 
-    question_id = ui.ui_responder.pending_question_and_id()[1]
-    run = MillingEdit(action=ACTION_RUN, config=None, patch=None)
-    assert ui.ui_responder.submit_answer(True, question_id, value=run).result(5)
+    again = _pass(ui)
+    result = ui.experiment.decide(
+        lamella.id,
+        ROUGH,
+        Decision(
+            outcome=DecisionOutcome.Confirmed,
+            actor=Actor.agent("remote"),
+            via="server",
+            proposal_id=again.id,
+            action=ACTION_RUN,
+        ),
+    )
+    assert result.applied, result.reason
     _wait_for_prompt(ui, qapp, AGAIN)
     assert ui._mills[0].config.stages[1].pattern.depth == pytest.approx(2.5e-6)
 
     ui.pushButton_no.click()
     _finish(thread, qapp)
     assert "error" not in outcome
+
+
+def test_every_pass_is_on_the_record_with_its_action(ui, qapp):
+    """One proposal per pass, sharing the run: Run, then Accept, each with
+    who decided it."""
+    task, thread, outcome = _start(ui, qapp)
+    ui.pushButton_yes.click()
+    _wait_for_prompt(ui, qapp, AGAIN)
+    ui.pushButton_no.click()
+    _finish(thread, qapp)
+
+    passes = [
+        p for p in ui.experiment.positions[0].proposals_from(ROUGH) if p.kind == MILLING
+    ]
+    assert [p.provenance["passes"] for p in passes] == [0, 1]
+    assert [p.current.action for p in passes] == [ACTION_RUN, ACTION_ACCEPT]
+    assert all(p.current.actor.kind.name == "operator" for p in passes)
+    assert len({p.task_id for p in passes}) == 1, "one run"
+
+
+def test_unsupervised_passes_are_recorded_unreviewed(ui, qapp):
+    """Nobody asked: the kind's silence, run once then accept, on the record
+    and not listed to check."""
+    ui._supervision["supervised"] = False
+    task, thread, outcome = _start(ui, qapp, wait_for=None)
+    _finish(thread, qapp)
+
+    passes = [
+        p for p in ui.experiment.positions[0].proposals_from(ROUGH) if p.kind == MILLING
+    ]
+    assert [p.current.outcome for p in passes] == [DecisionOutcome.Unreviewed] * 2
+    assert [p.current.action for p in passes] == [ACTION_RUN, ACTION_ACCEPT]
+    assert not any(e[2].kind == MILLING for e in ui.experiment.proposals_to_check())
 
 
 def test_a_stop_interrupts_the_prompt(ui, qapp):
@@ -477,8 +517,10 @@ def test_a_mill_run_by_hand_is_not_the_task_s(ui, qapp, monkeypatch):
         runs.append((current_actor(), path))
 
     monkeypatch.setattr(Milling, "run_task", by_hand)
-    ui.ui_responder._milling_widget().milling_widget.run_milling(_config("by-hand"))
-    _wait(qapp, lambda: runs)
+    widget = ui.ui_responder._milling_widget().milling_widget
+    widget.run_milling(_config("by-hand"))
+    _wait(qapp, lambda: runs and not widget.is_milling)
+    _settle(qapp, 0.1)  # its finished signal, before the window goes
 
     assert runs == [(None, None)]
 
@@ -495,6 +537,7 @@ def test_the_question_is_the_task_s_and_the_answer_the_operator_s(ui, qapp, tmp_
         ui.microscope,
         responder=ui.ui_responder,
         experiment_path=tmp_path,
+        experiment=ui.experiment,
         default_actor=OPERATOR,
     )
     try:
@@ -506,9 +549,10 @@ def test_the_question_is_the_task_s_and_the_answer_the_operator_s(ui, qapp, tmp_
     records = [
         r
         for r in read_events(tmp_path / EVENTS_FILENAME)
-        if r["kind"].startswith("prompt_")
+        if r["kind"] in ("proposal_asked", "proposal_decided")
+        and r["payload"]["kind"] == MILLING
     ]
     actors = {r["kind"]: r["actor"] for r in records}
-    assert actors == {"prompt_raised": "task", "prompt_answered": "operator"}
-    (answered,) = [r for r in records if r["kind"] == "prompt_answered"]
-    assert answered["payload"]["action"] == "skip"
+    assert actors == {"proposal_asked": "task", "proposal_decided": "operator"}
+    decided = [r for r in records if r["kind"] == "proposal_decided"]
+    assert decided[0]["payload"]["action"] == "skip"

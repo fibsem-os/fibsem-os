@@ -10,6 +10,7 @@ from fibsem.applications.autolamella.workflows._default_milling_config import (
     DEFAULT_MILLING_CONFIG,
 )
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
+from fibsem.workflows.proposals import MILLING
 
 
 @dataclass
@@ -29,7 +30,7 @@ class BasicMillingTask(AutoLamellaTask):
 
     # Work at the microscope with the tools, then Continue: the milling
     # session. What needs a person present when the task is supervised.
-    sessions = ("milling",)
+    questions = (MILLING,)
 
     config: BasicMillingTaskConfig
     config_cls: ClassVar[Type[BasicMillingTaskConfig]] = BasicMillingTaskConfig

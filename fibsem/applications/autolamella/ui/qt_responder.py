@@ -27,7 +27,6 @@ arrives belonged to a waiter that aborted and unwound, and is cancelled.
 import logging
 from concurrent.futures import InvalidStateError
 from copy import deepcopy
-from dataclasses import replace
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple, Type
 
 from PyQt5.QtCore import QObject, pyqtSignal
@@ -40,22 +39,12 @@ from fibsem.workflows.interaction import (
     Confirm,
     ConfirmDetection,
     EditAlignmentArea,
-    MillingDecision,
-    MillingEdit,
     PickPOI,
     Request,
-    RunAgainQuestion,
-    RunMillingTask,
-    RunSpotBurn,
     SetFluorescenceChannels,
     SetImages,
     SetMillingConfig,
-    SpotBurnDecision,
-    SpotBurnEdit,
     StalePromptError,
-    apply_milling_edit,
-    apply_spot_burn_edit,
-    mark_answered_by,
 )
 from fibsem.workflows.status import (
     Hold,
@@ -70,14 +59,6 @@ if TYPE_CHECKING:
     from fibsem.structures import FibsemImage, Point
 
 __all__ = ["QtResponder"]
-
-
-def _loop_action(request: RunAgainQuestion, clicked_yes: bool, value: object) -> str:
-    """What an answer to a run-again question (milling, spot burn) decides: its
-    value's action when it carries one (an agent's), else the button's."""
-    if isinstance(value, (MillingEdit, SpotBurnEdit)):
-        return value.action
-    return request.action_for(clicked_yes)
 
 
 def _poi_frame(responder: object, request: PickPOI) -> "FibsemImage":
@@ -147,8 +128,6 @@ class QtResponder(QObject):
             ConfirmDetection: self._confirm_detection,
             EditAlignmentArea: self._edit_alignment_area,
             PickPOI: self._pick_poi,
-            RunMillingTask: self._run_milling_task,
-            RunSpotBurn: self._run_spot_burn,
         }
         # (request, future, question_id): one attribute so a cross-thread reader sees
         # a question and its id as a single consistent pair. The question id names
@@ -265,8 +244,7 @@ class QtResponder(QObject):
         from live widget state — a :class:`FibsemRectangle` for
         ``EditAlignmentArea``, a :class:`Point` (microscope image coordinates)
         for ``PickPOI``, ``{name: Point}`` in image pixels for
-        ``ConfirmDetection``, a :class:`MillingEdit` for ``RunMillingTask``
-        and a :class:`SpotBurnEdit` for ``RunSpotBurn``. It is applied to the widget first, exactly as if the
+        ``ConfirmDetection``. It is applied to the widget first, exactly as if the
         operator had dragged it there, and then the ordinary click path reads
         it back — so the proposed geometry lands on screen, and attribution,
         the question id, and first-writer-wins all hold unchanged. A value on any
@@ -478,9 +456,7 @@ class QtResponder(QObject):
         pending = self._pending_question
         label = self._button_label(pending[0], response, value) if pending else None
         shown = self._buttons[0 if response else 1]
-        if not isinstance(value, (MillingEdit, SpotBurnEdit)):
-            # An action-carrying value names its own button; else the one shown.
-            label = shown or label
+        label = shown or label
         point = None
         if pending is not None and isinstance(pending[0], PickPOI):
             point = self._suggested_pixel(pending[0], value)
@@ -529,12 +505,6 @@ class QtResponder(QObject):
         request: "Request", response: bool, value: object = None
     ) -> Optional[str]:
         """The prompt button the suggested answer stands for."""
-        if isinstance(request, RunAgainQuestion) and isinstance(
-            value, (MillingEdit, SpotBurnEdit)
-        ):
-            # What it decides, where the button alone is unclear: "Accept:
-            # don't mill again" (sim session 2026-10-16).
-            return request.decided(value) or request.label_for(value.action)
         return getattr(request, "positive" if response else "negative", None)
 
     def _apply_value(self, request: "Request", value: object) -> None:
@@ -576,24 +546,6 @@ class QtResponder(QObject):
             if det_widget is None:
                 raise RuntimeError("No detection widget to move the features on.")
             det_widget.move_features(value)
-            return
-        if isinstance(request, RunSpotBurn):
-            if not isinstance(value, SpotBurnEdit):
-                raise ValueError("a RunSpotBurn value must be a SpotBurnEdit")
-            widget = self._ui.spot_burn_widget
-            if widget is None:
-                raise RuntimeError("No spot burn widget to place the points on.")
-            # On the settings as the widget holds them now, as for milling.
-            widget.set_settings(apply_spot_burn_edit(widget.get_settings(), value))
-            return
-        if isinstance(request, RunMillingTask):
-            if not isinstance(value, MillingEdit):
-                raise ValueError("a RunMillingTask value must be a MillingEdit")
-            # Made on the config as the editor holds it now, so the operator's
-            # own edits stay: the same changes, refused whole if they no longer
-            # fit (a stage renamed since the answer was checked).
-            widget = self._milling_widget()
-            widget.update_from_settings(apply_milling_edit(widget.get_config(), value))
             return
         raise ValueError(f"{type(request).__name__} answers carry no value.")
 
@@ -651,16 +603,6 @@ class QtResponder(QObject):
             if det is None:
                 return question_id, None
             return question_id, {f.name: deepcopy(f.px) for f in det.features}
-        if isinstance(request, RunSpotBurn):
-            widget = self._ui.spot_burn_widget
-            if widget is None:
-                return question_id, None
-            return question_id, deepcopy(widget.get_settings())
-        if isinstance(request, RunMillingTask):
-            try:
-                return question_id, deepcopy(self._milling_widget().get_config())
-            except RuntimeError:
-                return question_id, None
         return question_id, None
 
     def _dispatch(self, request: "Request", future: "Future") -> None:
@@ -825,9 +767,8 @@ class QtResponder(QObject):
         own rather than the shared prompt bar.
 
         The attention button uses this to go back to a question the operator
-        navigated away from: a detection is corrected on its own tab, a mill is
-        run on the milling tab, and neither is on the Microscope tab the button
-        otherwise goes to. Derived from the pending request rather than
+        navigated away from: a detection is corrected on its own tab, not on
+        the Microscope tab the button otherwise goes to. Derived from the pending request rather than
         remembered, so it cannot drift out of step with what was actually
         raised; ``None`` means the prompt is where the button already goes.
         """
@@ -836,11 +777,6 @@ class QtResponder(QObject):
         request = self._pending_question[0]
         if isinstance(request, ConfirmDetection):
             return self._ui.det_widget
-        if isinstance(request, RunMillingTask):
-            try:
-                return self._milling_widget()
-            except RuntimeError:
-                return None
         return None
 
     def _confirm_detection(self, request: ConfirmDetection, future: "Future") -> None:
@@ -936,23 +872,6 @@ class QtResponder(QObject):
         controller.fib_canvas.set_hint("drag to move")
         self._park_question(request, future, request.message, "Continue", None)
 
-    def _run_milling_task(self, request: RunMillingTask, future: "Future") -> None:
-        """Show the config in the editor and ask what to do with it.
-
-        The mill is the asker's (FIB-1236): it runs on the workflow thread, and
-        this only shows the config, takes the edits and answers with the
-        decision and the config as the editor then holds it. The editor's own
-        Run button stands down while a task owns the mill.
-        """
-        widget = self._milling_widget()
-        widget.update_from_settings(request.config)
-        widget.setEnabled(True)
-        self._ui.front_tab(widget)
-        widget.milling_widget.pushButton_run_milling.setVisible(False)
-        self._park_question(
-            request, future, request.prompt, request.positive, request.negative
-        )
-
     def abandon(self) -> None:
         """Drop whatever a finished run left behind. GUI thread, workflow end.
 
@@ -969,25 +888,6 @@ class QtResponder(QObject):
                 "prompt_cancelled",
                 {"type": type(pending[0]).__name__, "question_id": pending[2]},
             )
-
-    def _run_spot_burn(self, request: RunSpotBurn, future: "Future") -> None:
-        """Show the points in the spot-burn widget and ask what to do with them.
-
-        The burn is the asker's (FIB-1236), as the mill is: this shows the
-        settings, takes the edits and answers with the decision and the
-        settings as the widget then holds them. Without a spot-burn widget the
-        answer is None: optional hardware must not fail a workflow.
-        """
-        widget = self._ui.spot_burn_widget
-        if widget is None:
-            self._deliver(future, None)
-            return
-        widget.set_settings(request.settings)
-        self._ui.set_spot_burn_widget_active(True)
-        widget.set_workflow_mode(True)
-        self._park_question(
-            request, future, request.prompt, request.positive, request.negative
-        )
 
     def answer_confirm(
         self,
@@ -1014,9 +914,7 @@ class QtResponder(QObject):
         path), so the record shows the agent changed the widget, not just
         accepted what stood. ``suggested_by`` names who suggested the answer the
         operator took (FIB-1283): the answer is still the operator's.
-        ``value`` is the answer's value, already placed in the widget: a value
-        whose action says what the answer means (the milling question's) is
-        read for it.
+        ``value`` is the answer's value, already placed in the widget.
         """
         pending = self._pending_question
         if pending is None:
@@ -1044,8 +942,6 @@ class QtResponder(QObject):
             "response": bool(clicked_yes),
             "question_id": pending[2],
         }
-        if isinstance(request, RunAgainQuestion):
-            answered_payload["action"] = _loop_action(request, clicked_yes, value)
         if adjusted:
             answered_payload["adjusted"] = True
         if suggested_by:
@@ -1061,8 +957,6 @@ class QtResponder(QObject):
             if decided:
                 answered_payload["decided"] = decided
         self._emit_question_event("prompt_answered", answered_payload, actor=source)
-        # And to the asker, which records the decision the answer makes.
-        mark_answered_by(future, source)
         self._ui.workflow_status_signal.emit(WorkflowStatusEvent(message=""))
         if failure is not None:
             self._fail(future, failure)
@@ -1072,18 +966,6 @@ class QtResponder(QObject):
 
     def _answer(self, request: Request, clicked_yes: bool, value: object = None):
         """What the click means for this question's asker."""
-        if isinstance(request, RunMillingTask):
-            # The decision, and the config as the editor holds it: what the
-            # operator dragged and what an agent's value placed there.
-            return MillingDecision(
-                action=_loop_action(request, clicked_yes, value),
-                config=deepcopy(self._milling_widget().get_config()),
-            )
-        if isinstance(request, RunSpotBurn):
-            return SpotBurnDecision(
-                action=_loop_action(request, clicked_yes, value),
-                settings=deepcopy(self._ui.spot_burn_widget.get_settings()),
-            )
         if isinstance(request, ConfirmDetection):
             # Both the read-back and the save used to straddle threads: the
             # workflow thread called _get_detected_features across the seam, then

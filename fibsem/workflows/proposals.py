@@ -67,6 +67,25 @@ ALIGNMENT_AREA = "alignment_area"
 # whose confirmed values make items rather than edit the one the proposal is
 # on, so its writer is the experiment's (``prepare_items_at``).
 OVERVIEW_POSITIONS = "overview_positions"
+# One pass of a loop the task runs and asks about again: a mill, a spot burn.
+# The value is what the pass would run (the milling config, the spot-burn
+# settings) and the decision says what to do with it (``actions``): run it and
+# ask again, take an edit and ask again, or go on. One proposal per pass, so
+# every pass and who decided it is on the record. Asked mid-task, so the value
+# is written nowhere: the task runs what it is handed.
+MILLING = "milling"
+SPOT_BURN = "spot_burn"
+
+# What a pass may be decided as. Each has one meaning whenever it is asked
+# (FIB-1297): ``run`` runs the value as decided and asks again; ``edit`` takes
+# the value as decided and asks again, nothing runs; ``skip`` goes on without
+# running it (before any pass); ``accept`` goes on with what was run (after a
+# pass, or when running is off).
+ACTION_RUN = "run"
+ACTION_EDIT = "edit"
+ACTION_SKIP = "skip"
+ACTION_ACCEPT = "accept"
+LOOP_ACTIONS = (ACTION_RUN, ACTION_EDIT, ACTION_SKIP, ACTION_ACCEPT)
 
 
 class DecisionOutcome(Enum):
@@ -125,6 +144,33 @@ class ProposalKind:
     # (``state``: tilt now?), where a reject is "don't": the task does not do
     # it and carries on.
     rejected_fails_task: bool = True
+    # What a decision on this kind says, beyond Confirmed: empty for a yes/no
+    # kind. A kind with actions is confirmed with one of them, and a proposal
+    # may narrow them for its own pass (``provenance["actions"]``: no skip
+    # once something has run).
+    actions: Tuple[str, ...] = ()
+    # What silence means, for a kind with actions: the first of these the
+    # proposal allows is what an unasked pass is recorded as deciding. A
+    # loop's is ("accept", "run"): run the first pass once, then go on.
+    silence: Tuple[str, ...] = ()
+    # Whether a proposal nobody looked at is listed to check. Off for a
+    # loop's passes: the task's result is what someone checks, and a pass
+    # each would bury it.
+    listed_to_check: bool = True
+
+    def allowed_actions(self, proposal: "Proposal") -> Tuple[str, ...]:
+        """What ``proposal`` may be decided as: its own narrowing of this
+        kind's actions, else all of them."""
+        narrowed = proposal.provenance.get("actions")
+        if narrowed is None:
+            return self.actions
+        return tuple(a for a in narrowed if a in self.actions)
+
+    def silent_action(self, proposal: "Proposal") -> str:
+        """What an unasked ``proposal`` is recorded as deciding: empty for a
+        yes/no kind."""
+        allowed = self.allowed_actions(proposal)
+        return next((a for a in self.silence if a in allowed), "")
 
 
 def rejected_fails_task(kind: str) -> bool:
@@ -171,6 +217,26 @@ register_proposal_kind(
 )
 register_proposal_kind(
     ProposalKind(name=OVERVIEW_POSITIONS, values=("positions",), label="Positions")
+)
+register_proposal_kind(
+    ProposalKind(
+        name=MILLING,
+        values=("milling_config",),
+        label="Milling",
+        actions=LOOP_ACTIONS,
+        silence=(ACTION_ACCEPT, ACTION_RUN),
+        listed_to_check=False,
+    )
+)
+register_proposal_kind(
+    ProposalKind(
+        name=SPOT_BURN,
+        values=("spot_burn",),
+        label="Spot burn",
+        actions=LOOP_ACTIONS,
+        silence=(ACTION_ACCEPT, ACTION_RUN),
+        listed_to_check=False,
+    )
 )
 
 
@@ -315,6 +381,28 @@ def _positions_from_dict(value: Any) -> Any:
 
 
 register_value_codec("positions", _positions_to_dict, _positions_from_dict)
+
+
+def _milling_config_from_dict(value: Any) -> Any:
+    from fibsem.milling.tasks import FibsemMillingTaskConfig
+
+    return (
+        FibsemMillingTaskConfig.from_dict(value) if isinstance(value, dict) else value
+    )
+
+
+def _spot_burn_from_dict(value: Any) -> Any:
+    from fibsem.imaging.spot import SpotBurnSettings
+
+    return SpotBurnSettings.from_dict(value) if isinstance(value, dict) else value
+
+
+def _to_dict(value: Any) -> Any:
+    return value.to_dict() if hasattr(value, "to_dict") else value
+
+
+register_value_codec("milling_config", _to_dict, _milling_config_from_dict)
+register_value_codec("spot_burn", _to_dict, _spot_burn_from_dict)
 
 
 class ValueRefused(ValueError):
@@ -496,6 +584,100 @@ register_value_writer("alignment_area", _prepare_alignment_area)
 register_value_writer("positions", _prepare_positions)
 
 
+def _prepare_milling_config(experiment: Any, item: Any, value: Any) -> PreparedWrite:
+    """Checked, and written nowhere: the task mills the config it is handed,
+    and what it milled goes on the task's own config when the loop ends."""
+    from fibsem.milling.tasks import FibsemMillingTaskConfig
+
+    if not isinstance(value, FibsemMillingTaskConfig):
+        raise ValueRefused(
+            f"milling_config must be a milling config, not {type(value).__name__}."
+        )
+    return PreparedWrite.nothing()
+
+
+def _prepare_spot_burn(experiment: Any, item: Any, value: Any) -> PreparedWrite:
+    """Checked, and written nowhere, as ``milling_config`` is: every point in
+    the frame (fractions, 0 to 1), a positive current, an exposure in range."""
+    import math
+
+    from fibsem.imaging.spot import SpotBurnSettings
+    from fibsem.services.spot_burn import in_frame
+
+    if not isinstance(value, SpotBurnSettings):
+        raise ValueRefused(
+            f"spot_burn must be spot-burn settings, not {type(value).__name__}."
+        )
+    for pt in value.coordinates:
+        if not isinstance(pt, Point) or not in_frame(pt):
+            raise ValueRefused(
+                f"point {pt} is outside the frame: x and y are fractions, 0 to 1."
+            )
+    for key in ("milling_current", "exposure_time"):
+        number = getattr(value, key)
+        if (
+            isinstance(number, bool)
+            or not isinstance(number, (int, float))
+            or not math.isfinite(number)
+            or number <= 0
+        ):
+            raise ValueRefused(f"{key} is a positive number.")
+    limits = SpotBurnSettings.params["exposure_time"].limits
+    if not limits.min <= value.exposure_time <= limits.max:
+        raise ValueRefused(
+            f"exposure_time {value.exposure_time:g} s is outside "
+            f"{limits.min:g} to {limits.max:g} s."
+        )
+    return PreparedWrite.nothing()
+
+
+register_value_writer("milling_config", _prepare_milling_config)
+register_value_writer("spot_burn", _prepare_spot_burn)
+
+
+# How a value is edited by naming fields rather than sending it whole: a
+# decider changing one depth of a milling config sends ``{"stages.Polish
+# 1.pattern.depth": 1e-6}``, not the config. ``patch(value, fields)`` returns
+# the value with the fields set, a new one, or raises ``ValueRefused``.
+_VALUE_PATCHERS: Dict[str, Callable[[Any, Dict[str, Any]], Any]] = {}
+
+
+def register_value_patcher(
+    name: str, patch: Callable[[Any, Dict[str, Any]], Any]
+) -> None:
+    _VALUE_PATCHERS[name] = patch
+
+
+def patch_values(
+    kind: str, values: Dict[str, Any], fields: Dict[str, Any]
+) -> Dict[str, Any]:
+    """``values`` with ``fields`` set on the one value of ``kind`` that takes
+    a patch. Refused (``ValueRefused``) when the kind has no such value."""
+    carried = PROPOSAL_KINDS[kind].values if kind in PROPOSAL_KINDS else ()
+    patchable = [n for n in carried if n in _VALUE_PATCHERS]
+    if len(patchable) != 1:
+        raise ValueRefused(f"A {kind} proposal's values are not edited by field.")
+    name = patchable[0]
+    if name not in values:
+        raise ValueRefused(f"No {name} to edit.")
+    return {**values, name: _VALUE_PATCHERS[name](values[name], fields)}
+
+
+def _patch_milling_config(config: Any, fields: Dict[str, Any]) -> Any:
+    from fibsem.milling.tasks import (
+        InvalidMillingEdit,
+        patch_milling_config,
+    )
+
+    try:
+        return patch_milling_config(config, fields)
+    except InvalidMillingEdit as exc:
+        raise ValueRefused(str(exc)) from None
+
+
+register_value_patcher("milling_config", _patch_milling_config)
+
+
 def compute_delta(proposed: Any, confirmed: Any) -> Any:
     """confirmed - proposed, for the value types a delta means something on.
     None where it does not."""
@@ -605,13 +787,16 @@ class Decision:
     # fact about where the proposal came from. Empty on records and from
     # callers that predate it, which are checked by the run as before.
     proposal_id: str = ""
+    # What was decided, for a kind with actions (a loop's pass: run, edit,
+    # skip, accept). Empty for a yes/no kind, and not saved then.
+    action: str = ""
 
     def __post_init__(self) -> None:
         # a string from the file, the wire or a test is accepted and parsed
         self.actor = Actor.parse(self.actor)
 
     def to_dict(self) -> dict:
-        return {
+        doc = {
             "outcome": self.outcome.name,
             "actor": str(self.actor),
             "values": _encode_values(self.values),
@@ -621,6 +806,9 @@ class Decision:
             "task_id": self.task_id,
             "proposal_id": self.proposal_id,
         }
+        if self.action:
+            doc["action"] = self.action
+        return doc
 
     @classmethod
     def from_dict(cls, data: dict) -> "Decision":
@@ -633,6 +821,7 @@ class Decision:
             via=data.get("via", ""),
             task_id=data.get("task_id", ""),
             proposal_id=data.get("proposal_id", ""),
+            action=data.get("action", ""),
         )
 
 

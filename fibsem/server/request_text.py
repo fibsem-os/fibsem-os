@@ -1749,9 +1749,15 @@ def _line(
         if outcome.startswith("reject"):
             change = f"Reject the proposal: {a.get('reason', '')}".rstrip(": ")
         else:
-            change = "Confirm the proposal"
+            change = (
+                f"Decide the pass: {a.get('action')}"
+                if a.get("action")
+                else "Confirm the proposal"
+            )
             if a.get("values"):
                 change += f" with {_values_text(a.get('values'))}"
+            if a.get("patch"):
+                change += f", setting {_values_text(a.get('patch'))}"
         name = _review_item(get("/app/workflow/reviews"), a.get("item_id"))
         return {"what": f"{name or a.get('item_id')} · {task}", "change": change}
     if tool == "prompt_answer":

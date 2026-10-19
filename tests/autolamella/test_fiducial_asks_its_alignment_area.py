@@ -22,7 +22,7 @@ from fibsem.applications.autolamella.workflows.tasks.fiducial import (
     MillFiducialTaskConfig,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
-from fibsem.workflows.proposals import ALIGNMENT_AREA
+from fibsem.workflows.proposals import ALIGNMENT_AREA, MILLING
 
 FIDUCIAL = "Mill Fiducial"
 CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
@@ -44,12 +44,11 @@ def microscope():
 
 
 def test_the_area_is_a_question_with_a_switch():
-    assert MillFiducialTask.questions == (ALIGNMENT_AREA,)
-    assert MillFiducialTask.sessions == ("milling",)
+    assert MillFiducialTask.questions == (MILLING, ALIGNMENT_AREA)
     on = MillFiducialTaskConfig(task_name=FIDUCIAL)
     off = MillFiducialTaskConfig(task_name=FIDUCIAL, confirm_alignment_area=False)
-    assert MillFiducialTask.questions_for(on) == (ALIGNMENT_AREA,)
-    assert MillFiducialTask.questions_for(off) == ()
+    assert MillFiducialTask.questions_for(on) == (MILLING, ALIGNMENT_AREA)
+    assert MillFiducialTask.questions_for(off) == (MILLING,)
 
 
 def test_the_question_sits_on_the_image_the_mill_left_behind(microscope, tmp_path):

@@ -34,9 +34,10 @@ leave the click to the operator, with a note saying why.
 4. **First writer wins, and the operator outranks you.** If they answer first,
    your job for that question is over. Never race them.
 5. **A recorded question is decided, not answered.** A task asks a
-   position, an alignment area or a detection on the item's record and
-   stops on it; the operator sees a position on the prompt bar and
-   everything else in the Review tab. No prompt is raised for you: the watcher prints a
+   position, an alignment area, a detection, or a mill's or spot burn's
+   pass on the item's record and stops on it; the operator sees a
+   position or a pass on the prompt bar and everything else in the Review
+   tab. No prompt is raised for you: the watcher prints a
    `QUESTION item=… task=…` line, and `review_list` lists it with
    `holding_the_run: true` (its `proposal_id`, `kind`, `values` and image
    are there). Decide it with `review_decide`: `item_id`, `task_name`,
@@ -65,26 +66,26 @@ message; it may be a position instruction ("double click to move… press
 Continue") — for an already-placed item, Continue is safe; for a *new*
 placement, that is the operator's decision (see the ladder).
 
-**`RunMillingTask`** — the milling question. Answer with an action in
-`value` (required): `run`, `edit`, `skip` or `accept`; the payload's
-`actions` lists the ones allowed now, and `passes` says how many times the
-mill has run for this question.
-- *Before a pass* (`passes: 0`): `run` mills the config as shown; check
-  `task_name` and the stages look right first, on `image` (the FIB view
-  with the patterns drawn). **`skip` goes on without milling.** That is
-  the operator's call; escalate rather than skip.
+**A `milling` review** — one pass of the mill, a recorded question (rule
+5): `values.milling_config` is the config this pass would mill, and the
+image is the FIB view it sits on. Decide it with `review_decide` Confirmed
+and an `action`: `provenance.actions` lists the ones allowed now, and
+`provenance.passes` says how many times the mill has run for this task. No
+values mills it as proposed.
+- *Before a pass* (`passes: 0`): `run` mills the config; check the config's
+  name and the stages look right first (`milling_preview_patterns` draws
+  them). **`skip` goes on without milling.** That is the operator's call;
+  escalate rather than skip.
 - *After a pass* (`passes` ≥ 1): **`run` mills AGAIN, `accept` goes on.**
   Pull a fresh image (rules 2–3), judge it, and accept. Do not re-mill
-  without a reason you can state. `last_error` says why the last run
-  failed, if it did.
-- *Edits*: `config` is the task's milling config, and `fields` explains
-  every option, with `unit` and `not_used` for one nothing reads (a patch
-  to it is refused, with why). Change it by `patch` (dotted paths, SI
-  units, a stage by name or index: `{"action": "run", "patch":
-  {"stages.Polish 1.milling.milling_current": 1e-11}}`) or by a whole
-  `config` (add, remove, reorder stages, change a pattern type). `edit`
-  applies the change and asks again without milling, so you can see it
-  land on the drawn patterns first. Edits are the operator's call unless
+  without a reason you can state. `provenance.last_error` says why the last
+  run failed, if it did.
+- *Edits*: change the config by `patch` (dotted paths, SI units, a stage by
+  name or index: `{"action": "run", "patch": {"stages.Polish
+  1.milling.milling_current": 1e-11}}`) or by a whole
+  `values.milling_config` (add, remove, reorder stages, change a pattern
+  type). `edit` takes the change and asks again without milling, so you can
+  see it on the next pass first. Edits are the operator's call unless
   delegated, like any placement.
 - Between passes the question lends control, as any other does: image,
   move or re-align before the next `run`. Never during a mill.
@@ -118,16 +119,15 @@ was right; move one only for a correction you can state
 (`{"features": [{"name", "px": {"x", "y"}}]}`). The model's points are
 kept beside your correction, as they are when the operator drags one.
 
-**`RunSpotBurn`** — points to burn on the FIB image, the same loop as the
-milling question: answer with an `action` in `value` (`run`, `edit`, `skip`
-or `accept`, as `actions` allows), `passes` counts the burns and
-`last_error` says why the last one failed. Before a burn, `run` burns the
-points as shown and **`skip` goes on without burning** (the operator's
-call). After one, `run` burns AGAIN and `accept` goes on; look at the FIB
-image the burn left first. Edits ride the same value: `points`
-(`[{"x", "y"}]`, fractions of the frame, origin top-left; all of them,
-replacing the old), `milling_current` (A) and `exposure_time` (s, within
-`exposure_limits`). Placing points is a placement: held for the operator
+**A `spot_burn` review** — one pass of the spot burn, the same loop as
+the mill's: `values.spot_burn` is `{coordinates: [{x, y}], milling_current,
+exposure_time}` (fractions of the frame, origin top-left; A; s), decided
+Confirmed with an `action` from `provenance.actions`. Before a burn, `run`
+burns the points as proposed and **`skip` goes on without burning** (the
+operator's call). After one, `run` burns AGAIN and `accept` goes on; look at
+the FIB image the burn left first. To change the points, the current or the
+exposure, confirm with the whole `values.spot_burn` (all the points,
+replacing the old). Placing points is a placement: held for the operator
 unless delegated. The question lends control between burns.
 
 **A `state` review** — the task's position, "press Continue when ready" on
