@@ -67,7 +67,7 @@ import pandas as pd
 from fibsem.acting import ActorKind
 from fibsem.cancellation import OperationCancelledError
 from fibsem.devices.sample_loader import GridExchangeError
-from fibsem.hooks import HookEvent, HookManager
+from fibsem.hooks import HookManager
 from fibsem.util import timestamps
 from fibsem.workflows.grid.registry import (
     run_grid_task,
@@ -77,7 +77,7 @@ from fibsem.workflows.interaction import Responder
 from fibsem.workflows.manager import BaseTaskManager
 from fibsem.workflows.queue import WorkItem
 from fibsem.workflows.runner import GRIDS
-from fibsem.workflows.status import TaskState, TaskStatus, post_status
+from fibsem.workflows.status import TaskState, TaskStatus
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
@@ -321,145 +321,100 @@ class GridTaskManager(BaseTaskManager):
             if not grid.latest_run_completed(req)
         ]
 
-    def _run_queue(self) -> None:
-        with self._recording():
-            self._fire_workflow_hook(HookEvent.WORKFLOW_STARTED)
-            try:
-                self._prepare()
-                self._run_items()
-            except Exception as e:
-                self._end_escaped_run(e)
-                raise
+    CANCELLED_LINE = "Grid workflow cancelled by user."
+    TASK_LINES = (
+        "Starting {task} on grid {item}.",
+        "Completed {task} on grid {item}.",
+        "Error in {task} on grid {item}.",
+    )
 
-    def _run_items(self) -> None:
-        while not self.is_stopped:
-            item = self._next_item()
-            if item is None:
-                if not self.queue.is_empty:
-                    self._stall()
-                break
-
-            # A stop_task click that landed between two tasks was aimed at the one
-            # that has just finished, not at this one.
-            self._task_stop_event.clear()
-
-            grid = self.experiment.get_grid_by_name(item.item_name)
-            if grid is None:
-                msg = (
-                    f"Skipping {item.task_name}: no grid named {item.item_name} "
-                    "in the experiment."
-                )
-                logging.warning(msg)
-                self.queue.mark_done(item, TaskStatus.Skipped)
-                self._emit_report(
-                    item=item,
-                    item_name=item.item_name,
-                    status=TaskStatus.Skipped,
-                    msg=msg,
-                    skip_reason=SKIP_GRID_NOT_FOUND,
-                )
-                self._fire_skipped_hook(
-                    item.task_name, item.item_name, SKIP_GRID_NOT_FOUND
-                )
-                continue
-
-            if item.task_name == LOAD_ENTRY_NAME:
-                self._run_load_step(item, grid)
-                continue
-
-            # Before the load: a task that is gone, or cannot use what it
-            # requires, is not worth an exchange.
-            if self._skip_if_removed(item, grid):
-                continue
-            missing = self._missing_requirements(grid, item.task_name)
-            if missing:
-                msg = (
-                    f"Skipping {item.task_name} on {grid.name}: required "
-                    f"{', '.join(missing)} did not complete."
-                )
-                logging.info(msg)
-                self.queue.mark_done(item, TaskStatus.Skipped)
-                self._emit_report(
-                    item=item,
-                    item_name=grid.name,
-                    status=TaskStatus.Skipped,
-                    msg=msg,
-                    skip_reason=SKIP_MISSING_PREREQS,
-                )
-                self._fire_skipped_hook(
-                    item.task_name,
-                    grid.name,
-                    SKIP_MISSING_PREREQS,
-                    task_type=self._task_type(item.task_name),
-                    item_id=grid.id,
-                )
-                continue
-
-            try:
-                loaded = self._ensure_loaded(grid)
-            except OperationCancelledError as e:
-                self._cancel_load(item, grid, str(e))
-                continue
-            if not loaded:
-                reason = self._not_loaded[grid.name]
-                msg = f"Skipping {item.task_name} on {grid.name}: grid not loaded."
-                logging.info(f"{msg} {reason}")
-                self.queue.mark_done(item, TaskStatus.Skipped)
-                self._emit_report(
-                    item=item,
-                    item_name=grid.name,
-                    status=TaskStatus.Skipped,
-                    msg=msg,
-                    error_message=reason,
-                    skip_reason=SKIP_GRID_NOT_LOADED,
-                )
-                self._fire_skipped_hook(
-                    item.task_name,
-                    grid.name,
-                    SKIP_GRID_NOT_LOADED,
-                    task_type=self._task_type(item.task_name),
-                    item_id=grid.id,
-                )
-                continue
-            if self._skip_if_removed(item, grid):
-                continue
-
-            self._emit_report(
-                item=item,
-                item_name=grid.name,
-                status=TaskStatus.InProgress,
-                msg=f"Starting {item.task_name} on grid {grid.name}.",
+    def _record_for(self, item: WorkItem) -> Optional[GridRecord]:
+        grid = self.experiment.get_grid_by_name(item.item_name)
+        if grid is None:
+            msg = (
+                f"Skipping {item.task_name}: no grid named {item.item_name} "
+                "in the experiment."
             )
-            err = self._run_single_task(item.task_name, grid)
-            final_status = grid.task_state.status
-            self.queue.mark_done(item, final_status)
-            if err is None:
-                msg = f"Completed {item.task_name} on grid {grid.name}."
-            else:
-                msg = f"Error in {item.task_name} on grid {grid.name}."
+            logging.warning(msg)
+            self.queue.mark_done(item, TaskStatus.Skipped)
             self._emit_report(
                 item=item,
-                item_name=grid.name,
-                status=final_status,
-                error_message=grid.task_state.status_message,
-                task_duration=grid.task_state.duration,
+                item_name=item.item_name,
+                status=TaskStatus.Skipped,
                 msg=msg,
+                skip_reason=SKIP_GRID_NOT_FOUND,
             )
+            self._fire_skipped_hook(item.task_name, item.item_name, SKIP_GRID_NOT_FOUND)
+        return grid
 
-        # The loop exits when the queue drains *or* on Stop; only one of those is a
-        # finished workflow.
-        if self.is_stopped:
-            self._fire_workflow_hook(HookEvent.WORKFLOW_CANCELLED)
-            self._say(workflow_info="Grid workflow cancelled by user.")
-        elif self.stalled:
-            # Drained with work waiting on decisions, and the wait ran out: not
-            # completed, not cancelled. The next Run picks up from there.
-            self._report_stall()
-        else:
-            if self.unload_at_end:
-                self._unload_at_end()
-            self._fire_workflow_hook(HookEvent.WORKFLOW_COMPLETED)
-            self._say(workflow_info=self._completion_message())
+    def _ready(self, item: WorkItem, grid: GridRecord) -> bool:
+        if item.task_name == LOAD_ENTRY_NAME:
+            self._run_load_step(item, grid)
+            return False
+
+        # Before the load: a task that is gone, or cannot use what it
+        # requires, is not worth an exchange.
+        if self._skip_if_removed(item, grid):
+            return False
+        missing = self._missing_requirements(grid, item.task_name)
+        if missing:
+            msg = (
+                f"Skipping {item.task_name} on {grid.name}: required "
+                f"{', '.join(missing)} did not complete."
+            )
+            logging.info(msg)
+            self.queue.mark_done(item, TaskStatus.Skipped)
+            self._emit_report(
+                item=item,
+                item_name=grid.name,
+                status=TaskStatus.Skipped,
+                msg=msg,
+                skip_reason=SKIP_MISSING_PREREQS,
+            )
+            self._fire_skipped_hook(
+                item.task_name,
+                grid.name,
+                SKIP_MISSING_PREREQS,
+                task_type=self._task_type(item.task_name),
+                item_id=grid.id,
+            )
+            return False
+
+        try:
+            loaded = self._ensure_loaded(grid)
+        except OperationCancelledError as e:
+            self._cancel_load(item, grid, str(e))
+            return False
+        if not loaded:
+            reason = self._not_loaded[grid.name]
+            msg = f"Skipping {item.task_name} on {grid.name}: grid not loaded."
+            logging.info(f"{msg} {reason}")
+            self.queue.mark_done(item, TaskStatus.Skipped)
+            self._emit_report(
+                item=item,
+                item_name=grid.name,
+                status=TaskStatus.Skipped,
+                msg=msg,
+                error_message=reason,
+                skip_reason=SKIP_GRID_NOT_LOADED,
+            )
+            self._fire_skipped_hook(
+                item.task_name,
+                grid.name,
+                SKIP_GRID_NOT_LOADED,
+                task_type=self._task_type(item.task_name),
+                item_id=grid.id,
+            )
+            return False
+        return not self._skip_if_removed(item, grid)
+
+    def _complete(self) -> None:
+        if self.unload_at_end:
+            self._unload_at_end()
+        super()._complete()
+
+    def _end_run(self) -> None:
+        super()._end_run()
         if self.report_at_end:
             self._report_at_end()
         for line in self._grid_summary_lines():
@@ -699,47 +654,14 @@ class GridTaskManager(BaseTaskManager):
         self.experiment.save()
         raise OperationCancelledError(msg)
 
-    def _run_single_task(self, task_name: str, grid: GridRecord) -> Optional[Exception]:
-        """Execute one task on one grid. Returns the exception, or None."""
-        recorded = len(grid.task_history)
-        try:
-            run_grid_task(
-                self.microscope,
-                task_name,
-                self.experiment,
-                grid,
-                task_manager=self,
-            )
-        except Exception as e:
-            # The task records its own outcome before re-raising; this is the
-            # fallback for what fails before a task exists -- an unknown task name,
-            # a construction failure. Same cancellation predicate as GridTask, so
-            # the live state and the frozen history entry cannot disagree.
-            if self.should_abort or isinstance(
-                e, (OperationCancelledError, InterruptedError)
-            ):
-                logging.info(f"Task {task_name} on grid {grid.name} cancelled by user.")
-                grid.task_state.status = TaskStatus.Cancelled
-                grid.task_state.status_message = "Cancelled by user."
-            else:
-                logging.warning(
-                    f"Error running {task_name} on grid {grid.name}: {e}", exc_info=True
-                )
-                grid.task_state.status = TaskStatus.Failed
-                grid.task_state.status_message = str(e)
-            # A task freezes its own outcome into the history. One that failed
-            # before it existed left nothing there, so Results and the report would
-            # never hear of it: record it here, under this task's name.
-            if len(grid.task_history) == recorded:
-                self._record_unstarted(grid, task_name)
-            self.experiment.save()
-            return e
-        try:
-            self.experiment.save()
-        except Exception as e:
-            self._result_not_saved(grid, task_name, e)
-            raise
-        return None
+    def _run_task(self, task_name: str, grid: GridRecord) -> None:
+        run_grid_task(
+            self.microscope,
+            task_name,
+            self.experiment,
+            grid,
+            task_manager=self,
+        )
 
     def _record_unstarted(self, grid: GridRecord, task_name: str) -> None:
         """The history entry for a task that failed before it was constructed.
@@ -756,13 +678,6 @@ class GridTaskManager(BaseTaskManager):
         grid.task_history.append(deepcopy(state))
 
     # --- Reporting ---
-
-    def _say(
-        self, workflow_info: Optional[str] = None, status_bar: Optional[str] = None
-    ) -> None:
-        """A line for the workflow-information label or the status bar, that
-        gets out after a Stop too: the closing "cancelled" line is the point."""
-        post_status(self, "", workflow_info=workflow_info, status_bar=status_bar)
 
     def _task_type(self, task_name: str) -> str:
         try:
