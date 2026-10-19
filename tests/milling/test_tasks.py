@@ -583,6 +583,15 @@ def _plugin_stage(returns):
     return FibsemMillingStage(name="s", strategy=strategy)
 
 
+def test_stages_with_different_strategies_of_one_config_class_differ():
+    plugin = FibsemMillingStage(name="s", strategy=_PluginStrategy())
+    standard = FibsemMillingStage(name="s")
+
+    assert plugin != standard
+    assert not plugin.is_compatible_with(standard)
+    assert plugin == FibsemMillingStage(name="s", strategy=_PluginStrategy())
+
+
 def test_the_standard_strategy_says_what_it_milled(tmp_path):
     stage = FibsemMillingStage(name="rough")
     microscope, task = _task(tmp_path, stages=[stage], acquire_final_image=False)
