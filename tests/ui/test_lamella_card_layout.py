@@ -324,3 +324,23 @@ def test_a_mode_this_build_does_not_know_falls_back_the_same_way_everywhere():
         assert dialog.get_preferences().display.lamella_card_mode == fallback
     finally:
         dialog.deleteLater()
+
+
+def test_remove_asks_with_yes_and_no_and_no_is_the_default(monkeypatch):
+    """`QMessageBox.question(parent, title, text, buttons, default)`: the
+    buttons argument once carried only Yes, so the dialog had no No button."""
+    from PyQt5.QtWidgets import QMessageBox
+
+    asked = []
+
+    def question(parent, title, text, buttons, default):
+        asked.append((buttons, default))
+        return QMessageBox.No
+
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(question))
+    card = LamellaCardWidget(_lamella("short"), mode=MODE_STANDARD)
+    removed = []
+    card.remove_requested.connect(removed.append)
+    card._on_remove_clicked()
+    assert asked == [(QMessageBox.Yes | QMessageBox.No, QMessageBox.No)]
+    assert removed == []

@@ -517,7 +517,7 @@ class LamellaCardWidget(QWidget):
             self,
             "Remove Lamella",
             f"Remove '{self.lamella.name}'?",
-            QMessageBox.Yes,
+            QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
         if reply == QMessageBox.Yes:
