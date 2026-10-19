@@ -411,8 +411,8 @@ def build_app_router(context: Any) -> APIRouter:
     @router.post("/experiment/evidence")
     def add_evidence(body: Dict[str, Any]):
         # What the agent judged from, kept in the experiment: an image of the
-        # experiment's or one it made (uploaded, saved here), what it saw in it
-        # and marks on it. Changes nothing, like a note.
+        # experiment's or one it made (uploaded, saved here), with marks on it.
+        # Changes nothing, like a note.
         item_name = body.get("item_name")
         if item_name is not None and not isinstance(item_name, str):
             raise _missing_field("item_name, when given, is a string.")
@@ -420,7 +420,6 @@ def build_app_router(context: Any) -> APIRouter:
         def save() -> Dict[str, Any]:
             return evidence.save(
                 lambda: context.experiment_path,
-                body.get("text"),
                 image=body.get("image"),
                 upload=body.get("upload"),
                 marks=body.get("marks"),

@@ -1396,7 +1396,6 @@ def _uploaded(tmp_path):
     image.save(str(path))
     return {
         "evidence_id": "ab12cd34",
-        "text": "the trench floor sits 2 px high",
         "image": str(path),
         "uploaded": True,
         "marks": {"points": [{"x": 20, "y": 10, "label": "floor"}], "areas": []},
@@ -1407,18 +1406,15 @@ def test_a_request_without_evidence_says_so(qapp):
     card = AgentCard()
     card.set_request(_request())
     assert "No evidence" in _labels(card)
-    assert card.evidence_picture is None
     card.deleteLater()
 
 
-def test_a_request_shows_the_agent_s_evidence_under_why(qapp, tmp_path):
+def test_a_request_with_evidence_shows_no_text_of_its_own(qapp, tmp_path):
+    # The reason is the words; the evidence is the card's picture.
     card = AgentCard()
     card.set_request({**_request(), "evidence": _uploaded(tmp_path)})
-    shown = _labels(card)
-    assert "the trench floor sits 2 px high" in shown
-    assert "No evidence" not in shown
-    # An image the agent made is shown, its marks on it.
-    assert card.evidence_picture is not None
+    assert "No evidence" not in _labels(card)
+    assert "Evidence" not in _labels(card)
     card.deleteLater()
 
 
@@ -1437,6 +1433,6 @@ def test_a_recent_row_with_evidence_opens_it(qapp, tmp_path):
     (link,) = card.recent_evidence
     link.click()
     window = card.evidence_window
-    assert window is not None and evidence["text"] in _labels(window)
+    assert window is not None and "Stage · Move 2 µm in x" in _labels(window)
     window.close()
     card.deleteLater()

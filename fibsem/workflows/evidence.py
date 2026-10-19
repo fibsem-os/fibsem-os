@@ -1,5 +1,5 @@
-"""Evidence: the image someone judged from, what they saw in it, and marks on
-it, kept in the open experiment.
+"""Evidence: the image someone judged from, with marks on it, kept in the open
+experiment. The words for it are the reason of what cites it.
 
 An agent's acting call, request, suggestion, decision or note may cite one by
 id. The image is either one inside the experiment or one the agent made (an
@@ -28,7 +28,6 @@ EVIDENCE = "evidence"
 # this many pixels on its longest side.
 MAX_UPLOAD_BYTES = 4 * 1024 * 1024
 MAX_SIDE = 2048
-MAX_TEXT = 2000
 MAX_MARKS = 50
 MAX_LABEL = 80
 
@@ -155,7 +154,6 @@ def _save_upload(data: Any, target: str) -> None:
 
 def save(
     experiment_path: Callable[[], Optional[str]],
-    text: Any,
     image: Any = None,
     upload: Any = None,
     marks: Any = None,
@@ -165,15 +163,8 @@ def save(
     """Keep one piece of evidence in the open experiment; answer its record.
 
     One of *image* (a path inside the experiment) or *upload* (base64 PNG or
-    JPEG, saved into the experiment); *text*, what was seen in it; *marks*, as
-    `_marks` reads them; *source*, the experiment image an upload was drawn
-    from."""
-    if not isinstance(text, str) or not text.strip() or len(text) > MAX_TEXT:
-        raise EvidenceRefused(
-            422,
-            "missing_field",
-            f"Pass text (at most {MAX_TEXT} characters): what you saw in the image.",
-        )
+    JPEG, saved into the experiment); *marks*, as `_marks` reads them;
+    *source*, the experiment image an upload was drawn from."""
     if (image is None) == (upload is None):
         raise EvidenceRefused(
             422,
@@ -196,7 +187,6 @@ def save(
         path = _inside(image, root, "image")
     record = {
         "evidence_id": evidence_id,
-        "text": text.strip(),
         "image": path,
         "uploaded": upload is not None,
         "source": checked_source,
@@ -247,10 +237,8 @@ def find(experiment_path: Optional[str], evidence_id: Any) -> Optional[Dict[str,
 
 
 def frame_path(evidence: Optional[Dict[str, Any]]) -> Optional[str]:
-    """The beam image *evidence* is about, to draw values on: what an upload was
-    drawn from, else its own image; None for none."""
-    if not evidence:
+    """The beam image *evidence* is, to draw values on; None for none or for an
+    image the agent made, which is shown as it is."""
+    if not evidence or evidence.get("uploaded"):
         return None
-    return evidence.get("source") or (
-        None if evidence.get("uploaded") else evidence.get("image")
-    )
+    return evidence.get("image")

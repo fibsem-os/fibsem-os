@@ -112,9 +112,7 @@ def test_an_upload_is_saved_into_the_experiment(client, context):
     exp = context._session.experiment
     item = exp.positions[0].name
     marks = {"points": [{"x": 10, "y": 12, "label": "edge"}]}
-    resp = _keep(
-        client, text="edge 2 px left", upload=_png(), marks=marks, item_name=item
-    )
+    resp = _keep(client, upload=_png(), marks=marks, item_name=item)
     assert resp.status_code == 200, resp.text
     record = resp.json()
     folder = evidence.folder(os.path.realpath(exp.path))
@@ -130,7 +128,7 @@ def test_an_upload_is_saved_into_the_experiment(client, context):
 
 def test_paths_are_kept_relative_so_a_moved_experiment_finds_them(client, context):
     exp = context._session.experiment
-    record = _keep(client, text="x", upload=_png()).json()
+    record = _keep(client, upload=_png()).json()
     with open(
         os.path.join(evidence.folder(exp.path), f"{record['evidence_id']}.json")
     ) as f:
@@ -138,7 +136,7 @@ def test_paths_are_kept_relative_so_a_moved_experiment_finds_them(client, contex
 
 
 def test_a_large_upload_is_saved_at_most_2048_px(client):
-    resp = _keep(client, text="wide", upload=_png(3000, 1000, "JPEG"))
+    resp = _keep(client, upload=_png(3000, 1000, "JPEG"))
     assert resp.status_code == 200, resp.text
     with Image.open(resp.json()["image"]) as saved:
         assert saved.format == "PNG" and max(saved.size) == evidence.MAX_SIDE
@@ -147,13 +145,13 @@ def test_a_large_upload_is_saved_at_most_2048_px(client):
 @pytest.mark.parametrize(
     "body, status",
     [
-        ({"upload": _png()}, 422),  # no text
-        ({"text": "x"}, 422),  # no image
-        ({"text": "x", "upload": "not base64!"}, 422),
-        ({"text": "x", "upload": base64.b64encode(b"GIF89a").decode()}, 422),
-        ({"text": "x", "upload": _png(), "marks": {"points": [{"x": "a"}]}}, 422),
-        ({"text": "x", "upload": _png(), "item_name": "nope"}, 404),
-        ({"text": "x", "image": "/etc/hostname"}, 403),
+        ({}, 422),  # no image
+        ({"upload": _png(), "image": "/etc/hostname"}, 422),  # both
+        ({"upload": "not base64!"}, 422),
+        ({"upload": base64.b64encode(b"GIF89a").decode()}, 422),
+        ({"upload": _png(), "marks": {"points": [{"x": "a"}]}}, 422),
+        ({"upload": _png(), "item_name": "nope"}, 404),
+        ({"image": "/etc/hostname"}, 403),
     ],
 )
 def test_evidence_that_cannot_be_kept_is_refused(client, body, status):
@@ -163,11 +161,11 @@ def test_evidence_that_cannot_be_kept_is_refused(client, body, status):
 
 def test_an_upload_over_4_mb_is_refused(client):
     big = base64.b64encode(b"\x89PNG" + b"\0" * evidence.MAX_UPLOAD_BYTES).decode()
-    assert _keep(client, text="x", upload=big).status_code == 413
+    assert _keep(client, upload=big).status_code == 413
 
 
 def test_a_call_and_a_note_cite_the_evidence(client, context, microscope):
-    kept = _keep(client, text="face clean", upload=_png()).json()
+    kept = _keep(client, upload=_png()).json()
     cite = {**AGENT, EVIDENCE_HEADER: kept["evidence_id"]}
     note = client.post("/app/experiment/notes", headers=cite, json={"text": "accepted"})
     assert note.status_code == 200, note.text
@@ -230,7 +228,7 @@ def test_the_sidecar_keeps_a_file_and_the_call_cites_it(
                 "stage_move_relative",
                 {
                     "dx": 1e-6,
-                    "evidence": {"text": "edge 1 µm left", "file": str(overlay)},
+                    "evidence": {"file": str(overlay)},
                 },
             )
         )

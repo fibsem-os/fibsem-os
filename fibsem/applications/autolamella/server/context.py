@@ -2135,10 +2135,9 @@ class AutoLamellaAppContext:
             item_id = item.id
         record = save()
         logging.info(
-            "agent evidence %s%s: %s (%s)",
+            "agent evidence %s%s: %s",
             record["evidence_id"],
             f" [{item_name}]" if item_name else "",
-            record["text"],
             record["image"],
         )
         self.record_event(EVIDENCE, {**record, "item_id": item_id})

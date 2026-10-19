@@ -98,6 +98,7 @@ def suggestion_request(
         "request_id": suggestion.id,
         "status": "pending",
         "image": image or None,
+        "evidence": find_evidence(experiment_path, suggestion.evidence),
         "actions": [
             {
                 "tool": "proposal_decide",

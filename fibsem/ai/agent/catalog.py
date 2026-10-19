@@ -100,16 +100,17 @@ class ToolSpec:
 # The optional argument every acting tool takes (`ToolSpec.takes_evidence`):
 # what the agent judged from, kept in the experiment (fibsem.workflows.evidence).
 EVIDENCE_PARAM = (
-    "optional: what you judged from, kept in the experiment and shown to the "
-    "operator with this call (the card, Recent, the event log). "
-    "{text, image | file, marks?, source?, item_name?}: text, what you saw in "
-    "it, in a sentence or two; image, a path inside the experiment as the image "
-    "tools answered it; or file, an image you made yourself on this machine (an "
-    "overlay your code drew, a plot; PNG or JPEG, at most 4 MB, saved at most "
-    "2048 px), with source, the experiment image it was drawn from; marks, "
-    "{points: [{x, y, label?}], areas: [{x, y, width, height, label?}]} in the "
-    "image's pixels from its top left. Attach it whenever an image decided "
-    "what you do; without it the operator sees 'No evidence'"
+    "optional: the image you judged from, kept in the experiment and shown to "
+    "the operator as this call's picture; say what you saw in it in your reason. "
+    "{image | file, marks?, source?, item_name?}: image, a path inside the "
+    "experiment as the image tools answered it (the request's values are drawn "
+    "on it); or file, an image you made yourself on this machine (an overlay "
+    "your code drew, a plot; PNG or JPEG, at most 4 MB, saved at most 2048 px), "
+    "shown as it is, with source, the experiment image it was drawn from; "
+    "marks, {points: [{x, y, label?}], areas: [{x, y, width, height, label?}]} "
+    "in the image's pixels from its top left, labels naming what is where. "
+    "Attach it whenever an image decided what you do; without it the operator "
+    "sees 'No evidence'"
 )
 
 # Group first, then verb (plans: mcp-tool-naming). A new tool joins a group
@@ -1583,7 +1584,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         router="app",
         params={
             "actions": "list of {tool, arguments}, at most 20",
-            "reason": "why, for the operator, in two or three short sentences: what you saw, then why these actions follow. The card already says what each action does: don't restate it. Attach the image you judged from as evidence: the card shows it under Why, and draws the actions' points, areas and patterns on its beam image; without it, on the image the values were measured on",
+            "reason": "why, for the operator, in two or three short sentences: what you saw, then why these actions follow. The card already says what each action does: don't restate it. Attach the image you judged from as evidence: it is the card's picture, with the actions' points, areas and patterns drawn on it when it is a beam image; without it, the card draws them on the image the values were measured on",
         },
         note="Works at Assist only: at Drive make the calls yourself; refused (403 level) at Drive and Watch.",
     ),

@@ -284,7 +284,7 @@ function describe(e) {
     case "note": return [e.actor === "operator" ? "message" : (p.reply_to ? "reply" : "note"), esc(p.text) + cites(p)];
     case "evidence": {
       const file = String(p.image || "").split(/[\\/]/).pop();
-      return ["evidence", `${esc(p.text)} <span class="muted">${esc(p.evidence_id)} · ${esc(file)}${p.uploaded ? " (the agent's own)" : ""}</span>`];
+      return ["evidence", `${esc(file)}${p.uploaded ? " (the agent's own)" : ""} <span class="muted">${esc(p.evidence_id)}</span>`];
     }
     case "agent_note": return [p.reply_to ? "reply" : "note", esc(p.text)];
     case "operator_message": return ["message", esc(p.text)];

@@ -1722,7 +1722,7 @@ def _evidence_body(evidence):
     if not isinstance(evidence, dict):
         return _Failure(
             'refused (422): {"error_type": "invalid", "message": "evidence is '
-            '{text, image or file, marks?, source?, item_name?}"}'
+            '{image or file, marks?, source?, item_name?}"}'
         )
     body = {k: v for k, v in evidence.items() if k != "file"}
     path = evidence.get("file")

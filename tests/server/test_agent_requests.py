@@ -175,7 +175,7 @@ def test_a_request_cites_its_evidence(client, context, tmp_path):
     kept = client.post(
         "/app/experiment/evidence",
         headers=AGENT,
-        json={"text": "the trench is short", "image": str(folder / "ref_trench.tif")},
+        json={"image": str(folder / "ref_trench.tif")},
     ).json()
 
     def file(evidence_id):
@@ -189,7 +189,7 @@ def test_a_request_cites_its_evidence(client, context, tmp_path):
     assert missing.status_code == 404 and _detail(missing)["error_type"] == "not_found"
     filed = file(kept["evidence_id"])
     assert filed.status_code == 202, filed.text
-    assert filed.json()["evidence"]["text"] == "the trench is short"
+    assert filed.json()["evidence"]["evidence_id"] == kept["evidence_id"]
     assert filed.json()["image"] == os.path.realpath(folder / "ref_trench.tif")
     proposal = _proposal(context, filed.json()["request_id"])
     assert proposal.provenance["evidence"] == kept["evidence_id"]

@@ -103,11 +103,12 @@ will do. Two sentences is usually right. The reason is kept on the record
 with the request, so you don't need a separate note for it.
 
 **Show the image you mean.** When an image decided what you do, pass it as
-`evidence` on the call: `{text, image}` with the path the image tools answered
-(inside the experiment), or `{text, file, source}` for an overlay you drew
-yourself, with `marks` for points and areas on it. Every acting tool takes it.
-The card shows your text and image under Why, with your actions' points, areas
-and patterns drawn on its beam image; without it, the card says "No evidence".
+`evidence` on the call: `{image}` with the path the image tools answered
+(inside the experiment), or `{file, source}` for an overlay you drew yourself,
+with labelled `marks` for points and areas on it. Every acting tool takes it.
+Say what you saw in your reason: the evidence has no text of its own. It is
+the card's picture, with your actions' points, areas and patterns drawn on it
+when it is a beam image; without it, the card says "No evidence".
 
 **Read just before you ask.** Read the config (`item_get_task_config`) or
 the stage position before filing, and pass the `version` you read. Until
