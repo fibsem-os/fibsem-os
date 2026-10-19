@@ -13,8 +13,8 @@ import pytest  # noqa: E402
 pytest.importorskip("PyQt5")
 
 from fibsem.acting import AGENT, OPERATOR, WORKFLOW  # noqa: E402
-from fibsem.ui.agent import activity as agent_activity  # noqa: E402
 from fibsem.control import Control  # noqa: E402
+from fibsem.ui.agent import activity as agent_activity  # noqa: E402
 from fibsem.ui.agent.activity import (  # noqa: E402
     AgentActivity,
 )
