@@ -11,8 +11,9 @@ written to is the value writer's, registered per proposal kind
 
 from __future__ import annotations
 
+import functools
 import logging
-from typing import Any, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from fibsem.acting import Actor
 from fibsem.workflows.experiment import EXPERIMENT_WRITE_LOCK
@@ -30,59 +31,10 @@ from fibsem.workflows.proposals import (
 from fibsem.workflows.status import TaskStatus
 
 
-def _call_on_main_thread(func, *args, **kwargs):
-    """Run ``func`` on the Qt main thread and wait for its result, when there
-    is a Qt application to have one. Without one (a script, a headless
-    review, the test job that installs no Qt) it is a plain call.
-
-    Lazy on purpose: superqt and PyQt are in the ``ui`` extra, and this module
-    is imported everywhere.
-
-    What ``func`` raises is raised here, in the caller, as a plain call would
-    (FIB-1352). Left to escape on the main thread it would be raised inside a
-    Qt slot, where PyQt5 aborts the process, and the caller would still be
-    waiting for a result that never comes.
-    """
-    try:
-        from PyQt5.QtCore import QCoreApplication, QThread
-        from superqt import ensure_main_thread
-    except ImportError:
-        return func(*args, **kwargs)
-    app = QCoreApplication.instance()
-    if app is None or QThread.currentThread() is app.thread():
-        return func(*args, **kwargs)
-
-    def carried():
-        try:
-            return func(*args, **kwargs), None
-        except BaseException as e:  # noqa: BLE001 - re-raised in the caller
-            return None, e
-
-    result, error = ensure_main_thread(await_return=True)(carried)()
+def _log_failure(outcome) -> None:
+    error = outcome.exception()
     if error is not None:
-        raise error
-    return result
-
-
-def _emit_on_main_thread(signal, *args) -> None:
-    """Deliver ``signal`` on the Qt main thread without waiting for it.
-
-    The waiting is the difference from ``_call_on_main_thread``. A caller that
-    needs the result has to block; one that is only telling the GUI something
-    happened must not, because it may be the workflow thread about to park on
-    an answer -- and the main thread is not always free to run the call back.
-    """
-    try:
-        from PyQt5.QtCore import QCoreApplication, QThread
-        from superqt import ensure_main_thread
-    except ImportError:
-        signal.emit(*args)
-        return
-    app = QCoreApplication.instance()
-    if app is None or QThread.currentThread() is app.thread():
-        signal.emit(*args)
-        return
-    ensure_main_thread(await_return=False)(signal.emit)(*args)
+        logging.error("a subscriber to a proposal signal raised", exc_info=error)
 
 
 class ProposalReview:
@@ -90,13 +42,36 @@ class ProposalReview:
     needs ``items()``, ``get_item_by_id``, ``save`` and the ``decided`` and
     ``asked`` signals."""
 
+    # Where the experiment is edited: the session's ``run_edit`` once a session
+    # adopts the experiment (the window's GUI thread, or a lock). None: here.
+    edit_executor: Optional[Callable[[Callable[[], Any]], Any]] = None
+
+    def _run_edit(self, func, *args):
+        """``func(*args)`` where the experiment is edited, waiting for it.
+        What it raises is raised here, in the caller (FIB-1352)."""
+        executor = self.edit_executor
+        if executor is None:
+            return func(*args)
+        return executor(functools.partial(func, *args)).result()
+
+    def _notify(self, signal, *args) -> None:
+        """Deliver ``signal`` where the experiment is edited, without waiting:
+        the caller may be the workflow thread about to park on an answer, and
+        the GUI thread is not always free to run the call back."""
+        executor = self.edit_executor
+        if executor is None:
+            signal.emit(*args)
+            return
+        outcome = executor(functools.partial(signal.emit, *args))
+        outcome.add_done_callback(_log_failure)
+
     def decide(
         self, item_id: str, task_name: str, decision: Decision
     ) -> DecisionResult:
         """The one way a decision reaches the experiment.
 
-        Runs on the Qt main thread when there is one and blocks the caller until
-        it has: the window and the App Server are the same client of this
+        Runs where the experiment is edited (``edit_executor``) and blocks the
+        caller until it has: the window and the App Server are the same client of this
         function, and a confirm can end in Qt work (a generative review adds
         lamellae, whose list rebuild must not fire off the GUI thread). Takes
         the same lock as ``save`` so a save never serialises a half-applied
@@ -116,7 +91,7 @@ class ProposalReview:
         decision); or when a decision carrying values arrives while any task
         runs on the item.
         """
-        return _call_on_main_thread(self._decide, item_id, task_name, decision)
+        return self._run_edit(self._decide, item_id, task_name, decision)
 
     def _decide(
         self, item_id: str, task_name: str, decision: Decision
@@ -433,7 +408,7 @@ class ProposalReview:
             item.record_proposal(task_name, proposal)
             proposal.asking = True
         try:
-            _emit_on_main_thread(self.asked, item_id, task_name)
+            self._notify(self.asked, item_id, task_name)
         except Exception:
             logging.exception(f"a subscriber to asked raised for {task_name}")
         return True
@@ -442,10 +417,10 @@ class ProposalReview:
         self, item_id: str, task_name: str, proposal_id: str, reason: str
     ) -> DecisionResult:
         """Use a proposal nobody was asked about as it stands: its values are
-        written through, on the main thread and through the same planned
+        written through, where the experiment is edited and through the same planned
         writes a decision uses, and it is recorded ``Unreviewed`` with
         ``reason``. Nothing waits on it after."""
-        return _call_on_main_thread(
+        return self._run_edit(
             self._apply_proposed, item_id, task_name, proposal_id, reason
         )
 
@@ -580,7 +555,7 @@ class ProposalReview:
             }
         )
         try:
-            _emit_on_main_thread(self.decided, item_id, task_name)
+            self._notify(self.decided, item_id, task_name)
         except Exception:
             logging.exception(f"a subscriber to decided raised for {task_name}")
         return True
@@ -611,7 +586,7 @@ class ProposalReview:
                 return False
             decision.values = dict(values)
         try:
-            _emit_on_main_thread(self.decided, item_id, task_name)
+            self._notify(self.decided, item_id, task_name)
         except Exception:
             logging.exception(f"a subscriber to decided raised for {task_name}")
         return True
@@ -715,7 +690,7 @@ class ProposalReview:
                 }
             )
         try:
-            _emit_on_main_thread(self.decided, item_id, task_name)
+            self._notify(self.decided, item_id, task_name)
         except Exception:
             logging.exception(f"a subscriber to decided raised for {task_name}")
         return DecisionResult(applied=True)
