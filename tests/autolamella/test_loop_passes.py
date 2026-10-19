@@ -147,50 +147,16 @@ def test_decide_refuses_an_action_on_a_yes_no_question(tmp_path):
     assert result.applied is False and "action" in result.reason
 
 
-def test_deciding_an_earlier_pass_does_not_finish_the_task(tmp_path):
-    """The run waits on its result; a pass already on the record (unasked,
-    say) is not what it waits on, so deciding it moves no status."""
-    exp = _experiment(tmp_path)
-    lamella = exp.positions[0]
-    milled = _pass()
-    milled.decisions.append(
-        Decision(
-            task_id=RUN,
-            outcome=DecisionOutcome.Unreviewed,
-            actor="task:Rough Milling",
-            action=ACTION_RUN,
-        )
-    )
-    result = Proposal(kind=TASK_RESULT, provenance={"task_id": RUN})
-    set_proposals(lamella, ROUGH, [milled, result])
-    lamella.task_history.append(
-        TaskState(name=ROUGH, task_id=RUN, status=TaskStatus.AwaitingDecision)
-    )
-
-    decided = exp.decide(
-        lamella.id,
-        ROUGH,
-        Decision(
-            task_id=RUN,
-            outcome=DecisionOutcome.Confirmed,
-            actor="operator:op",
-            action=ACTION_RUN,
-            proposal_id=milled.id,
-        ),
-    )
-
-    assert decided.applied
-    assert lamella.is_awaiting_decision(ROUGH), "still waits on its result"
-
-
-def test_a_pass_is_not_listed_to_check(tmp_path):
+def test_a_pass_nobody_was_asked_is_recorded_with_what_silence_does(tmp_path):
+    """Recorded unasked, the pass is decided Unreviewed with the action silence
+    takes, and nothing is left waiting on it."""
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
     exp.record_unasked(lamella.id, ROUGH, _pass(), reason="nobody was asked")
     (recorded,) = lamella.proposals
     assert recorded.current.outcome is DecisionOutcome.Unreviewed
     assert recorded.current.action == ACTION_RUN, "silence runs it"
-    assert exp.proposals_to_check() == []
+    assert exp.pending_proposals() == []
 
 
 def test_a_milling_patch_sets_fields_on_a_copy():

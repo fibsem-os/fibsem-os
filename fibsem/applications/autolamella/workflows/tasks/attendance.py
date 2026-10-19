@@ -2,9 +2,10 @@
 
 A task declares what it asks while it runs (``questions``: the kinds it needs
 answered before its next line, a mill's passes among them) and what it
-leaves for afterwards (``proposer``). The whether a person decides (``attention``). From those, one line per task: whether the operator has to be there while it runs, and what waits
-for their decision afterwards. Derived, never stored, so it cannot drift
-from what the task does.
+proposes when it ends (``proposer``); the protocol says whether a person
+decides (``attention``). From those, one line per task: whether the operator
+has to be there while it runs. Nothing waits on a decision once a task ends.
+Derived, never stored, so it cannot drift from what the task does.
 """
 
 from __future__ import annotations
@@ -67,9 +68,9 @@ class Attendance:
     # what needs a person at the microscope while the task runs: the
     # questions it asks, in order
     present: Tuple[str, ...]
-    # what it leaves for afterwards, as its label, or None
+    # what it proposes when it ends, as its label, or None
     later: Optional[str]
-    # the tasks that require this one: what waits for the decision on ``later``
+    # the tasks that require this one: what uses ``later``
     waiters: Tuple[str, ...]
 
     @property
@@ -81,25 +82,15 @@ class Attendance:
         """One sentence or two, for under the chip and the pre-run summary."""
         if self.attention is Attention.automated:
             text = "Nobody is asked."
-            if self.later and self.waiters:
+            if self.later and self.later != KIND_LABELS[TASK_RESULT] and self.waiters:
                 text += (
                     f" {_cap(self.later)} is open to correct until "
                     f"{_named(self.waiters)} starts."
                 )
             return text
-        text = (
-            f"Needs you at the microscope while it runs: {_named(self.present)}."
-            if self.present
-            else "Runs on its own."
-        )
-        if self.later:
-            if self.waiters:
-                text += (
-                    f" {_named(self.waiters)} waits for your decision on {self.later}."
-                )
-            else:
-                text += f" Nothing waits on {self.later}; it is listed to check."
-        return text
+        if self.present:
+            return f"Needs you at the microscope while it runs: {_named(self.present)}."
+        return "Runs on its own."
 
 
 def _cap(text: str) -> str:

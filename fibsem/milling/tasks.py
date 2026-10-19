@@ -255,11 +255,16 @@ def describe_config_fields(config: "FibsemMillingTaskConfig") -> Dict[str, Any]:
     patterns: Dict[str, Any] = {}
     strategies: Dict[str, Any] = {}
     for each in config.stages:
-        pattern, strategy = each.pattern, getattr(each.strategy, "config", None)
+        pattern, strategy = each.pattern, each.strategy
         if pattern.name not in patterns:
             walk(type(pattern), "", patterns.setdefault(pattern.name, {}), ())
-        if strategy is not None and each.strategy.name not in strategies:
-            walk(type(strategy), "", strategies.setdefault(each.strategy.name, {}), ())
+        if strategy.strategy_name not in strategies:
+            walk(
+                type(strategy),
+                "",
+                strategies.setdefault(strategy.strategy_name, {}),
+                (),
+            )
     return {
         "task": task,
         "stage": stage,
@@ -613,7 +618,7 @@ class FibsemMillingTask:
             "milling_current": stage.milling.milling_current,
             "started_at": now_iso(),
             # which strategy milled it, and what it said about the run
-            "strategy": {"name": stage.strategy.name},
+            "strategy": {"name": stage.strategy.strategy_name},
         }
         self._stage_records.append(record)
         try:
@@ -660,7 +665,7 @@ class FibsemMillingTask:
         for stage_path, task_path in TASK_SETS_ON_STAGE.items():
             _set_path(stage, stage_path, _get_path(self.config, task_path))
         self._record_stage_started(stage, idx)
-        result = stage.strategy.run(
+        result = stage.get_strategy().run(
             microscope=self.microscope,
             stage=stage,
             stop_event=self._stop_token,
@@ -872,7 +877,7 @@ def _strategy_result(stage: FibsemMillingStage, result: Any) -> Dict[str, Any]:
         return {}
     if not isinstance(result, MillingStrategyResult):
         logging.warning(
-            f"{stage.strategy.name} returned {type(result).__name__} for "
+            f"{stage.strategy.strategy_name} returned {type(result).__name__} for "
             f"{stage.name}, not a MillingStrategyResult; it is not recorded"
         )
         return {}

@@ -31,9 +31,7 @@ from fibsem.workflows.proposals import (
     Decision,
     DecisionOutcome,
     Proposal,
-    Standing,
 )
-from fibsem.workflows.review import standing
 from fibsem.workflows.status import TaskStatus
 from tests.proposal_records import set_proposals
 
@@ -148,25 +146,6 @@ def test_another_proposal_on_the_same_item_stays_refused(experiment):
 
     assert not result.applied and result.running
     assert "stop it before writing" in result.reason
-
-
-def test_an_open_value_confirmed_as_it_stands_lands_while_the_item_is_busy(experiment):
-    """Setup's point was written through when Setup ended; the item is now
-    running Mill Fiducial. Confirming the point as it stands writes nothing
-    again, so it is a look and lands. Moving it is a write and waits."""
-    lamella = _running(experiment, task_name=OTHER, task_id="run-2")
-    proposal = _proposal(lamella, task_name=TASK, task_id="run-1")
-    assert standing(lamella, TASK, proposal) is Standing.Open
-
-    look = _answer(experiment, lamella, task_name=TASK, values=dict(proposal.values))
-    assert look.applied, look.reason
-    assert proposal.current.outcome is DecisionOutcome.Confirmed
-    assert lamella.poi == Point(0.0, 0.0), "nothing written"
-
-    proposal = _proposal(lamella, task_name=TASK, task_id="run-1")
-    moved = _answer(experiment, lamella, task_name=TASK)
-    assert not moved.applied and moved.running
-    assert "stop it before writing" in moved.reason
 
 
 def test_a_mark_left_on_an_earlier_run_does_not_excuse_the_current_one(experiment):

@@ -64,8 +64,8 @@ class BaseExperiment:
     # decide() ran on. The work queue listens so a stalled run wakes and rescans.
     decided = Signal(str, str)
     # Fired after a question is recorded mid-task, with (item_id, task_name),
-    # on the main thread. The Review tab listens: the inbox otherwise only
-    # re-derives when a task *finishes*, which an in-run question never does.
+    # on the main thread. The window listens, to put the question up on the
+    # widget it is answered on.
     asked = Signal(str, str)
 
     def __init__(

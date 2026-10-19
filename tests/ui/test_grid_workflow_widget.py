@@ -238,27 +238,6 @@ class TestAttentionChip:
         assert config.attention is Attention.automated
 
 
-def test_review_on_a_task_nothing_requires_says_nothing_waits(qapp, arctis, experiment):
-    """As on the lamella list: a Review chip on a task no other task requires
-    holds nothing, and the row says so until something requires it."""
-    experiment.grid_protocol.task_config[
-        "overview_sem"
-    ].attention = Attention.supervised
-    widget = GridWorkflowWidget()
-    widget.set_microscope(arctis)
-    widget.set_experiment(experiment)
-    row = widget._task_rows["overview_sem"]
-    assert row.detail_label.text() == "nothing waits on this"
-    assert "nothing waits" in row.btn_attention.toolTip()
-
-    experiment.grid_protocol.task_config["overview_fm"].requires = ["overview_sem"]
-    widget._rebuild()
-    row = widget._task_rows["overview_sem"]
-    assert row.detail_label.text() != "nothing waits on this"
-    assert "the tasks that require it wait" in row.btn_attention.toolTip()
-    widget.close()
-
-
 class TestRequiresOnTheTaskList:
     """What a grid task requires is edited on its Workflow row, as a lamella
     task's is: a pencil, an Edit Task dialog, and "after ..." on the row."""
@@ -302,28 +281,20 @@ class TestRequiresOnTheTaskList:
         assert experiment.grid_protocol.requirements("overview_sem") == []
         assert view._task_rows["overview_sem"].detail_label.text() == "Beam overview"
 
-    def test_the_row_says_after_review_of_a_reviewed_requirement(
-        self, view, experiment
-    ):
+    def test_a_supervised_requirement_reads_as_any_other(self, view, experiment):
         view.set_requires("overview_sem", ["overview_fm"])
         row = view._task_rows["overview_sem"]
         assert row.detail_label.text() == "after overview_fm"
 
-        view._task_rows["overview_fm"].btn_attention.click()  # FM to Review
+        view._task_rows["overview_fm"].btn_attention.click()  # FM to Supervised
 
-        assert row.detail_label.text() == "after review of overview_fm"
-        fm = view._task_rows["overview_fm"]
-        assert fm.detail_label.text() != "nothing waits on this", "SEM requires it"
+        assert row.detail_label.text() == "after overview_fm"
 
 
-def test_the_review_tab_loads_a_grid_proposals_image_from_the_grid_directory(
-    experiment,
-):
+def test_a_grid_proposals_image_loads_from_the_grid_directory(experiment):
     """A grid's recorded outputs are relative to its grid_path, which the record
     does not store; the loader resolves it through the experiment."""
-    from fibsem.applications.autolamella.ui.review_tab_widget import (
-        _load_reference_image,
-    )
+    from fibsem.applications.autolamella.review_images import load_reference_image
     from fibsem.structures import FibsemImage
     from fibsem.workflows.proposals import TASK_RESULT, Proposal
 
@@ -337,7 +308,7 @@ def test_the_review_tab_loads_a_grid_proposals_image_from_the_grid_directory(
         kind=TASK_RESULT, provenance={"reference_image": "overview_sem/overview.tif"}
     )
 
-    image = _load_reference_image(experiment, grid, proposal)
+    image = load_reference_image(experiment, grid, proposal)
 
     assert image is not None and image.data.shape == (64, 64)
 

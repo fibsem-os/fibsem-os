@@ -258,8 +258,7 @@ async function renderCard(name) {
       fib: (files.final_fib || []).slice(-1)[0],
     };
   };
-  // Review rows: every completed task's final pair, protocol order — the
-  // review tab in miniature.
+  // Review rows: every completed task's final pair, protocol order.
   const review = reviewOrder.map(taskName => {
     const p = pairOf(taskName);
     if (!p.sem && !p.fib) return "";

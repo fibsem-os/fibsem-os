@@ -1,9 +1,9 @@
 """A supervised Mill Undercut, the real task with the real model, answers
-each of its detections in the Review tab (FIB-1045).
+each of its detections on the Detection tab.
 
 Four detections in one run, each asked through ``ask``: the run holds, the
-Review tab is fronted with the question selected, the answer is a decision on
-the record, and the stage moves by the corrected value. The milling session
+Detection tab shows what the model found, Continue (or a correction) is a
+decision on the record, and the stage moves by the corrected value. The milling session
 between them is the prompt it has always been, and its Continue is the
 operator's decision on the task's result, so the task ends Completed with
 nothing left waiting.
@@ -169,7 +169,7 @@ def _asking(lamella):
     return proposal if proposal is not None and proposal.asking else None
 
 
-def test_each_detection_is_answered_in_the_review_tab_and_the_stage_follows(
+def test_each_detection_is_answered_on_the_detection_tab_and_the_stage_follows(
     window, qapp
 ):
     ui = window.autolamella_ui
@@ -186,7 +186,6 @@ def test_each_detection_is_answered_in_the_review_tab_and_the_stage_follows(
         real_vertical(dx=dx, dy=dy, **kw),
     )[1]
     task, thread, seen = _start(window)
-    tab = window.review_tab
 
     # 1. the coincident alignment's electron detection, corrected by a drag
     assert _pump(qapp, lambda: _asking(lamella) is not None and ui.hold is not None), (
@@ -194,8 +193,8 @@ def test_each_detection_is_answered_in_the_review_tab_and_the_stage_follows(
         ui.hold,
     )
     first = _asking(lamella)
-    assert ui.hold.kind is HoldKind.decision
-    assert window.tab_widget.currentWidget() is tab, "fronted on the question"
+    assert ui.hold.kind is HoldKind.question
+    assert _pump(qapp, lambda: ui.question_host() is ui.det_widget), "fronted"
     assert first.provenance["features"] == ["LamellaCentre"]
     assert first.provenance["reference_image"].endswith("_eb.tif")
     (feature,) = first.values["features"]
@@ -214,12 +213,12 @@ def test_each_detection_is_answered_in_the_review_tab_and_the_stage_follows(
             actor="operator:op",
             values={"features": [{"name": "LamellaCentre", "px": moved}]},
             proposal_id=first.id,
-            via="review",
+            via="workflow",
         ),
     )
     assert result.applied, result.reason
 
-    # 2. the ion one, confirmed as it stands from the tab
+    # 2. the ion one, confirmed as it stands with Continue
     assert _pump(
         qapp, lambda: _asking(lamella) is not None and _asking(lamella) is not first
     ), seen
@@ -230,15 +229,15 @@ def test_each_detection_is_answered_in_the_review_tab_and_the_stage_follows(
     second = _asking(lamella)
     assert first.current.outcome is DecisionOutcome.Confirmed
     assert first.delta()["features"]
-    assert tab.select(lamella.id, UNDERCUT)
-    tab.confirm_current()
+    assert _pump(qapp, lambda: ui._widget_question is not None)
+    ui.pushButton_yes.click()
 
     # 3. the undercut's own detection, then the milling session's Continue
     assert _pump(qapp, lambda: (_asking(lamella) or second) is not second), seen
     third = _asking(lamella)
     assert third.provenance["features"] == ["LamellaTopEdge"]
-    assert tab.select(lamella.id, UNDERCUT)
-    tab.confirm_current()
+    assert _pump(qapp, lambda: ui._widget_question is not None)
+    ui.pushButton_yes.click()
     assert _pump(qapp, lambda: "Run Milling" in ui.label_instructions.text()), (
         ui.label_instructions.text(),
         seen,
@@ -250,8 +249,8 @@ def test_each_detection_is_answered_in_the_review_tab_and_the_stage_follows(
     assert _pump(qapp, lambda: (_asking(lamella) or third) is not third), seen
     fourth = _asking(lamella)
     assert fourth.provenance["features"] == ["LamellaCentre"]
-    assert tab.select(lamella.id, UNDERCUT)
-    tab.confirm_current()
+    assert _pump(qapp, lambda: ui._widget_question is not None)
+    ui.pushButton_yes.click()
 
     assert _pump(qapp, lambda: not thread.is_alive()), "the task went on to its end"
     assert "error" not in seen, seen

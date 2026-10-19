@@ -295,11 +295,6 @@ _RUN_STATUS = {
         "mdi:progress-clock",
         "InProgress",
     ),
-    TaskStatus.AwaitingDecision: (
-        "Awaiting decision",
-        "mdi:progress-clock",
-        "AwaitingDecision",
-    ),
     TaskStatus.Skipped: ("Skipped", "mdi:skip-next", "Skipped"),
 }
 # Which of a run's operation endings its folded line shows: the worst.
@@ -353,7 +348,7 @@ def _text(text: str, style: str) -> QLabel:
 class _HistoryFilterButton(QToolButton):
     """The filter menu: what each run shows, which runs, which task.
 
-    Behind an icon, as in the Review tab: set once and left, so not worth a row
+    Behind an icon: set once and left, so not worth a row
     of controls. The icon takes the accent while anything is narrowed, so a
     filtered history is never mistaken for the whole one. Each section is one of
     several, so its items read as radio buttons -- the mark is the action's icon.

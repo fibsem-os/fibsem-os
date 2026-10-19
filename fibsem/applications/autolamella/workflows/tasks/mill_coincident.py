@@ -71,7 +71,7 @@ DEFAULT_MILLING_CONFIG[MILL_COINCIDENT_KEY] = FibsemMillingTaskConfig(
                 height=20e-6,
                 cross_section=CrossSectionPattern.CleaningCrossSection,
             ),
-            strategy=CoincidenceMillingStrategy(),
+            strategy=CoincidenceMillingStrategyConfig(),
         )
     ],
 )
@@ -270,11 +270,9 @@ class MillCoincidentTask(AutoLamellaTask):
         supervised = self.validate
         for stage in milling_task_config.enabled_stages:
             stage.pattern.point = deepcopy(setup.pattern_offset)
-            if not isinstance(stage.strategy, CoincidenceMillingStrategy):
-                stage.strategy = CoincidenceMillingStrategy(
-                    config=CoincidenceMillingStrategyConfig()
-                )
-            strategy_config = stage.strategy.config
+            if not isinstance(stage.strategy, CoincidenceMillingStrategyConfig):
+                stage.strategy = CoincidenceMillingStrategyConfig()
+            strategy_config = stage.strategy
             strategy_config.bbox = deepcopy(setup.fm_roi)
             strategy_config.intensity_drop_fraction = setup.intensity_drop_fraction
             # unsupervised: the drop stops the beam; supervised: it alerts, the
@@ -292,7 +290,7 @@ class MillCoincidentTask(AutoLamellaTask):
         """Say why each coincidence stage ended, so a batch reads without the folders."""
         reasons = []
         for stage in milling_task_config.enabled_stages:
-            strategy = stage.strategy
+            strategy = stage.get_strategy()
             if isinstance(strategy, CoincidenceMillingStrategy):
                 reasons.append(f"{stage.name}: {strategy.end_reason or 'unknown'}")
         if reasons:
