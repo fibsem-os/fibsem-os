@@ -333,7 +333,7 @@ class AutoLamellaTask(BaseTask):
         Supervised: the run holds here -- the manager raises the hold --
         until the decision lands, or Stop, which withdraws the question and
         raises ``InterruptedError``. It holds whoever can answer, nobody
-        included: an answer is never taken unreviewed (Patrick 2026-10-19), so
+        included: an answer is never taken unreviewed, so
         with no window and no agent listening at Drive the question waits for
         one to come back, and the hold says who can answer as that changes.
         Automated, nobody is asked: the proposal goes on the record with an

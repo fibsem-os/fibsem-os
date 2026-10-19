@@ -773,8 +773,7 @@ def test_a_mill_line_names_the_item_and_a_failure():
 def test_a_question_held_before_the_watch_started_is_its_first_line(app):
     """An agent that reconnects to a held run is told what the run is held
     on: the question was asked before this watch began, so its event is
-    behind the cursor (Patrick 2026-10-19: fix the reconnect, never take an
-    answer unreviewed)."""
+    behind the cursor."""
     from types import SimpleNamespace
 
     from fibsem.workflows.proposals import STATE, Proposal
