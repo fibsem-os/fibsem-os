@@ -980,7 +980,18 @@ class AgentPreviews:
                 item = str(arguments.get("item_name") or "")
                 image = self._item_image(item)
                 if not _has_pixel_size(image) or getattr(image.data, "ndim", 0) != 2:
-                    missing.append(item or "the lamella")
+                    if poi is None:
+                        missing.append(item or "the lamella")
+                        continue
+                    # A new lamella has no image of its own yet: its point on
+                    # the live FIB view, where it was added (FIB-1492).
+                    add(
+                        POI_MARK,
+                        BeamType.ION,
+                        "point of interest",
+                        [(None, lambda frame, p=poi: _offset_pixel(frame, p))],
+                        title=f"{item or 'the lamella'}, on the live view",
+                    )
                     continue
                 if poi is not None:
                     add(

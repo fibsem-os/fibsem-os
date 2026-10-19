@@ -24,7 +24,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Dict, List, Optional
 
 from fibsem.acting import AGENT, OPERATOR
-from fibsem.ai.agent.request_text import describe_action
+from fibsem.ai.agent.request_text import _stage_place, _values_text, describe_action
 
 # Rows kept: the card shows them all.
 SIZE = 10
@@ -127,6 +127,24 @@ def _request_text(actions: Any) -> str:
     if len(actions) > 1:
         text += f", and {len(actions) - 1} more"
     return text
+
+
+def _suggested(p: Dict[str, Any]) -> str:
+    """What a suggestion would decide, in a few words."""
+    if p.get("outcome") == "Rejected":
+        return "reject it"
+    if p.get("action"):
+        return _words(p["action"])
+    values = p.get("values") or {}
+    place = values.get("stage_position") if len(values) == 1 else None
+    if isinstance(place, dict):
+        kept = values == (p.get("proposed") or {})
+        return f"{'keep the position' if kept else 'move to'} {_stage_place(place)}"
+    if values:
+        return _values_text(values)
+    if p.get("patch"):
+        return f"set {_values_text(p['patch'])}"
+    return "confirm it"
 
 
 def _command_text(p: Dict[str, Any]) -> str:
@@ -296,7 +314,8 @@ class RecentActions:
         if not agent:
             return False
         item = (p.get("item") or {}).get("name") or ""
-        text = f"Suggested on {item} · {p.get('task')}: {p.get('reason') or ''}"
+        # what it suggested: the reason is the card's Why (FIB-1492)
+        text = f"Suggested on {item} · {p.get('task')}: {_suggested(p)}"
         return self._put(
             ("suggestion", p.get("proposal_id")),
             record,

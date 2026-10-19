@@ -27,8 +27,9 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence,
 if TYPE_CHECKING:
     from fibsem.structures import Parameter
 
-# GET a route's JSON (the document an edit patches), or None.
-Reader = Callable[[str], Optional[Dict[str, Any]]]
+# GET a route's JSON (the document an edit patches), or a query's answer with
+# its kwargs (the second argument); None for neither.
+Reader = Callable[..., Optional[Dict[str, Any]]]
 # The app's own description of an action it can say better (a config edit, from
 # the typed config): a partial ``{"what", "change", "details"}``, or None.
 Describer = Callable[[str, Dict[str, Any]], Optional[Dict[str, Any]]]
@@ -229,7 +230,7 @@ def describe_patch(root: Any, patch: Any) -> Dict[str, Any]:
             lines.append(f"{setting}: {after}")
             rows.append((setting, "", after))
             continue
-        before = _display(old, spec)
+        before = _display(old, spec) if old not in (None, "") else "(none)"
         # A switch reads "Re-align during milling: off → on".
         joint = ": " if isinstance(old, bool) else " "
         lines.append(f"{setting}{joint}{before} → {after}")
@@ -537,8 +538,11 @@ def _item_value(path: str, value: Any) -> str:
     """An item's value in display units: the POI in metres reads in µm, the
     alignment area's fractions of the frame as percent."""
     if isinstance(value, dict):
+        # a Point's empty name reads as nothing, not "name none"
         return ", ".join(
-            f"{_words(k)} {_item_value(f'{path}.{k}', v)}" for k, v in value.items()
+            f"{_words(k)} {_item_value(f'{path}.{k}', v)}"
+            for k, v in value.items()
+            if v is not None
         )
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         parts = str(path).split(".")
@@ -630,7 +634,7 @@ def _patch_lines(
         if old is _MISSING:
             lines.append(f"{name(str(path))}: {after}")
         else:
-            before = "(none)" if old is None else value(str(path), old)
+            before = "(none)" if old in (None, "") else value(str(path), old)
             lines.append(f"{name(str(path))}: {before} → {after}")
     return "\n".join(lines)
 
@@ -694,6 +698,23 @@ def _position(p: Any) -> str:
     for axis, word in (("t", "tilt"), ("r", "rotation")):
         if p.get(axis) is not None:
             parts.append(f"{word} {_deg(p[axis])}")
+    return ", ".join(parts)
+
+
+def _stage_place(p: Dict[str, Any]) -> str:
+    """Where a stage position is, as a decision reads it: x and y (z when it
+    is not 0), then "flat" or its tilt and rotation; no name or coordinate
+    system. "x −35.5 µm, y −27.9 µm, flat"."""
+    parts = [
+        f"{axis} {_coordinate(p[axis])}"
+        for axis in "xyz"
+        if p.get(axis) is not None and (axis != "z" or p[axis])
+    ]
+    t, r = p.get("t"), p.get("r")
+    if not t and not r:
+        parts.append("flat")
+    else:
+        parts += [f"tilt {_deg(t or 0)}", f"rotation {_deg(r or 0)}"]
     return ", ".join(parts)
 
 
@@ -829,7 +850,20 @@ def _acquire_image(a: Dict[str, Any], get: Callable[[str], Any]) -> Dict[str, An
     }
 
 
-def _overview(a: Dict[str, Any]) -> Dict[str, Any]:
+_IMAGING = "/microscope/services/imaging/queries/"
+
+
+def _about(seconds: Any) -> str:
+    """ ", about 2 min": how long a run takes, as its estimate says; empty when
+    there is none."""
+    try:
+        seconds = float(seconds)
+    except (TypeError, ValueError):
+        return ""
+    return f", about {_seconds(seconds)}" if seconds > 0 else ""
+
+
+def _overview(a: Dict[str, Any], get: Callable[..., Any]) -> Dict[str, Any]:
     settings = a.get("settings") if isinstance(a.get("settings"), dict) else {}
     image = settings.get("image_settings") or {}
     rows, cols = settings.get("nrows"), settings.get("ncols")
@@ -841,6 +875,10 @@ def _overview(a: Dict[str, Any]) -> Dict[str, Any]:
     if hfw is not None and size:
         change += f", {_distance(hfw)} tiles ({size})"
     change += ", here"
+    estimate = _result(get(_IMAGING + "estimate_overview", {"settings": settings}))
+    if isinstance(estimate, dict) and estimate.get("scan_time"):
+        change += f", scanning about {_seconds(float(estimate['scan_time']))}"
+        change += " and the stage moves"
     table = _image_rows(
         {
             k: v
@@ -966,11 +1004,77 @@ def _fm_channels(a: Dict[str, Any], change: str) -> Dict[str, Any]:
     }
 
 
-def _fm_overview(a: Dict[str, Any]) -> Dict[str, Any]:
+def _spot_burn(settings: Any, get: Callable[..., Any]) -> Dict[str, Any]:
+    """ "Burn 2 spots (01 centre, edge), 60 pA for 5 s each, about 10 s"."""
+    if not isinstance(settings, dict):
+        return {"what": "Spot burn", "change": "Burn the spots"}
+    points = [p for p in settings.get("coordinates") or [] if isinstance(p, dict)]
+    change = f"Burn {_plural(len(points), 'spot')}"
+    names = [str(p["name"]) for p in points if p.get("name")]
+    if names:
+        change += f" ({_names_cut(names)})"
+    if settings.get("milling_current") is not None:
+        change += f", {_current(settings['milling_current'])}"
+    if settings.get("exposure_time") is not None:
+        each = " each" if len(points) > 1 else ""
+        change += f" for {_seconds(float(settings['exposure_time']))}{each}"
+    if len(points) > 1:
+        change += _about(_result(get(_SPOT_BURN + "estimate", {"settings": settings})))
+    table = [
+        (
+            str(p.get("name") or i + 1),
+            f"{_number(float(p.get('x', 0)) * 100)}%, "
+            f"{_number(float(p.get('y', 0)) * 100)}% of the frame",
+        )
+        for i, p in enumerate(points)
+    ]
+    return {
+        "what": "Spot burn",
+        "change": change,
+        "details": _table(("Spot", "Where"), table) if table else None,
+    }
+
+
+_SPOT_BURN = "/microscope/services/spot_burn/queries/"
+
+
+def _fit_quality(result: Any) -> str:
+    """The fit a correlation's point comes from, on a line of its own: its RMS
+    and verdict, a bad one said plainly (FIB-1492)."""
+    from fibsem.correlation.verdict import FitEvidence, verdict
+
+    data = result.input_data
+    pixel_size = data.fib_image_pixel_size if data is not None else None
+    parts = []
+    if result.rms_error is not None and pixel_size:
+        parts.append(f"RMS {_distance(result.rms_error * pixel_size)}")
+    found = None
+    if result.diagnostics:
+        try:
+            found = verdict(FitEvidence.from_dict(result.diagnostics))
+        except Exception:  # noqa: BLE001 - the line reads without it
+            found = None
+    if found is not None:
+        parts.append(found.headline.rstrip("."))
+    if not parts:
+        return ""
+    line = "\nFit: " + ", ".join(parts)
+    if found is not None and found.tier == "bad":
+        line += "\nWarning: a bad fit; the point may be off"
+    return line
+
+
+def _fm_overview(a: Dict[str, Any], get: Callable[..., Any]) -> Dict[str, Any]:
     parameters = a.get("parameters") if isinstance(a.get("parameters"), dict) else {}
     rows, cols = parameters.get("rows"), parameters.get("cols")
     grid = f"{rows} × {cols} " if rows and cols else ""
-    return _fm_channels(a, f"Take a {grid}overview")
+    line = _fm_channels(a, f"Take a {grid}overview")
+    asked = {k: a[k] for k in ("channels", "parameters", "zparams") if a.get(k)}
+    estimate = _result(get(_IMAGING + "fm_estimate_overview", asked))
+    if isinstance(estimate, dict):
+        # its whole run, the stage and objective moves counted (FIB-1492)
+        line["change"] += _about(estimate.get("duration"))
+    return line
 
 
 def _fm_image(a: Dict[str, Any]) -> Dict[str, Any]:
@@ -1388,12 +1492,13 @@ def _line(
             line.update(own)
             return line
 
-    def get(route: str) -> Any:
-        """GET *route*, or None: no old value is shown, nothing more."""
+    def get(route: str, kwargs: Optional[Dict[str, Any]] = None) -> Any:
+        """GET *route* (a query, with *kwargs*), or None: no old value or
+        estimate is shown, nothing more."""
         if read is None:
             return None
         try:
-            return read(route)
+            return read(route) if kwargs is None else read(route, kwargs)
         except Exception:  # noqa: BLE001
             return None
 
@@ -1491,7 +1596,7 @@ def _line(
     if tool == "beam_auto_focus":
         return _auto_focus(a)
     if tool == "beam_acquire_overview":
-        return _overview(a)
+        return _overview(a, get)
     if tool == "beam_acquire_focus_stack":
         return _focus_stack(a)
     if tool == "fm_auto_focus":
@@ -1502,7 +1607,7 @@ def _line(
         )
         return {"what": "Fluorescence", "change": f"Focus the objective {on}"}
     if tool == "fm_acquire_overview":
-        return _fm_overview(a)
+        return _fm_overview(a, get)
     if tool == "fm_acquire_image":
         return _fm_image(a)
     if tool == "milling_run_stage":
@@ -1557,6 +1662,12 @@ def _line(
             line = _milling_command(str(a.get("command")), kwargs, estimate)
             if line is not None:
                 return line
+        if (
+            tool == "service_call_command"
+            and owner == "spot_burn"
+            and a.get("command") == "run"
+        ):
+            return _spot_burn(kwargs.get("settings"), get)
         if tool == "service_call_command" and owner == "sample_handling":
             grid_tool = _GRID_COMMANDS.get(str(a.get("command")))
             if grid_tool is not None:
@@ -1615,8 +1726,10 @@ def _line(
             result = load_run(run).result
             poi = result.poi[0].px_m
             change += (
-                f": ({poi.x * 1e6:.2f}, {poi.y * 1e6:.2f}) µm from the image centre"
+                f": ({_minus(f'{poi.x * 1e6:.2f}')}, {_minus(f'{poi.y * 1e6:.2f}')}) "
+                "µm from the image centre"
             )
+            change += _fit_quality(result)
         except Exception:  # the request still reads without the run's numbers
             pass
         change += "\nThe patterns that follow the point move with it"

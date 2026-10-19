@@ -1366,3 +1366,97 @@ def test_a_stop_s_reason_inside_kwargs_says_where_it_goes(client, auth):
     )
     assert refused.status_code == 422
     assert "beside kwargs" in _detail(refused)["message"]
+
+
+def test_a_spot_burn_and_an_overview_read_as_what_they_do_and_how_long():
+    """Round 10 (FIB-1492): "Spot burn · Run: settings coordinates x 0.5, ...",
+    and overviews with no time where mills say "about N min"."""
+    from fibsem.ai.agent.request_text import describe_action
+
+    asked = []
+
+    def read(path, kwargs=None):
+        asked.append((path, kwargs))
+        return {
+            "/microscope/services/spot_burn/queries/estimate": {"result": 10.0},
+            "/microscope/services/imaging/queries/fm_estimate_overview": {
+                "result": {"duration": 87.7}
+            },
+            "/microscope/services/imaging/queries/estimate_overview": {
+                "result": {"scan_time": 30.0}
+            },
+        }.get(path)
+
+    settings = {
+        "coordinates": [
+            {"x": 0.5, "y": 0.5, "name": "01 centre"},
+            {"x": 0.2, "y": 0.5, "name": "edge"},
+        ],
+        "milling_current": 60e-12,
+        "exposure_time": 5,
+    }
+    burn = describe_action(
+        "service_call_command",
+        {"service": "spot_burn", "command": "run", "kwargs": {"settings": settings}},
+        "/x",
+        read=read,
+    )
+    assert burn["change"] == (
+        "Burn 2 spots (01 centre, edge), 60 pA for 5 s each, about 10 s"
+    )
+    fm = describe_action(
+        "fm_acquire_overview",
+        {
+            "channels": [{"name": "Reflection"}],
+            "parameters": {"rows": 2, "cols": 2},
+            "path": "overviews",
+        },
+        "/x",
+        read=read,
+    )
+    assert fm["change"].endswith("about 88 s")
+    beam = describe_action(
+        "beam_acquire_overview",
+        {"settings": {"nrows": 2, "ncols": 2}, "path": "overviews"},
+        "/x",
+        read=read,
+    )
+    assert "scanning about 30 s and the stage moves" in beam["change"]
+    # a reader that takes no kwargs still reads the line, without the time
+    plain = describe_action(
+        "service_call_command",
+        {"service": "spot_burn", "command": "run", "kwargs": {"settings": settings}},
+        "/x",
+        read=lambda path: None,
+    )
+    assert plain["change"].startswith("Burn 2 spots")
+
+
+def test_an_empty_old_value_reads_none():
+    from fibsem.ai.agent.request_text import _patch_lines
+
+    assert _patch_lines({"description": "Grid-01"}, {"description": ""}) == (
+        "description: (none) → Grid-01"
+    )
+
+
+def test_applying_a_correlation_says_how_good_its_fit_is(monkeypatch):
+    """Round 10 (FIB-1492): a bad fit's verdict was only in the agent's
+    reason."""
+    from types import SimpleNamespace
+
+    from fibsem.ai.agent.request_text import _fit_quality
+    from fibsem.correlation import verdict as verdicts
+
+    bad = verdicts.Verdict("bad", "Poor fit (not recommended to continue).", [])
+    monkeypatch.setattr(verdicts.FitEvidence, "from_dict", lambda d: d)
+    monkeypatch.setattr(verdicts, "verdict", lambda evidence: bad)
+    result = SimpleNamespace(
+        rms_error=2.0,
+        input_data=SimpleNamespace(fib_image_pixel_size=0.915e-6),
+        diagnostics={"any": 1},
+    )
+    assert _fit_quality(result) == (
+        "\nFit: RMS 1.83 µm, Poor fit (not recommended to continue)"
+        "\nWarning: a bad fit; the point may be off"
+    )

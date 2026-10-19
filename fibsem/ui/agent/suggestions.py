@@ -5,7 +5,7 @@ as a request, for the previews to draw on the proposal's image."""
 import os
 from typing import Any, Dict, Optional, Tuple
 
-from fibsem.ai.agent.request_text import _values_text
+from fibsem.ai.agent.request_text import _stage_place, _values_text
 from fibsem.workflows.evidence import find as find_evidence
 from fibsem.workflows.proposals import (
     ACTION_ACCEPT,
@@ -51,8 +51,29 @@ def decision_text(proposal: Proposal) -> str:
     if suggestion.patch:
         text += f", setting {_values_text(suggestion.patch)}"
     elif suggestion.values:
-        text += f" with {_values_text(_encode_values(suggestion.values))}"
+        values = _encode_values(suggestion.values)
+        place = values.get("stage_position") if len(values) == 1 else None
+        if isinstance(place, dict):
+            # A position kept or moved to, not "Continue with stage position
+            # name none, ..., coordinate system RAW" (FIB-1492).
+            kept = values == _encode_values(proposal.values)
+            return (
+                f"{'Keep the position' if kept else 'Move to'}: {_stage_place(place)}"
+            )
+        text += f" with {_values_text(values)}"
     return text
+
+
+def _proposal_image(item: Any, proposal: Proposal, experiment_path: Optional[str]):
+    """The image the proposal was asked on, as a path, or None: the card's
+    picture when the agent cited none."""
+    image = proposal.provenance.get("reference_image")
+    if not image:
+        return None
+    image = str(image)
+    if not os.path.isabs(image) and experiment_path:
+        image = os.path.join(experiment_path, item.name, image)
+    return image if os.path.isfile(image) else None
 
 
 def suggestion_card(
@@ -62,15 +83,19 @@ def suggestion_card(
     experiment_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     """The card's suggestion: ``proposal``, ``decision``, ``reason`` and the
-    ``evidence`` it cites (its record, or None)."""
-    message = str(proposal.provenance.get("message") or "")
-    asked = f"{item.name} · {task_name} · {kind_label(proposal.kind)}"
-    return {
-        "proposal": f"{asked}: {message}" if message else asked,
+    ``evidence`` it cites (its record, or None). The proposal reads by what it
+    is, not the task's prompt to the operator ("Press Continue when done"),
+    which is the window's (FIB-1492). With no evidence, ``no_evidence`` says
+    what the picture is instead."""
+    card = {
+        "proposal": f"{item.name} · {task_name} · {kind_label(proposal.kind)}",
         "decision": decision_text(proposal),
         "reason": proposal.suggestion.reason,
         "evidence": find_evidence(experiment_path, proposal.suggestion.evidence),
     }
+    if card["evidence"] is None and _proposal_image(item, proposal, experiment_path):
+        card["no_evidence"] = "No evidence: drawn on the image it was asked on"
+    return card
 
 
 def suggestion_request(
@@ -94,6 +119,7 @@ def suggestion_request(
     image = suggestion.image
     if image and experiment_path and not os.path.isabs(image):
         image = os.path.join(experiment_path, image)
+    image = image or _proposal_image(item, proposal, experiment_path)
     return {
         "request_id": suggestion.id,
         "status": "pending",

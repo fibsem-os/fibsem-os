@@ -89,12 +89,27 @@ _HELP = (
 )
 
 
+def _doing(tool: Any) -> str:
+    """What a request's step is doing, in a word: "applying" read as writing a
+    config whatever the step was (FIB-1492)."""
+    tool = str(tool or "")
+    if tool.startswith(("milling_", "spot_burn")):
+        return "milling"
+    if tool.startswith(("stage_", "item_move_", "grid_load", "grid_unload")):
+        return "moving"
+    if "acquire" in tool or tool.startswith(("fm_auto_focus", "beam_auto_")):
+        return "imaging"
+    return "running"
+
+
 def chip_request_text(request: Dict[str, Any]) -> str:
     """The chip's word while a request waits or is being applied."""
     if request.get("status") == "applying":
-        total = len(request.get("actions", []))
-        done = len(request.get("results", []))
-        return f"Agent: applying {min(done + 1, total)}/{total}"
+        actions = request.get("actions", [])
+        total = len(actions)
+        step = min(len(request.get("results", [])) + 1, total)
+        doing = _doing(actions[step - 1].get("tool")) if actions else "running"
+        return f"Agent: {doing} {step}/{total}"
     return "Agent asks"
 
 
@@ -251,7 +266,7 @@ class AgentLevelChip(QPushButton):
             self.set_level(level)
             self.ensurePolished()
             widths.append(self.sizeHint().width())
-        for text in ("Agent asks", "Agent suggests", "Agent: applying 20/20"):
+        for text in ("Agent asks", "Agent suggests", "Agent: imaging 20/20"):
             self.setText(text)
             widths.append(self.sizeHint().width())
         self.setFixedWidth(max(widths))
