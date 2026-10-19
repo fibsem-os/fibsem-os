@@ -110,6 +110,7 @@ from fibsem.ui.widgets.custom_widgets import (
     TitledPanel,
     scrollable,
 )
+from fibsem.ui.widgets.run_border import RunBorder
 from fibsem.util import timestamps
 from fibsem.workflows.task import run_folder
 
@@ -628,22 +629,14 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         config_menu.addAction(act_export)
         outer.setMenuBar(menubar)
 
-        # ── Border frame — wraps splitter content, driven by _set_border_state ──
-        self._border_frame = QFrame()
-        self._border_frame.setObjectName("coincidence_border_frame")
-        self._border_frame.setProperty("borderState", "idle")
-        self._border_state: str = "idle"
-        self._border_enabled: bool = True
-        self._agent_driving: bool = False
-        _frame_layout = QVBoxLayout(self._border_frame)
-        _frame_layout.setContentsMargins(0, 0, 0, 0)
-        _frame_layout.setSpacing(0)
-        outer.addWidget(self._border_frame, 1)
+        # ── Border frame — wraps splitter content ──
+        self.run_border = RunBorder("coincidence_border_frame")
+        outer.addWidget(self.run_border, 1)
 
         # ── Splitter: left (4-quadrant grid) | right (tab widget) ─────────
         self.splitter = QSplitter(Qt.Horizontal)  # type: ignore[attr-defined]
         self.splitter.setChildrenCollapsible(False)
-        _frame_layout.addWidget(self.splitter)
+        self.run_border.set_content(self.splitter)
 
         # Left side — 2×2 QSplitter grid
         self.fib_canvas = _FibImageCanvas()
@@ -1826,7 +1819,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         )
         # border/auto-stop stay tied to the debounced drop_detected event
         if stats.get("drop_detected"):
-            self._set_border_state("waiting")
+            self.run_border.set_state("waiting")
 
     def _on_fm_rect_changed(self, info: dict):
         """Push the current FM rectangle to any active coincidence strategies as a bbox."""
@@ -1936,7 +1929,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self._update_supervised_button()
         self._on_supervised_toggled(supervised)
         if self._is_milling_active:
-            self._set_border_state("supervised" if supervised else "automated")
+            self.run_border.set_state("supervised" if supervised else "automated")
 
     def _on_supervised_toggled(self, supervised: bool) -> None:
         """Apply the supervision preference to any active strategies (live)."""
@@ -2037,7 +2030,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
     def _toggle_milling(self):
         """Start milling if idle, stop if running."""
         if self.btn_milling.text() == "Stop Milling":
-            self._set_border_state("stopping")
+            self.run_border.set_state("stopping")
             if self.milling_viewer_widget is not None:
                 self.milling_viewer_widget.milling_widget.stop_milling()
         else:
@@ -2136,7 +2129,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         label = self._milling_label.label(report)
 
         if report.status is MillingProgressStatus.STAGE_STARTED:
-            self._set_border_state("supervised" if self._supervised else "automated")
+            self.run_border.set_state("supervised" if self._supervised else "automated")
             # `or 1` rather than a `.get` default: a producer that sends 0 total stages
             # is as much a division by zero as one that sends nothing.
             total_stages = report.total_stages or 1
@@ -2197,7 +2190,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         progress "finished" state, so the stage/controls stay locked until the
         post-stop final image has actually landed.
         """
-        self._set_border_state("idle")
+        self.run_border.set_state("idle")
         self.progressBar_stage.setVisible(False)
         self.progressBar_stages.setVisible(False)
         self.btn_milling.setText("Start Milling")
@@ -2361,38 +2354,6 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         layout.setSpacing(0)
         layout.addWidget(canvas)
         return frame
-
-    def set_border_enabled(self, enabled: bool) -> None:
-        """Enable or disable the workflow border state animation.
-
-        When disabled the border is always shown as 'idle' (invisible).
-        """
-        self._border_enabled = enabled
-        self._apply_border(self._border_state)
-
-    def _set_border_state(self, state: str) -> None:
-        """Record *state* and repaint — no-op if border is disabled."""
-        self._border_state = state
-        self._apply_border(state)
-
-    def set_agent_driving(self, driving: bool) -> None:
-        """The agent's purple on the border while it drives, as on the main
-        window's (see `stylesheets.shown_border_state`)."""
-        if driving == self._agent_driving:
-            return
-        self._agent_driving = driving
-        self._apply_border(self._border_state)
-
-    def _apply_border(self, state: str) -> None:
-        """Push *state* (or 'idle' when disabled) to the QFrame property."""
-        state = stylesheets.shown_border_state(state, self._agent_driving)
-        effective = state if self._border_enabled else "idle"
-        self._border_frame.setProperty("borderState", effective)
-        style = self._border_frame.style()
-        if style:
-            style.unpolish(self._border_frame)
-            style.polish(self._border_frame)
-        self._border_frame.update()
 
     def _set_selected_view(self, index: int) -> None:
         """Set the active canvas (0 = FM, 1 = FIB) and update border highlights."""

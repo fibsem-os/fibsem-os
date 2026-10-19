@@ -70,3 +70,17 @@ def test_the_agent_s_purple_shows_over_every_state_but_stopping():
         assert shown_border_state(state, agent_driving=False) == state
         expected = "stopping" if state == "stopping" else "agent"
         assert shown_border_state(state, agent_driving=True) == expected
+
+
+def test_the_run_s_border_follows_what_the_run_is_doing():
+    from fibsem.ui.widgets.run_border import run_border_state
+
+    def state(current="idle", held=False, pending=False, running=None):
+        return run_border_state(current, held=held, pending=pending, running=running)
+
+    assert state() == "idle"
+    assert state(running="supervised") == "supervised"
+    assert state(running="automated", pending=True) == "pending"
+    assert state(running="automated", pending=True, held=True) == "waiting"
+    # A stop stays red until the run has unwound, whatever else is true.
+    assert state("stopping", held=True, running="automated") == "stopping"
