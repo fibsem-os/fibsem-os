@@ -1846,22 +1846,20 @@ class AutoLamellaAppContext:
             applied["run_path"] = run_path
         return applied
 
-    # --- propose and review (FIB-950) -----------------------------------------
+    # --- proposals and decisions (FIB-950) ------------------------------------
 
-    def reviews(self) -> Dict[str, Any]:
-        """Every question waiting for an answer, derived from the experiment,
-        with the reference image each proposal's values sit on as an
-        agent-sized preview."""
+    def proposals(self) -> Dict[str, Any]:
+        """Every pending proposal, derived from the experiment, with the
+        reference image its values sit on as an agent-sized preview."""
         experiment = self._experiment
         if experiment is None:
-            return {"available": False, "reviews": []}
-        from fibsem.applications.autolamella.review_images import (
+            return {"available": False, "proposals": []}
+        from fibsem.applications.autolamella.reference_images import (
             load_reference_image,
-            review_preview,
+            preview_of,
         )
         from fibsem.applications.autolamella.server.prompts import _preview_payload
         from fibsem.workflows.events import to_plain
-        from fibsem.workflows.proposals import rejected_fails_task
 
         def describe(item, task_name, proposal):
             doc = to_plain(proposal.to_dict())
@@ -1870,35 +1868,23 @@ class AutoLamellaAppContext:
                     "item_id": item.id,
                     "item_name": item.name,
                     "task_name": task_name,
-                    # what this is; review_decide passes it back. The run is
-                    # here as a fact about it, and still names it for a caller
-                    # that has not learned the id.
+                    # what this is; proposal_decide passes it back. The run
+                    # is here as a fact about it, and still names it for a
+                    # caller that has not learned the id.
                     "proposal_id": proposal.id,
                     "task_id": proposal.task_id,
-                    # The task that made it is stopped on the answer: nothing
-                    # else runs until it is decided, so it comes first.
-                    "holding_the_run": bool(proposal.asking),
-                    # What Rejected does, as the kind declares it: fail the
-                    # task, or (a state question) "don't" and carry on.
-                    "rejected_fails_task": rejected_fails_task(proposal.kind),
                 }
             )
             image = load_reference_image(experiment, item, proposal)
             # a fluorescence result is shown as its channel composite
-            preview = review_preview(image) if image is not None else None
+            preview = preview_of(image) if image is not None else None
             doc["reference_image"] = (
                 _preview_payload(preview) if preview is not None else None
             )
-            electron = load_reference_image(
-                experiment, item, proposal, "reference_image_eb"
-            )
-            doc["reference_image_eb"] = (
-                _preview_payload(electron) if electron is not None else None
-            )
             return doc
 
-        reviews = [describe(*entry) for entry in experiment.pending_proposals()]
-        return {"available": True, "reviews": reviews}
+        proposals = [describe(*entry) for entry in experiment.pending_proposals()]
+        return {"available": True, "proposals": proposals}
 
     def decide(
         self,
@@ -1924,7 +1910,7 @@ class AutoLamellaAppContext:
         ``stages.Polish 1.pattern.depth``.
 
         ``proposal_id`` is the proposal the agent was shown (from
-        get_pending_reviews), and what the decision is checked against: a task
+        proposal_list), and what the decision is checked against: a task
         may ask several questions in one run, and only the id tells the one
         that was shown from the one that replaced it. ``task_id``, the run, is
         accepted in its place from a caller that has not learned the id, and
@@ -1990,16 +1976,6 @@ class AutoLamellaAppContext:
         result = experiment.decide(item_id, task_name, decision)
         doc = result.to_dict()
         doc["available"] = True
-        if result.applied:
-            self.record_event(
-                "review_decided",
-                {
-                    "item_id": item_id,
-                    "task_name": task_name,
-                    "outcome": decided.name,
-                    "actor": str(decision.actor),
-                },
-            )
         return doc
 
     def add_note(

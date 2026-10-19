@@ -35,7 +35,7 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
 )
 from fibsem.structures import FibsemRectangle, FibsemStagePosition
 from fibsem.workflows.attention import Attention
-from fibsem.workflows.proposals import ALIGNMENT_AREA, DETECTION, STATE, TASK_RESULT
+from fibsem.workflows.proposals import ALIGNMENT_AREA, DETECTION, STATE
 from tests.answering import answering
 
 SETUP = "Setup Lamella Position"
@@ -125,7 +125,7 @@ def test_the_flags_take_the_position_question_out_of_the_declaration():
     assert on.confirm_position and on.confirm_tilt, "on by default: today's prompts"
     assert on.confirm_alignment_area, "on by default too"
     assert on.select_poi, "and the point of interest"
-    assert SelectMillingPositionTask.questions_for(on) == (
+    assert SelectMillingPositionTask.asks_for(on) == (
         STATE,
         POINT_OF_INTEREST,
         ALIGNMENT_AREA,
@@ -133,7 +133,7 @@ def test_the_flags_take_the_position_question_out_of_the_declaration():
     one = SelectMillingPositionTaskConfig(
         task_name=SETUP, confirm_position=False, select_poi=False
     )
-    assert SelectMillingPositionTask.questions_for(one) == (STATE, ALIGNMENT_AREA), (
+    assert SelectMillingPositionTask.asks_for(one) == (STATE, ALIGNMENT_AREA), (
         "the tilt still asks"
     )
     off = SelectMillingPositionTaskConfig(
@@ -143,7 +143,7 @@ def test_the_flags_take_the_position_question_out_of_the_declaration():
         confirm_alignment_area=False,
         select_poi=False,
     )
-    assert SelectMillingPositionTask.questions_for(off) == ()
+    assert SelectMillingPositionTask.asks_for(off) == ()
     walk = SelectMillingPositionTaskConfig(
         task_name=SETUP,
         confirm_position=False,
@@ -152,7 +152,7 @@ def test_the_flags_take_the_position_question_out_of_the_declaration():
         select_poi=False,
         auto_milling_alignment=True,
     )
-    assert SelectMillingPositionTask.questions_for(walk) == (DETECTION,)
+    assert SelectMillingPositionTask.asks_for(walk) == (DETECTION,)
 
 
 # ---------------------------------------------------------------------------
@@ -170,14 +170,13 @@ def test_headless_both_confirmations_go_on_the_record_unreviewed(microscope, tmp
 
     _task(microscope, exp).run()
 
-    tilt, position, point, area, result = lamella.proposals_from(SETUP)
-    assert [p.kind for p in (tilt, position, point, area, result)] == [
+    tilt, position, point, area = lamella.proposals_from(SETUP)
+    assert [p.kind for p in (tilt, position, point, area)] == [
         STATE,
         STATE,
         POINT_OF_INTEREST,
         ALIGNMENT_AREA,
-        TASK_RESULT,
-    ], "the tilt, the position, the point, the alignment area, then the result"
+    ], "the tilt, the position, the point, then the alignment area"
     assert tilt.unreviewed and position.unreviewed and point.unreviewed
 
     assert "Tilt to the milling angle (15.0" in tilt.provenance["message"]
@@ -327,7 +326,7 @@ def test_a_switched_off_alignment_area_is_recorded_and_not_asked(
 
     area = lamella.proposal(SETUP, ALIGNMENT_AREA)
     assert area.unreviewed and "turned off" in area.current.reason
-    assert ALIGNMENT_AREA not in SelectMillingPositionTask.questions_for(
+    assert ALIGNMENT_AREA not in SelectMillingPositionTask.asks_for(
         lamella.task_config[SETUP]
     )
 

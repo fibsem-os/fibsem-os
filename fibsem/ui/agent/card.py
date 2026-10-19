@@ -74,11 +74,11 @@ from fibsem.ui.tokens import (
     PANEL_COLOR,
     PURPLE_COLOR,
     RED_COLOR,
-    REVIEW_COLOR,
     SURFACE_COLOR,
     TEXT_COLOR,
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
+    WAITING_COLOR,
 )
 
 # The agent's reason, before "more".
@@ -96,7 +96,7 @@ ENLARGED_WIDTH = 1024
 
 # How a Recent row ended (agent_recent's tones), as a colour.
 _TONES = {
-    "waiting": REVIEW_COLOR,
+    "waiting": WAITING_COLOR,
     "ok": OK_COLOR,
     "error": RED_COLOR,
     "muted": TEXT_MUTED_COLOR,
@@ -833,7 +833,7 @@ class AgentCard(QFrame):
             self._paint_now()
             self.updateGeometry()
             return
-        self._dot.setStyleSheet(f"color: {REVIEW_COLOR};")
+        self._dot.setStyleSheet(f"color: {WAITING_COLOR};")
         self._paint_now()
         if request is None:
             self._title.setText("Agent suggests an answer")

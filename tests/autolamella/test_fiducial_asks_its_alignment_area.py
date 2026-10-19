@@ -44,11 +44,11 @@ def microscope():
 
 
 def test_the_area_is_a_question_with_a_switch():
-    assert MillFiducialTask.questions == (MILLING, ALIGNMENT_AREA)
+    assert MillFiducialTask.asks == (MILLING, ALIGNMENT_AREA)
     on = MillFiducialTaskConfig(task_name=FIDUCIAL)
     off = MillFiducialTaskConfig(task_name=FIDUCIAL, confirm_alignment_area=False)
-    assert MillFiducialTask.questions_for(on) == (MILLING, ALIGNMENT_AREA)
-    assert MillFiducialTask.questions_for(off) == (MILLING,)
+    assert MillFiducialTask.asks_for(on) == (MILLING, ALIGNMENT_AREA)
+    assert MillFiducialTask.asks_for(off) == (MILLING,)
 
 
 def test_the_question_sits_on_the_image_the_mill_left_behind(microscope, tmp_path):

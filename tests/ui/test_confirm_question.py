@@ -81,7 +81,7 @@ def test_the_yes_click_answers_true(ui, qapp):
     # waiting display state is on for the attention button and border.
     assert ui.pushButton_yes.text() == "Continue"
     assert ui.pushButton_no.text() == "Exit"
-    assert ui.hold is not None and ui.hold.kind is HoldKind.question
+    assert ui.hold is not None and ui.hold.kind is HoldKind.proposal
 
     ui.pushButton_yes.click()
     _finish(thread, qapp)

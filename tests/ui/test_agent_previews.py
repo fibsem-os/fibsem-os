@@ -336,7 +336,7 @@ def test_a_pattern_s_outline_from_its_numbers():
 
 
 def test_a_review_decision_s_point_is_drawn_on_the_card_on_its_own_image():
-    # FIB-1411: review_decide's POI was only JSON on the card. It is drawn on
+    # FIB-1411: proposal_decide's POI was only JSON on the card. It is drawn on
     # the proposal's reference image, under Why; not on the views.
     reference = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=200e-6)
     asked = []
@@ -355,7 +355,7 @@ def test_a_review_decision_s_point_is_drawn_on_the_card_on_its_own_image():
         "status": "pending",
         "actions": [
             {
-                "tool": "review_decide",
+                "tool": "proposal_decide",
                 "what": "01-full-magpie · Setup Lamella",
                 "arguments": {
                     "item_id": "01",
@@ -390,7 +390,7 @@ def _pass_request(proposal, **arguments):
         "status": "pending",
         "actions": [
             {
-                "tool": "review_decide",
+                "tool": "proposal_decide",
                 "what": "01-full-magpie · Rough Milling",
                 "arguments": {
                     "item_id": "01",
@@ -410,7 +410,7 @@ def _pass_previews(proposal, reference):
         lambda: _Controller(),
         reference_image=lambda arguments: reference,
         show_picture=card,
-        review_proposal=lambda arguments: (
+        pending_proposal=lambda arguments: (
             proposal if arguments.get("proposal_id") == proposal.id else None
         ),
     )

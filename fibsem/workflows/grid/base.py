@@ -219,14 +219,6 @@ class GridTask(BaseTask):
         """Whether this task's config attention is supervised."""
         return self.config.attention is Attention.supervised
 
-    @property
-    def result_images(self) -> Dict[str, str]:
-        """The image a proposal points at, by provenance key: the file recorded
-        under the config's role (the stitched overview, not its thumbnail; the
-        operator is judging the image). Empty for a task with no role."""
-        role = getattr(self.config, "role", None)
-        return {"reference_image": role} if role else {}
-
     # -- where the grid is, and where its files go -----------------------------
 
     @property

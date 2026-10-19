@@ -1,8 +1,8 @@
 """Deciding what tasks proposed: the one way a decision reaches an experiment.
 
-:class:`ProposalReview` is what an experiment does with the proposals on its
-items -- decide, ask, use as proposed, record unasked, withdraw -- and the list
-of questions tasks are waiting on. It reads the items through
+:class:`ProposalDecisions` is what an experiment does with the proposals on its
+items -- ask, decide, record unasked, withdraw -- and the list of proposals
+tasks are waiting on. It reads the items through
 ``items()`` and ``get_item_by_id``, saves through ``save``, and fires the
 experiment's ``decided`` and ``asked``; which item field a confirmed value is
 written to is the value writer's, registered per proposal kind
@@ -37,7 +37,7 @@ def _log_failure(outcome) -> None:
         logging.error("a subscriber to a proposal signal raised", exc_info=error)
 
 
-class ProposalReview:
+class ProposalDecisions:
     """Decisions on an experiment's proposals. A mixin for an experiment: it
     needs ``items()``, ``get_item_by_id``, ``save`` and the ``decided`` and
     ``asked`` signals."""
@@ -72,8 +72,8 @@ class ProposalReview:
 
         Runs where the experiment is edited (``edit_executor``) and blocks the
         caller until it has: the window and the App Server are the same client of this
-        function, and a confirm can end in Qt work (a generative review adds
-        lamellae, whose list rebuild must not fire off the GUI thread). Takes
+        function, and a confirm can end in Qt work (a write that changes the
+        item list, whose rebuild must not fire off the GUI thread). Takes
         the same lock as ``save`` so a save never serialises a half-applied
         decision.
 
@@ -123,7 +123,7 @@ class ProposalReview:
                 # would be written against a run that is over.
                 return DecisionResult(
                     applied=False,
-                    error_type="stale_review",
+                    error_type="stale_proposal",
                     reason=f"{task_name} on {item.name} was withdrawn before it "
                     f"was answered; re-run {task_name} to be asked again.",
                 )
@@ -232,7 +232,7 @@ class ProposalReview:
                         changed = f"{what} has asked again since you looked"
                     return DecisionResult(
                         applied=False,
-                        error_type="stale_review",
+                        error_type="stale_proposal",
                         reason=f"{changed}; look at the current one and decide that.",
                     )
                 if not decision.task_id:
@@ -251,7 +251,7 @@ class ProposalReview:
             elif decision.task_id != proposal.task_id:
                 return DecisionResult(
                     applied=False,
-                    error_type="stale_review",
+                    error_type="stale_proposal",
                     reason=(
                         f"{task_name} on {item.name} has re-run since you looked; "
                         "look at the current result and decide that."
@@ -344,8 +344,6 @@ class ProposalReview:
             # asker clears this too on its way out; here it is closed the
             # instant the answer lands, leaving no window in between.
             proposal.asking = False
-            if apply_values is not None:
-                result.delta = proposal.delta(decision)
             logging.debug(
                 {
                     "msg": "proposal_decided",
@@ -353,10 +351,6 @@ class ProposalReview:
                     "task_name": task_name,
                     "outcome": decision.outcome.name,
                     "actor": str(decision.actor),
-                    "delta": {
-                        k: getattr(v, "to_dict", lambda: v)()
-                        for k, v in result.delta.items()
-                    },
                 }
             )
             # Saved here, so no decider can forget to: the prompt bar, the
@@ -412,98 +406,6 @@ class ProposalReview:
         except Exception:
             logging.exception(f"a subscriber to asked raised for {task_name}")
         return True
-
-    def apply_proposed(
-        self, item_id: str, task_name: str, proposal_id: str, reason: str
-    ) -> DecisionResult:
-        """Use a proposal nobody was asked about as it stands: its values are
-        written through, where the experiment is edited and through the same planned
-        writes a decision uses, and it is recorded ``Unreviewed`` with
-        ``reason``. Nothing waits on it after."""
-        return self._run_edit(
-            self._apply_proposed, item_id, task_name, proposal_id, reason
-        )
-
-    def _apply_proposed(
-        self, item_id: str, task_name: str, proposal_id: str, reason: str
-    ) -> DecisionResult:
-        with EXPERIMENT_WRITE_LOCK:
-            item = self.get_item_by_id(item_id)
-            if item is None:
-                return DecisionResult(
-                    applied=False, reason=f"No item with id {item_id!r}."
-                )
-            proposal = next(
-                (p for p in item.current_proposals(task_name) if p.id == proposal_id),
-                None,
-            )
-            if proposal is None:
-                return DecisionResult(
-                    applied=False, reason=f"{item.name} has no such proposal."
-                )
-            if not proposal.pending:
-                return DecisionResult(
-                    applied=False,
-                    reason=f"{task_name} on {item.name} is already decided.",
-                )
-            result = DecisionResult(applied=True)
-            if proposal.values:
-                try:
-                    writes = prepare_values(self, item, proposal.kind, proposal.values)
-                except ValueRefused as e:
-                    return DecisionResult(
-                        applied=False, error_type="invalid_value", reason=str(e)
-                    )
-                except Exception as e:
-                    logging.exception(
-                        f"{item.name}: could not plan the proposed {task_name} values"
-                    )
-                    return DecisionResult(
-                        applied=False, reason=f"Could not apply the values: {e}"
-                    )
-                try:
-                    result.synced_tasks.extend(writes.apply())
-                except Exception as e:
-                    logging.exception(
-                        f"{item.name}: applying the proposed {task_name} values "
-                        "failed; undoing."
-                    )
-                    try:
-                        writes.undo()
-                    except Exception:
-                        logging.exception(f"{item.name}: could not undo {task_name}")
-                    return DecisionResult(
-                        applied=False, reason=f"Could not apply the values: {e}"
-                    )
-            proposal.decisions.append(
-                Decision(
-                    outcome=DecisionOutcome.Unreviewed,
-                    actor=Actor.task(
-                        str(proposal.provenance.get("proposer") or task_name)
-                    ),
-                    values=dict(proposal.values),
-                    reason=reason,
-                    via="workflow",
-                    task_id=proposal.task_id,
-                    proposal_id=proposal.id,
-                )
-            )
-            logging.debug(
-                {
-                    "msg": "proposal_unreviewed",
-                    "item": item.name,
-                    "task_name": task_name,
-                    "kind": proposal.kind,
-                    "proposal_id": proposal.id,
-                    "synced_tasks": list(result.synced_tasks),
-                }
-            )
-            self.save()
-        try:
-            self.decided.emit(item_id, task_name)
-        except Exception:
-            logging.exception(f"a subscriber to decided raised for {task_name}")
-        return result
 
     def record_unasked(
         self, item_id: str, task_name: str, proposal: Proposal, reason: str

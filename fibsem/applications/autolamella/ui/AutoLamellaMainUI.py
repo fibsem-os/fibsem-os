@@ -1628,14 +1628,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # on the image its values were measured on; on the views.
         self.agent_previews = AgentPreviews(
             lambda: getattr(self, "view_controller", None),
-            reference_image=self._agent_review_image,
+            reference_image=self._agent_proposal_image,
             task_config=self._agent_task_config,
             show_picture=self.agent_chip.card.set_image,
             item_pose=self._agent_item_pose,
             item_image=self._agent_item_image,
             overview_image=self._agent_overview_image,
             item_overview=self._agent_item_overview,
-            review_proposal=self._agent_review_proposal,
+            pending_proposal=self._agent_proposal,
         )
         self._agent_chip_timer = QTimer(self)
         self._agent_chip_timer.setInterval(1000)
@@ -2785,8 +2785,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         right_tabs = QTabWidget()
 
         # History tab: what was done to this lamella, task by task, with each
-        # task's images. Not "Review": that is the main tab where decisions
-        # are made, and one thing in the window is called that.
+        # task's images.
         self.lamella_task_image_widget = LamellaTaskImageWidget()
 
         # Protocol tab: matplotlib canvas (left) + editor (right). The editor owns its
@@ -3887,9 +3886,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 continue
         return None
 
-    def _agent_review_pending(self, arguments: dict):
+    def _agent_proposal_pending(self, arguments: dict):
         """``(item, proposal)``: the pending proposal a waiting
-        ``review_decide`` decides, by its id, else its item and task; None."""
+        ``proposal_decide`` decides, by its id, else its item and task; None."""
         experiment = self.autolamella_ui.experiment
         if experiment is None:
             return None
@@ -3902,19 +3901,19 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 return item, proposal
         return None
 
-    def _agent_review_proposal(self, arguments: dict):
-        """The pending proposal a waiting ``review_decide`` decides, or None."""
-        found = self._agent_review_pending(arguments)
+    def _agent_proposal(self, arguments: dict):
+        """The pending proposal a waiting ``proposal_decide`` decides, or None."""
+        found = self._agent_proposal_pending(arguments)
         return found[1] if found is not None else None
 
-    def _agent_review_image(self, arguments: dict):
-        """The image a waiting ``review_decide``'s values sit on: its proposal's
+    def _agent_proposal_image(self, arguments: dict):
+        """The image a waiting ``proposal_decide``'s values sit on: its proposal's
         reference image. None when the proposal is not pending or has none."""
-        from fibsem.applications.autolamella.review_images import (
+        from fibsem.applications.autolamella.reference_images import (
             load_reference_image,
         )
 
-        found = self._agent_review_pending(arguments)
+        found = self._agent_proposal_pending(arguments)
         if found is None:
             return None
         return load_reference_image(self.autolamella_ui.experiment, *found)

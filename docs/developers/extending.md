@@ -181,8 +181,8 @@ Four contracts:
   question, and it is why supervised and unsupervised runs share one code
   path.
 - **Record outputs** on the task's history entry (`task_state.outputs`,
-  mapping role to files), and write images under `lamella.path`. The Review
-  panel and the reports read from there; unrecorded files are not shown,
+  mapping role to files), and write images under `lamella.path`. The History
+  tab and the reports read from there; unrecorded files are not shown,
   and files written elsewhere are lost when the experiment is copied off
   the microscope.
 - **Cancellation is cooperative.** Stop sets an event. A task that does not

@@ -5,19 +5,22 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from fibsem.acting import Actor
+from fibsem.workflows.deciding import ProposalDecisions
 from fibsem.workflows.experiment import BaseExperiment
 from fibsem.workflows.item import ExperimentItem
 from fibsem.workflows.proposals import (
-    TASK_RESULT,
     Decision,
     DecisionOutcome,
     Proposal,
+    ProposalKind,
+    register_proposal_kind,
 )
-from fibsem.workflows.review import ProposalReview
 from fibsem.workflows.status import TaskState, TaskStatus
 
 TASK = "Mill"
 RUN = "run-1"
+# A kind with nothing to carry: a yes or no.
+LOOK = register_proposal_kind(ProposalKind(name="look", values=())).name
 
 
 @dataclass
@@ -30,7 +33,7 @@ class Position(ExperimentItem):
     proposals: List[Proposal] = field(default_factory=list)
 
 
-class Volume(BaseExperiment, ProposalReview):
+class Volume(BaseExperiment, ProposalDecisions):
     app = "volume"
 
     def __init__(self, path: Path) -> None:
@@ -45,13 +48,13 @@ class Volume(BaseExperiment, ProposalReview):
 
 
 def _finished(tmp_path) -> tuple:
-    """A position whose Mill run finished, its result proposed and not decided."""
+    """A position whose Mill run finished with a proposal on it not decided."""
     experiment = Volume(tmp_path)
     position = Position("P1")
     run = TaskState(name=TASK, task_id=RUN, status=TaskStatus.Completed)
     position.task_history.append(run)
     proposal = position.record_proposal(
-        TASK, Proposal(kind=TASK_RESULT, provenance={"task_id": RUN})
+        TASK, Proposal(kind=LOOK, provenance={"task_id": RUN})
     )
     experiment.positions.append(position)
     return experiment, position, proposal

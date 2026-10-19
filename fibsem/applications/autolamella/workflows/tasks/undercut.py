@@ -49,7 +49,7 @@ class MillUndercutTask(AutoLamellaTask):
 
     # Asked while it runs: the detections the stage moves follow, through
     # ``detect``, on the record; then the milling session.
-    questions = (DETECTION, MILLING)
+    asks = (DETECTION, MILLING)
 
     config: MillUndercutTaskConfig
     config_cls: ClassVar[Type[MillUndercutTaskConfig]] = MillUndercutTaskConfig

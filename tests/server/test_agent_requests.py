@@ -884,7 +884,7 @@ def test_a_run_task_reads_by_its_stages_with_whose_estimate_it_is():
             "Open 'AutoLamella-2026-10-15'",
         ),
         (
-            "review_decide",
+            "proposal_decide",
             {
                 "item_id": "abc",
                 "task_name": "Setup",
@@ -892,8 +892,8 @@ def test_a_run_task_reads_by_its_stages_with_whose_estimate_it_is():
                 "values": {"poi": {"x": 1.2e-6, "y": -3e-6}},
             },
             {
-                "/app/workflow/reviews": {
-                    "reviews": [{"item_id": "abc", "item_name": "02-saving-wolf"}]
+                "/app/workflow/proposals": {
+                    "proposals": [{"item_id": "abc", "item_name": "02-saving-wolf"}]
                 }
             },
             "02-saving-wolf · Setup",

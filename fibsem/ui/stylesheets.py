@@ -42,7 +42,6 @@ from fibsem.ui.tokens import (  # noqa: F401  (re-exported for existing callers)
     PRIMARY_COLOR_PRESSED,
     PURPLE_COLOR,
     RED_COLOR,
-    REVIEW_COLOR,
     ROW_ALT_COLOR,
     SEMANTIC_ERROR_COLOR,
     SEMANTIC_ERROR_HOVER_COLOR,
@@ -52,6 +51,7 @@ from fibsem.ui.tokens import (  # noqa: F401  (re-exported for existing callers)
     TEXT_COLOR,
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
+    WAITING_COLOR,
     WARN_COLOR,
     WHITE_ICON_COLOR,
 )

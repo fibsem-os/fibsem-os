@@ -46,8 +46,7 @@ entry point shares them:
 
 * *Unload the grid* (``unload_at_end``): only when the queue is done, failed
   tasks included. A Stop leaves the grid where it is, since the operator asked
-  the hardware to stop, and so does a run that gave up waiting on the Review
-  tab: the grid is still wanted there. Recorded on the grid's history as an
+  the hardware to stop. Recorded on the grid's history as an
   ``Unload grid`` entry, and shown in the queue as a step, like the load.
 * *Write the screening report* (``report_at_end``): after the unload, so a report
   that fails cannot leave the grid loaded, and on every ending, a Stop and a
@@ -138,7 +137,7 @@ class GridTaskManager(BaseTaskManager):
         experiment: "GridExperiment",
         hook_manager: Optional[HookManager] = None,
         responder: Optional[Responder] = None,
-        answerers: Optional[Callable[[], Tuple[ActorKind, ...]]] = None,
+        deciders: Optional[Callable[[], Tuple[ActorKind, ...]]] = None,
         images: Optional[Any] = None,
         unload_at_end: bool = False,
         report_at_end: bool = False,
@@ -154,7 +153,7 @@ class GridTaskManager(BaseTaskManager):
             experiment,
             hook_manager,
             responder,
-            answerers,
+            deciders,
             images,
         )
         self.inventory_first = inventory_first

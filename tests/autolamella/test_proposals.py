@@ -35,8 +35,6 @@ from fibsem.workflows.proposals import (
     ALIGNMENT_AREA,
     PROPOSAL_KINDS,
     STATE,
-    TASK_RESULT,
-    Alternative,
     Decision,
     DecisionOutcome,
     Proposal,
@@ -45,7 +43,6 @@ from fibsem.workflows.proposals import (
     compute_delta,
     prepare_values,
     register_proposal_kind,
-    rejected_fails_task,
 )
 from fibsem.workflows.quality import Verdict
 from fibsem.workflows.status import TaskState, TaskStatus
@@ -77,10 +74,6 @@ def _proposal(poi=Point(1e-6, 2e-6)) -> Proposal:
     return Proposal(
         kind=POINT_OF_INTEREST,
         values={"poi": poi},
-        confidence=None,
-        alternatives=[
-            Alternative(values={"poi": Point(5e-6, 0)}, score=0.3, reason="near bar")
-        ],
         provenance={
             "proposer": "centre",
             "reference_image": "ref_x.tif",
@@ -105,8 +98,6 @@ def test_proposal_round_trips_through_yaml_with_points_intact():
     again = Proposal.from_dict(yaml.safe_load(yaml.safe_dump(p.to_dict())))
     assert again.kind == POINT_OF_INTEREST
     assert again.values["poi"] == Point(1e-6, 2e-6)
-    assert again.alternatives[0].values["poi"] == Point(5e-6, 0)
-    assert again.alternatives[0].reason == "near bar"
     assert again.provenance == p.provenance
     assert again.current.outcome is DecisionOutcome.Confirmed
     assert again.current.values["poi"] == Point(1.5e-6, 2e-6)
@@ -179,17 +170,13 @@ def test_a_tasks_proposals_are_a_list_oldest_first_and_the_last_is_current():
 def test_a_kind_has_a_name_for_a_person():
     from fibsem.workflows.proposals import (
         DETECTION,
-        OVERVIEW_POSITIONS,
         STATE,
-        TASK_RESULT,
         kind_label,
     )
 
     assert kind_label(POINT_OF_INTEREST) == "Point of interest"
     assert kind_label(STATE) == "Position"
     assert kind_label(DETECTION) == "Detection"
-    assert kind_label(OVERVIEW_POSITIONS) == "Positions"
-    assert kind_label(TASK_RESULT) == "Result"
     assert kind_label("alignment_area") == "Alignment area", (
         "a kind this build has not registered still reads"
     )
@@ -405,7 +392,6 @@ def test_confirm_writes_the_value_through_and_syncs_patterns(tmp_path):
     )
 
     assert result.applied is True
-    assert result.delta["poi"] == Point(2e-6, -1e-6)
     assert lamella.poi == Point(2e-6, -1e-6)
     assert ROUGH in result.synced_tasks
     rough_point_after = (
@@ -419,17 +405,6 @@ def test_confirm_writes_the_value_through_and_syncs_patterns(tmp_path):
     assert not lamella.proposal(SETUP).pending
     assert heard == [(lamella.id, SETUP)]
     assert not lamella.is_failure
-
-
-def test_each_kind_says_whether_a_reject_fails_its_task():
-    """Mostly "nothing further here"; a state question asks leave to do
-    something, and a reject is "don't". A kind this build does not know fails
-    its task, as every kind did before kinds said."""
-    assert rejected_fails_task(STATE) is False
-    for name in PROPOSAL_KINDS:
-        if name != STATE:
-            assert rejected_fails_task(name) is True, name
-    assert rejected_fails_task("from_a_newer_build") is True
 
 
 def test_rejecting_a_state_question_leaves_the_waiting_task_as_it_was(tmp_path):
@@ -524,7 +499,7 @@ def _grid_finished(exp: Experiment, task_name: str = "Overview") -> GridRecord:
     set_proposals(
         grid,
         task_name,
-        [Proposal(kind=TASK_RESULT, provenance={"task_id": state.task_id})],
+        [Proposal(kind=STATE, provenance={"task_id": state.task_id})],
     )
     return grid
 
@@ -683,11 +658,11 @@ def test_a_wrongly_typed_value_is_refused_and_nothing_moves(tmp_path, value):
 
 
 def test_a_value_the_proposals_kind_does_not_carry_is_refused(tmp_path):
-    """A task_result proposal carries no values: a poi confirmed on it is
-    refused even though a writer for poi exists."""
+    """A state proposal carries a stage position, not a poi: a poi confirmed
+    on it is refused even though a writer for poi exists."""
     exp = _experiment(tmp_path)
     lamella = _finished(
-        exp, Proposal(kind=TASK_RESULT, provenance={"task_id": RUN}), task_name=ROUGH
+        exp, Proposal(kind=STATE, provenance={"task_id": RUN}), task_name=ROUGH
     )
     before = _snapshot(lamella)
 
@@ -703,7 +678,7 @@ def test_a_value_the_proposals_kind_does_not_carry_is_refused(tmp_path):
     )
 
     assert result.applied is False
-    assert "task_result proposal does not carry ['poi']" in result.reason
+    assert "state proposal does not carry ['poi']" in result.reason
     assert _snapshot(lamella) == before
     assert lamella.proposal(ROUGH).pending
 
@@ -990,7 +965,7 @@ def test_a_decision_on_a_run_the_task_has_since_replaced_is_refused(tmp_path):
         ),
     )
 
-    assert result.applied is False and result.error_type == "stale_review"
+    assert result.applied is False and result.error_type == "stale_proposal"
     assert "re-run since you looked" in result.reason
     assert _snapshot(lamella) == before
     assert lamella.proposal(SETUP).pending
@@ -998,7 +973,7 @@ def test_a_decision_on_a_run_the_task_has_since_replaced_is_refused(tmp_path):
 
 def test_a_proposal_recorded_before_runs_were_named_cannot_be_decided(tmp_path):
     exp = _experiment(tmp_path)
-    lamella = _finished(exp, Proposal(kind=TASK_RESULT), task_name=ROUGH)
+    lamella = _finished(exp, Proposal(kind=STATE), task_name=ROUGH)
 
     result = exp.decide(
         lamella.id,
@@ -1006,7 +981,7 @@ def test_a_proposal_recorded_before_runs_were_named_cannot_be_decided(tmp_path):
         Decision(task_id=RUN, outcome=DecisionOutcome.Rejected, actor="a", reason="x"),
     )
 
-    assert result.applied is False and result.error_type == "stale_review"
+    assert result.applied is False and result.error_type == "stale_proposal"
     assert "re-run it to decide it" in result.reason
     assert lamella.proposal(ROUGH).pending
 

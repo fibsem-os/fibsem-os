@@ -135,7 +135,7 @@ def test_the_click_answers_with_the_widgets_feature_set(ui, qapp):
     # waiting display state is on for the attention button and border.
     assert ui.det_widget.det is sent
     assert ui.tabWidget.currentWidget() is ui.det_widget
-    assert ui.hold is not None and ui.hold.kind is HoldKind.question
+    assert ui.hold is not None and ui.hold.kind is HoldKind.proposal
 
     # The supervisor corrects the detection; the answer must be what the widget
     # holds at click time, not what the workflow sent.

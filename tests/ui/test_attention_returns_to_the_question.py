@@ -204,7 +204,7 @@ def main_ui(qapp):
 
 def test_a_question_on_one_of_the_windows_own_tabs_is_fronted_there(main_ui, qapp):
     """The destination comes from the question, not from the hold's kind:
-    ``HoldKind.question`` covers a prompt answered on the Microscope tab and
+    ``HoldKind.proposal`` covers a prompt answered on the Microscope tab and
     one answered on a tab of its own alike. Stood up here with the Grids tab
     standing in for a question's host."""
     host = main_ui.grids_tab

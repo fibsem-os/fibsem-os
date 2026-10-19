@@ -105,7 +105,7 @@ def test_the_click_answers_with_the_area_from_the_widget(ui, qapp):
     # message, and the waiting display state is on.
     shown = ui.image_widget.get_alignment_area()
     assert shown is not None
-    assert ui.hold is not None and ui.hold.kind is HoldKind.question
+    assert ui.hold is not None and ui.hold.kind is HoldKind.proposal
 
     ui.pushButton_yes.click()
     _finish(thread, qapp)

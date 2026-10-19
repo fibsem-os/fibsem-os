@@ -112,7 +112,7 @@ def test_the_click_answers_with_the_marker_position(window, ui, qapp):
     # Mid-wait: the marker is on the FIB canvas and the waiting state is on.
     controller = window.view_controller
     assert controller.overlay_points(BeamType.ION, "poi")
-    assert ui.hold is not None and ui.hold.kind is HoldKind.question
+    assert ui.hold is not None and ui.hold.kind is HoldKind.proposal
 
     ui.pushButton_yes.click()
     _finish(thread, qapp)
