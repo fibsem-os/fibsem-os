@@ -7,11 +7,9 @@ none was written before versioning. What changed, oldest first:
   ``ion:``, ``fm:``, ``imaging:``), a column's defaults inside its block, the holders
   and pre-tilt inside ``stage:``. Version 1 put the blocks under ``hardware:``, the
   defaults under ``defaults:`` and the measured values under ``calibration:``.
-- Version 1 kept the stage's devices under ``stage.devices`` (``FIBSEM``, ``FM``)
-  with one shared ``stage.device_range``, and their orientations as
-  ``acquisition_orientations``, where an empty list meant any. Version 2 lists the
-  devices (``hardware.devices``), each with its own ``origin``,
-  ``available_orientations`` and ``range``.
+- Version 2 lists the devices (``hardware.devices``). Version 1's own way of placing
+  them, ``stage.devices`` with a shared ``stage.device_range``, was never in a
+  release and is not upgraded: those keys are left for the reader to report.
 - A column said ``plasma: true/false`` beside ``plasma_gas``, and shipped files spelt
   no gas as the string ``None``. Version 2 has ``plasma_gas``, null for none.
 - A detector was once spelt with bare names (``mode``, ``contrast``), and the stage once
@@ -33,17 +31,10 @@ import logging
 from typing import Any, Dict, List
 
 from fibsem.structures import (
-    BEAMS_STAGE_DEVICE,
     CONFIGURATION_VERSION,
     CONFIGURED_DEVICES,
-    DEFAULT_AVAILABLE_ORIENTATIONS,
-    DEFAULT_STAGE_DEVICES,
-    KNOWN_ORIENTATIONS,
-    VERSION_1_DEVICE_RANGE,
     BeamSettings,
     DeviceEntry,
-    device_axes_to_dict,
-    stage_device_entry_name,
 )
 
 # What `calibration:` took from the stage block in version 1.
@@ -84,8 +75,6 @@ def upgrade(config: Dict[str, Any]) -> Dict[str, Any]:
             if key in stage:
                 calibration.setdefault(key, stage.pop(key))
         stage.pop("rotation_180", None)  # derived since FIB-834
-        for position in _version_1_positions(stage):
-            _merge(hardware["devices"], entries, position)
     for name in ("electron", "ion"):
         entry = entries.get(name)
         if entry is None:
@@ -186,49 +175,3 @@ def _plasma_gas(entry: dict) -> None:
             "The configuration says `plasma: true` but names no plasma gas; the "
             "gas is read from the instrument at connect."
         )
-
-
-def _version_1_positions(stage: dict) -> List[dict]:
-    """The device entries for the positions a version 1 ``stage.devices`` declares.
-
-    Each declared device gets the shared ``device_range`` (or the 20 mm version 1 used
-    when the file stated none), so a site keeps the window it had. The beams are the
-    stage's zero and have no entry; an origin for them away from zero is not kept,
-    and is warned about.
-    """
-    declared = stage.pop("devices", None) or {}
-    shared = stage.pop("device_range", None) or device_axes_to_dict(
-        VERSION_1_DEVICE_RANGE
-    )
-    entries = []
-    for key, device in declared.items():
-        device = dict(device or {})
-        if key == BEAMS_STAGE_DEVICE:
-            origin = device.get("origin") or {}
-            if any(origin.get(axis) for axis in origin):
-                logging.warning(
-                    f"stage.devices.{key}.origin {origin} is not kept: the beams are "
-                    "the stage's zero."
-                )
-            continue
-        name = stage_device_entry_name(key)
-        if "acquisition_orientations" in device:
-            # Version 1's empty list meant any orientation.
-            orientations = device.pop("acquisition_orientations") or list(
-                KNOWN_ORIENTATIONS
-            )
-            device.setdefault("available_orientations", orientations)
-        device.setdefault("range", shared)
-        entries.append({"name": name, **device})
-    undeclared = [
-        key
-        for key in DEFAULT_STAGE_DEVICES
-        if declared and key != BEAMS_STAGE_DEVICE and key not in declared
-    ]
-    for key in undeclared:
-        logging.warning(
-            f"stage.devices declares no {key}; it takes the default position "
-            f"{DEFAULT_STAGE_DEVICES[key].to_dict()}, with orientations "
-            f"{list(DEFAULT_AVAILABLE_ORIENTATIONS.get(stage_device_entry_name(key), ()))}."
-        )
-    return entries

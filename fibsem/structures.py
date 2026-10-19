@@ -2609,13 +2609,11 @@ class StageDeviceSettings:
     def from_dict(
         ddict: dict,
         default_orientations: Sequence[str] = (),
-        default_range: Optional[FibsemStagePosition] = None,
     ) -> "StageDeviceSettings":
         """Read a device's stage position.
 
         `available_orientations` missing is the device type's default; stated empty is
-        an error. `range` missing is *default_range*, or 1 mm on each axis the origin
-        sets.
+        an error. `range` missing is 1 mm on each axis the origin sets.
         """
         origin = device_axes_from_dict(ddict.get("origin"), "device origin")
         if "available_orientations" in ddict:
@@ -2639,14 +2637,11 @@ class StageDeviceSettings:
             )
         if ddict.get("range"):
             range_ = device_axes_from_dict(ddict["range"], "device range")
-        elif default_range is not None:
-            range_ = deepcopy(default_range)
         else:
             range_ = default_device_range(origin)
         # A range covers every axis the origin sets; one it leaves out gets the
         # default. Otherwise `contains` answers no on that axis, and the device -- a
-        # version 1 `{x: 20 mm}` copied onto an origin that also sets y -- could never
-        # be arrived at.
+        # `{x: 20 mm}` range on an origin that also sets y -- could never be arrived at.
         for axis in DEVICE_AXES:
             if getattr(origin, axis) is not None and getattr(range_, axis) is None:
                 setattr(range_, axis, DEFAULT_DEVICE_RANGE_EXTENT)
@@ -2670,11 +2665,6 @@ def default_device_range(origin: FibsemStagePosition) -> FibsemStagePosition:
         }
     )
 
-
-# The range every device shared in configuration version 1 when the file stated none.
-# A version 1 file is read with its `device_range` (or this) copied onto each device,
-# so an existing site keeps the window it had; the 1 mm default is for new entries.
-VERSION_1_DEVICE_RANGE = FibsemStagePosition(x=20.0e-3)
 
 # The ion column's angle from the electron column, in degrees. A property of the
 # instrument rather than a preference, and the same on every dual-beam this supports,

@@ -18,6 +18,7 @@ from fibsem import utils
 from fibsem.codec.upgrades.configuration import upgrade
 from fibsem.structures import (
     CONFIGURATION_VERSION,
+    DEFAULT_STAGE_DEVICES,
     DeviceEntry,
     MicroscopeSettings,
     SystemSettings,
@@ -360,7 +361,7 @@ def test_a_key_on_a_beam_without_a_driver_is_still_reported():
 # Where the stage travels for a device is on that device's entry
 # ---------------------------------------------------------------------------
 
-OFFSET_FM = os.path.join(VERSION_1_FILES, "sim-iflm-configuration.yaml")
+OFFSET_FM = os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
 
 
 def _offset_fm_entry(**keys) -> dict:
@@ -369,19 +370,28 @@ def _offset_fm_entry(**keys) -> dict:
     }
 
 
-def test_a_version_1_files_positions_move_onto_the_fm_entry():
-    """Its shared `device_range` is copied onto the FM, so the window it had is kept."""
-    written = MicroscopeSettings.from_dict(
-        upgrade(utils.load_yaml(OFFSET_FM))
-    ).to_dict()
+def test_a_version_1_stage_devices_block_is_not_read_and_is_reported():
+    """Version 1 placed the devices under `stage.devices`. It was never in a release,
+    so it is not upgraded: the FM keeps the default position, and the keys are
+    reported rather than silently dropped."""
+    config = upgrade(
+        {
+            "version": 1,
+            "hardware": {
+                "stage": {
+                    "device_range": {"x": 20.0e-3},
+                    "devices": {"FM": {"origin": {"x": 48.8e-3}}},
+                }
+            },
+        }
+    )
 
-    fm = utils.configuration_device(written, "fm")
-    assert fm["origin"] == {"x": 48.8e-3}
-    assert fm["available_orientations"] == ["FIB"]
-    assert fm["range"] == {"x": 20.0e-3}
-    assert "devices" not in utils.configuration_device(written, "stage")
-    assert "device_range" not in utils.configuration_device(written, "stage")
-    assert utils.unrecognised_configuration_keys(written) == []
+    system = SystemSettings.from_dict(config)
+    assert system.stage.devices == DEFAULT_STAGE_DEVICES
+    assert utils.unrecognised_configuration_keys(config) == [
+        "hardware.devices.stage.device_range",
+        "hardware.devices.stage.devices",
+    ]
 
 
 def test_the_positions_read_back_as_they_were_written():
@@ -409,21 +419,6 @@ def test_a_device_that_states_no_orientations_gets_its_types():
 def test_an_empty_orientation_list_is_an_error():
     with pytest.raises(ValueError, match="empty"):
         SystemSettings.from_dict(_offset_fm_entry(available_orientations=[]))
-
-
-def test_the_version_1_key_left_empty_meant_any_orientation():
-    config = {
-        "hardware": {
-            "stage": {
-                "devices": {
-                    "FM": {"origin": {"x": 0.05}, "acquisition_orientations": []}
-                }
-            }
-        }
-    }
-    fm = SystemSettings.from_dict(upgrade(config)).stage.devices["FM"]
-    assert fm.available_orientations == ["SEM", "FIB", "MILLING", "FM"]
-    assert fm.range.x == 20.0e-3, "a version 1 file keeps its 20 mm window"
 
 
 # ---------------------------------------------------------------------------
