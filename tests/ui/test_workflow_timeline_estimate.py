@@ -367,7 +367,7 @@ def test_the_column_does_not_move_when_the_hover_button_appears(widget, app):
 # ── through the real thing ────────────────────────────────────────────────────
 # Everything above feeds the widget by hand. This drives a real TaskManager over a real
 # Experiment whose lamellae carry real task configs, and takes the estimates from
-# `estimated_duration` exactly as AutoLamellaMainUI._push_timeline_estimates does — so
+# `estimated_duration` exactly as WorkflowTab._push_timeline_estimates does — so
 # the number on the row is one the shipped path actually produces, not one the test
 # chose. A stand-in config returning 100.0 would prove none of that.
 

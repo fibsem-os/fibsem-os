@@ -122,6 +122,27 @@ class CorrelationSession:
         # instead of claiming "Ready." while nothing is saved (FIB-316).
         self.save_error: Optional[str] = None
 
+    def reset(self) -> None:
+        """Start a new correlation here, as a new session would: no images,
+        points, result, seed, pre-correction, previous runs or run folder, and
+        the default config. A run in flight delivers nothing when it finishes.
+
+        What subscribes to the points and the removal policy stay: a view open
+        on this session shows the points go.
+        """
+        self.discard_result()
+        self.points.replace_all([])  # disarms the pre-correction
+        self.fib_image = None
+        self.fm_image = None
+        self.prior_runs = []
+        self.assumed_fm_transform = None
+        self.ignore_placement_offset = False
+        self.seeded_positions = None
+        self.config = CorrelationConfig()
+        self.project_dir = None
+        self._save_armed = False  # emptying the points is not an edit
+        self.save_error = None
+
     # ------------------------------------------------------------------
     # The images
     # ------------------------------------------------------------------

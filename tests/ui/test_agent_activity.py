@@ -222,6 +222,12 @@ def test_the_now_line_says_which_mill_how_far_and_how_long_is_left(qapp):
     # The agent let go; its mill runs on and is still its own.
     report(remaining_time=5.0, estimated_time=60.0)
     assert activity.now == "Milling 'trench' · stage 2 of 6 · about 5s left"
+    # The next stage starting has no countdown yet: the last one's is over
+    # (sim session 2026-10-19: "about 0s left" while it prepared).
+    report(MillingProgressStatus.STAGE_STARTED, current_stage=2, total_stages=6)
+    assert activity.now == "Milling 'trench' · stage 3 of 6 · preparing"
+    report(remaining_time=40.0, estimated_time=60.0)
+    assert activity.now == "Milling 'trench' · stage 3 of 6 · about 40s left"
     report(MillingProgressStatus.TASK_FINISHED)
     assert activity.now is None and said[-1] is None
 
@@ -239,7 +245,7 @@ def test_the_now_line_says_which_mill_how_far_and_how_long_is_left(qapp):
             current_stage=0,
             total_stages=3,
         )
-        assert activity.now == "Milling 'Rough Mill' · stage 1 of 3"
+        assert activity.now == "Milling 'Rough Mill' · stage 1 of 3 · preparing"
     # A run's mill without the agent is not on the agent's line.
     report(MillingProgressStatus.TASK_STARTED, run="r3", milling_task_name="Polish")
     assert activity.now is None

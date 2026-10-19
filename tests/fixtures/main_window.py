@@ -2,7 +2,7 @@
 task's proposals through it.
 
 A proposal a task asks on the record is put in front of the operator by the
-main window (``_on_proposal_asked``): a state or a loop's pass on the prompt
+main window (``AttentionRouter``): a state or a loop's pass on the prompt
 bar. A test that decides a pass on the prompt bar needs that window, not the
 bare ``AutoLamellaUI`` inside it.
 """

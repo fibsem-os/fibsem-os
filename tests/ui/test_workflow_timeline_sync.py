@@ -410,7 +410,7 @@ def _experiment(tmp_path, names=("L1", "L2")) -> Experiment:
 def manager(widget, tmp_path) -> TaskManager:
     """A real TaskManager, on a real Experiment, wired to the real widget.
 
-    The slots mirror AutoLamellaMainUI._on_workflow_update and _on_queue_changed.
+    The slots mirror AutoLamellaMainUI._on_workflow_update and WorkflowTab.on_queue_changed.
     Going through the real _emit_report / notify_queue_changed is what stops the
     payload contract drifting from the widget that reads it.
     """

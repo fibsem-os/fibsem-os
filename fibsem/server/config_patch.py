@@ -40,7 +40,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 from fibsem.structures import field_specs
 
-__all__ = ["PatchError", "apply_patch"]
+__all__ = ["PatchError", "apply_patch", "check_patch"]
 
 
 class PatchError(ValueError):
@@ -76,6 +76,17 @@ def apply_patch(
     return changes
 
 
+def check_patch(
+    root: Any,
+    patch: Dict[str, Any],
+    none_types: Optional[Dict[str, type]] = None,
+) -> None:
+    """Validate every entry as :func:`apply_patch` would, setting nothing:
+    raises the same :class:`PatchError`."""
+    for path, value in patch.items():
+        _resolve(root, path, value, (none_types or {}).get(path))
+
+
 def _resolve(root: Any, path: str, value: Any, none_type: Optional[type] = None):
     parts = path.split(".")
     if not all(parts):
@@ -97,6 +108,8 @@ def _resolve(root: Any, path: str, value: Any, none_type: Optional[type] = None)
         new = _coerce(old_for_coerce, value, path)
     elif old is None and none_type is not None:
         new = _decode(none_type, value, path)
+    elif type(old) is int and _declared_type(obj, leaf) is float:
+        new = _coerce(float(old), value, path)  # a float field holding a whole number
     else:
         new = _coerce(old, value, path)
     _check_bounds(obj, leaf, new, path)
@@ -112,15 +125,20 @@ def _resolve(root: Any, path: str, value: Any, none_type: Optional[type] = None)
     return setter, path, old, new
 
 
-def _annotated_type(obj: Any, leaf: str) -> Optional[type]:
-    """The type *obj*'s field *leaf* holds when set: ``X`` for ``Optional[X]``.
-    None when *obj* is no dataclass or the annotation says nothing narrower."""
+def _declared_type(obj: Any, leaf: str) -> Any:
+    """The annotation of *obj*'s field *leaf*; None when *obj* is no dataclass."""
     if not is_dataclass(obj):
         return None
     try:
-        hint = typing.get_type_hints(type(obj)).get(leaf)
+        return typing.get_type_hints(type(obj)).get(leaf)
     except Exception:  # an annotation naming a type-checking-only import
         return None
+
+
+def _annotated_type(obj: Any, leaf: str) -> Optional[type]:
+    """The type *obj*'s field *leaf* holds when set: ``X`` for ``Optional[X]``.
+    None when *obj* is no dataclass or the annotation says nothing narrower."""
+    hint = _declared_type(obj, leaf)
     if typing.get_origin(hint) is not Union:
         return None
     args = [a for a in typing.get_args(hint) if a is not type(None)]

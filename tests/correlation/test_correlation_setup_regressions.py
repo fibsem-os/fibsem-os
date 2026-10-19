@@ -42,6 +42,7 @@ from fibsem.ui.correlation.widgets.correlation_setup_section import (
     SEED_SPOT_BURNS,
     CorrelationSetupSection,
 )
+from fibsem.workflows.session import AppSession
 
 OLD = "2026-07-20_09-00-00"
 NEW = "2026-07-24_14-32-00"
@@ -291,7 +292,7 @@ def _editor_stub(lamella_path, fib_filename, image):
         )
     stub = QWidget()
     stub._selected_lamella = types.SimpleNamespace(path=lamella_path, task_config={})
-    stub.parent_widget = None
+    stub.parent_widget = types.SimpleNamespace(experiment=None, session=AppSession())
     stub.image = image
     stub.fm_image = None
     stub.combobox_fib_filenames = fib_combo
@@ -305,9 +306,10 @@ def _editor_stub(lamella_path, fib_filename, image):
 
 def _fake_dialog_class(record):
     class _FakeDialog:
-        def __init__(self, parent=None):
+        def __init__(self, parent=None, session=None):
             record.append(self)
             self.fib_image = None
+            self.session = session
 
         def set_project_dir(self, path):
             pass
@@ -323,6 +325,9 @@ def _fake_dialog_class(record):
 
         def exec_(self):
             return 0  # rejected — stop before the result handling
+
+        def deleteLater(self):
+            pass
 
     return _FakeDialog
 

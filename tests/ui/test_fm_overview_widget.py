@@ -2179,22 +2179,14 @@ class _StubHost:
 
     # One builder now, and it makes the merged Overview tab: the fluorescence overview is
     # a page of it rather than a tab of its own (FIB-780). Everything below still reaches
-    # the same `AutoLamellaFluorescenceOverviewTab`, through `self.fm_overview_tab`, which
-    # the builder binds.
+    # the same `AutoLamellaFluorescenceOverviewTab`, as `self.overview_tab.fm_tab`.
     add_overview_tab = _Real.add_overview_tab
     _refresh_overview_microscope = _Real._refresh_overview_microscope
     _on_overview_availability = _Real._on_overview_availability
     _refresh_overview_positions = _Real._refresh_overview_positions
-    _on_fm_overview_lamella_selected = _Real._on_fm_overview_lamella_selected
-    # The builder wires both pages' lists, so the beam handler is reached here too even
-    # though nothing in this file clicks it.
-    _on_beam_overview_lamella_selected = _Real._on_beam_overview_lamella_selected
-    _set_overviews_allowed = _Real._set_overviews_allowed
-    _apply_overview_locks = _Real._apply_overview_locks
+    _on_overview_lamella_selected = _Real._on_overview_lamella_selected
     # A finished run tells the quad view's overview page; the stub has none.
     _refresh_quad_overviews = _Real._refresh_quad_overviews
-    _overview_may_work = _Real._overview_may_work
-    _overviews_allowed = _Real._overviews_allowed
     _rebuild_lamella_list = _Real._rebuild_lamella_list
     _wire_position_events = _Real._wire_position_events
     # The rebuild pushes the grid context to the lamella displays first.
@@ -2224,7 +2216,7 @@ class _StubHost:
     @property
     def fm_modality_available(self):
         """Whether the fluorescence page has anything behind it -- the old `tab_enabled`."""
-        return self.fm_overview_tab.is_available
+        return self.overview_tab.fm_tab.is_available
 
     # ── reading through to the tab ───────────────────────────────────────
     # Test scaffolding, not production shims: these say "what the window can see of the
@@ -2233,22 +2225,22 @@ class _StubHost:
 
     @property
     def fm_overview_widget(self):
-        return self.fm_overview_tab.overview
+        return self.overview_tab.fm_tab.overview
 
     def _build_fm_overview_widget(self):
-        self.fm_overview_tab.refresh_microscope()
+        self.overview_tab.fm_tab.refresh_microscope()
 
     def _teardown_fm_overview_widget(self):
-        self.fm_overview_tab._drop_overview()
+        self.overview_tab.fm_tab._drop_overview()
 
     def _update_fm_overview_experiment(self):
-        self.fm_overview_tab.refresh_experiment()
+        self.overview_tab.fm_tab.refresh_experiment()
 
     def _update_fm_overview_positions(self):
         self._refresh_overview_positions()
 
     def _update_fm_overview_selection(self, lamella):
-        self.fm_overview_tab.set_selected(lamella)
+        self.overview_tab.fm_tab.set_selected(lamella)
 
 
 def _plain_microscope():
@@ -2483,10 +2475,10 @@ def test_a_workflow_lock_reaches_the_fm_tab(qapp):
     host = _StubHost(microscope=build_microscope())
     host._build_fm_overview_widget()
 
-    host._set_overviews_allowed(False)
+    host.overview_tab.locks.set_run_allows(False)
     assert not host.fm_overview_widget.button_acquire.isEnabled()
 
-    host._set_overviews_allowed(True)
+    host.overview_tab.locks.set_run_allows(True)
     assert host.fm_overview_widget.button_acquire.isEnabled()
 
     host._teardown_fm_overview_widget()
@@ -2497,7 +2489,7 @@ def test_the_workflow_lock_survives_there_being_no_fm_tab(qapp):
     host = _StubHost(microscope=_plain_microscope())
     host._build_fm_overview_widget()
 
-    host._set_overviews_allowed(False)  # must not raise
+    host.overview_tab.locks.set_run_allows(False)  # must not raise
 
 
 def test_everything_tolerates_the_tab_being_dead(qapp):
@@ -2511,7 +2503,7 @@ def test_everything_tolerates_the_tab_being_dead(qapp):
 
     host._build_fm_overview_widget()  # must not raise
     host._update_fm_overview_experiment()  # must not raise
-    host._set_overviews_allowed(False)  # must not raise
+    host.overview_tab.locks.set_run_allows(False)  # must not raise
     host._refresh_overview_microscope()  # must not raise
 
     assert getattr(host, "fm_overview_widget", None) is None
@@ -3468,7 +3460,7 @@ def test_adding_declares_the_fluorescence_orientation(qapp, tmp_path):
     host = _wired_host(qapp, tmp_path)
     position = _named("wherever", 120e-6, -60e-6)
 
-    host.fm_overview_tab._on_add_requested(position)
+    host.overview_tab.fm_tab._on_add_requested(position)
 
     assert host.autolamella_ui.added[0]["marked_at"] == FLUORESCENCE_ORIENTATION
     assert host.autolamella_ui.added[0]["position"] is position
@@ -3487,7 +3479,7 @@ def test_adding_records_where_the_objective_actually_is(qapp, tmp_path):
     objective.move_absolute(objective.position + 50e-6)  # focused by hand
     assert objective.state is InsertableDeviceState.INSERTED
 
-    host.fm_overview_tab._on_add_requested(_named("wherever", 0.0, 0.0))
+    host.overview_tab.fm_tab._on_add_requested(_named("wherever", 0.0, 0.0))
 
     assert host.autolamella_ui.added[0]["objective_position"] == pytest.approx(
         objective.position
@@ -3504,7 +3496,7 @@ def test_a_retracted_objective_is_not_recorded_as_a_focus(qapp, tmp_path):
     objective.retract()
     assert objective.state is InsertableDeviceState.RETRACTED
 
-    host.fm_overview_tab._on_add_requested(_named("wherever", 0.0, 0.0))
+    host.overview_tab.fm_tab._on_add_requested(_named("wherever", 0.0, 0.0))
 
     assert host.autolamella_ui.added[0]["objective_position"] is None
 
@@ -3517,7 +3509,7 @@ def test_adding_without_an_experiment_is_refused_not_crashed(qapp, tmp_path):
     host = _wired_host(qapp, tmp_path)
     host.autolamella_ui.experiment = None
 
-    host.fm_overview_tab._on_add_requested(
+    host.overview_tab.fm_tab._on_add_requested(
         _named("wherever", 0.0, 0.0)
     )  # must not raise
 
@@ -3536,7 +3528,7 @@ def test_a_refused_add_is_reported_rather_than_raised(qapp, tmp_path):
 
     host.autolamella_ui.add_new_lamella = refuse
 
-    host.fm_overview_tab._on_add_requested(
+    host.overview_tab.fm_tab._on_add_requested(
         _named("wherever", 0.0, 0.0)
     )  # must not raise
 
@@ -3562,7 +3554,7 @@ def test_moving_asks_before_it_moves_anything(qapp, tmp_path, monkeypatch):
         module, "message_box_ui", lambda **kwargs: asked.append(kwargs) or False
     )
 
-    host.fm_overview_tab._on_move_requested(
+    host.overview_tab.fm_tab._on_move_requested(
         "Lamella-01", _named("target", 400e-6, -200e-6)
     )
 
@@ -3592,7 +3584,7 @@ def test_confirming_a_move_moves_both_poses(qapp, tmp_path, monkeypatch):
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
     target = _named("target", 400e-6, -200e-6)
-    host.fm_overview_tab._on_move_requested("Lamella-01", target)
+    host.overview_tab.fm_tab._on_move_requested("Lamella-01", target)
 
     # the fluorescence pose is where the user clicked...
     assert lamella.fluorescence_pose.stage_position.x == pytest.approx(400e-6)
@@ -3626,7 +3618,7 @@ def test_a_move_rewrites_the_stage_positions_and_nothing_else(
     host.autolamella_ui.experiment.positions = [lamella]
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
-    host.fm_overview_tab._on_move_requested(
+    host.overview_tab.fm_tab._on_move_requested(
         "Lamella-01", _named("target", 400e-6, -200e-6)
     )
 
@@ -3652,7 +3644,7 @@ def test_moving_a_lamella_that_has_no_fluorescence_pose_gives_it_one(
     host.autolamella_ui.experiment.positions = [lamella]
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
-    host.fm_overview_tab._on_move_requested(
+    host.overview_tab.fm_tab._on_move_requested(
         "Lamella-01", _named("target", 400e-6, -200e-6)
     )
 
@@ -3680,7 +3672,7 @@ def test_a_move_re_derives_the_milling_angle(qapp, tmp_path, monkeypatch):
     host.autolamella_ui.experiment.positions = [lamella]
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
-    host.fm_overview_tab._on_move_requested(
+    host.overview_tab.fm_tab._on_move_requested(
         "Lamella-01", _named("target", 400e-6, -200e-6)
     )
 
@@ -3707,7 +3699,9 @@ def test_a_move_that_names_nothing_does_nothing(qapp, tmp_path, monkeypatch):
         module, "message_box_ui", lambda **kwargs: asked.append(kwargs) or True
     )
 
-    host.fm_overview_tab._on_move_requested("Lamella-99", _named("target", 0.0, 0.0))
+    host.overview_tab.fm_tab._on_move_requested(
+        "Lamella-99", _named("target", 0.0, 0.0)
+    )
 
     assert asked == [], "asked about a lamella that is not there"
     assert host.autolamella_ui.experiment.saves == 0
@@ -3742,16 +3736,20 @@ class _ListStub:
 
 def _list_host(qapp, tmp_path, experiment=None):
     """A `_StubHost` that can run the real `_rebuild_lamella_list`."""
+    from types import SimpleNamespace
+
     from tests.fixtures.fm_microscope import build_microscope
 
     host = _StubHost(microscope=build_microscope())
     host._build_fm_overview_widget()
     host.autolamella_ui.experiment = experiment
-    host.lamella_list_widget = _ListStub()
+    host.workflow_tab = SimpleNamespace(
+        lamella_workflow_widget=SimpleNamespace(lamella_list=_ListStub()),
+        selection_changed=lambda: None,
+    )
     host.lamella_card_container = _ListStub()
     host._lamella_list_experiment = None
     host._on_lamella_card_selected = lambda lamella: None
-    host._on_workflow_selection_changed = lambda: None
     host._update_lamella_tab_enabled = lambda: None
     return host
 
@@ -3780,7 +3778,7 @@ def test_a_lamella_added_anywhere_reaches_the_fm_canvas(qapp, tmp_path):
     experiment.positions.append(lamella)  # nobody calls the FM refresh by hand
 
     assert [p.name for p in host.fm_overview_widget.session.positions] == ["Lamella-01"]
-    assert host.lamella_list_widget.lamellae == [lamella]
+    assert host.workflow_tab.lamella_workflow_widget.lamella_list.lamellae == [lamella]
 
     host._teardown_fm_overview_widget()
 
@@ -3854,7 +3852,7 @@ def test_a_rebuild_keeps_the_ticks_and_the_selected_card(qapp, tmp_path):
 
     experiment = _real_experiment(tmp_path)
     host = _list_host(qapp, tmp_path, experiment)
-    host.lamella_list_widget = LamellaListWidget()
+    host.workflow_tab.lamella_workflow_widget.lamella_list = LamellaListWidget()
     host.lamella_card_container = LamellaCardContainer(columns=1)
     reselected = []
     host._on_lamella_card_selected = reselected.append
@@ -3863,25 +3861,29 @@ def test_a_rebuild_keeps_the_ticks_and_the_selected_card(qapp, tmp_path):
     second = _real_lamella("Lamella-02", microscope, tmp_path)
     experiment.positions.extend([first, second])
     host._rebuild_lamella_list()
-    host.lamella_list_widget._row(1).checkbox.setChecked(True)
+    host.workflow_tab.lamella_workflow_widget.lamella_list._row(1).checkbox.setChecked(
+        True
+    )
     host.lamella_card_container.select_lamella(second.name)
     host._selected_card_lamella = second
 
     experiment.positions.append(_real_lamella("Lamella-03", microscope, tmp_path))
     host._rebuild_lamella_list()
 
-    assert host.lamella_list_widget.get_selected() == [second]
+    assert host.workflow_tab.lamella_workflow_widget.lamella_list.get_selected() == [
+        second
+    ]
     assert host.lamella_card_container._selected_id == second.id
     assert reselected[-1] is second
 
     experiment.positions.remove(second)
     host._rebuild_lamella_list()
 
-    assert host.lamella_list_widget.get_selected() == []
+    assert host.workflow_tab.lamella_workflow_widget.lamella_list.get_selected() == []
     assert host.lamella_card_container._selected_id is None
     assert reselected[-1] is None
 
-    host.lamella_list_widget.close()
+    host.workflow_tab.lamella_workflow_widget.lamella_list.close()
     host.lamella_card_container.close()
     host._teardown_fm_overview_widget()
 
@@ -3929,7 +3931,7 @@ def test_a_confirmed_move_re_marks_the_canvas(qapp, tmp_path, monkeypatch):
     before = host.fm_overview_widget.session.positions[0].x
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
-    host.fm_overview_tab._on_move_requested(
+    host.overview_tab.fm_tab._on_move_requested(
         "Lamella-01", _named("target", 400e-6, -200e-6)
     )
 

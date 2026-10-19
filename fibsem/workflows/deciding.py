@@ -111,10 +111,10 @@ class ProposalDecisions:
                     reason=f"{item.name} has no proposal from {task_name!r}.",
                 )
             if decision.proposal_id and decision.proposal_id != proposal.id:
-                # The task made more than one kind of proposal -- a question it
-                # asked, then its result -- and the decider named the other
-                # one. Any current proposal can be decided; a replaced one is
-                # refused further down as stale.
+                # The task asked more than one kind in this run (a state, then a
+                # point of interest) and the decider named the other one. Any
+                # current proposal can be decided; a replaced one is refused
+                # further down as stale.
                 for other in item.current_proposals(task_name):
                     if other.id == decision.proposal_id:
                         proposal = other

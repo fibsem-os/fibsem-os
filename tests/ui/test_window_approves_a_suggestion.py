@@ -57,7 +57,7 @@ def _ask_and_suggest(win, qapp):
 
 def test_approve_decides_as_suggested_naming_the_suggestion(window, qapp):
     proposal, suggestion = _ask_and_suggest(window, qapp)
-    chip = window.agent_chip
+    chip = window.agent_host.chip
     assert chip.suggestion["reason"] == "the edge is 1 µm right"
     assert chip.text() == "Agent suggests"
 
@@ -74,7 +74,7 @@ def test_approve_decides_as_suggested_naming_the_suggestion(window, qapp):
 
 def test_decline_keeps_the_proposal_up_with_the_reason(window, qapp):
     proposal, _ = _ask_and_suggest(window, qapp)
-    card = window.agent_chip.card
+    card = window.agent_host.chip.card
 
     card.decline_button.click()
     card.reason_edit.setText("that is the trench")
@@ -83,4 +83,4 @@ def test_decline_keeps_the_proposal_up_with_the_reason(window, qapp):
 
     assert proposal.pending
     assert proposal.suggestion.declined_reason == "that is the trench"
-    assert window.agent_chip.suggestion is None
+    assert window.agent_host.chip.suggestion is None

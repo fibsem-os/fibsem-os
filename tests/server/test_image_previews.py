@@ -59,6 +59,19 @@ def test_small_image_is_not_upscaled():
     assert (width, height) == (200, 100)
 
 
+def test_a_bare_array_payload_carries_the_source_size():
+    # A fluorescence composite has no metadata, so the payload reports the
+    # preview and the source dimensions only.
+    from fibsem.applications.autolamella.server.image_payloads import image_payload
+
+    data = (np.random.rand(600, 1600) * 255).astype(np.uint8)
+    payload = image_payload(data)
+    assert (payload["full_width"], payload["full_height"]) == (1600, 600)
+    assert payload["width"] <= 1600 and payload["height"] <= 600
+    assert "hfw" not in payload
+    assert image_payload(None) is None
+
+
 def test_acquire_image_preview_endpoint(armed_client):
     resp = armed_client.post(PREVIEW, headers=AUTH, json={"answer": "preview"})
     assert resp.status_code == 200

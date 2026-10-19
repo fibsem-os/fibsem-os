@@ -178,7 +178,7 @@ def test_a_proposal_on_one_of_the_windows_own_tabs_is_fronted_there(main_ui, qap
     main_ui.autolamella_ui.proposal_host = lambda: host
     main_ui.tab_widget.setCurrentIndex(0)
 
-    main_ui._on_user_attention_clicked()
+    main_ui.attention.attention_clicked()
 
     assert main_ui.tab_widget.currentWidget() is host
 
@@ -189,6 +189,6 @@ def test_a_proposal_elsewhere_still_lands_on_the_microscope_tab(main_ui, qapp):
     main_ui.autolamella_ui.proposal_host = lambda: None
     main_ui.tab_widget.setCurrentWidget(main_ui.grids_tab)
 
-    main_ui._on_user_attention_clicked()
+    main_ui.attention.attention_clicked()
 
     assert main_ui.tab_widget.currentIndex() == 0

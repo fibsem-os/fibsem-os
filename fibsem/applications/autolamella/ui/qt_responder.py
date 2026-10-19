@@ -93,11 +93,10 @@ class QtResponder(QObject):
     # --- handlers, one per request type ------------------------------------------
 
     def _set_images(self, request: SetImages) -> None:
-        """Show the acquisition images. Moved from handle_workflow_update."""
+        """Show the acquisition images."""
         image_widget = self._ui.image_widget
         if image_widget is None:
-            # Under the old signal this raise was a process abort; now it surfaces
-            # in the workflow thread as this instruction's failure.
+            # Surfaces in the workflow thread as this instruction's failure.
             raise RuntimeError("No image widget available to display images.")
 
         # _on_acquire owns the eb_image/ib_image references, routed by
@@ -119,8 +118,7 @@ class QtResponder(QObject):
     def _milling_widget(self):
         widget = self._ui.milling_task_config_widget
         if widget is None:
-            # Under the old signal this raise was a process abort; now it surfaces
-            # in the workflow thread as the instruction's failure.
+            # Surfaces in the workflow thread as the instruction's failure.
             raise RuntimeError("No milling task config widget available.")
         return widget
 
@@ -132,7 +130,7 @@ class QtResponder(QObject):
         self._ui.front_tab(widget)
 
     def _clear_milling_config(self, request: ClearMillingConfig) -> None:
-        """Clear the milling editor. Moved from handle_workflow_update."""
+        """Clear the milling editor."""
         self._milling_widget().clear()
 
     def _show_detection(self, request: ShowDetection) -> None:
@@ -156,8 +154,8 @@ class QtResponder(QObject):
 
     # Unlike the image and milling widgets, whose absence is a defect, the FM and
     # spot-burn widgets legitimately do not exist on systems without the hardware —
-    # and a workflow must not fail over that. The old handler skipped silently;
-    # these acknowledge the instruction and do the same.
+    # and a workflow must not fail over that: these acknowledge the instruction
+    # and skip.
 
     def _set_fluorescence_channels(self, request: SetFluorescenceChannels) -> None:
         """Load the channel settings into the fluorescence widget, if there is one."""

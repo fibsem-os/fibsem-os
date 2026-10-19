@@ -286,6 +286,7 @@ def test_screen_all_grids_from_the_window_runs_on_the_named_grids(
 
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
     from fibsem.applications.autolamella.ui import AutoLamellaUI as ui_module
+    from fibsem.applications.autolamella.ui import workflow_tab
     from fibsem.workflows.grid import (
         BeamOverviewGridTaskConfig,
     )
@@ -332,7 +333,7 @@ def test_screen_all_grids_from_the_window_runs_on_the_named_grids(
         dialog.btn_screen.click()
         return dialog.result()
 
-    monkeypatch.setattr(module.ScreenGridsDialog, "exec_", _drive)
+    monkeypatch.setattr(workflow_tab.ScreenGridsDialog, "exec_", _drive)
 
     window = module.AutoLamellaSingleWindowUI()
     ui = window.autolamella_ui
@@ -353,10 +354,12 @@ def test_screen_all_grids_from_the_window_runs_on_the_named_grids(
         exp.grid_protocol.add(BeamOverviewGridTaskConfig(task_name="overview_sem"))
         ui.experiment = exp
         window.grids_tab.set_experiment(exp)
-        window.grid_workflow_widget.set_experiment(exp)
-        window.workflow_left_tabs.setCurrentWidget(window.grid_workflow_widget)
+        window.workflow_tab.grid_workflow_widget.set_experiment(exp)
+        window.workflow_tab.left_tabs.setCurrentWidget(
+            window.workflow_tab.grid_workflow_widget
+        )
 
-        window._on_screen_all_grids()
+        window.workflow_tab._on_screen_all_grids()
         assert ui.session.runner.is_running
         _wait(lambda: not ui.session.runner.is_running, 90.0)
         QTest.qWait(200)  # let the finished signal land
