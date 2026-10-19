@@ -643,8 +643,14 @@ def test_stop_agent_drops_to_watch_and_is_the_operator_s_on_the_record(main_ui, 
         assert kinds == [
             ("agent_level_set", {"previous": "watch", "level": "drive"}),
             (
-                "agent_stopped",
-                {"previous": "drive", "level": "watch", "stopped": None},
+                "action",
+                {
+                    "what": "Stop the agent",
+                    "ok": True,
+                    "stops": "agent",
+                    "previous": "drive",
+                    "level": "watch",
+                },
             ),
         ]
         assert all(e["actor"] == "operator" for e in events)

@@ -41,6 +41,7 @@ from fibsem.ai.agent.catalog import CATALOG, ToolSpec, route_call
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.ai.agent.request_text import Describer, describe_action, describe_actions
 from fibsem.server.auth import AuthConfig, lending_drive, require_level
+from fibsem.workflows.actions import ACTION, action_record
 from fibsem.workflows.proposals import ACTIONS, Decision, DecisionOutcome, Proposal
 
 PENDING = "pending"
@@ -650,7 +651,15 @@ class RequestStore:
                 if not ok:
                     result["error"] = refused or (answer or {}).get("detail", answer)
                 request.results.append(result)
-                self._emit("request_applied", {"request_id": request.id, **result})
+                self._emit(
+                    ACTION,
+                    action_record(
+                        join_line(action.what, action.change) or action.tool,
+                        ok=ok,
+                        request_id=request.id,
+                        **{k: v for k, v in result.items() if k != "ok"},
+                    ),
+                )
                 self._changed(request)
                 if not ok:
                     status = FAILED
