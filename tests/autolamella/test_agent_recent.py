@@ -257,3 +257,32 @@ def test_the_operator_s_message_and_the_agent_s_reply_are_rows():
     ]
     # The operator's line is at no level; the agent's reply at its own.
     assert [row.level for row in recent.rows] == ["drive", ""]
+
+
+def test_a_request_on_the_record_as_a_proposal_is_one_row():
+    recent = RecentActions()
+    actions = [{"tool": "stage_move_relative", "arguments": {"dx": 5e-6}}]
+
+    def asked(proposal_id):
+        payload = {"proposal_id": proposal_id, "kind": "actions"}
+        return _record("proposal_asked", {**payload, "proposed": {"actions": actions}})
+
+    def decided(proposal_id, outcome, reason="", actor="operator:op"):
+        payload = dict(proposal_id=proposal_id, kind="actions", outcome=outcome)
+        return _record(
+            "proposal_decided", {**payload, "reason": reason, "actor": actor}, OPERATOR
+        )
+
+    recent.add(asked("r1"))
+    assert _rows(recent) == [("Asked: Stage · Move 5 µm in x", "waiting", WAITING)]
+    recent.add(decided("r1", "Confirmed"))
+    assert _rows(recent)[0][1:] == ("approved", WAITING)
+    recent.add(asked("r2"))
+    recent.add(decided("r2", "Rejected", "not now"))
+    assert _rows(recent)[0][1:] == ("rejected: not now", MUTED)
+    recent.add(asked("r3"))
+    recent.add(decided("r3", "Withdrawn", "withdrawn by the agent: moved", "agent:c"))
+    assert _rows(recent)[0][1:] == ("withdrawn", MUTED)
+    recent.add(asked("r4"))
+    recent.add(decided("r4", "Withdrawn", "the operator stopped the agent", "task:x"))
+    assert _rows(recent)[0][1:] == ("cancelled: the operator stopped the agent", MUTED)

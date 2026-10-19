@@ -644,6 +644,7 @@ def build_server(
             check=getattr(app_context, "check_action", None),
             not_allowed=_not_allowed(microscope) if serve_microscope else None,
             experiment_path=lambda: getattr(app_context, "experiment_path", None),
+            experiment=getattr(app_context, "recording_experiment", None),
         )
         app.include_router(build_request_router(app.state.requests))
     return app
