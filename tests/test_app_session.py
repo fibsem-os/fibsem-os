@@ -347,9 +347,16 @@ def test_the_brake_drops_to_watch_and_says_what_it_stopped(session, microscope):
 
     assert session.agent.stop() == "start_milling"
     assert session.agent.level is AgentLevel.WATCH
-    assert _kinds(session, "agent_stopped") == [
+    assert _kinds(session, "action") == [
         (
-            {"previous": "drive", "level": "watch", "stopped": "start_milling"},
+            {
+                "what": "Stop the agent",
+                "ok": True,
+                "stops": "agent",
+                "previous": "drive",
+                "level": "watch",
+                "stopped": "start_milling",
+            },
             "operator",
         )
     ]
@@ -406,8 +413,8 @@ def test_a_message_is_heard_only_while_something_records(session, microscope):
     session.microscope = microscope
     session.start_recording()
     message_id = session.agent.message("hold on")
-    assert _kinds(session, "operator_message") == [
-        ({"id": message_id, "text": "hold on"}, "operator")
+    assert _kinds(session, "note") == [
+        ({"text": "hold on", "id": message_id}, "operator")
     ]
 
 
@@ -424,9 +431,11 @@ def test_an_operator_stop_is_recorded_by_the_runner(session, microscope):
     session.runner.stop(actor="operator", via="Stop")
     session.runner.stop_task(actor="operator", via="Stop Task", task="Trench (01)")
     session.runner.stop()  # unnamed: the agent's stop records itself
-    assert _kinds(session, "workflow_stop") == [
-        ({"stopped": "workflow", "via": "Stop"}, "operator"),
-        ({"stopped": "task", "via": "Stop Task", "task": "Trench (01)"}, "operator"),
+    run = {"what": "Stop the run", "ok": True, "stops": "workflow", "via": "Stop"}
+    task = {"what": "Stop the task", "ok": True, "stops": "task", "via": "Stop Task"}
+    assert _kinds(session, "action") == [
+        (run, "operator"),
+        ({**task, "task": "Trench (01)"}, "operator"),
     ]
 
 

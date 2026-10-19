@@ -198,7 +198,9 @@ def _print_events(events, since, out):
             out(_mill_stage_line(event, data))
         elif kind == "milling":
             out(_mill_ended_line(event, data))
-        elif kind == "operator_message":
+        elif kind == "operator_message" or (
+            kind == "note" and event.get("actor") == "operator"
+        ):
             message_id = data.get("id")
             text = " ".join(str(data.get("text", "")).split())
             out(

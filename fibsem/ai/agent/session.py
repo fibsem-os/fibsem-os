@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Callable, List, Optional, Set
 
 from fibsem.acting import OPERATOR
 from fibsem.ai.agent.levels import AgentLevel
+from fibsem.workflows.actions import ACTION, NOTE, action_record, note_record
 
 if TYPE_CHECKING:
     from fibsem.workflows.session import AppSession
@@ -93,9 +94,19 @@ class AgentSession:
             "Agent stopped by the operator: level set to watch%s",
             f"; stopped {stopped}" if stopped else "",
         )
-        self._record(
-            "agent_stopped", previous=previous, level=host.auth.level, stopped=stopped
-        )
+        recorder = self._session.recorder
+        if recorder is not None:
+            recorder.buffer.append(
+                ACTION,
+                action_record(
+                    "Stop the agent",
+                    stops="agent",
+                    previous=previous.value if previous is not None else None,
+                    level=host.auth.level.value,
+                    stopped=stopped,
+                ),
+                actor=OPERATOR,
+            )
         return stopped
 
     # --- requests --------------------------------------------------------------
@@ -181,9 +192,7 @@ class AgentSession:
             return None
         message_id = uuid.uuid4().hex[:8]
         logging.info("Operator message to the agent (%s): %s", message_id, text)
-        recorder.buffer.append(
-            "operator_message", {"id": message_id, "text": text}, actor=OPERATOR
-        )
+        recorder.buffer.append(NOTE, note_record(text, id=message_id), actor=OPERATOR)
         return message_id
 
     def seconds_since_seen(self) -> Optional[float]:

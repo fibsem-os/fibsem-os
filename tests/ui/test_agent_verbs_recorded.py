@@ -202,5 +202,5 @@ def test_the_agent_s_other_recorded_verbs_are_the_agent_s(ui, recorder, qapp):
             "/app/workflow/schedule",
             {"task_name": TASK_NAME, "scheduled_at": "2026-10-12T06:00:00"},
         ).json()["applied"]
-    assert _actors(recorder, "agent_note") == ["agent"]
+    assert _actors(recorder, "note") == ["agent"]
     assert _actors(recorder, "workflow_changed") == ["agent"]

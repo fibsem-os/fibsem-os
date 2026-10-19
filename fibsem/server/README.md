@@ -51,8 +51,8 @@ A stop (`POST /microscope/services/milling/commands/stop`, a device's or a
 service's `stop` or `stop_live`, or `POST /app/workflow/stop`) never takes control. The
 agent stops its own action (its command holds control) at Assist or Drive; anything
 else needs Drive, or a request approved at Assist. Every stop needs a `reason`
-in its body (`422 missing_reason` without one), recorded as an `agent_stop`
-event. `GET /capabilities` reports the
+in its body (`422 missing_reason` without one), recorded as an `action`
+event naming what it `stops`. `GET /capabilities` reports the
 level.
 
 The server binds `127.0.0.1` by default. Exposing it on the LAN is an

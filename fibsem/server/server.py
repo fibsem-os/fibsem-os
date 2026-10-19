@@ -52,6 +52,7 @@ from fibsem.server.discovery import fibsem_folder
 from fibsem.server.models import MicroscopeStateRequest
 from fibsem.server.requests import RequestStore, build_request_router
 from fibsem.structures import BeamType, MicroscopeState
+from fibsem.workflows.actions import ACTION, action_record
 
 API_VERSION = "0.3.0"
 
@@ -213,15 +214,17 @@ async def _stop_reason(request: Request):
     if call is not None:
         call.recorded = True
     owner = request.path_params.get("service") or request.path_params.get("device")
+    target = _STOPPED.get(owner or "workflow", f"the {_words(owner)}")
     request.app.state.microscope.record_event(
-        "agent_stop",
-        {
-            "action": action,
-            "what": _STOPPED.get(owner or "workflow", f"the {_words(owner)}"),
-            "reason": reason.strip(),
-            "own": own,
-            "level": request.app.state.auth.level.value,
-        },
+        ACTION,
+        action_record(
+            f"Stop {target}",
+            reason=reason.strip(),
+            stops=action,
+            target=target,
+            own=own,
+            level=request.app.state.auth.level.value,
+        ),
     )
 
 
@@ -269,23 +272,25 @@ def _record_refusal(request: Request, exc: StarletteHTTPException) -> None:
             return
         auth: AuthConfig = request.app.state.auth
         call = current_call()
-        payload = {
+        payload = action_record(
             # a request refused at filing names the call it carried
-            "action": detail.get("call")
+            detail.get("call")
             or _REFUSED_ACTIONS.get(request.url.path.rstrip("/"))
             or action_name(request),
-            "route": f"{request.method} {request.url.path}",
-            "error_type": error_type,
-            "level": auth.level.value,
-        }
+            ok=False,
+            refused=True,
+            route=f"{request.method} {request.url.path}",
+            error_type=error_type,
+            level=auth.level.value,
+        )
         if call is not None and call.action and not detail.get("call"):
             # The call as the card says it (FIB-1426), when the sidecar named it.
             payload["line"] = call.action
         logging.info(
-            f"agent refused: {payload['action']} ({payload['route']}): "
+            f"agent refused: {payload['what']} ({payload['route']}): "
             f"403 {error_type} at {payload['level']}"
         )
-        request.app.state.microscope.record_event("agent_refused", payload)
+        request.app.state.microscope.record_event(ACTION, payload)
     except Exception:  # noqa: BLE001 - recording must not change the answer
         logging.debug("could not record an agent refusal", exc_info=True)
 
@@ -389,13 +394,13 @@ class _AgentActs:
             ):
                 return
             request = Request(scope)
-            payload = {
-                "action": call.action or action_name(request),
-                "route": f"{scope.get('method')} {path}",
-                "status": status,
-                "ok": status < 400,
-                "level": call.level,
-            }
+            payload = action_record(
+                call.action or action_name(request),
+                ok=status < 400,
+                route=f"{scope.get('method')} {path}",
+                status=status,
+                level=call.level,
+            )
             if call.tool:
                 payload["tool"] = call.tool
             if call.arguments:
@@ -411,7 +416,7 @@ class _AgentActs:
                 message = detail.get("message") if isinstance(detail, dict) else detail
                 if isinstance(message, str) and message.strip():
                     payload["message"] = message.strip()
-            scope["app"].state.microscope.record_event("agent_called", payload)
+            scope["app"].state.microscope.record_event(ACTION, payload)
         except Exception:  # noqa: BLE001 - recording must not change the answer
             logging.debug("could not record an agent call", exc_info=True)
 

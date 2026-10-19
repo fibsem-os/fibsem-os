@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tuple
 
 from fibsem.acting import TASK, ActorKind, current_actor
+from fibsem.workflows.actions import NOTE
 from fibsem.workflows.events import (
     EventBuffer,
     attach_microscope_taps,
@@ -507,7 +508,7 @@ class EventRecorder:
                 if getattr(ref, "iteration", None) is not None:
                     task["iteration"] = ref.iteration
         if (
-            kind == "agent_note"
+            kind in ("agent_note", NOTE)
             and isinstance(payload, dict)
             and payload.get("item_id")
         ):

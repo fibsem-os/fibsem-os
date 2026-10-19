@@ -264,8 +264,19 @@ def test_every_step_is_on_the_record_with_who_acted(client, app, context):
     store.approve(filed["request_id"])
     store.wait(filed["request_id"], timeout=10)
 
-    steps = [(kind, actor) for kind, _, actor in context.recorded if "request" in kind]
-    assert steps == [("request_applied", "agent"), ("request_finished", "agent")]
+    steps = [
+        (kind, actor)
+        for kind, payload, actor in context.recorded
+        if kind == "request_finished" or payload.get("request_id")
+    ]
+    assert steps == [("action", "agent"), ("request_finished", "agent")]
+    step = context.recorded[0][1]
+    assert step["what"].startswith("Stage · Move 1 µm in x")
+    assert (step["request_id"], step["index"], step["ok"]) == (
+        filed["request_id"],
+        0,
+        True,
+    )
     # Asked and decided on the experiment's record, as its proposal.
     proposal = _proposal(context, filed["request_id"])
     assert proposal.kind == "actions"
@@ -1002,8 +1013,8 @@ def test_what_the_agent_may_never_touch_is_refused_at_filing(
     assert _detail(refused)["error_type"] == "not_allowed"
     assert _detail(refused)["message"].startswith("Action 2: ")
     assert app.state.requests.pending() is None
-    refusals = [payload for kind, payload in recorded if kind == "agent_refused"]
-    assert [p["action"] for p in refusals] == [call]
+    refusals = [payload for kind, payload in recorded if kind == "action"]
+    assert [p["what"] for p in refusals] == [call]
     assert refusals[0]["route"] == "POST /app/agent/requests"
 
 

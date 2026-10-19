@@ -47,6 +47,7 @@ from fibsem.applications.autolamella.config_edits import (
 from fibsem.server.files import jpeg_preview
 from fibsem.structures import BeamType
 from fibsem.util.timestamps import to_iso, wall_time_of
+from fibsem.workflows.actions import NOTE, note_record
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.outputs import item_outputs, latest_item_output
 from fibsem.workflows.runner import GRIDS, ITEMS, RunRequest
@@ -2100,10 +2101,10 @@ class AutoLamellaAppContext:
         )
         # With the item's id, so the record files the note under the item
         # it is about, not whichever one is running (FIB-1328).
-        payload = {"text": text, "item_name": item_name, "item_id": item_id}
-        if reply_to:
-            payload["reply_to"] = reply_to
-        self.record_event("agent_note", payload)
+        self.record_event(
+            NOTE,
+            note_record(text, item_id=item_id, item_name=item_name, reply_to=reply_to),
+        )
         return {"available": True, "recorded": True}
 
     def record_event(

@@ -30,6 +30,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 from psygnal import Signal
 
 from fibsem.hooks import HookManager
+from fibsem.workflows.actions import ACTION, action_record
 from fibsem.workflows.queue import QUEUE_ACTIONS, QueueOp
 from fibsem.workflows.status import TaskStatus
 
@@ -244,7 +245,7 @@ class WorkflowRunner:
         """Put a stop on the session's record (events.jsonl) and in the log,
         before it runs: what was stopped, by whom and from where. Without it a
         stop leaves only the run's ``task_cancelled``, which does not say who
-        stopped it (FIB-1397). The agent's stop records itself (``agent_stop``),
+        stopped it (FIB-1397). The agent's stop records itself (``_stop_reason`` in the server),
         so a stop with no actor named records nothing here."""
         if actor is None or not self.is_running:
             return
@@ -252,8 +253,13 @@ class WorkflowRunner:
         buffer = self._event_buffer()
         if buffer is not None:
             buffer.append(
-                "workflow_stop",
-                {"stopped": stopped, "via": via, **details},
+                ACTION,
+                action_record(
+                    f"Stop the {'run' if stopped == 'workflow' else 'task'}",
+                    stops=stopped,
+                    via=via,
+                    **details,
+                ),
                 actor=actor,
             )
 

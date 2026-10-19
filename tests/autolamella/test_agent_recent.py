@@ -286,3 +286,52 @@ def test_a_request_on_the_record_as_a_proposal_is_one_row():
     recent.add(asked("r4"))
     recent.add(decided("r4", "Withdrawn", "the operator stopped the agent", "task:x"))
     assert _rows(recent)[0][1:] == ("cancelled: the operator stopped the agent", MUTED)
+
+
+def test_actions_and_notes_on_the_record_make_the_same_rows():
+    recent = RecentActions()
+    recent.add(
+        _record(
+            "action",
+            {"what": "Stage · Move 2 µm in x", "ok": True, "level": "drive"},
+        )
+    )
+    recent.add(
+        _record(
+            "action",
+            {
+                "what": "Stop the mill",
+                "ok": True,
+                "stops": "milling stop",
+                "target": "the mill",
+                "reason": "off target",
+                "level": "drive",
+            },
+        )
+    )
+    recent.add(
+        _record(
+            "action",
+            {
+                "what": "move relative",
+                "ok": False,
+                "refused": True,
+                "error_type": "ask_first",
+                "level": "assist",
+            },
+        )
+    )
+    recent.add(_record("note", {"text": "skip 03", "id": "ab12"}, actor=OPERATOR))
+    recent.add(_record("note", {"text": "skipping 03", "reply_to": "ab12"}))
+    # The operator's own stop is not the agent's row.
+    assert not recent.add(
+        _record("action", {"what": "Stop the run", "stops": "workflow"}, OPERATOR)
+    )
+
+    assert [text for text, _, _ in _rows(recent)] == [
+        "Reply: skipping 03",
+        "You: skip 03",
+        "Tried to move relative",
+        "Stopped the mill: off target",
+        "Stage · Move 2 µm in x",
+    ]
