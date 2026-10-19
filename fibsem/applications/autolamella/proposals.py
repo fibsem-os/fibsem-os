@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import math
+from copy import deepcopy
 from typing import Any, List
 
 from fibsem.structures import Point
@@ -67,7 +68,7 @@ def _prepare_poi(experiment: Any, item: Any, value: Any) -> PreparedWrite:
     old_points = [(pattern, pattern.point) for pattern, _ in moves]
 
     def apply() -> List[str]:
-        item.poi = value
+        item.poi = deepcopy(value)  # the record keeps its own point
         for pattern, moved in moves:
             pattern.point = moved
         if synced:
