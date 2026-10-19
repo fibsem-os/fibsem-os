@@ -656,6 +656,12 @@ class HookManager:
         for hook in self._hooks:
             self._apply_notifier(hook)
 
+    def notify(self, message: str, notification_type: str = "info") -> None:
+        """Say *message* to whoever listens (the app's notifications). Nobody does
+        in a headless run, where the caller's own log line is all."""
+        if self._notifier is not None:
+            self._notifier(message, notification_type)
+
     def _apply_notifier(self, hook: Hook) -> None:
         """Attach the notifier to a NotificationHook that does not already have one."""
         if self._notifier is None:

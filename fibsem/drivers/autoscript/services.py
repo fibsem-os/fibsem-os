@@ -106,16 +106,17 @@ class AutoScriptMilling(Milling):
         return super()._setting_metadata(name)
 
     def _setup(self, settings: FibsemMillingSettings, name: Optional[str]) -> None:
-        # the milling view, the application file, the patterning mode, then hfw,
-        # voltage and current on the milling beam
+        # the milling view, the application file, the patterning mode (held on the
+        # channel: they act on the active view), then hfw, voltage and current
         microscope = self.parent
         channel = settings.milling_channel
         microscope.milling_channel = channel
-        self.connection.set_channel(channel)
-        self._sdk.patterning.set_default_beam_type(channel.value)
-        self._set_application_file(settings.application_file, default=True)
-        self._set_patterning_mode(settings.patterning_mode)
-        self._clear()  # clear any existing patterns
+        with self.connection.lock:
+            self.connection.set_channel(channel)
+            self._sdk.patterning.set_default_beam_type(channel.value)
+            self._set_application_file(settings.application_file, default=True)
+            self._set_patterning_mode(settings.patterning_mode)
+            self._clear()  # clear any existing patterns
         beam = self.beam(channel)
         beam.hfw.write_through(settings.hfw)
         # voltage before current: the available ion currents are calibrated per voltage

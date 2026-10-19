@@ -677,8 +677,13 @@ class FibsemMicroscope(ABC):
 
     def beam_uses_presets(self, beam_type: BeamType) -> bool:
         """Whether this column is set by choosing a preset rather than a voltage and
-        a current. Backends where that is so override it."""
-        return False
+        a current: its beam can take a preset but not a voltage (Tescan's ion
+        column). Read from the beam's parameters, so the agent sees the same."""
+        preset = self._beam_parameter("preset", beam_type)
+        voltage = self._beam_parameter("voltage", beam_type)
+        if preset is None or not preset.settable:
+            return False
+        return voltage is None or not voltage.settable
 
     def capture_defaults(self, beam_type: Optional[BeamType] = None) -> None:
         """Record what the instrument is doing now as the defaults a session starts from.
@@ -952,9 +957,8 @@ class FibsemMicroscope(ABC):
         return self.manipulator_device.position.get_value()
 
     # Every manipulator move returns where the needle is afterwards, as the
-    # Manipulator device's commands do. The raw moves go through the device when the
-    # backend builds one. The corrected and offset moves depend on the stage and
-    # beam geometry, which differs by backend, so they stay the backend's.
+    # Manipulator device's commands do, and goes through the device when the backend
+    # builds one. A driver's geometry is in its device's hooks.
 
     def insert_manipulator(
         self, name: Optional[str] = None
@@ -992,9 +996,12 @@ class FibsemMicroscope(ABC):
         return self.manipulator_device.move_corrected(dx, dy, beam_type)
 
     def move_manipulator_to_position_offset(
-        self, offset: FibsemManipulatorPosition, name: str
+        self, offset: FibsemManipulatorPosition, name: str = "EUCENTRIC"
     ) -> Optional[FibsemManipulatorPosition]:
-        raise self._unsupported("move_manipulator_to_position_offset")
+        """Move the needle to the saved position *name* plus *offset*."""
+        if self.manipulator_device is None:
+            raise self._unsupported("move_manipulator_to_position_offset")
+        return self.manipulator_device.move_to_offset(offset, name)
 
     def _get_saved_manipulator_position(self, name: str) -> FibsemManipulatorPosition:
         if self.manipulator_device is None:
@@ -1030,10 +1037,6 @@ class FibsemMicroscope(ABC):
         """
         position = self._get_saved_manipulator_position(name)
         return self.move_manipulator_absolute(position)
-
-    def set_channel(self, channel: BeamType) -> None:
-        """Make `channel` the active view and device, for the calls that act on it."""
-        raise self._unsupported("set_channel")
 
     def _build_stage_movement(self, service: Optional[type] = None) -> None:
         """Build the stage movement service over the stage and beams, of the driver's
@@ -1475,14 +1478,17 @@ class FibsemMicroscope(ABC):
     def get_detector_settings(
         self, beam_type: BeamType = BeamType.ELECTRON
     ) -> FibsemDetectorSettings:
-        """Get the current detector settings for the specified beam type."""
+        """Get the current detector settings for the specified beam type: the four
+        reads under one hold of the imaging channel, so they describe one detector
+        (FIB-544). The lock is re-entrant, so the reads inside take it freely."""
         logging.debug(f"Getting {beam_type.name} detector settings...")
-        detector_settings = FibsemDetectorSettings(
-            type=self.get_detector_type(beam_type),
-            mode=self.get_detector_mode(beam_type),
-            brightness=self.get_detector_brightness(beam_type),
-            contrast=self.get_detector_contrast(beam_type),
-        )
+        with self._threading_lock:
+            detector_settings = FibsemDetectorSettings(
+                type=self.get_detector_type(beam_type),
+                mode=self.get_detector_mode(beam_type),
+                brightness=self.get_detector_brightness(beam_type),
+                contrast=self.get_detector_contrast(beam_type),
+            )
         logging.debug(
             {
                 "msg": "get_detector_settings",
@@ -1898,8 +1904,10 @@ class FibsemMicroscope(ABC):
         a best-effort no-op (TESCAN ION -- focus there is preset-driven, the SDK has
         no FIB working-distance control), the sweep would score images against a focus
         that never moved and report a working distance that was never applied (FIB-508).
+        Read from the beam's ``working_distance`` parameter: present and settable.
         """
-        return True
+        param = self._beam_parameter("working_distance", beam_type)
+        return param is not None and param.settable
 
     def get_dwell_time(self, beam_type: BeamType) -> float:
         """Get the dwell time for the specified beam type."""

@@ -4,18 +4,25 @@ The Tescan API refuses to set the ion column's voltage or current directly, so a
 default voltage and current there did nothing. The preset is what sets it (FIB-1084).
 """
 
+import os
 import threading
 
 import pytest
 
+import fibsem.config as cfg
 from fibsem import utils
-from fibsem.drivers.tescan.microscope import TescanMicroscope
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType
+from tests.fixtures.tescan_sdk import connect
 
 
-def test_only_the_tescan_ion_column_is_set_by_preset():
-    tescan = object.__new__(TescanMicroscope)
+def test_only_the_tescan_ion_column_is_set_by_preset(monkeypatch):
+    """Read from the beams: the ion column takes a preset but not a voltage. The
+    electron column takes a preset too, but sets its voltage directly."""
+    system = utils.load_microscope_configuration(
+        os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+    ).system
+    tescan, _ = connect(monkeypatch, system)
 
     assert tescan.beam_uses_presets(BeamType.ION)
     assert not tescan.beam_uses_presets(BeamType.ELECTRON)
