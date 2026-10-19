@@ -433,10 +433,11 @@ def test_eye_toggle_routes_through_the_reducer_when_wired():
 
 def test_protocol_tab_embeds_the_canvas_not_a_napari_window():
     import fibsem.applications.autolamella.ui.AutoLamellaMainUI as mod
+    import fibsem.applications.autolamella.ui.lamella_tab as tab
 
     src = Path(mod.__file__).read_text()
     assert "self.lamella_viewer" not in src, "the lamella napari viewer is still built"
-    assert "self.lamella_widget.view_controller.widget" in src
+    assert "self.editor.view_controller.widget" in Path(tab.__file__).read_text()
     assert "action_layer_controls_lamella" not in src
 
 

@@ -15,12 +15,9 @@ from datetime import datetime
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QApplication,
-    QLabel,
     QMainWindow,
     QMessageBox,
-    QScrollArea,
     QSplitter,
-    QStackedWidget,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
@@ -34,19 +31,13 @@ from fibsem.applications.autolamella.poses import remove_lamella
 from fibsem.applications.autolamella.structures import Lamella
 from fibsem.applications.autolamella.task_outputs import PreviewSources
 from fibsem.applications.autolamella.ui.attention import AttentionRouter
-from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
-    AutoLamellaProtocolEditorWidget,
-)
 from fibsem.applications.autolamella.ui.autolamella_task_config_editor import (
     AutoLamellaProtocolTaskConfigEditor,
 )
 from fibsem.applications.autolamella.ui.AutoLamellaUI import INSTRUCTIONS, AutoLamellaUI
 from fibsem.applications.autolamella.ui.experiment_header import ExperimentHeader
 from fibsem.applications.autolamella.ui.grids_tab_widget import GridsTabWidget
-from fibsem.applications.autolamella.ui.lamella_card_widget import LamellaCardContainer
-from fibsem.applications.autolamella.ui.lamella_task_image_widget import (
-    LamellaTaskImageWidget,
-)
+from fibsem.applications.autolamella.ui.lamella_tab import LamellaTab
 from fibsem.applications.autolamella.ui.main_menu_bar import MainMenuBar
 from fibsem.applications.autolamella.ui.overview_container_tab import (
     AutoLamellaOverviewContainerTab,
@@ -68,7 +59,6 @@ from fibsem.ui.stylesheets import (
     STATUS_BAR_STYLESHEET,
     border_stylesheet,
 )
-from fibsem.ui.tokens import TEXT_MUTED_COLOR
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 from fibsem.ui.widgets.notifications import ToastManager
 from fibsem.ui.widgets.run_border import RunBorder, run_border_state
@@ -152,8 +142,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.run_border.set_on(d.border_enabled)
         # The lamella strip's density. Guarded because _apply_preferences also runs
         # before the Lamella tab is built.
-        if hasattr(self, "lamella_card_container"):
-            self.lamella_card_container.set_mode(d.lamella_card_mode)
+        if hasattr(self, "lamella_tab"):
+            self.lamella_tab.cards.set_mode(d.lamella_card_mode)
         self.menu_bar.apply_preferences(self._preferences)
         # getattr because this also runs from the preferences dialog, and the tab it
         # reaches into is built by AutoLamellaUI rather than here.
@@ -281,7 +271,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.run_border.set_state(self._running_border_state(request.task_names[0]))
         # The run writes the experiment from its own thread. Land any edit still
         # waiting in the editor first, so there is only ever one writer (FIB-683).
-        self.lamella_widget.flush_pending_save()
+        self.lamella_tab.editor.flush_pending_save()
         # Show the Stop button immediately so the run is cancellable even while
         # waiting for a scheduled first task (before any task status arrives).
         self.set_workflow_running()
@@ -578,7 +568,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         self.overview_tab.refresh_experiment()
         self.task_widget.set_experiment(self.autolamella_ui.experiment)
-        self.lamella_widget.set_experiment()
+        self.lamella_tab.editor.set_experiment()
         self.grids_tab.set_experiment(self.autolamella_ui.experiment)
         self.workflow_tab.grid_workflow_widget.set_experiment(
             self.autolamella_ui.experiment
@@ -599,7 +589,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Set widget minimum widths (allows resize)
         self.autolamella_ui.setMinimumWidth(500)
         self.task_widget.setMinimumWidth(500)
-        self.lamella_widget.setMinimumWidth(500)
+        self.lamella_tab.editor.setMinimumWidth(500)
         self.workflow_tab.lamella_workflow_widget.setMinimumWidth(600)
 
         self._refresh_header()
@@ -609,8 +599,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         # enable all the tabs (except lamella tab, which is managed by _update_lamella_tab_enabled)
         lamella_tab_index = (
-            self.tab_widget.indexOf(self._lamella_tab_container)
-            if hasattr(self, "_lamella_tab_container")
+            self.tab_widget.indexOf(self.lamella_tab)
+            if hasattr(self, "lamella_tab")
             else -1
         )
         # The Overview tab is enabled by what the instrument has, not by an experiment,
@@ -698,98 +688,25 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.tab_widget.setTabEnabled(self.tab_widget.indexOf(container), False)
 
     def add_lamella_editor_tab(self):
-        """Consolidated Lamella tab: 1-column card strip (left) + Images/Protocol sub-tabs (right)."""
-        container = QWidget()
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        outer_splitter = QSplitter(Qt.Horizontal)
-        outer_splitter.setChildrenCollapsible(True)
-
-        # ── Left: 1-column card strip ──────────────────────────────────────
-        self.lamella_card_container = LamellaCardContainer(
-            columns=1, mode=self._preferences.display.lamella_card_mode
+        """The Lamella tab: the card strip, and the selected lamella's protocol
+        and history."""
+        self.lamella_tab = LamellaTab(
+            self.autolamella_ui, card_mode=self._preferences.display.lamella_card_mode
         )
-        self.lamella_card_container.defect_changed.connect(
-            self._on_lamella_defect_changed
-        )
-        self.lamella_card_container.lamella_selected.connect(
-            self._on_lamella_card_selected
-        )
-        self.lamella_card_container.move_to_requested.connect(self._on_lamella_move_to)
-        self.lamella_card_container.update_position_requested.connect(
-            self._on_lamella_card_update_position
-        )
-        self.lamella_card_container.remove_requested.connect(
-            self._on_lamella_remove_requested
-        )
-
-        card_scroll = QScrollArea()
-        card_scroll.setWidget(self.lamella_card_container)
-        card_scroll.setWidgetResizable(True)
-        card_scroll.setStyleSheet(
-            "QScrollArea { border: none; background: transparent; }"
-        )
-
-        card_scroll.setMaximumWidth(340)
-
-        outer_splitter.addWidget(card_scroll)
-        outer_splitter.setStretchFactor(0, 0)
-
-        # ── Right: sub-tab widget ──────────────────────────────────────────
-        right_tabs = QTabWidget()
-
-        # History tab: what was done to this lamella, task by task, with each
-        # task's images.
-        self.lamella_task_image_widget = LamellaTaskImageWidget()
-
-        # Protocol tab: matplotlib canvas (left) + editor (right). The editor owns its
-        # own controller, built eagerly so the splitter can embed the canvas before a
-        # microscope connects.
-        self.lamella_widget = AutoLamellaProtocolEditorWidget(
-            parent=self.autolamella_ui,
-        )
-        self.autolamella_ui.system_widget.connected_signal.connect(
-            self.lamella_widget._on_microscope_connected
-        )
-        self.lamella_widget.setMinimumWidth(550)
-
-        protocol_splitter = QSplitter(Qt.Horizontal)
-        protocol_splitter.setChildrenCollapsible(False)
-        protocol_splitter.addWidget(self.lamella_widget.view_controller.widget)
-        scroll_area = QScrollArea()
-        scroll_area.setWidget(self.lamella_widget)
-        scroll_area.setWidgetResizable(True)
-        protocol_splitter.addWidget(scroll_area)
-        protocol_splitter.setSizes([700, 550])
-
-        # With no card selected the editor has no lamella, so the page says so
-        # rather than leaving the last one up to be edited (FIB-1370).
-        protocol_empty = QLabel("Select a lamella card to edit its protocol.")
-        protocol_empty.setStyleSheet(f"color: {TEXT_MUTED_COLOR}; font-size: 12px;")
-        protocol_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._protocol_page = QStackedWidget()
-        self._protocol_page.addWidget(protocol_empty)
-        self._protocol_page.addWidget(protocol_splitter)
-
-        right_tabs.addTab(self._protocol_page, "Protocol")
-        right_tabs.addTab(self.lamella_task_image_widget, "History")
-
-        outer_splitter.addWidget(right_tabs)
-        outer_splitter.setStretchFactor(1, 1)
-        outer_splitter.setSizes([340, 99999])
-
-        layout.addWidget(outer_splitter)
+        self.lamella_tab.lamella_selected.connect(self._on_lamella_card_selected)
+        cards = self.lamella_tab.cards
+        cards.defect_changed.connect(self._on_lamella_defect_changed)
+        cards.move_to_requested.connect(self._on_lamella_move_to)
+        cards.update_position_requested.connect(self._on_lamella_card_update_position)
+        cards.remove_requested.connect(self._on_lamella_remove_requested)
         self.tab_widget.addTab(
-            container, fibsem_icon("mdi:layers", color=GRAY_ICON_COLOR), "Lamella"
+            self.lamella_tab,
+            fibsem_icon("mdi:layers", color=GRAY_ICON_COLOR),
+            "Lamella",
         )
-        self._lamella_tab_container = container
-
-        index = self.tab_widget.indexOf(container)
+        index = self.tab_widget.indexOf(self.lamella_tab)
         self.tab_widget.setTabEnabled(index, False)
         self.tab_widget.setTabToolTip(index, "Add lamella positions to enable this tab")
-
-        self._on_lamella_card_selected(None)
 
     def add_grids_tab(self):
         """The Grids tab, between Lamella and Workflow: the experiment's grid records."""
@@ -930,7 +847,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         load, unload and exchange, and on every list rebuild."""
         context = self._grid_context()
         for widget in (
-            getattr(self, "lamella_card_container", None),
+            getattr(getattr(self, "lamella_tab", None), "cards", None),
             self.workflow_tab.lamella_workflow_widget.lamella_list,
             getattr(self.autolamella_ui, "lamella_list", None),
         ):
@@ -953,7 +870,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.workflow_tab = WorkflowTab(
             ui.session,
             controls=self.workflow_controls,
-            flush_edits=self.lamella_widget.flush_pending_save,
+            flush_edits=self.lamella_tab.editor.flush_pending_save,
             on_config_changed=ui._on_workflow_config_changed,
             stop_task=ui.stop_current_task,
             after_naming=self._refresh_after_naming,
@@ -998,22 +915,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # the lamella editor's task list is rebuilt, so it never edits a task its
         # lamella no longer has (FIB-1109).
         self.task_widget.workflow_config_changed.connect(
-            lambda _: self.lamella_widget._refresh_experiment_positions()
+            lambda _: self.lamella_tab.editor._refresh_experiment_positions()
         )
         # And the Grid page → Workflow → Grids: a task added on the Protocol tab
         # gets its row in the run view without an inventory or a reload.
         self.task_widget.grid_protocol_changed.connect(grids.refresh)
 
     def _on_lamella_card_selected(self, lamella: Lamella | None):
-        """Update task image panel and protocol editor for selected lamella card."""
-        if not hasattr(self, "lamella_task_image_widget"):
-            return
-
-        self._selected_card_lamella = lamella
+        """The Lamella tab's card: the overviews and the Microscope tab's list follow."""
         self.overview_tab.set_selected(lamella)
-        self.lamella_task_image_widget.set_lamella(lamella)
-        self.lamella_widget.select_lamella(lamella.name if lamella else None)
-        self._protocol_page.setCurrentIndex(0 if lamella is None else 1)
         if lamella is not None:
             if not self._syncing_selection:
                 self._syncing_selection = True
@@ -1028,11 +938,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.quad_overview_page.set_selected(lamella)
         if getattr(self, "_syncing_selection", False) or lamella is None:
             return
-        if not hasattr(self, "lamella_card_container"):
+        if not hasattr(self, "lamella_tab"):
             return
         self._syncing_selection = True
         try:
-            self.lamella_card_container.select_lamella(lamella.name)
+            self.lamella_tab.select(lamella)
         finally:
             self._syncing_selection = False
 
@@ -1098,9 +1008,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         # Lock editor when the active lamella/task is being processed
         if status is TaskStatus.InProgress:
-            self.lamella_widget.set_active_lamella_name(lamella_name, task_name)
+            self.lamella_tab.editor.set_active_lamella_name(lamella_name, task_name)
         else:
-            self.lamella_widget.set_active_lamella_name(None)
+            self.lamella_tab.editor.set_active_lamella_name(None)
 
         # Refresh only the affected lamella if we can identify it
         lamella = None
@@ -1137,7 +1047,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.workflow_tab.lamella_workflow_widget.lamella_list.refresh_lamella(
                 lamella
             )
-            self.lamella_card_container.refresh_lamella(lamella)
             self.autolamella_ui.lamella_list.refresh_lamella(lamella)
             # The Overview pages' lists carry the same status column; without
             # this they sat stale for the whole run (FIB-995).
@@ -1145,29 +1054,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 lamella_list.refresh_lamella(lamella)
         else:
             self.workflow_tab.lamella_workflow_widget.lamella_list.refresh_all()
-            self.lamella_card_container.refresh_all()
             self.autolamella_ui.lamella_list.refresh_all()
             for lamella_list in self.overview_tab.lamella_lists():
                 lamella_list.refresh_all()
-        selected = getattr(self, "_selected_card_lamella", None)
-        self._on_lamella_card_selected(selected)
-        # Re-selecting does not redraw the History panel: it skips the lamella it
-        # already shows. A task that has finished on that lamella has added to its
-        # history, and this report comes after the task has returned -- its images
-        # written and its history entry appended -- so rebuild it here (FIB-1111).
-        if (
-            selected is not None
-            and lamella is not None
-            and selected.id == lamella.id
-            and status
-            in (
-                TaskStatus.Completed,
-                TaskStatus.Failed,
-                TaskStatus.Cancelled,
-            )
-            and hasattr(self, "lamella_task_image_widget")
-        ):
-            self.lamella_task_image_widget.refresh()
+        if grid is None:
+            self.lamella_tab.task_reported(lamella, status)
+        self._on_lamella_card_selected(self.lamella_tab.selected)
 
     def _on_app_server_dialog(self) -> None:
         """Open Tools → App Server: status, services, clients, the dashboard."""
@@ -1227,8 +1119,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         experiment = self.autolamella_ui.experiment if self.autolamella_ui else None
         # The ticks and the selected card are the operator's, and this runs on every
         # insert or removal: rebuild around them rather than through them (FIB-966).
-        selected = getattr(self, "_selected_card_lamella", None)
-        self.lamella_card_container.clear()
         # The overview canvases are further displays of the same set, so they are
         # rebuilt here rather than from subscriptions of their own -- one handler for
         # "the lamellae changed" means the displays cannot end up disagreeing about what
@@ -1238,33 +1128,23 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._refresh_overview_positions()
         if experiment is None:
             self.workflow_tab.lamella_workflow_widget.lamella_list.clear()
-            self._on_lamella_card_selected(None)
+            self._on_lamella_card_selected(self.lamella_tab.set_lamellae([]))
             return
         self._refresh_grid_context()
         self.workflow_tab.lamella_workflow_widget.lamella_list.set_lamellae(
             list(experiment.positions)
         )
-        for lamella in experiment.positions:
-            self.lamella_card_container.add_lamella(lamella)
-        still_there = next(
-            (
-                lamella
-                for lamella in experiment.positions
-                if selected is not None and lamella.id == selected.id
-            ),
-            None,
+        self._on_lamella_card_selected(
+            self.lamella_tab.set_lamellae(list(experiment.positions))
         )
-        if still_there is not None:
-            self.lamella_card_container.select_lamella(still_there.name)
-        self._on_lamella_card_selected(still_there)
         self.workflow_tab.selection_changed()
         self._update_lamella_tab_enabled()
 
     def _update_lamella_tab_enabled(self):
         """Enable or disable the Lamella tab based on whether positions exist."""
-        if not hasattr(self, "_lamella_tab_container"):
+        if not hasattr(self, "lamella_tab"):
             return
-        index = self.tab_widget.indexOf(self._lamella_tab_container)
+        index = self.tab_widget.indexOf(self.lamella_tab)
         if index < 0:
             return
         experiment = self.autolamella_ui.experiment if self.autolamella_ui else None
@@ -1295,7 +1175,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.autolamella_ui.lamella_list.select(lamella.name)
 
         # Select the lamella in the protocol editor
-        self.lamella_widget.select_lamella(lamella.name)
+        self.lamella_tab.editor.select_lamella(lamella.name)
 
         # Switch to the Lamella tab
         for i in range(self.tab_widget.count()):
@@ -1312,7 +1192,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Sync defect icon across all widgets
         self.autolamella_ui.lamella_list.refresh_all()
         self.workflow_tab.lamella_workflow_widget.lamella_list.refresh_lamella(lamella)
-        self.lamella_card_container.refresh_lamella(lamella)
+        self.lamella_tab.cards.refresh_lamella(lamella)
 
     def _on_lamella_remove_requested(self, lamella: "Lamella"):
         """Remove the given lamella from the experiment after the list widget has already removed its row."""
@@ -1335,7 +1215,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.workflow_tab.timeline.finish_current_step(failed=cancelled)
         self.workflow_tab.timeline.clear_steps()
         self.hide_workflow_running()
-        self.lamella_widget.set_active_lamella_name(None)
+        self.lamella_tab.editor.set_active_lamella_name(None)
         if getattr(self, "grids_tab", None) is not None:
             self.grids_tab.set_controls_enabled(True)
         self.workflow_tab.grid_workflow_widget.set_controls_enabled(True)
@@ -1346,7 +1226,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             sample.refresh()
         self.workflow_controls.set_attention(None)
         self.workflow_tab.lamella_workflow_widget.lamella_list.refresh_all()
-        self.lamella_card_container.refresh_all()
+        self.lamella_tab.cards.refresh_all()
         self._say_how_the_run_ended()
         self.run_border.set_state("idle")
 
@@ -1463,8 +1343,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._syncing_selection = True
         try:
             self.autolamella_ui.lamella_list.select(lamella.name)
-            if hasattr(self, "lamella_card_container"):
-                self.lamella_card_container.select_lamella(lamella.name)
+            if hasattr(self, "lamella_tab"):
+                self.lamella_tab.select(lamella)
         finally:
             self._syncing_selection = False
 
@@ -1552,9 +1432,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
         # The editor holds edits for a moment before writing them (FIB-683); this is
         # the last chance to get the final one onto disk.
-        if getattr(self, "lamella_widget", None) is not None:
+        if getattr(self, "lamella_tab", None) is not None:
             try:
-                self.lamella_widget.flush_pending_save()
+                self.lamella_tab.editor.flush_pending_save()
             except Exception as e:
                 logging.warning(
                     f"Could not flush a pending experiment save on close: {e}"
