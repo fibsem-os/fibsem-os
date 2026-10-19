@@ -207,9 +207,16 @@ class FibsemUI(QMainWindow):
                 microscope=self.microscope,
                 image_settings=self.settings.image,
                 parent=self,
+                view_controller=lambda: self.view_controller,
+                toggle_movement=lambda enable: (
+                    self.movement_widget._toggle_interactions(enable, caller="ui")
+                ),
             )
             self.movement_widget = FibsemMovementWidget(
                 microscope=self.microscope,
+                image_widget=self.image_widget,
+                view_controller=lambda: self.view_controller,
+                milling_widget=lambda: self.milling_widget,
                 parent=self,
             )
             self.milling_widget = MillingTaskViewerWidget(

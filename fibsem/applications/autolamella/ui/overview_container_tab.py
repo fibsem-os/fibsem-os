@@ -80,7 +80,7 @@ from __future__ import annotations
 
 import logging
 from functools import partial
-from typing import Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
@@ -109,6 +109,10 @@ from fibsem.ui.widgets.overview_widget import (
     VIEW_CHIP_SPACING,
     VIEW_STRIP_STYLE,
 )
+
+if TYPE_CHECKING:  # pragma: no cover - annotation only
+    from fibsem.applications.autolamella.structures import Lamella
+    from fibsem.workflows.session import AppSession
 
 logger = logging.getLogger(__name__)
 
@@ -180,12 +184,17 @@ class AutoLamellaOverviewContainerTab(QWidget):
     # The modality now showing, for a host that wants to say so somewhere.
     modality_changed = pyqtSignal(str)
 
-    def __init__(self, autolamella_ui, parent: Optional[QWidget] = None):
+    def __init__(
+        self,
+        session: "AppSession",
+        add_lamella: Callable[..., "Lamella"],
+        parent: Optional[QWidget] = None,
+    ):
         super().__init__(parent)
-        self.autolamella_ui = autolamella_ui
+        self.session = session
 
-        self.beam_tab = AutoLamellaOverviewTab(autolamella_ui)
-        self.fm_tab = AutoLamellaFluorescenceOverviewTab(autolamella_ui)
+        self.beam_tab = AutoLamellaOverviewTab(session, add_lamella)
+        self.fm_tab = AutoLamellaFluorescenceOverviewTab(session, add_lamella)
         self._tabs: Dict[str, AutoLamellaOverviewTabBase] = {
             MODALITY_FIBSEM: self.beam_tab,
             MODALITY_FLUORESCENCE: self.fm_tab,
@@ -430,9 +439,7 @@ class AutoLamellaOverviewContainerTab(QWidget):
         cannot carry the difference; this object holds the microscope, so it is worked out
         here.
         """
-        microscope = (
-            self.autolamella_ui.microscope if self.autolamella_ui is not None else None
-        )
+        microscope = self.session.microscope
         if microscope is None:
             return "Connect a microscope to use the Overview"
         if modality == MODALITY_FLUORESCENCE:

@@ -22,17 +22,20 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
+    AutoLamellaSingleWindowUI,
+)
 from fibsem.applications.autolamella.workflows import ui as workflow_ui
 from fibsem.applications.autolamella.workflows.ui import set_images_ui
 from fibsem.structures import BeamType
 from fibsem.workflows.interaction import ask
+from tests.fixtures.main_window import close_window
 from tests.run_state import Stopped
 
 
 @pytest.fixture
 def ui(qapp, monkeypatch):
-    """A real AutoLamellaUI, connected (Demo), same harness as the payload tests.
+    """A real window, connected (Demo), same harness as the payload tests.
 
     Pinned to the simulated Arctis configuration rather than whatever this
     machine's default is: `DemoMicroscope` only builds a fluorescence microscope
@@ -47,7 +50,7 @@ def ui(qapp, monkeypatch):
         "config",
         "sim-arctis-configuration.yaml",
     )
-    widget = AutoLamellaUI(parent_ui=None)
+    widget = AutoLamellaSingleWindowUI()
     monkeypatch.setattr(
         widget.system_widget,
         "load_configuration",
@@ -57,7 +60,7 @@ def ui(qapp, monkeypatch):
     yield widget
     if widget.microscope is not None:
         widget.microscope.disconnect()
-    widget.close()
+    close_window(widget)
 
 
 class _Run:
@@ -100,8 +103,8 @@ def test_images_land_in_the_widget_from_a_worker_thread(ui, qapp):
     # The copies carry their slot's beam type from the widget's seeded blanks;
     # _on_acquire routes by metadata, so a mislabelled copy would land in the
     # wrong slot — this doubles as a guard on the seed labels.
-    sem = deepcopy(ui.image_widget.eb_image)
-    fib = deepcopy(ui.image_widget.ib_image)
+    sem = deepcopy(ui.panel.image_widget.eb_image)
+    fib = deepcopy(ui.panel.image_widget.ib_image)
     assert sem.metadata.beam_type is BeamType.ELECTRON
     assert fib.metadata.beam_type is BeamType.ION
 
@@ -110,20 +113,20 @@ def test_images_land_in_the_widget_from_a_worker_thread(ui, qapp):
     )
 
     assert "error" not in outcome
-    assert ui.image_widget.eb_image is sem
-    assert ui.image_widget.ib_image is fib
+    assert ui.panel.image_widget.eb_image is sem
+    assert ui.panel.image_widget.ib_image is fib
 
 
 def test_the_widget_update_runs_on_the_gui_thread(ui, qapp):
     threads = []
-    original = ui.image_widget._on_acquire
+    original = ui.panel.image_widget._on_acquire
 
     def recording(image):
         threads.append(threading.current_thread().name)
         return original(image)
 
-    ui.image_widget._on_acquire = recording
-    sem = deepcopy(ui.image_widget.eb_image)
+    ui.panel.image_widget._on_acquire = recording
+    sem = deepcopy(ui.panel.image_widget.eb_image)
 
     _call_on_worker_thread(qapp, lambda: set_images_ui(_Run(ui), eb_image=sem))
 
@@ -137,8 +140,8 @@ def test_a_gui_side_failure_reraises_on_the_workflow_thread(ui, qapp):
     def broken(image):
         raise RuntimeError("display fell over")
 
-    ui.image_widget._on_acquire = broken
-    sem = deepcopy(ui.image_widget.eb_image)
+    ui.panel.image_widget._on_acquire = broken
+    sem = deepcopy(ui.panel.image_widget.eb_image)
 
     outcome = _call_on_worker_thread(
         qapp, lambda: set_images_ui(_Run(ui), eb_image=sem)
@@ -199,7 +202,7 @@ def test_a_stop_interrupts_the_wait(ui):
     # InterruptedError — the abort path's own exception, one unwind path. The
     # event is set only after the call is under way, so the entry abort check
     # cannot be what raises: this pins the wait loop's own abort.
-    sem = deepcopy(ui.image_widget.eb_image)
+    sem = deepcopy(ui.panel.image_widget.eb_image)
     outcome = {}
 
     def target():
@@ -223,7 +226,7 @@ def test_a_stop_interrupts_the_wait(ui):
 
 def test_a_wedged_gui_thread_times_out_instead_of_hanging_forever(ui, monkeypatch):
     monkeypatch.setattr(workflow_ui, "INSTRUCTION_TIMEOUT_S", 0.4)
-    sem = deepcopy(ui.image_widget.eb_image)
+    sem = deepcopy(ui.panel.image_widget.eb_image)
     started = time.monotonic()
 
     outcome = _call_with_the_gui_wedged(lambda: set_images_ui(_Run(ui), eb_image=sem))
@@ -250,9 +253,9 @@ def test_a_milling_config_lands_in_the_editor_and_fronts_its_tab(ui, qapp):
     )
 
     assert "error" not in outcome
-    assert ui.milling_task_config_widget.get_config().name == "from-the-workflow"
+    assert ui.panel.milling_task_config_widget.get_config().name == "from-the-workflow"
     # the editor is what the operator sees, whichever tab wraps it
-    assert ui.milling_task_config_widget.isVisibleTo(ui.tabWidget)
+    assert ui.panel.milling_task_config_widget.isVisibleTo(ui.panel.tabWidget)
 
 
 def test_clearing_the_milling_config_resets_the_editor(ui, qapp):
@@ -269,7 +272,7 @@ def test_clearing_the_milling_config_resets_the_editor(ui, qapp):
             SetMillingConfig(config=FibsemMillingTaskConfig(name="to-be-cleared")),
         ),
     )
-    assert ui.milling_task_config_widget.get_config().name == "to-be-cleared"
+    assert ui.panel.milling_task_config_widget.get_config().name == "to-be-cleared"
 
     outcome = _call_on_worker_thread(
         qapp, lambda: ask(ui.ui_responder, ClearMillingConfig())
@@ -277,7 +280,7 @@ def test_clearing_the_milling_config_resets_the_editor(ui, qapp):
 
     assert "error" not in outcome
     assert (
-        ui.milling_task_config_widget.get_config().name
+        ui.panel.milling_task_config_widget.get_config().name
         == FibsemMillingTaskConfig().name
     )
 
@@ -310,5 +313,5 @@ def test_fluorescence_channels_reach_the_fm_widget(ui, qapp):
     )
 
     assert "error" not in outcome
-    got = ui.fm_control_widget.channelSettingsWidget.channel_settings
+    got = ui.panel.fm_control_widget.channelSettingsWidget.channel_settings
     assert [c.name for c in got] == ["channel-from-the-workflow"]

@@ -1,7 +1,7 @@
 import logging
 import os
 import threading
-from typing import TYPE_CHECKING, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple, Union
 
 from PyQt5.QtCore import QEvent, pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (
@@ -69,16 +69,22 @@ class FMControlWidget(QWidget):
         microscope: FibsemMicroscope,
         viewer=None,  # optional: quad-view hosts run viewer-less
         parent: Optional[QWidget] = None,
+        *,
+        view_controller: Callable[[], Any] = lambda: None,
+        lamella_list=None,
+        experiment: Callable[[], Any] = lambda: None,
+        set_host_enabled: Optional[Callable[[bool], None]] = None,
     ):
         super().__init__(parent)
 
-        self.parent_widget = parent
         self.microscope = microscope
+        self._host_view_controller = view_controller
+        self._lamella_list = lamella_list
+        self._experiment = experiment
+        self._set_host_enabled = set_host_enabled
 
         self.viewer = viewer
         self._lock = threading.RLock()
-        # if self.parent_widget is not None:
-        # self.parent_widget.setEnabled(False)
 
         if self.microscope.fm is None:
             raise ValueError(
@@ -367,12 +373,8 @@ class FMControlWidget(QWidget):
             )
 
         # Update checkbox text when lamella selection changes
-        if self.parent_widget is not None and hasattr(
-            self.parent_widget, "lamella_list"
-        ):
-            self.parent_widget.lamella_list.lamella_selected.connect(
-                self._update_checkbox_text
-            )
+        if self._lamella_list is not None:
+            self._lamella_list.lamella_selected.connect(self._update_checkbox_text)
 
         # Initialize checkbox text
         self._update_checkbox_text()
@@ -390,7 +392,7 @@ class FMControlWidget(QWidget):
         us when the widget dies: psygnal's weak ref is to the *Python* object, and
         ``deleteLater`` destroys the C++ one underneath it while that stays alive. The
         host tears down without stopping the acquisition first
-        (``AutoLamellaUI.setup_experiment``), so a disconnect during a live run leaves
+        (``MicroscopePanel.show_microscope``), so a disconnect during a live run leaves
         a worker emitting into these slots (FIB-550).
         """
         for signal, slot in (
@@ -422,7 +424,7 @@ class FMControlWidget(QWidget):
 
         # Clear the FM panel's live chrome. The canvas outlives this widget, and the
         # host tears down without stopping the acquisition first
-        # (`AutoLamellaUI.setup_experiment`), so the green border and badge would
+        # (`MicroscopePanel.show_microscope`), so the green border and badge would
         # otherwise stay on a panel with nothing left to drive them.
         controller = self._view_controller()
         if controller is not None:
@@ -433,11 +435,9 @@ class FMControlWidget(QWidget):
 
         self.objectiveControlWidget.cleanup()
 
-        if self.parent_widget is not None and hasattr(
-            self.parent_widget, "lamella_list"
-        ):
+        if self._lamella_list is not None:
             try:
-                self.parent_widget.lamella_list.lamella_selected.disconnect(
+                self._lamella_list.lamella_selected.disconnect(
                     self._update_checkbox_text
                 )
             except (TypeError, RuntimeError):
@@ -638,13 +638,13 @@ class FMControlWidget(QWidget):
             controller.set_fm_image(image)
 
     def _view_controller(self):
-        """The quad-view ``MicroscopeViewController`` on the main Microscope tab, or
-        ``None`` otherwise. Chain: this widget's ``parent_widget`` is the
-        ``AutoLamellaUI``, whose ``parent_widget`` is the main UI that owns the
-        ``view_controller``."""
-        autolamella_ui = self.parent_widget
-        main_ui = getattr(autolamella_ui, "parent_widget", None)
-        return getattr(main_ui, "view_controller", None)
+        """The host's quad-view ``MicroscopeViewController``, or ``None``."""
+        return self._host_view_controller()
+
+    def _selected_lamella(self):
+        if self._lamella_list is None:
+            return None
+        return self._lamella_list.selected_lamella
 
     def _refuse_to_start(self, what: str) -> bool:
         """Whether *what* may not be started, having logged why. True means "do not".
@@ -733,17 +733,14 @@ class FMControlWidget(QWidget):
         """Update the checkbox text and state to include the selected lamella name."""
         base_text = "Save to Selected Lamella"
 
-        if self.parent_widget is not None and hasattr(
-            self.parent_widget, "get_selected_lamella"
-        ):
-            lamella = self.parent_widget.get_selected_lamella()
-            if lamella is not None:
-                self.checkBox_associate_with_lamella.setText(
-                    f"{base_text} ({lamella.name})"
-                )
-                self.checkBox_associate_with_lamella.setEnabled(True)
-                self._update_checkbox_tooltip(lamella)
-                return
+        lamella = self._selected_lamella()
+        if lamella is not None:
+            self.checkBox_associate_with_lamella.setText(
+                f"{base_text} ({lamella.name})"
+            )
+            self.checkBox_associate_with_lamella.setEnabled(True)
+            self._update_checkbox_tooltip(lamella)
+            return
 
         # No lamella selected or available - disable checkbox
         self.checkBox_associate_with_lamella.setText(base_text)
@@ -758,11 +755,9 @@ class FMControlWidget(QWidget):
         """
         if lamella is not None:
             experiment_path = "experiment directory"
-            if self.parent_widget is not None and hasattr(
-                self.parent_widget, "experiment"
-            ):
-                if self.parent_widget.experiment is not None:
-                    experiment_path = str(self.parent_widget.experiment.path)
+            experiment = self._experiment()
+            if experiment is not None:
+                experiment_path = str(experiment.path)
 
             tooltip = (
                 f"When checked: Saves to lamella directory\n"
@@ -793,24 +788,17 @@ class FMControlWidget(QWidget):
         path = os.getcwd()
         lamella_prefix = ""
 
-        # Get path and lamella info from parent widget
-        if self.parent_widget is not None:
-            if (
-                hasattr(self.parent_widget, "experiment")
-                and self.parent_widget.experiment is not None
-            ):
-                path = self.parent_widget.experiment.path
+        experiment = self._experiment()
+        if experiment is not None:
+            path = experiment.path
 
-            # Get selected lamella if available and checkbox is checked
-            if self.checkBox_associate_with_lamella.isChecked() and hasattr(
-                self.parent_widget, "get_selected_lamella"
-            ):
-                lamella = self.parent_widget.get_selected_lamella()
-                if lamella is not None:
-                    self._validate_lamella_selection(lamella)
+        if self.checkBox_associate_with_lamella.isChecked():
+            lamella = self._selected_lamella()
+            if lamella is not None:
+                self._validate_lamella_selection(lamella)
 
-                    path = lamella.path
-                    lamella_prefix = f"{lamella.name}-"
+                path = lamella.path
+                lamella_prefix = f"{lamella.name}-"
 
         return str(path), f"{lamella_prefix}{name}"
 
@@ -1080,8 +1068,8 @@ class FMControlWidget(QWidget):
             finally:
                 logging.warning("Acquisition stopped due to widget close.")
 
-        if self.parent_widget:
-            self.parent_widget.setEnabled(True)
+        if self._set_host_enabled is not None:
+            self._set_host_enabled(True)
 
         event.accept()
 
@@ -1219,16 +1207,12 @@ class FMControlWidget(QWidget):
 
 
 class _DemoHost(QWidget):
-    """Minimal stand-in for the AutoLamella chain this widget resolves through.
-
-    ``FMControlWidget._view_controller`` walks parent -> ``parent_widget`` -> the UI
-    holding ``view_controller``, so a host built outside AutoLamella (the tests use
-    this one) has to present that shape or the FM canvas stays empty.
-    """
+    """A host with a quad view, for the widget outside AutoLamella (the tests use
+    it). Pass ``view_controller=lambda: host.view_controller`` or the FM canvas
+    stays empty."""
 
     def __init__(self):
         from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 
         super().__init__()
         self.view_controller = MicroscopeViewController(parent=self)
-        self.parent_widget = self

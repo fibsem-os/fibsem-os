@@ -2,7 +2,7 @@
 
 import logging
 import os
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
@@ -40,10 +40,6 @@ from fibsem.ui.widgets.custom_widgets import (
     IntegerValueSpinBox,
     TitledPanel,
 )
-
-if TYPE_CHECKING:
-    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
-
 
 # Stylesheet constants
 LINEEDIT_STYLESHEET = f"""
@@ -141,11 +137,11 @@ class OverviewImageWidget(QWidget):
     - Export the final image
     """
 
-    def __init__(self, parent: Optional["AutoLamellaUI"] = None):
+    def __init__(self, parent: Optional[QWidget] = None):
         """Initialize the overview image widget.
 
         Args:
-            parent: Parent AutoLamellaUI widget (optional)
+            parent: Parent widget (optional)
         """
         super().__init__(parent)
         self.parent_widget = parent
@@ -715,13 +711,13 @@ class OverviewImageWidget(QWidget):
 
 
 def create_overview_image_widget(
-    experiment: "Experiment", parent: Optional["AutoLamellaUI"] = None
+    experiment: "Experiment", parent: Optional[QWidget] = None
 ) -> QDialog:
     """Create and initialize an OverviewImageWidget wrapped in a dialog.
 
     Args:
         experiment: The Experiment object to use
-        parent: Optional parent AutoLamellaUI widget
+        parent: Optional parent widget
 
     Returns:
         QDialog: Dialog containing the initialized widget with the experiment loaded

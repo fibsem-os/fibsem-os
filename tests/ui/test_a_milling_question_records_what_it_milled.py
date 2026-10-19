@@ -47,7 +47,7 @@ def ui(qapp, tmp_path):
         {ROUGH: MillRoughTaskConfig(task_name=ROUGH)},
         supervised=[ROUGH],
     ) as window:
-        yield window.autolamella_ui
+        yield window
 
 
 def _config() -> FibsemMillingTaskConfig:
@@ -102,7 +102,10 @@ def _run_on_worker_thread(task, ui, qapp):
     thread.start()
     _wait(
         qapp,
-        lambda: ui.prompt_bar.message.text() == FIRST and ui.prompt_bar.no.isEnabled(),
+        lambda: (
+            ui.panel.prompt_bar.message.text() == FIRST
+            and ui.panel.prompt_bar.no.isEnabled()
+        ),
     )
     return thread, outcome
 
@@ -125,9 +128,9 @@ def test_a_run_then_accept_records_the_run_and_no_skip(ui, qapp):
     task = _task(ui, window=ui)
     thread, outcome = _run_on_worker_thread(task, ui, qapp)
 
-    ui.prompt_bar.yes.click()  # Run Milling
-    _wait(qapp, lambda: events and ui.prompt_bar.no.isEnabled())
-    ui.prompt_bar.no.click()  # Accept
+    ui.panel.prompt_bar.yes.click()  # Run Milling
+    _wait(qapp, lambda: events and ui.panel.prompt_bar.no.isEnabled())
+    ui.panel.prompt_bar.no.click()  # Accept
     _finish(thread, qapp)
 
     assert "error" not in outcome
@@ -140,7 +143,7 @@ def test_skip_records_a_skip(ui, qapp):
     task = _task(ui, window=ui)
     thread, outcome = _run_on_worker_thread(task, ui, qapp)
 
-    ui.prompt_bar.no.click()  # Skip
+    ui.panel.prompt_bar.no.click()  # Skip
     _finish(thread, qapp)
 
     assert "error" not in outcome

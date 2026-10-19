@@ -52,7 +52,7 @@ def _preferences(tmp_path, monkeypatch):
 @pytest.fixture
 def main_ui(qapp):
     window = module.AutoLamellaSingleWindowUI()
-    ui = window.autolamella_ui
+    ui = window
     ui.system_widget.connect_to_microscope()
     yield window
     ui.microscope.disconnect()
@@ -66,14 +66,14 @@ def main_ui(qapp):
 
 @pytest.fixture
 def experiment(main_ui, tmp_path):
-    ui = main_ui.autolamella_ui
+    ui = main_ui
     exp = Experiment(path=tmp_path, name="exp")
     (tmp_path / "exp").mkdir()
     exp.task_protocol = AutoLamellaTaskProtocol()
     ui.experiment = exp
     main_ui._on_experiment_update()
     for i, name in enumerate(("one", "two")):
-        ui.add_new_lamella(
+        ui.panel.experiment_tab.add_new_lamella(
             stage_position=FibsemStagePosition(x=i * 1e-4, y=0, z=0, r=0, t=0),
             name=name,
         )

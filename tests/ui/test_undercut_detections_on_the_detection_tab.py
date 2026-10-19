@@ -75,8 +75,8 @@ def window(qapp, tmp_path, checkpoint):
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
 
     win = module.AutoLamellaSingleWindowUI()
-    win.autolamella_ui.system_widget.connect_to_microscope()
-    ui = win.autolamella_ui
+    win.system_widget.connect_to_microscope()
+    ui = win
     experiment = Experiment(path=tmp_path, name="undercut-exp")
     os.makedirs(experiment.path, exist_ok=True)
     experiment.task_protocol = AutoLamellaTaskProtocol(
@@ -132,7 +132,7 @@ def _pump(qapp, predicate, timeout_s=60.0) -> bool:
 
 
 def _start(window):
-    ui = window.autolamella_ui
+    ui = window
     experiment = ui.experiment
     manager = TaskManager(
         microscope=ui.microscope,
@@ -170,7 +170,7 @@ def _asking(lamella):
 def test_each_detection_is_answered_on_the_detection_tab_and_the_stage_follows(
     window, qapp
 ):
-    ui = window.autolamella_ui
+    ui = window
     lamella = ui.experiment.positions[0]
     microscope = ui.microscope
     moves = []
@@ -186,13 +186,17 @@ def test_each_detection_is_answered_on_the_detection_tab_and_the_stage_follows(
     task, thread, seen = _start(window)
 
     # 1. the coincident alignment's electron detection, corrected by a drag
-    assert _pump(qapp, lambda: _asking(lamella) is not None and ui.hold is not None), (
+    assert _pump(
+        qapp, lambda: _asking(lamella) is not None and ui.run_relay.hold is not None
+    ), (
         seen,
-        ui.hold,
+        ui.run_relay.hold,
     )
     first = _asking(lamella)
-    assert ui.hold.kind is HoldKind.proposal
-    assert _pump(qapp, lambda: ui.proposal_host() is ui.det_widget), "fronted"
+    assert ui.run_relay.hold.kind is HoldKind.proposal
+    assert _pump(qapp, lambda: ui.proposals.proposal_host() is ui.panel.det_widget), (
+        "fronted"
+    )
     assert first.provenance["features"] == ["LamellaCentre"]
     assert first.provenance["reference_image"].endswith("_eb.tif")
     (feature,) = first.values["features"]
@@ -227,28 +231,30 @@ def test_each_detection_is_answered_on_the_detection_tab_and_the_stage_follows(
     second = _asking(lamella)
     assert first.current.outcome is DecisionOutcome.Confirmed
     assert first.delta()["features"]
-    assert _pump(qapp, lambda: ui._widget_proposal is not None)
-    ui.prompt_bar.yes.click()
+    assert _pump(qapp, lambda: ui.proposals._widget_proposal is not None)
+    ui.panel.prompt_bar.yes.click()
 
     # 3. the undercut's own detection, then the milling session's Continue
     assert _pump(qapp, lambda: (_asking(lamella) or second) is not second), seen
     third = _asking(lamella)
     assert third.provenance["features"] == ["LamellaTopEdge"]
-    assert _pump(qapp, lambda: ui._widget_proposal is not None)
-    ui.prompt_bar.yes.click()
-    assert _pump(qapp, lambda: "Run Milling" in ui.prompt_bar.message.text()), (
-        ui.prompt_bar.message.text(),
+    assert _pump(qapp, lambda: ui.proposals._widget_proposal is not None)
+    ui.panel.prompt_bar.yes.click()
+    assert _pump(qapp, lambda: "Run Milling" in ui.panel.prompt_bar.message.text()), (
+        ui.panel.prompt_bar.message.text(),
         seen,
     )
-    assert ui.hold is not None and ui.hold.kind is HoldKind.proposal, "a session"
-    ui.prompt_bar.no.click()  # Continue, without milling
+    assert (
+        ui.run_relay.hold is not None and ui.run_relay.hold.kind is HoldKind.proposal
+    ), "a session"
+    ui.panel.prompt_bar.no.click()  # Continue, without milling
 
     # 4. the final alignment
     assert _pump(qapp, lambda: (_asking(lamella) or third) is not third), seen
     fourth = _asking(lamella)
     assert fourth.provenance["features"] == ["LamellaCentre"]
-    assert _pump(qapp, lambda: ui._widget_proposal is not None)
-    ui.prompt_bar.yes.click()
+    assert _pump(qapp, lambda: ui.proposals._widget_proposal is not None)
+    ui.panel.prompt_bar.yes.click()
 
     assert _pump(qapp, lambda: not thread.is_alive()), "the task went on to its end"
     assert "error" not in seen, seen
@@ -259,7 +265,7 @@ def test_each_detection_is_answered_on_the_detection_tab_and_the_stage_follows(
         assert decision.outcome is DecisionOutcome.Confirmed
         assert decision.actor.kind is ActorKind.operator
         assert decision.proposal_id == proposal.id, "each names its own"
-    assert ui.hold is None
+    assert ui.run_relay.hold is None
     assert lamella.task_state.status is TaskStatus.Completed, (
         "the milling Continue was the decision on the result"
     )

@@ -1,6 +1,6 @@
 """AutoLamellaAppContext: the read-side facade an embedded server sees the app through.
 
-Deliberately not the ``AutoLamellaUI`` object, for the same reasons
+Deliberately not the window object, for the same reasons
 ``ScriptContext`` isn't: the window's ``experiment`` is rebound on load, the
 runner's task manager is created per run and dropped when it ends, and the
 GUI's internals are still moving. This facade resolves those
@@ -22,7 +22,7 @@ Vocabulary: the surface speaks ``item_name`` throughout.
 The facade reads the session (``fibsem.workflows.session.AppSession``): the
 experiment, the microscope, the runner, the responder and the latest images,
 and starts and stops runs through its runner, so it serves with no window.
-A window (:class:`AppWindow`, ``AutoLamellaUI`` in production) adds what only
+A window (:class:`AppWindow`, ``AutoLamellaSingleWindowUI`` in production) adds what only
 it has: its redraws after an agent's edit, its adoption of an experiment or
 protocol, its hardware stops, and the config edits it still applies.
 """

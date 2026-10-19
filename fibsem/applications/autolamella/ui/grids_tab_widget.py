@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Callable, Dict, Optional
+from typing import TYPE_CHECKING, Callable, Dict, Optional
 
 from PyQt5.QtCore import QSize, Qt, QUrl, pyqtSignal
 from PyQt5.QtGui import QDesktopServices
@@ -37,7 +37,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.acting import OPERATOR, acting
-from fibsem.applications.autolamella.structures import Experiment
+from fibsem.applications.autolamella.structures import Experiment, Lamella
 from fibsem.applications.autolamella.tools.grid_report_pdf import (
     generate_grid_report,
 )
@@ -57,6 +57,9 @@ from fibsem.workflows.actions import NOTE
 from fibsem.workflows.grid.naming import grid_rename_refusal, rename_grid
 from fibsem.workflows.grids import GridRecord
 
+if TYPE_CHECKING:
+    from fibsem.workflows.session import AppSession
+
 _STRIP_WIDTH = 340
 VIEW_RESULTS = "Results"
 VIEW_POSITIONS = "Positions"
@@ -70,8 +73,17 @@ class GridsTabWidget(QWidget):
     # and were saved; hosts drawing them elsewhere should refresh.
     experiment_changed = pyqtSignal()
 
-    def __init__(self, parent: Optional[QWidget] = None, synchronous: bool = False):
+    def __init__(
+        self,
+        parent: Optional[QWidget] = None,
+        synchronous: bool = False,
+        *,
+        session: Optional["AppSession"] = None,
+        add_lamella: Optional[Callable[..., Lamella]] = None,
+    ):
         super().__init__(parent)
+        self._session = session
+        self._add_lamella = add_lamella
         self._experiment: Optional[Experiment] = None
         self._microscope = None
         self._synchronous = synchronous
@@ -184,7 +196,9 @@ class GridsTabWidget(QWidget):
         self.cards.grid_selected.connect(self.results_widget.set_grid)
         self.results_widget.mark_requested.connect(self._on_mark_requested)
         self.stack.addWidget(self.results_widget)
-        self.positions_widget = GridPositionsWidget()
+        self.positions_widget = GridPositionsWidget(
+            session=self._session, add_lamella=self._add_lamella
+        )
         self.positions_widget.load_requested.connect(self._on_load)
         self.positions_widget.done_requested.connect(
             lambda: self.show_view(VIEW_RESULTS)
@@ -205,10 +219,6 @@ class GridsTabWidget(QWidget):
         self.results_widget.set_experiment(experiment)
         self.positions_widget.set_experiment(experiment)
         self._rebuild()
-
-    def set_autolamella_ui(self, autolamella_ui) -> None:
-        """The application widget that makes lamellae, for the Positions view."""
-        self.positions_widget.set_autolamella_ui(autolamella_ui)
 
     # -- Results | Positions -----------------------------------------------------
 
