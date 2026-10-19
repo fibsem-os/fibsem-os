@@ -220,7 +220,7 @@ def test_with_select_poi_off_the_point_is_not_asked(microscope, tmp_path):
     lamella = exp.positions[0]
     lamella.task_config[SETUP].select_poi = False
 
-    _task(microscope, exp).run()
+    _run(_task(microscope, exp))
 
     (point,) = _points(lamella)
     assert point.unreviewed and "turned off" in point.current.reason
