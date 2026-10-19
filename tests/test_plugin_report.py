@@ -279,6 +279,7 @@ def test_one_unreadable_group_does_not_take_the_others_down(monkeypatch):
     assert set(groups) == {
         "fibsem.milling.patterns",
         "fibsem.milling.strategies",
+        "fibsem.milling.monitors",
         "fibsem.autolamella.tasks",
         "fibsem.grid.tasks",
         "fibsem.drivers",
@@ -319,6 +320,7 @@ def test_the_group_table_matches_the_registries():
     """
     from fibsem.applications.autolamella.workflows.tasks import TASK_ENTRY_POINT_GROUP
     from fibsem.drivers.registry import DRIVER_ENTRY_POINT_GROUP
+    from fibsem.milling.monitors import MONITOR_ENTRY_POINT_GROUP
     from fibsem.milling.patterning import PATTERN_ENTRY_POINT_GROUP
     from fibsem.milling.strategy import STRATEGY_ENTRY_POINT_GROUP
     from fibsem.workflows.grid import (
@@ -328,6 +330,7 @@ def test_the_group_table_matches_the_registries():
     assert list(report.GROUP_NAMES) == [
         PATTERN_ENTRY_POINT_GROUP,
         STRATEGY_ENTRY_POINT_GROUP,
+        MONITOR_ENTRY_POINT_GROUP,
         TASK_ENTRY_POINT_GROUP,
         GRID_TASK_ENTRY_POINT_GROUP,
         DRIVER_ENTRY_POINT_GROUP,

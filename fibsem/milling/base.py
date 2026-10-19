@@ -26,6 +26,7 @@ from typing import (
 )
 
 from fibsem.milling.config import MILLING_SPUTTER_RATE
+from fibsem.milling.monitor_config import MillingMonitorConfig
 from fibsem.milling.patterning import DEFAULT_MILLING_PATTERN, get_pattern
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.structures import (
@@ -264,6 +265,14 @@ def _made_for(
     return config
 
 
+def _monitor_configs(saved: List[Dict[str, Any]]) -> List[MillingMonitorConfig]:
+    """A stage's saved ``monitors``, without those not installed here."""
+    from fibsem.milling.monitors import get_monitor_config
+
+    configs = [get_monitor_config(monitor) for monitor in saved]
+    return [config for config in configs if config is not None]
+
+
 def _default_strategy_config() -> MillingStrategyConfig:
     from fibsem.milling.strategy import DEFAULT_STRATEGY
 
@@ -287,6 +296,9 @@ class FibsemMillingStage(Configurable):
     imaging: ImageSettings = field(
         default_factory=ImageSettings
     )  # settings for post-milling acquisition
+    # What runs during each mill step of this stage (FIB-1481); each step makes
+    # its monitors afresh from these.
+    monitors: List[MillingMonitorConfig] = field(default_factory=list)
     reference_image: Optional[FibsemImage] = None
     # The whole-frame reference, for a stage that aligns full frame at a low
     # current (``alignment.full_frame_below``). Set with reference_image, never
@@ -345,6 +357,10 @@ class FibsemMillingStage(Configurable):
             },
             "alignment": self.alignment.to_dict(),
             "imaging": self.imaging.to_dict(),
+            "monitors": [
+                {"name": monitor.monitor_name, "config": monitor.to_dict()}
+                for monitor in self.monitors
+            ],
         }
         if short:
             ddict.pop("alignment")
@@ -371,6 +387,7 @@ class FibsemMillingStage(Configurable):
             strategy=get_strategy_config(strategy_name, config=strategy_config),
             alignment=MillingAlignment.from_dict(alignment),
             imaging=ImageSettings.from_dict(imaging),
+            monitors=_monitor_configs(data.get("monitors") or []),
         )
 
     @property
@@ -432,7 +449,7 @@ class FibsemMillingStage(Configurable):
         if self.milling != other.milling:
             return False
 
-        return self.strategy == other.strategy
+        return self.strategy == other.strategy and self.monitors == other.monitors
 
 
 def get_milling_stages(

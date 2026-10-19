@@ -86,6 +86,7 @@ from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.milling.steps import (
     ENDED,
     FINISHED,
+    STEP_FAILED,
     STOPPED,
     MillingStageRun,
     MillingStep,
@@ -145,6 +146,11 @@ DRAW_HOOKS: Dict[Type[FibsemPatternSettings], str] = {
 
 class UnsupportedPattern(NotImplementedError):
     """A pattern of a type this instrument's driver doesn't draw."""
+
+
+class MillingStepFailed(RuntimeError):
+    """A monitor failed the mill step: a required monitor's error, or a pause
+    longer than its ``max_pause``."""
 
 
 class Milling(Service):
@@ -494,10 +500,11 @@ class Milling(Service):
         step.stop_beam(self._stop)
 
     @contextmanager
-    def stage_run(self, name: Optional[str] = None) -> Iterator[MillingStageRun]:
-        """A strategy carries out a stage in the block: the runs in it are its
-        mill steps, and once ``end`` is called none starts."""
-        previous, self._stage_run = self._stage_run, MillingStageRun(name)
+    def stage_run(self, stage: Any = None) -> Iterator[MillingStageRun]:
+        """A strategy carries out *stage* in the block: the runs in it are its
+        mill steps, each with the stage's monitors, and once ``end`` is called
+        none starts."""
+        previous, self._stage_run = self._stage_run, MillingStageRun(stage)
         try:
             yield self._stage_run
         finally:
@@ -767,22 +774,32 @@ class Milling(Service):
             finally:
                 self._set_drawn([])
             return COMPLETED
-        step = MillingStep(index=len(stage_run.steps) if stage_run else 0)
+        stage = stage_run.stage if stage_run is not None else None
+        step = MillingStep(
+            index=len(stage_run.steps) if stage_run else 0, milling=self, stage=stage
+        )
         if stage_run is not None:
             stage_run.steps.append(step)
+        monitors = _monitors_of(stage)
         self._step = step
         self._before_run()
         self._running = True
         try:
             total = float(self._estimate() or 0.0)
-            self._start()
-            MillingStateMonitor(self, step, stop_event).watch(total)
+            for monitor in monitors:
+                monitor.start(step)
+            if not step.ending.is_set():
+                self._start()
+                MillingStateMonitor(self, step, stop_event).watch(total)
         except BaseException as error:
             step.end_as(MillingStepEnd.from_error(error))
             self._abort()
             raise
         finally:
             self._running = False
+            # However the step ended: its end is set, so monitors leave their loops.
+            step.end_as(MillingStepEnd(FINISHED, by="instrument"))
+            step.monitors = [monitor.stop() for monitor in monitors]
             try:
                 self._after_run()
             finally:
@@ -791,7 +808,10 @@ class Milling(Service):
                 step.ended_at = now_iso()
                 self._step = None
         raise_if_cancelled(stop_event, "Milling stopped.")
-        return step.end.status if step.end is not None else COMPLETED
+        if step.end.kind == STEP_FAILED:
+            # A monitor failed it (a required one, or a pause too long).
+            raise MillingStepFailed(step.end.reason or "The mill step failed.")
+        return step.end.status
 
     def _abort(self) -> None:
         """Stop the beam after a failure, without hiding the failure."""
@@ -954,6 +974,13 @@ class MillingStateMonitor:
         started = False
         stop_deadline: Optional[float] = None
         while True:
+            if self.stop_event is not None and self.stop_event.is_set():
+                step.end_as(MillingStepEnd(STOPPED, reason="Milling stopped."))
+            if step.pausing.is_set() and not step.ending.is_set():
+                # A monitor holds a pause: no look, and no milled time.
+                last = time.monotonic()
+                milling._wait(milling.poll_interval)
+                continue
             poll = milling._poll()
             now = time.monotonic()
             state = poll.milling_state
@@ -965,7 +992,7 @@ class MillingStateMonitor:
                 total = float(poll.estimated_time)
             if poll.remaining_time is not None:
                 elapsed = max(0.0, total - float(poll.remaining_time))
-            step.milled_time = elapsed
+            step.set_milled_time(elapsed)
             milling._report(
                 progress_update(
                     state=state,
@@ -1061,8 +1088,14 @@ def report_progress(microscope: Any, progress: MillingProgress) -> None:
         milling.report(progress)
 
 
+def _monitors_of(stage: Any) -> List[Any]:
+    """The monitors a step of *stage* runs, made afresh from its configs."""
+    configs = getattr(stage, "monitors", None) or []
+    return [config.monitor_class(config=config) for config in configs]
+
+
 @contextmanager
-def stage_running(microscope: Any, name: Optional[str] = None) -> Iterator[Any]:
+def stage_running(microscope: Any, stage: Any = None) -> Iterator[Any]:
     """A strategy carries out a stage on *microscope*'s milling service in the
     block (`Milling.stage_run`); yields the stage run, or None without a milling
     service."""
@@ -1070,7 +1103,7 @@ def stage_running(microscope: Any, name: Optional[str] = None) -> Iterator[Any]:
     if milling is None:
         yield None
         return
-    with milling.stage_run(name) as stage_run:
+    with milling.stage_run(stage) as stage_run:
         yield stage_run
 
 
