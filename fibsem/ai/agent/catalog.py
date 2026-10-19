@@ -253,7 +253,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "folder). A long command: it answers "
             "with its run at once; service_wait_for_run milling gives how it "
             "ended and the folder it saved to; milling_stop stops it, and "
-            "milling_end_stage ends it keeping what it milled. A stage can list "
+            "milling_end ends it keeping what it milled. A stage can list "
             "monitors (milling_list_options)."
         ),
         method="POST",
@@ -532,7 +532,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
         },
     ),
     ToolSpec(
-        name="milling_end_stage",
+        name="milling_end",
         description=(
             "End the milling stage now running, completed, keeping what it milled: "
             "the pattern stops, the stage starts no further step and a milling task "
@@ -2377,7 +2377,7 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
     "beam_auto_brightness_contrast": lambda a: ({}, _kwargs(**_beam(a))),
     # A service command or query with no arguments still sends its kwargs.
     "milling_stop": lambda a: ({}, _stop(_kwargs(), a)),
-    "milling_end_stage": lambda a: (
+    "milling_end": lambda a: (
         {},
         _stop(_kwargs(reason=str(a.get("reason") or ""), by="agent"), a),
     ),

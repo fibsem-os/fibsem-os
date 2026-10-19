@@ -307,7 +307,7 @@ def _reading_line(data):
         f"{head} trigger='{reading['trigger']}' on_trigger={reading.get('on_trigger')}"
     )
     if reading.get("on_trigger") == "suggest":
-        line += " -- the mill goes on; milling_end_stage ends the stage if you agree"
+        line += " -- the mill goes on; milling_end ends the stage if you agree"
     return line
 
 

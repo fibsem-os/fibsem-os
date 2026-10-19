@@ -1423,7 +1423,7 @@ def _line(
         return _grid_line(tool, a, get, stage_now)
     if tool == "milling_stop":
         return {"what": "Milling", "change": _MILLING["stop"]}
-    if tool == "milling_end_stage":
+    if tool == "milling_end":
         return {"what": "Milling", "change": _MILLING["end"]}
     if tool == "stage_move_to_milling_angle":
         return {

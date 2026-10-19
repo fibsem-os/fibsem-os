@@ -139,7 +139,7 @@ def test_the_agent_ends_a_stage_its_monitor_suggests_ending(
     assert suggestion is not None, "the monitor suggested the drop"
     assert suggestion["notable"] and suggestion["reading"]["on_trigger"] == "suggest"
 
-    _ok(_call(driving, "milling_end_stage", reason="the fluorescence dropped"))
+    _ok(_call(driving, "milling_end", reason="the fluorescence dropped"))
 
     ended = driving.get(RUN, params={"run_id": run_id, "wait": 10}).json()["run"]
     assert ended["state"] == "done", ended
@@ -155,12 +155,12 @@ def test_the_agent_ends_a_stage_its_monitor_suggests_ending(
 
 
 def test_ending_a_stage_needs_a_reason_and_is_refused_at_watch(driving):  # noqa: F811
-    missing = _call(driving, "milling_end_stage")
+    missing = _call(driving, "milling_end")
     assert missing.status_code == 422
     assert missing.json()["detail"]["error_type"] == "missing_reason"
 
     driving.app.state.auth.level = type(driving.app.state.auth.level).WATCH
-    refused = _call(driving, "milling_end_stage", reason="enough")
+    refused = _call(driving, "milling_end", reason="enough")
     assert refused.status_code == 403
 
 
@@ -202,7 +202,7 @@ def test_the_watch_prints_a_monitor_s_trigger_and_how_a_stage_ended():
 
     assert lines == [
         "MILL READING monitor='FM Intensity' milled=31.0s trigger='intensity drop' "
-        "on_trigger=suggest -- the mill goes on; milling_end_stage ends the stage "
+        "on_trigger=suggest -- the mill goes on; milling_end ends the stage "
         "if you agree",
         "MILL ENDED 'Rough' status=completed run=r1 stages: "
         "Rough=completed (ended by agent: dropped)",

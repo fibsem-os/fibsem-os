@@ -48,7 +48,7 @@ The tools this skill uses, with their routes for plain HTTP:
 | `request_withdraw` | `POST /app/agent/requests/{request_id}/withdraw` with `{"reason": ...}` |
 | `experiment_add_note` | `POST /app/experiment/notes` |
 | `workflow_stop`, `milling_stop` | `POST /app/workflow/stop`, `POST /microscope/services/milling/commands/stop`, each with `{"reason": ...}` |
-| `milling_end_stage` | `POST /microscope/services/milling/commands/end` with `{"kwargs": {"reason": ..., "by": "agent"}, "reason": ...}` |
+| `milling_end` | `POST /microscope/services/milling/commands/end` with `{"kwargs": {"reason": ..., "by": "agent"}, "reason": ...}` |
 
 In a request, `tool` is the tool's name without the `mcp__fibsem__`
 prefix (`protocol_set_supervision`, `stage_move_relative`, `workflow_requeue`), and
@@ -188,7 +188,7 @@ damage, file `workflow_stop` or `milling_stop` as a request at once, with
 what you saw as the reason, and say it in chat. A mill you started yourself
 you may stop directly. When a milling monitor suggests ending the operator's
 stage (`MILL READING` with `on_trigger=suggest`) and you agree, file
-`milling_end_stage` as a request with what you saw.
+`milling_end` as a request with what you saw.
 
 ## Using the microscope
 

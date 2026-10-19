@@ -423,7 +423,7 @@ Peek pauses the mill every `interval` seconds of milled time for an SEM image.
 A monitor's `on_trigger` decides what a trigger does: `end` ends the stage
 itself, `suggest` only says so and the mill goes on. A trigger prints a
 `MILL READING` line; for a suggestion, look (`milling_follow_readings` gives
-every reading since a `seq`) and end the stage with `milling_end_stage` if you
+every reading since a `seq`) and end the stage with `milling_end` if you
 agree, as your level allows (see *Stopping*). Ending keeps what the stage
 milled and a milling task goes on to its next stage; `milling_stop` stops the
 whole task. A monitor set to `end` keeps working when you are slow or gone.
@@ -570,12 +570,12 @@ reads. Never use a stop to "pause and think"; ask instead.
   repeating), tell the operator at once, plainly, and say they should press
   Stop.
 - **Assist**: a mill you started yourself you may stop or end directly
-  (`milling_stop`, `milling_end_stage`). Anything else (the workflow, the
+  (`milling_stop`, `milling_end`). Anything else (the workflow, the
   operator's mill) is a request, filed at once with what you saw as the
   reason.
 - **Drive**: stop first when you believe the run is doing damage
   (`workflow_stop`, `milling_stop`), then say why. End a stage
-  (`milling_end_stage`) when it has milled enough, with why.
+  (`milling_end`) when it has milled enough, with why.
 
 ## Session setup
 
