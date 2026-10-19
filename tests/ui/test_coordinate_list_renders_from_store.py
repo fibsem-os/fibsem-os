@@ -1,7 +1,7 @@
 """The coordinate list is a view of the point store (FIB-973).
 
 The list used to own its points and its selection. It now renders what a
-``CorrelationPointStore`` holds, so a change made to the store by anything else
+``PointStore`` holds, so a change made to the store by anything else
 shows up in the rows without the list being told. Each list still makes its own
 store by default; these also cover several lists on one store, which is how the
 tab widget will use them.
@@ -24,11 +24,11 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.correlation.structures import Coordinate, PointType, PointXYZ
-from fibsem.ui.correlation.point_store import CorrelationPointStore
 from fibsem.ui.correlation.widgets.coordinate_list_widget import (
     CoordinateListWidget,
     CoordinateRowWidget,
 )
+from fibsem.ui.widgets.point_store import PointStore
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -56,7 +56,7 @@ def _selected_rows(lw: CoordinateListWidget):
 
 
 def _shared():
-    store = CorrelationPointStore()
+    store = PointStore()
     fm = CoordinateListWidget(point_type=PointType.FM, store=store)
     poi = CoordinateListWidget(point_type=PointType.POI, store=store)
     return store, fm, poi
@@ -226,7 +226,7 @@ def test_assigning_the_same_points_again_redraws_their_rows():
 
 def test_a_silent_select_sits_beside_the_other_canvass_selection():
     # a verdict's pair link highlights the FM point and its FIB partner
-    store = CorrelationPointStore()
+    store = PointStore()
     fib = CoordinateListWidget(point_type=PointType.FIB, store=store)
     fm = CoordinateListWidget(point_type=PointType.FM, store=store)
     a, b = _coords(PointType.FIB, 1)[0], _coords(PointType.FM, 1)[0]

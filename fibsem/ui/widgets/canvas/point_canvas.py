@@ -1,6 +1,6 @@
 """Correlation point-picking on the shared canvas stack (FIB-535).
 
-`FibsemImageCanvas` + :class:`CorrelationPicking`. This is what the correlation
+`FibsemImageCanvas` + :class:`PointPicking`. This is what the correlation
 tab's FIB panel is; :class:`CorrelationFMCanvasWidget` is its FM counterpart, and
 the two share all of their point-picking behaviour.
 
@@ -8,7 +8,7 @@ Replaced `ImagePointCanvas`, a 1030-line canvas correlation owned outright, whic
 is why several comments here explain a choice by reference to it. That class is
 gone; the references are history, not a live dependency.
 
-Everything about *picking* lives in :mod:`correlation_picking`, shared with the
+Everything about *picking* lives in :mod:`point_picking`, shared with the
 FM side, which puts the identical behaviour on an `FMCanvasWidget` instead. What
 stays here is the half that genuinely differs between the two: how an image gets
 onto the canvas.
@@ -28,15 +28,15 @@ from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QVBoxLayout, QWidget
 
 from fibsem.correlation.structures import PointType
-from fibsem.ui.correlation.point_store import CorrelationPointStore
-from fibsem.ui.correlation.widgets.correlation_picking import (
-    CorrelationPicking,
-    PickingCanvasMixin,
-)
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
+from fibsem.ui.widgets.canvas.point_picking import (
+    PickingCanvasMixin,
+    PointPicking,
+)
+from fibsem.ui.widgets.point_store import PointStore
 
 
-class CorrelationCanvasWidget(PickingCanvasMixin, QWidget):
+class PointCanvasWidget(PickingCanvasMixin, QWidget):
     """Image + draggable correlation points, on the shared canvas.
 
     The tab widget wires both of its surfaces in one loop, so the four signals
@@ -52,7 +52,7 @@ class CorrelationCanvasWidget(PickingCanvasMixin, QWidget):
         self,
         parent: Optional[QWidget] = None,
         allowed_point_types: Optional[List[PointType]] = None,
-        store: Optional[CorrelationPointStore] = None,
+        store: Optional[PointStore] = None,
         side: Optional[str] = None,
     ) -> None:
         super().__init__(parent)
@@ -64,7 +64,7 @@ class CorrelationCanvasWidget(PickingCanvasMixin, QWidget):
         # toggle still brings it back.
         self.canvas.set_crosshair_visible(False)
 
-        self.picking = CorrelationPicking(
+        self.picking = PointPicking(
             self.canvas,
             allowed_point_types=allowed_point_types,
             menu_parent=self,

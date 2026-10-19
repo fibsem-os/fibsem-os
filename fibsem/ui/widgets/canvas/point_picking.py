@@ -2,7 +2,7 @@
 
 **Goal: one implementation of "pick correlation points on a canvas",** so the FIB
 and FM surfaces cannot drift apart. Both are moving onto the shared canvas stack
-— `CorrelationCanvasWidget` for FIB, `FMCanvasWidget` for FM — and both need the
+— `PointCanvasWidget` for FIB, `FMCanvasWidget` for FM — and both need the
 identical picking behaviour on top of a completely different image pipeline.
 
 **Explicit non-goal: sharing image display.** The two hosts genuinely differ:
@@ -33,14 +33,14 @@ from PyQt5.QtGui import QCursor
 from PyQt5.QtWidgets import QAction, QMenu, QWidget
 
 from fibsem.correlation.structures import Coordinate, PointType
-from fibsem.ui.correlation.point_store import CorrelationPointStore
-from fibsem.ui.correlation.widgets.correlation_point_overlay import (
-    CorrelationPointOverlay,
+from fibsem.ui.widgets.canvas.overlays.coordinate_overlay import (
+    CoordinateOverlay,
     CorrelationResultOverlay,
 )
+from fibsem.ui.widgets.point_store import PointStore
 
 
-class CorrelationPicking(QObject):
+class PointPicking(QObject):
     """Draggable correlation points and result markers on a shared canvas.
 
     Signal shapes are deliberately identical to ``ImagePointCanvas``: the tab
@@ -58,7 +58,7 @@ class CorrelationPicking(QObject):
         *,
         allowed_point_types: Optional[List[PointType]] = None,
         menu_parent: Optional[QWidget] = None,
-        store: Optional[CorrelationPointStore] = None,
+        store: Optional[PointStore] = None,
         side: Optional[str] = None,
     ) -> None:
         """Attach picking to *canvas*.
@@ -78,7 +78,7 @@ class CorrelationPicking(QObject):
         self._menu_parent = menu_parent
         self._allowed_types = allowed_point_types
 
-        self.points = CorrelationPointOverlay(store=store, side=side)
+        self.points = CoordinateOverlay(store=store, side=side)
         canvas.add_overlay(self.points)
         # Result markers get their own overlay: they are computed output, never
         # picked, and keeping them off `points` is what makes them unpickable
@@ -119,7 +119,7 @@ class CorrelationPicking(QObject):
         Not needed for teardown — the canvas and this object die together, and
         the overlay signals are ``pyqtSignal``, which Qt disconnects itself. It
         exists because the canvas, not this object, owns the overlay registry:
-        dropping a `CorrelationPicking` leaves its overlays registered, so
+        dropping a `PointPicking` leaves its overlays registered, so
         attaching a second one to the same canvas would silently stack a
         duplicate pair.
         """
@@ -235,7 +235,7 @@ class PickingCanvasMixin:
     """
 
     canvas: object
-    picking: CorrelationPicking
+    picking: PointPicking
 
     def _connect_picking_signals(self) -> None:
         self.picking.point_selected.connect(self.point_selected)

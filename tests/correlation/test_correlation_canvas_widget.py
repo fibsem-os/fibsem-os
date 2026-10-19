@@ -1,4 +1,4 @@
-"""CorrelationCanvasWidget: the FIB correlation surface.
+"""PointCanvasWidget: the FIB correlation surface.
 
 Points survive the trip through the widget with their identity intact, and the
 widget still answers to everything `correlation_tab_widget` asks of it.
@@ -21,8 +21,8 @@ pytest.importorskip("PyQt5")  # CI installs .[test] without the UI extra
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.correlation.structures import Coordinate, PointType, PointXYZ
-from fibsem.ui.correlation.widgets.correlation_canvas_widget import (
-    CorrelationCanvasWidget,
+from fibsem.ui.widgets.canvas.point_canvas import (
+    PointCanvasWidget,
 )
 
 _app = QApplication.instance() or QApplication(sys.argv)
@@ -33,7 +33,7 @@ def _coord(x, y, pt=PointType.FIB):
 
 
 def _widget(allowed=None):
-    w = CorrelationCanvasWidget(allowed_point_types=allowed)
+    w = PointCanvasWidget(allowed_point_types=allowed)
     w.canvas.set_array(np.zeros((64, 64), dtype=np.uint8))
     return w
 
@@ -55,13 +55,13 @@ def test_the_tab_widget_can_connect_its_four_signals():
         "point_removed",
         "point_add_requested",
     ):
-        assert hasattr(CorrelationCanvasWidget, name), name
+        assert hasattr(PointCanvasWidget, name), name
 
 
 def test_set_image_takes_the_array_its_consumers_pass():
     """The signature check above is only as good as the annotation. This is the
     behaviour: both consumers hold a derived array, never a FibsemImage."""
-    w = CorrelationCanvasWidget()
+    w = PointCanvasWidget()
     w.set_image(np.zeros((32, 48), dtype=np.uint8))
     assert w.canvas._img_w == 48 and w.canvas._img_h == 32
 
@@ -71,7 +71,7 @@ def test_the_result_overlay_takes_the_keywords_the_tab_widget_passes():
     turns a correlation run's result markers into a TypeError."""
     import inspect
 
-    params = inspect.signature(CorrelationCanvasWidget.add_overlay_points).parameters
+    params = inspect.signature(PointCanvasWidget.add_overlay_points).parameters
     for key in (
         "color",
         "label_prefix",
@@ -83,7 +83,7 @@ def test_the_result_overlay_takes_the_keywords_the_tab_widget_passes():
         "legend_label",
     ):
         assert key in params, key
-    assert callable(getattr(CorrelationCanvasWidget, "clear_overlay", None))
+    assert callable(getattr(PointCanvasWidget, "clear_overlay", None))
 
 
 # ── points through the widget ─────────────────────────────────────────────
@@ -155,7 +155,7 @@ def test_adding_is_off_when_no_types_are_allowed(monkeypatch):
             return None
 
     monkeypatch.setattr(
-        "fibsem.ui.correlation.widgets.correlation_picking.QMenu",
+        "fibsem.ui.widgets.canvas.point_picking.QMenu",
         _DismissedMenu,
     )
     w = _widget(allowed=[])
@@ -183,7 +183,7 @@ def test_a_dismissed_menu_adds_nothing():
         def exec_(self, pos):
             return None
 
-    import fibsem.ui.correlation.widgets.correlation_picking as mod
+    import fibsem.ui.widgets.canvas.point_picking as mod
 
     real, mod.QMenu = mod.QMenu, _Dismissed
     try:
@@ -208,7 +208,7 @@ def test_a_chosen_type_is_reported_with_the_click_position():
         def exec_(self, pos):
             return self._actions[1]
 
-    import fibsem.ui.correlation.widgets.correlation_picking as mod
+    import fibsem.ui.widgets.canvas.point_picking as mod
 
     real, mod.QMenu = mod.QMenu, _PicksSecond
     try:
@@ -234,7 +234,7 @@ def test_the_widget_adds_no_point_itself():
         def exec_(self, pos):
             return self._actions[0]
 
-    import fibsem.ui.correlation.widgets.correlation_picking as mod
+    import fibsem.ui.widgets.canvas.point_picking as mod
 
     real, mod.QMenu = mod.QMenu, _PicksFirst
     try:

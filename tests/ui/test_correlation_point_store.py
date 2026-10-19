@@ -29,7 +29,7 @@ from fibsem.correlation.structures import (
     PointType,
     PointXYZ,
 )
-from fibsem.ui.correlation.point_store import POINT_RULES, CorrelationPointStore
+from fibsem.ui.widgets.point_store import PointStore
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -39,7 +39,7 @@ def _coord(pt: PointType = PointType.FIB, x: float = 0.0, **kwargs) -> Coordinat
 
 
 def _store(n: int = 4, pt: PointType = PointType.FIB):
-    store = CorrelationPointStore()
+    store = PointStore()
     coords = [_coord(pt, 10.0 * i) for i in range(n)]
     store.replace_all(coords)
     return store, coords
@@ -48,7 +48,7 @@ def _store(n: int = 4, pt: PointType = PointType.FIB):
 class _Log:
     """Records each emit together with the store's state when the slot ran."""
 
-    def __init__(self, store: CorrelationPointStore) -> None:
+    def __init__(self, store: PointStore) -> None:
         self.events = []
         store.structure_changed.connect(
             lambda: self.events.append(("structure", store.coordinates))
@@ -73,7 +73,7 @@ def _same(a, b) -> bool:
 
 
 def test_points_are_grouped_by_type_and_by_canvas_side():
-    store = CorrelationPointStore()
+    store = PointStore()
     fib, surface = _coord(PointType.FIB), _coord(PointType.SURFACE)
     fm, poi = _coord(PointType.FM), _coord(PointType.POI)
     store.replace_all([fm, fib, poi, surface])
@@ -82,15 +82,6 @@ def test_points_are_grouped_by_type_and_by_canvas_side():
     assert _same(store.on_side("fib"), [fib, surface])
     assert _same(store.on_side("fm"), [fm, poi])
     assert len(store) == 4
-
-
-def test_the_sides_match_the_tab_widgets_table():
-    # POINT_RULES repeats _POINT_TYPE_SIDES until the tab widget reads the store.
-    from fibsem.ui.correlation.widgets.correlation_tab_widget import (
-        _POINT_TYPE_SIDES,
-    )
-
-    assert {pt: rule.side for pt, rule in POINT_RULES.items()} == _POINT_TYPE_SIDES
 
 
 def test_membership_is_by_identity_not_equality():
@@ -113,7 +104,7 @@ def test_a_returned_list_is_a_copy():
 
 
 def test_remove_takes_the_point_given_not_its_equal_twin():
-    store = CorrelationPointStore()
+    store = PointStore()
     a, b = _coord(PointType.FIB, 5.0), _coord(PointType.FIB, 5.0)
     store.replace_all([a, b])
 
@@ -182,7 +173,7 @@ def test_remove_many_emits_once_and_selects_at_the_lowest_removed_row():
 
 
 def test_remove_many_across_types_anchors_on_the_current_selection():
-    store = CorrelationPointStore()
+    store = PointStore()
     fm = [_coord(PointType.FM, float(i)) for i in range(3)]
     poi = [_coord(PointType.POI, float(i)) for i in range(3)]
     store.replace_all(fm + poi)
@@ -214,7 +205,7 @@ def test_adding_a_point_twice_is_an_error():
 
 
 def test_a_surface_point_replaces_the_one_before_it():
-    store = CorrelationPointStore()
+    store = PointStore()
     first, second = _coord(PointType.SURFACE, 1.0), _coord(PointType.SURFACE, 2.0)
     store.add(first)
     store.add(second)
@@ -222,7 +213,7 @@ def test_a_surface_point_replaces_the_one_before_it():
 
 
 def test_the_two_surface_types_are_mutually_exclusive_in_one_emit():
-    store = CorrelationPointStore()
+    store = PointStore()
     fib_surface = _coord(PointType.SURFACE)
     fm_surface = _coord(PointType.SURFACE_FM)
     store.add(fib_surface)
@@ -252,7 +243,7 @@ def test_add_many_appends_in_one_emit_and_keeps_the_selection():
 
 
 def test_add_many_refuses_a_second_surface_point():
-    store = CorrelationPointStore()
+    store = PointStore()
     store.add(_coord(PointType.SURFACE))
     with pytest.raises(ValueError):
         store.add_many([_coord(PointType.SURFACE)])
@@ -291,7 +282,7 @@ def test_reorder_must_keep_the_same_points():
 
 
 def test_selection_is_one_value_across_every_type():
-    store = CorrelationPointStore()
+    store = PointStore()
     fib, fm = _coord(PointType.FIB), _coord(PointType.FM)
     store.replace_all([fib, fm])
     store.select(fib)
@@ -336,7 +327,7 @@ def test_selecting_a_point_that_is_not_here_is_an_error():
     "status", [PointStatus.PREDICTED, PointStatus.FITTED, PointStatus.ACCEPTED]
 )
 def test_a_move_makes_the_point_placed(status):
-    store = CorrelationPointStore()
+    store = PointStore()
     coord = _coord(PointType.FM, status=status, fitted=True)
     store.replace_all([coord])
     log = _Log(store)
@@ -349,7 +340,7 @@ def test_a_move_makes_the_point_placed(status):
 
 
 def test_a_typed_value_makes_the_point_placed():
-    store = CorrelationPointStore()
+    store = PointStore()
     coord = _coord(PointType.FM, status=PointStatus.PREDICTED)
     store.replace_all([coord])
     store.set_field(coord, "z", 3.0)
@@ -358,7 +349,7 @@ def test_a_typed_value_makes_the_point_placed():
 
 
 def test_a_moved_rejected_point_stays_rejected():
-    store = CorrelationPointStore()
+    store = PointStore()
     coord = _coord(PointType.FM, status=PointStatus.REJECTED)
     store.replace_all([coord])
     store.move(coord, 1.0, 1.0)
@@ -382,7 +373,7 @@ def test_move_many_emits_once():
 
 
 def test_notify_changed_announces_without_touching_status():
-    store = CorrelationPointStore()
+    store = PointStore()
     coord = _coord(PointType.FM, status=PointStatus.PREDICTED)
     store.replace_all([coord])
     log = _Log(store)
@@ -392,9 +383,9 @@ def test_notify_changed_announces_without_touching_status():
     assert log.events == [("points", (coord,))]
 
 
-def test_apply_fit_moves_the_point_and_marks_it_fitted():
+def test_apply_refinement_moves_the_point_and_marks_it_fitted():
     store, coords = _store(1)
-    store.apply_fit(coords[0], 1.0, 2.0, 3.0)
+    store.apply_refinement(coords[0], 1.0, 2.0, 3.0)
     p = coords[0].point
     assert (p.x, p.y, p.z) == (1.0, 2.0, 3.0)
     assert coords[0].fitted is True
@@ -402,7 +393,7 @@ def test_apply_fit_moves_the_point_and_marks_it_fitted():
 
 
 def test_accept_takes_only_the_predictions_and_emits_once():
-    store = CorrelationPointStore()
+    store = PointStore()
     predicted = [_coord(PointType.FM, status=PointStatus.PREDICTED) for _ in range(2)]
     placed = _coord(PointType.FM, status=PointStatus.PLACED)
     store.replace_all(predicted + [placed])
@@ -423,7 +414,7 @@ def test_accept_with_no_predictions_emits_nothing():
 
 
 def test_reject_and_bring_back():
-    store = CorrelationPointStore()
+    store = PointStore()
     placed = _coord(PointType.FM, status=PointStatus.PLACED)
     fitted = _coord(PointType.FM, status=PointStatus.FITTED, fitted=True)
     store.replace_all([placed, fitted])
@@ -436,7 +427,7 @@ def test_reject_and_bring_back():
 
 
 def test_a_prediction_cannot_be_rejected():
-    store = CorrelationPointStore()
+    store = PointStore()
     coord = _coord(PointType.FM, status=PointStatus.PREDICTED)
     store.replace_all([coord])
     log = _Log(store)
@@ -446,7 +437,7 @@ def test_a_prediction_cannot_be_rejected():
 
 
 def test_reset_makes_a_projected_point_a_prediction_again():
-    store = CorrelationPointStore()
+    store = PointStore()
     coord = _coord(
         PointType.FM,
         status=PointStatus.FITTED,
@@ -460,7 +451,7 @@ def test_reset_makes_a_projected_point_a_prediction_again():
 
 
 def test_reset_refuses_a_point_the_projection_did_not_make():
-    store = CorrelationPointStore()
+    store = PointStore()
     coord = _coord(
         PointType.FM, status=PointStatus.PLACED, provenance=PointProvenance.USER
     )
@@ -472,7 +463,7 @@ def test_reset_refuses_a_point_the_projection_did_not_make():
 
 
 def test_no_transition_writes_provenance():
-    store = CorrelationPointStore()
+    store = PointStore()
     coord = _coord(
         PointType.FM,
         status=PointStatus.PREDICTED,
@@ -481,7 +472,7 @@ def test_no_transition_writes_provenance():
     store.replace_all([coord])
     store.accept(coord)
     store.move(coord, 1.0, 1.0)
-    store.apply_fit(coord, 2.0, 2.0, 0.0)
+    store.apply_refinement(coord, 2.0, 2.0, 0.0)
     store.toggle_rejected(coord)
     store.toggle_rejected(coord)
     store.reset_to_predicted(coord)
@@ -494,7 +485,7 @@ def test_no_transition_writes_provenance():
 
 
 def test_replace_type_leaves_the_other_types_and_selects_nothing():
-    store = CorrelationPointStore()
+    store = PointStore()
     fm, poi = _coord(PointType.FM), _coord(PointType.POI)
     store.replace_all([fm, poi])
     log = _Log(store)
@@ -508,7 +499,7 @@ def test_replace_type_leaves_the_other_types_and_selects_nothing():
 
 
 def test_replace_type_keeps_a_selection_that_is_still_here():
-    store = CorrelationPointStore()
+    store = PointStore()
     fm, poi = _coord(PointType.FM), _coord(PointType.POI)
     store.replace_all([fm, poi])
     store.select(poi)
@@ -538,7 +529,7 @@ def test_replace_type_refuses_a_point_of_another_type():
 
 
 def test_a_pair_is_one_selected_point_on_each_canvas():
-    store = CorrelationPointStore()
+    store = PointStore()
     fib, fm = _coord(PointType.FIB), _coord(PointType.FM)
     store.replace_all([fib, fm])
     store.select(fm)
@@ -552,7 +543,7 @@ def test_a_pair_is_one_selected_point_on_each_canvas():
 
 
 def test_extending_replaces_the_selection_on_the_same_canvas_only():
-    store = CorrelationPointStore()
+    store = PointStore()
     fib, fm, poi = _coord(PointType.FIB), _coord(PointType.FM), _coord(PointType.POI)
     store.replace_all([fib, fm, poi])
     store.select([fib, fm])
@@ -562,7 +553,7 @@ def test_extending_replaces_the_selection_on_the_same_canvas_only():
 
 
 def test_a_plain_select_clears_the_other_canvas():
-    store = CorrelationPointStore()
+    store = PointStore()
     fib, fm = _coord(PointType.FIB), _coord(PointType.FM)
     store.replace_all([fib, fm])
     store.select([fib, fm])
@@ -571,7 +562,7 @@ def test_a_plain_select_clears_the_other_canvas():
 
 
 def test_deselect_leaves_the_rest_of_the_selection():
-    store = CorrelationPointStore()
+    store = PointStore()
     fib, fm = _coord(PointType.FIB), _coord(PointType.FM)
     store.replace_all([fib, fm])
     store.select([fib, fm])

@@ -189,9 +189,9 @@ def test_project_adds_predictions_that_never_feed_the_fit(loaded):
     # on screen and in the record ...
     assert len(loaded.data.fm_coordinates) == 7
     # ... but not in the fit
-    assert loaded.fit_data.fib_coordinates == []
-    assert loaded.fit_data.fm_coordinates == []
-    assert not loaded._can_run()
+    assert loaded.session.fit_data.fib_coordinates == []
+    assert loaded.session.fit_data.fm_coordinates == []
+    assert not loaded.session.can_run()
     assert "7 FM predictions" in loaded._lbl_status.text()
     cl = loaded._coords_tab
     assert cl._fm_count_label.text() == "7 predicted"
@@ -205,7 +205,7 @@ def test_predictions_follow_the_geometry(loaded):
 
     loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
     loaded.project_fm_from_fib()
-    nominal = nominal_transform(loaded._fib_image, loaded._fm_image)
+    nominal = nominal_transform(loaded.session.fib_image, loaded.session.fm_image)
     P = nominal.projection
     zan = nominal.z_anisotropy
     backs = [
@@ -274,7 +274,7 @@ def test_a_drop_confirms_the_pair_and_the_next_projection_moves_only_the_rest(
     still = np.array([[c.point.x, c.point.y] for c in fm])
     others = [k for k in range(len(fm)) if k != i]
     assert np.allclose(still[others], before[others])
-    assert len(loaded.fit_data.fm_coordinates) == 1
+    assert len(loaded.session.fit_data.fm_coordinates) == 1
     assert "1 placed" in loaded._coords_tab._predict_hint.text()
     assert "Project again" in loaded._coords_tab._predict_hint.text()
 
@@ -302,12 +302,12 @@ def test_accept_all_keeps_provenance_and_the_status_line_says_so(loaded):
     assert all(c.status == PointStatus.ACCEPTED for c in fm[1:])
     assert all(c.provenance == PointProvenance.PROJECTED for c in fm[1:])
     assert not loaded._coords_tab.btn_accept_predictions.isEnabled()
-    assert len(loaded.fit_data.fm_coordinates) == 7
+    assert len(loaded.session.fit_data.fm_coordinates) == 7
     loaded._coords_tab.poi_list.coordinates = [
         Coordinate(PointXYZ(300.0, 300.0, 3.0), PointType.POI)
     ]
     loaded.data_changed.emit(loaded.data)
-    assert loaded._can_run()
+    assert loaded.session.can_run()
     assert (
         "1 pair placed by you, 6 accepted from the projection"
         in loaded._lbl_status.text()
@@ -321,7 +321,7 @@ def test_rejected_pairs_leave_the_fit_but_stay_on_screen(loaded):
     for c in fm[:4]:
         c.status = PointStatus.ACCEPTED
     fm[1].status = PointStatus.REJECTED
-    assert len(loaded.fit_data.fib_coordinates) == 3
+    assert len(loaded.session.fit_data.fib_coordinates) == 3
     assert len(loaded.data.fm_coordinates) == 7
 
 
@@ -332,12 +332,12 @@ def test_the_run_gate_counts_confirmed_pairs_only(loaded):
         Coordinate(PointXYZ(300.0, 300.0, 3.0), PointType.POI)
     ]
     loaded.data_changed.emit(loaded.data)
-    assert not loaded._can_run()
+    assert not loaded.session.can_run()
     assert loaded._lbl_status.text().endswith("0 of 4 pairs placed.")
     for c in _fm(loaded)[:4]:
         c.point.x += 1.0
         _drag(loaded, c)
-    assert loaded._can_run()
+    assert loaded.session.can_run()
     assert loaded._lbl_status.text().startswith("Ready to run with 4 pairs.")
 
 
@@ -493,24 +493,24 @@ def test_reject_and_reset_from_the_row_menu_change_the_fit_inputs(loaded):
     for c in fm[:5]:
         c.point.x += 1.0
         _drag(loaded, c)
-    assert len(loaded.fit_data.fm_coordinates) == 5
+    assert len(loaded.session.fit_data.fm_coordinates) == 5
     lw = loaded._coords_tab.fm_list
     # reject one placed point: out of the fit, still on screen, header says so
     lw.reject_toggled.emit(fm[0])
     assert fm[0].status == PointStatus.REJECTED
-    assert len(loaded.fit_data.fm_coordinates) == 4
+    assert len(loaded.session.fit_data.fm_coordinates) == 4
     assert len(loaded.data.fm_coordinates) == 7
     assert "1 removed" in loaded._coords_tab._fm_count_label.text()
     # and back
     lw.reject_toggled.emit(fm[0])
     assert fm[0].status == PointStatus.PLACED
-    assert len(loaded.fit_data.fm_coordinates) == 5
+    assert len(loaded.session.fit_data.fm_coordinates) == 5
     # reset a placed prediction: it is a guess again and moves back to the map
     moved = (fm[1].point.x, fm[1].point.y)
     lw.reset_requested.emit(fm[1])
     assert fm[1].status == PointStatus.PREDICTED
     assert (fm[1].point.x, fm[1].point.y) != moved
-    assert len(loaded.fit_data.fm_coordinates) == 4
+    assert len(loaded.session.fit_data.fm_coordinates) == 4
     # a hand-placed point (no projection behind it) cannot be reset
     hand = Coordinate(PointXYZ(5.0, 5.0, 3.0), PointType.FM)
     lw.reset_requested.emit(hand)
@@ -541,7 +541,7 @@ def _fake_seeded_result(loaded, diag: dict):
     return CorrelationResult(
         poi=[CorrelationPointOfInterest()],
         rms_error=1.0,
-        input_data=loaded.fit_data,
+        input_data=loaded.session.fit_data,
         seed={"eulers_deg": [0, 0, 0]},
         branch_check={"selected": "nominal", "angle_to_nominal_deg": 0.4},
         diagnostics=diag,
@@ -583,16 +583,16 @@ def test_the_verdict_names_rows_the_fit_skipped_over(loaded):
     loaded._coords_tab.fib_list.coordinates[1].status = PointStatus.REJECTED
     loaded.data_changed.emit(loaded.data)
     n = len(_fm(loaded))
-    assert loaded._fit_rows() == [i for i in range(n) if i != 1]
+    assert loaded.session.fit_rows == [i for i in range(n) if i != 1]
 
     # the worker's diagnostics carry the rows; fake one the way it would
     diag = _diag([0.2, 0.3, 0.25, 0.2, 0.3, 1.4], worst=5, suggested_z=5.0)
-    for p, row in zip(diag["pairs"], loaded._fit_rows()):
+    for p, row in zip(diag["pairs"], loaded.session.fit_rows):
         p["index"] = row
     loaded._on_run_finished(_fake_seeded_result(loaded, diag))
 
     status = loaded._lbl_status.text()
-    worst_row = loaded._fit_rows()[5]
+    worst_row = loaded.session.fit_rows[5]
     assert f"Check FM {worst_row + 1}." in status
     assert f'href="pair:{worst_row}"' in status
     lw = loaded._coords_tab.fm_list
@@ -738,7 +738,7 @@ def test_re_run_on_change_leaves_a_run_that_cannot_happen_alone(loaded, monkeypa
     loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
     loaded.project_fm_from_fib()
     loaded.data_changed.emit(loaded.data)
-    assert not loaded._can_run()
+    assert not loaded.session.can_run()
     assert not loaded._auto_rerun_timer.isActive()
     loaded._auto_rerun()
     assert runs == []
@@ -752,15 +752,11 @@ def test_re_run_on_change_leaves_a_run_that_cannot_happen_alone(loaded, monkeypa
     ]
     loaded.data_changed.emit(loaded.data)
 
-    class _Busy:
-        def isRunning(self):
-            return True
-
-    loaded._worker = _Busy()
+    loaded.session.start_run()  # in flight, not computed
     loaded._auto_rerun_timer.stop()
     loaded._auto_rerun()
     assert runs == [] and loaded._auto_rerun_timer.isActive()
-    loaded._worker = None
+    loaded.session.fail_run()
 
 
 def test_a_run_says_when_the_stack_records_no_slice_thickness(loaded):
@@ -782,17 +778,17 @@ def test_a_run_says_when_the_stack_records_no_slice_thickness(loaded):
             CorrelationResult(
                 poi=[CorrelationPointOfInterest()],
                 rms_error=1.0,
-                input_data=copy.deepcopy(loaded.fit_data),
+                input_data=copy.deepcopy(loaded.session.fit_data),
             ),
             live=True,
         )
         return loaded._lbl_status.text()
 
     # the Arctis stack records 1.13 µm slices: nothing to say
-    assert loaded._fm_pixel_size_z() is not None
+    assert loaded.session.fm_pixel_size_z is not None
     assert "slices" not in _run_and_read()
 
-    loaded._fm_image.metadata.pixel_size_z = None
+    loaded.session.fm_image.metadata.pixel_size_z = None
     text = _run_and_read()
     assert "does not say how thick its slices are" in text
     assert "depth correction cannot be trusted" in text
@@ -898,12 +894,14 @@ def _offset_runs(offset_um, *, rms_um=0.5, age_days=0.0):
 def test_a_previous_runs_offset_moves_the_first_placement_and_can_be_ignored(loaded):
     from fibsem.correlation.geometry import nominal_transform
 
-    bare = nominal_transform(loaded._fib_image, loaded._fm_image).translation
+    bare = nominal_transform(
+        loaded.session.fib_image, loaded.session.fm_image
+    ).translation
     px_um = ARCTIS["fib"]["pixel_size"] * 1e6
     cl = loaded._coords_tab
 
     loaded.set_prior_runs(_offset_runs([3.0, -4.0], age_days=9))
-    nominal, _ = loaded._nominal_transform()
+    nominal = loaded.session.seed().transform
     assert np.allclose(nominal.translation, bare + np.array([3.0, -4.0]) / px_um)
     text = cl._lbl_projection.text()
     assert "calibrated placement (9 days old)" in text and 'href="ignore"' in text
@@ -912,14 +910,14 @@ def test_a_previous_runs_offset_moves_the_first_placement_and_can_be_ignored(loa
     assert "FM px per slice along the beam" in cl._lbl_projection.toolTip()
 
     loaded._on_projection_link("ignore")
-    nominal, _ = loaded._nominal_transform()
+    nominal = loaded.session.seed().transform
     assert np.allclose(nominal.translation, bare)
     text = cl._lbl_projection.text()
     assert "placed from stage metadata" in text and 'href="use"' in text
     assert "ignored for this lamella" in cl._lbl_projection.toolTip()
 
     loaded._on_projection_link("use")
-    nominal, _ = loaded._nominal_transform()
+    nominal = loaded.session.seed().transform
     assert np.allclose(nominal.translation, bare + np.array([3.0, -4.0]) / px_um)
 
 
@@ -944,7 +942,7 @@ def test_ignoring_the_offset_leaves_a_live_result_live(loaded):
         CorrelationResult(
             poi=[CorrelationPointOfInterest()],
             rms_error=1.0,
-            input_data=copy.deepcopy(loaded.fit_data),
+            input_data=copy.deepcopy(loaded.session.fit_data),
         )
     )
     assert loaded._btn_continue.isEnabled()
@@ -972,14 +970,14 @@ def test_a_run_records_the_offset_its_fiducials_measured(loaded, monkeypatch):
     loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
     loaded.project_fm_from_fib()
     loaded.accept_all_predictions()
-    seed = loaded._seed()
+    seed = loaded.session.seed()
 
     def measured(result):
         return measure_placement_offset(
             result, seed.transform, seed.metadata_translation
         )
 
-    result = CorrelationResult(input_data=loaded.fit_data)
+    result = CorrelationResult(input_data=loaded.session.fit_data)
     assert measured(result) is None
 
     # move two FM points 10 FM px in x, as a drop would: the FIB-side
@@ -990,7 +988,7 @@ def test_a_run_records_the_offset_its_fiducials_measured(loaded, monkeypatch):
     for c in _fm(loaded)[:2]:
         c.point.x += 10.0
         c.status = PointStatus.PLACED  # the user's, from here on
-    result = CorrelationResult(input_data=loaded.fit_data)
+    result = CorrelationResult(input_data=loaded.session.fit_data)
     expected = np.array([3.0, -4.0]) - (P[:, :2] @ [10.0, 0.0]) * px_um
     assert np.allclose(measured(result), expected, atol=1e-6)
 
@@ -998,8 +996,21 @@ def test_a_run_records_the_offset_its_fiducials_measured(loaded, monkeypatch):
     monkeypatch.setattr(
         fit_module, "run_correlation_from_data", lambda d, nominal: result
     )
-    fitted = fit_module.fit_transform(loaded.fit_data, seed)
+    fitted = fit_module.fit_transform(loaded.session.fit_data, seed)
     assert fitted.placement_offset == pytest.approx(list(expected))
+
+
+def test_a_refresh_works_out_the_seed_once(loaded, monkeypatch):
+    """The projection row, its tooltip, the source clause and the hint all read
+    one seed: each used to work out the prior again."""
+    session = loaded.session
+    real_seed = session.seed
+    calls = []
+    monkeypatch.setattr(session, "seed", lambda: calls.append(1) or real_seed())
+
+    loaded._refresh_prediction_panel()
+
+    assert len(calls) == 1
 
 
 def test_a_previous_run_far_from_the_geometry_is_not_used_as_the_prior(loaded):
@@ -1013,7 +1024,7 @@ def test_a_previous_run_far_from_the_geometry_is_not_used_as_the_prior(loaded):
         CorrelationState,
     )
 
-    geometry = nominal_transform(loaded._fib_image, loaded._fm_image)
+    geometry = nominal_transform(loaded.session.fib_image, loaded.session.fm_image)
     a = np.radians(60.0)
     about_x = np.array(
         [[1, 0, 0], [0, np.cos(a), -np.sin(a)], [0, np.sin(a), np.cos(a)]]
@@ -1032,8 +1043,8 @@ def test_a_previous_run_far_from_the_geometry_is_not_used_as_the_prior(loaded):
         return [("02-other, run r", run)]
 
     loaded.set_prior_runs(runs(about_x @ geometry.rotation))
-    assert loaded._prior_transform() is None
-    nominal, _ = loaded._nominal_transform()
+    assert loaded.session.seed().prior is None
+    nominal = loaded.session.seed().transform
     assert np.allclose(nominal.projection, geometry.projection)
     row = loaded._coords_tab._lbl_projection
     assert row.text().startswith("geometry ·")
@@ -1042,7 +1053,7 @@ def test_a_previous_run_far_from_the_geometry_is_not_used_as_the_prior(loaded):
     )
 
     loaded.set_prior_runs(runs(geometry.rotation))
-    assert loaded._prior_transform() is not None
+    assert loaded.session.seed().prior is not None
     assert loaded._coords_tab._lbl_projection.text().startswith(
         "previous run (02-other) ·"
     )
@@ -1152,7 +1163,7 @@ def test_the_status_line_names_the_next_step_and_the_bar_shows_one_primary_butto
         CorrelationResult(
             poi=[CorrelationPointOfInterest()],
             rms_error=1.0,
-            input_data=copy.deepcopy(loaded.fit_data),
+            input_data=copy.deepcopy(loaded.session.fit_data),
         )
     )
     assert loaded._btn_continue.isVisibleTo(loaded) and loaded._btn_continue.isEnabled()
