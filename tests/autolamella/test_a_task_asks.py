@@ -31,6 +31,7 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
     MillRoughTask,
     MillRoughTaskConfig,
 )
+from fibsem.cancellation import StopEvent
 from fibsem.structures import Point
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import (
@@ -254,7 +255,7 @@ def test_stop_withdraws_a_question_nobody_can_answer(microscope, tmp_path):
     exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
     lamella = exp.positions[0]
     task = _task(microscope, exp, answerers=lambda: ())
-    task._stop_event = threading.Event()
+    task._stop_event = StopEvent()
     errors = []
 
     def ask():

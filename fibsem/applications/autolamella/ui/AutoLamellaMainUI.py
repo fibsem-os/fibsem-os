@@ -1675,7 +1675,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._set_border_state("stopping")
 
     def _listen_for_questions(self, experiment) -> None:
-        """A question a task asks mid-run (``AutoLamellaTask.ask``) is put up
+        """A question a task asks mid-run (``BaseTask.ask``) is put up
         on the widget its kind is answered on when it is recorded. One
         subscription per experiment; the previous experiment's is dropped. A
         question already standing when the window starts listening (a run that

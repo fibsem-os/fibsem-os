@@ -590,7 +590,7 @@ class ProposalReview:
     ) -> bool:
         """Put ``values`` on a confirmation that carried none: what a task
         read from the instrument once the operator said "as it stands"
-        (``AutoLamellaTask.ask`` with ``decided``). Written by the task on its
+        (``BaseTask.ask`` with ``decided``). Written by the task on its
         own thread, under the write lock; only the notification goes to the
         GUI thread, as ``ask_proposal`` does. False when the proposal is not
         current, is not confirmed, or already carries values."""

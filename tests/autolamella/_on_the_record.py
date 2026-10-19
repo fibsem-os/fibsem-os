@@ -1,7 +1,7 @@
 """A run for a task built on its own: an experiment holding its lamella, and
 a manager over it.
 
-A task asks its questions on the record (``AutoLamellaTask.ask``), which
+A task asks its questions on the record (``BaseTask.ask``), which
 needs an experiment to record them on. A test that builds a task by hand,
 rather than running it (``tests.run_state.run_lamellae``), gives it one with this.
 """
