@@ -18,6 +18,8 @@ from concurrent.futures import Future
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from psygnal import Signal
+
 from fibsem import config as cfg
 from fibsem.acting import AGENT, OPERATOR, ActorKind
 from fibsem.ai.agent.session import AgentSession
@@ -30,6 +32,10 @@ EditExecutor = Callable[[Callable[[], Any]], "Future[Any]"]
 
 # Where a session's plain experiments go, one folder per session that needed one.
 SESSIONS_PATH = os.path.join(cfg.LOG_PATH, "sessions")
+
+# What `AppSession.changed` names.
+MICROSCOPE = "microscope"
+EXPERIMENT = "experiment"
 
 
 class LockedExecutor:
@@ -50,14 +56,21 @@ class LockedExecutor:
 
 
 class AppSession:
-    """The microscope, the open experiment and the connection's event stream."""
+    """The microscope, the open experiment and the connection's event stream.
+
+    ``changed`` fires with ``MICROSCOPE`` when another microscope (or none) is
+    connected and with ``EXPERIMENT`` whenever an experiment is opened (or
+    closed), on the thread that changed it.
+    """
+
+    changed = Signal(str)
 
     def __init__(
         self,
         responder: Optional[Any] = None,
         executor: Optional[EditExecutor] = None,
     ) -> None:
-        self.microscope: Optional[Any] = None
+        self._microscope: Optional[Any] = None
         self._experiment: Optional[Any] = None
         # Where what is done is recorded while no application's experiment is
         # open: a plain FibsemExperiment, made the first time the agent may act.
@@ -157,6 +170,17 @@ class AppSession:
         return tuple(who)
 
     @property
+    def microscope(self) -> Optional[Any]:
+        return self._microscope
+
+    @microscope.setter
+    def microscope(self, microscope: Optional[Any]) -> None:
+        if microscope is self._microscope:
+            return
+        self._microscope = microscope
+        self.changed.emit(MICROSCOPE)
+
+    @property
     def experiment(self) -> Optional[Any]:
         return self._experiment
 
@@ -167,6 +191,7 @@ class AppSession:
         self._experiment = experiment
         if experiment is not None:
             experiment.edit_executor = self.run_edit
+        self.changed.emit(EXPERIMENT)
 
     @property
     def correlation(self) -> Any:
@@ -189,11 +214,11 @@ class AppSession:
         """Open ``experiment``: the session's, and the one its events are
         recorded to from now on. The correlation belongs to the experiment it
         was made in, so the next one asked for is a fresh one."""
-        self.experiment = experiment
         with self._correlation_lock:
             self._correlation = None
         if self.recorder is not None:
             self.recorder.set_experiment(experiment.path, experiment)
+        self.experiment = experiment
 
     def recording_experiment(self) -> Any:
         """The experiment what is done now is recorded to: the open one, or else

@@ -144,7 +144,7 @@ class TestTheChamberCameraGivesTheChannelBack:
             return real_randint(*args, **kwargs)
 
         monkeypatch.setattr("numpy.random.randint", watching_randint)
-        microscope.set_channel(BeamType.ELECTRON)
+        microscope._connection.set_channel(BeamType.ELECTRON)
 
         microscope.acquire_chamber_image()
 
@@ -153,7 +153,7 @@ class TestTheChamberCameraGivesTheChannelBack:
     @pytest.mark.parametrize("beam_type", [BeamType.ELECTRON, BeamType.ION])
     def test_it_puts_the_channel_back(self, microscope, beam_type):
         """A glance at the chamber must not strand the beam that had the microscope."""
-        microscope.set_channel(beam_type)
+        microscope._connection.set_channel(beam_type)
 
         microscope.acquire_chamber_image()
 
@@ -161,7 +161,7 @@ class TestTheChamberCameraGivesTheChannelBack:
         assert microscope._connection.imaging_system.active_device == beam_type.value
 
     def test_it_puts_it_back_even_when_the_grab_fails(self, microscope, monkeypatch):
-        microscope.set_channel(BeamType.ION)
+        microscope._connection.set_channel(BeamType.ION)
 
         def boom(*args, **kwargs):
             raise RuntimeError("chamber camera did not answer")

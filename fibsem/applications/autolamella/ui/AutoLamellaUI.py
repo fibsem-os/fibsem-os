@@ -657,36 +657,40 @@ class AutoLamellaUI(QMainWindow):
         in turn, and closed the previous handler, even when the dialog was then
         cancelled. See FIB-421.
         """
-        # Disconnect existing event subscribers if there's an existing experiment
-        self._disconnect_experiment_events()
+        # The window hears the new experiment once this is set up.
+        with self.session.changed.paused():
+            # Disconnect existing event subscribers if there's an existing experiment
+            self._disconnect_experiment_events()
 
-        self.session.adopt(experiment)
+            self.session.adopt(experiment)
 
-        experiment.configure_logging()
-        logging.info(f"Logging to experiment {experiment.name} at {experiment.path}")
+            experiment.configure_logging()
+            logging.info(
+                f"Logging to experiment {experiment.name} at {experiment.path}"
+            )
 
-        # Setup experiment connections and update UI
-        self._setup_experiment_connections()
-
-        self.experiment_update_signal.emit()
+            # Setup experiment connections and update UI
+            self._setup_experiment_connections()
 
     ##################################################################
 
     # TODO: create a dialog to get the user to connect to microscope and create load experiment before continuing
     # then remove the system widget entirely... you will always be connected once you start
     def connect_to_microscope(self):
-        self.microscope = self.system_widget.microscope
-        self.settings = self.system_widget.settings
-        self._follow_stage(self.microscope)
-        if self.experiment is not None:
-            self.settings.image.path = self.experiment.path
-        self.update_microscope_ui()
-        self.update_ui()
-        if self.experiment is not None:
-            self._disconnect_experiment_events()
-            self._setup_experiment_connections()
-        self._start_event_recorder()
-        self._start_app_server()
+        # The window hears the new microscope once its views here are built.
+        with self.session.changed.paused():
+            self.microscope = self.system_widget.microscope
+            self.settings = self.system_widget.settings
+            self._follow_stage(self.microscope)
+            if self.experiment is not None:
+                self.settings.image.path = self.experiment.path
+            self.update_microscope_ui()
+            self.update_ui()
+            if self.experiment is not None:
+                self._disconnect_experiment_events()
+                self._setup_experiment_connections()
+            self._start_event_recorder()
+            self._start_app_server()
 
     def _start_event_recorder(self) -> None:
         """Start recording events for this microscope connection, whatever else runs.
@@ -765,13 +769,14 @@ class AutoLamellaUI(QMainWindow):
             self._start_app_server()
 
     def disconnect_from_microscope(self):
-        self.session.stop_app_server()
-        self.session.stop_recording()
-        self._follow_stage(None)
-        self.microscope = None
-        self.settings = None
-        self.update_microscope_ui()
-        self.update_ui()
+        with self.session.changed.paused():
+            self.session.stop_app_server()
+            self.session.stop_recording()
+            self._follow_stage(None)
+            self.microscope = None
+            self.settings = None
+            self.update_microscope_ui()
+            self.update_ui()
 
     def front_tab(self, widget: QWidget) -> None:
         """Bring forward the tab that holds *widget*.
@@ -1186,7 +1191,7 @@ class AutoLamellaUI(QMainWindow):
         parent = self.parent_widget
         if parent is not None:
             try:
-                parent.lamella_widget.flush_pending_save()
+                parent.lamella_tab.editor.flush_pending_save()
             except Exception:
                 logging.exception("flush before agent config edit failed; continuing")
 
@@ -1213,7 +1218,7 @@ class AutoLamellaUI(QMainWindow):
         parent = self.parent_widget
         if parent is not None:
             try:
-                parent.lamella_widget.refresh_if_showing(item_name)
+                parent.lamella_tab.editor.refresh_if_showing(item_name)
             except Exception:
                 logging.exception("editor refresh after protocol apply failed")
 
@@ -1250,7 +1255,7 @@ class AutoLamellaUI(QMainWindow):
             return
         try:
             if level in ("item", "item_fields"):
-                parent.lamella_widget.refresh_if_showing(item_name)
+                parent.lamella_tab.editor.refresh_if_showing(item_name)
             else:
                 parent.task_widget.refresh_if_showing_task(task_name)
         except Exception:

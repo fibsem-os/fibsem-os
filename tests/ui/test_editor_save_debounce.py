@@ -208,7 +208,7 @@ class TestTheWindowFlushesToo:
         # Every start, the agent's too: the window flushes on the runner's
         # starting signal, which goes out before the run's thread starts.
         chrome = inspect.getsource(AutoLamellaSingleWindowUI._on_run_starting)
-        assert "lamella_widget.flush_pending_save()" in chrome
+        assert "lamella_tab.editor.flush_pending_save()" in chrome
         source = inspect.getsource(WorkflowRunner.start)
         flush = source.index("self.starting.emit(")
         start = source.index("thread.start()")
@@ -225,7 +225,7 @@ class TestTheWindowFlushesToo:
 
         source = inspect.getsource(AutoLamellaSingleWindowUI.closeEvent)
 
-        assert "lamella_widget.flush_pending_save()" in source, (
+        assert "lamella_tab.editor.flush_pending_save()" in source, (
             "closing the window does not flush -- an edit made in the last "
             f"{_SAVE_DEBOUNCE_MS} ms before quitting is lost"
         )

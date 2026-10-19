@@ -22,15 +22,7 @@ pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.structures import Experiment  # noqa: E402
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI  # noqa: E402
-from fibsem.workflows.session import AppSession  # noqa: E402
-
-
-class _Signal:
-    def __init__(self):
-        self.emitted = 0
-
-    def emit(self):
-        self.emitted += 1
+from fibsem.workflows.session import EXPERIMENT, AppSession  # noqa: E402
 
 
 class _StubUI:
@@ -40,7 +32,11 @@ class _StubUI:
         self.session = AppSession()
         self.disconnected = 0
         self.connected = 0
-        self.experiment_update_signal = _Signal()
+        # What the session said, and how much of the wiring was done by then.
+        self.heard = []
+        self.session.changed.connect(
+            lambda what: self.heard.append((what, self.connected))
+        )
 
     @property
     def experiment(self):
@@ -97,7 +93,8 @@ def test_adopting_an_experiment_still_does_the_rest_of_the_wiring(
     assert ui.experiment is experiment
     assert ui.disconnected == 1
     assert ui.connected == 1
-    assert ui.experiment_update_signal.emitted == 1
+    # Said once, after the experiment's events are wired.
+    assert ui.heard == [(EXPERIMENT, 1)]
 
 
 def test_a_second_adoption_moves_logging_to_the_new_experiment(

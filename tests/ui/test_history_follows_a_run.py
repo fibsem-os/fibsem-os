@@ -121,8 +121,8 @@ def test_a_finished_task_shows_in_the_history_of_the_selected_lamella(
     main_ui, experiment
 ):
     one = experiment.positions[0]
-    main_ui._on_lamella_card_selected(one)
-    history = main_ui.lamella_task_image_widget
+    main_ui.lamella_tab.show_lamella(one)
+    history = main_ui.lamella_tab.history
     assert "No task runs yet." in _texts(history)
 
     _finish(one)
@@ -137,8 +137,8 @@ def test_a_finished_task_shows_in_the_history_of_the_selected_lamella(
 
 def test_another_lamella_s_task_leaves_the_history_alone(main_ui, experiment):
     one, two = experiment.positions
-    main_ui._on_lamella_card_selected(one)
-    history = main_ui.lamella_task_image_widget
+    main_ui.lamella_tab.show_lamella(one)
+    history = main_ui.lamella_tab.history
     shown = _labels(history)
 
     _finish(two)
@@ -149,8 +149,8 @@ def test_another_lamella_s_task_leaves_the_history_alone(main_ui, experiment):
 
 def test_a_task_starting_leaves_the_history_alone(main_ui, experiment):
     one = experiment.positions[0]
-    main_ui._on_lamella_card_selected(one)
-    history = main_ui.lamella_task_image_widget
+    main_ui.lamella_tab.show_lamella(one)
+    history = main_ui.lamella_tab.history
     shown = _labels(history)
 
     main_ui._apply_status_report(_report("one", TaskStatus.InProgress))

@@ -75,8 +75,8 @@ def experiment(window, tmp_path):
         lamella.task_config[TASK] = MillRoughTaskConfig(task_name=TASK)
     exp.task_protocol.task_config[TASK] = MillRoughTaskConfig(task_name=TASK)
     window.autolamella_ui.experiment = exp
-    window.lamella_widget.set_experiment()
-    window.lamella_widget.select_lamella(exp.positions[0].name)
+    window.lamella_tab.editor.set_experiment()
+    window.lamella_tab.editor.select_lamella(exp.positions[0].name)
     return exp
 
 
@@ -95,13 +95,13 @@ def edits(window, experiment, tmp_path):
         ]
 
     yield read
-    window.lamella_widget.flush_pending_save()
+    window.lamella_tab.editor.flush_pending_save()
     recorder.close()
 
 
 @pytest.fixture
 def editor(window, experiment):
-    editor = window.lamella_widget
+    editor = window.lamella_tab.editor
     assert editor._selected_lamella is experiment.positions[0]
     editor.listWidget_selected_task.set_tasks([TASK], preferred=TASK)
     assert editor.listWidget_selected_task.selected_task == TASK
@@ -127,7 +127,7 @@ def _settle(window) -> None:
     recorded -- or leaves it to land in the next test's. So wait on the timers
     themselves, past the debounce, until nothing is pending.
     """
-    pending = (window.task_widget._edits, window.lamella_widget._edits)
+    pending = (window.task_widget._edits, window.lamella_tab.editor._edits)
     QTest.qWait(SETTLE_MS + 250)
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline and any(
@@ -478,7 +478,7 @@ def test_removing_a_task_takes_it_off_the_lamella_editor(
         "question",
         lambda *a, **k: protocol_editor_module.QMessageBox.Yes,
     )
-    tasks = window.lamella_widget.listWidget_selected_task
+    tasks = window.lamella_tab.editor.listWidget_selected_task
     assert tasks.selected_task == TASK
 
     protocol_editor._on_remove_task_clicked()

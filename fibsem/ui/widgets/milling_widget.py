@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import (
 )
 from superqt import ensure_main_thread
 
+from fibsem.acting import OPERATOR, acting
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.progress import (
     MillingMessageTracker,
@@ -21,6 +22,7 @@ from fibsem.structures import MillingState
 from fibsem.ui import stylesheets
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.util.durations import format_duration_precise
+from fibsem.workflows.actions import ACTION, action_record
 
 if TYPE_CHECKING:
     from fibsem.ui.widgets.milling_task_config_widget2 import MillingTaskConfigWidget2
@@ -261,6 +263,11 @@ class FibsemMillingWidget2(QWidget):
         if self._own_run or self._service_task:
             # This widget's mill or the workflow's, both a task on the milling
             # service: its stop ends the whole task.
+            with acting(OPERATOR):
+                self.microscope.record_event(
+                    ACTION,
+                    action_record("Stop the mill", stops="milling", via="Stop Milling"),
+                )
             try:
                 self.microscope.milling.stop()
             except Exception as e:  # noqa: BLE001 - already ended

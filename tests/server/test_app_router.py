@@ -497,7 +497,7 @@ def test_agent_notes_land_on_the_record(microscope, host, event_buffer):
         )
         assert ok.status_code == 200 and ok.json()["recorded"] is True
         events = client.get("/app/events?since=0", headers=AUTH).json()["events"]
-        note = [e for e in events if e["kind"] == "agent_note"][-1]
+        note = [e for e in events if e["kind"] == "note"][-1]
         assert note["payload"]["item_name"] == item
         assert note["payload"]["item_id"] == host.experiment.positions[0].id
 
@@ -518,7 +518,7 @@ def test_agent_notes_land_on_the_record(microscope, host, event_buffer):
         )
         assert reply.status_code == 200
         events = client.get("/app/events?since=0", headers=AUTH).json()["events"]
-        note = [e for e in events if e["kind"] == "agent_note"][-1]
+        note = [e for e in events if e["kind"] == "note"][-1]
         assert note["payload"]["reply_to"] == "ab12"
         bad = client.post(
             "/app/experiment/notes", headers=AUTH, json={"text": "x", "reply_to": 3}

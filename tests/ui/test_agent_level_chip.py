@@ -643,8 +643,14 @@ def test_stop_agent_drops_to_watch_and_is_the_operator_s_on_the_record(main_ui, 
         assert kinds == [
             ("agent_level_set", {"previous": "watch", "level": "drive"}),
             (
-                "agent_stopped",
-                {"previous": "drive", "level": "watch", "stopped": None},
+                "action",
+                {
+                    "what": "Stop the agent",
+                    "ok": True,
+                    "stops": "agent",
+                    "previous": "drive",
+                    "level": "watch",
+                },
             ),
         ]
         assert all(e["actor"] == "operator" for e in events)
@@ -1330,18 +1336,18 @@ def test_the_coincidence_viewer_follows_the_border_switch(
 
     try:
         main_ui.run_border.agent_driving = True
-        main_ui._on_border_toggle(True)
+        main_ui.menu_bar._on_border_toggle(True)
         viewer.run_border.set_state("supervised")
         # Opened: it takes the switch and the agent's purple from the window.
         main_ui.run_border.mirror_to(viewer.run_border)
         assert shown() == "agent"
-        main_ui._on_border_toggle(False)
+        main_ui.menu_bar._on_border_toggle(False)
         assert shown() == "idle"
-        main_ui._on_border_toggle(True)
+        main_ui.menu_bar._on_border_toggle(True)
         assert shown() == "agent"
     finally:
         main_ui.run_border.agent_driving = driving
-        main_ui._on_border_toggle(enabled)
+        main_ui.menu_bar._on_border_toggle(enabled)
         viewer.deleteLater()
 
 

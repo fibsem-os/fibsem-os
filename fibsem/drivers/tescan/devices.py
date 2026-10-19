@@ -69,7 +69,7 @@ class TescanBeam(Beam):
     from the last image.
 
     Not here, because the Tescan API does not have them: the ion column's working
-    distance and ``detector_mode`` (``TescanMicroscope``'s wrappers return None for
+    distance and ``detector_mode`` (the microscope's wrappers return None for
     them), ``blanked``, ``plasma_gas`` and the scan modes.
 
     ``preserve_settings_on_preset_change``: restore the rotation, field of view and

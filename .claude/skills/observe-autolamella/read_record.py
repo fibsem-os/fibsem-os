@@ -288,7 +288,10 @@ def _notes(folder: Path, name: str) -> list:
         return []
     notes = []
     for record in read_events(events):
-        if record.get("kind") != "agent_note":
+        # An agent's note: ``note`` now, ``agent_note`` in older records.
+        if record.get("kind") not in ("agent_note", "note") or (
+            record.get("kind") == "note" and record.get("actor") != "agent"
+        ):
             continue
         payload = record.get("payload") or {}
         if (

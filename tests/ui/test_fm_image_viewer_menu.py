@@ -60,7 +60,7 @@ def test_it_opens_without_an_experiment(main_ui, qapp, monkeypatch):
     monkeypatch.setattr(
         module.notification_service, "show_toast", lambda *a, **k: toasts.append(a)
     )
-    main_ui.action_open_fm_image_viewer.trigger()
+    main_ui.menu_bar.action_open_fm_image_viewer.trigger()
     qapp.processEvents()
     window = ui._fm_image_viewer_window
     try:
