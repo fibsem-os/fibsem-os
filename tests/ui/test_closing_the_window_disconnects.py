@@ -34,8 +34,8 @@ def test_closing_autolamella_disconnects_the_microscope(no_quit):
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
 
     window = module.AutoLamellaSingleWindowUI()
-    window.autolamella_ui.system_widget.connect_to_microscope()
-    microscope = window.autolamella_ui.microscope
+    window.system_widget.connect_to_microscope()
+    microscope = window.microscope
     assert microscope._connection.connected
 
     window.close()
@@ -89,7 +89,7 @@ def running(no_quit, qapp, monkeypatch, tmp_path):
     from tests.run_state import hold_runs
 
     window = module.AutoLamellaSingleWindowUI()
-    ui = window.autolamella_ui
+    ui = window
     ui.system_widget.connect_to_microscope()
     microscope = ui.microscope
     experiment = Experiment(path=tmp_path, name="closing")
@@ -130,7 +130,7 @@ def _answer(button):
 def test_closing_during_a_workflow_can_be_cancelled(running):
     from PyQt5.QtWidgets import QMessageBox
 
-    ui = running.autolamella_ui
+    ui = running
     _answer(QMessageBox.No)
 
     running.close()
@@ -145,7 +145,7 @@ def test_closing_during_a_workflow_can_be_cancelled(running):
 def test_confirming_the_close_stops_the_workflow_and_disconnects(running):
     from PyQt5.QtWidgets import QMessageBox
 
-    ui = running.autolamella_ui
+    ui = running
     microscope = ui.microscope
     _answer(QMessageBox.Yes)
 

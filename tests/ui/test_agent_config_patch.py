@@ -25,7 +25,9 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
+    AutoLamellaSingleWindowUI,
+)
 from fibsem.applications.autolamella.workflows.tasks.rough import (
     MillRoughTaskConfig,
 )
@@ -33,6 +35,7 @@ from fibsem.server import AuthConfig, build_server
 from fibsem.structures import MicroscopeState
 from fibsem.workflows.event_recording import EventRecorder
 from fibsem.workflows.events import EventBuffer
+from tests.fixtures.main_window import close_window
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -49,7 +52,7 @@ def ui(qapp, monkeypatch, tmp_path):
         "config",
         "sim-arctis-configuration.yaml",
     )
-    widget = AutoLamellaUI(parent_ui=None)
+    widget = AutoLamellaSingleWindowUI()
     monkeypatch.setattr(
         widget.system_widget,
         "load_configuration",
@@ -66,7 +69,7 @@ def ui(qapp, monkeypatch, tmp_path):
     yield widget
     if widget.microscope is not None:
         widget.microscope.disconnect()
-    widget.close()
+    close_window(widget)
     widget.deleteLater()
     qapp.processEvents()
 

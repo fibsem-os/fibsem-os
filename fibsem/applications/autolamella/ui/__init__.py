@@ -6,7 +6,7 @@ the package `__init__` runs before the submodule. That closed import loops with
 `fibsem.ui`, and the `except ImportError` wrapped around it bound `AutoLamellaUI` to
 None, so the failure surfaced as a dead application rather than a traceback.
 
-Import it from its own module instead:
+Import the window from its own module instead:
 
-    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+    from fibsem.applications.autolamella.ui.AutoLamellaMainUI import AutoLamellaSingleWindowUI
 """

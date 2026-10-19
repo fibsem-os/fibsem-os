@@ -261,8 +261,8 @@ def main_ui(qapp):
 
     window = module.AutoLamellaSingleWindowUI()
     yield window
-    if window.autolamella_ui.microscope is not None:
-        window.autolamella_ui.microscope.disconnect()
+    if window.microscope is not None:
+        window.microscope.disconnect()
     original_quit = qapp.quit
     qapp.quit = lambda: None
     try:
@@ -277,7 +277,7 @@ class _NoMinimap:
 
 
 def test_the_protocol_tab_hosts_it_under_the_selector(main_ui, tmp_path):
-    ui = main_ui.autolamella_ui
+    ui = main_ui
     ui.system_widget.connect_to_microscope()
     exp = Experiment(path=tmp_path, name="exp")
     (tmp_path / "exp").mkdir()

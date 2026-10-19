@@ -101,9 +101,9 @@ from fibsem.utils import format_value
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
-    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
     from fibsem.correlation.structures import CorrelationResult
     from fibsem.imaging.spot import SpotBurnSettings
+    from fibsem.workflows.session import AppSession
 
 # How long the editor waits for editing to settle before writing the experiment.
 # Long enough to swallow a run of field edits, short enough that the window a crash
@@ -276,9 +276,9 @@ class _PositionNotice(QWidget):
 class AutoLamellaProtocolEditorWidget(QWidget):
     """A widget to edit the AutoLamella protocol."""
 
-    def __init__(self, parent: "AutoLamellaUI"):
+    def __init__(self, session: "AppSession", parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self.parent_widget = parent
+        self.session = session
 
         # Canvas display: own a controller driving a task-driven stacked view (FIB +
         # SEM beside it + FM page). Created eagerly (no microscope needed) so the host
@@ -313,21 +313,21 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self._save_timer.timeout.connect(self.flush_pending_save)
         # Each edit, for the experiment's record (FIB-1034).
         self._edits = PendingEdits(
-            lambda: getattr(self.parent_widget, "microscope", None),
+            lambda: self.session.microscope,
             via="lamella editor",
             parent=self,
         )
 
-        if self.parent_widget.microscope is None:
+        if self.session.microscope is None:
             return
 
         self._on_microscope_connected()
 
     def _on_microscope_connected(self):
         """Callback when the microscope is connected."""
-        if self.parent_widget.microscope is None:
-            raise ValueError("Microscope in parent widget is None, cannot proceed.")
-        self.microscope = self.parent_widget.microscope
+        if self.session.microscope is None:
+            raise ValueError("No microscope connected, cannot proceed.")
+        self.microscope = self.session.microscope
         if hasattr(self, "milling_task_editor"):
             # Reconnect: this editor is built once and survives disconnect, so every
             # widget under it still holds the microscope it was built with, and each
@@ -623,7 +623,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
     def _refresh_experiment_positions(self):
         """Refresh the editor from the current experiment positions."""
-        experiment = self.parent_widget.experiment
+        experiment = self.session.experiment
         if experiment is None:
             return
         # Only the lamella already shown, never a stand-in: the editor shows what the
@@ -645,9 +645,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             self.flush_pending_save()
             self._selected_lamella = None
             return
-        if self.parent_widget.experiment is None:
+        if self.session.experiment is None:
             return
-        lamella = self.parent_widget.experiment.get_lamella_by_name(name)
+        lamella = self.session.experiment.get_lamella_by_name(name)
         if lamella is None:
             return
         self._selected_lamella = lamella
@@ -1021,7 +1021,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
     # TODO: migrate this to a task_config method that returns task names in workflow order, rather than sorting here in the UI,
     def _sort_task_names_by_workflow(self, task_names: List[str]) -> List[str]:
         """Sort task names by experiment workflow order; keep unknown tasks in original order."""
-        experiment = self.parent_widget.experiment
+        experiment = self.session.experiment
         if experiment is None or experiment.task_protocol is None:
             return task_names
 
@@ -1406,7 +1406,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         history = LamellaCorrelation.discover(correlation_dir(selected_lamella.path))
 
-        experiment = self.parent_widget.experiment
+        experiment = self.session.experiment
         protocol = experiment.task_protocol if experiment is not None else None
         spot_burns = self._spot_burn_coordinates(selected_lamella)
 
@@ -1424,7 +1424,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         # The app's correlation, started afresh: one correlation is open at a
         # time, and whatever reads the session sees this one.
-        session = self.parent_widget.session.correlation
+        session = self.session.correlation
         session.reset()
         dialog = CorrelationTabDialog(parent=self, session=session)
         dialog.set_project_dir(project_path)
@@ -1565,10 +1565,10 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         """Record the correlation on the experiment's record. Never raises: a
         correlation that cannot be recorded is still applied."""
         try:
-            microscope = getattr(self.parent_widget, "microscope", None)
+            microscope = self.session.microscope
             if microscope is None or self._selected_lamella is None:
                 return
-            experiment = getattr(self.parent_widget, "experiment", None)
+            experiment = self.session.experiment
             microscope.record_event(
                 "correlation",
                 correlation_record(
@@ -1587,7 +1587,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         if source_lamella is None:
             return
 
-        experiment = self.parent_widget.experiment
+        experiment = self.session.experiment
         if experiment is None or len(experiment.positions) < 2:
             QMessageBox.information(
                 self,
@@ -1685,9 +1685,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         change without it having changed. The protocol's own editors still save it
         explicitly.
         """
-        experiment = (
-            self.parent_widget.experiment if self.parent_widget is not None else None
-        )
+        experiment = self.session.experiment
         if experiment is None:
             return
         # Held rather than re-read at flush time, so a write scheduled against one

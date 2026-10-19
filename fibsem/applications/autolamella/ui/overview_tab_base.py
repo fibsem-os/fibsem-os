@@ -43,7 +43,7 @@ from __future__ import annotations
 
 import logging
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QVBoxLayout, QWidget
@@ -55,7 +55,9 @@ from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
 from fibsem.ui import notification_service
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
+    from fibsem.applications.autolamella.structures import Lamella
     from fibsem.structures import FibsemStagePosition
+    from fibsem.workflows.session import AppSession
 
 logger = logging.getLogger(__name__)
 
@@ -83,9 +85,15 @@ class AutoLamellaOverviewTabBase(QWidget):
     # Which overview this is, for the lines logged about it.
     OVERVIEW_NOUN = "overview"
 
-    def __init__(self, autolamella_ui, parent: Optional[QWidget] = None):
+    def __init__(
+        self,
+        session: "AppSession",
+        add_lamella: Callable[..., "Lamella"],
+        parent: Optional[QWidget] = None,
+    ):
         super().__init__(parent)
-        self.autolamella_ui = autolamella_ui
+        self.session = session
+        self._add_lamella = add_lamella
         # Built empty and filled in on connection: both overview widgets require a
         # microscope at construction -- every scale on their canvases comes from the
         # instrument -- and at the point a tab is reserved there may be no microscope.
@@ -191,15 +199,11 @@ class AutoLamellaOverviewTabBase(QWidget):
 
     @property
     def microscope(self):
-        return (
-            self.autolamella_ui.microscope if self.autolamella_ui is not None else None
-        )
+        return self.session.microscope
 
     @property
     def experiment(self):
-        return (
-            self.autolamella_ui.experiment if self.autolamella_ui is not None else None
-        )
+        return self.session.experiment
 
     def refresh_microscope(self) -> None:
         """Build, rebuild or drop the overview widget to match the instrument.
@@ -491,7 +495,7 @@ class AutoLamellaOverviewTabBase(QWidget):
         it is the grid on the stage right now; without it the lamella's grid is
         resolved from the stage as every other creation is.
         """
-        if self.autolamella_ui is None or self.experiment is None:
+        if self.experiment is None:
             notification_service.show_toast(
                 "Load an experiment before marking positions.", "warning"
             )
@@ -501,9 +505,7 @@ class AutoLamellaOverviewTabBase(QWidget):
         if grid is not None:
             kwargs["grid_id"] = grid.id
         try:
-            lamella = self.autolamella_ui.add_new_lamella(
-                stage_position=position, **kwargs
-            )
+            lamella = self._add_lamella(stage_position=position, **kwargs)
         except Exception as e:
             logger.error(f"Could not add a lamella from the {self.OVERVIEW_NOUN}: {e}")
             notification_service.show_toast(str(e), "error")

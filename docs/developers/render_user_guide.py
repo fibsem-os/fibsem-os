@@ -195,7 +195,7 @@ class Harness:
 
     @property
     def ui(self):
-        return self.window.autolamella_ui
+        return self.window
 
     @property
     def connection(self):
@@ -376,7 +376,7 @@ class Harness:
         if len(experiment.positions) >= count:
             return list(experiment.positions)
         for position in self.cell_positions(count)[len(experiment.positions) :]:
-            self.ui.add_new_lamella(stage_position=position)
+            self.ui.panel.experiment_tab.add_new_lamella(stage_position=position)
             self.pump(400)
         self.pump(500)
         return list(experiment.positions)
@@ -683,7 +683,7 @@ def render_getting_started(h: Harness) -> None:
     h.connect("sim-arctis")
     h.shot(
         "connected",
-        callouts=[Box(conn._frame_status), Box(h.ui.tabWidget.tabBar())],
+        callouts=[Box(conn._frame_status), Box(h.ui.panel.tabWidget.tabBar())],
         numbered=True,
     )
 
@@ -694,7 +694,7 @@ def render_getting_started(h: Harness) -> None:
             Box(h.window.menuBar()),
             Box(h.window.tab_widget.tabBar()),
             Box(h.window.view_controller.widget),
-            Box(h.ui.tabWidget.tabBar()),
+            Box(h.ui.panel.tabWidget.tabBar()),
             Box(h.window.status_bar),
             h.window.run_workflow_btn,
         ],
@@ -708,8 +708,8 @@ def render_imaging(h: Harness) -> None:
     h.first_run(False)
     h.show_tab(0)
     h.connect("sim-arctis")
-    iw = h.ui.image_widget
-    h.ui.tabWidget.setCurrentWidget(iw)
+    iw = h.ui.panel.image_widget
+    h.ui.panel.tabWidget.setCurrentWidget(iw)
     h.pump(300)
     panels = h.window.view_controller.widget._all_panels
     sem_panel, fib_panel = panels[0], panels[2]
@@ -811,10 +811,10 @@ def render_movement(h: Harness) -> None:
     h.first_run(False)
     h.show_tab(0)
     h.connect("sim-arctis")
-    mw = h.ui.movement_widget
-    iw = h.ui.image_widget
+    mw = h.ui.panel.movement_widget
+    iw = h.ui.panel.image_widget
     ctrl = mw.control_widget
-    h.ui.tabWidget.setCurrentWidget(mw)
+    h.ui.panel.tabWidget.setCurrentWidget(mw)
     h.pump(300)
     panels = h.window.view_controller.widget._all_panels
     sem_panel, fib_panel = panels[0], panels[2]
@@ -935,9 +935,9 @@ def render_milling(h: Harness) -> None:
     h.first_run(False)
     h.show_tab(0)
     h.connect("sim-arctis")
-    iw = h.ui.image_widget
-    ctrl = h.ui.movement_widget.control_widget
-    mv = h.ui.milling_task_config_widget
+    iw = h.ui.panel.image_widget
+    ctrl = h.ui.panel.movement_widget.control_widget
+    mv = h.ui.panel.milling_task_config_widget
     cw = mv.config_widget
     stages_w = cw.milling_stages_widget
     stage_list = stages_w._list
@@ -953,7 +953,7 @@ def render_milling(h: Harness) -> None:
     iw.image_settings_widget.hfw_spinbox.setValue(80.0)
     iw.acquire_reference_images()
     h.wait_acquisition(iw)
-    h.ui.tabWidget.setCurrentWidget(mv)
+    h.ui.panel.tabWidget.setCurrentWidget(mv)
     cw.field_of_view_spinbox.setValue(80.0)
     h.pump(300)
 
@@ -1161,12 +1161,12 @@ def render_sample_holder(h: Harness) -> None:
     h.first_run(False)
     h.show_tab(0)
     h.connect("sim-iflm")
-    iw = h.ui.image_widget
-    ctrl = h.ui.movement_widget.control_widget
-    sw = h.ui.sample_widget
+    iw = h.ui.panel.image_widget
+    ctrl = h.ui.panel.movement_widget.control_widget
+    sw = h.ui.panel.sample_widget
     hw = sw.holder_widget
     microscope = h.connection.microscope
-    h.ui.tabWidget.setCurrentWidget(sw)
+    h.ui.panel.tabWidget.setCurrentWidget(sw)
     h.pump(300)
 
     # the shuttle as shipped: two slots, nothing loaded, nothing calibrated
@@ -1242,11 +1242,11 @@ def render_sample_holder(h: Harness) -> None:
 
     # the Arctis: holder plus the autoloader magazine
     h.connect("sim-arctis")
-    sw = h.ui.sample_widget
+    sw = h.ui.panel.sample_widget
     hw, lw = sw.holder_widget, sw.loader_widget
-    ctrl = h.ui.movement_widget.control_widget
-    iw = h.ui.image_widget
-    h.ui.tabWidget.setCurrentWidget(sw)
+    ctrl = h.ui.panel.movement_widget.control_widget
+    iw = h.ui.panel.image_widget
+    h.ui.panel.tabWidget.setCurrentWidget(sw)
     h.pump(300)
     h.shot(
         "sample-tab-arctis",
@@ -1310,9 +1310,9 @@ def render_fluorescence(h: Harness) -> None:
     h.first_run(False)
     h.show_tab(0)
     h.connect("sim-arctis")
-    iw = h.ui.image_widget
-    ctrl = h.ui.movement_widget.control_widget
-    fmc = h.ui.fm_control_widget
+    iw = h.ui.panel.image_widget
+    ctrl = h.ui.panel.movement_widget.control_widget
+    fmc = h.ui.panel.fm_control_widget
     fm = h.connection.microscope.fm
     ocw = fmc.objectiveControlWidget
     quad = h.window.view_controller.widget
@@ -1323,7 +1323,7 @@ def render_fluorescence(h: Harness) -> None:
     h.wait_move(ctrl, iw)
     iw.acquire_reference_images()
     h.wait_acquisition(iw)
-    h.ui.tabWidget.setCurrentWidget(fmc)
+    h.ui.panel.tabWidget.setCurrentWidget(fmc)
     h.pump(300)
 
     # the tab as it opens: objective retracted, one channel. The panels live
@@ -1592,9 +1592,9 @@ def render_experiments(h: Harness) -> None:
         callouts=[Box(h.window.tab_widget.tabBar()), Box(h.window.status_bar)],
         numbered=True,
     )
-    h.ui.tabWidget.setCurrentWidget(h.ui.tab)
+    h.ui.panel.tabWidget.setCurrentWidget(h.ui.panel.tab)
     h.pump(300)
-    h.shot("experiment-tab", target=h.ui.tab, crop=True)
+    h.shot("experiment-tab", target=h.ui.panel.tab, crop=True)
 
 
 @page("protocols")
@@ -1664,8 +1664,8 @@ def render_overview(h: Harness) -> None:
     h.show_tab(0)
     h.connect("sim-arctis")
     h.ensure_experiment()
-    iw = h.ui.image_widget
-    ctrl = h.ui.movement_widget.control_widget
+    iw = h.ui.panel.image_widget
+    ctrl = h.ui.panel.movement_widget.control_widget
     microscope = h.connection.microscope
     ctrl.move_to_orientation("SEM")
     h.wait_move(ctrl, iw)
@@ -1759,8 +1759,8 @@ def render_lamella(h: Harness) -> None:
     h.first_run(False)
     h.show_tab(0)
     h.connect("sim-arctis")
-    ctrl = h.ui.movement_widget.control_widget
-    iw = h.ui.image_widget
+    ctrl = h.ui.panel.movement_widget.control_widget
+    iw = h.ui.panel.image_widget
     ctrl.move_to_orientation("SEM")
     h.wait_move(ctrl, iw)
     lamellae = h.ensure_lamellae(3)
@@ -1768,12 +1768,12 @@ def render_lamella(h: Harness) -> None:
     # the Experiment tab: the list, + to add at the current position, and the
     # selected lamella's details
     h.show_main_tab("Microscope")
-    h.ui.tabWidget.setCurrentWidget(h.ui.tab)
-    h.ui.lamella_list.select(lamellae[0].name) if hasattr(
-        h.ui.lamella_list, "select"
+    h.ui.panel.tabWidget.setCurrentWidget(h.ui.panel.tab)
+    h.ui.panel.experiment_tab.lamella_list.select(lamellae[0].name) if hasattr(
+        h.ui.panel.experiment_tab.lamella_list, "select"
     ) else None
     h.pump(400)
-    h.shot("experiment-tab", target=h.ui.tab, crop=True, height=520)
+    h.shot("experiment-tab", target=h.ui.panel.tab, crop=True, height=520)
 
     # the Lamella tab: cards on the left, the selected lamella's own task
     # configuration and its images on the right
@@ -1885,8 +1885,8 @@ def render_workflows(h: Harness) -> None:
     h.first_run(False)
     h.show_tab(0)
     h.connect("sim-arctis")
-    ctrl = h.ui.movement_widget.control_widget
-    iw = h.ui.image_widget
+    ctrl = h.ui.panel.movement_widget.control_widget
+    iw = h.ui.panel.image_widget
     ctrl.move_to_orientation("SEM")
     h.wait_move(ctrl, iw)
     lamellae = h.ensure_lamellae(3)
@@ -1949,7 +1949,7 @@ def render_workflows(h: Harness) -> None:
         while (h.ui.is_workflow_running or waited < 2000) and waited < 1200000:
             h.pump(250)
             waited += 250
-            if h.ui.hold is None:
+            if h.ui.run_relay.hold is None:
                 continue
             h.pump(1200)
             if queue_shots:
@@ -1994,7 +1994,7 @@ def render_workflows(h: Harness) -> None:
                     )
                 seen.add(shot_name)
                 h.show_main_tab("Microscope")
-                h.ui.tabWidget.setCurrentWidget(h.ui.tab)
+                h.ui.panel.tabWidget.setCurrentWidget(h.ui.panel.tab)
                 h.pump(500)
                 buttons = [
                     b
@@ -2077,17 +2077,17 @@ def render_grid_workflow(h: Harness) -> None:
     h.show_tab(0)
     h.connect("sim-arctis")
     h.ensure_experiment()
-    ctrl = h.ui.movement_widget.control_widget
-    iw = h.ui.image_widget
+    ctrl = h.ui.panel.movement_widget.control_widget
+    iw = h.ui.panel.image_widget
     ctrl.move_to_orientation("SEM")
     h.wait_move(ctrl, iw)
 
     # -- calibrating the working slot, on the Sample tab ---------------------
     # Photographed at the capture step and closed: the Sample holder page goes
     # through the whole calibration.
-    sw = h.ui.sample_widget
+    sw = h.ui.panel.sample_widget
     hw = sw.holder_widget
-    h.ui.tabWidget.setCurrentWidget(sw)
+    h.ui.panel.tabWidget.setCurrentWidget(sw)
     h.pump(300)
     hw._on_calibrate()
     dialog = hw._calibration_dialog
@@ -2580,7 +2580,7 @@ def render_correlation(h: Harness) -> None:
     while (h.ui.is_workflow_running or waited < 2000) and waited < 1200000:
         h.pump(250)
         waited += 250
-        if h.ui.hold is None:
+        if h.ui.run_relay.hold is None:
             continue
         h.pump(1200)
         kind, key = _proposal_up(h.ui)
@@ -2590,7 +2590,7 @@ def render_correlation(h: Harness) -> None:
                 # view with the Spot Burn tab open
                 burn_shot_taken = True
                 h.show_main_tab("Microscope")
-                h.ui.tabWidget.setCurrentWidget(h.ui.tab)
+                h.ui.panel.tabWidget.setCurrentWidget(h.ui.panel.tab)
                 h.pump(500)
                 h.shot(
                     "prompt-spot-burn",
@@ -2601,9 +2601,9 @@ def render_correlation(h: Harness) -> None:
                     ],
                     numbered=True,
                 )
-                h.ui.tabWidget.setCurrentWidget(h.ui.spot_burn_widget)
+                h.ui.panel.tabWidget.setCurrentWidget(h.ui.panel.spot_burn_widget)
                 h.pump(500)
-                sbw = h.ui.spot_burn_widget
+                sbw = h.ui.panel.spot_burn_widget
                 fib_panel = h.window.view_controller.widget._all_panels[2]
                 h.shot(
                     "spot-burn-tab",
@@ -2639,9 +2639,9 @@ def render_correlation(h: Harness) -> None:
     from fibsem.imaging.spot import SpotBurnSettings
 
     h.show_main_tab("Microscope")
-    sbw = h.ui.spot_burn_widget
-    h.ui.set_spot_burn_widget_active(True)
-    h.ui.tabWidget.setCurrentWidget(sbw)
+    sbw = h.ui.panel.spot_burn_widget
+    h.ui.panel.set_spot_burn_widget_active(True)
+    h.ui.panel.tabWidget.setCurrentWidget(sbw)
     sbw.set_workflow_mode(False)
     sbw.set_settings(SpotBurnSettings(coordinates=points))
     h.pump(600)

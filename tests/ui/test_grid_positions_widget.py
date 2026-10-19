@@ -23,7 +23,9 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
+    AutoLamellaSingleWindowUI,
+)
 from fibsem.applications.autolamella.ui.grid_positions_widget import (
     GridPositionsWidget,
 )
@@ -41,6 +43,7 @@ from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition, ImageS
 from fibsem.ui.widgets.stored_overview_canvas import VIEW_FM
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskState, TaskStatus
+from tests.fixtures.main_window import close_window
 
 _app = QApplication.instance() or QApplication([])
 
@@ -51,7 +54,7 @@ _ARCTIS = os.path.join(
 
 @pytest.fixture
 def ui(qapp, monkeypatch, tmp_path):
-    widget = AutoLamellaUI(parent_ui=None)
+    widget = AutoLamellaSingleWindowUI()
     monkeypatch.setattr(
         widget.system_widget,
         "load_configuration",
@@ -65,7 +68,7 @@ def ui(qapp, monkeypatch, tmp_path):
     yield widget
     widget.experiment = None
     widget.microscope.disconnect()
-    widget.close()
+    close_window(widget)
 
 
 def _entry(name, relpath):
@@ -135,16 +138,21 @@ def grid(ui):
     _save_fm_overview(microscope, root / "overview_fm/mosaic.ome.tiff", fm)
     grid.task_history.append(_entry("overview_fm", "overview_fm/mosaic.ome.tiff"))
 
-    ui.add_new_lamella(stage_position=sem, name="on-grid", grid_id=grid.id)
-    ui.add_new_lamella(stage_position=sem, name="elsewhere", grid_id=None)
+    ui.panel.experiment_tab.add_new_lamella(
+        stage_position=sem, name="on-grid", grid_id=grid.id
+    )
+    ui.panel.experiment_tab.add_new_lamella(
+        stage_position=sem, name="elsewhere", grid_id=None
+    )
     assert [p.grid_id for p in experiment.positions] == [grid.id, None]
     return grid
 
 
 @pytest.fixture
 def widget(ui, grid, destroy_widgets_after_test):
-    w = GridPositionsWidget()
-    w.set_autolamella_ui(ui)
+    w = GridPositionsWidget(
+        session=ui.session, add_lamella=ui.panel.experiment_tab.add_new_lamella
+    )
     w.set_experiment(ui.experiment)
     w.set_grid(grid)
     w.resize(900, 600)
@@ -245,8 +253,17 @@ class TestMarking:
         assert _names(widget) == []
         assert widget.count_label.text() == "Positions on grid-oak · 0"
 
-    def test_without_a_microscope_the_add_is_refused(self, widget, ui, grid):
-        widget.set_autolamella_ui(None)
+    def test_without_a_microscope_the_add_is_refused(
+        self, ui, grid, destroy_widgets_after_test
+    ):
+        widget = GridPositionsWidget(
+            add_lamella=ui.panel.experiment_tab.add_new_lamella
+        )
+        widget.set_experiment(ui.experiment)
+        widget.set_grid(grid)
+        widget.resize(900, 600)
+        widget.show()
+        _app.processEvents()
         cx, cy = _centre(widget)
         widget.canvas.request_add_at(cx, cy)
         assert len(ui.experiment.positions) == 2
@@ -255,8 +272,11 @@ class TestMarking:
 class TestFromTheGridsTab:
     @pytest.fixture
     def tab(self, ui, grid, destroy_widgets_after_test):
-        tab = GridsTabWidget(synchronous=True)
-        tab.set_autolamella_ui(ui)
+        tab = GridsTabWidget(
+            synchronous=True,
+            session=ui.session,
+            add_lamella=ui.panel.experiment_tab.add_new_lamella,
+        )
         tab.set_microscope(ui.microscope)
         tab.set_experiment(ui.experiment)
         tab.resize(1200, 700)

@@ -29,7 +29,7 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QApplication, QMessageBox
 
-import fibsem.applications.autolamella.ui.AutoLamellaUI  # noqa: F401  (for sys.modules)
+import fibsem.applications.autolamella.ui.experiment_tab  # noqa: F401  (for sys.modules)
 from fibsem.applications.autolamella.poses import (
     FLUORESCENCE_ORIENTATION,
     MILLING_ORIENTATION,
@@ -150,9 +150,9 @@ def test_dragging_a_lamella_on_the_overview_moves_its_fluorescence_pose(tmp_path
 def test_saving_a_new_position_from_the_lamella_list_moves_it_too(
     tmp_path, monkeypatch
 ):
-    """`AutoLamellaUI.update_lamella_position_ui` -- the list row's Update Position,
+    """`ExperimentTab.update_lamella_position_ui` -- the list row's Update Position,
     which records wherever the stage is now onto the selected lamella."""
-    module = sys.modules["fibsem.applications.autolamella.ui.AutoLamellaUI"]
+    module = sys.modules["fibsem.applications.autolamella.ui.experiment_tab"]
 
     microscope = _microscope()
     lamella = _lamella(microscope, tmp_path)
@@ -165,7 +165,7 @@ def test_saving_a_new_position_from_the_lamella_list_moves_it_too(
     )
 
     class _UI:
-        update_lamella_position_ui = module.AutoLamellaUI.update_lamella_position_ui
+        update_lamella_position_ui = module.ExperimentTab.update_lamella_position_ui
 
         def __init__(self):
             self.microscope = microscope
@@ -176,7 +176,7 @@ def test_saving_a_new_position_from_the_lamella_list_moves_it_too(
         def update_lamella_combobox(self, latest=False):
             pass
 
-        def update_ui(self):
+        def refresh(self):
             pass
 
     _UI().update_lamella_position_ui()
@@ -193,7 +193,7 @@ def test_saving_a_new_position_from_the_lamella_list_moves_it_too(
 def test_saving_a_new_position_keeps_the_objective_position(tmp_path, monkeypatch):
     """The microscope state does not capture the FM objective, so Update
     Position keeps the milling pose's stored focus, as Set pose does (FIB-1456)."""
-    module = sys.modules["fibsem.applications.autolamella.ui.AutoLamellaUI"]
+    module = sys.modules["fibsem.applications.autolamella.ui.experiment_tab"]
 
     microscope = _microscope()
     lamella = _lamella(microscope, tmp_path)
@@ -203,7 +203,7 @@ def test_saving_a_new_position_keeps_the_objective_position(tmp_path, monkeypatc
     )
 
     class _UI:
-        update_lamella_position_ui = module.AutoLamellaUI.update_lamella_position_ui
+        update_lamella_position_ui = module.ExperimentTab.update_lamella_position_ui
 
         def __init__(self):
             self.microscope = microscope
@@ -214,7 +214,7 @@ def test_saving_a_new_position_keeps_the_objective_position(tmp_path, monkeypatc
         def update_lamella_combobox(self, latest=False):
             pass
 
-        def update_ui(self):
+        def refresh(self):
             pass
 
     _UI().update_lamella_position_ui()
@@ -224,7 +224,7 @@ def test_saving_a_new_position_keeps_the_objective_position(tmp_path, monkeypatc
 
 def test_declining_the_confirmation_moves_neither_pose(tmp_path, monkeypatch):
     """The sync must sit after the confirmation, not before it."""
-    module = sys.modules["fibsem.applications.autolamella.ui.AutoLamellaUI"]
+    module = sys.modules["fibsem.applications.autolamella.ui.experiment_tab"]
 
     microscope = _microscope()
     lamella = _lamella(microscope, tmp_path)
@@ -240,7 +240,7 @@ def test_declining_the_confirmation_moves_neither_pose(tmp_path, monkeypatch):
     )
 
     class _UI:
-        update_lamella_position_ui = module.AutoLamellaUI.update_lamella_position_ui
+        update_lamella_position_ui = module.ExperimentTab.update_lamella_position_ui
 
         def __init__(self):
             self.microscope = microscope
@@ -251,7 +251,7 @@ def test_declining_the_confirmation_moves_neither_pose(tmp_path, monkeypatch):
         def update_lamella_combobox(self, latest=False):
             pass
 
-        def update_ui(self):
+        def refresh(self):
             pass
 
     _UI().update_lamella_position_ui()
@@ -263,11 +263,11 @@ def test_declining_the_confirmation_moves_neither_pose(tmp_path, monkeypatch):
 
 
 def _pose_row_ui(module, microscope, lamella):
-    """A stub carrying `AutoLamellaUI._set_current_position_as_pose` and nothing else."""
+    """A stub carrying `ExperimentTab._set_current_position_as_pose` and nothing else."""
 
     class _UI:
         _set_current_position_as_pose = (
-            module.AutoLamellaUI._set_current_position_as_pose
+            module.ExperimentTab._set_current_position_as_pose
         )
 
         def __init__(self):
@@ -282,9 +282,9 @@ def _pose_row_ui(module, microscope, lamella):
 def test_setting_the_milling_pose_from_the_pose_rows_moves_the_fluorescence_pose(
     tmp_path, monkeypatch
 ):
-    """`AutoLamellaUI._set_current_position_as_pose` -- the Selected Lamella panel's
+    """`ExperimentTab._set_current_position_as_pose` -- the Selected Lamella panel's
     per-pose Update Position button, a third door onto the same move."""
-    module = sys.modules["fibsem.applications.autolamella.ui.AutoLamellaUI"]
+    module = sys.modules["fibsem.applications.autolamella.ui.experiment_tab"]
 
     microscope = _microscope()
     lamella = _lamella(microscope, tmp_path)
@@ -317,7 +317,7 @@ def test_setting_the_fluorescence_pose_from_the_pose_rows_is_not_undone(
     Re-deriving the fluorescence pose after a user has just set it by hand would
     overwrite the one thing they came to that button to change.
     """
-    module = sys.modules["fibsem.applications.autolamella.ui.AutoLamellaUI"]
+    module = sys.modules["fibsem.applications.autolamella.ui.experiment_tab"]
 
     microscope = _microscope()
     lamella = _lamella(microscope, tmp_path)
@@ -337,7 +337,7 @@ def test_setting_the_fluorescence_pose_from_the_pose_rows_is_not_undone(
 
 def test_declining_the_pose_row_confirmation_moves_neither_pose(tmp_path, monkeypatch):
     """The sync sits after this confirmation too."""
-    module = sys.modules["fibsem.applications.autolamella.ui.AutoLamellaUI"]
+    module = sys.modules["fibsem.applications.autolamella.ui.experiment_tab"]
 
     microscope = _microscope()
     lamella = _lamella(microscope, tmp_path)

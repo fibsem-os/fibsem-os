@@ -47,6 +47,12 @@ def _ui(microscope=None, experiment=None):
     return OverviewHost(microscope, experiment)
 
 
+def _tab(microscope=None):
+    from tests.fixtures.overview_host import tab_args
+
+    return AutoLamellaOverviewContainerTab(*tab_args(_ui(microscope)))
+
+
 def _fm_microscope():
     from tests.fixtures.fm_microscope import build_microscope
 
@@ -63,7 +69,7 @@ def _plain_microscope():
 
 
 def _built(qapp, microscope):
-    tab = AutoLamellaOverviewContainerTab(_ui(microscope))
+    tab = _tab(microscope)
     tab.refresh_microscope()
     return tab
 
@@ -153,7 +159,7 @@ def test_an_unreachable_modality_cannot_be_raised(qapp):
 
 
 def test_no_microscope_leaves_the_tab_unavailable_with_a_reason(qapp):
-    tab = AutoLamellaOverviewContainerTab(_ui(None))
+    tab = _tab(None)
     tab.refresh_microscope()
 
     assert not tab.is_available
@@ -167,7 +173,7 @@ def test_no_microscope_leaves_the_tab_unavailable_with_a_reason(qapp):
 def test_availability_is_announced_for_the_tab_not_the_page(qapp):
     """The window enables the tab off this signal. It has to mean "either page works",
     or a system with no camera would have its Overview tab greyed out entirely."""
-    tab = AutoLamellaOverviewContainerTab(_ui(_plain_microscope()))
+    tab = _tab(_plain_microscope())
     seen = []
     tab.availability_changed.connect(seen.append)
 
@@ -178,7 +184,7 @@ def test_availability_is_announced_for_the_tab_not_the_page(qapp):
 
 
 def test_an_unknown_modality_is_refused(qapp):
-    tab = AutoLamellaOverviewContainerTab(_ui(None))
+    tab = _tab(None)
     with pytest.raises(ValueError):
         tab.set_modality("XRAY")
     tab.deleteLater()
@@ -269,7 +275,7 @@ def test_a_rebuild_does_not_leave_the_bar_holding_a_dead_strip(qapp):
     first = tab.beam_tab.overview.view_strip
 
     # A different microscope object is what makes `refresh_microscope` rebuild.
-    tab.autolamella_ui.microscope = _fm_microscope()
+    tab.session.microscope = _fm_microscope()
     tab.refresh_microscope()
 
     second = tab.beam_tab.overview.view_strip
@@ -305,7 +311,7 @@ def test_a_disabled_chip_does_not_look_like_a_live_one(qapp):
     the view chips and a rule can be present and still lose to another selector.
     """
     live = _built(qapp, _fm_microscope())
-    dead = AutoLamellaOverviewContainerTab(_ui(_plain_microscope()))
+    dead = _tab(_plain_microscope())
     dead.refresh_microscope()
 
     enabled = live.modality_chip(MODALITY_FLUORESCENCE)
@@ -347,7 +353,7 @@ def test_every_chip_says_something(qapp):
     pattern exists to avoid, and it is the one that appears by omission when a new
     unavailable state is added later."""
     for microscope in (None, _plain_microscope(), _fm_microscope()):
-        tab = AutoLamellaOverviewContainerTab(_ui(microscope))
+        tab = _tab(microscope)
         tab.refresh_microscope()
         for modality in (MODALITY_FIBSEM, MODALITY_FLUORESCENCE):
             chip = tab.modality_chip(modality)

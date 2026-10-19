@@ -2,7 +2,7 @@
 
 The unit tests (tests/autolamella/test_agent_context.py) drive the facade over
 real domain objects in a plain holder; this file proves the production host —
-an actual AutoLamellaUI — satisfies the same contract, in the states the facade
+an actual window — satisfies the same contract, in the states the facade
 will actually meet it: freshly constructed (nothing connected, nothing loaded)
 and with an experiment adopted."""
 
@@ -23,17 +23,20 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
+    AutoLamellaSingleWindowUI,
+)
 from fibsem.structures import MicroscopeState
+from tests.fixtures.main_window import close_window
 
 
 @pytest.fixture
 def ui(qapp):
-    window = AutoLamellaUI(parent_ui=None)
+    window = AutoLamellaSingleWindowUI()
     try:
         yield window
     finally:
-        window.close()
+        close_window(window)
         window.deleteLater()
         qapp.processEvents()
 
@@ -62,11 +65,13 @@ def test_display_images_are_the_sessions_latest_images(ui):
     sem.data[:] = np.random.randint(0, 255, sem.data.shape, dtype=np.uint8)
     ui.session.images.set(sem, BeamType.ELECTRON)
     ctx = AutoLamellaAppContext(ui.session, window=ui)
-    ui.session.microscope = object()
-    try:
-        payload = ctx.display_images()
-    finally:
-        ui.session.microscope = None
+    # A stand-in microscope: the window must not hear of it and build for it.
+    with ui.session.changed.blocked():
+        ui.session.microscope = object()
+        try:
+            payload = ctx.display_images()
+        finally:
+            ui.session.microscope = None
     json.dumps(payload)
     assert payload["available"] is True
     assert payload["fib"] is None  # nothing displayed on that side yet
@@ -114,7 +119,7 @@ class _Dialog:
 
 @pytest.fixture
 def toasts(monkeypatch):
-    from fibsem.applications.autolamella.ui import AutoLamellaUI as ui_module
+    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as ui_module
 
     _Dialog.opened = []
     monkeypatch.setattr(ui_module, "WorkflowSummaryDialog", _Dialog)
