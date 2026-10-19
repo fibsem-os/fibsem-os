@@ -12,7 +12,7 @@ except Exception:
 
 from datetime import datetime
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -67,6 +67,7 @@ from fibsem.versioning import get_version_string
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.grid.naming import grid_rename_refusal, rename_grid
 from fibsem.workflows.runner import GRIDS, RunRequest
+from fibsem.workflows.session import EXPERIMENT, MICROSCOPE
 from fibsem.workflows.status import (
     TaskStatus,
     WorkflowStatusEvent,
@@ -81,6 +82,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     canvas. napari survives in this application only in labelling and segmentation,
     which open windows of their own (FIB-407).
     """
+
+    # The session's `changed`, carried to the GUI thread.
+    _session_changed = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
@@ -399,27 +403,33 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             "No fluorescence microscope available" if no_fm else "No image"
         )
 
-    def _on_microscope_connected(self):
-        """Handle microscope connection: hand the microscope to what shows its
-        progress."""
-        # Before the signal wiring below, which returns early on a disconnect: both
-        # overview modalities have to hear about that case too, to let go of the old
-        # microscope. They hold it for life, so each has to be handed the new one. It
-        # also re-answers whether the tab can be used, which is only knowable now --
-        # whether this system has a fluorescence detector at all.
+    def _hear_session(self, what: str) -> None:
+        self._session_changed.emit(what)
+
+    def _on_session_changed(self, what: str) -> None:
+        if what == MICROSCOPE:
+            self._on_microscope_changed()
+        elif what == EXPERIMENT:
+            self._on_experiment_update()
+
+    def _on_microscope_changed(self):
+        """Another microscope, or none: hand it to everything that holds one."""
+        microscope = self.autolamella_ui.microscope if self.autolamella_ui else None
+        if microscope is not None:
+            # The protocol editors keep the last microscope through a disconnect.
+            self.task_widget._on_microscope_connected()
+            self.lamella_tab.editor._on_microscope_connected()
+        # Both overview modalities hold the microscope for life, so each is handed
+        # the new one. It also re-answers whether the tab can be used, which is
+        # only knowable now -- whether this system has a fluorescence detector.
         self._refresh_overview_microscope()
         if getattr(self, "quad_overview_page", None) is not None:
-            self.quad_overview_page.set_microscope(
-                self.autolamella_ui.microscope if self.autolamella_ui else None
-            )
+            self.quad_overview_page.set_microscope(microscope)
         self._refresh_fm_placeholder()
         # Milling, tiles, spot burn: the bar listens for them itself (FIB-1188).
-        self.status_bar.set_microscope(
-            self.autolamella_ui.microscope if self.autolamella_ui else None
-        )
-        self.agent_host.activity.set_microscope(
-            self.autolamella_ui.microscope if self.autolamella_ui else None
-        )
+        self.status_bar.set_microscope(microscope)
+        self.agent_host.activity.set_microscope(microscope)
+        self._refresh_grids_tab_microscope()
         self._refresh_header()
         self._update_instructions()
 
@@ -462,9 +472,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         notification_service._get_service().toast_action.connect(
             self._on_notification_service_action
         )
-        self.autolamella_ui.system_widget.connected_signal.connect(
-            self._on_microscope_connected
-        )
+        self._session_changed.connect(self._on_session_changed)
+        self.autolamella_ui.session.changed.connect(self._hear_session)
         self.autolamella_ui.lamella_list.defect_changed.connect(
             self._on_lamella_defect_changed
         )
@@ -674,9 +683,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.task_widget = AutoLamellaProtocolTaskConfigEditor(
             parent=self.autolamella_ui
         )
-        self.autolamella_ui.system_widget.connected_signal.connect(
-            self.task_widget._on_microscope_connected
-        )
         layout.addWidget(self.task_widget)
         self.tab_widget.addTab(
             container,
@@ -714,11 +720,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # The Positions view makes lamellae through the application widget, the
         # one path every lamella is made by.
         self.grids_tab.set_autolamella_ui(self.autolamella_ui)
-        # Fires on disconnect too, with microscope None; the tab redraws its chips
-        # from whatever stage there is.
-        self.autolamella_ui.system_widget.connected_signal.connect(
-            self._refresh_grids_tab_microscope
-        )
         self.tab_widget.addTab(
             self.grids_tab,
             fibsem_icon("mdi:view-grid-outline", color=GRAY_ICON_COLOR),
@@ -1463,6 +1464,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             and self.autolamella_ui.microscope is not None
         ):
             self.autolamella_ui.microscope.try_disconnect()
+        if self.autolamella_ui is not None:
+            self.autolamella_ui.session.changed.disconnect(self._hear_session)
         # TypeError: a second close finds it already disconnected -- close() sends
         # the close event again even when the window is hidden.
         try:
