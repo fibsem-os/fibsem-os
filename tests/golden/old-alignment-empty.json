@@ -1,0 +1,33 @@
+{
+  "enabled": false,
+  "full_frame_below": 0.0,
+  "imaging": {
+    "autocontrast": false,
+    "beam_type": "ELECTRON",
+    "drift_correction": false,
+    "dwell_time": 1e-06,
+    "filename": "default_image",
+    "frame_integration": null,
+    "hfw": 0.00015,
+    "line_integration": null,
+    "path": null,
+    "reduced_area": null,
+    "resolution": [
+      1536,
+      1024
+    ],
+    "save": false,
+    "scan_interlacing": null
+  },
+  "interval": 30,
+  "interval_enabled": false,
+  "rect": {
+    "height": 0.4,
+    "left": 0.7,
+    "top": 0.3,
+    "width": 0.25
+  },
+  "steps": 3,
+  "use_autocontrast": true,
+  "use_autofocus": false
+}
