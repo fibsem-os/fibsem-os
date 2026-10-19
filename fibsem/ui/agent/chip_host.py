@@ -1,6 +1,5 @@
-"""The agent on a window's status bar (FIB-1035): its level chip and card,
-what it is doing on the microscope (FIB-1375), and the previews of what its
-waiting request would do (FIB-1404).
+"""The agent on a window's status bar: its level chip and card, what it is
+doing on the microscope, and the previews of what its waiting request would do.
 
 The window builds one and tells it the session's agent; the chip's clicks are
 handled here.
@@ -28,7 +27,7 @@ class AgentChipHost(QObject):
     holds. Polled a second rather than signalled: the server starts and stops
     with the microscope connection, from the other window."""
 
-    # The agent's request changed (FIB-1283): emitted from the request's
+    # The agent's request changed: emitted from the request's
     # worker thread, delivered on the GUI thread.
     request_changed = pyqtSignal()
 
@@ -152,7 +151,7 @@ class AgentChipHost(QObject):
 
     def _describe_request_again(self, store, request_id: str) -> None:
         """While the card shows a waiting request, its values now are read
-        again (FIB-1412): on opening the card, and every
+        again: on opening the card, and every
         `AGENT_REQUEST_REFRESH_S` while it stays open. Off the GUI thread: it
         reads the routes the request describes."""
         if not (self.chip.popup.isVisible() or self.chip.floating):

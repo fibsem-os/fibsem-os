@@ -69,7 +69,9 @@ class RunBorder(QFrame):
     def mirror_to(self, other: "RunBorder") -> None:
         """*other* shows this border's switch and the agent's purple, now and
         as they change. Its own state stays its own."""
-        self._mirrors = [ref for ref in self._mirrors if ref() is not None]
+        self._mirrors = [
+            ref for ref in self._mirrors if ref() is not None and ref() is not other
+        ]
         self._mirrors.append(weakref.ref(other))
         self._push_to_mirrors()
 
