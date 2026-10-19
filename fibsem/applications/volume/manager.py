@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 SKIP_POSITION_NOT_FOUND = "position_not_found"
 SKIP_TASK_REMOVED = "task_removed"
+SKIP_MISSING_PREREQS = "missing_prereqs"
 
 
 class VolumeTaskManager(BaseTaskManager):
@@ -89,17 +90,33 @@ class VolumeTaskManager(BaseTaskManager):
         return position
 
     def _ready(self, item: WorkItem, position: VolumePosition) -> bool:
-        if item.task_name in self.experiment.task_protocol.task_config:
-            return True
-        self._skip(
-            item,
-            position.name,
-            f"Skipping {item.task_name} on {position.name}: it is no longer in "
-            "the volume protocol.",
-            SKIP_TASK_REMOVED,
-            item_id=position.id,
-        )
-        return False
+        protocol = self.experiment.task_protocol
+        if item.task_name not in protocol.task_config:
+            self._skip(
+                item,
+                position.name,
+                f"Skipping {item.task_name} on {position.name}: it is no longer in "
+                "the volume protocol.",
+                SKIP_TASK_REMOVED,
+                item_id=position.id,
+            )
+            return False
+        missing = [
+            name
+            for name in protocol.requirements(item.task_name)
+            if not position.iteration_completed(item.iteration, [name])
+        ]
+        if missing:
+            self._skip(
+                item,
+                position.name,
+                f"Skipping {item.task_name} on {position.name} slice "
+                f"{item.iteration}: {', '.join(missing)} did not complete.",
+                SKIP_MISSING_PREREQS,
+                item_id=position.id,
+            )
+            return False
+        return True
 
     def _skip(
         self, item: WorkItem, name: str, msg: str, reason: str, item_id: str = ""

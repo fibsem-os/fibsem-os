@@ -30,8 +30,10 @@ class VolumeProtocol(TaskProtocol):
 
     @classmethod
     def default(cls) -> "VolumeProtocol":
-        """Mill a slice, then image it."""
+        """Mill a slice, then image it: the image needs the cut."""
         protocol = cls()
-        protocol.add(VolumeFIBMillingTaskConfig())
-        protocol.add(VolumeSEMAcquisitionTaskConfig())
+        mill, image = VolumeFIBMillingTaskConfig(), VolumeSEMAcquisitionTaskConfig()
+        protocol.add(mill)
+        protocol.add(image)
+        protocol.set_requires(image.task_name, [mill.task_name])
         return protocol
