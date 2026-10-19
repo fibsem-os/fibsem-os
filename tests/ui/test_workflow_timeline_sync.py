@@ -47,7 +47,7 @@ def widget(qapp) -> WorkflowProgressWidget:
 
 
 def status_for(queue: TaskQueue, item, status, **extra) -> dict:
-    """The subset of TaskManager._emit_status's payload the timeline reads."""
+    """The subset of BaseTaskManager._emit_report's payload the timeline reads."""
     payload = {
         "task_name": item.task_name,
         "item_name": item.item_name,
@@ -411,7 +411,7 @@ def manager(widget, tmp_path) -> TaskManager:
     """A real TaskManager, on a real Experiment, wired to the real widget.
 
     The slots mirror AutoLamellaMainUI._on_workflow_update and _on_queue_changed.
-    Going through the real _emit_status / notify_queue_changed is what stops the
+    Going through the real _emit_report / notify_queue_changed is what stops the
     payload contract drifting from the widget that reads it.
     """
     experiment = _experiment(tmp_path)
@@ -436,7 +436,7 @@ def manager(widget, tmp_path) -> TaskManager:
 
 def emit(manager: TaskManager, item, status, **extra) -> None:
     lamella = manager.experiment.get_lamella_by_name(item.item_name)
-    manager._emit_status(item=item, lamella=lamella, status=status, **extra)
+    manager._emit_report(item=item, item_name=lamella.name, status=status, **extra)
 
 
 def test_the_managers_own_payload_builds_the_timeline(widget, manager):

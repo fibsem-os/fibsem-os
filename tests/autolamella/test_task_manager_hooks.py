@@ -153,35 +153,34 @@ def test_skip_fires_no_task_started_or_completed(experiment, recorder):
 # ---------------------------------------------------------------------------
 
 
-def _status_messages(monkeypatch) -> List[str]:
+def _status_messages(manager) -> List[str]:
     """Capture the workflow_info strings the manager closes a run with."""
     captured: List[str] = []
-    monkeypatch.setattr(
-        "fibsem.applications.autolamella.workflows.tasks.manager.update_status_ui",
-        lambda run, msg, workflow_info=None, **kw: captured.append(workflow_info),
+    manager.status.connect(
+        lambda event: event.workflow_info and captured.append(event.workflow_info)
     )
     return captured
 
 
 def test_a_run_that_skipped_everything_does_not_claim_completion(
-    experiment, recorder, monkeypatch, caplog
+    experiment, recorder, caplog
 ):
     """Every task skipped means no work happened. Reporting "All tasks completed." is
     the same misreport as an abort claiming completion, just quieter."""
     import logging
 
-    messages = _status_messages(monkeypatch)
     hook_manager, _ = recorder
     lamella = Lamella(path=experiment.path, number=1, petname="lam-1")
     lamella.defect.state = DefectType.FAILURE
     experiment.positions.append(lamella)
     manager = _manager(experiment, hook_manager)
+    messages = _status_messages(manager)
 
     with caplog.at_level(logging.WARNING):
         manager.run(task_names=["MillTrench"], required_lamella=[lamella.name])
 
     assert messages[-1] == "No tasks ran: all 1 skipped."
-    # update_status_ui does not log workflow_info, so headless needs its own warning
+    # the status line does not log workflow_info, so headless needs its own warning
     assert any("all 1 were skipped" in r.message for r in caplog.records)
 
 
@@ -204,11 +203,11 @@ def test_completion_message_unchanged_when_nothing_skipped(experiment, recorder)
     assert manager._completion_message() == "All tasks completed."
 
 
-def test_cancelled_run_keeps_its_own_message(experiment, recorder, monkeypatch):
+def test_cancelled_run_keeps_its_own_message(experiment, recorder):
     """The cancelled path must not fall through to a completion message."""
-    messages = _status_messages(monkeypatch)
     hook_manager, _ = recorder
     manager = _manager(experiment, hook_manager)
+    messages = _status_messages(manager)
     manager.stop()
 
     manager.run(task_names=["MillTrench"], required_lamella=[])

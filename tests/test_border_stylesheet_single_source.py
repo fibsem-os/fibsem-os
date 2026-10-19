@@ -12,6 +12,7 @@ this guard running on every version in the matrix, which is the whole point: it 
 what stops the rules being copied a third time. The behavioural tests that need a
 real widget live in tests/ui/test_border_stylesheet.py and skip without PyQt5.
 """
+
 import ast
 import pathlib
 import re
@@ -19,7 +20,7 @@ import re
 FIBSEM = pathlib.Path(__file__).resolve().parents[1] / "fibsem"
 OWNER = FIBSEM / "ui" / "stylesheets.py"
 
-SET_STATE = re.compile(r'_set_border_state\(\s*"(?P<state>\w+)"')
+SET_STATE = re.compile(r'run_border\.set_state\(\s*"(?P<state>\w+)"')
 
 
 def _styled_states():
@@ -68,7 +69,7 @@ def test_every_state_the_code_sets_has_a_rule_to_paint_it():
     FIB-679 removed the duplication; this stops the same gap reappearing from the
     other direction, where a new state is set in code and never given a colour.
 
-    Only quoted literals are matched -- `_set_border_state(initial_state)` and the
+    Only quoted literals are matched -- `run_border.set_state(initial_state)` and the
     supervised/automated ternary pass variables, and their values appear as literals
     at the sites that build them.
 

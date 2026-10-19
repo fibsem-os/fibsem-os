@@ -21,7 +21,6 @@ from PyQt5.QtWidgets import (
     QAction,
     QApplication,
     QDialog,
-    QFrame,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -46,6 +45,7 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
 )
+from fibsem.applications.autolamella.task_outputs import PreviewSources
 from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
     AutoLamellaProtocolEditorWidget,
 )
@@ -113,7 +113,6 @@ from fibsem.ui.stylesheets import (
     SECONDARY_BUTTON_STYLESHEET,
     STATUS_BAR_STYLESHEET,
     border_stylesheet,
-    shown_border_state,
 )
 from fibsem.ui.tokens import (
     SURFACE_COLOR,
@@ -123,6 +122,7 @@ from fibsem.ui.widgets import preflight
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 from fibsem.ui.widgets.connection_dialog import connect_to_microscope_dialog
 from fibsem.ui.widgets.notifications import ToastManager
+from fibsem.ui.widgets.run_border import RunBorder, run_border_state
 from fibsem.ui.widgets.status_bar import FibsemStatusBar
 from fibsem.util.durations import format_duration_rounded
 from fibsem.versioning import get_version_string
@@ -377,19 +377,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.resize(1600, 1000)
 
         # Apply napari-style dark theme. Border state rules live here (on the parent)
-        # so that setProperty + unpolish/polish on _border_frame re-evaluates them.
+        # so that setProperty + unpolish/polish on the RunBorder re-evaluates them.
         self.setStyleSheet(NAPARI_STYLE + border_stylesheet("workflow_border_frame"))
 
-        # Central tab widget wrapped in a QFrame so the border renders reliably
         self.tab_widget = QTabWidget()
-        self._border_frame = QFrame()
-        self._border_frame.setObjectName("workflow_border_frame")
-        self._border_frame.setProperty("borderState", "idle")
-        _frame_layout = QVBoxLayout(self._border_frame)
-        _frame_layout.setContentsMargins(0, 0, 0, 0)
-        _frame_layout.setSpacing(0)
-        _frame_layout.addWidget(self.tab_widget)
-        self.setCentralWidget(self._border_frame)
+        self.run_border = RunBorder("workflow_border_frame")
+        self.run_border.set_content(self.tab_widget)
+        self.setCentralWidget(self.run_border)
 
         self.autolamella_ui: AutoLamellaUI
 
@@ -406,15 +400,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # User attention tracking
         self._user_interaction_sound_played = False  # Track if sound was played
         self._sound_enabled = self._preferences.display.sound_enabled
-        self._border_enabled = self._preferences.display.border_enabled
-        # First assigned here rather than on the Run click: the workflow handlers
-        # read it unconditionally, and an AttributeError in a queued slot is a
-        # process abort (FIB-329), not a missing border. The attribute alone -- the
-        # frame is unstyled until _set_border_state changes it, which is idle's look.
-        self._border_state = "idle"
-        # Whether the agent drives: the border turns its purple (see
-        # shown_border_state). Follows the level with the agent chip.
-        self._agent_driving = False
+        self.run_border.set_on(self._preferences.display.border_enabled)
         self.dev_mode = self._preferences.display.dev_mode
 
         # create menus, status bar, and tabs
@@ -818,35 +804,35 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Border state test actions
         self.action_border_toggle = QAction("Show Workflow Border", self)
         self.action_border_toggle.setCheckable(True)
-        self.action_border_toggle.setChecked(self._border_enabled)
+        self.action_border_toggle.setChecked(self.run_border.on)
         self.action_border_toggle.triggered.connect(self._on_border_toggle)
 
         self.action_border_automated = QAction("Automated (green)", self)
         self.action_border_automated.triggered.connect(
-            lambda: self._set_border_state("automated")
+            lambda: self.run_border.set_state("automated")
         )
 
         self.action_border_supervised = QAction("Supervised (blue)", self)
         self.action_border_supervised.triggered.connect(
-            lambda: self._set_border_state("supervised")
+            lambda: self.run_border.set_state("supervised")
         )
 
         self.action_border_waiting = QAction("Waiting for User (orange)", self)
         self.action_border_waiting.triggered.connect(
-            lambda: self._set_border_state("waiting")
+            lambda: self.run_border.set_state("waiting")
         )
         self.action_border_pending = QAction("Pending (grey)", self)
         self.action_border_pending.triggered.connect(
-            lambda: self._set_border_state("pending")
+            lambda: self.run_border.set_state("pending")
         )
         self.action_border_stopping = QAction("Stopping (red)", self)
         self.action_border_stopping.triggered.connect(
-            lambda: self._set_border_state("stopping")
+            lambda: self.run_border.set_state("stopping")
         )
 
         self.action_border_idle = QAction("Idle (no border)", self)
         self.action_border_idle.triggered.connect(
-            lambda: self._set_border_state("idle")
+            lambda: self.run_border.set_state("idle")
         )
 
         # add to menu bar
@@ -887,11 +873,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _on_border_toggle(self, checked: bool):
         """Handle workflow border toggle."""
-        self._border_enabled = checked
         self._preferences = fibsem_cfg.update_user_preferences(
             lambda p: setattr(p.display, "border_enabled", checked)
         )
-        self._apply_border()
+        self.run_border.set_on(checked)
+        self._sync_coincidence_viewer_border()
 
     def _on_open_preferences(self):
         """Open the preferences dialog."""
@@ -914,8 +900,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.autolamella_ui.sync_app_server_with_preference()
         d = self._preferences.display
         self._sound_enabled = d.sound_enabled
-        self._border_enabled = d.border_enabled
-        self._apply_border()
+        self.run_border.set_on(d.border_enabled)
+        self._sync_coincidence_viewer_border()
         self.dev_mode = d.dev_mode
         # The lamella strip's density. Guarded because _apply_preferences also runs
         # before the Lamella tab is built.
@@ -1533,16 +1519,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._agent_request_described: Tuple[Optional[str], float] = (None, 0.0)
         # What the agent's waiting request or suggestion would do: on the card,
         # on the image its values were measured on; on the views.
+        sources = PreviewSources(lambda: self.autolamella_ui.experiment)
         self.agent_previews = AgentPreviews(
             lambda: getattr(self, "view_controller", None),
-            reference_image=self._agent_review_image,
-            task_config=self._agent_task_config,
+            reference_image=sources.review_image,
+            task_config=sources.task_config,
             show_picture=self.agent_chip.card.set_image,
-            item_pose=self._agent_item_pose,
-            item_image=self._agent_item_image,
-            overview_image=self._agent_overview_image,
-            item_overview=self._agent_item_overview,
-            review_proposal=self._agent_review_proposal,
+            item_pose=sources.item_pose,
+            item_image=sources.item_image,
+            overview_image=sources.overview_image,
+            item_overview=sources.item_overview,
+            review_proposal=sources.review_proposal,
         )
         self._agent_chip_timer = QTimer(self)
         self._agent_chip_timer.setInterval(1000)
@@ -1579,7 +1566,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """A stop was asked of the run, from any source. A bound method rather
         than a lambda, so a stop from the App Server's thread is delivered on
         this window's (GUI) thread."""
-        self._set_border_state("stopping")
+        self.run_border.set_state("stopping")
 
     def _listen_for_questions(self, experiment) -> None:
         """A question a task asks mid-run (``BaseTask.ask``) is put up
@@ -1857,7 +1844,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         estimates, the Stop button."""
         ui = self.autolamella_ui
         if request.kind == GRIDS:
-            self._set_border_state("automated")
+            self.run_border.set_state("automated")
             # The plan's steps, priced for the timeline. Screen all grids builds
             # its queue after the inventory, so it is priced for the grids known
             # now.
@@ -1868,7 +1855,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 plan_grid_run(list(request.task_names), list(known or []))
             )
         else:
-            self._set_border_state(self._running_border_state(request.task_names[0]))
+            self.run_border.set_state(self._running_border_state(request.task_names[0]))
             self._push_timeline_estimates(
                 [(ln, tn) for tn in request.task_names for ln in request.names or ()]
             )
@@ -2069,28 +2056,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return False, "the other overview is acquiring"
         return True, ""
 
-    def _set_border_state(self, state: str):
-        """Update the tab widget border to reflect current workflow state.
-
-        States: 'waiting', 'supervised', 'automated', 'idle'
-        """
-        if state == getattr(self, "_border_state", None):
-            return
-        self._border_state = state
-        self._apply_border()
-
-    def _apply_border(self) -> None:
-        """Paint the border for the run's state, and the agent driving."""
-        state = shown_border_state(self._border_state, self._agent_driving)
-        effective = state if self._border_enabled else "idle"
-        self._border_frame.setProperty("borderState", effective)
-        style = self._border_frame.style()
-        if style is not None:
-            style.unpolish(self._border_frame)
-            style.polish(self._border_frame)
-        self._border_frame.update()
-        self._sync_coincidence_viewer_border()
-
     def _sync_coincidence_viewer_border(self) -> None:
         """The coincidence viewer's border follows this window's: the Show
         Workflow Border switch, and the agent's purple while it drives."""
@@ -2098,8 +2063,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         viewer = getattr(ui, "_coincidence_viewer_window", None)
         if viewer is None:
             return
-        viewer.set_border_enabled(self._border_enabled)
-        viewer.set_agent_driving(self._agent_driving)
+        viewer.run_border.set_on(self.run_border.on)
+        viewer.run_border.set_agent_driving(self.run_border.agent_driving)
 
     def _running_border_state(self, task_name: Optional[str]) -> str:
         """The border for a running workflow: automated or supervised."""
@@ -2140,7 +2105,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 break
         self._update_supervised_status()
         if self.autolamella_ui.session.runner.is_running:
-            self._set_border_state(self._running_border_state(self._current_task_name))
+            self.run_border.set_state(
+                self._running_border_state(self._current_task_name)
+            )
         # Refresh the workflow widget to reflect the toggled supervise state
         if hasattr(self, "lamella_workflow_widget"):
             self.lamella_workflow_widget.workflow.refresh_all()
@@ -3394,10 +3361,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _set_agent_driving(self, driving: bool) -> None:
         """The agent's purple on the border while it drives, here and on the
         coincidence viewer's border."""
-        if driving == self._agent_driving:
-            return
-        self._agent_driving = driving
-        self._apply_border()
+        self.run_border.set_agent_driving(driving)
+        self._sync_coincidence_viewer_border()
 
     def _follow_agent_requests(self) -> None:
         """Move the chip as a request is filed and applied rather than on the
@@ -3514,135 +3479,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             )
         self._refresh_workflow_indicators()
 
-    def _agent_task_config(self, item_name: str, task_name: str):
-        """An item's config for a task, for a waiting config edit's preview;
-        None when there is no such item or task."""
-        from fibsem.applications.autolamella.server.context import find_item
-
-        experiment = self.autolamella_ui.experiment
-        if experiment is None:
-            return None
-        lamella, refusal = find_item(experiment, item_name)
-        if refusal:
-            return None
-        return dict(lamella.task_config).get(task_name)
-
-    def _agent_item_pose(self, item_name: str, pose_name: str):
-        """Where an item's pose puts the stage, for a waiting pose request's
-        preview; None when there is no such item or pose."""
-        from fibsem.applications.autolamella.server.context import find_item
-
-        experiment = self.autolamella_ui.experiment
-        if experiment is None:
-            return None
-        lamella, refusal = find_item(experiment, item_name)
-        if refusal:
-            return None
-        pose = dict(lamella.poses).get(pose_name)
-        return getattr(pose, "stage_position", None)
-
-    def _agent_item_image(self, item_name: str):
-        """An item's last FIB image, the one its point of interest and
-        alignment area are drawn on: its last completed task's final one, else
-        the last one listed. None when it has none (FIB-1424)."""
-        from fibsem.applications.autolamella.server.context import find_item
-        from fibsem.applications.autolamella.task_outputs import (
-            lamella_images,
-            latest_task_image,
-        )
-        from fibsem.structures import FibsemImage
-
-        experiment = self.autolamella_ui.experiment
-        if experiment is None:
-            return None
-        lamella, refusal = find_item(experiment, item_name)
-        if refusal:
-            return None
-        listed = [f for f in lamella_images(lamella, "_ib.tif") if "alignment" not in f]
-        filename = latest_task_image(lamella, "_ib.tif") or (
-            listed[-1] if listed else ""
-        )
-        if not filename:
-            return None
-        try:
-            return FibsemImage.load(os.path.join(lamella.path, filename))
-        except Exception:  # noqa: BLE001 - a broken file: nothing to draw on
-            return None
-
-    def _agent_overview_image(self, grid_name: str, filename: str):
-        """A grid's recorded overview, for a waiting item_add's preview; None
-        when there is none, or it is not a beam image."""
-        from fibsem.applications.autolamella.server.context import (
-            AutoLamellaAppContext,
-        )
-        from fibsem.structures import FibsemImage
-
-        experiment = self.autolamella_ui.experiment
-        grid = experiment.get_grid_by_name(grid_name) if experiment else None
-        if grid is None:
-            return None
-        path = AutoLamellaAppContext.recorded_grid_file(experiment, grid, filename)
-        try:
-            return FibsemImage.load(path) if path else None
-        except Exception:  # noqa: BLE001 - a fluorescence or broken file
-            return None
-
-    def _agent_item_overview(self, item_name: str):
-        """The latest overview of an item's grid, SEM before FIB: where a pose
-        off the live view is drawn instead. None when there is none."""
-        from fibsem.applications.autolamella.server.context import find_item
-        from fibsem.structures import FibsemImage
-        from fibsem.workflows.outputs import latest_item_output
-
-        experiment = self.autolamella_ui.experiment
-        if experiment is None:
-            return None
-        lamella, refusal = find_item(experiment, item_name)
-        grid = None if refusal else experiment.get_grid_for_lamella(lamella)
-        if grid is None:
-            return None
-        for role in ("overview_sem", "overview_fib"):
-            path = latest_item_output(experiment, grid, role)
-            if path is None:
-                continue
-            try:
-                return FibsemImage.load(path)
-            except Exception:  # noqa: BLE001 - a broken file: try the next
-                continue
-        return None
-
-    def _agent_review_pending(self, arguments: dict):
-        """``(item, proposal)``: the pending proposal a waiting
-        ``review_decide`` decides, by its id, else its item and task; None."""
-        experiment = self.autolamella_ui.experiment
-        if experiment is None:
-            return None
-        for item, task_name, proposal in experiment.pending_proposals():
-            if proposal.id == arguments.get("proposal_id") or (
-                not arguments.get("proposal_id")
-                and arguments.get("item_id") == item.id
-                and arguments.get("task_name") == task_name
-            ):
-                return item, proposal
-        return None
-
-    def _agent_review_proposal(self, arguments: dict):
-        """The pending proposal a waiting ``review_decide`` decides, or None."""
-        found = self._agent_review_pending(arguments)
-        return found[1] if found is not None else None
-
-    def _agent_review_image(self, arguments: dict):
-        """The image a waiting ``review_decide``'s values sit on: its proposal's
-        reference image. None when the proposal is not pending or has none."""
-        from fibsem.applications.autolamella.review_images import (
-            load_reference_image,
-        )
-
-        found = self._agent_review_pending(arguments)
-        if found is None:
-            return None
-        return load_reference_image(self.autolamella_ui.experiment, *found)
-
     def _on_agent_suggestion(self, suggestion: Optional[dict]) -> None:
         """GUI thread: the agent's suggested answer went up or came down. It
         shows on the agent's card, not on the prompt (FIB-1407)."""
@@ -3706,17 +3542,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.workflow_controls.set_attention(None)
             self._user_interaction_sound_played = False  # Reset for next time
 
-        # Update border to reflect current workflow state
-        if self._border_state == "stopping":
-            pass  # Keep the red border until the workflow finishes unwinding
-        elif hold is not None:
-            self._set_border_state("waiting")
-        elif self.autolamella_ui.WORKFLOW_PENDING:
-            self._set_border_state("pending")
-        elif self.autolamella_ui.session.runner.is_running:
-            self._set_border_state(self._running_border_state(self._current_task_name))
-        else:
-            self._set_border_state("idle")
+        self.run_border.set_state(
+            run_border_state(
+                self.run_border.state,
+                held=hold is not None,
+                pending=self.autolamella_ui.WORKFLOW_PENDING,
+                running=self._running_border_state(self._current_task_name)
+                if self.autolamella_ui.session.runner.is_running
+                else None,
+            )
+        )
 
     def _rebuild_lamella_list(self):
         """Clear and repopulate the lamella list and card container from the current experiment."""
@@ -3845,7 +3680,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.lamella_list_widget.refresh_all()
         self.lamella_card_container.refresh_all()
         self._say_how_the_run_ended()
-        self._set_border_state("idle")
+        self.run_border.set_state("idle")
 
     def _show_run_failures(self) -> None:
         """The failure line's Show: the Workflow tab, with the run's
