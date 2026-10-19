@@ -228,7 +228,7 @@ def _images(entry: dict):
         fib_md.hardware_geometry, CameraImageTransform(entry["fm"]["transform"])
     )
     fm_md = FluorescenceImageMetadata(
-        acquisition_date="2026-01-01T00:00:00",
+        acquisition_datetime="2026-01-01T00:00:00",
         pixel_size_x=entry["fm"]["pixel_size_x"],
         pixel_size_y=entry["fm"]["pixel_size_x"],
         pixel_size_z=entry["fm"]["pixel_size_z"],

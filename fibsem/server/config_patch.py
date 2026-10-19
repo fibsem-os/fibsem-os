@@ -29,9 +29,10 @@ refuses identically:
 - All-or-nothing: every entry is resolved and validated before anything is
   set, so a failing entry leaves the config untouched.
 
-Qt-free and py3.8-clean; the GUI-thread caller owns marshalling.
+Qt-free; the GUI-thread caller owns marshalling.
 """
 
+import types
 import typing
 from dataclasses import fields as dataclass_fields
 from dataclasses import is_dataclass
@@ -139,7 +140,7 @@ def _annotated_type(obj: Any, leaf: str) -> Optional[type]:
     """The type *obj*'s field *leaf* holds when set: ``X`` for ``Optional[X]``.
     None when *obj* is no dataclass or the annotation says nothing narrower."""
     hint = _declared_type(obj, leaf)
-    if typing.get_origin(hint) is not Union:
+    if typing.get_origin(hint) not in (Union, types.UnionType):
         return None
     args = [a for a in typing.get_args(hint) if a is not type(None)]
     return args[0] if len(args) == 1 else None

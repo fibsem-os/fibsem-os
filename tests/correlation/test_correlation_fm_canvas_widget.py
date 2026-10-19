@@ -37,7 +37,7 @@ _NZ = 9
 
 def _fm_image(nz=_NZ, size=32):
     metadata = FluorescenceImageMetadata(
-        acquisition_date="2026-08-10T00:00:00",
+        acquisition_datetime="2026-08-10T00:00:00",
         pixel_size_x=1e-7,
         pixel_size_y=1e-7,
         resolution=(size, size),
@@ -46,7 +46,7 @@ def _fm_image(nz=_NZ, size=32):
                 name="GFP",
                 color="#00ff00",
                 excitation_wavelength=488,
-                emission_filter=EmissionFilter("509 nm", low=509),
+                emission_filter=EmissionFilter.band("509 nm", 509),
                 power=1.0,
                 exposure_time=0.1,
                 gain=1.0,

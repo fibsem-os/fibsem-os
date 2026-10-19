@@ -3,7 +3,7 @@
   "autofocus_mode": "none",
   "autofocus_settings": {
     "channel_name": null,
-    "method": "tenengrad",
+    "method": "TENENGRAD",
     "passes": [
       {
         "enabled": true,

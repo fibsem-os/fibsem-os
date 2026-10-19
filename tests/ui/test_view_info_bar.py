@@ -92,7 +92,7 @@ def _fm_image(slices=3) -> FluorescenceImage:
     return FluorescenceImage(
         data=data,
         metadata=FluorescenceImageMetadata(
-            acquisition_date="2026-10-07T14:00:00",
+            acquisition_datetime="2026-10-07T14:00:00",
             pixel_size_x=110e-9,
             pixel_size_y=110e-9,
             pixel_size_z=500e-9,

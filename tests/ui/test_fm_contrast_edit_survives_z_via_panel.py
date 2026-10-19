@@ -58,7 +58,7 @@ def _image() -> FluorescenceImage:
     return FluorescenceImage(
         data=planes.astype(np.uint16)[None],
         metadata=FluorescenceImageMetadata(
-            acquisition_date="2026-10-07T12:00:00",
+            acquisition_datetime="2026-10-07T12:00:00",
             pixel_size_x=65e-9,
             pixel_size_y=65e-9,
             channels=[channel],

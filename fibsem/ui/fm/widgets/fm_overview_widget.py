@@ -1007,10 +1007,10 @@ class FMOverviewWidget(QWidget):
         date gets a record of its own instead of joining every other dateless overview
         under a shared key, which is what the old fallback did.
         """
-        stamp = getattr(image.metadata, "acquisition_date", None)
+        stamp = getattr(image.metadata, "acquisition_datetime", None)
         if stamp:
             for record in self._records.values():
-                if getattr(record.metadata, "acquisition_date", None) == stamp:
+                if getattr(record.metadata, "acquisition_datetime", None) == stamp:
                     record.metadata = image.metadata
                     return record
 
@@ -1049,10 +1049,8 @@ class FMOverviewWidget(QWidget):
         stage position's r and t, the hardware geometry, the pixel size -- survives the
         OME-TIFF intact.
 
-        What does not survive is `stage_position.name`, which `stitch_tileset` uses to
-        carry the grid size. A loaded overview's row therefore shows its scale without
-        its grid. Accepted rather than worked around: the alternative is teaching the
-        OME serialization to carry a field only the list reads (FIB-438).
+        That includes `stage_position.name`, which `stitch_tileset` uses to carry the
+        grid size, so a loaded overview's row shows its grid as well as its scale.
 
         Separate from the dialog so it can be called with a path -- by a test, by a
         host restoring a session, or later by whatever knows an experiment's own

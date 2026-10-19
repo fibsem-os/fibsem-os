@@ -166,16 +166,20 @@ def test_the_autofocus_saves_under_the_task_s_folder_and_records_where(
     """The sweep saves its result itself, so its ``fm_autofocus`` event says where
     and the History tab can open it (FIB-1257). The task used to save it
     afterwards, outside the record."""
-    from fibsem.fm.structures import AutoFocusSettings, FocusMethod
+    from fibsem.autofunctions.autofocus import (
+        AutoFocusSettings,
+        FocusMethod,
+        FocusSweepPass,
+    )
 
     lamella = _make_lamella(tmp_path, None, with_fluorescence_pose=False)
     lamella.path.mkdir(parents=True, exist_ok=True)
     task = _acquire_task(fm_microscope, lamella)
-    task.config.autofocus_settings = AutoFocusSettings.from_coarse_fine(
-        coarse_range=4e-6,
-        coarse_step=2e-6,
-        fine_range=2e-6,
-        fine_step=1e-6,
+    task.config.autofocus_settings = AutoFocusSettings(
+        passes=[
+            FocusSweepPass(search_range=4e-6, step_size=2e-6),
+            FocusSweepPass(search_range=2e-6, step_size=1e-6),
+        ],
         method=FocusMethod.LAPLACIAN,
     )
     task.config.autofocus_settings.channel_name = "GFP"

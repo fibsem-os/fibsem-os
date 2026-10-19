@@ -9,6 +9,7 @@ Uses PyQt5 directly with the offscreen platform (no pytest-qt dependency).
 
 import os
 from copy import deepcopy
+from datetime import datetime
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -350,7 +351,7 @@ def _fm_preview(
         if data is None
         else data,
         metadata=FluorescenceImageMetadata(
-            acquisition_date="2026-08-25T09:00:00",
+            acquisition_datetime="2026-08-25T09:00:00",
             pixel_size_x=pixel_size,
             pixel_size_y=pixel_size,
             stage_position=position,
@@ -981,7 +982,7 @@ def test_overviews_are_kept_per_acquisition_not_per_position(qapp, overview_widg
     qapp.processEvents()
 
     wide = copy.deepcopy(small)
-    wide.metadata.acquisition_date = "2026-07-31T19:00:00"
+    wide.metadata.acquisition_datetime = datetime(2026, 7, 31, 19, 0)
     wide.metadata.pixel_size_x = small.metadata.pixel_size_x * 3
     wide.metadata.pixel_size_y = small.metadata.pixel_size_y * 3
     widget.set_image(wide)
@@ -4710,7 +4711,7 @@ def blank_canvas(qapp, overview_widget):
 
 def _acquire(widget, date=None):
     image = widget.microscope.fm.acquire_image(ChannelSettings(name="Channel-01"))
-    image.metadata.acquisition_date = date
+    image.metadata.acquisition_datetime = datetime.fromisoformat(date) if date else None
     return image
 
 
@@ -4727,9 +4728,9 @@ def test_each_acquisition_gets_its_own_record(qapp, blank_canvas):
     assert len(records) == 2
     assert records[0].id != records[1].id
     # Oldest first: a list reads in the order things were acquired.
-    assert [r.metadata.acquisition_date for r in records] == [
-        "2026-08-07T09:00:00",
-        "2026-08-07T09:30:00",
+    assert [r.metadata.acquisition_datetime for r in records] == [
+        datetime(2026, 8, 7, 9, 0),
+        datetime(2026, 8, 7, 9, 30),
     ]
 
 
@@ -4977,12 +4978,9 @@ def test_a_loaded_overview_is_named_for_the_run_that_made_it(
     assert record.label == "overview-11-20-05"
 
 
-def test_a_loaded_overview_keeps_its_scale_but_loses_its_grid(
-    qapp, blank_canvas, tmp_path
-):
-    """Documented, not a bug. `stitch_tileset` carries the grid in
-    `stage_position.name`, which the OME-TIFF drops -- so a loaded row shows what it
-    still knows rather than guessing (FIB-438)."""
+def test_a_loaded_overview_keeps_its_scale_and_its_grid(qapp, blank_canvas, tmp_path):
+    """`stitch_tileset` carries the grid in `stage_position.name`, which the saved
+    metadata keeps (FIB-438)."""
     widget = blank_canvas
     image, path = _saved(widget, tmp_path)
     image.metadata.stage_position.name = "stitched_mosaic_3x3"
@@ -4991,7 +4989,7 @@ def test_a_loaded_overview_keeps_its_scale_but_loses_its_grid(
     record = widget.load_overview(path)
 
     assert "µm/px" in record.detail
-    assert "×" not in record.detail, "the grid came back after all -- update the docs"
+    assert "3×3" in record.detail
 
 
 def test_a_file_that_cannot_be_read_places_nothing(qapp, blank_canvas, tmp_path):

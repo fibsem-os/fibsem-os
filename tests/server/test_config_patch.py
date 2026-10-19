@@ -124,7 +124,7 @@ def test_the_milling_fields_are_explained_and_the_task_set_ones_marked():
     assert not task_overridden_path("stages.0.milling.milling_current")
 
 
-# -- a stage's strategy config, and fields that are None (FIB-1478) ---------
+# -- a stage's strategy config, and fields that are None ----------------------
 
 
 @pytest.fixture
@@ -192,6 +192,18 @@ def test_the_setup_tasks_none_fields_patch():
 
     assert config.objective_position == 1.0e-3
     assert config.fm_roi.width == 1.0
+
+
+def test_a_none_field_written_with_a_bar_takes_its_type():
+    from dataclasses import dataclass
+
+    @dataclass
+    class Config:
+        depth: float | None = None
+
+    config = Config()
+    apply_patch(config, {"depth": 2})
+    assert config.depth == 2.0 and isinstance(config.depth, float)
 
 
 def test_a_float_field_holding_a_whole_number_takes_a_float():

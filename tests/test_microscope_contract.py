@@ -1098,7 +1098,7 @@ def test_demo_fm_names_a_banded_emission_as_its_multi_band_filter():
     from fibsem.fm.structures import REFLECTION, EmissionFilter
 
     microscope = _connect("Demo", FM_CONFIGURATION)
-    microscope.fm.filter_set.emission_filter = EmissionFilter("GFP", low=510, high=560)
+    microscope.fm.filter_set.emission_filter = EmissionFilter.band("GFP", 510, 560)
     assert microscope.fm.filter_set.emission_filter == EmissionFilter(
         "Fluorescence", multi_band=True
     )

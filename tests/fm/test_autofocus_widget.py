@@ -11,6 +11,7 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
+from fibsem.autofunctions.autofocus import FocusSweepPass
 from fibsem.fm.structures import (
     REFLECTION,
     AutoFocusSettings,
@@ -100,11 +101,11 @@ def test_row_edit_updates_pass_and_emits(qapp, channels):
 
 def test_set_get_round_trip(qapp, channels):
     w = _widget(qapp, channels)
-    settings = AutoFocusSettings.from_coarse_fine(
-        coarse_range=30e-6,
-        coarse_step=6e-6,
-        fine_range=8e-6,
-        fine_step=2e-6,
+    settings = AutoFocusSettings(
+        passes=[
+            FocusSweepPass(search_range=30e-6, step_size=6e-6),
+            FocusSweepPass(search_range=8e-6, step_size=2e-6),
+        ],
         method=FocusMethod.SOBEL,
     )
     w.set_autofocus_settings(settings)

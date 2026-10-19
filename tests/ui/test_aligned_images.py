@@ -83,7 +83,7 @@ def _fm_image(scope, position, size=64, pixel_size=1e-6):
             np.uint16
         ),
         metadata=FluorescenceImageMetadata(
-            acquisition_date="2026-09-23T10:00:00",
+            acquisition_datetime="2026-09-23T10:00:00",
             pixel_size_x=pixel_size,
             pixel_size_y=pixel_size,
             stage_position=position,

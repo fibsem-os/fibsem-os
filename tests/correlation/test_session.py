@@ -50,7 +50,7 @@ ARCTIS = next(
 
 def _fm_image():
     meta = FluorescenceImageMetadata(
-        acquisition_date=datetime(2026, 7, 24).isoformat(),
+        acquisition_datetime=datetime(2026, 7, 24).isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         pixel_size_z=300e-9,
@@ -59,7 +59,7 @@ def _fm_image():
             FluorescenceChannelMetadata(
                 name="GFP",
                 excitation_wavelength=488.0,
-                emission_filter=EmissionFilter("520 nm", low=520.0),
+                emission_filter=EmissionFilter.band("520 nm", 520.0),
                 power=0.3,
                 exposure_time=0.05,
                 gain=1.5,

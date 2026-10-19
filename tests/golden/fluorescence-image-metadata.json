@@ -1,0 +1,61 @@
+{
+  "acquisition_datetime": "2026-10-19T03:00:00+11:00",
+  "channels": [
+    {
+      "binning": 2,
+      "color": "green",
+      "emission_filter": {
+        "bands": [
+          [
+            420.0,
+            460.0
+          ],
+          [
+            500.0,
+            550.0
+          ]
+        ],
+        "multi_band": true,
+        "name": "DAPI/GFP"
+      },
+      "excitation_wavelength": 488.0,
+      "exposure_time": 0.1,
+      "gain": null,
+      "name": "GFP",
+      "objective_magnification": 100.0,
+      "objective_numerical_aperture": 0.9,
+      "objective_position": 0.0084,
+      "offset": 0.0,
+      "power": 0.2
+    }
+  ],
+  "description": "an overview tile",
+  "dimension_order": "CZYX",
+  "experiment": null,
+  "filename": "fm-image",
+  "geometry": null,
+  "pixel_size_x": 1e-07,
+  "pixel_size_y": 1e-07,
+  "pixel_size_z": 9.99999999999994e-05,
+  "resolution": [
+    512,
+    256
+  ],
+  "stage_position": {
+    "coordinate_system": "RAW",
+    "name": "lamella",
+    "r": 0.5235987755982988,
+    "t": 0.9075712110370514,
+    "x": 0.001,
+    "y": -0.002,
+    "z": 0.003
+  },
+  "system_info": {
+    "name": "sim"
+  },
+  "z_positions": [
+    0.0083,
+    0.0084,
+    0.0085
+  ]
+}

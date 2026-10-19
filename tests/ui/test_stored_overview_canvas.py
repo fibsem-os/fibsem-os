@@ -76,7 +76,7 @@ def _fm_image(arctis, position, size=128, pixel_size=1e-7):
             np.uint16
         ),
         metadata=FluorescenceImageMetadata(
-            acquisition_date="2026-09-14T10:00:00",
+            acquisition_datetime="2026-09-14T10:00:00",
             pixel_size_x=pixel_size,
             pixel_size_y=pixel_size,
             stage_position=position,

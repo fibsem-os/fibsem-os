@@ -32,7 +32,7 @@ def _channel(name: str, color: str) -> FluorescenceChannelMetadata:
 def _stack(data: np.ndarray, colors, pixel_size: float = 1e-7) -> FluorescenceImage:
     """A (C, Z, Y, X) stack with one metadata channel per given colour."""
     metadata = FluorescenceImageMetadata(
-        acquisition_date="2026-01-01T00:00:00",
+        acquisition_datetime="2026-01-01T00:00:00",
         pixel_size_x=pixel_size,
         pixel_size_y=pixel_size,
         resolution=(data.shape[3], data.shape[2]),

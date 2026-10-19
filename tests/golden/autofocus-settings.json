@@ -1,0 +1,28 @@
+{
+  "channel_name": "GFP",
+  "method": "LAPLACIAN",
+  "passes": [
+    {
+      "enabled": true,
+      "search_range": 4e-05,
+      "step_size": 4e-06
+    },
+    {
+      "enabled": false,
+      "search_range": 8e-06,
+      "step_size": 1e-06
+    }
+  ],
+  "probe_dwell_time": 1e-06,
+  "probe_resolution": [
+    1536,
+    1024
+  ],
+  "reduced_area": {
+    "height": 0.4,
+    "left": 0.1,
+    "top": 0.2,
+    "width": 0.3
+  },
+  "use_autocontrast": false
+}

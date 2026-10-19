@@ -6,6 +6,7 @@ import pytest
 import tifffile as tff
 import yaml
 
+from fibsem.codec import decode, encode
 from fibsem.fm.structures import (
     REFLECTION,
     AutoFocusMode,
@@ -34,7 +35,7 @@ def test_channel_settings():
     channel_settings = ChannelSettings(
         name="test-channel",
         excitation_wavelength=488.0,
-        emission_filter=EmissionFilter("520 nm", low=520.0),
+        emission_filter=EmissionFilter.band("520 nm", 520.0),
         exposure_time=0.1,
         power=0.3,
     )
@@ -55,7 +56,7 @@ def test_channel_settings():
     cs_from_dict = ChannelSettings.from_dict(cs_dict)
     assert cs_from_dict.name == "test-channel"
     assert cs_from_dict.excitation_wavelength == 488.0
-    assert cs_from_dict.emission_filter == EmissionFilter("520 nm", low=520.0)
+    assert cs_from_dict.emission_filter == EmissionFilter.band("520 nm", 520.0)
     assert cs_from_dict.exposure_time == 0.1
     assert cs_from_dict.power == 0.3
 
@@ -125,14 +126,14 @@ def test_z_parameters_order_survives_a_disk_round_trip(order):
     It decides a physically different acquisition -- whether the objective steps
     once per plane or once per plane per channel -- so a serialisation that drops
     it silently changes what happens at the microscope. Dumped through yaml
-    rather than compared in memory because it is stored as the enum's value, and
-    only a real dump proves that value is a plain scalar safe_dump will take.
+    rather than compared in memory because it is stored as the enum's name, and
+    only a real dump proves that name is a plain scalar safe_dump will take.
     """
     zparams = ZParameters(zmin=-3e-6, zmax=3e-6, zstep=1e-6, order=order)
 
     ddict = yaml.safe_load(yaml.safe_dump(zparams.to_dict()))
 
-    assert ddict["order"] == order.value
+    assert ddict["order"] == order.name
     assert ZParameters.from_dict(ddict).order is order
 
 
@@ -156,7 +157,7 @@ def test_fluorescence_channel_metadata():
     channel = FluorescenceChannelMetadata(
         name="DAPI",
         excitation_wavelength=365.0,
-        emission_filter=EmissionFilter("447 nm", low=447.0),
+        emission_filter=EmissionFilter.band("447 nm", 447.0),
         power=0.5,
         exposure_time=0.1,
         gain=2.0,
@@ -176,42 +177,14 @@ def test_fluorescence_channel_metadata():
     assert channel.offset == 100.0
 
     # Test optional fields
-    assert channel.emission_filter == EmissionFilter("447 nm", low=447.0)
+    assert channel.emission_filter == EmissionFilter.band("447 nm", 447.0)
     assert channel.binning == 2
     assert channel.objective_position == 1e-3
     assert channel.objective_magnification == 63.0
     assert channel.objective_numerical_aperture == 1.4
 
-    # Test serialization
-    channel_dict = channel.to_dict()
-    assert channel_dict["channel"]["name"] == "DAPI"
-    assert channel_dict["filter_set"]["excitation_wavelength"] == 365.0
-    assert channel_dict["filter_set"]["emission_filter"]["bands"] == [[447.0, None]]
-    assert channel_dict["light_source"]["power"] == 0.5
-    assert channel_dict["camera"]["exposure_time"] == 0.1
-    assert channel_dict["camera"]["gain"] == 2.0
-    assert channel_dict["camera"]["offset"] == 100.0
-    assert channel_dict["camera"]["binning"] == 2
-    assert channel_dict["objective"]["position"] == 1e-3
-    assert channel_dict["objective"]["magnification"] == 63.0
-    assert channel_dict["objective"]["numerical_aperture"] == 1.4
-
-    # Test deserialization
-    channel_from_dict = FluorescenceChannelMetadata.from_dict(channel_dict)
-    assert channel_from_dict.name == channel.name
-    assert channel_from_dict.excitation_wavelength == channel.excitation_wavelength
-    assert channel_from_dict.emission_filter == channel.emission_filter
-    assert channel_from_dict.power == channel.power
-    assert channel_from_dict.exposure_time == channel.exposure_time
-    assert channel_from_dict.gain == channel.gain
-    assert channel_from_dict.offset == channel.offset
-    assert channel_from_dict.binning == channel.binning
-    assert channel_from_dict.objective_position == channel.objective_position
-    assert channel_from_dict.objective_magnification == channel.objective_magnification
-    assert (
-        channel_from_dict.objective_numerical_aperture
-        == channel.objective_numerical_aperture
-    )
+    # Saved as its fields, inside the image's metadata
+    assert decode(FluorescenceChannelMetadata, encode(channel)) == channel
 
 
 def test_fluorescence_channel_metadata_defaults():
@@ -239,7 +212,7 @@ def test_fluorescence_channel_metadata_validation():
     # Test invalid binning
     with pytest.raises(ValueError, match="Invalid binning factor"):
         FluorescenceImageMetadata(
-            acquisition_date=datetime.now().isoformat(),
+            acquisition_datetime=datetime.now().isoformat(),
             pixel_size_x=1e-6,
             pixel_size_y=1e-6,
             resolution=(1024, 1024),
@@ -263,7 +236,7 @@ def test_fluorescence_image_metadata():
     channel1 = FluorescenceChannelMetadata(
         name="DAPI",
         excitation_wavelength=365.0,
-        emission_filter=EmissionFilter("447 nm", low=447.0),
+        emission_filter=EmissionFilter.band("447 nm", 447.0),
         power=0.5,
         exposure_time=0.1,
         gain=2.0,
@@ -273,7 +246,7 @@ def test_fluorescence_image_metadata():
     channel2 = FluorescenceChannelMetadata(
         name="GFP",
         excitation_wavelength=488.0,
-        emission_filter=EmissionFilter("520 nm", low=520.0),
+        emission_filter=EmissionFilter.band("520 nm", 520.0),
         power=0.3,
         exposure_time=0.05,
         gain=1.5,
@@ -287,7 +260,7 @@ def test_fluorescence_image_metadata():
 
     # Create metadata
     metadata = FluorescenceImageMetadata(
-        acquisition_date="2025-01-01T12:00:00",
+        acquisition_datetime="2025-01-01T12:00:00",
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         pixel_size_z=200e-9,
@@ -299,7 +272,7 @@ def test_fluorescence_image_metadata():
     )
 
     # Test basic properties
-    assert metadata.acquisition_date == "2025-01-01T12:00:00"
+    assert metadata.acquisition_datetime == datetime(2025, 1, 1, 12, 0)
     assert metadata.pixel_size_x == 100e-9
     assert metadata.pixel_size_y == 100e-9
     assert metadata.pixel_size_z == 200e-9
@@ -310,8 +283,8 @@ def test_fluorescence_image_metadata():
     assert metadata.system_info == {"microscope": "Test Scope"}
 
     # Test helper methods
-    assert metadata.get_channel_count() == 2
-    assert metadata.get_z_count() == 3
+    assert len(metadata.channels) == 2
+    assert len(metadata.z_positions) == 3
 
     # Test add_channel
     channel3 = FluorescenceChannelMetadata(
@@ -323,7 +296,7 @@ def test_fluorescence_image_metadata():
         offset=200.0,
     )
     metadata.add_channel(channel3)
-    assert metadata.get_channel_count() == 3
+    assert len(metadata.channels) == 3
     assert metadata.channels[2].name == "Cy5"
 
 
@@ -332,7 +305,7 @@ def test_fluorescence_image_metadata_validation():
     # Test no channels
     with pytest.raises(ValueError, match="At least one channel must be specified"):
         FluorescenceImageMetadata(
-            acquisition_date=datetime.now().isoformat(),
+            acquisition_datetime=datetime.now().isoformat(),
             pixel_size_x=1e-6,
             pixel_size_y=1e-6,
             resolution=(1024, 1024),
@@ -342,7 +315,7 @@ def test_fluorescence_image_metadata_validation():
     # Test z-stack validation
     with pytest.raises(ValueError, match="Z-stack must have at least 2 positions"):
         FluorescenceImageMetadata(
-            acquisition_date=datetime.now().isoformat(),
+            acquisition_datetime=datetime.now().isoformat(),
             pixel_size_x=1e-6,
             pixel_size_y=1e-6,
             resolution=(1024, 1024),
@@ -363,7 +336,7 @@ def test_fluorescence_image_metadata_validation():
 def test_fluorescence_image_metadata_auto_pixel_size_z():
     """Test automatic pixel_size_z calculation."""
     metadata = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=1e-6,
         pixel_size_y=1e-6,
         resolution=(1024, 1024),
@@ -389,7 +362,7 @@ def test_fluorescence_image_metadata_to_dict():
     channel = FluorescenceChannelMetadata(
         name="DAPI",
         excitation_wavelength=365.0,
-        emission_filter=EmissionFilter("447 nm", low=447.0),
+        emission_filter=EmissionFilter.band("447 nm", 447.0),
         power=0.5,
         exposure_time=0.1,
         gain=2.0,
@@ -403,7 +376,7 @@ def test_fluorescence_image_metadata_to_dict():
     )
 
     metadata = FluorescenceImageMetadata(
-        acquisition_date="2025-01-01T12:00:00",
+        acquisition_datetime="2025-01-01T12:00:00",
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(2048, 2048),
@@ -415,12 +388,10 @@ def test_fluorescence_image_metadata_to_dict():
     metadata_dict = metadata.to_dict()
 
     # Test top-level fields
-    assert metadata_dict["acquisition_date"] == "2025-01-01T12:00:00"
+    assert metadata_dict["acquisition_datetime"] == "2025-01-01T12:00:00"
     assert metadata_dict["pixel_size_x"] == 100e-9
     assert metadata_dict["pixel_size_y"] == 100e-9
-    assert metadata_dict["resolution"] == (2048, 2048)
-    assert metadata_dict["channel_count"] == 1
-    assert metadata_dict["z_count"] == 1
+    assert metadata_dict["resolution"] == [2048, 2048]
     assert metadata_dict["system_info"] == {"test": "data"}
 
     # Test stage position
@@ -475,7 +446,7 @@ def test_fluorescence_image_metadata_from_dict():
     metadata = FluorescenceImageMetadata.from_dict(metadata_dict)
 
     # Test reconstruction
-    assert metadata.acquisition_date == "2025-01-01T12:00:00"
+    assert metadata.acquisition_datetime == datetime(2025, 1, 1, 12, 0)
     assert metadata.pixel_size_x == 100e-9
     assert metadata.pixel_size_y == 100e-9
     assert metadata.pixel_size_z == 200e-9
@@ -494,7 +465,7 @@ def test_fluorescence_image_metadata_from_dict():
     assert channel.name == "DAPI"
     assert channel.excitation_wavelength == 365.0
     # saved before FIB-1439, as a wavelength
-    assert channel.emission_filter == EmissionFilter("447 nm", low=447.0)
+    assert channel.emission_filter == EmissionFilter.band("447 nm", 447.0)
     assert channel.objective_magnification == 63.0
     assert channel.objective_numerical_aperture == 1.4
 
@@ -508,7 +479,7 @@ def test_fluorescence_image_creation():
     channel = FluorescenceChannelMetadata(
         name="GFP",
         excitation_wavelength=488.0,
-        emission_filter=EmissionFilter("520 nm", low=520.0),
+        emission_filter=EmissionFilter.band("520 nm", 520.0),
         power=0.3,
         exposure_time=0.05,
         gain=1.5,
@@ -516,7 +487,7 @@ def test_fluorescence_image_creation():
     )
 
     metadata = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(512, 512),
@@ -545,14 +516,14 @@ def test_fluorescence_image_save_creates_the_directory(tmp_path):
     channel = FluorescenceChannelMetadata(
         name="GFP",
         excitation_wavelength=488.0,
-        emission_filter=EmissionFilter("520 nm", low=520.0),
+        emission_filter=EmissionFilter.band("520 nm", 520.0),
         power=0.3,
         exposure_time=0.05,
         gain=1.0,
         offset=0.0,
     )
     metadata = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(16, 16),
@@ -595,14 +566,14 @@ def test_fluorescence_image_save_load_is_offline(tmp_path, monkeypatch):
     channel = FluorescenceChannelMetadata(
         name="GFP",
         excitation_wavelength=488.0,
-        emission_filter=EmissionFilter("520 nm", low=520.0),
+        emission_filter=EmissionFilter.band("520 nm", 520.0),
         power=0.3,
         exposure_time=0.05,
         gain=1.0,
         offset=0.0,
     )
     metadata = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(16, 16),
@@ -629,7 +600,7 @@ def test_fluorescence_image_save_load_roundtrip():
     channel1 = FluorescenceChannelMetadata(
         name="DAPI",
         excitation_wavelength=365.0,
-        emission_filter=EmissionFilter("447 nm", low=447.0),
+        emission_filter=EmissionFilter.band("447 nm", 447.0),
         power=0.5,
         exposure_time=0.1,
         gain=2.0,
@@ -641,7 +612,7 @@ def test_fluorescence_image_save_load_roundtrip():
     channel2 = FluorescenceChannelMetadata(
         name="GFP",
         excitation_wavelength=488.0,
-        emission_filter=EmissionFilter("520 nm", low=520.0),
+        emission_filter=EmissionFilter.band("520 nm", 520.0),
         power=0.3,
         exposure_time=0.05,
         gain=1.5,
@@ -653,7 +624,7 @@ def test_fluorescence_image_save_load_roundtrip():
     )
 
     metadata = FluorescenceImageMetadata(
-        acquisition_date="2025-01-01T12:00:00",
+        acquisition_datetime="2025-01-01T12:00:00",
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(256, 256),
@@ -679,8 +650,8 @@ def test_fluorescence_image_save_load_roundtrip():
 
         # Test metadata preservation
         assert (
-            loaded_image.metadata.acquisition_date
-            == original_image.metadata.acquisition_date
+            loaded_image.metadata.acquisition_datetime
+            == original_image.metadata.acquisition_datetime
         )
         assert (
             loaded_image.metadata.pixel_size_x == original_image.metadata.pixel_size_x
@@ -838,14 +809,14 @@ def test_fluorescence_image_multi_channel_stacking():
     )
 
     metadata1 = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(256, 256),
         channels=[channel1],
     )
     metadata2 = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(256, 256),
@@ -888,7 +859,7 @@ def test_fluorescence_image_z_stack_creation():
             objective_position=z_pos,
         )
         metadata = FluorescenceImageMetadata(
-            acquisition_date=datetime.now().isoformat(),
+            acquisition_datetime=datetime.now().isoformat(),
             pixel_size_x=100e-9,
             pixel_size_y=100e-9,
             resolution=(256, 256),
@@ -940,7 +911,7 @@ def test_max_intensity_projection_single_z():
     )
 
     metadata = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(256, 256),
@@ -1011,7 +982,7 @@ def test_max_intensity_projection_multi_z():
     )
 
     metadata = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         pixel_size_z=200e-9,
@@ -1082,7 +1053,7 @@ def test_max_intensity_projection_error_cases():
     )
 
     metadata = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(256, 256),
@@ -1116,7 +1087,7 @@ def test_max_intensity_projection_metadata_preservation():
     channel = FluorescenceChannelMetadata(
         name="Cy5",
         excitation_wavelength=635.0,
-        emission_filter=EmissionFilter("680 nm", low=680.0),
+        emission_filter=EmissionFilter.band("680 nm", 680.0),
         power=0.8,
         exposure_time=0.2,
         gain=3.0,
@@ -1132,7 +1103,7 @@ def test_max_intensity_projection_metadata_preservation():
     )
 
     metadata = FluorescenceImageMetadata(
-        acquisition_date="2025-01-01T12:00:00",
+        acquisition_datetime="2025-01-01T12:00:00",
         pixel_size_x=50e-9,
         pixel_size_y=50e-9,
         pixel_size_z=100e-9,
@@ -1150,7 +1121,7 @@ def test_max_intensity_projection_metadata_preservation():
     projected = image.max_intensity_projection()
 
     # Test preserved metadata
-    assert projected.metadata.acquisition_date == "2025-01-01T12:00:00"
+    assert projected.metadata.acquisition_datetime == datetime(2025, 1, 1, 12, 0)
     assert projected.metadata.pixel_size_x == 50e-9
     assert projected.metadata.pixel_size_y == 50e-9
     assert projected.metadata.resolution == (128, 128)
@@ -1170,7 +1141,7 @@ def test_max_intensity_projection_metadata_preservation():
     proj_channel = projected.metadata.channels[0]
     assert proj_channel.name == "Cy5"
     assert proj_channel.excitation_wavelength == 635.0
-    assert proj_channel.emission_filter == EmissionFilter("680 nm", low=680.0)
+    assert proj_channel.emission_filter == EmissionFilter.band("680 nm", 680.0)
     assert proj_channel.power == 0.8
     assert proj_channel.exposure_time == 0.2
     assert proj_channel.gain == 3.0
@@ -1197,7 +1168,7 @@ def test_max_intensity_projection_data_types():
     )
 
     metadata = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(64, 64),
@@ -1251,7 +1222,7 @@ def test_max_intensity_projection_large_stack():
         channels.append(channel)
 
     metadata = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         pixel_size_z=50e-9,
@@ -1304,7 +1275,7 @@ def test_max_intensity_projection_2d_return():
         channels.append(channel)
 
     metadata = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(nx, ny),
@@ -1364,7 +1335,7 @@ def test_max_intensity_projection_2d_vs_metadata_return():
     )
 
     metadata = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(nx, ny),
@@ -1428,7 +1399,7 @@ def test_focus_stack_basic():
     )
 
     metadata = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(nx, ny),
@@ -1490,7 +1461,7 @@ def test_focus_stack_2d_return():
     ]
 
     metadata = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(nx, ny),
@@ -1530,7 +1501,7 @@ def test_focus_stack_error_cases():
         offset=0.0,
     )
     metadata = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(nx, ny),
@@ -1544,7 +1515,7 @@ def test_focus_stack_error_cases():
     # Create valid multi-z data for other tests
     data_3d = np.random.randint(0, 255, (2, 3, ny, nx), dtype=np.uint8)
     metadata_3d = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(nx, ny),
@@ -1593,7 +1564,7 @@ def test_focus_stack_methods_comparison():
         offset=0.0,
     )
     metadata = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(nx, ny),
@@ -1654,7 +1625,7 @@ def test_focus_stack_block_based():
     )
 
     metadata = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(nx, ny),
@@ -1707,7 +1678,7 @@ def test_calculate_total_images_count_single_channel():
     channel = ChannelSettings(
         name="DAPI",
         excitation_wavelength=365,
-        emission_filter=EmissionFilter("450 nm", low=450),
+        emission_filter=EmissionFilter.band("450 nm", 450),
         power=0.5,
         exposure_time=0.1,
     )
@@ -1727,14 +1698,14 @@ def test_calculate_total_images_count_multiple_channels():
     channel1 = ChannelSettings(
         name="DAPI",
         excitation_wavelength=365,
-        emission_filter=EmissionFilter("450 nm", low=450),
+        emission_filter=EmissionFilter.band("450 nm", 450),
         power=0.5,
         exposure_time=0.1,
     )
     channel2 = ChannelSettings(
         name="FITC",
         excitation_wavelength=488,
-        emission_filter=EmissionFilter("525 nm", low=525),
+        emission_filter=EmissionFilter.band("525 nm", 525),
         power=0.3,
         exposure_time=0.05,
     )
@@ -1756,7 +1727,7 @@ def test_calculate_total_images_count_edge_cases():
     channel = ChannelSettings(
         name="Test",
         excitation_wavelength=488,
-        emission_filter=EmissionFilter("525 nm", low=525),
+        emission_filter=EmissionFilter.band("525 nm", 525),
         power=0.3,
         exposure_time=0.05,
     )
@@ -1781,7 +1752,7 @@ def test_estimate_acquisition_time_single_channel():
     channel = ChannelSettings(
         name="DAPI",
         excitation_wavelength=365,
-        emission_filter=EmissionFilter("450 nm", low=450),
+        emission_filter=EmissionFilter.band("450 nm", 450),
         power=0.5,
         exposure_time=0.1,  # 100ms exposure
     )
@@ -1799,7 +1770,7 @@ def test_estimate_acquisition_time_z_stack():
     channel = ChannelSettings(
         name="FITC",
         excitation_wavelength=488,
-        emission_filter=EmissionFilter("525 nm", low=525),
+        emission_filter=EmissionFilter.band("525 nm", 525),
         power=0.3,
         exposure_time=0.05,  # 50ms exposure
     )
@@ -1823,14 +1794,14 @@ def test_estimate_acquisition_time_multiple_channels():
     channel1 = ChannelSettings(
         name="DAPI",
         excitation_wavelength=365,
-        emission_filter=EmissionFilter("450 nm", low=450),
+        emission_filter=EmissionFilter.band("450 nm", 450),
         power=0.5,
         exposure_time=0.1,
     )
     channel2 = ChannelSettings(
         name="FITC",
         excitation_wavelength=488,
-        emission_filter=EmissionFilter("525 nm", low=525),
+        emission_filter=EmissionFilter.band("525 nm", 525),
         power=0.3,
         exposure_time=0.05,
     )
@@ -1850,14 +1821,14 @@ def test_estimate_acquisition_time_multiple_channels_z_stack():
     channel1 = ChannelSettings(
         name="DAPI",
         excitation_wavelength=365,
-        emission_filter=EmissionFilter("450 nm", low=450),
+        emission_filter=EmissionFilter.band("450 nm", 450),
         power=0.5,
         exposure_time=0.1,
     )
     channel2 = ChannelSettings(
         name="FITC",
         excitation_wavelength=488,
-        emission_filter=EmissionFilter("525 nm", low=525),
+        emission_filter=EmissionFilter.band("525 nm", 525),
         power=0.3,
         exposure_time=0.05,
     )
@@ -1884,7 +1855,7 @@ def test_estimate_acquisition_time_custom_parameters():
     channel = ChannelSettings(
         name="Cy5",
         excitation_wavelength=635,
-        emission_filter=EmissionFilter("680 nm", low=680),
+        emission_filter=EmissionFilter.band("680 nm", 680),
         power=0.8,
         exposure_time=0.2,  # 200ms exposure
     )
@@ -1908,7 +1879,7 @@ def test_estimate_acquisition_time_edge_cases():
     channel = ChannelSettings(
         name="Test",
         excitation_wavelength=488,
-        emission_filter=EmissionFilter("525 nm", low=525),
+        emission_filter=EmissionFilter.band("525 nm", 525),
         power=0.3,
         exposure_time=0.01,  # Very short exposure
     )
@@ -1935,21 +1906,21 @@ def test_helper_functions_integration():
         ChannelSettings(
             name="DAPI",
             excitation_wavelength=365,
-            emission_filter=EmissionFilter("450 nm", low=450),
+            emission_filter=EmissionFilter.band("450 nm", 450),
             power=0.5,
             exposure_time=0.1,
         ),
         ChannelSettings(
             name="FITC",
             excitation_wavelength=488,
-            emission_filter=EmissionFilter("525 nm", low=525),
+            emission_filter=EmissionFilter.band("525 nm", 525),
             power=0.3,
             exposure_time=0.05,
         ),
         ChannelSettings(
             name="Cy5",
             excitation_wavelength=635,
-            emission_filter=EmissionFilter("680 nm", low=680),
+            emission_filter=EmissionFilter.band("680 nm", 680),
             power=0.8,
             exposure_time=0.2,
         ),
@@ -1996,7 +1967,7 @@ def test_estimate_tileset_acquisition_time_basic():
     channel = ChannelSettings(
         name="DAPI",
         excitation_wavelength=365,
-        emission_filter=EmissionFilter("450 nm", low=450),
+        emission_filter=EmissionFilter.band("450 nm", 450),
         power=0.5,
         exposure_time=0.1,
     )
@@ -2037,7 +2008,7 @@ def test_estimate_tileset_acquisition_time_with_z_stack():
     channel = ChannelSettings(
         name="FITC",
         excitation_wavelength=488,
-        emission_filter=EmissionFilter("525 nm", low=525),
+        emission_filter=EmissionFilter.band("525 nm", 525),
         power=0.3,
         exposure_time=0.05,
     )
@@ -2064,14 +2035,14 @@ def test_estimate_tileset_acquisition_time_multiple_channels():
         ChannelSettings(
             name="DAPI",
             excitation_wavelength=365,
-            emission_filter=EmissionFilter("450 nm", low=450),
+            emission_filter=EmissionFilter.band("450 nm", 450),
             power=0.5,
             exposure_time=0.1,
         ),
         ChannelSettings(
             name="FITC",
             excitation_wavelength=488,
-            emission_filter=EmissionFilter("525 nm", low=525),
+            emission_filter=EmissionFilter.band("525 nm", 525),
             power=0.3,
             exposure_time=0.05,
         ),
@@ -2092,7 +2063,7 @@ def test_estimate_tileset_acquisition_time_autofocus_modes():
     channel = ChannelSettings(
         name="GFP",
         excitation_wavelength=488,
-        emission_filter=EmissionFilter("520 nm", low=520),
+        emission_filter=EmissionFilter.band("520 nm", 520),
         power=0.4,
         exposure_time=0.08,
     )
@@ -2138,7 +2109,7 @@ def test_estimate_tileset_acquisition_time_stage_movement_calculation():
     channel = ChannelSettings(
         name="Cy5",
         excitation_wavelength=635,
-        emission_filter=EmissionFilter("680 nm", low=680),
+        emission_filter=EmissionFilter.band("680 nm", 680),
         power=0.8,
         exposure_time=0.2,
     )
@@ -2191,21 +2162,21 @@ def test_estimate_tileset_acquisition_time_comprehensive():
         ChannelSettings(
             name="DAPI",
             excitation_wavelength=365,
-            emission_filter=EmissionFilter("450 nm", low=450),
+            emission_filter=EmissionFilter.band("450 nm", 450),
             power=0.5,
             exposure_time=0.1,
         ),
         ChannelSettings(
             name="FITC",
             excitation_wavelength=488,
-            emission_filter=EmissionFilter("525 nm", low=525),
+            emission_filter=EmissionFilter.band("525 nm", 525),
             power=0.3,
             exposure_time=0.05,
         ),
         ChannelSettings(
             name="Cy5",
             excitation_wavelength=635,
-            emission_filter=EmissionFilter("680 nm", low=680),
+            emission_filter=EmissionFilter.band("680 nm", 680),
             power=0.8,
             exposure_time=0.2,
         ),
@@ -2251,7 +2222,7 @@ def test_estimate_tileset_acquisition_time_edge_cases():
     channel = ChannelSettings(
         name="Test",
         excitation_wavelength=488,
-        emission_filter=EmissionFilter("525 nm", low=525),
+        emission_filter=EmissionFilter.band("525 nm", 525),
         power=0.3,
         exposure_time=0.01,
     )
@@ -2284,7 +2255,7 @@ def test_estimate_tileset_acquisition_time_custom_parameters():
     channel = ChannelSettings(
         name="Custom",
         excitation_wavelength=555,
-        emission_filter=EmissionFilter("600 nm", low=600),
+        emission_filter=EmissionFilter.band("600 nm", 600),
         power=0.6,
         exposure_time=0.15,
     )
@@ -2311,7 +2282,7 @@ def test_estimate_tileset_acquisition_time_scaling():
     channel = ChannelSettings(
         name="Scale",
         excitation_wavelength=488,
-        emission_filter=EmissionFilter("525 nm", low=525),
+        emission_filter=EmissionFilter.band("525 nm", 525),
         power=0.5,
         exposure_time=0.1,
     )
@@ -2350,7 +2321,7 @@ def _make_minimal_config(**kwargs) -> FluorescenceConfiguration:
     channel = ChannelSettings(
         name="DAPI",
         excitation_wavelength=365,
-        emission_filter=EmissionFilter("450 nm", low=450),
+        emission_filter=EmissionFilter.band("450 nm", 450),
         power=0.5,
         exposure_time=0.1,
     )
@@ -2438,7 +2409,7 @@ def _make_image() -> FluorescenceImage:
     """A minimal two-channel image that round-trips through OME-TIFF cleanly."""
     data = np.zeros((2, 1, 16, 16), dtype=np.uint8)  # C, Z, Y, X
     metadata = FluorescenceImageMetadata(
-        acquisition_date="2025-01-01T12:00:00",
+        acquisition_datetime="2025-01-01T12:00:00",
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(16, 16),
@@ -2512,7 +2483,7 @@ class TestCombiningImagesKeepsTheirMetadata:
         )
 
         metadata = FluorescenceImageMetadata(
-            acquisition_date="2026-07-31T12:00:00",
+            acquisition_datetime="2026-07-31T12:00:00",
             pixel_size_x=1e-7,
             pixel_size_y=1e-7,
             channels=[
@@ -2578,10 +2549,8 @@ def test_an_emission_filter_keeps_its_bands_through_a_dict():
     dual = EmissionFilter("GFP / mCherry", bands=[(600.0, 650.0), (505.0, 535.0)])
     assert dual.bands == ((505.0, 535.0), (600.0, 650.0))  # lowest first
     assert EmissionFilter.from_dict(dual.to_dict()) == dual
-    # the single low/high form the first version sent still loads
-    old = EmissionFilter.from_dict({"name": "GFP", "low": 510.0, "high": 560.0})
-    assert old == EmissionFilter("GFP", low=510.0, high=560.0)
-    assert (old.low, old.high, old.centre) == (510.0, 560.0, 535.0)
+    single = EmissionFilter.band("GFP", 510.0, 560.0)
+    assert (single.low, single.high, single.centre) == (510.0, 560.0, 535.0)
 
 
 def test_only_a_multi_band_filter_of_unknown_bands_shows_as_multi_band():

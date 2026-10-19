@@ -102,6 +102,10 @@ def load_recent_channels(state: SessionState) -> List[ChannelSettings]:
     channels = []
     for entry in data:
         try:
+            # every field has a default, so an entry without a name would read
+            # as a default channel rather than fail
+            if "name" not in entry:
+                raise ValueError("no name")
             channels.append(ChannelSettings.from_dict(entry))
         except Exception as e:
             logging.warning(f"Skipping malformed recent FM channel entry {entry}: {e}")

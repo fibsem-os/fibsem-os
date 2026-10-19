@@ -31,7 +31,6 @@ from fibsem.fm.structures import (
     FluorescenceImageMetadata,
 )
 from fibsem.structures import CameraImageTransform, FibsemStagePosition
-from fibsem.util.timestamps import iso_from_posix
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
@@ -181,7 +180,7 @@ def test_our_own_file_gives_its_channels_and_colours(tmp_path):
     was recorded, keeps what it knows."""
     data = planes(2, 1)
     metadata = FluorescenceImageMetadata(
-        acquisition_date="2026-09-23T10:00:00",
+        acquisition_datetime="2026-09-23T10:00:00",
         pixel_size_x=1.1e-7,
         pixel_size_y=1.1e-7,
         channels=[
@@ -511,12 +510,11 @@ def test_a_meteor_imagej_export_reads_without_an_error_in_the_log(tmp_path, capl
     assert [r.getMessage() for r in caplog.records if r.name == "tifffile"] == []
 
 
-def test_an_imported_image_is_dated_by_its_file_and_records_no_acquisition(tmp_path):
-    """A file's modification time, with its offset, is all an import knows; it is not
-    the acquisition's, so `acquisition_datetime` stays unset (FIB-1190)."""
+def test_an_imported_image_records_no_acquisition_time(tmp_path):
+    """A file's modification time is all an import knows; it is not the
+    acquisition's, so `acquisition_datetime` stays unset (FIB-1190)."""
     path = tmp_path / "import.tif"
     tifffile.imwrite(path, planes(1, 2)[0])
-    os.utime(path, (1_789_355_531.0, 1_789_355_531.0))
     source = ImportSource(path=str(path), data=planes(1, 2)[0], axes="ZYX", roles="ZYX")
 
     image = build_image(
@@ -530,5 +528,4 @@ def test_an_imported_image_is_dated_by_its_file_and_records_no_acquisition(tmp_p
     )
 
     md = image.metadata
-    assert md.acquisition_date == iso_from_posix(1_789_355_531.0)
     assert md.acquisition_datetime is None
