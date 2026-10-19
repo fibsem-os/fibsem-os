@@ -335,3 +335,25 @@ def test_actions_and_notes_on_the_record_make_the_same_rows():
         "Stopped the mill: off target",
         "Stage · Move 2 µm in x",
     ]
+
+
+def test_a_row_carries_the_evidence_its_call_cites():
+    recent = RecentActions()
+    kept = {"evidence_id": "ab12cd34", "text": "trench off centre", "image": "/e.png"}
+    recent.add(_record("evidence", kept))
+    assert recent.rows == []  # the call citing it is the row
+    recent.add(
+        _record(
+            "action",
+            dict(
+                what="Stage · Move 2 µm in x",
+                ok=True,
+                level="drive",
+                evidence="ab12cd34",
+            ),
+        )
+    )
+    recent.add(_record("action", dict(what="Stage · Move 1 µm in y", ok=True)))
+    uncited, cited = recent.rows
+    assert cited.evidence["text"] == "trench off centre"
+    assert uncited.evidence is None

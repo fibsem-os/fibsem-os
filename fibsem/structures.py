@@ -16,6 +16,7 @@ from enum import Enum, auto
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
+    Annotated,
     Any,
     Callable,
     ClassVar,
@@ -39,11 +40,14 @@ import numpy as np
 import tifffile as tff
 import yaml
 from numpy.typing import NDArray
+from pydantic import BeforeValidator
 
 import fibsem
 from fibsem.codec import (
+    Array,
     AwareTimestamp,
     NamedEnum,
+    Tagged,
     Timestamp,
     decode,
     encode,
@@ -57,9 +61,7 @@ from fibsem.config import (
 from fibsem.util.timestamps import (
     acquisition_datetime_of,
     now,
-    to_aware,
     to_datetime,
-    to_iso,
     utc_offset_of,
     zone_from_offset,
 )
@@ -866,7 +868,7 @@ class TileOrderStrategy(NamedEnum, Enum):
     SPIRAL = "spiral"  # outward clockwise spiral from centre tile
 
 
-class AutoContrastMode(Enum):
+class AutoContrastMode(NamedEnum, Enum):
     """When to set the contrast during a tiled acquisition.
 
     ONCE is one detector setting for the whole mosaic, taken at the grid centre
@@ -1037,9 +1039,6 @@ class FibsemAxesPosition(Configurable):
                 return False
 
         return True
-
-    def _scale_repr(self, scale: float, precision: int = 2):
-        return f"x:{self.x * scale:.{precision}f}, y:{self.y * scale:.{precision}f}, z:{self.z * scale:.{precision}f}"
 
     def _pretty_axes(self, axes: Sequence[str], units: bool) -> str:
         from fibsem import constants
@@ -1734,89 +1733,27 @@ class OverviewAcquisitionSettings(Configurable):
         """Total horizontal FOV in meters (alias for total_fov_x)."""
         return self.total_fov_x
 
-    @staticmethod
-    def from_dict(d: dict) -> "OverviewAcquisitionSettings":
-        # backward compat: old configs had a bare use_focus_stack bool
-        if "focus_stack_settings" not in d and "use_focus_stack" in d:
-            fss = FocusStackSettings(enabled=d["use_focus_stack"])
-        else:
-            fss = FocusStackSettings.from_dict(d.get("focus_stack_settings", {}))
-        mask = d.get("tile_mask")
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
+        # autofocus imports this module, so its class is named here only while the
+        # schema is built
+        from fibsem.autofunctions.autofocus import AutoFocusSettings
 
-        # Two shapes of the same two facts. Before FIB-646 the mode lived *inside*
-        # `autofocus_settings`, in a class that held nothing else:
-        #
-        #     {"autofocus_settings": {"mode": "EACH_ROW"}}          <- old
-        #     {"autofocus_mode": "EACH_ROW",                        <- new
-        #      "autofocus_settings": {"method": ..., "passes": [...]}}
-        #
-        # `"mode"` is a safe discriminator and not a heuristic: the real sweep config
-        # writes method / passes / probe_resolution / probe_dwell_time / reduced_area /
-        # use_autocontrast / channel_name, and never a "mode" key. So an old file is
-        # recognised by the one key the new shape cannot produce.
-        #
-        # An old file carries no sweep at all, so it gets the default -- which is the
-        # right answer rather than a fallback: it is exactly what it was running under,
-        # since the mode was the only thing it could configure.
-        raw_autofocus = d.get("autofocus_settings") or {}
-        if "mode" in raw_autofocus:
-            mode = AutoFocusMode(raw_autofocus["mode"])
-            sweep = _default_autofocus_settings()
-        else:
-            mode = AutoFocusMode(d.get("autofocus_mode", AutoFocusMode.NONE.value))
-            if raw_autofocus:
-                from fibsem.autofunctions.autofocus import AutoFocusSettings
+        globals()["AutoFocusSettings"] = AutoFocusSettings
+        try:
+            return handler(source)
+        finally:
+            del globals()["AutoFocusSettings"]
 
-                sweep = AutoFocusSettings.from_dict(raw_autofocus)
-            else:
-                sweep = _default_autofocus_settings()
+    @classmethod
+    def from_dict(cls, d: dict) -> "OverviewAcquisitionSettings":
+        """Read settings saved by any version (`fibsem.codec.upgrades.overview`)."""
+        from fibsem.codec.upgrades.overview import acquisition_settings
 
-        image_settings = ImageSettings.from_dict(d.get("image_settings", {}))
-        # A file from before the mode existed said "auto contrast" with the
-        # per-image flag alone. It meant the mosaic, not each tile: ONCE.
-        if "autocontrast_mode" in d:
-            autocontrast_mode = AutoContrastMode(d["autocontrast_mode"])
-        elif image_settings.autocontrast:
-            autocontrast_mode = AutoContrastMode.ONCE
-        else:
-            autocontrast_mode = AutoContrastMode.NONE
-
-        return OverviewAcquisitionSettings(
-            image_settings=image_settings,
-            nrows=d.get("nrows", 3),
-            ncols=d.get("ncols", 3),
-            overlap=d.get("overlap", 0.1),
-            focus_stack_settings=fss,
-            autofocus_mode=mode,
-            autofocus_settings=sweep,
-            autocontrast_mode=autocontrast_mode,
-            tile_order=TileOrderStrategy(
-                d.get("tile_order", TileOrderStrategy.TYPEWRITER.value)
-            ),
-            tile_mask=None
-            if mask is None
-            else [[bool(v) for v in row] for row in mask],
-            register_tiles=bool(d.get("register_tiles", False)),
-        )
+        return decode(cls, acquisition_settings(d))
 
     def to_dict(self) -> dict:
-        return {
-            "image_settings": self.image_settings.to_dict(),
-            "nrows": self.nrows,
-            "ncols": self.ncols,
-            "overlap": self.overlap,
-            "focus_stack_settings": self.focus_stack_settings.to_dict(),
-            "autofocus_mode": self.autofocus_mode.value,
-            "autofocus_settings": self.autofocus_settings.to_dict(),
-            "autocontrast_mode": self.autocontrast_mode.value,
-            "tile_order": self.tile_order.value,
-            # plain bools: np.bool_ does not survive yaml.safe_dump, and a mask arriving
-            # from a numpy grid is exactly how one gets here.
-            "tile_mask": None
-            if self.tile_mask is None
-            else [[bool(v) for v in row] for row in self.tile_mask],
-            "register_tiles": self.register_tiles,
-        }
+        return encode(self)
 
 
 # `current` and `eucentric_height` are how a configuration's beam defaults spell
@@ -2016,38 +1953,23 @@ class MicroscopeState:
 
 ########### Base Pattern Settings
 @dataclass
-class FibsemPatternSettings(ABC):
+class FibsemPatternSettings(Tagged, ABC):
     # Keys a dict may carry beyond the fields: the shape it names, which
     # `from_dict` reads to pick the class (`fibsem.devices.wire` accepts them).
     FROM_DICT_KEYS: ClassVar[Tuple[str, ...]] = ("type",)
 
     def to_dict(self) -> Dict[str, Any]:
-        ddict = asdict(self)
-        # Handle any special cases
-        if "cross_section" in ddict:
-            ddict["cross_section"] = ddict["cross_section"].name
-        return ddict
+        return encode(self)
 
     @classmethod
     def from_dict(
         cls: Type[TFibsemPatternSettings], data: Dict[str, Any]
     ) -> TFibsemPatternSettings:
-        if cls is FibsemPatternSettings:  # abstract: the dict names its shape
-            return cls._subclass_named(data.get("type")).from_dict(data)
-        kwargs = {}
-        for f in fields(cls):
-            if f.name in data:
-                kwargs[f.name] = data[f.name]
-
-        # Construct objects
-        cross_section = kwargs.pop("cross_section", None)
-        if cross_section is not None:
-            kwargs["cross_section"] = CrossSectionPattern[cross_section]
-
-        return cls(**kwargs)
+        """Read a pattern; read as the base class, the dict names its ``type``."""
+        return decode(cls, data)
 
     @classmethod
-    def _subclass_named(cls, type_name: Any) -> Type[FibsemPatternSettings]:
+    def subclass_named(cls, name: str) -> Type[FibsemPatternSettings]:
         """The shape a pattern dict names in its ``type``, as the App Server's
         ``draw_patterns`` takes it: ``"Rectangle"`` (or ``"FibsemRectangleSettings"``)."""
         shapes: Dict[str, Type[FibsemPatternSettings]] = {}
@@ -2057,12 +1979,10 @@ class FibsemPatternSettings(ABC):
             pending += sub.__subclasses__()
             shapes[sub.__name__] = sub
             shapes[sub.__name__.replace("Fibsem", "").replace("Settings", "")] = sub
-        if type_name not in shapes:
+        if name not in shapes:
             available = sorted(name for name in shapes if not name.startswith("Fibsem"))
-            raise ValueError(
-                f"Unknown pattern type: {type_name!r}. Available: {available}"
-            )
-        return shapes[type_name]
+            raise ValueError(f"Unknown pattern type: {name!r}. Available: {available}")
+        return shapes[name]
 
     @property
     @abstractmethod
@@ -2070,7 +1990,7 @@ class FibsemPatternSettings(ABC):
         pass
 
 
-class CrossSectionPattern(Enum):
+class CrossSectionPattern(NamedEnum, Enum):
     Rectangle = auto()
     RegularCrossSection = auto()
     CleaningCrossSection = auto()
@@ -2084,7 +2004,6 @@ class FibsemRectangleSettings(FibsemPatternSettings):
     centre_x: float
     centre_y: float
     rotation: float = 0
-    cleaning_cross_section: bool = False
     scan_direction: str = "TopToBottom"
     cross_section: CrossSectionPattern = CrossSectionPattern.Rectangle
     passes: int = 0
@@ -2143,8 +2062,8 @@ class FibsemBitmapSettings(FibsemPatternSettings):
     is_exclusion: bool = False
     flip_y: bool = False
     path: InitVar[Optional[Union[str, os.PathLike]]] = None
-    array: InitVar[Optional[NDArray[Any]]] = None
-    bitmap: Optional[NDArray[Any]] = field(init=False)
+    array: InitVar[Optional[Array]] = None
+    bitmap: Optional[Array] = field(init=False)
     interpolate: Optional[Literal["nearest", "bicubic", "bilinear"]] = None
 
     def __post_init__(
@@ -2179,24 +2098,12 @@ class FibsemBitmapSettings(FibsemPatternSettings):
 
 @dataclass
 class FibsemPolygonSettings(FibsemPatternSettings):
-    vertices: np.ndarray[float]  # n[x, y]
+    vertices: Array  # n[x, y]
     depth: float
     is_exclusion: bool = False
 
-    def to_dict(self) -> dict:
-        return {
-            "vertices": self.vertices.tolist(),
-            "depth": self.depth,
-            "is_exclusion": self.is_exclusion,
-        }
-
-    @staticmethod
-    def from_dict(data: dict) -> "FibsemPolygonSettings":
-        return FibsemPolygonSettings(
-            vertices=np.asarray(data["vertices"], dtype=float),
-            depth=data["depth"],
-            is_exclusion=data.get("is_exclusion", False),
-        )
+    def __post_init__(self) -> None:
+        self.vertices = np.asarray(self.vertices, dtype=float)
 
     @property
     def volume(self) -> float:
@@ -3114,12 +3021,12 @@ class ManipulatorSystemSettings:
     # axes the arm has from its device too, so neither is set here.
     enabled: bool = True
 
-    def to_dict(self):
-        return {"enabled": self.enabled}
+    def to_dict(self) -> dict:
+        return encode(self)
 
-    @staticmethod
-    def from_dict(settings: dict):
-        return ManipulatorSystemSettings(enabled=settings.get("enabled", True))
+    @classmethod
+    def from_dict(cls, data: dict) -> "ManipulatorSystemSettings":
+        return decode(cls, data)
 
 
 @dataclass
@@ -4161,6 +4068,7 @@ class FibsemUser:
         return user
 
 
+@saved(absent={"recorded_at": None})
 @dataclass
 class SessionInfo:
     """Which instrument, whose account, and what software worked on an experiment.
@@ -4203,7 +4111,7 @@ class SessionInfo:
 
     # Aware, written as ISO 8601 with its offset (FIB-1197); older experiments hold
     # a POSIX float, which reads as this machine's zone.
-    recorded_at: Optional[datetime] = field(default_factory=now)
+    recorded_at: Optional[Timestamp] = field(default_factory=now)
     system: Optional[SystemInfo] = None
     user: Optional[FibsemUser] = None
     # Distribution name -> version for every installed extension; see
@@ -4260,27 +4168,11 @@ class SessionInfo:
         )
 
     def to_dict(self) -> dict:
-        return {
-            "recorded_at": to_iso(self.recorded_at),
-            "system": self.system.to_dict() if self.system is not None else None,
-            "user": self.user.to_dict() if self.user is not None else None,
-            "plugins": dict(self.plugins),
-            "utc_offset": self.utc_offset,
-            "zone_name": self.zone_name,
-        }
+        return encode(self)
 
-    @staticmethod
-    def from_dict(ddict: dict) -> "SessionInfo":
-        system = ddict.get("system")
-        user = ddict.get("user")
-        return SessionInfo(
-            recorded_at=to_datetime(ddict.get("recorded_at")),
-            system=SystemInfo.from_dict(system) if system else None,
-            user=FibsemUser.from_dict(user) if user else None,
-            plugins=dict(ddict.get("plugins") or {}),
-            utc_offset=ddict.get("utc_offset"),
-            zone_name=ddict.get("zone_name"),
-        )
+    @classmethod
+    def from_dict(cls, data: dict) -> "SessionInfo":
+        return decode(cls, data)
 
 
 @saved(keys={"image_settings": "image"})
@@ -4590,141 +4482,6 @@ class FibsemImage:
         self.filepath = str(path)
         return self.filepath
 
-    ### EXPERIMENTAL START ####
-
-    def _save_ome_tiff(self, path: str, filename: str) -> None:
-        from ome_types import OME
-        from ome_types.model import (
-            Channel,
-            Image,
-            Instrument,
-            MapAnnotation,
-            Microscope,
-            Pixels,
-            Plane,
-            StructuredAnnotations,
-            TiffData,
-        )
-        from ome_types.model.simple_types import UnitsLength
-
-        md = self.metadata
-        microscope = Microscope(
-            # md.system_info since FIB-481; this was md.system.info, which no longer
-            # exists. Nothing calls this -- see FIB-485 for whether it should live at
-            # all -- but leaving a known-broken reference is worse than fixing it.
-            manufacturer=md.system_info.manufacturer,
-            model=md.system_info.model,
-            serial_number=md.system_info.serial_number,
-        )
-        instrument = Instrument(microscope=microscope)
-
-        size_y = self.data.shape[0]
-        size_x = self.data.shape[1]
-        # TODO: use sample plane projection position for this pos
-        stage_position = md.microscope_state.stage_position
-        pos_x = stage_position.x
-        pos_y = stage_position.y
-        pos_z = stage_position.z
-
-        plane = Plane(
-            the_c=0,
-            the_z=0,
-            the_t=0,
-            position_x=pos_x,
-            position_y=pos_y,
-            position_z=pos_z,
-            position_x_unit=UnitsLength.METER,
-            position_y_unit=UnitsLength.METER,
-            position_z_unit=UnitsLength.METER,
-        )
-        tiff_data = TiffData(ifd=0)
-
-        ch = Channel(
-            id="Channel:0",
-            name="SEM" if md.image_settings.beam_type is BeamType.ELECTRON else "FIB",
-            samples_per_pixel=1,
-        )
-
-        pixels = Pixels(
-            id="Pixels:0",
-            dimension_order="XYZTC",
-            size_x=size_x,
-            size_y=size_y,
-            size_c=1,
-            size_t=1,
-            size_z=1,
-            type=self.data.dtype.name,
-            physical_size_x=md.pixel_size.x,
-            physical_size_y=md.pixel_size.y,
-            physical_size_x_unit=UnitsLength.METER,
-            physical_size_y_unit=UnitsLength.METER,
-            channels=[ch],
-            planes=[plane],
-            tiff_data_blocks=[tiff_data],
-        )
-
-        sa = StructuredAnnotations()
-        mapAnnotation = [
-            MapAnnotation(
-                id="Annotation:0", value={"fibsemOS": json.dumps(md.to_dict())}
-            )
-        ]
-        sa.map_annotations = mapAnnotation
-
-        ome_image = Image(
-            id="Image:0",
-            name=md.image_settings.filename,
-            acquisition_date=acquisition_datetime_of(md),
-            pixels=pixels,
-        )
-
-        ome = OME()
-        ome.images.append(ome_image)
-        ome.instruments.append(instrument)
-        ome.structured_annotations = sa
-
-        assert tff.OmeXml.validate(ome.to_xml()), "OME-XML validation failed"
-
-        # TODO: check for a unique filename
-        path = os.path.join(path, filename)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-
-        # add suffix if not present
-        OME_TIFF_SUFFIXES = (".ome.tiff", ".ome.tif", ".tif", ".tiff")
-        if not path.endswith(OME_TIFF_SUFFIXES):
-            # Note: with_suffix doesn't work correctly with double extensions, .ome.tiff
-            path = Path(path).with_suffix(".ome.tiff")
-
-        with tff.TiffWriter(path) as tif:
-            tif.write(self.data, contiguous=True)
-            tif.overwrite_description(ome.to_xml())
-
-    @classmethod
-    def _load_from_ome_tiff(cls, path: str) -> "FibsemImage":
-        import ome_types
-
-        # read ome-xml, extract fibsemOS metadata
-        try:
-            ome = ome_types.from_tiff(path)
-            fibsemos_md = json.loads(
-                ome.structured_annotations.map_annotations[0].value["fibsemOS"]
-            )
-
-            # parse metadata to struct
-            md = FibsemImageMetadata.from_dict(fibsemos_md)
-        except Exception as e:
-            import logging
-
-            logging.warning(f"Failing to load metadata from OME-TIFF: {e}")
-            md = None
-
-        # load image data
-        with tff.TiffFile(path) as tif:
-            data = tif.pages[0].asarray()
-        return cls(data=data, metadata=md)
-
-    ### EXPERIMENTAL END ####
-
     def extract_region(self, rect: "FibsemRectangle") -> "FibsemImage":
         """Extract a sub-region of the image and return a new FibsemImage with valid metadata.
 
@@ -5026,6 +4783,7 @@ def calculate_fiducial_area_v2(
 DEFAULT_ALIGNMENT_AREA = {"left": 0.7, "top": 0.3, "width": 0.25, "height": 0.4}
 
 
+@saved(absent={"enabled": False})
 @dataclass
 class MillingAlignment(Configurable):
     """Drift correction settings for milling"""
@@ -5078,34 +4836,12 @@ class MillingAlignment(Configurable):
         display=Display("Full Frame At Or Below", scale=1e12, step=10, decimals=0),
     )
 
-    def to_dict(self):
-        return {
-            "enabled": self.enabled,
-            "interval_enabled": self.interval_enabled,
-            "interval": self.interval,
-            "rect": self.rect.to_dict(),
-            "use_autocontrast": self.use_autocontrast,
-            "use_autofocus": self.use_autofocus,
-            "steps": self.steps,
-            "imaging": self.imaging.to_dict(),
-            "full_frame_below": self.full_frame_below,
-        }
+    def to_dict(self) -> dict:
+        return encode(self)
 
-    @staticmethod
-    def from_dict(d: dict) -> "MillingAlignment":
-        return MillingAlignment(
-            enabled=d.get("enabled", False),
-            interval_enabled=d.get("interval_enabled", False),
-            interval=d.get("interval", 30),
-            rect=FibsemRectangle.from_dict(
-                d.get("rect", DEFAULT_ALIGNMENT_AREA),
-            ),
-            use_autocontrast=d.get("use_autocontrast", True),
-            use_autofocus=d.get("use_autofocus", False),
-            steps=d.get("steps", 3),
-            imaging=ImageSettings.from_dict(d.get("imaging", {})),
-            full_frame_below=float(d.get("full_frame_below", 0.0)),
-        )
+    @classmethod
+    def from_dict(cls, data: dict) -> "MillingAlignment":
+        return decode(cls, data)
 
 
 @dataclass
@@ -5124,28 +4860,11 @@ class ReferenceImageParameters(Configurable):
     acquire_image2: bool = param(True, doc="Whether to acquire second reference image")
 
     def to_dict(self) -> dict:
-        return {
-            "imaging": self.imaging.to_dict(),
-            "field_of_view1": self.field_of_view1,
-            "field_of_view2": self.field_of_view2,
-            "acquire_sem": self.acquire_sem,
-            "acquire_fib": self.acquire_fib,
-            "acquire_image1": self.acquire_image1,
-            "acquire_image2": self.acquire_image2,
-        }
+        return encode(self)
 
-    @staticmethod
-    def from_dict(settings: dict) -> "ReferenceImageParameters":
-        imaging = ImageSettings.from_dict(settings.get("imaging", {}))
-        return ReferenceImageParameters(
-            imaging=imaging,
-            field_of_view1=settings.get("field_of_view1", 100e-6),
-            field_of_view2=settings.get("field_of_view2", 150e-6),
-            acquire_sem=settings.get("acquire_sem", True),
-            acquire_fib=settings.get("acquire_fib", True),
-            acquire_image1=settings.get("acquire_image1", True),
-            acquire_image2=settings.get("acquire_image2", True),
-        )
+    @classmethod
+    def from_dict(cls, data: dict) -> "ReferenceImageParameters":
+        return decode(cls, data)
 
     @property
     def field_of_views(self) -> Tuple[float, ...]:
@@ -5190,19 +4909,16 @@ class SampleGrid(Configurable):
     )
 
     def to_dict(self) -> dict:
-        return {
-            "name": self.name,
-            "description": self.description,
-            "radius": self.radius,
-        }
+        return encode(self)
 
     @classmethod
     def from_dict(cls, data: dict) -> "SampleGrid":
-        return SampleGrid(
-            name=data.get("name", ""),
-            description=data.get("description", ""),
-            radius=data.get("radius", GRID_RADIUS),
-        )
+        return decode(cls, data)
+
+
+def _blank_is_none(value: Any) -> Any:
+    # older holder files wrote "" for a time nobody captured
+    return value or None
 
 
 @dataclass
@@ -5223,11 +4939,11 @@ class SlotCalibration:
     # When the wizard captured it: aware, written as ISO 8601 with its offset
     # (FIB-1190, FIB-1197). Records before FIB-1190 hold a naive string, which stays
     # naive. None for a position nobody captured.
-    captured_at: Optional[datetime] = None
+    captured_at: Annotated[Optional[Timestamp], BeforeValidator(_blank_is_none)] = None
     fibsem_version: str = ""
 
     def __post_init__(self) -> None:
-        # the string a holder file or a caller holds
+        # the string a caller holds
         self.captured_at = to_datetime(self.captured_at) if self.captured_at else None
 
     @classmethod
@@ -5258,23 +4974,11 @@ class SlotCalibration:
         )
 
     def to_dict(self) -> dict:
-        return {
-            "orientation": self.orientation,
-            "pre_tilt": self.pre_tilt,
-            "rotation_reference": self.rotation_reference,
-            "captured_at": to_iso(self.captured_at) or "",
-            "fibsem_version": self.fibsem_version,
-        }
+        return encode(self)
 
     @classmethod
     def from_dict(cls, data: dict) -> "SlotCalibration":
-        return SlotCalibration(
-            orientation=str(data.get("orientation", "")),
-            pre_tilt=float(data.get("pre_tilt", 0.0)),
-            rotation_reference=float(data.get("rotation_reference", 0.0)),
-            captured_at=data.get("captured_at") or None,
-            fibsem_version=str(data.get("fibsem_version", "")),
-        )
+        return decode(cls, data)
 
 
 @dataclass
@@ -5292,51 +4996,23 @@ class GridSlot:
     loaded_grid: Optional[SampleGrid] = None
     calibration: Optional[SlotCalibration] = None
 
+    def __post_init__(self) -> None:
+        if self.position is not None:
+            self.position.name = self.name
+
     @property
     def is_calibrated(self) -> bool:
         return self.position is not None and self.calibration is not None
 
     def to_dict(self) -> dict:
-        return {
-            "name": self.name,
-            "index": self.index,
-            "position": self.position.to_dict() if self.position is not None else None,
-            "loaded_grid": self.loaded_grid.to_dict()
-            if self.loaded_grid is not None
-            else None,
-            "calibration": self.calibration.to_dict()
-            if self.calibration is not None
-            else None,
-        }
+        return encode(self)
 
     @classmethod
     def from_dict(cls, data: dict) -> "GridSlot":
-        loaded_grid_data = data.get("loaded_grid")
-        loaded_grid = (
-            SampleGrid.from_dict(loaded_grid_data)
-            if loaded_grid_data is not None
-            else None
-        )
-        position_data = data.get("position")
-        position = (
-            FibsemStagePosition(**position_data) if position_data is not None else None
-        )
-        calibration_data = data.get("calibration")
-        calibration = (
-            SlotCalibration.from_dict(calibration_data)
-            if calibration_data is not None
-            else None
-        )
-        slot = GridSlot(
-            name=data.get("name", ""),
-            index=data.get("index", 0),
-            position=position,
-            loaded_grid=loaded_grid,
-            calibration=calibration,
-        )
-        if slot.position is not None:
-            slot.position.name = slot.name
-        return slot
+        """Read a slot saved by any version (`fibsem.codec.upgrades.holder`)."""
+        from fibsem.codec.upgrades.holder import slot
+
+        return decode(cls, slot(data))
 
 
 @dataclass
@@ -5397,13 +5073,6 @@ class SampleHolder(Configurable):
             return self._parent.system.stage.rotation_reference
         return 0.0
 
-    def find_slot_for_grid(self, grid: "SampleGrid") -> Optional["GridSlot"]:
-        """Return the slot that has this SampleGrid loaded, or None."""
-        for slot in self.slots.values():
-            if slot.loaded_grid is not None and slot.loaded_grid.name == grid.name:
-                return slot
-        return None
-
     def find_slot_by_grid_name(self, grid_name: str) -> Optional["GridSlot"]:
         """Return the slot whose loaded grid matches the given name, or None."""
         for slot in self.slots.values():
@@ -5418,15 +5087,6 @@ class SampleHolder(Configurable):
             s
             for s in sorted(self.slots.values(), key=lambda s: s.index)
             if s.loaded_grid is not None
-        ]
-
-    @property
-    def calibrated_slots(self) -> List["GridSlot"]:
-        """The slots with a trusted position: the ones the stage can be sent to."""
-        return [
-            s
-            for s in sorted(self.slots.values(), key=lambda s: s.index)
-            if s.is_calibrated
         ]
 
     def discard_untrusted_positions(
@@ -5479,19 +5139,11 @@ class SampleHolder(Configurable):
             del self.slots[name]
 
     def to_dict(self, include_grids: bool = True) -> dict:
-        slots = {}
-        for name, slot in self.slots.items():
-            data = slot.to_dict()
-            if not include_grids:
-                data["loaded_grid"] = None
-            slots[name] = data
-        return {
-            "name": self.name,
-            "capacity": self.capacity,
-            "slots": slots,
-            "description": self.description,
-            "pre_tilt": self.pre_tilt,
-        }
+        data = encode(self)
+        if not include_grids:
+            for slot in data["slots"].values():
+                slot["loaded_grid"] = None
+        return data
 
     # -- occupancy: which grid is in which slot, kept apart from the calibration --
 
@@ -5513,21 +5165,19 @@ class SampleHolder(Configurable):
 
     @classmethod
     def from_dict(cls, data: dict) -> "SampleHolder":
-        slots = {
-            name: GridSlot.from_dict(slot_data)
-            for name, slot_data in data.get("slots", {}).items()
-        }
-        # A file that does not state one reads as 0.0 here, and that is safe only
-        # because of what happens next: `_resolve_configured_holder` overwrites it
-        # with the configured pre-tilt before the holder is used. The required field
-        # constrains *constructions in code*, which is where a forgotten pre-tilt has
-        # nothing else to catch it; a silent file is caught at connect instead.
-        holder = SampleHolder(
-            pre_tilt=float(data.get("pre_tilt") or 0.0),
-            name=data.get("name", "Sample Holder"),
-            capacity=data.get("capacity", max(len(slots), 1)),
-            slots=slots,
-            description=data.get("description", ""),
+        # A file that does not state a pre-tilt reads as 0.0, which is safe only
+        # because `_resolve_configured_holder` overwrites it with the configured one
+        # before the holder is used. A file with no capacity holds the slots it lists.
+        from fibsem.codec.upgrades.holder import holder as upgrade
+
+        data = upgrade(data)
+        holder = decode(
+            cls,
+            {
+                "capacity": max(len(data.get("slots") or {}), 1),
+                **data,
+                "pre_tilt": float(data.get("pre_tilt") or 0.0),
+            },
         )
         holder._ensure_slots()
         return holder

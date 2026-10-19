@@ -1,0 +1,30 @@
+{
+  "capacity": 2,
+  "description": "",
+  "name": "Old Shuttle",
+  "pre_tilt": 0.0,
+  "slots": {
+    "Slot-01": {
+      "calibration": null,
+      "index": 0,
+      "loaded_grid": null,
+      "name": "Slot-01",
+      "position": {
+        "coordinate_system": "RAW",
+        "name": "Slot-01",
+        "r": 0.0,
+        "t": 0.0,
+        "x": 0.001,
+        "y": 0.0,
+        "z": 0.0
+      }
+    },
+    "Slot-02": {
+      "calibration": null,
+      "index": 1,
+      "loaded_grid": null,
+      "name": "Slot-02",
+      "position": null
+    }
+  }
+}

@@ -21,6 +21,8 @@ from typing import Any, Dict, Iterator, Mapping, Optional
 
 TOOL_HEADER = "X-Agent-Tool"
 ARGUMENTS_HEADER = "X-Agent-Arguments"
+# The evidence the call rests on, by id (`fibsem.workflows.evidence`).
+EVIDENCE_HEADER = "X-Agent-Evidence"
 
 # The arguments are sent only while they fit a header comfortably: a list of
 # patterns is left out, and the line says what the tool alone says.
@@ -32,7 +34,8 @@ class AgentCall:
     """One call of the agent's: its tool and arguments when named, the line
     that describes it, and the level it was made at. ``run_id`` is the long
     command it started, whose own events then say how it went; ``recorded``,
-    a route that puts the call on the record itself (a stop)."""
+    a route that puts the call on the record itself (a stop); ``evidence``, the
+    id of the evidence it cites."""
 
     tool: Optional[str] = None
     arguments: Dict[str, Any] = field(default_factory=dict)
@@ -40,6 +43,7 @@ class AgentCall:
     level: Optional[str] = None
     run_id: Optional[str] = None
     recorded: bool = False
+    evidence: Optional[str] = None
 
 
 _current: "ContextVar[Optional[AgentCall]]" = ContextVar(
@@ -99,14 +103,23 @@ def from_headers(headers: Mapping[str, str]) -> AgentCall:
             parsed = None
         if isinstance(parsed, dict):
             arguments = parsed
+    evidence = headers.get(EVIDENCE_HEADER.lower()) or headers.get(EVIDENCE_HEADER)
     return AgentCall(
-        tool=tool or None, arguments=arguments, action=describe(tool, arguments)
+        tool=tool or None,
+        arguments=arguments,
+        action=describe(tool, arguments),
+        evidence=evidence or None,
     )
 
 
-def headers_for(tool: str, arguments: Mapping[str, Any]) -> Dict[str, str]:
-    """The headers that name *tool* and its *arguments* to the server."""
+def headers_for(
+    tool: str, arguments: Mapping[str, Any], evidence: Optional[str] = None
+) -> Dict[str, str]:
+    """The headers that name *tool*, its *arguments* and the *evidence* it
+    cites to the server."""
     headers = {TOOL_HEADER: tool}
+    if evidence:
+        headers[EVIDENCE_HEADER] = str(evidence)
     try:
         encoded = json.dumps(dict(arguments), ensure_ascii=True, default=str)
     except (TypeError, ValueError):

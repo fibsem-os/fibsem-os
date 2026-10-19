@@ -248,9 +248,6 @@ def test_pretty_strings_are_unchanged():
     assert position.pretty == "X:1.00mm, Y:-2.00mm, Z:None, R:180.0°, T:30.0°"
     assert position.pretty_string == "X:1.00, Y:-2.00, Z:None, R:180.0, T:30.0"
     assert position.pretty_orientation == "R:180.0, T:30.0"
-    assert FibsemStagePosition(x=1e-3, y=2e-3, z=3e-3)._scale_repr(1e3, 1) == (
-        "x:1.0, y:2.0, z:3.0"
-    )
     assert FibsemManipulatorPosition(x=1e-3).pretty == (
         "X:1.00mm, Y:0.00mm, Z:0.00mm, R:0.0°, T:0.0°"
     )

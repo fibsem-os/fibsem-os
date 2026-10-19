@@ -35,13 +35,14 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from fibsem.acting import AGENT, Actor, acting
-from fibsem.ai.agent.allowlist import image_refusal
-from fibsem.ai.agent.calls import AgentCall, calling, join_line
+from fibsem.ai.agent.calls import AgentCall, calling, current_call, join_line
 from fibsem.ai.agent.catalog import CATALOG, ToolSpec, route_call
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.ai.agent.request_text import Describer, describe_action, describe_actions
 from fibsem.server.auth import AuthConfig, lending_drive, require_level
 from fibsem.workflows.actions import ACTION, action_record
+from fibsem.workflows.evidence import EvidenceRefused, frame_path
+from fibsem.workflows.evidence import load as load_evidence
 from fibsem.workflows.proposals import ACTIONS, Decision, DecisionOutcome, Proposal
 
 PENDING = "pending"
@@ -114,8 +115,9 @@ class AgentRequest:
     # For Drive's countdown (FIB-1267): when it lapses, and what lapsing does.
     expires_at: Optional[float] = None
     on_expiry: str = "reject"
-    # The image the agent's evidence is in (a path inside the experiment): the
-    # card shows it under Why, the actions' values drawn on it (FIB-1411).
+    # What the agent judged from (`fibsem.workflows.evidence`, its record), and
+    # the beam image of it the card draws the actions' values on (FIB-1411).
+    evidence: Optional[Dict[str, Any]] = None
     image: Optional[str] = None
     # The experiment its proposal is on.
     experiment: Any = field(default=None, repr=False)
@@ -139,6 +141,7 @@ class AgentRequest:
             "expires_at": self.expires_at,
             "on_expiry": self.on_expiry if self.expires_at is not None else None,
             "image": self.image,
+            "evidence": self.evidence,
         }
 
 
@@ -346,15 +349,16 @@ class RequestStore:
 
     # --- the agent files one ---
 
-    def _check_image(self, image: Any) -> Optional[str]:
-        """A request's image: None, or the path of an image file inside the
-        open experiment."""
-        if image is None or image == "":
+    def _evidence(self, evidence_id: Any) -> Optional[Dict[str, Any]]:
+        """The record of the evidence a request cites, or None for none."""
+        if not evidence_id:
             return None
-        refusal = image_refusal(image, self._experiment_path)
-        if refusal is not None:
-            raise RequestRefused(*refusal)
-        return image
+        try:
+            return load_evidence(self._experiment_path, evidence_id)
+        except EvidenceRefused as refusal:
+            raise RequestRefused(
+                refusal.status_code, refusal.error_type, refusal.message
+            )
 
     def create(
         self,
@@ -362,10 +366,10 @@ class RequestStore:
         reason: Any,
         expires_at: Optional[float] = None,
         on_expiry: str = "reject",
-        image: Any = None,
+        evidence: Any = None,
     ) -> AgentRequest:
         resolved = self._resolve(actions)
-        image = self._check_image(image)
+        cited = self._evidence(evidence)
         if (
             not isinstance(reason, str)
             or not reason.strip()
@@ -397,14 +401,17 @@ class RequestStore:
                 reason=reason.strip(),
                 expires_at=expires_at,
                 on_expiry=on_expiry,
-                image=image,
+                image=frame_path(cited),
+                evidence=cited,
             )
             self._requests[request.id] = request
             self._trim_locked()
         request.experiment = experiment
         provenance = {"reason": request.reason}
-        if image:
-            provenance["reference_image"] = image
+        if cited:
+            provenance["evidence"] = cited["evidence_id"]
+        if request.image:
+            provenance["reference_image"] = request.image
         if expires_at is not None:
             provenance.update(expires_at=expires_at, on_expiry=on_expiry)
         experiment.ask_proposal(
@@ -909,8 +916,11 @@ def build_request_router(store: RequestStore) -> APIRouter:
                 },
             )
         try:
+            call = current_call()
             created = store.create(
-                body.get("actions"), body.get("reason"), image=body.get("image")
+                body.get("actions"),
+                body.get("reason"),
+                evidence=call.evidence if call is not None else None,
             )
         except RequestRefused as refusal:
             raise _refused(refusal)

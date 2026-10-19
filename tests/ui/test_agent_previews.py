@@ -900,3 +900,30 @@ def test_the_agent_s_own_image_is_the_picture_with_the_values_on_it():
     stop["image"] = "/exp/ref_trench.tif"
     previews.show_request(stop)
     assert previews.request_picture[0] is evidence
+
+
+def test_an_image_the_agent_made_is_the_picture_as_it_is(tmp_path):
+    # Its pixels are not a beam frame's: shown with its marks, nothing drawn.
+    from PyQt5.QtGui import QColor, QImage
+
+    path = tmp_path / "ab12cd34.png"
+    made = QImage(200, 100, QImage.Format_RGB32)
+    made.fill(QColor("grey"))
+    made.save(str(path))
+    evidence = {
+        "evidence_id": "ab12cd34",
+        "image": str(path),
+        "uploaded": True,
+        "marks": {"areas": [{"x": 10, "y": 10, "width": 50, "height": 20}]},
+    }
+    card = _Card()
+    previews = AgentPreviews(lambda: None, show_picture=card)
+    request = _one("stage_move_relative", {"dx": 1e-6})
+    request["evidence"] = evidence
+    previews.show_request(request)
+    assert previews.request_picture == (evidence, [])
+    image, caption = card.shown[0], card.shown[1]
+    assert caption == "The agent's image"
+    assert image.width() == 200
+    # The area's outline is the agent's purple, not the grey it was.
+    assert image.pixelColor(10, 30) != QColor("grey")
