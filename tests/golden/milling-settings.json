@@ -1,0 +1,15 @@
+{
+  "acquire_images": false,
+  "application_file": "Si",
+  "driver": {
+    "tescan": {
+      "preset": "30 keV; 1 nA",
+      "rate": 0.3
+    }
+  },
+  "hfw": 8e-05,
+  "milling_channel": "ION",
+  "milling_current": 2e-09,
+  "milling_voltage": 30000.0,
+  "patterning_mode": "Parallel"
+}

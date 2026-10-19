@@ -27,6 +27,7 @@ from fibsem.structures import (
     FibsemDetectorSettings,
     FibsemImageMetadata,
     FibsemManipulatorPosition,
+    FibsemMillingSettings,
     FibsemRectangle,
     FibsemStagePosition,
     FocusStackSettings,
@@ -112,6 +113,13 @@ BUILT = {
         x=1e-4, y=2e-4, z=-3e-4, r=0.0, t=0.0, coordinate_system="STAGE"
     ),
     "rectangle": RECTANGLE,
+    "milling-settings": FibsemMillingSettings(
+        milling_channel=BeamType.ION,
+        hfw=80e-6,
+        milling_current=2e-9,
+        patterning_mode="Parallel",
+        driver={"tescan": {"preset": "30 keV; 1 nA", "rate": 0.3}},
+    ),
     "image-settings": IMAGE,
     "focus-stack-settings": FocusStackSettings(enabled=True, n_steps=5),
     "overview-acquisition-settings": OverviewAcquisitionSettings(
@@ -171,3 +179,32 @@ METADATA_FILES = {
 def test_image_metadata_saves_again_as_pinned(case):
     data = json.loads(METADATA_FILES[case].read_text())
     _check(case, FibsemImageMetadata.from_dict(data).to_dict())
+
+
+# Saved shapes older versions wrote, read and saved again.
+OLD = {
+    # before FIB-1437: Tescan's settings at the top of every recipe
+    "old-milling-settings": (
+        FibsemMillingSettings,
+        {
+            "milling_current": 2e-9,
+            "milling_voltage": 30e3,
+            "hfw": 80e-6,
+            "milling_channel": "ION",
+            "patterning_mode": "Serial",
+            "application_file": "Si",
+            "acquire_images": False,
+            "preset": "30 keV; 1 nA",
+            "spot_size": 5e-8,
+            "rate": 0.3,
+            "dwell_time": 1e-6,
+            "spacing": 1.0,
+        },
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(OLD))
+def test_an_old_shape_saves_again_as_pinned(case):
+    cls, data = OLD[case]
+    _check(case, cls.from_dict(data).to_dict())

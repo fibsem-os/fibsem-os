@@ -2310,37 +2310,21 @@ class FibsemMillingSettings(Configurable):
         self.driver.setdefault(prefix, {})[name] = value
 
     def to_dict(self) -> dict:
-        settings_dict: Dict[str, Any] = {
-            f.name: getattr(self, f.name) for f in fields(self) if f.name != "driver"
-        }
-        settings_dict["milling_channel"] = self.milling_channel.name
-        if self.driver:
-            settings_dict["driver"] = {
-                prefix: dict(block) for prefix, block in self.driver.items()
-            }
-        return settings_dict
+        return encode(self)
 
-    @staticmethod
-    def from_dict(settings: dict) -> "FibsemMillingSettings":
+    @classmethod
+    def from_dict(cls, settings: dict) -> "FibsemMillingSettings":
         """Read a recipe written by any version
-        (`fibsem.codec.upgrades.milling_settings`)."""
+        (`fibsem.codec.upgrades.milling_settings`), each installed driver's block
+        checked against that driver's settings."""
         from fibsem.codec.upgrades.milling_settings import upgrade
 
-        settings = upgrade(settings)
-        # a key left out takes the field's default, so each default is said once
-        names = {f.name for f in fields(FibsemMillingSettings)} - {"driver"}
-        values = {key: value for key, value in settings.items() if key in names}
-        driver = {
-            prefix: dict(block)
-            for prefix, block in (settings.get("driver") or {}).items()
+        read = decode(cls, upgrade(settings))
+        read.driver = {
+            prefix: _read_driver_block(prefix, block)
+            for prefix, block in read.driver.items()
         }
-        if "milling_channel" in values:
-            values["milling_channel"] = BeamType[values["milling_channel"]]
-        if "hfw" in values:
-            values["hfw"] = float(values["hfw"])
-        for prefix, block in driver.items():
-            driver[prefix] = _read_driver_block(prefix, block)
-        return FibsemMillingSettings(**values, driver=driver)
+        return read
 
     @property
     def advanced_attributes(self) -> Set[str]:
