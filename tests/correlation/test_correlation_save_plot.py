@@ -23,8 +23,8 @@ from PyQt5.QtWidgets import QApplication
 
 from fibsem.correlation.export import render_canvas_to_axes
 from fibsem.correlation.structures import Coordinate, PointType, PointXYZ
-from fibsem.ui.correlation.widgets.correlation_canvas_widget import (
-    CorrelationCanvasWidget,
+from fibsem.ui.widgets.canvas.point_canvas import (
+    PointCanvasWidget,
 )
 
 _app = QApplication.instance() or QApplication(sys.argv)
@@ -41,7 +41,7 @@ _ALIVE = []
 
 
 def _new_canvas():
-    w = CorrelationCanvasWidget(allowed_point_types=[PointType.FIB])
+    w = PointCanvasWidget(allowed_point_types=[PointType.FIB])
     w.set_image(_IMAGE)
     w.set_coordinates(list(_COORDS))
     _ALIVE.append(w)

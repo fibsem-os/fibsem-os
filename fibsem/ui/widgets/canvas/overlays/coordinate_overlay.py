@@ -3,19 +3,20 @@
 Two overlays, the same split the base module makes between ``PointsOverlay`` and
 ``PointOverlay``:
 
-* :class:`CorrelationPointOverlay` — the interactive picked points, plus the
+* :class:`CoordinateOverlay` — the interactive picked points, plus the
   dashed datum row marking the FIB surface height.
 * :class:`CorrelationResultOverlay` — the static markers a correlation *result*
   reprojects onto the FIB image. Not pickable, not ``Coordinate``s, and cleared
   whenever the image beneath them changes.
 
-``CorrelationPointOverlay`` subclasses :class:`PointOverlay` and swaps its point
+``CoordinateOverlay`` subclasses :class:`PointOverlay` and swaps its point
 model for ``Coordinate`` — which is the whole reason this class exists.
 
 Correlation points are not interchangeable: a ``Coordinate`` carries a
-``PointType``, and the tab widget's registry keys exclusivity and lifecycle off
-that identity (every handler's first line is ``self._point_specs[...]``, and one
-removal path filters with ``c is not coord`` — object identity, not equality).
+``PointType``, :mod:`fibsem.correlation.points` keys exclusivity and pairing off
+that identity, and the tab widget's registry keys lifecycle off it (every
+handler's first line is ``self._point_specs[...]``). Pairs and removals find a
+point by object identity, not equality.
 An index cannot stand in for that.
 
 Two things follow, and they are why a subclass beats widening ``PointOverlay``:
@@ -44,11 +45,12 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple
 import matplotlib.patheffects as pe
 from PyQt5.QtCore import pyqtSignal
 
+from fibsem.correlation.points import POINT_RULES, point_names, types_on
 from fibsem.correlation.structures import Coordinate, PointType
-from fibsem.ui.correlation.point_store import POINT_RULES, CorrelationPointStore
 from fibsem.ui.tokens import ORANGE_COLOR
 from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
 from fibsem.ui.widgets.canvas.overlays.point_overlay import PointOverlay
+from fibsem.ui.widgets.point_store import PointStore
 
 if TYPE_CHECKING:
     from matplotlib.lines import Line2D
@@ -127,21 +129,7 @@ def legend_handle(
     )
 
 
-def generate_names(coordinates: List[Coordinate]) -> List[str]:
-    """Per-type 1-based names: ``FIB 1``, ``FIB 2``, ``POI 1`` ...
-
-    Numbered within a type rather than across the list, so a point's label does
-    not change when an unrelated type gains or loses one.
-    """
-    counters: Dict[PointType, int] = {}
-    names = []
-    for c in coordinates:
-        counters[c.point_type] = counters.get(c.point_type, 0) + 1
-        names.append(f"{c.point_type.value} {counters[c.point_type]}")
-    return names
-
-
-class CorrelationPointOverlay(PointOverlay):
+class CoordinateOverlay(PointOverlay):
     """Interactive correlation points, addressed by ``Coordinate`` identity."""
 
     # Identity-carrying counterparts of the base's index-based signals. The base
@@ -156,7 +144,7 @@ class CorrelationPointOverlay(PointOverlay):
     def __init__(
         self,
         parent=None,
-        store: Optional[CorrelationPointStore] = None,
+        store: Optional[PointStore] = None,
         side: Optional[str] = None,
     ) -> None:
         """*store* holds the points and the selection (FIB-973); this draws
@@ -164,7 +152,7 @@ class CorrelationPointOverlay(PointOverlay):
         points out of a store shared with the other canvas; None draws them all.
         Until the tab widget shares one store, each overlay has its own."""
         super().__init__(size=MARKER_SIZE, parent=parent)
-        self._store = store if store is not None else CorrelationPointStore(self)
+        self._store = store if store is not None else PointStore(self)
         self._side = side
         # What is drawn, index-aligned with the base's _points. A copy of the
         # store's order for the per-index style hooks, re-read on every change.
@@ -187,15 +175,13 @@ class CorrelationPointOverlay(PointOverlay):
     # ── the store ─────────────────────────────────────────────────────────
 
     @property
-    def store(self) -> CorrelationPointStore:
+    def store(self) -> PointStore:
         return self._store
 
     def _point_types(self) -> List[PointType]:
-        return [
-            pt
-            for pt, rule in POINT_RULES.items()
-            if self._side is None or rule.side == self._side
-        ]
+        if self._side is None:
+            return list(POINT_RULES)
+        return types_on(self._side)
 
     def _store_coordinates(self) -> List[Coordinate]:
         if self._side is None:
@@ -205,7 +191,7 @@ class CorrelationPointOverlay(PointOverlay):
     def _render(self) -> None:
         """Redraw every point from the store, and the selection with them."""
         self._coords = self._store_coordinates()
-        self._names = generate_names(self._coords)
+        self._names = point_names(self._coords)
         self._drawn_state = [self._state_of(c) for c in self._coords]
         self.set_points([(c.point.x, c.point.y) for c in self._coords])
         self._show_selection()
@@ -483,8 +469,9 @@ class CorrelationPointOverlay(PointOverlay):
         surface is a z-plane instead, so no in-plane line applies to it — which is
         why only ``SURFACE`` gets one.
 
-        Only the first is drawn: the tab widget's registry makes SURFACE exclusive,
-        so a second one means the caller is mid-edit, not that two datums exist.
+        Only the first is drawn: ``POINT_RULES`` holds SURFACE to one
+        point, so a second one means the caller is mid-edit, not that two datums
+        exist.
         """
         self._remove_surface_line()
         if self._ax is None:
@@ -622,7 +609,7 @@ class _ResultGroup:
 class CorrelationResultOverlay(CanvasOverlay):
     """Static markers reporting a correlation result — reprojected fiducials, POI.
 
-    Separate from :class:`CorrelationPointOverlay` because these are a different
+    Separate from :class:`CoordinateOverlay` because these are a different
     kind of thing: they are computed output, not picked input. Nothing here is
     draggable, deletable or addressed by ``Coordinate`` identity, and keeping them
     off the interactive overlay is what makes that true by construction — the
@@ -634,13 +621,13 @@ class CorrelationResultOverlay(CanvasOverlay):
     Parameters
     ----------
     legend_host :
-        Overlay that draws the shared legend, i.e. the ``CorrelationPointOverlay``
+        Overlay that draws the shared legend, i.e. the ``CoordinateOverlay``
         on the same canvas. See
-        :meth:`CorrelationPointOverlay.set_extra_legend_entries` for why there is
+        :meth:`CoordinateOverlay.set_extra_legend_entries` for why there is
         one box rather than two.
     """
 
-    def __init__(self, legend_host: Optional[CorrelationPointOverlay] = None) -> None:
+    def __init__(self, legend_host: Optional[CoordinateOverlay] = None) -> None:
         self._legend_host = legend_host
         self._groups: List[_ResultGroup] = []
         self._labels_visible = True

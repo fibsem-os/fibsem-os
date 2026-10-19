@@ -213,7 +213,7 @@ def test_manual_edits_prompt_before_reseeding(qapp, monkeypatch):
 
     # user drags the seeded point
     w.data.fib_coordinates[0].point.x = 111.0
-    assert w._has_manual_edits()
+    assert w.session.has_manual_edits()
 
     monkeypatch.setattr(
         ctw.QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Cancel)

@@ -105,7 +105,7 @@ def _fm_points(tab):
 
 def _show_interpolated(tab, target_m):
     """What the worker hands back, adopted on this thread rather than a worker's."""
-    src = tab._fm_image
+    src = tab.session.fm_image
     view = interpolate_fm_volume(src, target_m)
     tab._adopt_interpolated_volume(view, src.data.shape[1])
     return view
@@ -121,12 +121,12 @@ def test_interpolating_the_view_leaves_every_fm_point_where_it_was(tab, target_m
             ]
         )
     )
-    stack = tab._fm_image
+    stack = tab.session.fm_image
 
     _show_interpolated(tab, target_m)
 
     assert [c.point.z for c in _fm_points(tab)] == placed
-    assert tab._fm_image is stack  # the fits and the file keep the stack
+    assert tab.session.fm_image is stack  # the fits and the file keep the stack
 
 
 @pytest.mark.parametrize("target_m", [130e-9, 250e-9, 1200e-9])
@@ -144,7 +144,7 @@ def test_a_point_picked_on_the_interpolated_view_lands_on_the_same_feature(
     tab._on_canvas_add_requested(10.0, 12.0, PointType.FM)
 
     z = _fm_points(tab)[-1].point.z
-    stack = tab._fm_image.data[0, :, 0, 0].astype(float) / _PER_SLICE
+    stack = tab.session.fm_image.data[0, :, 0, 0].astype(float) / _PER_SLICE
     assert np.interp(z, np.arange(len(stack)), stack) == pytest.approx(shown, abs=0.01)
 
 
@@ -205,7 +205,7 @@ def test_a_run_saved_on_an_interpolated_stack_reopens_on_the_same_features(
 
     tab.load_correlation(str(path))
 
-    stack = tab._fm_image.data[0, :, 0, 0].astype(float) / _PER_SLICE
+    stack = tab.session.fm_image.data[0, :, 0, 0].astype(float) / _PER_SLICE
     for z_feature, coord in zip(picked, _fm_points(tab)):
         on = np.interp(coord.point.z, np.arange(len(stack)), stack)
         assert on == pytest.approx(z_feature, abs=1e-6)

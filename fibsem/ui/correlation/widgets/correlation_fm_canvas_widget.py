@@ -1,7 +1,7 @@
 """Correlation point-picking on the shared FM canvas (FIB-535).
 
-`FMCanvasWidget` + :class:`CorrelationPicking` — the FM half of the migration,
-and the counterpart to :class:`CorrelationCanvasWidget` on the FIB side. Both
+`FMCanvasWidget` + :class:`PointPicking` — the FM half of the migration,
+and the counterpart to :class:`PointCanvasWidget` on the FIB side. Both
 present the same picking surface; they differ only in how an image reaches the
 canvas, which is the one thing that genuinely differs between them.
 
@@ -23,19 +23,19 @@ from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QWidget
 
 from fibsem.correlation.structures import PointType
-from fibsem.ui.correlation.point_store import CorrelationPointStore
-from fibsem.ui.correlation.widgets.correlation_picking import (
-    CorrelationPicking,
-    PickingCanvasMixin,
-)
 from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
+from fibsem.ui.widgets.canvas.point_picking import (
+    PickingCanvasMixin,
+    PointPicking,
+)
+from fibsem.ui.widgets.point_store import PointStore
 
 
 class CorrelationFMCanvasWidget(PickingCanvasMixin, FMCanvasWidget):
     """Multi-channel FM display with draggable correlation points on top.
 
     The tab widget wires both of its surfaces in one loop, so the four signals
-    here and on ``CorrelationCanvasWidget`` have to stay identically named.
+    here and on ``PointCanvasWidget`` have to stay identically named.
     """
 
     point_selected = pyqtSignal(object)  # Coordinate
@@ -47,7 +47,7 @@ class CorrelationFMCanvasWidget(PickingCanvasMixin, FMCanvasWidget):
         self,
         parent: Optional[QWidget] = None,
         allowed_point_types: Optional[List[PointType]] = None,
-        store: Optional[CorrelationPointStore] = None,
+        store: Optional[PointStore] = None,
         side: Optional[str] = None,
     ) -> None:
         super().__init__(parent)
@@ -62,7 +62,7 @@ class CorrelationFMCanvasWidget(PickingCanvasMixin, FMCanvasWidget):
         # the same way, with its Max Projection checkbox unticked.
         self.set_max_projection(False)
 
-        self.picking = CorrelationPicking(
+        self.picking = PointPicking(
             self.canvas,
             allowed_point_types=allowed_point_types,
             menu_parent=self,

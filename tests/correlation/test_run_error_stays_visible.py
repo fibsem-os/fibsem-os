@@ -86,7 +86,7 @@ def widget(qapp, tmp_path):
     w.set_fib_image(FibsemImage.generate_blank_image(resolution=(400, 300)))
     w.set_fm_image(_fm_image())
     w.set_data(_data())
-    assert w._can_run()
+    assert w.session.can_run()
     yield w
     if w._worker is not None:
         w._worker.wait()

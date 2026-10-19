@@ -151,7 +151,9 @@ def _lamella(tmp_path):
 
 
 def _loaded_fib(w):
-    return os.path.basename(w._fib_image.filepath) if w._fib_image else None
+    return (
+        os.path.basename(w.session.fib_image.filepath) if w.session.fib_image else None
+    )
 
 
 def test_opening_a_run_loads_the_fib_image_it_records_not_the_spot_burn_guess(
@@ -183,7 +185,7 @@ def test_a_recorded_image_that_is_missing_is_not_replaced_by_a_guess(widget, tmp
 
     load_project(widget, str(run))
 
-    assert widget._fib_image is None
+    assert widget.session.fib_image is None
     assert len(widget.data.fib_coordinates) == 4  # the points still open
 
 
