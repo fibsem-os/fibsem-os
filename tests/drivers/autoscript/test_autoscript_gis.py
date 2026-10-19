@@ -193,11 +193,20 @@ class TestGisPort:
         ]
 
     def test_heater_on_fails_when_the_gas_stays_cold(self):
+        """Before 4.13.1 there is no is_heated: the temperature decides."""
         gas = FakeGas()
         gas.ports["Pt dep"].temperature = 250.0
-        gis = _build(_microscope(gas))
+        gis = _build(_microscope(gas, version="4.13.0"))
         with pytest.raises(TimeoutError, match="250.0 K"):
             gis.heater_on()
+
+    def test_heater_on_waits_for_is_heated_from_4_13_1(self):
+        """turn_heater_on is asynchronous; is_heated says the heating finished."""
+        gas = FakeGas()
+        port = gas.ports["Pt dep"]
+        port.temperature = 250.0  # below GIS_HEATED_TEMPERATURE, yet heated
+        gis = _build(_microscope(gas))
+        assert gis.heater_on() is True
 
     def test_a_port_has_no_other_gas(self):
         gis = _build(_microscope(FakeGas()))

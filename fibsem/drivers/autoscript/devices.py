@@ -1385,8 +1385,10 @@ class _AutoscriptGasInjector(GasInjector):
         self._opened = False
 
     def _wait_for_temperature(self) -> None:
-        """Wait for the gas to reach ``GIS_HEATED_TEMPERATURE``; raise ``TimeoutError``
-        after ``GIS_HEATER_TIMEOUT``."""
+        """Wait for the heating to finish (``_heating_done``) or the gas to reach
+        ``GIS_HEATED_TEMPERATURE``; raise ``TimeoutError`` after
+        ``GIS_HEATER_TIMEOUT``. The vendor's ``turn_heater_on`` returns before the
+        heating is done."""
         deadline = time.monotonic() + GIS_HEATER_TIMEOUT
         while True:
             temperature = self.read_temperature()
@@ -1394,7 +1396,7 @@ class _AutoscriptGasInjector(GasInjector):
                 f"{self.name} heater: {temperature:.1f} K, "
                 f"waiting for {GIS_HEATED_TEMPERATURE:.0f} K"
             )
-            if temperature >= GIS_HEATED_TEMPERATURE:
+            if self._heating_done() or temperature >= GIS_HEATED_TEMPERATURE:
                 return
             if time.monotonic() >= deadline:
                 raise TimeoutError(
@@ -1402,6 +1404,11 @@ class _AutoscriptGasInjector(GasInjector):
                     f"{GIS_HEATED_TEMPERATURE:.0f} K, within {GIS_HEATER_TIMEOUT:.0f} s."
                 )
             time.sleep(1.0)
+
+    def _heating_done(self) -> bool:
+        """Whether the instrument reports the heating finished; False where it
+        can't say."""
+        return False
 
 
 class AutoscriptGisPort(_AutoscriptGasInjector):
@@ -1445,7 +1452,11 @@ class AutoscriptGisPort(_AutoscriptGasInjector):
         return InsertableDeviceState.RETRACTED
 
     def read_heated(self) -> bool:
+        # with read-back, is_heated: "True if GIS heating has completed"
         return bool(self._vendor.is_heated) if self.read_back else self._heated
+
+    def _heating_done(self) -> bool:
+        return self.read_back and bool(self._vendor.is_heated)
 
     def read_opened(self) -> bool:
         return bool(self._vendor.is_open) if self.read_back else self._opened
