@@ -473,6 +473,7 @@ class AutoLamellaAppContext:
                 "current_item": None,
                 "queue_total": None,
                 "queue_version": None,
+                "asking": [],
             },
         }
         if experiment is not None:
@@ -481,6 +482,18 @@ class AutoLamellaAppContext:
                 "path": str(experiment.path),
                 "num_items": len(experiment.positions),
             }
+            # The questions a task is stopped on, for an agent that has just
+            # connected: their events are behind its cursor.
+            payload["workflow"]["asking"] = [
+                {
+                    "item_id": item.id,
+                    "item_name": item.name,
+                    "task_name": task_name,
+                    "proposal_id": proposal.id,
+                }
+                for item, task_name, proposal in experiment.pending_proposals()
+                if proposal.asking
+            ]
         manager = self._manager
         if manager is not None:
             items = manager.queue.items  # thread-safe copy under the queue's lock

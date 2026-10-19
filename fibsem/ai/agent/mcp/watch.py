@@ -334,18 +334,16 @@ def _question_line(item_name, task_name):
 
 def _held_questions(client):
     """The questions a run is stopped on now, as (item_name, task_name), from
-    /app/workflow/reviews; empty when it cannot say."""
+    /app/workflow/status; empty when it cannot say."""
     try:
-        response = client.request("GET", "/app/workflow/reviews", timeout=10.0)
+        response = client.request("GET", "/app/workflow/status", timeout=10.0)
         if response.status_code >= 400:
             return []
-        reviews = response.json().get("reviews") or []
-    except (OSError, HTTPException, ValueError, AttributeError, TypeError):
+        asking = response.json()["workflow"].get("asking") or []
+    except (OSError, HTTPException, ValueError, KeyError, AttributeError, TypeError):
         return []
     return [
-        (r.get("item_name"), r.get("task_name"))
-        for r in reviews
-        if isinstance(r, dict) and r.get("holding_the_run")
+        (q.get("item_name"), q.get("task_name")) for q in asking if isinstance(q, dict)
     ]
 
 
