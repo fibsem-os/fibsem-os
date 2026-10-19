@@ -235,6 +235,6 @@ def test_both_stop_paths_interrupt_the_hardware_the_same_way():
 
     # ... and so does Stop Task, through the one call the agent's stop uses too.
     task_stop = body(autolamella_ui, "stop_current_task")
-    assert "stop_task()" in task_stop
+    assert "runner.stop_task(" in task_stop
     assert "stop_current_operations()" in task_stop
-    assert "stop_current_task()" in body(main_ui, "_on_queue_action")
+    assert "stop_current_task(" in body(main_ui, "_on_queue_action")

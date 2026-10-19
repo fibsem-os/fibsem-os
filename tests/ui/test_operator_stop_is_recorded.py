@@ -58,7 +58,8 @@ def runner(main_ui, monkeypatch):
     ui = main_ui.autolamella_ui
     stub = StubRunner(ui.session, is_running=True)
     monkeypatch.setattr(ui.session, "runner", stub)
-    return stub
+    yield stub
+    stub.is_running = False  # so closing the window asks nothing
 
 
 def test_the_stop_button_records_the_operator_s_stop(
