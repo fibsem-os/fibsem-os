@@ -12,12 +12,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Mapping, Optional, Sequence, Tuple, Type
 
-from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import (
     ALIGNMENT_AREA,
     DETECTION,
     MILLING,
+    POINT_OF_INTEREST,
     SPOT_BURN,
     STATE,
 )

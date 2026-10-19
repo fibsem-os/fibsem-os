@@ -13,9 +13,8 @@ from typing import Callable, Optional
 from PyQt5.QtCore import QObject
 from PyQt5.QtWidgets import QApplication
 
-from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.ui.loop_proposal import LOOP_KINDS
-from fibsem.workflows.proposals import ALIGNMENT_AREA, DETECTION
+from fibsem.workflows.proposals import ALIGNMENT_AREA, DETECTION, POINT_OF_INTEREST
 
 # The kinds a task asks whose value is edited on a widget of its own.
 WIDGET_KINDS = (DETECTION, ALIGNMENT_AREA, POINT_OF_INTEREST)

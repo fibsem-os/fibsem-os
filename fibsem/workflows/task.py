@@ -12,6 +12,7 @@ grid tasks are two. The item is anything with a ``name``, an ``id``, a
 
 from __future__ import annotations
 
+import glob
 import logging
 import os
 import re
@@ -25,8 +26,28 @@ from typing import Any, Callable, ClassVar, Dict, Optional, Tuple, Union
 from fibsem.acting import TASK, acting
 from fibsem.cancellation import AnyStopEvent, OperationCancelledError, StopEvent
 from fibsem.control import lending
+from fibsem.milling.tasks import (
+    FibsemMillingTaskConfig,
+    record_milling_skipped,
+    run_milling_task,
+)
+from fibsem.structures import FibsemImage, FibsemRectangle
 from fibsem.util.timestamps import now, now_iso
+from fibsem.workflows.interaction import (
+    INSTRUCTION_TIMEOUT_S,
+    ClearMillingConfig,
+    Responder,
+    SetMillingConfig,
+    _abort_requested,
+    ask,
+)
 from fibsem.workflows.proposals import (
+    ACTION_ACCEPT,
+    ACTION_EDIT,
+    ACTION_RUN,
+    ACTION_SKIP,
+    ALIGNMENT_AREA,
+    MILLING,
     PROPOSAL_KINDS,
     Decision,
     DecisionOutcome,
@@ -127,6 +148,8 @@ class BaseTask(ABC):
         # What the history entry says on success, when there is more to say
         # than "Finished".
         self.completion_note = ""
+        # The last FIB image this run acquired: where a proposal sits by default.
+        self._last_fib_image: Optional[FibsemImage] = None
 
     @property
     def task_type(self) -> str:
@@ -292,6 +315,221 @@ class BaseTask(ABC):
         if not self.supervised:
             return "nobody was asked: the task is not supervised"
         return ""
+
+    # -- the milling loop and the alignment area ------------------------------
+    # Shared by every app's tasks; each writes where its own ``output_dir`` says.
+
+    @property
+    def responder(self) -> Optional[Responder]:
+        """Who decides this task's proposals: the run's (the session's
+        responder), or None outside a run."""
+        return getattr(self.task_manager, "responder", None)
+
+    def update_milling_config_ui(
+        self,
+        milling_config: FibsemMillingTaskConfig,
+        msg: str = "Mill the task.",
+        milling_enabled: bool = True,
+    ) -> FibsemMillingTaskConfig:
+        """Mill ``milling_config``, asking first when supervised; return the config
+        as last used.
+
+        The mill and its loop are the task's, on this thread (FIB-1236), headless
+        and with a window alike. Each pass is a ``milling`` proposal through
+        ``ask``, on the record: the config this pass would mill, decided as run
+        (mill the config as decided, then ask again with the pass counted and
+        the error, if the mill failed), edit (ask again with the config as
+        decided), skip or accept (end the loop). Whoever decides, the operator
+        at the editor or an agent, changes what is milled by deciding with it.
+        Asked of nobody, a pass is recorded as the kind's silence: the first
+        mills once, the next accepts, and a failed mill then fails the task
+        (FIB-1112).
+
+        Each run records how it ended (``FibsemMillingTask``). A task that mills
+        nothing records that too, as a skipped ``milling`` event: with milling
+        turned off, or skipped at the proposal (FIB-1257).
+        """
+        if not milling_enabled:
+            record_milling_skipped(
+                self.microscope, milling_config, "milling is turned off for this task"
+            )
+        responder = self.responder
+        # The task's own config until a decision replaces it: an unasked mill
+        # runs it, so what the run records on it (a strategy's end reason)
+        # stays with the task even when the run is stopped. The proposal only
+        # ever carries, and is decided with, copies.
+        config = milling_config
+        passes, error, watched = 0, None, None
+        try:
+            while True:
+                if not milling_enabled:
+                    actions = (ACTION_EDIT, ACTION_ACCEPT)
+                elif passes == 0:
+                    actions = (ACTION_RUN, ACTION_EDIT, ACTION_SKIP)
+                else:
+                    actions = (ACTION_RUN, ACTION_EDIT, ACTION_ACCEPT)
+                if responder is not None:
+                    # The editor shows what this pass would mill.
+                    self._set_milling_config_ui(config)
+                asked = deepcopy(config)
+                decision = self.ask(
+                    MILLING,
+                    {"milling_config": asked},
+                    image=self._last_fib_image_file(),
+                    provenance={
+                        "actions": list(actions),
+                        "passes": passes,
+                        "last_error": None if error is None else str(error),
+                        "enabled": milling_enabled,
+                    },
+                    message=msg,
+                    decided=lambda: {"milling_config": asked},
+                )
+                if decision.outcome is DecisionOutcome.Rejected:
+                    raise RuntimeError(
+                        f"{self.task_name} was rejected: "
+                        f"{decision.reason or 'no reason given'}"
+                    )
+                if decision.outcome is not DecisionOutcome.Unreviewed:
+                    watched = decision
+                if decision.action == ACTION_ACCEPT and passes:
+                    if error is not None and watched is None:
+                        # Nobody looked: the task fails, rather than recording
+                        # Completed with nothing milled (FIB-1112).
+                        raise error
+                    # The config as milled, not an edit made after it: the
+                    # protocol must not claim what never ran (FIB-580).
+                    break
+                if watched is decision:
+                    # Unreviewed, it is decided as proposed: the task's own
+                    # config is milled, not the record's copy.
+                    config = decision.values.get("milling_config", config)
+                if decision.action == ACTION_EDIT:
+                    continue
+                if decision.action != ACTION_RUN:
+                    break
+                error = self._mill(config)
+                passes += 1
+        finally:
+            if responder is not None:
+                self.clear_milling_config_ui()
+        if milling_enabled and not passes:
+            record_milling_skipped(
+                self.microscope, config, "skipped at the milling question"
+            )
+        return config
+
+    def _mill(self, config: FibsemMillingTaskConfig) -> Optional[Exception]:
+        """Run the mill once, under the task's stop; its error if it failed. A
+        Stop of the workflow during it raises once it has ended."""
+        self.log_status_message("MILLING", f"Milling {config.name}...")
+        task = run_milling_task(
+            self.microscope,
+            config,
+            stop_event=self._stop_event,
+            output_dir=self.output_dir,
+        )
+        self._check_for_abort()
+        if task.error is not None:
+            self.log_status_message(
+                "MILLING", f"Milling {config.name} Failed: {task.error}"
+            )
+        else:
+            self.log_status_message(
+                "MILLING",
+                f"Milling {config.name} Complete: "
+                f"{len(config.enabled_stages)} stages completed.",
+            )
+        return task.error
+
+    def _set_milling_config_ui(self, milling_config: FibsemMillingTaskConfig):
+        """Set the milling config in the milling widget."""
+        if self.responder is None:
+            return
+
+        self._check_for_abort()
+
+        # deepcopy kept from the signal days: the editor's copy must be the
+        # operator's to edit without the task's own config moving under it.
+        ask(
+            self.responder,
+            SetMillingConfig(config=deepcopy(milling_config)),
+            abort=lambda: _abort_requested(self.task_manager),
+            timeout=INSTRUCTION_TIMEOUT_S,
+        )
+
+    def clear_milling_config_ui(self):
+        """Clear the milling config from the milling widget."""
+        if self.responder is None:
+            return
+
+        ask(
+            self.responder,
+            ClearMillingConfig(),
+            abort=lambda: _abort_requested(self.task_manager),
+            timeout=INSTRUCTION_TIMEOUT_S,
+        )
+
+    def _last_fib_image_file(self) -> str:
+        """The last FIB reference image, relative to the item's folder, for
+        a proposal to sit on; empty when none has been saved yet."""
+        image = self._last_fib_image
+        if image is None or image.filepath is None:
+            return ""
+        return os.path.relpath(image.filepath, self.path)
+
+    def _milling_result_image_file(self, config: FibsemMillingTaskConfig) -> str:
+        """The FIB image a milling session left behind (the ``finished``
+        acquisition, when its config acquires one), relative to the item's
+        folder; empty when it saved none.
+
+        Looked for where the milling saved it -- its config's imaging path, the
+        run's ``Milling/<task>`` folder -- then in the item's folder. Only the
+        item's folder was searched, where the milling task never saves, so a
+        Fiducial that acquired after milling still took an extra frame to ask
+        its alignment area on."""
+        imaging = getattr(getattr(config, "acquisition", None), "imaging", None)
+        filename = str(getattr(imaging, "filename", "") or "")
+        if filename:
+            for folder in (getattr(imaging, "path", None), self.path):
+                if not folder:
+                    continue
+                for candidate in sorted(
+                    glob.glob(os.path.join(str(folder), f"{filename}*_ib.tif"))
+                ):
+                    return os.path.relpath(candidate, self.path)
+        return ""
+
+    def _validate_alignment_area(
+        self, *, image: str = "", enabled: bool = True
+    ) -> None:
+        """Check the alignment area with the operator before the alignment
+        reference is taken in it.
+
+        An ``alignment_area`` proposal on ``image`` -- the last FIB reference
+        image unless the caller names the frame -- decided by dragging the
+        rectangle on the Microscope tab's FIB view, then Continue; the decided
+        area is what the task acquires with. A rejection (an agent's) fails
+        the task. ``enabled`` is the task's own switch.
+        """
+        self.log_status_message(
+            "VALIDATE_ALIGNMENT_AREA", "Validating Alignment Image..."
+        )
+        decision = self.ask(
+            ALIGNMENT_AREA,
+            {"alignment_area": deepcopy(self.item.alignment_area)},
+            image=image or self._last_fib_image_file(),
+            message="Check the alignment area: the reference for later "
+            "alignments is taken in it. Drag it to correct it.",
+            enabled=enabled,
+        )
+        if decision.outcome is DecisionOutcome.Rejected:
+            raise RuntimeError(
+                f"{self.task_name} was rejected: {decision.reason or 'no reason given'}"
+            )
+        area = decision.values.get("alignment_area")
+        if isinstance(area, FibsemRectangle):
+            self.item.alignment_area = area
 
     # -- lifecycle -------------------------------------------------------------
 
