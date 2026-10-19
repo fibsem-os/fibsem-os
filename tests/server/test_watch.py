@@ -775,7 +775,10 @@ def test_a_question_held_before_the_watch_started_is_its_first_line(app):
     on: the question was asked before this watch began, so its event is
     behind the cursor (Patrick 2026-10-19: fix the reconnect, never take an
     answer unreviewed)."""
+    from types import SimpleNamespace
+
     from fibsem.workflows.proposals import STATE, Proposal
+    from fibsem.workflows.status import Hold, HoldKind
 
     exp = app.context._session.experiment
     lamella = exp.positions[0]
@@ -785,6 +788,10 @@ def test_a_question_held_before_the_watch_started_is_its_first_line(app):
         Proposal(kind=STATE, values={"stage_position": None}),
     )
     assert asked
+    app.context._session.runner.manager = SimpleNamespace(
+        hold=Hold(HoldKind.question, "answer it"),
+        queue=SimpleNamespace(items=[], version=0),
+    )
     app.set_running(True)
 
     code, lines = _watch({}, until=lambda lines: len(lines) >= 1)

@@ -281,7 +281,7 @@ class Hold:
     and ``WAITING_FOR_REVIEW``): who holds the run and what releases it.
     ``BaseTaskManager.held`` says it and a window's ``hold`` keeps it; None means
     the run is not held. Taken by whoever holds the run -- the responder for a
-    prompt it shows, the task manager for a question or a park -- and read by
+    prompt it shows, the task manager for a question -- and read by
     the window chrome: border colour, attention button, status-bar sentence.
     """
 
