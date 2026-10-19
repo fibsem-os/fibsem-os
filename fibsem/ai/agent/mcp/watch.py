@@ -169,11 +169,7 @@ def _print_events(events, since, out):
         data = event.get("payload") or {}
         since = max(since, event.get("seq", since))
         if kind == "question_asked":
-            out(
-                f"QUESTION item={data.get('item_name')} task={data.get('task_name')} "
-                "-- the run is stopped on a recorded question: find it in "
-                "review_list (holding_the_run) and decide it"
-            )
+            out(_question_line(data.get("item_name"), data.get("task_name")))
         elif kind == "question_released":
             out(
                 f"QUESTION RELEASED item={data.get('item_name')} "
@@ -328,6 +324,29 @@ def _counts(counts):
     return ", ".join((ran or ["nothing ran"]) + skipped)
 
 
+def _question_line(item_name, task_name):
+    return (
+        f"QUESTION item={item_name} task={task_name} "
+        "-- the run is stopped on a recorded question: find it in "
+        "review_list (holding_the_run) and decide it"
+    )
+
+
+def _held_questions(client):
+    """The questions a run is stopped on now, as (item_name, task_name), from
+    /app/workflow/status; empty when it cannot say."""
+    try:
+        response = client.request("GET", "/app/workflow/status", timeout=10.0)
+        if response.status_code >= 400:
+            return []
+        asking = response.json()["workflow"].get("asking") or []
+    except (OSError, HTTPException, ValueError, KeyError, AttributeError, TypeError):
+        return []
+    return [
+        (q.get("item_name"), q.get("task_name")) for q in asking if isinstance(q, dict)
+    ]
+
+
 def _run_is_live(client):
     """Whether /app/workflow/status says a run is going; None when it cannot say."""
     try:
@@ -373,6 +392,9 @@ def watch(client, out=None, sleep_fn=None, poll_s=POLL_S, clock=None, since=None
         out("NO EVENTS: the server has no event stream, so there is nothing to watch.")
         return 1
     stream = snapshot.get("stream")
+    # Started at the tail, a question asked before this watch began is behind
+    # the cursor: said below, first, while a run is live.
+    held_before = since is None
     if since is None:
         since = snapshot.get("latest_seq") or 0
     elif (snapshot.get("latest_seq") or 0) < since:
@@ -383,6 +405,10 @@ def watch(client, out=None, sleep_fn=None, poll_s=POLL_S, clock=None, since=None
     # fires none (FIB-1331). So while one is live, /app/workflow/status is the
     # backstop.
     workflow_live = _run_is_live(client) is True
+    if workflow_live and held_before:
+        # An agent that reconnects to a held run hears what it is held on.
+        for item_name, task_name in _held_questions(client):
+            out(_question_line(item_name, task_name))
     checked_at = clock()
 
     failures = 0

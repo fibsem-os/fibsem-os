@@ -40,6 +40,7 @@ from fibsem.workflows.proposals import (
     DecisionOutcome,
 )
 from fibsem.workflows.status import TaskStatus
+from tests.answering import answering
 
 SETUP = "Setup Lamella Position"
 ROUGH = "Rough Milling"
@@ -108,6 +109,13 @@ def _task(microscope, exp: Experiment) -> SelectMillingPositionTask:
     )
 
 
+def _run(task: SelectMillingPositionTask) -> None:
+    """Run the task with someone there to answer what it asks inline: a
+    supervised question waits for an answer, window or not."""
+    with answering(task.task_manager.experiment):
+        task.run()
+
+
 def _points(lamella) -> list:
     """Setup's point-of-interest proposals, leaving out the position
     confirmations and alignment area it also records."""
@@ -125,7 +133,7 @@ def test_under_review_the_task_records_a_proposal_and_awaits_a_decision(
         lamella.task_config[ROUGH].milling["mill_rough"].stages[0].pattern.point
     )
 
-    task.run()
+    _run(task)
 
     proposal = lamella.proposal(SETUP)
     assert proposal.kind == POINT_OF_INTEREST
@@ -164,7 +172,7 @@ def test_under_review_the_task_records_a_proposal_and_awaits_a_decision(
 def test_the_proposal_gates_the_consumer_until_it_is_decided(microscope, tmp_path):
     exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
     task = _task(microscope, exp)
-    task.run()
+    _run(task)
     manager = task.task_manager
     lamella = exp.positions[0]
     assert manager._defer_reason(lamella, ROUGH) == "awaiting_decision"
@@ -196,7 +204,7 @@ def test_the_proposal_carries_the_point_something_else_already_set(
     lamella.poi = Point(4e-6, -2e-6)
     task = _task(microscope, exp)
 
-    task.run()
+    _run(task)
 
     proposal = lamella.proposal(SETUP)
     assert proposal.values == {"poi": Point(4e-6, -2e-6)}
@@ -210,7 +218,7 @@ def test_a_deliberate_rerun_supersedes_a_decided_proposal(microscope, tmp_path):
     record. The confirmed point stays on the lamella until the new decision."""
     exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
     task = _task(microscope, exp)
-    task.run()
+    _run(task)
     lamella = exp.positions[0]
     exp.decide(
         lamella.id,
@@ -224,7 +232,7 @@ def test_a_deliberate_rerun_supersedes_a_decided_proposal(microscope, tmp_path):
     )
     decided = lamella.proposal(SETUP)
 
-    _task(microscope, exp).run()
+    _run(_task(microscope, exp))
 
     fresh = lamella.proposal(SETUP)
     assert fresh is not decided and fresh.pending
@@ -251,7 +259,7 @@ def test_automated_the_value_is_open_until_its_consumer_starts(microscope, tmp_p
         lambda item_id, task_name: heard.append(lamella.proposal(task_name).kind)
     )
 
-    task.run()
+    _run(task)
 
     proposal = lamella.proposal(SETUP)
     assert proposal.pending, "open"
@@ -285,13 +293,13 @@ def test_automated_the_value_is_open_until_its_consumer_starts(microscope, tmp_p
     assert heard[-1] == POINT_OF_INTEREST
 
     # A re-run of the task leaves the decided one on the record before it.
-    _task(microscope, exp).run()
+    _run(_task(microscope, exp))
     fresh = lamella.proposal(SETUP)
     assert fresh is not proposal and fresh.pending
     assert _points(lamella) == [proposal, fresh]
 
     # A re-run over an open one closes it as used-unreviewed, not dropped.
-    _task(microscope, exp).run()
+    _run(_task(microscope, exp))
     assert [p.unreviewed for p in _points(lamella)] == [False, True, False]
     assert "re-ran" in _points(lamella)[1].current.reason
 
@@ -309,7 +317,7 @@ def test_supervised_nobody_is_asked_for_the_point_while_it_runs(
     task = _task(microscope, exp)
     lamella = exp.positions[0]
 
-    task.run()
+    _run(task)
 
     proposal = lamella.proposal(SETUP)
     assert proposal.kind == POINT_OF_INTEREST and proposal.pending
@@ -327,7 +335,7 @@ def test_with_select_poi_off_the_point_is_not_proposed(microscope, tmp_path):
     lamella.task_config[SETUP].select_poi = False
     task = _task(microscope, exp)
 
-    task.run()
+    _run(task)
 
     assert _points(lamella) == []
     assert lamella.has_completed_task(SETUP)

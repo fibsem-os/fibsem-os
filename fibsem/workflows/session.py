@@ -118,9 +118,10 @@ class AppSession:
 
     def answerers(self) -> Tuple[ActorKind, ...]:
         """Who can answer a question now: each attached surface, and the agent
-        while the App Server serves it at Drive. Empty means nobody: a question
-        goes on the record for later instead of holding the run."""
-        from fibsem.ai.agent.levels import AgentLevel
+        while the App Server serves it at Drive and it is listening (heard in
+        the last ``AGENT_LISTENING_S``). Empty means nobody: a supervised
+        question still waits, for someone to come back."""
+        from fibsem.ai.agent.levels import AGENT_LISTENING_S, AgentLevel
 
         who = list(dict.fromkeys(self._answerers))
         host = self.app_server
@@ -131,7 +132,9 @@ class AppSession:
             and self.agent_auth.level is AgentLevel.DRIVE
             and AGENT not in who
         ):
-            who.append(AGENT)
+            seen = self.agent.seconds_since_seen()
+            if seen is not None and seen < AGENT_LISTENING_S:
+                who.append(AGENT)
         return tuple(who)
 
     def run_edit(self, call: Callable[[], Any]) -> "Future[Any]":

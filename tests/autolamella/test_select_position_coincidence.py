@@ -24,6 +24,7 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
 from fibsem.drivers.demo.sim_scene import SampleScene
 from fibsem.geometry.projection import BeamStageProjection
 from fibsem.structures import BeamType
+from tests.answering import answering
 from tests.autolamella._on_the_record import manager_for
 
 # Tens of seconds each on the simulator, so pull requests run these on one CI leg
@@ -93,7 +94,8 @@ def test_from_the_sem_orientation_the_task_ends_coincident_at_the_milling_angle(
     task = _make_task(microscope, tmp_path)
     before = _anchor_in_fib_view(microscope)
 
-    task._run()
+    with answering(task.task_manager.experiment):
+        task._run()
 
     from fibsem.transformations import get_stage_tilt_from_milling_angle
 

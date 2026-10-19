@@ -28,6 +28,7 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
 )
 from fibsem.milling import FibsemMillingStage
 from fibsem.milling.tasks import FibsemMillingTaskConfig
+from tests.answering import answering
 from tests.fixtures.main_window import main_window
 
 ROUGH = "Rough Milling"
@@ -154,7 +155,9 @@ def test_skip_records_a_skip(ui, qapp):
 def test_milling_turned_off_records_a_skip_without_a_window(ui):
     events = _milling_events(ui.microscope)
 
-    _task(ui, parent_ui=None, milling_enabled=False).run()
+    # Supervised with no window: the task's question waits, so it is answered.
+    with answering(ui.experiment):
+        _task(ui, parent_ui=None, milling_enabled=False).run()
 
     (skipped,) = events
     assert skipped["status"] == "skipped"
