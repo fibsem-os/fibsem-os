@@ -475,7 +475,6 @@ class AutoLamellaAppContext:
                 "queue_total": None,
                 "queue_version": None,
                 "held": None,
-                "asking": [],
             },
         }
         if experiment is not None:
@@ -484,18 +483,6 @@ class AutoLamellaAppContext:
                 "path": str(experiment.path),
                 "num_items": len(experiment.positions),
             }
-            # The questions a task is stopped on, for an agent that has just
-            # connected: their events are behind its cursor.
-            payload["workflow"]["asking"] = [
-                {
-                    "item_id": item.id,
-                    "item_name": item.name,
-                    "task_name": task_name,
-                    "proposal_id": proposal.id,
-                }
-                for item, task_name, proposal in experiment.pending_proposals()
-                if proposal.asking
-            ]
         manager = self._manager
         if manager is not None:
             items = manager.queue.items  # thread-safe copy under the queue's lock
@@ -508,13 +495,27 @@ class AutoLamellaAppContext:
             if active is not None:
                 payload["workflow"]["current_task"] = active.task_name
                 payload["workflow"]["current_item"] = active.item_name
-            # Who holds the run and what releases it: a question or a park.
+            # Who holds the run, what releases it, and the questions it is
+            # stopped on, for an agent that has just connected: their events
+            # are behind its cursor.
             hold = manager.hold
             if hold is not None:
                 payload["workflow"]["held"] = {
                     "kind": hold.kind.value,
                     "releases": hold.releases,
                     "items": list(hold.items),
+                    "questions": [
+                        {
+                            "item_id": item.id,
+                            "item_name": item.name,
+                            "task_name": task_name,
+                            "proposal_id": proposal.id,
+                        }
+                        for item, task_name, proposal in experiment.pending_proposals()
+                        if proposal.asking
+                    ]
+                    if experiment is not None
+                    else [],
                 }
         return payload
 
@@ -2325,10 +2326,9 @@ class AutoLamellaAppContext:
 
     @property
     def _latest_images(self):
-        """The session's latest image of each beam, which the window shows
-        once a microscope connects, else None: with no window, nothing takes
-        them."""
-        if self._window is None or self._microscope is None:
+        """The session's latest image of each beam, window or not; None
+        until a microscope connects."""
+        if self._microscope is None:
             return None
         return self._session.images
 
