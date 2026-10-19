@@ -1,6 +1,6 @@
 """What a task needs from a person, said before the run.
 
-A task declares what it asks while it runs (``questions``: the kinds it needs
+A task declares what it asks while it runs (``asks``: the kinds it needs
 answered before its next line, a mill's passes among them); the protocol says
 whether a person decides (``attention``). From those, one line per task: whether the operator
 has to be there while it runs. Nothing waits on a decision once a task ends.
@@ -60,8 +60,8 @@ class Attendance:
 
     task_name: str
     attention: Attention
-    # what needs a person at the microscope while the task runs: the
-    # questions it asks, in order
+    # what needs a person at the microscope while the task runs: the kinds
+    # it asks, in order
     present: Tuple[str, ...]
 
     @property

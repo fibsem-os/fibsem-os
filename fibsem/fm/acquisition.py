@@ -53,6 +53,7 @@ from fibsem.structures import (
     InsertableDeviceState,
     TileOrderStrategy,
 )
+from fibsem.util.timestamps import to_iso
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
@@ -213,7 +214,7 @@ def record_fluorescence_image(
         md = image.metadata
         payload: Dict[str, Any] = {
             "path": image.filepath,
-            "acquired_at": md.acquisition_date,  # the start, on the instrument's clock
+            "acquired_at": to_iso(md.acquisition_datetime),  # when it started
             "resolution": list(md.resolution) if md.resolution else None,
             "pixel_size": md.pixel_size_x,
             "channels": [

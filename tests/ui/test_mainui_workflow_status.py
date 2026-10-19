@@ -127,7 +127,7 @@ def test_a_status_event_snapshot_reaches_the_windows_own_timeline(main_ui):
         WorkflowStatusEvent(report=report)
     )
 
-    rows = [(i.item_name, i.task_name) for i in main_ui.workflow_timeline._items]
+    rows = [(i.item_name, i.task_name) for i in main_ui.workflow_tab.timeline._items]
     assert rows == [("lamella-03", "Trench"), ("lamella-04", "Trench")]
 
     # Reconcile back down to zero rows so the module-scoped window carries no
@@ -137,7 +137,7 @@ def test_a_status_event_snapshot_reaches_the_windows_own_timeline(main_ui):
             report=WorkflowStatusUpdate(queue_items=[]),
         )
     )
-    assert main_ui.workflow_timeline._items == []
+    assert main_ui.workflow_tab.timeline._items == []
 
 
 def test_a_status_event_refreshes_the_waiting_indicators(main_ui):

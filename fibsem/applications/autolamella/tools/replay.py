@@ -747,7 +747,7 @@ def find_fluorescence_images(root: Path) -> List[Path]:
 def _fluorescence_event(path: Path) -> Optional[ReplayEvent]:
     """An FM acquisition, placed by the time its own metadata records.
 
-    Reads the OME header only, not the pixels. ``acquisition_date`` is when
+    Reads the OME header only, not the pixels. ``acquisition_datetime`` is when
     the acquisition started, on the instrument's clock -- the same clock as
     the log -- so it is read as naive local time, like the log's timestamps.
     """
@@ -769,7 +769,10 @@ def _fluorescence_event(path: Path) -> Optional[ReplayEvent]:
                 metadata = json.loads(value)
             except ValueError:
                 pass
-    started = wall_time_of(metadata.get("acquisition_date"))
+    # acquisition_date: what images wrote before it was folded into acquisition_datetime
+    started = wall_time_of(
+        metadata.get("acquisition_datetime") or metadata.get("acquisition_date")
+    )
     if started is None and ome.images and ome.images[0].acquisition_date is not None:
         started = wall_time_of(ome.images[0].acquisition_date)
     if started is None:

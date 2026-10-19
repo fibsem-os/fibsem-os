@@ -63,7 +63,7 @@ def test_a_status_report_reaches_both_overview_lists(main_ui, tmp_path):
             stage_position=FibsemStagePosition(x=i * 1e-4, y=0, z=0, r=0, t=0),
             name=name,
         )
-    beam, fm = main_ui.beam_overview_tab, main_ui.fm_overview_tab
+    beam, fm = main_ui.overview_tab.beam_tab, main_ui.overview_tab.fm_tab
     assert beam.lamella_list._list.count() == 2 == fm.lamella_list._list.count()
     assert _statuses(beam) == ["", ""] == _statuses(fm)
 

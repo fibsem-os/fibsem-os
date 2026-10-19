@@ -22,6 +22,7 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+from fibsem.applications.autolamella.ui import workflow_tab
 from fibsem.applications.autolamella.workflows.tasks.reference_image import (
     AcquireReferenceImageConfig,
 )
@@ -72,7 +73,7 @@ def test_nothing_grid_aware_gets_in_the_way(main_ui, tmp_path, monkeypatch):
         assert not card._grid_label.isVisibleTo(card)
         assert card._action_move.isEnabled() and card._action_update.isEnabled()
         assert card._action_move.text() == "Move to Position"
-    workflow_list = main_ui.lamella_list_widget
+    workflow_list = main_ui.workflow_tab.lamella_workflow_widget.lamella_list
     for i in range(2):
         row = workflow_list._row(i)
         assert not row.grid_label.isVisibleTo(row)
@@ -82,24 +83,24 @@ def test_nothing_grid_aware_gets_in_the_way(main_ui, tmp_path, monkeypatch):
         assert row.action_move_to.isEnabled() and row.action_update.isEnabled()
 
     # The Overview canvas marks every lamella.
-    beam = main_ui.beam_overview_tab
+    beam = main_ui.overview_tab.beam_tab
     if beam.overview is not None:
         beam.refresh_positions()
         assert len(beam.overview.session.positions) == 2
 
     # Run: no refusal, straight to the confirmation.
     workflow_list.set_all_selected(True)
-    main_ui.lamella_workflow_widget.workflow.set_all_selected(True)
-    assert len(main_ui.lamella_workflow_widget.get_selected_lamella()) == 2
+    main_ui.workflow_tab.lamella_workflow_widget.workflow.set_all_selected(True)
+    assert len(main_ui.workflow_tab.lamella_workflow_widget.get_selected_lamella()) == 2
     warnings, confirmations = [], []
     monkeypatch.setattr(
         module.QMessageBox, "warning", lambda *a, **k: warnings.append(a[2])
     )
     monkeypatch.setattr(
-        module,
+        workflow_tab,
         "confirm_run_workflow_dialog",
         lambda *a, **k: (confirmations.append(a), False)[1],
     )
-    main_ui._on_run_workflow_clicked()
+    main_ui.workflow_tab.run()
     assert warnings == []
     assert len(confirmations) == 1

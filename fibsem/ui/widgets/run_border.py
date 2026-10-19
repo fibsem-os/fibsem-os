@@ -7,7 +7,8 @@ holds the frame.
 
 from __future__ import annotations
 
-from typing import Optional
+import weakref
+from typing import List, Optional
 
 from PyQt5.QtWidgets import QFrame, QVBoxLayout, QWidget
 
@@ -41,6 +42,7 @@ class RunBorder(QFrame):
         # The operator's Show Workflow Border switch.
         self.on = True
         self.agent_driving = False
+        self._mirrors: List[weakref.ref] = []
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -56,11 +58,33 @@ class RunBorder(QFrame):
     def set_on(self, on: bool) -> None:
         self.on = on
         self._paint()
+        self._push_to_mirrors()
 
     def set_agent_driving(self, driving: bool) -> None:
         if driving != self.agent_driving:
             self.agent_driving = driving
             self._paint()
+            self._push_to_mirrors()
+
+    def mirror_to(self, other: "RunBorder") -> None:
+        """*other* shows this border's switch and the agent's purple, now and
+        as they change. Its own state stays its own."""
+        self._mirrors = [
+            ref for ref in self._mirrors if ref() is not None and ref() is not other
+        ]
+        self._mirrors.append(weakref.ref(other))
+        self._push_to_mirrors()
+
+    def _push_to_mirrors(self) -> None:
+        for ref in self._mirrors:
+            other = ref()
+            if other is None:
+                continue
+            try:
+                other.set_on(self.on)
+                other.set_agent_driving(self.agent_driving)
+            except RuntimeError:  # its window has gone
+                pass
 
     @property
     def shown(self) -> str:

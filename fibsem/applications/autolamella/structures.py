@@ -873,7 +873,7 @@ class Lamella(ExperimentItem):
     defect: DefectState = field(default_factory=DefectState)
     milling_angle: Optional[float] = None
     poi: Point = field(
-        default_factory=lambda: Point(0, 0)
+        default_factory=lambda: Point(0.0, 0.0)
     )  # point of interest within lamella area (milling coordinate system)
     description: str = ""  # free-text note about the lamella
     # The grid this lamella sits on: GridRecord.id, or None when the experiment

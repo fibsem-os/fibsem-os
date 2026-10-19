@@ -279,6 +279,10 @@ def _default_strategy_config() -> MillingStrategyConfig:
     return _made_for(DEFAULT_STRATEGY, DEFAULT_STRATEGY.config_class())
 
 
+def _same_strategy(a: MillingStrategyConfig, b: MillingStrategyConfig) -> bool:
+    return a.strategy_name == b.strategy_name and a == b
+
+
 @dataclass
 class FibsemMillingStage(Configurable):
     name: str = "Milling Stage"
@@ -441,6 +445,17 @@ class FibsemMillingStage(Configurable):
             shapes = self.pattern.define()
         return shapes
 
+    def __eq__(self, other: object) -> bool:
+        # Two strategies can share a config class, so the config alone doesn't say
+        # which strategy a stage mills with.
+        if other.__class__ is not self.__class__:
+            return NotImplemented
+        return _same_strategy(self.strategy, other.strategy) and all(
+            getattr(self, f.name) == getattr(other, f.name)
+            for f in fields(self)
+            if f.compare and f.name != "strategy"
+        )
+
     def is_compatible_with(self, other: "FibsemMillingStage") -> bool:
         """Return True when both stages share milling settings and strategy. Compatible stages can be grouped together for milling."""
         if not isinstance(other, FibsemMillingStage):
@@ -449,7 +464,10 @@ class FibsemMillingStage(Configurable):
         if self.milling != other.milling:
             return False
 
-        return self.strategy == other.strategy and self.monitors == other.monitors
+        return (
+            _same_strategy(self.strategy, other.strategy)
+            and self.monitors == other.monitors
+        )
 
 
 def get_milling_stages(

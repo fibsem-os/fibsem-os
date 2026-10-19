@@ -113,7 +113,7 @@ def run_autofocus(
         >>> # Custom autofocus with specific channel and range
         >>> z_params = ZParameters(zmin=-20e-6, zmax=20e-6, zstep=1e-6)
         >>> channel = ChannelSettings(name="DAPI", excitation_wavelength=365,
-        ...                          emission_filter=EmissionFilter("450 nm", low=450), power=50, exposure_time=0.1)
+        ...                          emission_filter=EmissionFilter.band("450 nm", 450), power=50, exposure_time=0.1)
         >>> best_z = run_autofocus(microscope, channel, z_params, method='sobel')
 
         >>> # Autofocus on a specific region

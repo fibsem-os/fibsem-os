@@ -216,6 +216,7 @@ def test_both_stop_paths_interrupt_the_hardware_the_same_way():
     ui_dir = Path(fibsem.__path__[0]) / "applications" / "autolamella" / "ui"
     autolamella_ui = (ui_dir / "AutoLamellaUI.py").read_text(encoding="utf-8")
     main_ui = (ui_dir / "AutoLamellaMainUI.py").read_text(encoding="utf-8")
+    workflow_tab = (ui_dir / "workflow_tab.py").read_text(encoding="utf-8")
 
     def body(source: str, name: str) -> str:
         """The text of one method, up to the next def at the same indent."""
@@ -237,4 +238,5 @@ def test_both_stop_paths_interrupt_the_hardware_the_same_way():
     task_stop = body(autolamella_ui, "stop_current_task")
     assert "runner.stop_task(" in task_stop
     assert "stop_current_operations()" in task_stop
-    assert "stop_current_task(" in body(main_ui, "_on_queue_action")
+    assert "self._stop_task(" in body(workflow_tab, "_on_queue_action")
+    assert "stop_task=ui.stop_current_task" in main_ui

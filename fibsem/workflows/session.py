@@ -2,7 +2,7 @@
 
 An :class:`AppSession` holds what a session of an application is: the
 microscope it is connected to, the experiment it has open, the event stream of
-that connection, whoever answers the run's questions, where an edit to the
+that connection, whoever carries out the run's instructions in a window, where an edit to the
 experiment runs, the run controller, and the App Server over them when one is
 hosted. A window
 attaches to it as one client and reads and writes these through it; a headless
@@ -62,9 +62,8 @@ class AppSession:
         # Where what is done is recorded while no application's experiment is
         # open: a plain FibsemExperiment, made the first time the agent may act.
         self.plain_experiment: Optional[Any] = None
-        # Whoever answers the run's questions: the window's QtResponder, or a
-        # server-side one when there is no window. The recorder records the
-        # prompts it puts up.
+        # Whoever carries out the run's instructions (show these images, clear
+        # the milling editor): the window's QtResponder, or none headless.
         self.responder = responder
         # The connection's event stream (FIB-1031): made when a microscope
         # connects, whatever else runs, and recorded to events.jsonl in the

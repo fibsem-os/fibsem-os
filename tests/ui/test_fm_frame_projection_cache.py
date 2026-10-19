@@ -170,7 +170,7 @@ class TestTheProjectionIsKept:
         preview = FluorescenceImage(
             data=np.zeros((1, 64, 64), np.uint8),
             metadata=FluorescenceImageMetadata(
-                acquisition_date="2026-08-25T09:00:00",
+                acquisition_datetime="2026-08-25T09:00:00",
                 pixel_size_x=4e-7,
                 pixel_size_y=4e-7,
                 channels=[

@@ -22,7 +22,7 @@ from fibsem.ui.fm.widgets.emission_filter_combo import (  # noqa: E402
     EmissionFilterComboBox,
 )
 
-BLUE = EmissionFilter("425–475 nm", low=425.0, high=475.0)
+BLUE = EmissionFilter.band("425–475 nm", 425.0, 475.0)
 DUAL = EmissionFilter("505–535 / 600–650 nm", bands=[(505, 535), (600, 650)])
 FILTERS = [REFLECTION, BLUE, DUAL]
 
@@ -68,7 +68,7 @@ def test_items_show_the_filters(qapp):
 
 def test_a_channel_saved_by_bottom_edge_finds_its_filter(qapp):
     combo = EmissionFilterComboBox(items=FILTERS)
-    assert combo.index_of(EmissionFilter("505 nm", low=505.0)) == 2
+    assert combo.index_of(EmissionFilter.band("505 nm", 505.0)) == 2
     assert combo.index_of(REFLECTION) == 0
 
 
@@ -83,7 +83,7 @@ def test_the_settings_panel_sets_the_channel_filter(qapp):
 
     widget = ChannelSettingsWidget(fm=_FM())
     channel = ChannelSettings(
-        name="GFP", emission_filter=EmissionFilter("505 nm", low=505.0)
+        name="GFP", emission_filter=EmissionFilter.band("505 nm", 505.0)
     )
     widget.set_channel(channel)
     assert widget.emission_combo.currentText() == "505–535 / 600–650 nm"

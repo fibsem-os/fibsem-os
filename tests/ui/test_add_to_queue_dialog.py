@@ -24,7 +24,7 @@ from datetime import datetime, timedelta
 
 from PyQt5.QtWidgets import QDialog, QLabel
 
-from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
+from fibsem.applications.autolamella.ui.workflow_tab import (
     confirm_add_to_queue_dialog,
 )
 from fibsem.ui.stylesheets import NAPARI_STYLE
@@ -251,15 +251,15 @@ def test_cancel_is_the_default_button(show):
 def test_all_three_dialogs_quote_time_the_same_way(show):
     """This one, the pre-flight dialog and the timeline all describe the same workflow;
     they cannot use different formatters and stay believable."""
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as main_ui
     from fibsem.applications.autolamella.ui import workflow_preflight_dialog as dialog
+    from fibsem.applications.autolamella.ui import workflow_tab
     from fibsem.applications.autolamella.ui import workflow_timeline_widget as timeline
     from fibsem.ui.widgets import preflight
     from fibsem.util import durations
 
-    for module in (main_ui, dialog, timeline):
+    for module in (workflow_tab, dialog, timeline):
         assert module.format_duration_rounded is durations.format_duration_rounded
-    assert main_ui.preflight.format_clock is preflight.format_clock
+    assert workflow_tab.preflight.format_clock is preflight.format_clock
 
 
 # ── the note must not invent a wait ───────────────────────────────────────────

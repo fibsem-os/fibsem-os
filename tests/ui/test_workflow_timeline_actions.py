@@ -206,7 +206,7 @@ def test_rows_added_later_inherit_the_current_setting(widget, queue):
 
 
 def test_each_action_does_what_the_menu_says(queue):
-    """Guards the mapping in AutoLamellaMainUI._on_queue_action."""
+    """Guards the mapping in WorkflowTab._on_queue_action."""
     queue.next()  # item 0 running; 1, 2, 3 pending
     last = queue.pending[-1]
 
@@ -247,12 +247,10 @@ def test_run_again_queues_a_fresh_item_without_touching_the_original(queue):
 
 
 def describe(action: str, edit) -> str:
-    from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
-        AutoLamellaSingleWindowUI,
-    )
+    from fibsem.applications.autolamella.ui.workflow_tab import WorkflowTab
     from fibsem.workflows.queue import WorkItem
 
-    return AutoLamellaSingleWindowUI._queue_action_message(
+    return WorkflowTab._queue_action_message(
         action, WorkItem(item_name="L1", task_name="Trench"), edit
     )
 
@@ -321,9 +319,7 @@ def _window(queue, experiment=None, microscope=None):
     is ``queue``'s."""
     from types import SimpleNamespace
 
-    from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
-        AutoLamellaSingleWindowUI,
-    )
+    from fibsem.applications.autolamella.ui.workflow_tab import WorkflowTab
     from fibsem.workflows.runner import ITEMS
     from tests.run_state import stub_session
 
@@ -336,12 +332,12 @@ def _window(queue, experiment=None, microscope=None):
         ITEM_NOUN="lamellae",
     )
     window = SimpleNamespace(
-        autolamella_ui=SimpleNamespace(session=stub_session(manager)),
+        _session=stub_session(manager),
         messages=[],
-        _queue_action_message=AutoLamellaSingleWindowUI._queue_action_message,
+        _queue_action_message=WorkflowTab._queue_action_message,
     )
     window._show_queue_message = window.messages.append
-    return window, AutoLamellaSingleWindowUI._on_queue_action
+    return window, WorkflowTab._on_queue_action
 
 
 def test_a_row_that_started_running_says_so_rather_than_nothing(queue):

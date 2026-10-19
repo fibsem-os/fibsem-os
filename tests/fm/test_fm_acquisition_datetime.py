@@ -1,10 +1,10 @@
 """Every fluorescence image records when it was acquired, with its UTC offset.
 
 `FM.acquire_frame` stamps the frame as the acquisition starts, as `Beam.acquire` does
-for a beam image, and `acquisition_datetime` carries it into the image; the legacy
-`acquisition_date` keeps the same value for OME and odemis. Older images, whose
-`acquisition_date` is the acquiring machine's clock time alone, still load and read
-through `acquisition_datetime_of` without being given a zone they never had.
+for a beam image, and `acquisition_datetime` carries it into the image. Older images,
+which wrote `acquisition_date` with the acquiring machine's clock time alone, still
+load and read through `acquisition_datetime_of` without being given a zone they never
+had.
 """
 
 import os
@@ -44,8 +44,6 @@ def test_an_acquired_image_records_when_with_its_offset(fm):
     md = image.metadata
     assert zone_known(md.acquisition_datetime)
     assert before <= md.acquisition_datetime <= after
-    # The legacy field, still written, with the same value.
-    assert md.acquisition_date == md.acquisition_datetime.isoformat()
 
 
 def test_a_frame_without_an_offset_gets_the_time_the_acquisition_started(fm):
@@ -115,20 +113,15 @@ def test_ome_records_the_instant(fm, tmp_path):
 def test_an_older_image_keeps_its_clock_time_and_no_zone(name):
     image = FluorescenceImage.load(os.path.join(LEGACY, name))
     md = image.metadata
-    assert md.acquisition_datetime is None
     when = acquisition_datetime_of(md)
-    assert when is not None and when.tzinfo is None
-    assert when == datetime.fromisoformat(md.acquisition_date)
+    assert when == md.acquisition_datetime == datetime(2026, 9, 23, 10, 0)
     # Displayed as it was before: the acquiring machine's clock, unmoved.
-    expected = datetime.fromisoformat(md.acquisition_date).strftime("%Y-%m-%d %H:%M")
-    assert format_time(when) == expected
+    assert format_time(when) == "2026-09-23 10:00"
     # and survives a save without gaining a zone it never had
     again = FluorescenceImageMetadata.from_dict(md.to_dict())
-    assert again.acquisition_datetime is None
-    assert again.acquisition_date == md.acquisition_date
+    assert again.acquisition_datetime == md.acquisition_datetime
 
 
 def test_an_image_built_rather_than_acquired_has_no_acquisition_time():
     image = FluorescenceImage.generate_blank_image(resolution=(8, 8))
     assert image.metadata.acquisition_datetime is None
-    assert zone_known(image.metadata.acquisition_date)

@@ -37,7 +37,6 @@ from fibsem.fm.structures import (
     safe_ome_from_tiff,
     to_czyx,
 )
-from fibsem.util.timestamps import iso_from_posix, now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -382,14 +381,9 @@ def build_image(
             )
         )
         channels.append(replace(base, name=str(name), color=str(colour)))
-    # The file's modification time, which is all an imported file says: not an
-    # acquisition time, so `acquisition_datetime` is left unset (FIB-1190).
-    try:
-        stamp = iso_from_posix(os.path.getmtime(source.path))
-    except OSError:
-        stamp = now_iso()
+    # An imported file says only when it was modified, which is not an acquisition
+    # time, so `acquisition_datetime` is left unset (FIB-1190).
     metadata = FluorescenceImageMetadata(
-        acquisition_date=stamp,
         pixel_size_x=float(pixel_size),
         pixel_size_y=float(pixel_size),
         resolution=(width, height),

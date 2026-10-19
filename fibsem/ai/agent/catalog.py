@@ -2241,6 +2241,9 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
         },
     ),
     "beam_auto_contrast": lambda a: ({}, _kwargs(**_beam(a))),
+    "correlation_correlate": lambda a: ({}, _kwargs(**a)),
+    "correlation_refine_point": lambda a: ({}, _kwargs(**a)),
+    "correlation_predict": lambda a: ({}, _kwargs(**a)),
     "beam_auto_focus": _auto_focus,
     "fm_auto_focus": lambda a: (
         {},
