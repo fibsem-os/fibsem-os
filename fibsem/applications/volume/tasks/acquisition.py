@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import ClassVar, Dict
+from typing import ClassVar
 
 from fibsem import acquire
 from fibsem.applications.volume.position import SEM_POSE, SEM_REFERENCE
@@ -54,7 +54,6 @@ class VolumeSEMAcquisitionTask(VolumeTask):
 
     config_cls = VolumeSEMAcquisitionTaskConfig
     config: VolumeSEMAcquisitionTaskConfig
-    result_images: ClassVar[Dict[str, str]] = {"reference_image": SLICE_ROLE}
 
     def _run(self) -> None:
         self._move_to_pose(SEM_POSE)
