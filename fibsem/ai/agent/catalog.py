@@ -2469,11 +2469,17 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
 
 
 def route_call(
-    spec: ToolSpec, arguments: Dict[str, Any]
+    spec: ToolSpec,
+    arguments: Dict[str, Any],
+    encode: Callable[[str], str] = lambda value: value,
 ) -> Tuple[str, str, Optional[dict]]:
     """The route call (method, path, body) a tool call stands for: the path's
     parameters from the arguments, the rest as the JSON body. Raises ValueError
-    for a missing path parameter or a malformed argument."""
+    for a missing path parameter or a malformed argument.
+
+    ``encode`` is applied to each path parameter: a client sending the path
+    over HTTP percent-encodes them; a call into the ASGI app passes the decoded
+    path and leaves them as they are."""
     args = dict(arguments)
     shape = _CALLS.get(spec.name)
     if shape is not None:
@@ -2487,7 +2493,7 @@ def route_call(
         raise ValueError(f"{spec.name} needs {', '.join(missing)} (strings)")
     path = spec.path
     for name in names:
-        path = path.replace("{" + name + "}", args.pop(name))
+        path = path.replace("{" + name + "}", encode(args.pop(name)))
     if shape is None:
         body = args
     return spec.method, path, body or None
