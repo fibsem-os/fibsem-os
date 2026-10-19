@@ -711,9 +711,9 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
             image: FluorescenceImage = ddict.get("image", None)  # type: ignore
             if image is not None and self.image_path is not None:
                 # convert timestamp from isoformat to formatted string
-                timestamp = datetime.datetime.fromisoformat(
-                    image.metadata.acquisition_date
-                ).strftime(constants.DATETIME_FILE_NANO)
+                timestamp = image.metadata.acquisition_datetime.strftime(
+                    constants.DATETIME_FILE_NANO
+                )
                 filename = os.path.join(
                     self.image_path, f"fm-coincidence-{timestamp}.ome.tiff"
                 )

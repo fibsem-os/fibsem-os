@@ -28,7 +28,7 @@ import numpy as np
 
 from fibsem import acquire, alignment, constants, utils
 from fibsem import config as fcfg
-from fibsem.acting import AGENT, OPERATOR, Actor
+from fibsem.acting import AGENT, OPERATOR
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MILL_POLISHING_KEY,
@@ -55,6 +55,13 @@ from fibsem.applications.autolamella.workflows.ui import (
 )
 from fibsem.cancellation import SKIPPED
 from fibsem.detection import detection as detection_module
+from fibsem.detection.decided import (
+    decided_features,
+    detection_image_file,
+    detection_provenance,
+    detection_values,
+    record_training_data,
+)
 from fibsem.detection.detection import (
     DetectedFeatures,
     Feature,
@@ -62,13 +69,6 @@ from fibsem.detection.detection import (
     LamellaCentre,
     LamellaTopEdge,
     VolumeBlockCentre,
-)
-from fibsem.detection.review import (
-    decided_features,
-    detection_image_file,
-    detection_provenance,
-    detection_values,
-    record_training_data,
 )
 from fibsem.devices.beam import nearest_resolution
 from fibsem.fm.structures import ChannelSettings
@@ -109,8 +109,6 @@ from fibsem.workflows.proposals import (
     ALIGNMENT_AREA,
     DETECTION,
     MILLING,
-    TASK_RESULT,
-    Decision,
     DecisionOutcome,
 )
 from fibsem.workflows.status import TaskState, TaskStatus
@@ -137,12 +135,6 @@ class AutoLamellaTask(BaseTask):
 
     config_cls: ClassVar[AutoLamellaTaskConfig]
     config: AutoLamellaTaskConfig
-    # The last final ion and electron images. The last is the tightest field
-    # of view, the one a reviewer is shown.
-    result_images: ClassVar[Dict[str, str]] = {
-        "reference_image": "final_fib",
-        "reference_image_eb": "final_sem",
-    }
     item_type: ClassVar[str] = "lamella"
 
     def __init__(
@@ -196,7 +188,7 @@ class AutoLamellaTask(BaseTask):
         protocol supervises it and the operator is attached (a window) to
         answer. The run's experiment says the first, the session the second."""
         manager = self.task_manager
-        if manager is None or OPERATOR not in manager.answerers():
+        if manager is None or OPERATOR not in manager.deciders():
             return False
         return get_task_supervision(self.task_name, manager.experiment)
 
@@ -461,10 +453,6 @@ class AutoLamellaTask(BaseTask):
             record_milling_skipped(
                 self.microscope, config, "skipped at the milling question"
             )
-        if milling_enabled and watched is not None:
-            # Someone watched the mill and accepted it (or skipped it) in the
-            # workflow.
-            self._decided_in_the_workflow(watched.actor)
         return config
 
     def _mill(self, config: FibsemMillingTaskConfig) -> Optional[Exception]:
@@ -489,17 +477,6 @@ class AutoLamellaTask(BaseTask):
                 f"{len(config.enabled_stages)} stages completed.",
             )
         return task.error
-
-    def _decided_in_the_workflow(self, actor: Actor) -> None:
-        """``actor`` answered this run's session in the workflow: a mill's
-        Accept, a setup's Save. That is the decision on the run's result,
-        recorded as theirs rather than the producer's own: nobody is asked to
-        check a result they already looked at."""
-        self.inline_decision = Decision(
-            outcome=DecisionOutcome.Confirmed,
-            actor=actor,
-            via="workflow",
-        )
 
     def _set_milling_config_ui(self, milling_config: FibsemMillingTaskConfig):
         """Set the milling config in the milling widget."""

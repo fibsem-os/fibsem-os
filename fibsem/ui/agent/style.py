@@ -9,9 +9,9 @@ from fibsem.ui.tokens import (
     BORDER_COLOR,
     PURPLE_COLOR,
     RED_COLOR,
-    REVIEW_COLOR,
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
+    WAITING_COLOR,
 )
 
 CHIP = """
@@ -48,12 +48,11 @@ def pulse_chip(strength: float) -> str:
     )
 
 
-# Something waiting for the operator, or being applied: amber, as the Review
-# tab's waiting decisions.
+# Something waiting for the operator, or being applied.
 REQUEST_CHIP = CHIP.format(
     color=TEXT_STRONG_COLOR,
-    background=_tint(REVIEW_COLOR, 0.30),
-    border=f"1px solid {REVIEW_COLOR}",
+    background=_tint(WAITING_COLOR, 0.30),
+    border=f"1px solid {WAITING_COLOR}",
 )
 
 # Stop agent: the chip's shape, outlined red as the queue's Stop Task.

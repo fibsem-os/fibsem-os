@@ -22,6 +22,7 @@ from fibsem.fm.structures import (
     FluorescenceImage,
     FluorescenceImageMetadata,
 )
+from fibsem.imaging.overview_session import OverviewSession
 from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition, ImageSettings
 from fibsem.ui.widgets.overview_widget import FibsemOverviewWidget
 
@@ -69,7 +70,7 @@ def _fm_image(scope):
     image = FluorescenceImage(
         data=data,
         metadata=FluorescenceImageMetadata(
-            acquisition_date="2026-09-24T10:00:00",
+            acquisition_datetime="2026-09-24T10:00:00",
             pixel_size_x=1e-6,
             pixel_size_y=1e-6,
             stage_position=FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=pose.r, t=pose.t),
@@ -90,7 +91,7 @@ def _fm_image(scope):
 
 
 def _widget(scope, view=SQUARE):
-    w = FibsemOverviewWidget(scope)
+    w = FibsemOverviewWidget(OverviewSession(scope))
     w.resize(900, 700)
     w.set_image(_beam_image(scope, *view))
     key = w.add_aligned_image(_fm_image(scope), label="fm")

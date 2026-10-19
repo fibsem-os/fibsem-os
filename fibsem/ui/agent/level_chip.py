@@ -9,11 +9,10 @@ log). No menu and no dialog.
 
 At Assist the agent acts by asking (FIB-1283). While its request waits, the chip
 turns amber, "Agent asks", and the card shows the request. Only one request waits
-at a time, so the chip carries no count. A suggested answer to the run's question
+at a time, so the chip carries no count. A suggestion on the pending proposal
 says "Agent suggests" in its level's look, not amber (the run's Attention
-Required already is), and the card shows it with Accept
-(FIB-1407). Either one opens the card on its own, floating, so it is seen without
-a click (`show_card`).
+Required already is), and the card shows it with Approve. Either one opens
+the card on its own, floating, so it is seen without a click (`show_card`).
 
 While the agent acts on the microscope (the card's Now line), the chip pulses.
 
@@ -51,9 +50,9 @@ from fibsem.ui.agent.style import (
 from fibsem.ui.tokens import (
     BORDER_COLOR,
     PURPLE_COLOR,
-    REVIEW_COLOR,
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
+    WAITING_COLOR,
 )
 
 __all__ = [
@@ -201,8 +200,8 @@ class AgentLevelChip(QPushButton):
     event_log_clicked = pyqtSignal()
     approve_clicked = pyqtSignal(str)  # request id
     reject_clicked = pyqtSignal(str, str)  # request id, the operator's reason
-    accept_clicked = pyqtSignal()  # the suggestion shown
-    dismiss_clicked = pyqtSignal(str)  # the suggestion shown, the operator's why
+    suggestion_approved = pyqtSignal()  # the suggestion shown
+    suggestion_declined = pyqtSignal(str)  # the suggestion shown, the operator's why
     message_sent = pyqtSignal(str)  # the operator's message to the agent
 
     def __init__(
@@ -231,8 +230,8 @@ class AgentLevelChip(QPushButton):
         self.card.connect_clicked.connect(self._closing(self.connect_clicked))
         self.card.approve_clicked.connect(self._on_approve)
         self.card.reject_clicked.connect(self._on_reject)
-        self.card.accept_clicked.connect(self._closing(self.accept_clicked))
-        self.card.dismiss_clicked.connect(self._on_dismiss)
+        self.card.suggestion_approved.connect(self._closing(self.suggestion_approved))
+        self.card.suggestion_declined.connect(self._on_decline)
         # The card stays open: the operator may write again.
         self.card.message_sent.connect(self.message_sent)
         self.card.float_clicked.connect(self._on_float_clicked)
@@ -293,7 +292,7 @@ class AgentLevelChip(QPushButton):
         return self._suggestion
 
     def set_suggestion(self, suggestion: Optional[Dict[str, str]]) -> None:
-        """Show the agent's suggested answer (see `AgentCard.set_suggestion`),
+        """Show the agent's suggestion (see `AgentCard.set_suggestion`),
         or None for none. Does not emit: this is the window telling the chip."""
         arrived = suggestion is not None and dict(suggestion) != self._suggestion
         self._suggestion = dict(suggestion) if suggestion is not None else None
@@ -350,11 +349,9 @@ class AgentLevelChip(QPushButton):
             tooltip = "The agent is asking: click to see what, and decide"
         elif self._suggestion is not None:
             # Not amber: the run's Attention Required already is, for the same
-            # question, and the card opens itself with the suggestion.
+            # proposal, and the card opens itself with the suggestion.
             text = "Agent suggests"
-            tooltip = (
-                "The agent suggests an answer to the run's question: click to see it"
-            )
+            tooltip = "The agent suggests a decision on the proposal: click to see it"
         elif self._pulse.isActive():
             # Full at the start and end of a cycle, faintest halfway.
             phase = 2 * math.pi * self._pulse_ms / PULSE_MS
@@ -474,9 +471,9 @@ class AgentLevelChip(QPushButton):
         self.popup.close()
         self.approve_clicked.emit(request_id)
 
-    def _on_dismiss(self, reason: str) -> None:
+    def _on_decline(self, reason: str) -> None:
         self.popup.close()
-        self.dismiss_clicked.emit(reason)
+        self.suggestion_declined.emit(reason)
 
     def _on_reject(self, request_id: str, reason: str) -> None:
         self.popup.close()

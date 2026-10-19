@@ -69,8 +69,9 @@ The `/app` routes sort by what they act on:
   its `task_config` and `outputs`), `grids/{grid}`, `images`, `notes` and
   `task_history`.
 - `/app/workflow`: the workflow. `status`, `queue`, `summary`, `start`,
-  `stop`, `schedule`, `options`, and the questions the run asks: `prompt`,
-  `prompt/answer`, `prompt/suggest`, `decide`, `reviews`.
+  `stop`, `schedule`, `options`, the proposals the run is stopped on:
+  `proposals`, `decide`, and the old prompt: `prompt`, `prompt/answer`,
+  `prompt/suggest`.
 - `/app/agent`: the agent's own requests: `requests`.
 - `events` and `log` stay at `/app`: they cover the whole session.
 

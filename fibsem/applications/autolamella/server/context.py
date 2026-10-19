@@ -41,6 +41,7 @@ from fibsem.applications.autolamella.config_edits import (
     config_version,
     find_item,
     item_fields_version,
+    item_patch_refusal,
     item_pose_positions,
 )
 from fibsem.server.files import jpeg_preview
@@ -226,15 +227,6 @@ def _attendance_line(task_protocol: Any, task_name: str) -> str:
     return att.line if att is not None else ""
 
 
-def _response_for(request, parsed, response: bool) -> bool:
-    """The yes/no an answer stands for: the value's, when its action says (the
-    milling question), else the answer's own."""
-    if parsed is None:
-        return bool(response)
-    said = request.response_for(parsed)
-    return bool(response) if said is None else said
-
-
 class AppWindow(Protocol):
     """The window side of the context: what a window attached to the session
     does that the session cannot. Every method runs where the experiment is
@@ -404,7 +396,7 @@ class AutoLamellaAppContext:
                 "path": str(experiment.path),
                 "num_items": len(experiment.positions),
             }
-            # The questions a task is stopped on, for an agent that has just
+            # The proposals a task is stopped on, for an agent that has just
             # connected: their events are behind its cursor.
             payload["workflow"]["asking"] = [
                 {
@@ -1769,6 +1761,41 @@ class AutoLamellaAppContext:
             return None
         return describe_patch(config, arguments.get("patch"))
 
+    def check_action(self, tool: str, arguments: Dict[str, Any]) -> Optional[str]:
+        """Why a config edit in an agent's request would be refused when it
+        runs, checked at filing so the operator never approves one that can only
+        fail. None for any other action, or one whose target the route itself
+        refuses (no such item or task)."""
+        from fibsem.server.config_patch import PatchError, check_patch
+
+        experiment = self._experiment
+        patch = arguments.get("patch")
+        if experiment is None or not isinstance(patch, dict):
+            return None
+        task_name = arguments.get("task_name")
+        if tool == "item_update":
+            lamella = experiment.get_lamella_by_name(arguments.get("item_name"))
+            return item_patch_refusal(lamella, patch) if lamella else None
+        if tool == "item_update_task_config":
+            lamella = experiment.get_lamella_by_name(arguments.get("item_name"))
+            configs = getattr(lamella, "task_config", None) if lamella else None
+        elif tool == "protocol_update_task_config":
+            protocol = getattr(experiment, "task_protocol", None)
+            configs = getattr(protocol, "task_config", None) if protocol else None
+        elif tool == "protocol_update_grid_task_config":
+            protocol = getattr(experiment, "grid_protocol", None)
+            configs = getattr(protocol, "task_config", None) if protocol else None
+        else:
+            return None
+        config = dict(configs).get(task_name) if configs is not None else None
+        if config is None:
+            return None
+        try:
+            check_patch(config, patch)
+        except PatchError as exc:
+            return str(exc)
+        return None
+
     def apply_item_patch(
         self,
         item_name: str,
@@ -1846,22 +1873,20 @@ class AutoLamellaAppContext:
             applied["run_path"] = run_path
         return applied
 
-    # --- propose and review (FIB-950) -----------------------------------------
+    # --- proposals and decisions (FIB-950) ------------------------------------
 
-    def reviews(self) -> Dict[str, Any]:
-        """Every question waiting for an answer, derived from the experiment,
-        with the reference image each proposal's values sit on as an
-        agent-sized preview."""
+    def proposals(self) -> Dict[str, Any]:
+        """Every pending proposal, derived from the experiment, with the
+        reference image its values sit on as an agent-sized preview."""
         experiment = self._experiment
         if experiment is None:
-            return {"available": False, "reviews": []}
-        from fibsem.applications.autolamella.review_images import (
+            return {"available": False, "proposals": []}
+        from fibsem.applications.autolamella.reference_images import (
             load_reference_image,
-            review_preview,
+            preview_of,
         )
-        from fibsem.applications.autolamella.server.prompts import _preview_payload
+        from fibsem.applications.autolamella.server.image_payloads import image_payload
         from fibsem.workflows.events import to_plain
-        from fibsem.workflows.proposals import rejected_fails_task
 
         def describe(item, task_name, proposal):
             doc = to_plain(proposal.to_dict())
@@ -1870,35 +1895,23 @@ class AutoLamellaAppContext:
                     "item_id": item.id,
                     "item_name": item.name,
                     "task_name": task_name,
-                    # what this is; review_decide passes it back. The run is
-                    # here as a fact about it, and still names it for a caller
-                    # that has not learned the id.
+                    # what this is; proposal_decide passes it back. The run
+                    # is here as a fact about it, and still names it for a
+                    # caller that has not learned the id.
                     "proposal_id": proposal.id,
                     "task_id": proposal.task_id,
-                    # The task that made it is stopped on the answer: nothing
-                    # else runs until it is decided, so it comes first.
-                    "holding_the_run": bool(proposal.asking),
-                    # What Rejected does, as the kind declares it: fail the
-                    # task, or (a state question) "don't" and carry on.
-                    "rejected_fails_task": rejected_fails_task(proposal.kind),
                 }
             )
             image = load_reference_image(experiment, item, proposal)
             # a fluorescence result is shown as its channel composite
-            preview = review_preview(image) if image is not None else None
+            preview = preview_of(image) if image is not None else None
             doc["reference_image"] = (
-                _preview_payload(preview) if preview is not None else None
-            )
-            electron = load_reference_image(
-                experiment, item, proposal, "reference_image_eb"
-            )
-            doc["reference_image_eb"] = (
-                _preview_payload(electron) if electron is not None else None
+                image_payload(preview) if preview is not None else None
             )
             return doc
 
-        reviews = [describe(*entry) for entry in experiment.pending_proposals()]
-        return {"available": True, "reviews": reviews}
+        proposals = [describe(*entry) for entry in experiment.pending_proposals()]
+        return {"available": True, "proposals": proposals}
 
     def decide(
         self,
@@ -1924,8 +1937,8 @@ class AutoLamellaAppContext:
         ``stages.Polish 1.pattern.depth``.
 
         ``proposal_id`` is the proposal the agent was shown (from
-        get_pending_reviews), and what the decision is checked against: a task
-        may ask several questions in one run, and only the id tells the one
+        proposal_list), and what the decision is checked against: a task
+        may ask several proposals in one run, and only the id tells the one
         that was shown from the one that replaced it. ``task_id``, the run, is
         accepted in its place from a caller that has not learned the id, and
         is checked the way it always was. One of them is needed; a stale one
@@ -1990,16 +2003,66 @@ class AutoLamellaAppContext:
         result = experiment.decide(item_id, task_name, decision)
         doc = result.to_dict()
         doc["available"] = True
+        return doc
+
+    def suggest(
+        self,
+        item_id: str,
+        task_name: str,
+        proposal_id: str,
+        reason: str,
+        outcome: str = "Confirmed",
+        values: Optional[Dict[str, Any]] = None,
+        patch: Optional[Dict[str, Any]] = None,
+        action: str = "",
+        image: Optional[str] = None,
+        actor: str = "",
+    ) -> Dict[str, Any]:
+        """Suggest a decision on a pending proposal, for the operator to
+        approve or decline in the window. Nothing is decided. Checked as the
+        decision would be, so one that could not be approved is refused now."""
+        experiment = self._experiment
+        if experiment is None:
+            return {"available": False, "applied": False, "reason": "No experiment."}
+        from fibsem.workflows.proposals import (
+            DecisionOutcome,
+            Suggestion,
+            _decode_values,
+        )
+
+        if outcome not in ("Confirmed", "Rejected"):
+            return {
+                "available": True,
+                "applied": False,
+                "error_type": "invalid_value",
+                "reason": f"outcome is Confirmed or Rejected, not {outcome!r}",
+            }
+        try:
+            decoded = _decode_values(values or {})
+        except Exception as exc:  # noqa: BLE001 - any bad document is refused
+            return {
+                "available": True,
+                "applied": False,
+                "error_type": "invalid_value",
+                "reason": f"values could not be read: {exc}",
+            }
+        if image:
+            root = self.experiment_path
+            image = os.path.relpath(image, root) if root else image
+        suggestion = Suggestion(
+            actor=Actor.agent(actor or "remote"),
+            reason=reason,
+            outcome=DecisionOutcome[outcome],
+            values=decoded,
+            patch=dict(patch or {}),
+            action=action,
+            image=image or "",
+        )
+        result = experiment.suggest(item_id, task_name, proposal_id, suggestion)
+        doc = result.to_dict()
+        doc["available"] = True
         if result.applied:
-            self.record_event(
-                "review_decided",
-                {
-                    "item_id": item_id,
-                    "task_name": task_name,
-                    "outcome": decided.name,
-                    "actor": str(decision.actor),
-                },
-            )
+            doc["suggestion_id"] = suggestion.id
         return doc
 
     def add_note(
@@ -2225,13 +2288,15 @@ class AutoLamellaAppContext:
         whole on acquisition, never mutated in place) and encodes previews on
         the server thread; the GUI thread is neither entered nor blocked.
         """
+        from fibsem.applications.autolamella.server.image_payloads import image_payload
+
         images = self._latest_images
         if images is None:
             return {"available": False, "sem": None, "fib": None}
         return {
             "available": True,
-            "sem": self._display_frame(images.get(BeamType.ELECTRON)),
-            "fib": self._display_frame(images.get(BeamType.ION)),
+            "sem": image_payload(images.get(BeamType.ELECTRON)),
+            "fib": image_payload(images.get(BeamType.ION)),
         }
 
     @property
@@ -2241,13 +2306,6 @@ class AutoLamellaAppContext:
         if self._microscope is None:
             return None
         return self._session.images
-
-    @staticmethod
-    def _acquired_at(image) -> Optional[str]:
-        try:
-            return image.metadata.acquisition_date.isoformat()
-        except Exception:
-            return None
 
     # --- workflow control -------------------------------------------------------
 
@@ -2467,8 +2525,8 @@ class AutoLamellaAppContext:
         GUI's own indicators refresh on the next task transition rather than
         instantly.
 
-        A supervised question goes to the operator and the agent alike, and the
-        first answer wins (FIB-1035): there is no saying whose it is.
+        A supervised proposal goes to the operator and the agent alike, and the
+        first decision wins (FIB-1035).
         """
         experiment = self._experiment
         protocol = getattr(experiment, "task_protocol", None) if experiment else None
@@ -3091,276 +3149,6 @@ class AutoLamellaAppContext:
             "action": action,
             "queue_version": edit.version,
         }
-
-    # --- supervision prompts (FIB-851) ------------------------------------------
-
-    @property
-    def _responder(self):
-        return self._session.responder
-
-    def pending_prompt(self) -> Dict[str, Any]:
-        """The supervision question currently awaiting an answer, if any.
-
-        The serialized request carries everything needed to answer it — the
-        FIB-826 contract — including context images as agent-sized previews.
-        """
-        responder = self._responder
-        if responder is None:
-            return {"available": False, "pending": None}
-        request, question_id = responder.pending_question_and_id()
-        if request is None:
-            return {"available": True, "pending": None}
-        from fibsem.applications.autolamella.server.prompts import serialize_request
-        from fibsem.workflows.events import to_plain
-
-        payload = serialize_request(request)
-        payload["question_id"] = question_id
-        dismissed = getattr(responder, "dismissed_reason", lambda: None)()
-        if dismissed is not None:
-            # The operator dismissed the agent's suggestion: say so, and why,
-            # to an agent reading the question again.
-            payload["suggestion_dismissed"] = {"reason": dismissed}
-        live = self._peek_live(responder, request, question_id)
-        if live is not None:
-            try:
-                payload["current"] = to_plain(request.value_to_wire(live))
-            except Exception:  # noqa: BLE001 - the question must still show
-                pass
-        view = getattr(request, "view_frame", None)
-        if view is not None:
-            # The frame the question's widget draws on is display state, not
-            # workflow state: attach it here, where the display cache already
-            # lives (the same grab as display_images). Where the view may have
-            # moved on since the question was asked (an agent's approved moves,
-            # FIB-1399), the view's frame wins over the question's own.
-            if view == "prefer" or payload.get("image") is None:
-                shown = self._view_picture(request, live)
-                if shown is not None:
-                    payload["image"] = shown
-        return {"available": True, "pending": payload}
-
-    def _view_picture(self, request, live) -> Optional[Dict[str, Any]]:
-        """The FIB view's frame as a preview, with the question drawn over it
-        when it draws (the milling question's patterns), or None."""
-        images = self._latest_images
-        image = images.get(BeamType.ION) if images is not None else None
-        if image is None:
-            return None
-        from fibsem.applications.autolamella.server.prompts import _preview_payload
-
-        drawn = None
-        try:
-            drawn = request.draw(image, live)
-        except Exception:  # noqa: BLE001 - the plain frame is still worth showing
-            logging.debug("could not draw the question over the frame", exc_info=True)
-        entry = _preview_payload(image if drawn is None else drawn)
-        if entry is None:
-            return None
-        if drawn is not None:
-            # The drawing has the frame's shape; its scale is the frame's.
-            frame = _preview_payload(image) or {}
-            for key in ("hfw", "beam_type", "pixelsize", "full_width", "full_height"):
-                if key in frame:
-                    entry[key] = frame[key]
-            entry["drawn"] = True
-        entry["acquired_at"] = self._acquired_at(image)
-        return entry
-
-    def _display_frame(self, image) -> Optional[Dict[str, Any]]:
-        """One of the latest images as the standard preview payload, or None."""
-        if image is None:
-            return None
-        from fibsem.applications.autolamella.server.prompts import _preview_payload
-
-        entry = _preview_payload(image)
-        if entry is not None:
-            entry["acquired_at"] = self._acquired_at(image)
-        return entry
-
-    @staticmethod
-    def _peek_live(responder, request, question_id: int):
-        """The live half of the question: what the widget it is asked on holds
-        now (where the marker IS, the config as edited), not where it started.
-
-        Only for a question that takes a value: the peek marshals to the GUI
-        thread, and degrades to None (never an error: the question itself must
-        still be visible) if the GUI is too busy to answer within 2 s or the
-        prompt changed mid-peek.
-        """
-        if getattr(request, "value_shape", None) is None:
-            return None
-        try:
-            peeked_question_id, value = responder.peek_live_answer().result(timeout=2.0)
-        except Exception:
-            return None
-        if peeked_question_id != question_id:
-            return None
-        return value
-
-    def answer_prompt(
-        self,
-        response: bool,
-        question_id: int,
-        value: Optional[Dict[str, Any]] = None,
-        timeout: float = 10.0,
-    ) -> Dict[str, Any]:
-        """Answer the pending question as the matching button click would.
-
-        Routed through the responder's own GUI-thread path, so agent and human
-        answers share one first-writer-wins mechanism; ``applied`` is False when
-        nothing was pending or a human answered first. The ``question_id`` (from
-        :meth:`pending_prompt`) names the question being answered: if that
-        posting is gone — answered, withdrawn, or replaced — the result is
-        ``stale`` and nothing was clicked.
-
-        ``value`` optionally carries the edit the operator could make in the
-        widget the question is asked on: an alignment area
-        (``{"left", "top", "width", "height"}``, fractions of the frame) for
-        ``EditAlignmentArea``; a point (``{"x", "y"}``, metres in microscope
-        image coordinates, origin centre, +y up) for ``PickPOI``; moved
-        features (``{"features": [{"name", "px": {"x", "y"}}]}``, source-image
-        pixels, only the named ones move) for ``ConfirmDetection``. The value is
-        validated here — in bounds, non-degenerate, the right shape for the
-        pending question — and refused as ``invalid_value`` without clicking
-        anything when it is not. A valid value is placed into the widget as if
-        the operator had dragged it there, then the ordinary click path accepts
-        it, so attribution and first-writer-wins hold unchanged.
-        """
-        responder = self._responder
-        if responder is None:
-            return {"available": False, "applied": False, "stale": False}
-        from fibsem.workflows.interaction import (
-            InvalidAnswerValue,
-            StalePromptError,
-        )
-
-        request, parsed, refusal = self._parse_answer_value(
-            responder, int(question_id), value
-        )
-        if refusal is not None:
-            return refusal
-        response = _response_for(request, parsed, response)
-        outcome = responder.submit_answer(
-            bool(response), question_id=int(question_id), value=parsed
-        )
-        try:
-            applied = bool(outcome.result(timeout=timeout))
-        except StalePromptError:
-            return {"available": True, "applied": False, "stale": True}
-        except InvalidAnswerValue as exc:
-            # The value could not be made on the config as it now stands.
-            return {
-                "available": True,
-                "applied": False,
-                "stale": False,
-                "invalid_value": str(exc),
-            }
-        result = {"available": True, "applied": applied, "stale": False}
-        moved_from = getattr(outcome, "moved_from", None)
-        if moved_from is not None:
-            # The value moved the widget: say from where, in the value's own
-            # shape. Absent when the widget already showed it (FIB-1420).
-            from fibsem.workflows.events import to_plain
-
-            result["moved_from"] = to_plain(request.value_to_wire(moved_from))
-        return result
-
-    def suggest_answer(
-        self,
-        response: bool,
-        question_id: int,
-        reason: str,
-        value: Optional[Dict[str, Any]] = None,
-        timeout: float = 10.0,
-        image: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """Suggest an answer to the pending question (FIB-1283).
-
-        Nothing is answered: the prompt shows "Agent suggests: ..." with the
-        reason, and the operator's click on it answers as theirs, recorded with
-        the agent as the one who suggested it. Answering any other way ignores
-        it, and a new posting of the question drops it. ``value`` is as for
-        :meth:`answer_prompt`, validated the same way. A question on the
-        record is decided, not answered: at Assist, through a request.
-        """
-        responder = self._responder
-        if responder is None or not hasattr(responder, "submit_suggestion"):
-            return {"available": False, "suggested": False, "stale": False}
-        from fibsem.workflows.interaction import (
-            StalePromptError,
-        )
-
-        request, parsed, refusal = self._parse_answer_value(
-            responder, int(question_id), value
-        )
-        if refusal is not None:
-            return {**refusal, "suggested": False}
-        response = _response_for(request, parsed, response)
-        outcome = responder.submit_suggestion(
-            bool(response),
-            int(question_id),
-            value=parsed,
-            reason=str(reason),
-            image=image,
-        )
-        try:
-            outcome.result(timeout=timeout)
-        except StalePromptError:
-            return {"available": True, "suggested": False, "stale": True}
-        except ValueError as exc:
-            return {
-                "available": True,
-                "suggested": False,
-                "stale": False,
-                "error": str(exc),
-            }
-        return {"available": True, "suggested": True, "stale": False}
-
-    @staticmethod
-    def _parse_answer_value(responder, question_id: int, value: Any):
-        """The pending question, and a wire ``value`` as the edit it stands for.
-
-        Returns ``(request, parsed, None)``, or ``(request, None, refusal)`` with
-        the refusal already shaped for :meth:`answer_prompt` to return. The
-        question checks the value itself (``Request.parse_value``), against the
-        frozen pending request; the responder's own question id check on the GUI
-        thread still guards the actual apply, so a question swap between here
-        and there is refused as stale, never mis-applied. A question whose
-        answer must carry a value (the milling question's action) is refused
-        without one.
-        """
-        from fibsem.workflows.interaction import (
-            InvalidAnswerValue,
-        )
-
-        def _refuse(message: str) -> Dict[str, Any]:
-            return {
-                "available": True,
-                "applied": False,
-                "stale": False,
-                "invalid_value": message,
-            }
-
-        request, pending_question_id = responder.pending_question_and_id()
-        if request is None or pending_question_id != question_id:
-            return request, None, {"available": True, "applied": False, "stale": True}
-        shape = getattr(request, "value_shape", None)
-        if value is None:
-            if getattr(request, "requires_value", False):
-                return (
-                    request,
-                    None,
-                    _refuse(
-                        f"a {type(request).__name__} answer carries a value: {shape}"
-                    ),
-                )
-            return request, None, None
-        if not isinstance(value, dict):
-            return request, None, _refuse("value must be a JSON object.")
-        try:
-            return request, request.parse_value(value), None
-        except InvalidAnswerValue as exc:
-            return request, None, _refuse(str(exc))
 
     # --- events -----------------------------------------------------------------
 

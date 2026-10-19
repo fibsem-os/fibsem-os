@@ -241,9 +241,9 @@ class PreviewSources:
                 continue
         return None
 
-    def review_pending(self, arguments: dict) -> Optional[Tuple[Any, Any]]:
+    def proposal_pending(self, arguments: dict) -> Optional[Tuple[Any, Any]]:
         """``(item, proposal)``: the pending proposal a waiting
-        ``review_decide`` decides, by its id, else its item and task."""
+        ``proposal_decide`` decides, by its id, else its item and task."""
         experiment = self._experiment()
         if experiment is None:
             return None
@@ -256,19 +256,19 @@ class PreviewSources:
                 return item, proposal
         return None
 
-    def review_proposal(self, arguments: dict) -> Any:
-        """The pending proposal a waiting ``review_decide`` decides."""
-        found = self.review_pending(arguments)
+    def pending_proposal(self, arguments: dict) -> Any:
+        """The pending proposal a waiting ``proposal_decide`` decides."""
+        found = self.proposal_pending(arguments)
         return found[1] if found is not None else None
 
-    def review_image(self, arguments: dict) -> Optional["FibsemImage"]:
-        """The image a waiting ``review_decide``'s values sit on: its
+    def proposal_image(self, arguments: dict) -> Optional["FibsemImage"]:
+        """The image a waiting ``proposal_decide``'s values sit on: its
         proposal's reference image."""
-        from fibsem.applications.autolamella.review_images import (
+        from fibsem.applications.autolamella.reference_images import (
             load_reference_image,
         )
 
-        found = self.review_pending(arguments)
+        found = self.proposal_pending(arguments)
         if found is None:
             return None
         return load_reference_image(self._experiment(), *found)

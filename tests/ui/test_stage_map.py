@@ -313,6 +313,7 @@ def test_the_window_hands_the_map_the_experiment_s_lamellae(controller, microsco
     positions = [microscope.get_stage_position(), microscope.get_orientation("FIB")]
     window = SimpleNamespace(
         view_controller=controller,
+        overview_tab=SimpleNamespace(refresh_positions=lambda: None),
         autolamella_ui=SimpleNamespace(
             experiment=SimpleNamespace(
                 positions=[SimpleNamespace(stage_position=p) for p in positions]

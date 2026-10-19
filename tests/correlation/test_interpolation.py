@@ -340,7 +340,7 @@ def test_dialog_opens_with_fm_points_placed(qapp):
     fm = FluorescenceImage(
         data=np.zeros((1, 4, 8, 8), dtype=np.uint16),
         metadata=FluorescenceImageMetadata(
-            acquisition_date="2026-08-05T00:00:00",
+            acquisition_datetime="2026-08-05T00:00:00",
             pixel_size_x=1e-7,
             pixel_size_y=1e-7,
             pixel_size_z=3e-7,
@@ -350,7 +350,7 @@ def test_dialog_opens_with_fm_points_placed(qapp):
                     name="GFP",
                     color="#00FF00",
                     excitation_wavelength=488,
-                    emission_filter=EmissionFilter("509 nm", low=509),
+                    emission_filter=EmissionFilter.band("509 nm", 509),
                     power=1.0,
                     exposure_time=0.1,
                     gain=1.0,
@@ -509,7 +509,7 @@ def _aniso_fm(nz=8, xy=1e-7, z=5e-7, shape=(8, 8)):
     return FluorescenceImage(
         data=np.zeros((1, nz, h, w), dtype=np.uint16),
         metadata=FluorescenceImageMetadata(
-            acquisition_date="2026-09-21T00:00:00",
+            acquisition_datetime="2026-09-21T00:00:00",
             pixel_size_x=xy,
             pixel_size_y=xy,
             pixel_size_z=z,
@@ -519,7 +519,7 @@ def _aniso_fm(nz=8, xy=1e-7, z=5e-7, shape=(8, 8)):
                     name="GFP",
                     color="#00FF00",
                     excitation_wavelength=488,
-                    emission_filter=EmissionFilter("509 nm", low=509),
+                    emission_filter=EmissionFilter.band("509 nm", 509),
                     power=1.0,
                     exposure_time=0.1,
                     gain=1.0,

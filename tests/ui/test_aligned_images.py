@@ -25,6 +25,7 @@ from fibsem.fm.structures import (
     FluorescenceImage,
     FluorescenceImageMetadata,
 )
+from fibsem.imaging.overview_session import OverviewSession
 from fibsem.structures import (
     BeamType,
     CameraImageTransform,
@@ -55,7 +56,7 @@ def _destroy_widgets(destroy_widgets_after_test):
 
 @pytest.fixture
 def widget(microscope):
-    w = FibsemOverviewWidget(microscope)
+    w = FibsemOverviewWidget(OverviewSession(microscope))
     w.resize(900, 700)
     yield w
     w.close()
@@ -82,7 +83,7 @@ def _fm_image(scope, position, size=64, pixel_size=1e-6):
             np.uint16
         ),
         metadata=FluorescenceImageMetadata(
-            acquisition_date="2026-09-23T10:00:00",
+            acquisition_datetime="2026-09-23T10:00:00",
             pixel_size_x=pixel_size,
             pixel_size_y=pixel_size,
             stage_position=position,

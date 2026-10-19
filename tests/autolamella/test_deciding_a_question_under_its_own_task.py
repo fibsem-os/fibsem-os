@@ -27,7 +27,7 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.structures import MicroscopeState, Point
 from fibsem.workflows.proposals import (
-    TASK_RESULT,
+    STATE,
     Decision,
     DecisionOutcome,
     Proposal,
@@ -117,7 +117,7 @@ def test_a_question_carrying_no_values_is_allowed_on_the_same_grounds(experiment
     """Phrased about the waiting, not about the values -- which is what keeps
     the door open for the yes/no prompts that are out of scope for now."""
     lamella = _running(experiment)
-    _ask(experiment, lamella, kind=TASK_RESULT)
+    _ask(experiment, lamella, kind=STATE)
 
     result = experiment.decide(
         lamella.id,
@@ -171,7 +171,7 @@ def test_a_question_taken_back_is_closed_to_a_later_decision(experiment):
 
     assert not proposal.asking
     result = _answer(experiment, lamella)
-    assert not result.applied and result.error_type == "stale_review"
+    assert not result.applied and result.error_type == "stale_proposal"
 
 
 def test_answering_closes_the_question_immediately(experiment):

@@ -514,7 +514,7 @@ class _RecentChannelRow(_MenuRow):
         self.channel = channel
         self._available = available
 
-        tooltip = channel.pretty_name
+        tooltip = channel.pretty
         if not available:
             tooltip += "\nWavelength not available on current filter set"
         self.setToolTip(tooltip)

@@ -159,7 +159,7 @@ def test_the_tiled_runner_raises_the_route():
             channel_settings=ChannelSettings(
                 name="DAPI",
                 excitation_wavelength=358,
-                emission_filter=EmissionFilter("461 nm", low=461),
+                emission_filter=EmissionFilter.band("461 nm", 461),
                 power=0.1,
                 exposure_time=0.001,
             ),

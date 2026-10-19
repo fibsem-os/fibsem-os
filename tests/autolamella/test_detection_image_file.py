@@ -5,8 +5,8 @@ import os
 
 import numpy as np
 
+from fibsem.detection.decided import detection_image_file
 from fibsem.detection.detection import DetectedFeatures, LamellaCentre
-from fibsem.detection.review import detection_image_file
 from fibsem.structures import (
     BeamType,
     FibsemImage,

@@ -1120,12 +1120,12 @@ def _recent_experiment_about(get, path: str) -> Optional[str]:
     return None
 
 
-def _review_item(reviews: Any, item_id: Any) -> Optional[str]:
-    if not isinstance(reviews, dict):
+def _proposal_item(proposals: Any, item_id: Any) -> Optional[str]:
+    if not isinstance(proposals, dict):
         return None
-    for review in reviews.get("reviews") or []:
-        if isinstance(review, dict) and review.get("item_id") == item_id:
-            return review.get("item_name")
+    for proposal in proposals.get("proposals") or []:
+        if isinstance(proposal, dict) and proposal.get("item_id") == item_id:
+            return proposal.get("item_name")
     return None
 
 
@@ -1735,7 +1735,7 @@ def _line(
                 "run_next": f"Run {task} next",
             }.get(str(a.get("action")), f"{a.get('action')} {task} in the queue"),
         }
-    if tool == "review_decide":
+    if tool == "proposal_decide":
         outcome = str(a.get("outcome", "")).lower()
         if outcome.startswith("reject"):
             change = f"Reject the proposal: {a.get('reason', '')}".rstrip(": ")
@@ -1749,13 +1749,14 @@ def _line(
                 change += f" with {_values_text(a.get('values'))}"
             if a.get("patch"):
                 change += f", setting {_values_text(a.get('patch'))}"
-        name = _review_item(get("/app/workflow/reviews"), a.get("item_id"))
+        name = _proposal_item(get("/app/workflow/proposals"), a.get("item_id"))
         return {"what": f"{name or a.get('item_id')} · {task}", "change": change}
-    if tool == "prompt_answer":
-        change = "Answer yes" if a.get("response") else "Answer no"
-        if a.get("value"):
-            change += f" with {_values_text(a.get('value'))}"
-        return {"what": "The run's question", "change": change}
+    if tool == "proposal_suggest":
+        name = _proposal_item(get("/app/workflow/proposals"), a.get("item_id"))
+        return {
+            "what": f"{name or a.get('item_id')} · {task}",
+            "change": f"Suggest a decision: {a.get('reason', '')}".rstrip(": "),
+        }
     if tool == "experiment_create":
         protocol = a.get("protocol")
         replaces = _open_experiment(get)

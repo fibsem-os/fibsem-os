@@ -799,7 +799,7 @@ class TestCameraImageTransformIsFlipOnly:
 
         assert settings.transform is CameraImageTransform.FLIP_XY
         # and it re-saves under the canonical spelling
-        assert settings.to_dict()["transform"] == "flip-xy"
+        assert settings.to_dict()["transform"] == "FLIP_XY"
 
     def test_supported_values_still_round_trip(self):
         from fibsem.fm.structures import CameraSettings
@@ -1085,7 +1085,7 @@ class TestFmConsumersUseTheFmProjection:
                 channel_settings=ChannelSettings(
                     name="DAPI",
                     excitation_wavelength=358,
-                    emission_filter=EmissionFilter("461 nm", low=461),
+                    emission_filter=EmissionFilter.band("461 nm", 461),
                     power=0.1,
                     exposure_time=0.1,
                 ),

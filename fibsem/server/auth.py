@@ -397,6 +397,19 @@ def adopt_control(request: Request) -> Optional[Callable[[], None]]:
     Its starter may act beside it while it runs (`Control.let_act_beside`)."""
     release = getattr(request.state, "release_control", None)
     if release is not None:
+        control = request.app.state.microscope.control
+        running = control.beside_of(request.state.control_entry)
+        if running is not None:
+            # Beside a long command, act once at a time; never start another.
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error_type": "microscope_busy",
+                    "message": f"{running.action} is still running; a long "
+                    "command waits for it to end.",
+                    "in_control": {"by": running.by, "action": running.action},
+                },
+            )
         request.state.control_adopted = True
-        request.app.state.microscope.control.let_act_beside(request.state.control_entry)
+        control.let_act_beside(request.state.control_entry)
     return release

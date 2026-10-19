@@ -292,12 +292,17 @@ def test_the_old_and_new_shapes_are_told_apart_by_a_key_the_new_one_cannot_write
 
 def test_a_new_shape_file_keeps_its_sweep():
     """The other direction: a real sweep must survive, not be replaced by the default."""
-    from fibsem.autofunctions.autofocus import AutoFocusSettings, FocusMethod
+    from fibsem.autofunctions.autofocus import (
+        AutoFocusSettings,
+        FocusMethod,
+        FocusSweepPass,
+    )
 
-    sweep = AutoFocusSettings.from_coarse_fine(
-        coarse_range=123e-6,
-        coarse_step=7e-6,
-        fine_enabled=False,
+    sweep = AutoFocusSettings(
+        passes=[
+            FocusSweepPass(search_range=123e-6, step_size=7e-6),
+            FocusSweepPass(search_range=10e-6, step_size=1e-6, enabled=False),
+        ],
         method=FocusMethod.SOBEL,
     )
     s = OverviewAcquisitionSettings(

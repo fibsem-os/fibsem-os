@@ -1,29 +1,16 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, List, Optional, Sequence
+from typing import Any, List, Optional
 
 from fibsem import milling
-from fibsem.detection import detection
-from fibsem.detection import utils as det_utils
-from fibsem.detection.detection import DetectedFeatures, Feature
-from fibsem.microscope import FibsemMicroscope
 from fibsem.milling import FibsemMillingStage
-from fibsem.structures import (
-    BeamType,
-    FibsemImage,
-    FibsemStagePosition,
-    ImageSettings,
-)
+from fibsem.structures import BeamType, FibsemImage
 from fibsem.workflows.interaction import (
-    ConfirmDetection,
     SetImages,
     ask,
 )
 from fibsem.workflows.status import post_status
-
-if TYPE_CHECKING:
-    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 
 # Instructions are answered by a machine, so silence past this is a wedged GUI
 # thread, not thinking. Generous because the GUI thread may legitimately be busy
@@ -49,50 +36,6 @@ def _check_for_abort(
     if _abort_requested(run):
         raise InterruptedError(msg)
     return False
-
-
-def update_detection_ui(
-    microscope: FibsemMicroscope,
-    image_settings: ImageSettings,  # TODO: deprecate
-    checkpoint: str,
-    features: Sequence[Feature],
-    parent_ui: Optional["AutoLamellaUI"] = None,
-    validate: bool = True,
-    msg: str = "Lamella",
-    position: Optional[FibsemStagePosition] = None,
-) -> DetectedFeatures:
-    feat_str = ", ".join([f.name for f in features])
-    if len(feat_str) > 15:
-        feat_str = feat_str[:15] + "..."
-    runner = parent_ui.session.runner if parent_ui is not None else None
-    update_status_ui(
-        runner.manager if runner is not None else None,
-        f"{msg}: Detecting Features ({feat_str})...",
-    )
-
-    det = detection.take_image_and_detect_features(
-        microscope=microscope,
-        image_settings=image_settings,
-        features=features,
-        point=position,
-        checkpoint=checkpoint,
-    )
-
-    if validate and parent_ui is not None:
-        # The answer IS the (possibly corrected) feature set, read and saved on
-        # the GUI thread that owns the widget — no _get_detected_features
-        # read-back across the seam, no detection_confirmed_signal round trip.
-        # No timeout: a human answers, and silence means thinking.
-        det = ask(
-            parent_ui.ui_responder,
-            ConfirmDetection(detection=det),
-            abort=lambda: _abort_requested(runner),
-        )
-    else:
-        det_utils.save_ml_feature_data(det)
-
-    # TODO: set images in ui here
-    return det
 
 
 def set_images_ui(

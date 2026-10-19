@@ -35,7 +35,7 @@ def _called(action, status=200, level="drive", **extra):
     )
 
 
-def test_at_drive_a_move_a_mill_and_an_answer_each_make_a_row():
+def test_at_drive_a_move_and_a_mill_each_make_a_row():
     recent = RecentActions()
     recent.add(_called("Stage · Move 2 µm in x"))
     recent.add(
@@ -44,31 +44,13 @@ def test_at_drive_a_move_a_mill_and_an_answer_each_make_a_row():
             {"milling_task_name": "agent test mill", "status": "completed"},
         )
     )
-    recent.add(
-        _record(
-            "prompt_raised",
-            {
-                "question_id": "q1",
-                "message": "Is the lamella centred?",
-                "positive": "Yes",
-            },
-            actor=TASK,
-        )
-    )
-    recent.add(
-        _record(
-            "prompt_answered",
-            {"question_id": "q1", "response": True, "answered_by": AGENT},
-        )
-    )
     assert _rows(recent) == [
-        ("Yes to 'Is the lamella centred?'", "done", OK),
         ("Milled 'agent test mill'", "done", OK),
         ("Stage · Move 2 µm in x", "done", OK),
     ]
     assert recent.rows[0].when == "16:08"
     # Each at the level it was done at: the mill's is the agent's last seen.
-    assert [row.level for row in recent.rows] == ["drive", "drive", "drive"]
+    assert [row.level for row in recent.rows] == ["drive", "drive"]
 
 
 def test_only_the_agent_s_own_actions_make_rows():
@@ -116,44 +98,6 @@ def test_a_request_is_one_row_that_follows_it_to_its_end():
         )
     )
     assert _rows(recent)[0][1:] == ("rejected: bad", MUTED)
-
-
-def test_a_suggestion_is_taken_or_dropped():
-    recent = RecentActions()
-    for question in ("q1", "q2"):
-        recent.add(
-            _record(
-                "prompt_raised",
-                {"question_id": question, "message": "Mill?", "positive": "Mill"},
-                actor=TASK,
-            )
-        )
-        recent.add(
-            _record("prompt_suggested", {"question_id": question, "response": True})
-        )
-    recent.add(
-        _record(
-            "prompt_answered",
-            {
-                "question_id": "q1",
-                "response": True,
-                "answered_by": OPERATOR,
-                "suggested_by": AGENT,
-            },
-            actor=OPERATOR,
-        )
-    )
-    recent.add(
-        _record(
-            "prompt_answered",
-            {"question_id": "q2", "response": False, "answered_by": OPERATOR},
-            actor=OPERATOR,
-        )
-    )
-    assert _rows(recent) == [
-        ("Suggested Mill for 'Mill?'", "dropped", MUTED),
-        ("Suggested Mill for 'Mill?'", "taken", OK),
-    ]
 
 
 def test_a_long_command_is_one_row_and_a_refusal_says_why():
@@ -235,26 +179,6 @@ def test_a_long_line_is_kept_whole_for_the_card_to_wrap():
     assert _rows(recent)[0][0].endswith(reason)
 
 
-def test_an_answer_says_what_it_decided_and_for_which_lamella():
-    """Sim session 2026-10-16: "Answered 'Move the marker to the point of
-    interest for 02-tough-shiner. Press Continue wh…': done"."""
-    recent = RecentActions()
-    record = _record(
-        "prompt_answered",
-        {
-            "question_id": "q1",
-            "response": True,
-            "answered_by": AGENT,
-            "decided": "Point of interest at (+5.0, −2.0) µm",
-        },
-    )
-    record["item"] = {"id": "i2", "name": "02-tough-shiner"}
-    recent.add(record)
-    assert _rows(recent)[0][0] == (
-        "02-tough-shiner · Point of interest at (+5.0, −2.0) µm"
-    )
-
-
 def test_a_refusal_gives_its_reason_not_an_exception_s_name():
     """Sim session 2026-10-16: "refused: StageLimitError", "refused: not at
     drive"."""
@@ -293,11 +217,30 @@ def test_a_request_the_agent_took_back_reads_withdrawn():
         recent.add(
             _record("request_raised", {"request_id": request_id, "actions": actions})
         )
-        payload = {"request_id": request_id, "why": "..."}
+        payload = {"request_id": request_id, "why": "the operator stopped the agent"}
         if withdrawn:
             payload["withdrawn"] = True
         recent.add(_record("request_cancelled", payload))
-    assert [row[1] for row in _rows(recent)] == ["cancelled", "withdrawn"]
+    # A cancel says who ended it (sim session 2026-10-19).
+    assert [row[1] for row in _rows(recent)] == [
+        "cancelled: the operator stopped the agent",
+        "withdrawn",
+    ]
+
+
+def test_a_failed_request_says_why():
+    recent = RecentActions()
+    actions = [{"tool": "stage_move_relative", "arguments": {"dx": 5e-6}}]
+    recent.add(_record("request_raised", {"request_id": "r1", "actions": actions}))
+    error = {"error_type": "out_of_range", "message": "target outside the stage limits"}
+    recent.add(
+        _record(
+            "request_applied",
+            {"request_id": "r1", "index": 0, "ok": False, "error": error},
+        )
+    )
+    recent.add(_record("request_finished", {"request_id": "r1", "status": "failed"}))
+    assert _rows(recent)[0][1:] == ("failed: target outside the stage limits", ERROR)
 
 
 def test_the_operator_s_message_and_the_agent_s_reply_are_rows():

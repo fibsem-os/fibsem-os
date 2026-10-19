@@ -91,13 +91,14 @@ lists where each key went.
 
 ### Workflow
 
-- **Every task records what it did.** A task that proposes something (Setup
-  proposes the milling position; milling tasks record their result with the final
-  images) leaves that proposal in the experiment record in every mode, with who
-  decided it and where: your answer in the workflow when supervised; nobody when
-  automated, in which case the value is used as proposed and recorded as
-  unreviewed rather than as agreed. When a task ends, its result is used as
-  proposed: nothing waits on a decision afterwards. The "Review workflow (early
+- **What a task asks is on the record.** Each proposal a task asks while it runs
+  (a position, a point of interest, an alignment area, a detection, a mill's pass)
+  stays in the experiment record in every mode, with who decided it and where: your
+  answer in the workflow when supervised; nobody when automated, in which case the
+  value is used as proposed and recorded as unreviewed rather than as agreed. A
+  finished task is its history and its outputs: nothing is proposed or waits on a
+  decision after it ends. Grid overviews no longer leave an empty positions
+  record. The "Review workflow (early
   access)" preference is gone, and a preferences file that still names it loads.
   An experiment saved while a task was awaiting a decision loads with that task
   completed.
@@ -142,12 +143,38 @@ lists where each key went.
   alignment reference is taken in it; the answer, and how far you moved it, are on
   the lamella's record. Each task has a Confirm Alignment Area setting;
   off, the area is used as it stands and still recorded.
-- **For task authors: a task proposes through a `Proposer`.** A task type carries one
-  `proposer` (kind, name, version, `propose(task)`); the base records the result part
-  (task, status, times, final images) for every kind and the proposer adds the
-  values. Swapping the proposer, say a segmentation model for the current point,
-  changes nothing downstream. Every decision, the operator's inline answer included,
-  now lands through `Experiment.decide`.
+- **For task authors: a task declares what it asks.** A task type lists the
+  proposal kinds it asks in `asks` (was `questions`), and asks them with `ask`;
+  every decision lands through `Experiment.decide`. There is no end-of-task
+  proposer.
+- **For agents: proposals and decisions.** `GET /app/workflow/proposals` (was
+  `reviews`) and the tools `proposal_list` and `proposal_decide` (were
+  `review_list` and `review_decide`); a stale decision is refused with
+  `stale_proposal`. The listing no longer carries `holding_the_run`,
+  `rejected_fails_task`, `confidence`, `alternatives` or `reference_image_eb`, and a
+  decision's answer no longer carries `delta`: the tool text says per kind what
+  Reject does. The run's hold events are `proposal_held`, `proposal_waiting` and
+  `proposal_released` (were `question_*`), the hold kind is `proposal`, and the
+  `review_decided` event is gone (`proposal_decided` says the same).
+- **One way for a run to ask: proposals.** The old prompt path is gone: the
+  `Confirm`, `ConfirmDetection`, `EditAlignmentArea` and `PickPOI` requests,
+  `update_detection_ui`, `GET /app/workflow/prompt`, `POST
+  /app/workflow/prompt/answer` and `/prompt/suggest`, the tools `prompt_get`,
+  `prompt_answer` and `prompt_suggest_answer`, the `prompt_*` events and the
+  agent card's suggested answer. No task raised a prompt any more, so an
+  operator sees nothing change; old event logs still read. The window's
+  responder only carries instructions (images, milling config, detections).
+  Suggestions come back on pending proposals.
+- **Agent suggestions on proposals.** At Assist an agent suggests a decision
+  on a pending proposal (`proposal_suggest`, `POST
+  /app/workflow/proposals/suggest`), with its reason and optionally its
+  evidence image. The Agent chip says "Agent suggests" and the card shows the
+  suggestion drawn on the proposal's image, with Approve (decides it as
+  suggested, as the operator's decision, naming the suggestion) and Decline
+  (an optional reason goes back to the agent). One suggestion is kept per
+  proposal, in `experiment.yaml`; decisions carry `suggestion_id`. Events
+  `proposal_suggested` and `suggestion_declined`; `proposal_decided` gains
+  `suggested_by`.
 - **The point-of-interest kind is named for what it is.** The proposal kind Setup
   records is `point_of_interest` (was `milling_setup`): a point on an image that later
   tasks follow, which is not a milling matter. Its schema carries `poi` only; the

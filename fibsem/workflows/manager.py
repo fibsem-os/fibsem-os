@@ -90,7 +90,7 @@ class BaseTaskManager:
         experiment: WorkflowExperiment,
         hook_manager: Optional[HookManager] = None,
         responder: Optional[Responder] = None,
-        answerers: Optional[Callable[[], Tuple[ActorKind, ...]]] = None,
+        deciders: Optional[Callable[[], Tuple[ActorKind, ...]]] = None,
         images: Optional[Any] = None,
     ):
         self.microscope = microscope
@@ -99,8 +99,8 @@ class BaseTaskManager:
         # Who answers the run's questions: the session's responder. None
         # asks nobody: a supervised step runs as if unsupervised.
         self.responder = responder
-        # Who can answer them now (``AppSession.answerers``); nobody without one.
-        self._answerers = answerers
+        # Who can decide them now (``AppSession.deciders``); nobody without one.
+        self._deciders = deciders
         # The latest image of each beam (``AppSession.images``), where a task
         # puts what it acquires; None keeps nothing.
         self.images = images
@@ -217,34 +217,33 @@ class BaseTaskManager:
             post_status(self, message, status_bar="")
 
     @contextmanager
-    def holding_a_question(self, item_name: str, task_name: str):
-        """The run is held on a question a task asked mid-run (``ask``): the
+    def holding_a_proposal(self, item_name: str, task_name: str):
+        """The run is held on a proposal a task asked mid-run (``ask``): the
         task is stopped on its next line until the decision lands. The
-        workflow line says which task is stopped and who can answer it.
+        workflow line says which task is stopped and who can decide it.
 
-        A supervised question waits whoever is there, nobody included: an
-        answer is never taken unreviewed. Yields ``refresh``,
-        which the waiting task calls as it waits: when who can answer changes
-        (the window opens or closes, the agent goes quiet or comes back), the
-        hold and the record say so (``question_waiting``).
+        A supervised proposal waits whoever is there, nobody included: it is
+        never taken unreviewed. Yields ``refresh``, which the waiting task
+        calls as it waits: when who can decide changes (the window opens or
+        closes, the agent goes quiet or comes back), the hold and the record
+        say so (``proposal_waiting``).
 
-        Said on the record too (``question_asked`` / ``question_released``):
-        a question asked this way raises no prompt, so nothing else in the
-        event stream tells a watcher that the run has stopped to be told
-        something (FIB-1050)."""
+        Said on the record too (``proposal_held`` / ``proposal_released``), so
+        a watcher hears that the run has stopped to be told something
+        (FIB-1050)."""
         names = {"item_name": item_name, "task_name": task_name}
         shown: List[Tuple[ActorKind, ...]] = []
 
         def refresh() -> None:
-            who = self.answerers()
+            who = self.deciders()
             if shown and shown[-1] == who:
                 return
             first = not shown
             shown.append(who)
-            releases, note = _question_hold_text(item_name, task_name, who)
+            releases, note = _proposal_hold_text(item_name, task_name, who)
             self._set_hold(
                 Hold(
-                    kind=HoldKind.question,
+                    kind=HoldKind.proposal,
                     releases=releases,
                     items=(f"{item_name}/{task_name}",),
                 ),
@@ -253,17 +252,17 @@ class BaseTaskManager:
             )
             if not first:
                 self._record_event(
-                    "question_waiting",
-                    {**names, "answerers": [w.value for w in who]},
+                    "proposal_waiting",
+                    {**names, "deciders": [w.value for w in who]},
                 )
 
         refresh()
-        self._record_event("question_asked", dict(names))
+        self._record_event("proposal_held", dict(names))
         try:
             yield refresh
         finally:
             self._set_hold(None, message=None)
-            self._record_event("question_released", dict(names))
+            self._record_event("proposal_released", dict(names))
 
     def _record_event(self, kind: str, payload: Dict[str, Any]) -> None:
         """A fact for the experiment's record, through the microscope's
@@ -585,11 +584,11 @@ class BaseTaskManager:
         """
         self._task_stop_event.set()
 
-    def answerers(self) -> Tuple[ActorKind, ...]:
-        """Who can answer this run's questions now: the session's surfaces
-        (``AppSession.answerers``). Empty: nobody, and a supervised question
+    def deciders(self) -> Tuple[ActorKind, ...]:
+        """Who can decide this run's proposals now: the session's surfaces
+        (``AppSession.deciders``). Empty: nobody, and a supervised proposal
         waits for someone to come back."""
-        return self._answerers() if self._answerers is not None else ()
+        return self._deciders() if self._deciders is not None else ()
 
     @property
     def is_stopped(self) -> bool:
@@ -836,11 +835,11 @@ def _named(names: List[str], noun: str = "lamellae") -> str:
     return f"{', '.join(names[:-1])} and {names[-1]}"
 
 
-def _question_hold_text(
+def _proposal_hold_text(
     item_name: str, task_name: str, who: Tuple[ActorKind, ...]
 ) -> Tuple[str, str]:
-    """What releases a hold on a question, and the workflow line, given who
-    can answer it now."""
+    """What releases a hold on a proposal, and the workflow line, given who
+    can decide it now."""
     asked = f"{task_name} on {item_name}"
     names = [
         name for kind, name in ((OPERATOR, "you"), (AGENT, "the agent")) if kind in who

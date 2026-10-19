@@ -218,11 +218,11 @@ def test_run_autofocus_default_z_parameters():
 
 
 def _af_settings(coarse_range=20e-6, coarse_step=5e-6, fine_range=4e-6, fine_step=1e-6):
-    return AutoFocusSettings.from_coarse_fine(
-        coarse_range=coarse_range,
-        coarse_step=coarse_step,
-        fine_range=fine_range,
-        fine_step=fine_step,
+    return AutoFocusSettings(
+        passes=[
+            FocusSweepPass(search_range=coarse_range, step_size=coarse_step),
+            FocusSweepPass(search_range=fine_range, step_size=fine_step),
+        ],
         method=FocusMethod.LAPLACIAN,
     )
 

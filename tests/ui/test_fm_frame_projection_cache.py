@@ -35,12 +35,13 @@ _app = QApplication.instance() or QApplication(sys.argv)
 
 @pytest.fixture
 def widget():
+    from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession
     from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget
     from tests.fixtures.fm_microscope import build_microscope
 
     microscope = build_microscope()
     microscope.fm.objective.insert()
-    w = FMOverviewWidget(microscope)
+    w = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
     w.resize(900, 600)
     yield w
     w.deleteLater()
@@ -169,7 +170,7 @@ class TestTheProjectionIsKept:
         preview = FluorescenceImage(
             data=np.zeros((1, 64, 64), np.uint8),
             metadata=FluorescenceImageMetadata(
-                acquisition_date="2026-08-25T09:00:00",
+                acquisition_datetime="2026-08-25T09:00:00",
                 pixel_size_x=4e-7,
                 pixel_size_y=4e-7,
                 channels=[

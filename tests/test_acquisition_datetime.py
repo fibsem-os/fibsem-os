@@ -147,9 +147,9 @@ def test_a_beam_image_without_a_state_has_no_time():
     assert acquisition_datetime_of(metadata) is None
 
 
-def test_a_fluorescence_image_falls_back_to_acquisition_date():
+def test_an_older_fluorescence_image_reads_its_naive_time():
     metadata = FluorescenceImageMetadata(
-        acquisition_date="2026-09-13T21:19:40.974286",
+        acquisition_datetime="2026-09-13T21:19:40.974286",
         pixel_size_x=1e-7,
         pixel_size_y=1e-7,
         channels=[
@@ -249,7 +249,7 @@ def _one_run() -> list:
     demo.microscope_state.timestamp = 1789355531.0  # 2026-09-14 03:12:11 UTC
 
     fm = FluorescenceImageMetadata(
-        acquisition_date="2026-09-13T21:12:11",
+        acquisition_datetime="2026-09-13T21:12:11",
         pixel_size_x=1e-7,
         pixel_size_y=1e-7,
         channels=[

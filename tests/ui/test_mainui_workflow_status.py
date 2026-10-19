@@ -127,7 +127,7 @@ def test_a_status_event_snapshot_reaches_the_windows_own_timeline(main_ui):
         WorkflowStatusEvent(report=report)
     )
 
-    rows = [(i.item_name, i.task_name) for i in main_ui.workflow_timeline._items]
+    rows = [(i.item_name, i.task_name) for i in main_ui.workflow_tab.timeline._items]
     assert rows == [("lamella-03", "Trench"), ("lamella-04", "Trench")]
 
     # Reconcile back down to zero rows so the module-scoped window carries no
@@ -137,7 +137,7 @@ def test_a_status_event_snapshot_reaches_the_windows_own_timeline(main_ui):
             report=WorkflowStatusUpdate(queue_items=[]),
         )
     )
-    assert main_ui.workflow_timeline._items == []
+    assert main_ui.workflow_tab.timeline._items == []
 
 
 def test_a_status_event_refreshes_the_waiting_indicators(main_ui):
@@ -150,7 +150,7 @@ def test_a_status_event_refreshes_the_waiting_indicators(main_ui):
     )
 
     main_ui.autolamella_ui.hold = Hold(
-        HoldKind.question, "answer the question on the Microscope tab"
+        HoldKind.proposal, "answer the question on the Microscope tab"
     )
     main_ui.autolamella_ui.workflow_status_signal.emit(WorkflowStatusEvent())
     assert main_ui.workflow_controls.attention_btn.isVisibleTo(main_ui)

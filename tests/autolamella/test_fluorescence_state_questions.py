@@ -40,7 +40,7 @@ from fibsem.applications.autolamella.workflows.tasks.select_fluorescence_positio
 from fibsem.fm.structures import ChannelSettings
 from fibsem.structures import FibsemStagePosition
 from fibsem.workflows.attention import Attention
-from fibsem.workflows.proposals import STATE, TASK_RESULT
+from fibsem.workflows.proposals import STATE
 from tests.answering import ANSWERER, answering
 
 SELECT = "Select Fluorescence Position"
@@ -118,8 +118,8 @@ def stubbed_acquisition(monkeypatch):
 
 
 def test_both_tasks_declare_the_question():
-    assert SelectFluorescencePositionTask.questions == (STATE,)
-    assert AcquireFluorescenceImageTask.questions == (STATE,)
+    assert SelectFluorescencePositionTask.asks == (STATE,)
+    assert AcquireFluorescenceImageTask.asks == (STATE,)
 
 
 def test_select_position_headless_the_position_goes_on_the_record_unreviewed(
@@ -130,8 +130,8 @@ def test_select_position_headless_the_position_goes_on_the_record_unreviewed(
 
     _task(SelectFluorescencePositionTask, SELECT, microscope, exp).run()
 
-    question, result = lamella.proposals_from(SELECT)
-    assert question.kind == STATE and result.kind == TASK_RESULT
+    (question,) = lamella.proposals_from(SELECT)
+    assert question.kind == STATE
     assert question.unreviewed
     pose = question.values["stage_position"]
     assert isinstance(pose, FibsemStagePosition)

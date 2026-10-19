@@ -97,24 +97,3 @@ def test_a_plain_experiment_keeps_what_was_asked_about_it(tmp_path):
     (proposal,) = again.proposals
     assert proposal.id == asked.id and str(proposal.asked_by) == "agent:claude"
     assert proposal.values["stage_position"].x == pytest.approx(1e-6)
-
-
-def test_an_experiment_that_makes_no_items_refuses_positions(experiment):
-    """Confirming positions on an app that makes nothing at them is refused
-    before anything is written, not an AttributeError half way through."""
-    from fibsem.structures import MicroscopeState
-    from fibsem.workflows.proposals import (
-        OVERVIEW_POSITIONS,
-        ItemPoses,
-        ValueRefused,
-        prepare_values,
-    )
-
-    positions = [ItemPoses(beam=MicroscopeState())]
-    with pytest.raises(ValueRefused, match="makes no items"):
-        prepare_values(
-            experiment,
-            experiment.positions[0],
-            OVERVIEW_POSITIONS,
-            {"positions": positions},
-        )

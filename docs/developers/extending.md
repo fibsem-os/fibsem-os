@@ -179,15 +179,15 @@ Four contracts:
   calls `pre_task()`, the hooks, `_run()` and `post_task()`. Overriding
   `run()` loses the task's state, its history entry and every hook, without
   an error.
-- **Questions go through `ask()`** (`workflows/interaction.py`). Build a
-  `Request` carrying everything needed to answer it and block on the
-  responder. Do not access widgets from the workflow thread. This interface
-  is what allows the GUI, the operator and a remote agent to answer the same
-  question, and it is why supervised and unsupervised runs share one code
-  path.
+- **Proposals go through `self.ask()`** (`fibsem/workflows/proposals.py`).
+  Declare the kinds the task asks in `asks`, and ask with the proposed
+  values; supervised, the run holds until the proposal is decided. Do not
+  access widgets from the workflow thread. This is what lets the operator
+  and a remote agent decide the same proposal, and why supervised and
+  unsupervised runs share one code path.
 - **Record outputs** on the task's history entry (`task_state.outputs`,
-  mapping role to files), and write images under `lamella.path`. The Review
-  panel and the reports read from there; unrecorded files are not shown,
+  mapping role to files), and write images under `lamella.path`. The History
+  tab and the reports read from there; unrecorded files are not shown,
   and files written elsewhere are lost when the experiment is copied off
   the microscope.
 - **Cancellation is cooperative.** Stop sets an event. A task that does not

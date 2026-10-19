@@ -1,17 +1,11 @@
-"""What a task proposed, and what a reviewer decided about it.
+"""What a task proposed, and what was decided about it.
 
-A task leaves a ``Proposal`` on its item -- a question it asks while it runs,
-or its result when it ends -- saying who asked it (``asked_by``: the task,
-today). A ``Decision`` on it says who decided what, and confirming writes the
-decided values through to the item. The proposed values are never
-overwritten -- the delta between what was proposed and what was confirmed is
-computed from the two, which is what makes a review produce a corrected label
-instead of a self-reported one.
-
-"Awaiting review" is not a status anywhere. The producer is ``Completed``, the
-consumer has not started, and the work queue is rebuilt every run; what is
-true is that the proposal has no decision, and everything else is derived from
-that.
+A task asks a ``Proposal`` on its item while it runs, saying who asked it
+(``asked_by``: the task, today). A ``Decision`` on it says who decided what,
+and confirming writes the decided values through to the item. The proposed
+values are never overwritten: the delta between what was proposed and what was
+confirmed is computed from the two, which is what makes a decision produce a
+corrected label instead of a self-reported one.
 
 The records, the kinds and the value registries are here, for any
 application's workflow. An application registers its own kinds
@@ -29,7 +23,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, auto
-from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from fibsem.acting import Actor, ActorKind
 from fibsem.structures import (
@@ -40,14 +34,8 @@ from fibsem.structures import (
 )
 from fibsem.util.timestamps import now, to_datetime, to_iso
 
-# What a task did, for someone to look at: no values, the final reference
-# images in provenance. Recorded by the base task class for any task whose
-# review is on and that did not propose a kind of its own.
-TASK_RESULT = "task_result"
-
 # Where a model put the features it was asked to find, for someone to correct:
-# the one kind so far that is asked *during* a task rather than after it
-# (FIB-1025). Its value is the feature set, keyed by name, so a delta is per
+# asked while the task runs (FIB-1025). Its value is the feature set, keyed by name, so a delta is per
 # feature and not one number for the lot.
 DETECTION = "detection"
 # The instrument's state as a task arrived at it, for the operator to confirm
@@ -62,11 +50,6 @@ STATE = "state"
 # right before that reference is acquired, so it is written nowhere: the
 # task acquires with the area it is handed (FIB-1053).
 ALIGNMENT_AREA = "alignment_area"
-# Where items go on a grid: the positions a decision makes them at -- the
-# lamellae in AutoLamella, a volume app's own kind of site. The only kind
-# whose confirmed values make items rather than edit the one the proposal is
-# on, so its writer is the experiment's (``prepare_items_at``).
-OVERVIEW_POSITIONS = "overview_positions"
 # One pass of a loop the task runs and asks about again: a mill, a spot burn.
 # The value is what the pass would run (the milling config, the spot-burn
 # settings) and the decision says what to do with it (``actions``): run it and
@@ -94,8 +77,8 @@ class DecisionOutcome(Enum):
     writes them. ``Withdrawn``: the question was taken back because the thing
     that asked it is gone, so there is no answer to read and nothing to
     compare a proposal against. ``Unreviewed``: nobody was asked (the task is
-    automated) or nobody looked before the task that consumes the value
-    started, and the proposed value was used as it stood. Never agreement:
+    automated, or the proposal is off in its settings), and the task used its
+    own value. Never agreement:
     nothing that measures a proposer's or an agent's record may count it as
     one."""
 
@@ -121,11 +104,6 @@ class ProposalKind:
     values: Tuple[str, ...]  # the value names a proposal of this kind may carry
     # How the kind is named to a person, in a sentence.
     label: str = ""
-    # Whether a reject fails the task: "nothing further here", so nothing that
-    # requires it runs. Off for a question that asks leave to do something
-    # (``state``: tilt now?), where a reject is "don't": the task does not do
-    # it and carries on.
-    rejected_fails_task: bool = True
     # What a decision on this kind says, beyond Confirmed: empty for a yes/no
     # kind. A kind with actions is confirmed with one of them, and a proposal
     # may narrow them for its own pass (``provenance["actions"]``: no skip
@@ -151,13 +129,6 @@ class ProposalKind:
         return next((a for a in self.silence if a in allowed), "")
 
 
-def rejected_fails_task(kind: str) -> bool:
-    """Whether rejecting a proposal of ``kind`` fails its task. A kind this
-    build has not registered does, as every kind did before kinds said."""
-    registered = PROPOSAL_KINDS.get(kind)
-    return registered is None or registered.rejected_fails_task
-
-
 PROPOSAL_KINDS: Dict[str, ProposalKind] = {}
 
 
@@ -176,7 +147,6 @@ def register_proposal_kind(kind: ProposalKind) -> ProposalKind:
     return kind
 
 
-register_proposal_kind(ProposalKind(name=TASK_RESULT, values=(), label="Result"))
 register_proposal_kind(
     ProposalKind(name=DETECTION, values=("features",), label="Detection")
 )
@@ -185,16 +155,12 @@ register_proposal_kind(
         name=STATE,
         values=("stage_position",),
         label="Position",
-        rejected_fails_task=False,
     )
 )
 register_proposal_kind(
     ProposalKind(
         name=ALIGNMENT_AREA, values=("alignment_area",), label="Alignment area"
     )
-)
-register_proposal_kind(
-    ProposalKind(name=OVERVIEW_POSITIONS, values=("positions",), label="Positions")
 )
 register_proposal_kind(
     ProposalKind(
@@ -304,11 +270,8 @@ class ItemPoses:
     at under fluorescence.
 
     Carried as poses rather than a point on an image or a bare stage
-    position: either would make a decision need a microscope to turn into
-    poses, and there is no instrument where a decision is made -- the Review
-    tab days later, or an agent over the server. The geometry is read where
-    the position is placed instead, in the renderer or in a proposer running
-    at the beam.
+    position: either would need a microscope to turn into poses wherever the
+    item is made. The geometry is read where the position is placed instead.
 
     `fluorescence` is None when the microscope has no fluorescence detector --
     there is nothing to derive it from, and a pose invented for an instrument
@@ -317,46 +280,6 @@ class ItemPoses:
 
     beam: MicroscopeState
     fluorescence: Optional[MicroscopeState] = None
-
-
-def _positions_to_dict(value: Any) -> Any:
-    if not isinstance(value, (list, tuple)):
-        return value
-    return [
-        {
-            "beam": p.beam.to_dict(),
-            "fluorescence": (
-                p.fluorescence.to_dict() if p.fluorescence is not None else None
-            ),
-        }
-        if isinstance(p, ItemPoses)
-        else p
-        for p in value
-    ]
-
-
-def _positions_from_dict(value: Any) -> Any:
-    """Reads ``beam``, or ``milling``: what the beam pose was called before
-    the kind was any app's."""
-    if not isinstance(value, (list, tuple)):
-        return value
-    out: List[Any] = []
-    for p in value:
-        beam = p.get("beam", p.get("milling")) if isinstance(p, dict) else None
-        if beam is None:
-            out.append(p)
-            continue
-        fm = p.get("fluorescence")
-        out.append(
-            ItemPoses(
-                beam=MicroscopeState.from_dict(beam),
-                fluorescence=MicroscopeState.from_dict(fm) if fm else None,
-            )
-        )
-    return out
-
-
-register_value_codec("positions", _positions_to_dict, _positions_from_dict)
 
 
 def _milling_config_from_dict(value: Any) -> Any:
@@ -526,38 +449,9 @@ def _prepare_alignment_area(experiment: Any, item: Any, value: Any) -> PreparedW
     return PreparedWrite.nothing()
 
 
-def _prepare_positions(experiment: Any, item: Any, value: Any) -> PreparedWrite:
-    """Check the positions, then hand them to the experiment, which plans the
-    items it makes at them (``prepare_items_at``) without touching anything
-    yet.
-
-    Planned in full and undone together, like every other write: a
-    half-created set is worse than none, and the decision is only appended
-    once the whole set is on the experiment. The poses come from the value
-    rather than the instrument, so nothing here needs a microscope.
-    """
-    if not isinstance(value, (list, tuple)):
-        raise ValueRefused(f"positions must be a list, not {type(value).__name__}.")
-    placed: List[ItemPoses] = []
-    for entry in value:
-        if not isinstance(entry, ItemPoses):
-            raise ValueRefused(
-                f"every position must be an ItemPoses, not {type(entry).__name__}."
-            )
-        if entry.beam is None:
-            raise ValueRefused("every position needs a beam pose.")
-        placed.append(entry)
-    if experiment is None:
-        raise ValueRefused("positions can only be written to an experiment.")
-    return experiment.prepare_items_at(item, placed)
-
-
 register_value_writer("features", _prepare_features)
 register_value_writer("stage_position", _prepare_stage_position)
 register_value_writer("alignment_area", _prepare_alignment_area)
-# The experiment is there for this one write: it makes items rather than
-# editing the one the proposal is on.
-register_value_writer("positions", _prepare_positions)
 
 
 def _prepare_milling_config(experiment: Any, item: Any, value: Any) -> PreparedWrite:
@@ -710,34 +604,8 @@ def compute_delta(proposed: Any, confirmed: Any) -> Any:
 
 
 @dataclass
-class Alternative:
-    """A candidate the proposer considered and did not pick, with why. The part
-    of a proposal a general reviewer can actually check: rejections are easier
-    to verify than acceptances."""
-
-    values: Dict[str, Any] = field(default_factory=dict)
-    score: Optional[float] = None
-    reason: str = ""
-
-    def to_dict(self) -> dict:
-        return {
-            "values": _encode_values(self.values),
-            "score": self.score,
-            "reason": self.reason,
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "Alternative":
-        return cls(
-            values=_decode_values(data.get("values", {})),
-            score=data.get("score"),
-            reason=data.get("reason", ""),
-        )
-
-
-@dataclass
 class Decision:
-    """One reviewer's answer. Appended, never edited: a reversal is a second
+    """One decider's answer. Appended, never edited: a reversal is a second
     decision beside the first, with its own actor and time."""
 
     outcome: DecisionOutcome
@@ -747,10 +615,9 @@ class Decision:
     # Aware, written as ISO 8601 with its offset (FIB-1197); older records hold a
     # POSIX float, which reads as this machine's zone. None when the record has none.
     timestamp: Optional[datetime] = field(default_factory=now)
-    # Where it was decided: "workflow" (inline, in the task's own question, or
-    # the producer confirming its own proposal), "review" (the Review tab, in
-    # records written before it was removed) or "server" (an agent over the
-    # API). The actor says who; this says where.
+    # Where it was decided: "workflow" (in the window, or by the task itself),
+    # "server" (an agent over the API), or "review" in records written before
+    # the Review tab was removed. The actor says who; this says where.
     via: str = ""
     # Which run of the producing task this decides: the task_id of the proposal
     # the decider was shown. Experiment.decide refuses a decision that names no
@@ -766,6 +633,8 @@ class Decision:
     # What was decided, for a kind with actions (a loop's pass: run, edit,
     # skip, accept). Empty for a yes/no kind, and not saved then.
     action: str = ""
+    # The suggestion this decision approved; empty when it approved none.
+    suggestion_id: str = ""
 
     def __post_init__(self) -> None:
         # a string from the file, the wire or a test is accepted and parsed
@@ -784,6 +653,8 @@ class Decision:
         }
         if self.action:
             doc["action"] = self.action
+        if self.suggestion_id:
+            doc["suggestion_id"] = self.suggestion_id
         return doc
 
     @classmethod
@@ -798,6 +669,78 @@ class Decision:
             task_id=data.get("task_id", ""),
             proposal_id=data.get("proposal_id", ""),
             action=data.get("action", ""),
+            suggestion_id=data.get("suggestion_id", ""),
+        )
+
+
+@dataclass
+class Suggestion:
+    """What someone other than the decider (an agent, at Assist) puts forward
+    on a pending proposal: the decision they would make, and why. Nothing is
+    decided by it; the decider approves it, declines it, or decides otherwise.
+
+    ``patch`` is kept as sent when the suggester edited fields of the proposed
+    value (a milling config's depth); ``values`` when it sent whole values.
+    ``image`` is a path inside the experiment the suggester's evidence is in.
+    """
+
+    actor: Actor
+    reason: str
+    outcome: DecisionOutcome = DecisionOutcome.Confirmed
+    values: Dict[str, Any] = field(default_factory=dict)
+    patch: Dict[str, Any] = field(default_factory=dict)
+    action: str = ""
+    image: str = ""
+    timestamp: Optional[datetime] = field(default_factory=now)
+    id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    declined: bool = False
+    declined_reason: str = ""
+
+    def __post_init__(self) -> None:
+        self.actor = Actor.parse(self.actor)
+
+    def values_for(self, proposal: "Proposal") -> Dict[str, Any]:
+        """The values a decision approving this carries: ``values``, or the
+        proposed ones with ``patch`` set on them."""
+        if self.patch:
+            return patch_values(
+                proposal.kind, dict(self.values or proposal.values), self.patch
+            )
+        return dict(self.values)
+
+    def to_dict(self) -> dict:
+        doc = {
+            "id": self.id,
+            "actor": str(self.actor),
+            "outcome": self.outcome.name,
+            "reason": self.reason,
+            "timestamp": to_iso(self.timestamp),
+        }
+        if self.values:
+            doc["values"] = _encode_values(self.values)
+        if self.patch:
+            doc["patch"] = dict(self.patch)
+        for name in ("action", "image", "declined_reason"):
+            if getattr(self, name):
+                doc[name] = getattr(self, name)
+        if self.declined:
+            doc["declined"] = True
+        return doc
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Suggestion":
+        return cls(
+            actor=Actor.parse(data.get("actor", "")),
+            reason=data.get("reason", ""),
+            outcome=DecisionOutcome[data.get("outcome", "Confirmed")],
+            values=_decode_values(data.get("values", {})),
+            patch=dict(data.get("patch", {})),
+            action=data.get("action", ""),
+            image=data.get("image", ""),
+            timestamp=to_datetime(data.get("timestamp")),
+            id=data.get("id") or uuid.uuid4().hex,
+            declined=bool(data.get("declined", False)),
+            declined_reason=data.get("declined_reason", ""),
         )
 
 
@@ -813,8 +756,6 @@ class Proposal:
 
     kind: str
     values: Dict[str, Any] = field(default_factory=dict)
-    confidence: Optional[float] = None
-    alternatives: List[Alternative] = field(default_factory=list)
     provenance: Dict[str, Any] = field(default_factory=dict)
     decisions: List[Decision] = field(default_factory=list)
     # As Decision.timestamp (FIB-1197). The id of a proposal saved before proposals
@@ -836,6 +777,8 @@ class Proposal:
     # Who asked: the task that made it, an agent or a model. None for one that
     # nothing asked yet; the item's record stamps it when it is recorded.
     asked_by: Optional[Actor] = None
+    # The latest suggestion on it, while pending; a new one replaces it.
+    suggestion: Optional[Suggestion] = None
 
     def asked_by_task(self, task_name: str) -> bool:
         """Whether *task_name* asked this: what a task's view of an item reads."""
@@ -900,13 +843,16 @@ class Proposal:
         return {
             "kind": self.kind,
             "values": _encode_values(self.values),
-            "confidence": self.confidence,
-            "alternatives": [a.to_dict() for a in self.alternatives],
             "provenance": dict(self.provenance),
             "decisions": [d.to_dict() for d in self.decisions],
             "created_at": to_iso(self.created_at),
             "id": self.id,
             "asked_by": str(self.asked_by) if self.asked_by is not None else None,
+            **(
+                {"suggestion": self.suggestion.to_dict()}
+                if self.suggestion is not None
+                else {}
+            ),
         }
 
     @classmethod
@@ -914,15 +860,14 @@ class Proposal:
         return cls(
             kind=data["kind"],
             values=_decode_values(data.get("values", {})),
-            confidence=data.get("confidence"),
-            alternatives=[
-                Alternative.from_dict(a) for a in data.get("alternatives", [])
-            ],
             provenance=dict(data.get("provenance", {})),
             decisions=[Decision.from_dict(d) for d in data.get("decisions", [])],
             created_at=to_datetime(data.get("created_at")),
             id=data.get("id") or _id_for_a_record_without_one(data),
             asked_by=Actor.parse(data["asked_by"]) if data.get("asked_by") else None,
+            suggestion=Suggestion.from_dict(data["suggestion"])
+            if data.get("suggestion")
+            else None,
         )
 
 
@@ -946,60 +891,14 @@ def _id_for_a_record_without_one(data: dict) -> str:
     return hashlib.sha1(seed.encode("utf-8")).hexdigest()[:32]
 
 
-# ---------------------------------------------------------------------------
-# Proposers: the part of proposing that differs per kind
-# ---------------------------------------------------------------------------
-#
-# Every proposal is a task result -- what ran, when, how it ended, the final
-# images -- plus, for kinds that have them, values a decision can edit and a
-# later task consumes. The result part is recorded for every kind, on a
-# lamella or a grid (fibsem/workflows/proposing.py); a proposer supplies only
-# the values. TASK_RESULT is the kind with none.
-
-
-class Proposer(Protocol):
-    """Names a kind and computes its values for a finished task, as a
-    Proposal of that kind: values, confidence, alternatives and whatever
-    provenance the proposer has to add (a model name, say). ``proposing.propose``
-    stamps the result part -- which task, when, how it ended, the final
-    images -- onto that provenance for every kind. ``name`` is what the
-    record says proposed the values and what the producer's own confirmation
-    is signed as; empty means the task itself. A task holds one
-    (``AutoLamellaTask.proposer``); swapping it -- a segmentation model for
-    the current point, say -- changes nothing downstream, which keys by kind.
-    None declines: nothing to propose, no record."""
-
-    kind: str
-    name: str
-    version: int
-
-    def propose(self, task: Any) -> Optional[Proposal]: ...
-
-
-class TaskResultProposer:
-    """The default: no values, the record is the result. Signed as the task."""
-
-    kind = TASK_RESULT
-    name = ""
-    version = 1
-
-    def propose(self, task: Any) -> Optional[Proposal]:
-        return Proposal(kind=self.kind)
-
-
 def record(proposals: List[Proposal], proposal: Proposal) -> Proposal:
     """Append ``proposal`` to an item's list, and return it.
 
     The list is the record of everything proposed on the item, oldest first;
-    what follows is about the proposals of the same asker: a deliberate re-run leaves the old answer -- and its delta --
-    on the record and puts the new one after it; a question the task asked
-    mid-run sits before the run's own result. The old value is never carried
-    over as the new default; a stale default is the rubber stamp the delta
-    detects. The previous proposal of the same kind is dropped first if nobody
-    answered it: it was never decided, so there is nothing to keep, and two
-    pending proposals of one kind for one task would be two questions where
-    only one was ever asked. One of another kind is left alone: a run's
-    question sits before the result it leaves afterwards.
+    a re-run leaves the old proposal and its decision on the record and puts
+    the new one after it. The previous proposal of the same kind and asker is
+    dropped first if nobody decided it: there is nothing to keep, and two
+    pending proposals of one kind would be two asks where only one was made.
     """
     for i in range(len(proposals) - 1, -1, -1):
         if (
@@ -1084,11 +983,10 @@ class DecisionResult:
     reason: str = ""
     running: bool = False
     # Why a refusal, for a client to act on: "missing_field" (the decision
-    # names no run), "stale_review" (the task re-ran since it was shown),
+    # names no run), "stale_proposal" (the task re-ran since it was shown),
     # "invalid_value" (the values cannot be confirmed as given). Empty when
     # applied, and for the other refusals (running, nothing pending).
     error_type: str = ""
-    delta: Dict[str, Any] = field(default_factory=dict)
     synced_tasks: List[str] = field(default_factory=list)
     # Applied, but the experiment could not be saved after it: the decision is
     # in memory and not yet on disk. Empty when it was saved.
@@ -1101,6 +999,5 @@ class DecisionResult:
             "reason": self.reason,
             "running": self.running,
             "error_type": self.error_type,
-            "delta": _encode_values(self.delta),
             "synced_tasks": list(self.synced_tasks),
         }

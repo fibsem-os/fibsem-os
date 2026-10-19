@@ -175,7 +175,7 @@ def test_headless_run_stops_on_the_callers_stop_event(fm_microscope, tmp_path):
         fm_microscope.milling.progress.changed.disconnect(_stop_on_first_tick)
         fm_microscope.session.record_signal.disconnect(_milling)
 
-    # the task runs its own copy of the config; that copy's strategy is the one that ran
+    # the task keeps the config it was given; its stage's strategy is the one that ran
     strategy = task.config.stages[0].get_strategy()
     assert isinstance(strategy, CoincidenceMillingStrategy)
     assert strategy.microscope is fm_microscope

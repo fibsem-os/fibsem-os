@@ -47,12 +47,12 @@ CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
 class _AsksForAPoint(MillRoughTask):
     """A real task type that declares one question."""
 
-    questions = (POINT_OF_INTEREST,)
+    asks = (POINT_OF_INTEREST,)
 
 
 class _AsksButTurnedOff(_AsksForAPoint):
     @classmethod
-    def questions_for(cls, config):
+    def asks_for(cls, config):
         return ()
 
 
@@ -83,8 +83,8 @@ def _experiment(tmp_path: Path, microscope, attention=Attention.automated):
     return exp
 
 
-def _task(microscope, exp, cls=_AsksForAPoint, body=None, answerers=None):
-    manager = TaskManager(microscope=microscope, experiment=exp, answerers=answerers)
+def _task(microscope, exp, cls=_AsksForAPoint, body=None, deciders=None):
+    manager = TaskManager(microscope=microscope, experiment=exp, deciders=deciders)
     lamella = exp.positions[0]
     task = cls(
         microscope=microscope,
@@ -131,11 +131,11 @@ def test_with_nobody_to_ask_the_proposed_value_is_used_and_recorded_unreviewed(
     assert decision.outcome is DecisionOutcome.Unreviewed
     assert decision.values == {"poi": Point(1e-6, 2e-6)}, "used as proposed"
     assert decision.actor.kind is ActorKind.task
-    # On the record, before the run's own result, and decided already.
-    question, result = lamella.proposals_from(ROUGH)
+    # On the record, and decided already.
+    (question,) = lamella.proposals_from(ROUGH)
     assert question.kind == POINT_OF_INTEREST and question.unreviewed
     assert question.provenance["reference_image"] == "ref.tif"
-    assert question.provenance["task_id"] == result.provenance["task_id"]
+    assert question.provenance["task_id"] == lamella.task_history[-1].task_id
     assert not question.pending
     assert exp.pending_proposals() == [], "nobody is asked about it"
     assert lamella.latest_run_completed(ROUGH), "nothing waits on it"
@@ -148,7 +148,7 @@ def test_with_the_agent_to_answer_a_supervised_task_asks_and_waits(
     pending, and the task carries on with the agent's decision."""
     exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
     lamella = exp.positions[0]
-    task = _task(microscope, exp, answerers=lambda: (ActorKind.agent,))
+    task = _task(microscope, exp, deciders=lambda: (ActorKind.agent,))
     seen = {}
     asking = threading.Thread(
         target=lambda: seen.update(
@@ -210,7 +210,7 @@ def test_with_nobody_to_answer_a_supervised_task_still_waits(microscope, tmp_pat
     exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
     lamella = exp.positions[0]
     who = []
-    task = _task(microscope, exp, answerers=lambda: tuple(who))
+    task = _task(microscope, exp, deciders=lambda: tuple(who))
     holds = []
     task.task_manager._set_hold = lambda hold, note=None, message="": holds.append(
         (hold, note)
@@ -254,7 +254,7 @@ def test_with_nobody_to_answer_a_supervised_task_still_waits(microscope, tmp_pat
 def test_stop_withdraws_a_question_nobody_can_answer(microscope, tmp_path):
     exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
     lamella = exp.positions[0]
-    task = _task(microscope, exp, answerers=lambda: ())
+    task = _task(microscope, exp, deciders=lambda: ())
     task._stop_event = StopEvent()
     errors = []
 
@@ -316,14 +316,13 @@ def test_unreviewed_survives_the_file(microscope, tmp_path):
 def test_every_task_type_declares_kinds_the_record_knows():
     """A task says what it asks; what it says has to be a proposal kind."""
     for name, cls in get_tasks().items():
-        for kind in cls.questions:
+        for kind in cls.asks:
             assert kind in PROPOSAL_KINDS, f"{name} asks an unknown kind {kind!r}"
 
 
-def test_a_question_and_the_runs_result_are_both_current(microscope, tmp_path):
-    """Different kinds do not replace each other: the unreviewed question
-    stays current beside the run's result, both decided Unreviewed when the
-    run ends, and a later decision on either is refused as already decided."""
+def test_an_unasked_proposal_is_already_decided(microscope, tmp_path):
+    """A proposal nobody was asked is decided Unreviewed when it is made, and
+    a later decision on it is refused as already decided."""
     exp = _experiment(tmp_path, microscope)
     lamella = exp.positions[0]
     _task(
@@ -331,9 +330,9 @@ def test_a_question_and_the_runs_result_are_both_current(microscope, tmp_path):
         exp,
         body=lambda t: t.ask(POINT_OF_INTEREST, {"poi": Point(0, 0)}),
     ).run()
-    question, result = lamella.proposals_from(ROUGH)
-    assert lamella.current_proposals(ROUGH) == [question, result]
-    assert question.unreviewed and result.unreviewed
+    (question,) = lamella.proposals_from(ROUGH)
+    assert lamella.current_proposals(ROUGH) == [question]
+    assert question.unreviewed
     assert exp.pending_proposals() == []
 
     looked = exp.decide(
@@ -347,4 +346,4 @@ def test_a_question_and_the_runs_result_are_both_current(microscope, tmp_path):
     )
     assert not looked.applied and looked.error_type == "invalid_value", looked
     assert "already decided" in looked.reason
-    assert len(question.decisions) == 1 and len(result.decisions) == 1
+    assert len(question.decisions) == 1

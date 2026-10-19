@@ -1406,7 +1406,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         history = LamellaCorrelation.discover(correlation_dir(selected_lamella.path))
 
-        experiment = self.parent_widget.experiment if self.parent_widget else None
+        experiment = self.parent_widget.experiment
         protocol = experiment.task_protocol if experiment is not None else None
         spot_burns = self._spot_burn_coordinates(selected_lamella)
 
@@ -1424,7 +1424,11 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             selected_lamella, self.combobox_fm_filenames.currentData() or ""
         )
 
-        dialog = CorrelationTabDialog(parent=self)
+        # The app's correlation, started afresh: one correlation is open at a
+        # time, and whatever reads the session sees this one.
+        session = self.parent_widget.session.correlation
+        session.reset()
+        dialog = CorrelationTabDialog(parent=self, session=session)
         dialog.set_project_dir(project_path)
         if protocol is not None:
             dialog.set_correlation_config(protocol.correlation)
@@ -1463,16 +1467,21 @@ class AutoLamellaProtocolEditorWidget(QWidget):
                 experiment_runs(str(experiment.path), selected_lamella.path)
             )
 
-        if dialog.exec_() != QDialog.Accepted:
-            return
+        try:
+            if dialog.exec_() != QDialog.Accepted:
+                return
 
-        # Persist the edited config to the protocol so every lamella inherits it.
-        if protocol is not None:
-            protocol.correlation = dialog.correlation_config
-            self._save_experiment()
+            # Persist the edited config to the protocol so every lamella inherits it.
+            if protocol is not None:
+                protocol.correlation = dialog.correlation_config
+                self._save_experiment()
 
-        if dialog.result is not None:
-            self._handle_correlation_dialog_result(dialog.result, project_path)
+            if dialog.result is not None:
+                self._handle_correlation_dialog_result(dialog.result, project_path)
+        finally:
+            # Gone before the next open: a view left behind would still listen
+            # to the session's points.
+            dialog.deleteLater()
 
     @staticmethod
     def _default_fib_filename(

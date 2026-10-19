@@ -7,8 +7,8 @@ The chip in the status bar opens it. It holds, top to bottom:
   line each as the server wrote them (FIB-1403), "Show details" for every value,
   the agent's reason, under it the image the reason's values were measured on
   with them drawn on it (FIB-1411), and Reject… and Approve; while an approved
-  request runs, each action's progress. Or the agent's suggested answer to the
-  run's question, with Accept (FIB-1407);
+  request runs, each action's progress. Or the agent's suggestion on the
+  pending proposal, with Decline… and Approve;
 * what the agent did lately, Recent: open at first at Drive, where it acts
   without asking, folded to its last line below it (FIB-1414); the event log
   at its right;
@@ -74,11 +74,11 @@ from fibsem.ui.tokens import (
     PANEL_COLOR,
     PURPLE_COLOR,
     RED_COLOR,
-    REVIEW_COLOR,
     SURFACE_COLOR,
     TEXT_COLOR,
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
+    WAITING_COLOR,
 )
 
 # The agent's reason, before "more".
@@ -96,7 +96,7 @@ ENLARGED_WIDTH = 1024
 
 # How a Recent row ended (agent_recent's tones), as a colour.
 _TONES = {
-    "waiting": REVIEW_COLOR,
+    "waiting": WAITING_COLOR,
     "ok": OK_COLOR,
     "error": RED_COLOR,
     "muted": TEXT_MUTED_COLOR,
@@ -469,8 +469,8 @@ class AgentCard(QFrame):
     connect_clicked = pyqtSignal()
     approve_clicked = pyqtSignal(str)  # request id
     reject_clicked = pyqtSignal(str, str)  # request id, the operator's reason
-    accept_clicked = pyqtSignal()  # the suggestion shown
-    dismiss_clicked = pyqtSignal(str)  # the suggestion shown, the operator's why
+    suggestion_approved = pyqtSignal()  # the suggestion shown
+    suggestion_declined = pyqtSignal(str)  # the suggestion shown, the operator's why
     float_clicked = pyqtSignal()  # float the card, or put it back on the chip
     keep_on_top_toggled = pyqtSignal(bool)  # the floating card over every window
     message_sent = pyqtSignal(str)  # the operator's message to the agent
@@ -482,8 +482,8 @@ class AgentCard(QFrame):
         self.setStyleSheet(_CARD)
         self._request: Optional[Dict[str, Any]] = None
         self._suggestion: Optional[Dict[str, str]] = None
-        self.accept_button: Optional[QPushButton] = None
-        self.dismiss_button: Optional[QPushButton] = None
+        self.approve_suggestion_button: Optional[QPushButton] = None
+        self.decline_button: Optional[QPushButton] = None
         self._now: Optional[str] = None
         # The images under Why, with their captions: the request's, the
         # suggestion's.
@@ -693,15 +693,15 @@ class AgentCard(QFrame):
         return self._suggestion
 
     def set_suggestion(self, suggestion: Optional[Dict[str, str]]) -> None:
-        """The agent's suggested answer to the run's question -- ``question``
-        (the prompt's text), ``answer`` (the prompt's button it stands for) and
+        """The agent's suggestion on the pending proposal -- ``proposal`` (what
+        the task asks), ``decision`` (what approving it decides) and
         ``reason`` -- or None for none. A request, when one waits, shows first."""
         suggestion = dict(suggestion) if suggestion is not None else None
         if suggestion == self._suggestion:
             return
-        if suggestion is None or suggestion.get("question") != (
+        if suggestion is None or suggestion.get("proposal") != (
             self._suggestion or {}
-        ).get("question"):
+        ).get("proposal"):
             self._rejecting = False
         if (suggestion or {}).get("reason") != (self._suggestion or {}).get("reason"):
             self._why_open = False
@@ -715,8 +715,8 @@ class AgentCard(QFrame):
         suggestion: bool = False,
         legend: Sequence = (),
     ) -> None:
-        """The image the waiting request's (or, *suggestion*, the suggested
-        answer's) values were measured on, drawn on it, with what it is
+        """The image the waiting request's (or, *suggestion*, the suggestion's)
+        values were measured on, drawn on it, with what it is
         ("FIB · 07:41") and its *legend* (`previews.draw_legend`'s
         entries); None for none, *caption* then why there is none."""
         key = "suggestion" if suggestion else "request"
@@ -822,8 +822,8 @@ class AgentCard(QFrame):
         # The body's widgets are gone: so is the picture (else a resize touches it).
         self._picture_holder = self.image_label = None
         request = self._request
-        self.accept_button = self.details_link = self.why_link = None
-        self.dismiss_button = None
+        self.approve_suggestion_button = self.details_link = self.why_link = None
+        self.decline_button = None
         self.approve_button = self.reject_button = None
         self.confirm_reject_button = self.back_button = None
         self.reason_edit = None
@@ -833,10 +833,10 @@ class AgentCard(QFrame):
             self._paint_now()
             self.updateGeometry()
             return
-        self._dot.setStyleSheet(f"color: {REVIEW_COLOR};")
+        self._dot.setStyleSheet(f"color: {WAITING_COLOR};")
         self._paint_now()
         if request is None:
-            self._title.setText("Agent suggests an answer")
+            self._title.setText("Agent suggests")
             left, right = self._suggestion_columns(self._suggestion)
         else:
             applying = request.get("status") == "applying"
@@ -894,10 +894,13 @@ class AgentCard(QFrame):
             row.addWidget(mark)
             text = QVBoxLayout()
             text.setSpacing(1)
+            # Wraps: a long one ("01-meet-ghoul · Setup Lamella Position")
+            # would widen the steps past STEPS_MIN, pushing Approve off the card.
             what = _label(
                 action.get("what") or action.get("tool", ""),
                 TEXT_MUTED_COLOR,
                 small=True,
+                wrap=True,
             )
             if index == 0 and self.details_link is not None:
                 # Top right of the list.
@@ -976,13 +979,11 @@ class AgentCard(QFrame):
         rows = QVBoxLayout(box)
         rows.setContentsMargins(10, 8, 10, 8)
         rows.setSpacing(1)
-        if suggestion.get("question"):
+        if suggestion.get("proposal"):
             rows.addWidget(
-                _label(suggestion["question"], TEXT_MUTED_COLOR, small=True, wrap=True)
+                _label(suggestion["proposal"], TEXT_MUTED_COLOR, small=True, wrap=True)
             )
-        answer = _label(
-            f"Answer: {suggestion.get('answer', '')}", TEXT_STRONG_COLOR, wrap=True
-        )
+        answer = _label(suggestion.get("decision", ""), TEXT_STRONG_COLOR, wrap=True)
         answer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         rows.addWidget(answer)
         left.addWidget(box)
@@ -999,37 +1000,37 @@ class AgentCard(QFrame):
         buttons.addStretch(1)
         self.back_button = self.confirm_reject_button = self.reason_edit = None
         if self._rejecting and self._request is None:
-            # Dismiss, with why if the operator likes: recorded for the agent
-            # (FIB-1424). The question stays up.
+            # Decline, with why if the operator likes: recorded for the agent
+            # (FIB-1424). The proposal stays up.
             self.reason_edit = QLineEdit()
             self.reason_edit.setPlaceholderText("Tell the agent why (optional)")
             right.addWidget(self.reason_edit)
             self.back_button = _button("Back")
             self.back_button.clicked.connect(lambda: self._set_rejecting(False))
-            self.dismiss_button = _button("Dismiss", primary=True)
-            self.dismiss_button.clicked.connect(
-                lambda: self.dismiss_clicked.emit(
+            self.decline_button = _button("Decline", primary=True)
+            self.decline_button.clicked.connect(
+                lambda: self.suggestion_declined.emit(
                     self.reason_edit.text() if self.reason_edit else ""
                 )
             )
             buttons.addWidget(self.back_button)
-            buttons.addWidget(self.dismiss_button)
+            buttons.addWidget(self.decline_button)
             right.addLayout(buttons)
             return left, right
-        self.dismiss_button = _button("Dismiss…")
-        self.dismiss_button.setToolTip(
-            "Decline the suggestion and tell the agent why. The question stays "
-            "up for you to answer."
+        self.decline_button = _button("Decline…")
+        self.decline_button.setToolTip(
+            "Decline the suggestion and tell the agent why. The proposal stays "
+            "up for you to decide."
         )
-        self.dismiss_button.clicked.connect(lambda: self._set_rejecting(True))
-        self.accept_button = _button("Accept", primary=True)
-        self.accept_button.setToolTip(
-            "Answer the question with this, as your answer. The record names the "
-            "agent as the one who suggested it."
+        self.decline_button.clicked.connect(lambda: self._set_rejecting(True))
+        self.approve_suggestion_button = _button("Approve", primary=True)
+        self.approve_suggestion_button.setToolTip(
+            "Decide the proposal as suggested, as your decision. The record names "
+            "the agent as the one who suggested it."
         )
-        self.accept_button.clicked.connect(self.accept_clicked)
-        buttons.addWidget(self.dismiss_button)
-        buttons.addWidget(self.accept_button)
+        self.approve_suggestion_button.clicked.connect(self.suggestion_approved)
+        buttons.addWidget(self.decline_button)
+        buttons.addWidget(self.approve_suggestion_button)
         right.addLayout(buttons)
         return left, right
 

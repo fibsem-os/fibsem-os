@@ -142,7 +142,7 @@ function gate(message) {
 /* ── what each kind is ─────────────────────────────────────────────── */
 
 const GROUPS = [
-  ["questions", "questions", k => k.startsWith("prompt_") || k.startsWith("question_")
+  ["questions", "proposals", k => k.startsWith("prompt_") || k.startsWith("question_") || k === "proposal_held" || k === "proposal_waiting" || k === "proposal_released"
     || k.startsWith("proposal_") || k === "review_decided"],
   ["notes", "messages, agent's calls, notes & stops", k => k === "agent_note"
     || k === "agent_stop" || k === "agent_refused" || k === "agent_called"
@@ -202,7 +202,8 @@ function hms(e) {
 function um(v) { return typeof v === "number" ? (v * 1e6).toFixed(2) + " µm" : "?"; }
 function signed(v) { return typeof v === "number" ? (v >= 0 ? "+" : "−") + Math.abs(v * 1e6).toFixed(2) + " µm" : null; }
 // The questions a run raises are the run's, whatever thread posted them.
-const RUN_ASKS = new Set(["prompt_raised", "prompt_cancelled", "question_asked", "question_released"]);
+// question_asked / question_released: what older logs call them.
+const RUN_ASKS = new Set(["prompt_raised", "prompt_cancelled", "proposal_held", "proposal_released", "question_asked", "question_released"]);
 function whoOf(e) {
   if (RUN_ASKS.has(e.kind)) return "task";
   return WHO.includes(e.actor) ? e.actor : "task";
@@ -264,8 +265,8 @@ function describe(e) {
     case "prompt_cancelled": return ["withdrawn", esc(p.type)];
     case "prompt_suggestion_dismissed":
       return ["suggestion dismissed", `${esc(p.type)}${p.reason ? ` <span class="muted">${esc(p.reason)}</span>` : ""}`];
-    case "question_asked": return ["question held", `the run waits on a recorded question`];
-    case "question_released": return ["question released", ""];
+    case "proposal_held": case "question_asked": return ["proposal held", `the run waits on a proposal`];
+    case "proposal_released": case "question_released": return ["proposal released", ""];
     case "proposal_asked": return ["proposed", esc(p.field || p.kind || p.type || "")];
     case "proposal_decided": return ["decided", esc([p.field || p.kind, p.outcome].filter(Boolean).join(" · "))];
     case "review_decided": return ["reviewed", esc([p.field, p.outcome || p.decision].filter(Boolean).join(" · "))];
@@ -336,7 +337,7 @@ function describe(e) {
 const LABEL_CLASS = {
   failed: "err", "run failed": "err", "run stalled": "err", rejected: "err",
   completed: "ok", "run completed": "ok", approved: "ok",
-  asked: "warn", "question held": "warn", requested: "warn", refused: "warn",
+  asked: "warn", "proposal held": "warn", requested: "warn", refused: "warn",
   started: "accent", "run started": "accent",
 };
 

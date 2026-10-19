@@ -121,9 +121,9 @@ Several parts of the application require workarounds:
   `confirm_run_workflow_dialog` in the main-window module). The workflow's
   completion summary is suppressed and then shown with `show()` for its own
   screenshot.
-- **Supervised prompts appear on the Experiment tab** under the Microscope
-  tab. Poll `ui.hold` (a `Hold` while a question is up, None otherwise), switch there, capture, then
-  answer with `pushButton_yes` or `pushButton_no`. A milling prompt is
+- **Supervised proposals appear on the Experiment tab** under the Microscope
+  tab. Poll `ui.hold` (a `Hold` while a proposal is up, None otherwise), switch there, capture, then
+  decide with `pushButton_yes` or `pushButton_no`. A milling prompt is
   repeated after the run (Yes runs milling again, No continues), so the
   Workflows page answers Yes once per task name and Continue afterwards.
 - **Lists are rebuilt after a run.** The Workflow tab's lamella and task

@@ -611,7 +611,7 @@ def test_connecting_makes_the_old_calls_and_reads_the_limits(odemis):
 CHANNELS = {
     "fluorescence": ChannelSettings(
         excitation_wavelength=450,
-        emission_filter=EmissionFilter("500 nm", low=500.0),
+        emission_filter=EmissionFilter.band("500 nm", 500.0),
         power=0.3,
         exposure_time=0.2,
         gain=2.0,
@@ -648,7 +648,7 @@ def _old_frame(image):
     found = {key: getattr(ch, key) for key in METADATA_KEYS}
     found["pixel_size"] = (md.pixel_size_x, md.pixel_size_y)
     found["resolution"] = tuple(md.resolution)
-    found["acquisition_date"] = md.acquisition_date
+    found["acquisition_date"] = md.acquisition_datetime
     return image.data.shape, found
 
 
@@ -951,7 +951,7 @@ def _api_cases():
             fm.filter_set, "emission_filter", REFLECTION
         ),
         "set emission 590": lambda fm: setattr(
-            fm.filter_set, "emission_filter", EmissionFilter("590 nm", low=590.0)
+            fm.filter_set, "emission_filter", EmissionFilter.band("590 nm", 590.0)
         ),
         "set emission Fluorescence": lambda fm: setattr(
             fm.filter_set,

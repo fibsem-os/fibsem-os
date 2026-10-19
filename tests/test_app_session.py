@@ -249,25 +249,25 @@ def test_who_can_answer_is_what_is_attached_and_the_agent_at_drive(fake_hosting)
     from fibsem.ai.agent.levels import AGENT_LISTENING_S, AgentLevel
 
     session = AppSession()
-    assert session.answerers() == ()
+    assert session.deciders() == ()
 
-    detach = session.attach_answerer(OPERATOR)
-    assert session.answerers() == (OPERATOR,)
+    detach = session.attach_decider(OPERATOR)
+    assert session.deciders() == (OPERATOR,)
     detach()
-    assert session.answerers() == ()
+    assert session.deciders() == ()
 
     session.start_app_server(lambda buffer: None)
     session.agent_auth = SimpleNamespace(level=AgentLevel.ASSIST)
-    assert session.answerers() == (), "at Assist the agent suggests, it does not answer"
+    assert session.deciders() == (), "at Assist the agent suggests, it does not answer"
     session.agent_auth.level = AgentLevel.DRIVE
-    assert session.answerers() == (), "at Drive, but never heard: nobody listening"
+    assert session.deciders() == (), "at Drive, but never heard: nobody listening"
     session.app_server.seen = 3.0
-    assert session.answerers() == (AGENT,)
+    assert session.deciders() == (AGENT,)
     session.app_server.seen = AGENT_LISTENING_S + 1
-    assert session.answerers() == (), "gone quiet: it waits for the agent to return"
+    assert session.deciders() == (), "gone quiet: it waits for the agent to return"
     session.app_server.seen = 3.0
     session.stop_app_server()
-    assert session.answerers() == (), "no server, nobody to hear it"
+    assert session.deciders() == (), "no server, nobody to hear it"
 
 
 # ── the agent, as the operator meets it (FIB-1461) ────────────────────────────

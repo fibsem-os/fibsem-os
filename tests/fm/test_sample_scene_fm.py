@@ -25,19 +25,19 @@ REFLECTION = ChannelSettings(
 GREEN = ChannelSettings(
     name="green",
     excitation_wavelength=488,
-    emission_filter=EmissionFilter("520 nm", low=520),
+    emission_filter=EmissionFilter.band("520 nm", 520),
     color="green",
 )
 RED = ChannelSettings(
     name="red",
     excitation_wavelength=561,
-    emission_filter=EmissionFilter("610 nm", low=610),
+    emission_filter=EmissionFilter.band("610 nm", 610),
     color="red",
 )
 BLUE = ChannelSettings(
     name="blue",
     excitation_wavelength=405,
-    emission_filter=EmissionFilter("450 nm", low=450),
+    emission_filter=EmissionFilter.band("450 nm", 450),
     color="blue",
 )
 

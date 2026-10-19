@@ -81,7 +81,7 @@ def _fm_image() -> FluorescenceImage:
     return FluorescenceImage(
         data=data,
         metadata=FluorescenceImageMetadata(
-            acquisition_date="2026-10-02T14:48:00",
+            acquisition_datetime="2026-10-02T14:48:00",
             pixel_size_x=65e-9,
             pixel_size_y=65e-9,
             channels=channels,
@@ -238,14 +238,13 @@ def test_a_fluorescence_image_reads_its_acquisition_time(viewer_utc):
     image.metadata.acquisition_datetime = datetime.fromisoformat(
         "2026-10-02T14:48:00-06:00"
     )
-    image.metadata.acquisition_date = image.metadata.acquisition_datetime.isoformat()
     assert _values(from_fluorescence_image(image).provenance)["date"] == (
         "2026-10-02 20:48"
     )
 
 
 def test_an_older_fluorescence_image_shows_its_clock_time_unmoved():
-    """A naive acquisition_date: the acquiring machine's clock, zone unknown."""
+    """A naive acquisition time: the acquiring machine's clock, zone unknown."""
     assert _values(from_fluorescence_image(_fm_image()).provenance)["date"] == (
         "2026-10-02 14:48"
     )

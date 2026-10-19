@@ -39,6 +39,7 @@ from fibsem.applications.autolamella.ui.autolamella_overview_tab import (  # noq
 )
 from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition  # noqa: E402
 from fibsem.workflows.grids import OverlayRecord  # noqa: E402
+from tests.fixtures.overview_host import OverviewHost  # noqa: E402
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -70,7 +71,7 @@ def microscope():
     return scope
 
 
-class _StubWindow:
+class _StubWindow(OverviewHost):
     """Everything the tab reaches for on its host, and nothing else.
 
     Deliberately small: if this grows, the tab has started depending on the window
@@ -78,8 +79,7 @@ class _StubWindow:
     """
 
     def __init__(self, microscope, experiment):
-        self.microscope = microscope
-        self.experiment = experiment
+        super().__init__(microscope, experiment)
         self.added = []
         self.kwargs = []
 
@@ -158,7 +158,7 @@ class TestItMarksTheBeamSidePose:
         lamella = _lamella(tab, microscope, dx=120e-6)
         tab.refresh_positions()
 
-        marked = tab.overview._positions
+        marked = tab.overview.session.positions
         assert [p.name for p in marked] == [lamella.name]
         assert marked[0].x == pytest.approx(lamella.stage_position.x)
         assert marked[0].y == pytest.approx(lamella.stage_position.y)
@@ -179,7 +179,7 @@ class TestItMarksTheBeamSidePose:
         lamella = _lamella(tab, microscope)
         lamella.stage_position = None
         tab.refresh_positions()
-        assert tab.overview._positions == []
+        assert tab.overview.session.positions == []
         # Still in the list, though: that is where you find out it exists.
         assert tab.lamella_list._list.count() == 1
 
@@ -194,14 +194,14 @@ class TestDefects:
         bad.defect.state = DefectType.FAILURE
         tab.refresh_positions()
 
-        assert tab.overview._flagged == {bad.name}
-        assert ok.name not in tab.overview._flagged
+        assert tab.overview.session.flagged == {bad.name}
+        assert ok.name not in tab.overview.session.flagged
 
     def test_rework_is_flagged_as_well_as_failure(self, tab, microscope):
         lamella = _lamella(tab, microscope)
         lamella.defect.state = DefectType.REWORK
         tab.refresh_positions()
-        assert tab.overview._flagged == {lamella.name}
+        assert tab.overview.session.flagged == {lamella.name}
 
     def test_setting_a_defect_is_saved_and_redrawn(self, tab, microscope):
         """The row writes `lamella.defect` and emits; nothing was listening, so the
@@ -209,12 +209,12 @@ class TestDefects:
         saved, because the marker's colour is one of the things it decides."""
         lamella = _lamella(tab, microscope)
         tab.refresh_positions()
-        assert tab.overview._flagged == set()
+        assert tab.overview.session.flagged == set()
 
         lamella.defect.state = DefectType.FAILURE
         tab._on_defect_changed(lamella)
 
-        assert tab.overview._flagged == {lamella.name}
+        assert tab.overview.session.flagged == {lamella.name}
         assert os.path.exists(os.path.join(str(tab.experiment.path), "experiment.yaml"))
 
 
@@ -426,7 +426,7 @@ class TestItMarksTheFluorescenceSidePose:
         lamella = _lamella(fm_tab, microscope, dx=90e-6)
         fm_tab.refresh_positions()
 
-        marked = fm_tab.overview._positions
+        marked = fm_tab.overview.session.positions
         assert [p.name for p in marked] == [lamella.name]
 
         milling_tilt = lamella.milling_pose.stage_position.t
@@ -451,7 +451,7 @@ class TestItMarksTheFluorescenceSidePose:
         lamella.poses.pop("FLUORESCENCE", None)
         fm_tab.refresh_positions()
 
-        assert fm_tab.overview._positions == []
+        assert fm_tab.overview.session.positions == []
         assert [row.lamella.name for row in fm_tab.lamella_list._rows()] == [
             lamella.name
         ]
@@ -490,31 +490,10 @@ class TestBothTabsAnswerIsAcquiring:
 
 @pytest.fixture
 def locked_pair(tab, fm_tab):
-    """Both tabs under a host that derives their locks the way the window does.
+    """Both tabs under the locks the Overview tab holds them with."""
+    from fibsem.applications.autolamella.ui.overview_container_tab import OverviewLocks
 
-    The window itself cannot be built here (napari), so its two decision methods are
-    borrowed rather than reimplemented -- if the rule changes, this moves with it. That
-    the real window *connects* the signal to that rule is checked separately, in
-    `test_overview_tab_wiring.py`, because a fixture wiring it by hand would go on
-    passing if production stopped.
-    """
-    from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
-        AutoLamellaSingleWindowUI as _Real,
-    )
-
-    class _Host:
-        _overviews_allowed = _Real._overviews_allowed
-        _apply_overview_locks = _Real._apply_overview_locks
-        _overview_may_work = _Real._overview_may_work
-        _set_overviews_allowed = _Real._set_overviews_allowed
-
-        def __init__(self, beam, fluorescence):
-            self.beam_overview_tab = beam
-            self.fm_overview_tab = fluorescence
-            for one in (beam, fluorescence):
-                one.acquiring_changed.connect(self._apply_overview_locks)
-
-    return _Host(tab, fm_tab), tab, fm_tab
+    return OverviewLocks(tab, fm_tab), tab, fm_tab
 
 
 class TestOneOverviewDoesNotDriveTheStageWhileTheOtherAcquires:
@@ -526,7 +505,7 @@ class TestOneOverviewDoesNotDriveTheStageWhileTheOtherAcquires:
     """
 
     def test_a_fluorescence_run_locks_the_beam_tab(self, locked_pair, monkeypatch):
-        host, beam, fluorescence = locked_pair
+        locks, beam, fluorescence = locked_pair
         toasts = []
         monkeypatch.setattr(
             "fibsem.ui.widgets.overview_widget.notification_service.show_toast",
@@ -546,7 +525,7 @@ class TestOneOverviewDoesNotDriveTheStageWhileTheOtherAcquires:
         pose, which it is here -- so "it said no" is a test that passes with the lock
         removed entirely. It did, until this was written this way.
         """
-        host, beam, fluorescence = locked_pair
+        locks, beam, fluorescence = locked_pair
         toasts = []
         monkeypatch.setattr(
             "fibsem.ui.fm.widgets.fm_overview_widget.notification_service.show_toast",
@@ -560,18 +539,18 @@ class TestOneOverviewDoesNotDriveTheStageWhileTheOtherAcquires:
             beam.overview._set_running(False)
 
     def test_the_lock_lifts_when_the_run_ends(self, locked_pair):
-        host, beam, fluorescence = locked_pair
+        locks, beam, fluorescence = locked_pair
         fluorescence.overview._set_running(True)
         fluorescence.overview._set_running(False)
-        assert beam.overview._interactive is True
+        assert beam.overview.session.interactive is True
 
     def test_a_run_does_not_lock_the_tab_running_it(self, locked_pair):
         """Its own controls are managed by the run itself -- Cancel above all, which a
         lock must never take away."""
-        host, beam, fluorescence = locked_pair
+        locks, beam, fluorescence = locked_pair
         fluorescence.overview._set_running(True)
         try:
-            assert fluorescence.overview._interactive is True
+            assert fluorescence.overview.session.interactive is True
         finally:
             fluorescence.overview._set_running(False)
 
@@ -579,11 +558,11 @@ class TestOneOverviewDoesNotDriveTheStageWhileTheOtherAcquires:
         """Both facts, derived together. Two callers each setting the flag from their
         own half of the truth is how a control gets stuck on: the workflow says "you may
         work again" while a tileset is still walking the grid."""
-        host, beam, fluorescence = locked_pair
-        host._set_overviews_allowed(False)
+        locks, beam, fluorescence = locked_pair
+        locks.set_run_allows(False)
         fluorescence.overview._set_running(True)
         try:
-            host._set_overviews_allowed(True)
+            locks.set_run_allows(True)
             assert beam.overview._may_move() is False, (
                 "the workflow finishing unlocked a tab the other run still owns"
             )
@@ -594,7 +573,7 @@ class TestOneOverviewDoesNotDriveTheStageWhileTheOtherAcquires:
         """A reconnection rebuilds the widget mid-run. The widget that would have said
         the run ended is the one being destroyed, so the tab says it instead -- without
         which the other overview stays locked for the rest of the session."""
-        host, beam, fluorescence = locked_pair
+        locks, beam, fluorescence = locked_pair
         fluorescence.overview._set_running(True)
         assert beam.overview._may_move() is False
         fluorescence._drop_overview()
@@ -649,18 +628,18 @@ class TestItMarksOnlyWhatIsOnTheStage:
         free = _lamella(tab, microscope, dx=-50e-6)
         try:
             tab.refresh_positions()
-            assert [p.name for p in tab.overview._positions] == [free.name]
+            assert [p.name for p in tab.overview.session.positions] == [free.name]
             assert tab.lamella_list._list.count() == 2
 
             stage.ensure_loaded("Grid-02")
             tab.refresh_positions()
-            assert sorted(p.name for p in tab.overview._positions) == sorted(
+            assert sorted(p.name for p in tab.overview.session.positions) == sorted(
                 [on_two.name, free.name]
             )
 
             stage.unload()
             tab.refresh_positions()
-            assert [p.name for p in tab.overview._positions] == [free.name]
+            assert [p.name for p in tab.overview.session.positions] == [free.name]
         finally:
             if stage.loaded_grids:
                 stage.unload()
@@ -852,7 +831,7 @@ class TestAnAlignedImageIsKeptOnTheGrid:
                 np.uint16
             ),
             metadata=FluorescenceImageMetadata(
-                acquisition_date="2026-09-23T10:00:00",
+                acquisition_datetime="2026-09-23T10:00:00",
                 pixel_size_x=1e-6,
                 pixel_size_y=1e-6,
                 stage_position=FibsemStagePosition(

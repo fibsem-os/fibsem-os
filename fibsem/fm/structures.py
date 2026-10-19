@@ -62,6 +62,7 @@ from fibsem.autofunctions.autofocus import (  # noqa: E402,F401
     FocusMethod,
     FocusSweepPass,
 )
+from fibsem.codec import NamedEnum, Timestamp, decode, encode
 
 # AutoFocusMode is canonical in fibsem.structures -- there was a second, identical
 # enum of the same name here, so the two tilers held different objects for the same
@@ -93,12 +94,11 @@ from fibsem.structures import (  # noqa: F401
 from fibsem.util.timestamps import (
     acquisition_datetime_of,
     now,
-    now_iso,
-    to_aware,
+    to_datetime,
 )
 
 
-class ZStackOrder(Enum):
+class ZStackOrder(NamedEnum, Enum):
     """Acquisition order for z-stack."""
 
     CHANNEL = "channel"  # default: for each channel, acquire all z-planes
@@ -171,94 +171,10 @@ def safe_ome_from_tiff(filename: str) -> OMEMetadata:
     return ome
 
 
-@dataclass
-class FMStagePosition:
-    """Stage position for fluorescence microscopy with position names."""
-
-    name: str
-    stage_position: FibsemStagePosition
-    objective_position: float  # meters, z-axis position of objective
-
-    def to_dict(self) -> dict:
-        """Convert to dictionary representation."""
-        return {
-            "name": self.name,
-            "stage_position": self.stage_position.to_dict(),
-            "objective_position": self.objective_position,
-        }
-
-    @classmethod
-    def from_dict(cls, ddict: dict) -> "FMStagePosition":
-        """Create FMStagePosition from dictionary."""
-        return cls(
-            name=ddict["name"],
-            stage_position=FibsemStagePosition.from_dict(ddict["stage_position"]),
-            objective_position=ddict["objective_position"],
-        )
-
-    def __str__(self) -> str:
-        """String representation of the stage position."""
-        return f"FMStagePosition(name='{self.name}', stage={self.stage_position}, obj_z={self.objective_position:.6f})"
-
-    def __repr__(self) -> str:
-        """Detailed string representation."""
-        return (
-            f"FMStagePosition(name='{self.name}', "
-            f"stage_position={repr(self.stage_position)}, "
-            f"objective_position={self.objective_position})"
-        )
-
-    def format_position_info(self) -> str:
-        """Format position information for UI display.
-
-        Returns:
-            str: Formatted string with stage coordinates and objective position
-                 (e.g., "X: 123.4 μm, Y: 567.8 μm, Z: 90.1 μm, Obj: 12.345 mm")
-        """
-        info_text = f"X: {self.stage_position.x * 1e6:.1f} μm, Y: {self.stage_position.y * 1e6:.1f} μm"
-        if hasattr(self.stage_position, "z") and self.stage_position.z is not None:
-            info_text += f", Z: {self.stage_position.z * 1e6:.1f} μm"
-        info_text += f", Obj: {self.objective_position * 1e3:.3f} mm"
-        return info_text
-
-    @property
-    def pretty_name(self) -> str:
-        """Generate a pretty name for the stage position."""
-        return f"{self.name} ({self.stage_position.x * 1e6:.1f}μm, {self.stage_position.y * 1e6:.1f}μm, {self.objective_position * 1e3:.3f}mm)"
-
-    @classmethod
-    def create_from_current_position(
-        cls,
-        stage_position: FibsemStagePosition,
-        objective_position: float,
-        num: int = 0,
-    ) -> "FMStagePosition":
-        """Create FMStagePosition with automatic name generation if needed.
-
-        Args:
-            stage_position: The stage position coordinates
-            objective_position: Current objective z-position in meters
-            num: Optional index to use for name generation (default: 0)
-
-        Returns:
-            FMStagePosition: New position with generated or provided name
-        """
-        # Generate petname-style name with index
-        import petname
-
-        name = f"{num:02d}-{petname.generate(2)}"
-
-        return cls(
-            name=name,
-            stage_position=stage_position,
-            objective_position=objective_position,
-        )
-
-
 Band = Tuple[float, Optional[float]]  # edges in nm; the top may be unknown
 
 
-@dataclass(frozen=True, init=False)
+@dataclass(frozen=True)
 class EmissionFilter(Configurable):
     """One emission filter the filter set can put in the light path.
 
@@ -267,56 +183,39 @@ class EmissionFilter(Configurable):
     filter whose bands the driver doesn't know (an FM that reports only a
     fluorescence mode) has ``multi_band`` set and no bands. A driver that knows only a band's
     bottom edge gives ``(low, None)``.
-
-    ``EmissionFilter("GFP", low=510, high=560)`` is shorthand for one band.
     """
 
     name: str = param(doc="The filter's name, as the filter set reports it.")
     bands: Tuple[Band, ...] = param(
+        (),
         unit="nm",
         doc="The edges of each band it passes, lowest first, as (low, high); high is null when the driver knows only the bottom edge.",
     )
     multi_band: bool = param(
-        doc="True for a filter that passes more than one band, even when its bands are not known."
+        False,
+        doc="True for a filter that passes more than one band, even when its bands are not known.",
     )
 
-    def __init__(
-        self,
-        name: str,
-        low: Optional[float] = None,
-        high: Optional[float] = None,
-        *,
-        bands: Sequence[Sequence[Optional[float]]] = (),
-        multi_band: bool = False,
-    ):
-        if low is not None:
-            if bands:
-                raise ValueError("give either low and high, or bands")
-            bands = ((low, high),)
+    def __post_init__(self):
         edges = tuple(
-            (float(lo), None if hi is None else float(hi)) for lo, hi in bands
+            (float(lo), None if hi is None else float(hi)) for lo, hi in self.bands
         )
-        object.__setattr__(self, "name", name)
         object.__setattr__(self, "bands", tuple(sorted(edges, key=lambda b: b[0])))
-        object.__setattr__(self, "multi_band", bool(multi_band or len(edges) > 1))
+        object.__setattr__(self, "multi_band", bool(self.multi_band or len(edges) > 1))
+
+    @classmethod
+    def band(
+        cls, name: str, low: float, high: Optional[float] = None
+    ) -> "EmissionFilter":
+        """A single-band filter."""
+        return cls(name, bands=((low, high),))
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
-            "name": self.name,
-            "bands": [list(band) for band in self.bands],
-            "multi_band": self.multi_band,
-        }
+        return encode(self)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "EmissionFilter":
-        """Reads ``bands``, or the single ``low``/``high`` of the first version."""
-        if "bands" in data:
-            return cls(
-                data["name"],
-                bands=data["bands"],
-                multi_band=data.get("multi_band", False),
-            )
-        return cls(data["name"], low=data.get("low"), high=data.get("high"))
+        return decode(cls, data)
 
     @property
     def low(self) -> Optional[float]:
@@ -418,19 +317,6 @@ def matching_emission_filter(
     return matches[0]
 
 
-def emission_filter_from_dict(data: Dict[str, Any]) -> EmissionFilter:
-    """A saved channel's filter: ``emission_filter``, or the ``emission_wavelength``
-    value of a channel saved before FIB-1439."""
-    if "emission_filter" in data:
-        saved = data["emission_filter"]
-        return (
-            saved
-            if isinstance(saved, EmissionFilter)
-            else EmissionFilter.from_dict(saved)
-        )
-    return emission_filter_for(data.get("emission_wavelength"), {})
-
-
 def ome_emission_wavelength(found: EmissionFilter) -> Optional[float]:
     """A channel's OME ``EmissionWavelength``, in nm: the band's centre, or its
     bottom edge when that is all that is known. None for reflection and for a
@@ -525,27 +411,19 @@ class ChannelSettings(Configurable):
     )
 
     def to_dict(self):
-        ddict = asdict(self)
-        ddict["emission_filter"] = self.emission_filter.to_dict()
-        return ddict
+        return encode(self)
 
     @classmethod
     def from_dict(cls, ddict: dict) -> "ChannelSettings":
-        ddict = dict(ddict)
-        emission = emission_filter_from_dict(ddict)
-        ddict.pop("emission_wavelength", None)
-        ddict["emission_filter"] = emission
-        return cls(**ddict)
+        """Read a channel saved by any version (`fibsem.codec.upgrades.fluorescence`)."""
+        from fibsem.codec.upgrades.fluorescence import channel
 
-    @property
-    def pretty_name(self) -> str:
-        """Generate a pretty name for the channel based on its properties."""
-        return f"{self.name} ({self.excitation_wavelength:.0f}nm → {self.emission_filter.label}) P:{self.power * 100:.1f}%, EXP:{self.exposure_time * 1000:.1f}ms"
+        return decode(cls, channel(ddict))
 
     @property
     def pretty(self) -> str:
-        """Generate a concise pretty representation of the channel."""
-        return self.pretty_name
+        """The channel's name and settings, in one line."""
+        return f"{self.name} ({self.excitation_wavelength:.0f}nm → {self.emission_filter.label}) P:{self.power * 100:.1f}%, EXP:{self.exposure_time * 1000:.1f}ms"
 
 
 @dataclass
@@ -580,15 +458,11 @@ class ZParameters(Configurable):
     )
 
     def to_dict(self) -> dict:
-        d = asdict(self)
-        d["order"] = self.order.value
-        return d
+        return encode(self)
 
     @classmethod
     def from_dict(cls, ddict: dict) -> "ZParameters":
-        ddict = dict(ddict)
-        ddict["order"] = ZStackOrder(ddict.get("order", "channel"))
-        return cls(**ddict)
+        return decode(cls, ddict)
 
     @classmethod
     def from_focus_pass(cls, sweep_pass: "FocusSweepPass") -> "ZParameters":
@@ -1075,7 +949,6 @@ class FluorescenceImage:
             channels.append(channel)
 
         return FluorescenceImageMetadata(
-            acquisition_date=now_iso(),
             pixel_size_x=1e-6,  # default 1 micron
             pixel_size_y=1e-6,  # default 1 micron
             resolution=(nx, ny),
@@ -1241,7 +1114,6 @@ class FluorescenceImage:
 
         # Create new metadata for the projected image
         projected_metadata = FluorescenceImageMetadata(
-            acquisition_date=self.metadata.acquisition_date,
             acquisition_datetime=self.metadata.acquisition_datetime,
             pixel_size_x=self.metadata.pixel_size_x,
             pixel_size_y=self.metadata.pixel_size_y,
@@ -1383,7 +1255,6 @@ class FluorescenceImage:
 
         # Create new metadata for the stacked image
         stacked_metadata = FluorescenceImageMetadata(
-            acquisition_date=self.metadata.acquisition_date,
             acquisition_datetime=self.metadata.acquisition_datetime,
             pixel_size_x=self.metadata.pixel_size_x,
             pixel_size_y=self.metadata.pixel_size_y,
@@ -1408,91 +1279,6 @@ class FluorescenceImage:
             # Still this file's image; see the note on the field (FIB-509).
             filepath=self.filepath,
         )
-
-    def calculate_histogram(
-        self,
-        channel: Optional[int] = None,
-        bins: int = 256,
-        density: bool = False,
-        range_values: Optional[Tuple[float, float]] = None,
-    ) -> dict:
-        """Calculate histogram of pixel intensities for FluorescenceImage.
-
-        Args:
-            channel: Optional channel index to calculate histogram for. If None, calculates for all channels.
-                    Zero-indexed (0 = first channel, 1 = second channel, etc.)
-            bins: Number of histogram bins or sequence of bin edges (default: 256)
-            density: If True, return probability density instead of counts (default: False)
-            range_values: Optional tuple (min, max) to set histogram range. If None, uses data range.
-
-        Returns:
-            Dictionary containing histogram data:
-            - If single channel: {"counts": array, "bin_edges": array, "channel_name": str}
-            - If multiple channels: {"channel_0": {"counts": array, "bin_edges": array, "channel_name": str}, ...}
-
-        Raises:
-            ValueError: If the specified channel index is out of range
-
-        Example:
-            >>> image = FluorescenceImage(data=data, metadata=metadata)
-            >>> # Get histogram for all channels
-            >>> hist_all = image.calculate_histogram()
-            >>> # Get histogram for first channel only
-            >>> hist_ch0 = image.calculate_histogram(channel=0)
-            >>> # Get histogram with custom bins and range
-            >>> hist_custom = image.calculate_histogram(bins=100, range_values=(0, 4095))
-        """
-        # Temporarily reshape 2D data to 4D (1C, 1Z, Y, X) for consistent processing
-        if self.data.ndim == 2:
-            data = self.data.reshape(1, 1, *self.data.shape)
-        elif self.data.ndim == 3:
-            data = self.data.reshape(1, *self.data.shape)
-        else:
-            data = self.data
-
-        nc, nz, ny, nx = data.shape
-
-        # Validate channel index
-        if channel is not None:
-            if channel < 0 or channel >= nc:
-                raise ValueError(f"Channel index {channel} out of range [0, {nc - 1}]")
-
-        # Calculate histogram for specific channel
-        if channel is not None:
-            channel_data = data[
-                channel, :, :, :
-            ].flatten()  # Flatten all z, y, x dimensions
-            channel_name = self.metadata.channels[channel].name
-
-            hist_counts, bin_edges = np.histogram(
-                channel_data, bins=bins, density=density, range=range_values
-            )
-
-            return {
-                "counts": hist_counts,
-                "bin_edges": bin_edges,
-                "channel_name": channel_name,
-            }
-
-        # Calculate histogram for all channels
-        result = {}
-        for ch_idx in range(nc):
-            channel_data = data[
-                ch_idx, :, :, :
-            ].flatten()  # Flatten all z, y, x dimensions
-            channel_name = self.metadata.channels[ch_idx].name
-
-            hist_counts, bin_edges = np.histogram(
-                channel_data, bins=bins, density=density, range=range_values
-            )
-
-            result[f"channel_{ch_idx}"] = {
-                "counts": hist_counts,
-                "bin_edges": bin_edges,
-                "channel_name": channel_name,
-            }
-
-        return result
 
     @staticmethod
     def generate_blank_image(
@@ -1537,7 +1323,6 @@ class FluorescenceImage:
         ]
 
         metadata = FluorescenceImageMetadata(
-            acquisition_date=now_iso(),
             pixel_size_x=pixel_size,
             pixel_size_y=pixel_size,
             resolution=resolution,
@@ -1551,70 +1336,19 @@ class FluorescenceImage:
 
 
 @dataclass
-class FluorescenceChannelMetadata:
-    """Metadata for a single fluorescence channel."""
+class FluorescenceChannelMetadata(ChannelSettings):
+    """A channel as an image records it: its settings, and the camera and objective
+    it was acquired with."""
 
-    # Channel identification
-    name: str
-
-    # Optical parameters
-    excitation_wavelength: float  # nm
-
-    # Light source
-    power: float  # light source power
-
-    # Camera settings
-    exposure_time: float  # seconds
-    gain: Optional[float]  # camera gain (None when the camera has no gain control)
-    offset: float  # camera offset
-
-    # Fields with defaults must come after required fields
-    emission_filter: EmissionFilter = REFLECTION
+    gain: Optional[float] = param(
+        0.0,
+        doc="The camera's gain, as a fraction of its range; null when the camera has no gain control.",
+    )
+    offset: float = 0.0  # camera offset
     binning: int = 1  # binning factor (1, 2, 4, 8)
     objective_position: float = 0.0  # z-axis position in meters
     objective_magnification: Optional[float] = None
     objective_numerical_aperture: Optional[float] = None
-    color: str = "gray"  # Display color for the channel
-
-    def to_dict(self) -> dict:
-        """Convert to dictionary format expected by get_ome_metadata."""
-        return {
-            "channel": {"name": self.name, "color": self.color},
-            "filter_set": {
-                "excitation_wavelength": self.excitation_wavelength,
-                "emission_filter": self.emission_filter.to_dict(),
-            },
-            "light_source": {"power": self.power},
-            "camera": {
-                "exposure_time": self.exposure_time,
-                "gain": self.gain,
-                "offset": self.offset,
-                "binning": self.binning,
-            },
-            "objective": {
-                "position": self.objective_position,
-                "magnification": self.objective_magnification,
-                "numerical_aperture": self.objective_numerical_aperture,
-            },
-        }
-
-    @staticmethod
-    def from_dict(data: dict) -> "FluorescenceChannelMetadata":
-        """Create from dictionary format used by get_ome_metadata."""
-        return FluorescenceChannelMetadata(
-            name=data["channel"]["name"],
-            color=data["channel"].get("color", "gray"),
-            excitation_wavelength=data["filter_set"]["excitation_wavelength"],
-            emission_filter=emission_filter_from_dict(data["filter_set"]),
-            power=data["light_source"]["power"],
-            exposure_time=data["camera"]["exposure_time"],
-            gain=data["camera"]["gain"],
-            offset=data["camera"]["offset"],
-            binning=data["camera"].get("binning", 1),
-            objective_position=data["objective"]["position"],
-            objective_magnification=data["objective"].get("magnification"),
-            objective_numerical_aperture=data["objective"].get("numerical_aperture"),
-        )
 
 
 @dataclass
@@ -1622,7 +1356,6 @@ class FluorescenceImageMetadata:
     """Complete metadata for fluorescence microscopy images."""
 
     # Image acquisition settings
-    acquisition_date: str  # ISO timestamp string
     pixel_size_x: float  # meters, after binning
     pixel_size_y: float  # meters, after binning
     pixel_size_z: Optional[float] = None  # meters, for z-stacks
@@ -1658,17 +1391,15 @@ class FluorescenceImageMetadata:
     system_info: Optional[dict] = None
     dimension_order: str = "CZYX"  # default dimension order for OME-TIFF
 
-    # When the image was acquired: an aware datetime, written as ISO 8601 with its
-    # UTC offset -- the same field the beam images carry (FIB-1190). `FM.acquire_frame`
-    # stamps it as the acquisition starts. `acquisition_date` is still written, with
-    # the same value as a string, for OME and odemis; before this it held the
-    # acquiring machine's clock time with no offset, which is all an older image has.
-    # None on those, and on images built rather than acquired -- read the time
-    # through `acquisition_datetime_of`, which falls back.
-    acquisition_datetime: Optional[datetime] = None
+    # When the image was acquired, written as ISO 8601 (FIB-1190). `FM.acquire_frame`
+    # stamps it with its UTC offset as the acquisition starts. An older image has the
+    # acquiring machine's clock time alone, so this is naive there. None on images
+    # built rather than acquired.
+    acquisition_datetime: Optional[Timestamp] = None
 
     def __post_init__(self):
         """Validate metadata consistency."""
+        self.acquisition_datetime = to_datetime(self.acquisition_datetime)
         if not self.channels:
             raise ValueError("At least one channel must be specified")
 
@@ -1692,118 +1423,15 @@ class FluorescenceImageMetadata:
         """Add a new channel to the metadata."""
         self.channels.append(channel)
 
-    def get_channel_count(self) -> int:
-        """Get the number of channels."""
-        return len(self.channels)
-
-    def get_z_count(self) -> int:
-        """Get the number of z-planes."""
-        return len(self.z_positions) if self.z_positions else 1
-
     def to_dict(self) -> dict:
-        """Convert to dictionary format for UI/viewer compatibility."""
-        return {
-            "acquisition_date": self.acquisition_date,
-            "acquisition_datetime": (
-                self.acquisition_datetime.isoformat()
-                if self.acquisition_datetime is not None
-                else None
-            ),
-            "pixel_size_x": self.pixel_size_x,
-            "pixel_size_y": self.pixel_size_y,
-            "pixel_size_z": self.pixel_size_z,
-            "resolution": self.resolution,
-            "channel_count": self.get_channel_count(),
-            "z_count": self.get_z_count(),
-            "z_positions": self.z_positions,
-            "stage_position": self.stage_position.to_dict()
-            if self.stage_position
-            else None,
-            "filename": self.filename,
-            "description": self.description,
-            "system_info": self.system_info,
-            "geometry": self.geometry.to_dict() if self.geometry else None,
-            "experiment": self.experiment.to_dict() if self.experiment else None,
-            "channels": [
-                {
-                    "name": ch.name,
-                    "color": ch.color,
-                    "excitation_wavelength": ch.excitation_wavelength,
-                    "emission_filter": ch.emission_filter.to_dict(),
-                    "power": ch.power,
-                    "exposure_time": ch.exposure_time,
-                    "gain": ch.gain,
-                    "offset": ch.offset,
-                    "binning": ch.binning,
-                    "objective_position": ch.objective_position,
-                    "objective_magnification": ch.objective_magnification,
-                    "objective_numerical_aperture": ch.objective_numerical_aperture,
-                }
-                for ch in self.channels
-            ],
-        }
+        return encode(self)
 
     @classmethod
     def from_dict(cls, metadata_dict: dict) -> "FluorescenceImageMetadata":
-        """Create FluorescenceImageMetadata from dictionary."""
-        # Reconstruct channels
-        channels = []
-        for ch_dict in metadata_dict.get("channels", []):
-            channel = FluorescenceChannelMetadata(
-                name=ch_dict["name"],
-                color=ch_dict.get("color", "gray"),
-                excitation_wavelength=ch_dict["excitation_wavelength"],
-                emission_filter=emission_filter_from_dict(ch_dict),
-                power=ch_dict["power"],
-                exposure_time=ch_dict["exposure_time"],
-                gain=ch_dict["gain"],
-                offset=ch_dict["offset"],
-                binning=ch_dict.get("binning", 1),
-                objective_position=ch_dict.get("objective_position", 0.0),
-                objective_magnification=ch_dict.get("objective_magnification"),
-                objective_numerical_aperture=ch_dict.get(
-                    "objective_numerical_aperture"
-                ),
-            )
-            channels.append(channel)
+        """Read metadata written by any version (`fibsem.codec.upgrades.fluorescence`)."""
+        from fibsem.codec.upgrades.fluorescence import image_metadata
 
-        # Reconstruct stage position if present
-        stage_position = None
-        if metadata_dict.get("stage_position"):
-            stage_dict = metadata_dict["stage_position"]
-            stage_position = FibsemStagePosition(
-                x=stage_dict.get("x", 0),
-                y=stage_dict.get("y", 0),
-                z=stage_dict.get("z", 0),
-                r=stage_dict.get("r", 0),
-                t=stage_dict.get("t", 0),
-                coordinate_system=stage_dict.get("coordinate_system", "RAW"),
-            )
-
-        return cls(
-            acquisition_date=metadata_dict["acquisition_date"],
-            acquisition_datetime=to_aware(metadata_dict.get("acquisition_datetime")),
-            pixel_size_x=metadata_dict["pixel_size_x"],
-            pixel_size_y=metadata_dict["pixel_size_y"],
-            pixel_size_z=metadata_dict.get("pixel_size_z"),
-            resolution=tuple(metadata_dict["resolution"]),
-            channels=channels,
-            z_positions=metadata_dict.get("z_positions"),
-            stage_position=stage_position,
-            filename=metadata_dict.get("filename"),
-            description=metadata_dict.get("description"),
-            system_info=metadata_dict.get("system_info"),
-            geometry=(
-                FibsemHardwareGeometry.from_dict(metadata_dict["geometry"])
-                if metadata_dict.get("geometry")
-                else None
-            ),
-            experiment=(
-                FibsemExperimentRef.from_dict(metadata_dict["experiment"])
-                if metadata_dict.get("experiment")
-                else None
-            ),
-        )
+        return decode(cls, image_metadata(metadata_dict))
 
     @classmethod
     def from_ome(cls, ome: OMEMetadata) -> "FluorescenceImageMetadata":
@@ -1925,14 +1553,8 @@ class FluorescenceImageMetadata:
         if not channels_md:
             raise ValueError("OME metadata contains no channel information")
 
-        acquired = getattr(image_md, "acquisition_date", None)
-        acquisition_date = acquired.isoformat() if acquired else now_iso()
-
         return cls(
-            acquisition_date=acquisition_date,
-            # Only when the file says which zone: a naive one is another machine's
-            # clock time, and stays in acquisition_date alone.
-            acquisition_datetime=to_aware(acquired),
+            acquisition_datetime=getattr(image_md, "acquisition_date", None),
             pixel_size_x=pixel_size_x,
             pixel_size_y=pixel_size_y,
             pixel_size_z=pixel_size_z,
@@ -1949,7 +1571,7 @@ class FluorescenceImageMetadata:
         )
 
 
-class ObjectiveStartPosition(Enum):
+class ObjectiveStartPosition(NamedEnum, Enum):
     """Where the objective is put before an overview begins.
 
     Only ever a focus value -- neither option inserts or retracts the objective, which
@@ -2039,47 +1661,11 @@ class OverviewParameters(Configurable):
     )
 
     def to_dict(self) -> dict:
-        """Convert to dictionary representation."""
-        return {
-            "rows": self.rows,
-            "cols": self.cols,
-            "overlap": self.overlap,
-            "use_zstack": self.use_zstack,
-            "autofocus_mode": self.autofocus_mode.value,
-            "tile_order": self.tile_order.value,
-            "objective_start": self.objective_start.value,
-            # plain bools: np.bool_ does not survive yaml.safe_dump
-            "tile_mask": None
-            if self.tile_mask is None
-            else [[bool(v) for v in row] for row in self.tile_mask],
-            "register_tiles": self.register_tiles,
-        }
+        return encode(self)
 
     @classmethod
     def from_dict(cls, ddict: dict) -> "OverviewParameters":
-        """Create OverviewParameters from dictionary."""
-        mask = ddict.get("tile_mask")
-        return cls(
-            rows=ddict.get("rows", 3),
-            cols=ddict.get("cols", 3),
-            overlap=ddict.get("overlap", 0.1),
-            use_zstack=ddict.get("use_zstack", False),
-            autofocus_mode=AutoFocusMode(
-                ddict.get("autofocus_mode", AutoFocusMode.NONE.value)
-            ),
-            tile_order=TileOrderStrategy(
-                ddict.get("tile_order", TileOrderStrategy.TYPEWRITER.value)
-            ),
-            tile_mask=None
-            if mask is None
-            else [[bool(v) for v in row] for row in mask],
-            # Defaulted, not required: every overview saved before this existed started
-            # from wherever the objective was, so that is what its parameters mean.
-            objective_start=ObjectiveStartPosition(
-                ddict.get("objective_start", ObjectiveStartPosition.CURRENT.value)
-            ),
-            register_tiles=bool(ddict.get("register_tiles", False)),
-        )
+        return decode(cls, ddict)
 
     @property
     def n_enabled_tiles(self) -> int:
@@ -2099,23 +1685,11 @@ class CameraSettings:
     transform: CameraImageTransform = CameraImageTransform.NONE
 
     def to_dict(self) -> dict:
-        """Convert to dictionary representation."""
-        return {
-            "gain": self.gain,
-            "offset": self.offset,
-            "binning": self.binning,
-            "transform": self.transform.value,
-        }
+        return encode(self)
 
     @classmethod
     def from_dict(cls, ddict: dict) -> "CameraSettings":
-        """Create CameraSettings from dictionary."""
-        return cls(
-            gain=ddict.get("gain", 1.0),
-            offset=ddict.get("offset", 0.0),
-            binning=ddict.get("binning", 1),
-            transform=_parse_image_transform(ddict.get("transform")),
-        )
+        return decode(cls, ddict)
 
 
 @dataclass
@@ -2132,47 +1706,15 @@ class FluorescenceConfiguration:
     default_orientation: str = "FM"
 
     def to_dict(self) -> dict:
-        """Convert to dictionary representation."""
-        return {
-            "channel_settings": [ch.to_dict() for ch in self.channel_settings],
-            "z_parameters": self.z_parameters.to_dict(),
-            "overview_parameters": self.overview_parameters.to_dict(),
-            "autofocus_settings": self.autofocus_settings.to_dict()
-            if self.autofocus_settings
-            else None,
-            "camera_settings": self.camera_settings.to_dict(),
-            "focus_position": self.focus_position,
-            "limit_position": self.limit_position,
-            "default_orientation": self.default_orientation,
-        }
+        return encode(self)
 
     @classmethod
     def from_dict(cls, ddict: dict) -> "FluorescenceConfiguration":
-        """Create FluorescenceConfiguration from dictionary."""
-        autofocus_settings = None
-        if ddict.get("autofocus_settings"):
-            autofocus_settings = AutoFocusSettings.from_dict(
-                ddict["autofocus_settings"]
-            )
-        if ddict.get("camera_settings"):
-            camera_settings = CameraSettings.from_dict(ddict["camera_settings"])
-        else:
-            camera_settings = CameraSettings()
+        """Read a configuration saved by any version
+        (`fibsem.codec.upgrades.fluorescence`)."""
+        from fibsem.codec.upgrades.fluorescence import configuration
 
-        return cls(
-            channel_settings=[
-                ChannelSettings.from_dict(ch) for ch in ddict["channel_settings"]
-            ],
-            z_parameters=ZParameters.from_dict(ddict["z_parameters"]),
-            overview_parameters=OverviewParameters.from_dict(
-                ddict["overview_parameters"]
-            ),
-            autofocus_settings=autofocus_settings,
-            camera_settings=camera_settings,
-            focus_position=ddict.get("focus_position"),
-            limit_position=ddict.get("limit_position"),
-            default_orientation=ddict.get("default_orientation", "FM"),
-        )
+        return decode(cls, configuration(ddict))
 
     def export(self, filename: str) -> str:
         """Export FM configuration to YAML file.

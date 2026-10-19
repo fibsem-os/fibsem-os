@@ -58,10 +58,9 @@ CURRENT_POSITION_COLOUR = "#ffee58"  # where the stage is now
 # value it replaced was muted enough to disappear into a bright overview.
 SAVED_POSITION_COLOUR = "#00e5ff"  # a marked position
 SELECTED_POSITION_COLOUR = "#76ff03"  # the marked position under the selection
-# A position placed but not yet committed: a mark in a review that creates the
-# lamellae when it is confirmed. Magenta because the two above are taken and
-# this has to read as a different kind of thing rather than another state of
-# the same one -- one is on the experiment, the other is a proposal.
+# A position placed but not yet committed: a mark that creates a lamella when
+# it is confirmed. Magenta because the two above are taken and this has to
+# read as a different kind of thing rather than another state of the same one.
 DRAFT_POSITION_COLOUR = "#e040fb"  # placed, not yet created
 
 # The sample holder, drawn under everything else on the same canvases. Here for the
@@ -109,7 +108,7 @@ ERROR_COLOR = "#d04040"  # failure
 # Waiting on you: the agent card's waiting state. The same orange as the
 # border's "waiting on you now", on purpose: one colour for one meaning, at rest on the chip and live on the
 # border when it happens. Not red (error) and not amber (degraded, cancelled).
-REVIEW_COLOR = ORANGE_COLOR
+WAITING_COLOR = ORANGE_COLOR
 
 # The disabled pair. Every semantic button sheet renders its :disabled state in
 # these two, and until now both were bare literals repeated across the file --

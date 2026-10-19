@@ -371,9 +371,9 @@ def test_an_fm_image_belongs_to_the_task_step_it_was_taken_in(tmp_path):
     ]
     (root / "logfile.log").write_text("".join(lines), encoding="utf-8")
     image = FluorescenceImage.generate_blank_image(resolution=(32, 32), zlevels=2)
-    image.metadata.acquisition_date = (T0 + timedelta(minutes=1)).isoformat()
+    image.metadata.acquisition_datetime = T0 + timedelta(minutes=1)
     image.save(str(root / "01-a" / "01-a-zstack.ome.tiff"))
-    image.metadata.acquisition_date = (T0 + timedelta(minutes=10)).isoformat()
+    image.metadata.acquisition_datetime = T0 + timedelta(minutes=10)
     image.save(str(root / "overview.ome.tiff"))
 
     in_task, afterwards = [
@@ -1267,7 +1267,7 @@ def test_a_decision_says_what_was_decided_by_whom_and_what_they_changed(tmp_path
         "Point of interest used as proposed, unreviewed: Rough Milling started"
         " (workflow)",
         "Position withdrawn: the run stopped (workflow)",
-        "Result confirmed (review)",
+        "Task result confirmed (review)",
     ]
     assert [e.actor for e in events] == [
         "task",

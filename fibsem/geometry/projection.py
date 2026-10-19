@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import logging
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Optional, Protocol, Tuple
 
 import numpy as np
@@ -425,18 +425,82 @@ def image_stage_geometry(
     return projection, float(pixel_size), position
 
 
-def image_point_to_stage(image, x: float, y: float) -> FibsemStagePosition:
+def lifted(
+    projection: BeamStageProjection,
+    origin: FibsemStagePosition,
+    place: FibsemStagePosition,
+    stage: FibsemStagePosition,
+    sign: float = 1.0,
+) -> FibsemStagePosition:
+    """*place*, moved by however far *stage* sits off the plane through *origin*
+    (``sign=-1`` takes it back off). In place, and returned.
+
+    A point on an overview resolves onto the plane it was taken on, at the height
+    it was taken at. Setting coincidence or loading another grid lifts the stage
+    off that plane, and a lamella marked there must be lifted with it (FIB-1007).
+    The lift is judged from the electron column, which is blind to the vertical
+    move a coincidence correction makes. It is a vector, not a height: on a tilted
+    stage it is y as well as z.
+    """
+    electron = replace(projection, beam_type=BeamType.ELECTRON)
+    before_the_lift = electron.from_plane(*electron.to_plane(stage, origin), origin)
+    for axis in ("x", "y", "z"):
+        lift = (getattr(stage, axis) or 0.0) - (getattr(before_the_lift, axis) or 0.0)
+        setattr(place, axis, (getattr(place, axis) or 0.0) + sign * lift)
+    return place
+
+
+def posed_like(
+    place: FibsemStagePosition, stage: FibsemStagePosition
+) -> FibsemStagePosition:
+    """*place* in *stage*'s rotation and tilt, in place and returned: a point on
+    an overview says where on the sample, not which way to look at it."""
+    if stage.r is not None:
+        place.r = stage.r
+    if stage.t is not None:
+        place.t = stage.t
+    return place
+
+
+def plane_point_to_stage(
+    projection: StageProjection,
+    origin: FibsemStagePosition,
+    dx: float,
+    dy: float,
+    stage: Optional[FibsemStagePosition] = None,
+) -> FibsemStagePosition:
+    """The stage position at (*dx*, *dy*) metres on the plane through *origin*:
+    how every overview resolves a click (FIB-1452).
+
+    Given where the *stage* is now (a beam projection only), the answer is lifted
+    by however far the stage sits off that plane (:func:`lifted`) and posed like
+    the stage (:func:`posed_like`): where that piece of sample is now. Without it,
+    where it was when the overview was taken.
+    """
+    place = projection.from_plane(dx, dy, origin)
+    if stage is None:
+        return place
+    return posed_like(lifted(projection, origin, place, stage), stage)
+
+
+def image_point_to_stage(
+    image, x: float, y: float, stage: Optional[FibsemStagePosition] = None
+) -> FibsemStagePosition:
     """The stage position under source pixel (*x*, *y*) of a saved image (origin
-    top-left, +y down), as the stored overview canvas resolves a click. Raises
-    ValueError when the image has no stage geometry."""
+    top-left, +y down), through :func:`plane_point_to_stage`. Raises ValueError
+    when the image has no stage geometry."""
     geometry = image_stage_geometry(image)
     if geometry is None:
         raise ValueError("The image has no stage geometry to convert from.")
     projection, pixel_size, position = geometry
     height, width = np.asarray(image.data).shape[-2:]
     # The plane is metres from the image centre, +y down: pixel rows' way.
-    return projection.from_plane(
-        (x - width / 2) * pixel_size, (y - height / 2) * pixel_size, position
+    return plane_point_to_stage(
+        projection,
+        position,
+        (x - width / 2) * pixel_size,
+        (y - height / 2) * pixel_size,
+        stage,
     )
 
 

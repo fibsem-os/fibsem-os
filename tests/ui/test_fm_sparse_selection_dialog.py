@@ -54,7 +54,7 @@ CHANNELS = [
     ChannelSettings(
         name="DAPI",
         excitation_wavelength=405,
-        emission_filter=EmissionFilter("450 nm", low=450),
+        emission_filter=EmissionFilter.band("450 nm", 450),
         power=0.5,
         exposure_time=0.1,
     )

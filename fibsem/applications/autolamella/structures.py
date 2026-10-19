@@ -64,20 +64,17 @@ from fibsem.structures import (
 from fibsem.util.durations import format_duration_precise
 from fibsem.util.timestamps import format_time, now
 from fibsem.workflows.attention import Attention, attention_from
+from fibsem.workflows.deciding import ProposalDecisions
 from fibsem.workflows.experiment import BaseExperiment
 from fibsem.workflows.grid.protocol import GridTaskProtocol
 from fibsem.workflows.grids import ExperimentGrids, GridRecord
 from fibsem.workflows.item import ExperimentItem
 from fibsem.workflows.proposals import (
-    ItemPoses,
-    PreparedWrite,
     Proposal,
-    ValueRefused,
     proposals_from_dict,
     proposals_to_dict,
 )
 from fibsem.workflows.quality import QualityRecord, Verdict
-from fibsem.workflows.review import ProposalReview
 from fibsem.workflows.saved_format import check_app
 from fibsem.workflows.status import TaskState, TaskStatus
 
@@ -879,7 +876,7 @@ class Lamella(ExperimentItem):
     defect: DefectState = field(default_factory=DefectState)
     milling_angle: Optional[float] = None
     poi: Point = field(
-        default_factory=lambda: Point(0, 0)
+        default_factory=lambda: Point(0.0, 0.0)
     )  # point of interest within lamella area (milling coordinate system)
     description: str = ""  # free-text note about the lamella
     # The grid this lamella sits on: GridRecord.id, or None when the experiment
@@ -1255,7 +1252,7 @@ def find_overviews(root: Union[str, Path]) -> List[Path]:
 
 @evented
 @dataclass
-class Experiment(ExperimentGrids, ProposalReview, BaseExperiment):
+class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
     app: ClassVar[str] = "autolamella"
 
     name: str
@@ -1388,64 +1385,6 @@ class Experiment(ExperimentGrids, ProposalReview, BaseExperiment):
         )
 
         return Path(generate_grid_report(self, inventory=inventory))
-
-    def prepare_items_at(
-        self, grid: GridRecord, positions: List[ItemPoses]
-    ) -> PreparedWrite:
-        """Plan one lamella per confirmed position on ``grid``, the write an
-        overview's positions proposal makes, without touching anything yet:
-        each is milled at the position's beam pose.
-
-        Undone together: a half-created set is worse than none, and the
-        decision is only appended once the whole set is on the experiment.
-        """
-        grid_id = getattr(grid, "id", None)
-        if grid_id is None:
-            raise ValueRefused(
-                f"{getattr(grid, 'name', 'this item')} has no id to stamp on a lamella."
-            )
-        protocol = self.task_protocol
-        if positions and getattr(protocol, "lamella_defaults", None) is None:
-            # Checked here, not discovered half way through creating them: a
-            # lamella is built from the protocol's defaults, and an experiment
-            # with no protocol loaded cannot make one.
-            raise ValueRefused(
-                "No protocol is loaded, so a lamella cannot be created. Load one "
-                "for this experiment and decide again."
-            )
-        made: List[Lamella] = []
-
-        def apply() -> List[str]:
-            for entry in positions:
-                # add_new_lamella returns nothing and appends, so the lamella it
-                # made is the one on the end. Taken here rather than assumed
-                # later: undo has to remove exactly what this write added.
-                self.add_new_lamella(
-                    microscope_state=entry.beam,
-                    task_config=deepcopy(getattr(protocol, "task_config", None)) or {},
-                    fluorescence_pose=entry.fluorescence,
-                    grid_id=grid_id,
-                )
-                made.append(self.positions[-1])
-            if made:
-                logging.info(
-                    f"Created {len(made)} lamella(e) on {getattr(grid, 'name', '?')}: "
-                    + ", ".join(m.name or "?" for m in made)
-                )
-            return []
-
-        def undo() -> None:
-            # Removing what this write made, newest first. Nothing else can have
-            # taken them: the decision has not been appended and the experiment
-            # lock is still held.
-            for lamella in reversed(made):
-                try:
-                    self.positions.remove(lamella)
-                except ValueError:
-                    logging.warning(f"Could not undo the creation of {lamella.name}")
-            made.clear()
-
-        return PreparedWrite(apply=apply, undo=undo)
 
     def _release_grid(self, grid: GridRecord) -> None:
         """A grid no longer tracked: its lamellae are orphaned, not deleted."""

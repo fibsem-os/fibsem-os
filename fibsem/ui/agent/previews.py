@@ -2,16 +2,16 @@
 where the operator decides (FIB-1404, FIB-1411).
 
 Under Why: the image the values were measured on, every value drawn on it in the
-agent's purple. A review's or an item's point of interest on that item's image;
+agent's purple. A decision's or an item's point of interest on that item's image;
 an item edit's alignment area; the patterns a mill would draw, a config edit's as
 it would leave them (as they are now in grey) and any reaching past the edge of
-the field in red, on the FIB image; where a move would go; a suggested alignment
-area, spot-burn points, detected features or point of interest, on the image the
-question shows.
+the field in red, on the FIB image; where a move would go. A suggestion on a
+pending proposal is drawn as the decision it would make.
 
 Nothing is drawn on the live views: they show what the microscope does, and the
 agent's real patterns only once its mill runs (`agent_activity`). The picture
-comes down when the request is decided or the suggestion is taken or dropped.
+comes down when the request is decided, or the suggestion is approved,
+declined or dropped.
 
 A value on the sample is kept with the frame it was measured on and re-projected
 through the stage onto the frame it is drawn on (FIB-1411). Patterns are places
@@ -34,6 +34,7 @@ ITEM_MARK = "item"
 POSE_MARK = "pose"
 POSE_NOW_MARK = "pose_now"
 SPOT_MARK = "spot"
+FEATURE_MARK = "features"
 
 # The beam a move tool works in when the agent does not say: as the tools do.
 _MOVE_BEAMS = {
@@ -138,10 +139,10 @@ def config_edit_stages(
     return before, after
 
 
-def review_passes(
+def decided_passes(
     request: Dict[str, Any], proposal_for: Callable[[Dict[str, Any]], object]
 ) -> Tuple[List, List, List]:
-    """``(milled, kept, points)``: what the request's ``review_decide`` calls on
+    """``(milled, kept, points)``: what the request's ``proposal_decide`` calls on
     a loop's pass would do. A run mills ``milled`` (the pass's config as
     decided: the call's values, patched, else the pass's own) or burns
     ``points`` (fractions of the frame); a pass decided without running leaves
@@ -158,7 +159,7 @@ def review_passes(
 
     milled, kept, points = [], [], []
     for action in request.get("actions", []):
-        if action.get("tool") != "review_decide":
+        if action.get("tool") != "proposal_decide":
             continue
         arguments = action.get("arguments") or {}
         proposal = proposal_for(arguments)
@@ -554,50 +555,6 @@ def draw_picture(frame, layers: List[_Layer]):
     return image
 
 
-def side_by_side(images: List, gap: int = 4, labels: Optional[List[str]] = None):
-    """*images* (QImages) in a row at one height, the shortest's, *gap* apart,
-    each with its label in its top-left corner when *labels* are given (which
-    view is which: "SEM", "FIB")."""
-    from PyQt5.QtCore import QRect, Qt
-    from PyQt5.QtGui import QColor, QFont, QGuiApplication, QImage, QPainter
-
-    height = min(image.height() for image in images)
-    scaled = [
-        image
-        if image.height() == height
-        else image.scaledToHeight(
-            height,
-            Qt.SmoothTransformation,  # type: ignore
-        )
-        for image in images
-    ]
-    width = sum(image.width() for image in scaled) + gap * (len(scaled) - 1)
-    row = QImage(width, height, QImage.Format_RGB32)
-    row.fill(QColor(0, 0, 0))
-    if QGuiApplication.instance() is None:
-        labels = None  # text needs the app's fonts
-    painter = QPainter(row)
-    font = QFont()
-    # About a twelfth of the picture's height: still readable once the card
-    # scales the picture down to its column.
-    font.setPixelSize(max(10, height // 12))
-    font.setBold(True)
-    painter.setFont(font)
-    pad = max(2, height // 60)
-    x = 0
-    for index, image in enumerate(scaled):
-        painter.drawImage(x, 0, image)
-        if labels and index < len(labels) and labels[index]:
-            box = painter.fontMetrics().boundingRect(labels[index])
-            back = QRect(x, 0, box.width() + 2 * pad, box.height() + 2 * pad)
-            painter.fillRect(back, QColor(0, 0, 0, 160))
-            painter.setPen(QColor(255, 255, 255))
-            painter.drawText(back, Qt.AlignCenter, labels[index])  # type: ignore
-        x += image.width() + gap
-    painter.end()
-    return row
-
-
 def _draw_mark(painter, shape: str, centre, arm: float) -> None:
     """One point, *arm* its reach, in the painter's pen: "+", a crosshair (a
     ring, its lines stopping short of the centre), or a dot."""
@@ -706,16 +663,16 @@ class AgentPreviews:
         overview_image: Optional[Callable[[str, str], object]] = None,
         load_image: Optional[Callable[[str], object]] = None,
         item_overview: Optional[Callable[[str], object]] = None,
-        review_proposal: Optional[Callable[[Dict[str, Any]], object]] = None,
+        pending_proposal: Optional[Callable[[Dict[str, Any]], object]] = None,
     ) -> None:
         # Asked when there is something to draw: the views are built after this.
         self._view_controller = view_controller
-        # The image a review_decide action's values sit on (its arguments), or
+        # The image a proposal_decide action's values sit on (its arguments), or
         # None: the window reads it from the experiment.
         self._reference_image = reference_image or (lambda arguments: None)
-        # The pending proposal a review_decide action decides (its arguments),
+        # The pending proposal a proposal_decide action decides (its arguments),
         # or None: for a loop's pass, what it would run.
-        self._review_proposal = review_proposal or (lambda arguments: None)
+        self._pending_proposal = pending_proposal or (lambda arguments: None)
         # An item's task config (item name, task name), for a config edit's
         # patterns; None when there is none.
         self._task_config = task_config or (lambda item, task: None)
@@ -736,7 +693,7 @@ class AgentPreviews:
         # The card's picture: (QImage or None, caption, suggestion=bool,
         # legend=legend_entries).
         self._show_picture = show_picture or (lambda *args, **kwargs: None)
-        self._request_id: Optional[str] = None
+        self._shown_ids: Dict[bool, Optional[str]] = {False: None, True: None}
         # The card's pictures, as drawn: (frame, layers), for tests and reading.
         self.request_picture: Optional[Tuple[object, List[_Layer]]] = None
         self.suggestion_picture: Optional[Tuple[object, List[_Layer]]] = None
@@ -746,19 +703,28 @@ class AgentPreviews:
     def show_request(self, request: Optional[Dict[str, Any]]) -> None:
         """Draw what *request* would do while it waits; anything else (None, or a
         request being applied or ended) takes the previews down."""
+        self._draw(request, suggestion=False)
+
+    def show_suggestion(self, suggestion: Optional[Dict[str, Any]]) -> None:
+        """Draw the agent's suggestion on a pending proposal, given as the
+        request that would decide it (``suggestion_request``); None takes it
+        down."""
+        self._draw(suggestion, suggestion=True)
+
+    def _draw(self, request: Optional[Dict[str, Any]], suggestion: bool) -> None:
         waiting = request is not None and request.get("status") == "pending"
         request_id = request.get("request_id") if waiting else None
+        picture = self.suggestion_picture if suggestion else self.request_picture
         # Once drawn, a request's picture stays; one that had nothing to draw on
         # tries again, as the views take images (sim session 2026-10-16: none
         # came until the request was filed again).
-        if request_id == self._request_id and (
-            request_id is None or self.request_picture is not None
-        ):
+        shown = self._shown_ids[suggestion]
+        if request_id == shown and (request_id is None or picture is not None):
             return
-        again = request_id == self._request_id
-        self._request_id = request_id
+        again = request_id == shown
+        self._shown_ids[suggestion] = request_id
         if not again:
-            self._picture(None, None, [], suggestion=False)
+            self._picture(None, None, [], suggestion=suggestion)
         if not waiting:
             return
         controller = self._view_controller()
@@ -766,7 +732,7 @@ class AgentPreviews:
             return
         patterns = request_patterns(request)
         before, after = config_edit_stages(request, self._task_config)
-        passed, kept, _points = review_passes(request, self._review_proposal)
+        passed, kept, _points = decided_passes(request, self._pending_proposal)
         milled = request_stages(request) + after + passed
         live = _frame(controller, BeamType.ION)
         aspect = live.data.shape[0] / live.data.shape[1] if live is not None else 2 / 3
@@ -795,7 +761,11 @@ class AgentPreviews:
         if frame is None:
             if missing:
                 # Not the live view: an item's values are in its own frame.
-                self._show_picture(None, f"No FIB image of {missing[0]} yet to draw on")
+                self._show_picture(
+                    None,
+                    f"No FIB image of {missing[0]} yet to draw on",
+                    suggestion=suggestion,
+                )
             return
         layers = [
             _Layer(_BEFORE),
@@ -828,7 +798,7 @@ class AgentPreviews:
             frame,
             beam,
             layers,
-            suggestion=False,
+            suggestion=suggestion,
             agent_image=evidence is not None,
             title="" if evidence is not None else title,
         )
@@ -837,7 +807,7 @@ class AgentPreviews:
         """``(image, ION, what)``: the image the first pass a request decides
         was asked on, and what the call names; None when it has none."""
         for action in request.get("actions", []):
-            if action.get("tool") != "review_decide":
+            if action.get("tool") != "proposal_decide":
                 continue
             image = self._reference_image(action.get("arguments") or {})
             if _has_pixel_size(image):
@@ -845,7 +815,7 @@ class AgentPreviews:
         return None
 
     def _measured_on(self, controller, marks: Dict[str, "_Mark"], milling: bool):
-        """The frame the request's values were measured on: a review's or an
+        """The frame the request's values were measured on: a decision's or an
         item's own image; else the FIB view's, where a mill draws; else the
         view of the beam a move is in. With its beam; None, None for none."""
         for mark in marks.values():
@@ -891,7 +861,7 @@ class AgentPreviews:
     def _request_marks(
         self, request: Dict[str, Any], missing: List[str]
     ) -> Dict[str, _Mark]:
-        """What *request* places on the sample: move targets, a review's or an
+        """What *request* places on the sample: move targets, a decision's or an
         item edit's point of interest, an item edit's alignment area. An item
         edit whose item has no FIB image to draw on goes in *missing*."""
         marks: Dict[str, _Mark] = {}
@@ -914,8 +884,8 @@ class AgentPreviews:
             tool = action.get("tool")
             arguments = action.get("arguments") or {}
             self._item_marks(tool, arguments, add)
-            if tool == "review_decide":
-                self._review_marks(request, action, arguments, add)
+            if tool == "proposal_decide":
+                self._decision_marks(request, action, arguments, add)
             elif tool == "item_update":
                 # Metres in the item's milling frame, and fractions of it: on
                 # the item's own last FIB image, never the live view, which may
@@ -951,14 +921,21 @@ class AgentPreviews:
                     )
         return marks
 
-    def _review_marks(self, request, action, arguments, add) -> None:
-        """A review decision's values on the image its proposal sits on: a
-        point of interest, a spot burn's points."""
-        poi = _point((arguments.get("values") or {}).get("poi"))
-        _milled, _kept, points = review_passes(
-            {"actions": [action]}, self._review_proposal
+    def _decision_marks(self, request, action, arguments, add) -> None:
+        """A decision's values on the image its proposal sits on: a point of
+        interest, an alignment area, detected features, a spot burn's points."""
+        values = arguments.get("values") or {}
+        poi = _point(values.get("poi"))
+        area = _area(values) if values.get("alignment_area") else None
+        features = [
+            point
+            for feature in values.get("features") or []
+            if isinstance(feature, dict) and (point := _point(feature.get("px")))
+        ]
+        _milled, _kept, points = decided_passes(
+            {"actions": [action]}, self._pending_proposal
         )
-        if poi is None and not points:
+        if poi is None and area is None and not features and not points:
             return
         image = self._reference_image(arguments)
         if not _has_pixel_size(image):
@@ -970,6 +947,23 @@ class AgentPreviews:
                 BeamType.ION,
                 "point of interest",
                 [(image, _offset_pixel(image, poi))],
+                title=title,
+            )
+        if area is not None:
+            add(
+                AREA_MARK,
+                BeamType.ION,
+                "alignment area",
+                [(image, _fraction_pixel(image, corner)) for corner in area],
+                area=True,
+                title=title,
+            )
+        if features:
+            add(
+                FEATURE_MARK,
+                BeamType.ION,
+                "features",
+                [(image, (p.x, p.y)) for p in features],
                 title=title,
             )
         if points:
@@ -1045,138 +1039,6 @@ class AgentPreviews:
                     before=True,
                 )
 
-    # --- suggestions ------------------------------------------------------------
-
-    def show_suggestion(
-        self, request: object, value: object, image: Optional[str] = None
-    ) -> None:
-        """Draw the agent's suggested answer to the pending *request* (a
-        question) on the card, on the image the question shows: an alignment
-        area, detected features; for a position question, both beams' views
-        (FIB-1424). The agent's own *image*, when it gave one, takes the place
-        of the view. A
-        *request* of None takes it down. A suggested point of interest is
-        :meth:`show_suggested_point`'s."""
-        from fibsem.workflows.interaction import (
-            Confirm,
-            ConfirmDetection,
-            EditAlignmentArea,
-            PickPOI,
-        )
-
-        controller = self._view_controller()
-        if isinstance(request, PickPOI):
-            return
-        if controller is None or request is None:
-            if not isinstance(self.suggestion_picture, _PointPicture):
-                self._picture(None, None, [], suggestion=True)
-            return
-        evidence = _agent_image(self._load_image, image)
-        if isinstance(request, Confirm) and evidence is None:
-            self._show_position(controller)
-            return
-        if value is None or isinstance(request, Confirm):
-            if evidence is None:
-                self._picture(None, None, [], suggestion=True)
-                return
-            # The agent's image, its centre marked as a position question's.
-            layer = _Layer(PURPLE_COLOR)
-            height, width = evidence.data.shape[-2:]
-            layer.targets.append((width / 2, height / 2))
-            layer.key(TARGET, "image centre")
-            self._picture(
-                evidence,
-                evidence.metadata.image_settings.beam_type or BeamType.ION,
-                [layer],
-                suggestion=True,
-                agent_image=True,
-            )
-            return
-        mark: Optional[_Mark] = None
-        if isinstance(request, EditAlignmentArea):
-            corners = [
-                (value.left, value.top),
-                (value.left + value.width, value.top + value.height),
-            ]
-            mark = _Mark(
-                BeamType.ION,
-                "alignment area",
-                [(None, lambda frame, c=c: _fraction_pixel(frame, c)) for c in corners],
-                area=True,
-            )
-        elif isinstance(request, ConfirmDetection):
-            image = getattr(request.detection, "fibsem_image", None)
-            if _has_pixel_size(image):
-                mark = _Mark(
-                    image.metadata.image_settings.beam_type or BeamType.ION,
-                    "features",
-                    [(image, (px.x, px.y)) for px in value.values()],
-                )
-        if mark is None:
-            return
-        frame = mark.places[0][0] if mark.places else None
-        own = frame is None and evidence is not None
-        if frame is None:
-            frame = evidence if own else _frame(controller, mark.beam)
-        if frame is None:
-            return
-        layer = _Layer(PURPLE_COLOR)
-        self._add_marks(frame, [mark], layer)
-        beam = (
-            (frame.metadata.image_settings.beam_type or mark.beam) if own else mark.beam
-        )
-        self._picture(frame, beam, [layer], suggestion=True, agent_image=own)
-
-    def _show_position(self, controller) -> None:
-        """A position question ("is the lamella centred?"): the SEM and FIB
-        views side by side, the centre of each marked, as the agent checked
-        them (FIB-1424)."""
-        frames = [
-            (frame, beam)
-            for beam in (BeamType.ELECTRON, BeamType.ION)
-            if (frame := _frame(controller, beam)) is not None
-        ]
-        if not frames:
-            self._picture(None, None, [], suggestion=True)
-            return
-        layers = []
-        for frame, _beam in frames:
-            layer = _Layer(PURPLE_COLOR)
-            height, width = frame.data.shape[-2:]
-            layer.targets.append((width / 2, height / 2))
-            layer.key(TARGET, "image centre")
-            layers.append(layer)
-        self.suggestion_picture = _PairPicture(
-            (tuple(f for f, _ in frames), tuple(layers))
-        )
-        names = ["SEM" if beam is BeamType.ELECTRON else "FIB" for _, beam in frames]
-        words = " and ".join(names)
-        caption = picture_caption(frames[-1][0], frames[-1][1]).split(" · ", 1)
-        self._show_picture(
-            side_by_side(
-                [draw_picture(f, [layer]) for (f, _), layer in zip(frames, layers)],
-                labels=names,
-            ),
-            " · ".join([words, *caption[1:]]),
-            suggestion=True,
-            legend=legend_entries(layers[:1]),
-        )
-
-    def show_suggested_point(self, pixel: Optional[Tuple[float, float]]) -> None:
-        """Draw the agent's suggested point of interest, in the FIB view's
-        pixels, on the card. None takes it down."""
-        if pixel is None:
-            if isinstance(self.suggestion_picture, _PointPicture):
-                self._picture(None, None, [], suggestion=True)
-            return
-        controller = self._view_controller()
-        frame = _frame(controller, BeamType.ION) if controller is not None else None
-        if frame is not None:
-            layer = _Layer(PURPLE_COLOR)
-            layer.crosses.append(tuple(pixel))
-            layer.key(CROSS, "point of interest")
-            self._picture(frame, BeamType.ION, [layer], suggestion=True, point=True)
-
     # --- drawing ----------------------------------------------------------------
 
     @staticmethod
@@ -1204,15 +1066,14 @@ class AgentPreviews:
         frame,
         beam: Optional[BeamType],
         layers: List[_Layer],
-        suggestion: bool,
-        point: bool = False,
+        suggestion: bool = False,
         agent_image: bool = False,
         title: str = "",
     ) -> None:
         drawn = None
         # The agent's own image shows with nothing drawn on it, too.
         if frame is not None and (agent_image or any(layers)):
-            drawn = (_PointPicture if point else tuple)((frame, layers))
+            drawn = (frame, layers)
         if suggestion:
             self.suggestion_picture = drawn
         else:
@@ -1229,12 +1090,3 @@ class AgentPreviews:
             suggestion=suggestion,
             legend=legend_entries(layers),
         )
-
-
-class _PairPicture(tuple):
-    """The card's picture of both beams' views: ``(frames, layers)``."""
-
-
-class _PointPicture(tuple):
-    """The card's picture of a suggested point of interest: its own, so the
-    other suggestions' pictures do not take it down."""

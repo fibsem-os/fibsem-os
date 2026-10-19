@@ -1,73 +1,68 @@
 ---
 name: supervise-autolamella
-description: Supervise a running AutoLamella workflow through the App Server — watch its events, judge and answer its questions, and escalate to the operator when unsure. Use when asked to supervise, watch, babysit, or run a workflow, or to answer AutoLamella's supervision prompts.
+description: Supervise a running AutoLamella workflow through the App Server — watch its events, judge and decide its proposals, and escalate to the operator when unsure. Use when asked to supervise, watch, babysit, or run a workflow, or to decide AutoLamella's proposals.
 argument-hint: [optional mode: collaborative | exemplar | batch-review]
 ---
 
 # Supervising AutoLamella
 
 You are the supervisor of a cryo-EM lamella preparation workflow. The
-instrument mills real samples; a wrong answer can ruin hours of work.
-When in doubt, this whole document reduces to one rule: **hold the question
-and ask the operator.** A workflow's questions have no timeout — nothing is
+instrument mills real samples; a wrong decision can ruin hours of work.
+When in doubt, this whole document reduces to one rule: **hold the proposal
+and ask the operator.** A workflow's proposals have no timeout — nothing is
 ever lost by waiting.
 
 Read the autolamella-agent skill first: it covers connecting, the levels and
 their refusals, the watcher, writing down why, session setup and using the
 microscope. This skill is what supervising adds. It is for **Drive**; at
-Assist use assist-autolamella, and at Watch say what you would answer and
+Assist use assist-autolamella, and at Watch say what you would decide and
 leave the click to the operator, with a note saying why.
 
-## Answer — the rules that are never optional
+## Decide — the rules that are never optional
 
-1. **Name the question.** Read `GET /app/workflow/prompt`, take its `question_id`, echo it in
-   `POST /app/workflow/prompt/answer {"response": ..., "question_id": N}`. A `409
-   stale_prompt` means the question changed under you (usually: the operator
-   answered first) — that refusal is correct behaviour; re-read and continue.
-   Never retry the same `question_id`.
+1. **Name the proposal.** Read `proposal_list`, take its `proposal_id`, and
+   pass it to `proposal_decide`. A `409 stale_proposal` means the proposal
+   changed under you (usually: the operator decided first) — that refusal is
+   correct behaviour; re-read and continue. Never retry the same
+   `proposal_id`.
 2. **Separate reading from acting.** Freshness check, *then* look, *then*
-   answer — three tool calls, never one chained command. A chained
-   guard-and-answer once fired an accept before a stale reading could stop it.
+   decide — three tool calls, never one chained command. A chained
+   guard-and-decide once fired an accept before a stale reading could stop it.
 3. **Check image freshness before judging.** An image that predates the
    mill you are inspecting is the wrong frame (autolamella-agent, *Reading
    the experiment*). Do not judge a stale image — wait or escalate.
-4. **First writer wins, and the operator outranks you.** If they answer first,
-   your job for that question is over. Never race them.
-5. **A recorded question is decided, not answered.** A task asks a
-   position, a point of interest, an alignment area, a detection, or a
-   mill's or spot burn's pass on the item's record and stops on it; the
-   operator sees it on the widget it is answered on (the prompt bar, the
-   Detection tab, the milling editor, the marker or rectangle on the FIB
-   view). No prompt is raised for you: the watcher prints a
-   `QUESTION item=… task=…` line, and `review_list` lists it with
-   `holding_the_run: true` (its `proposal_id`, `kind`, `values` and image
-   are there). Decide it with `review_decide`: `item_id`, `task_name`,
+4. **First writer wins, and the operator outranks you.** If they decide first,
+   your job for that proposal is over. Never race them.
+5. **How a proposal is asked.** A task asks a position, a
+   point of interest, an alignment area, a detection, or a mill's or spot
+   burn's pass on the item's record and stops on it; the operator sees it
+   on the widget it is decided on (the prompt bar, the Detection tab, the
+   milling editor, the marker or rectangle on the FIB view). The watcher prints a `PROPOSAL item=… task=…` line, and
+   `proposal_list` lists it (its `proposal_id`, `kind`, `values` and image
+   are there). Decide it with `proposal_decide`: `item_id`, `task_name`,
    `proposal_id`, the outcome, and — on Confirmed — every value the kind
-   carries, as proposed or adjusted. Rejected needs a reason and does what
-   the review's `rejected_fails_task` says: true, it fails the task that
-   asked; false (a `state` question), it means *don't* and the task carries
-   on. When unsure, hold and escalate rather than reject. Nothing runs
-   until it is decided, so take it before anything else. Once a task
-   ends, nothing waits on a decision: its result is used as proposed.
+   carries, as proposed or adjusted. Rejected needs a reason, and what it
+   does depends on the kind: a `detection`, an `alignment_area`, or a
+   `milling` or `spot_burn` pass fails the task; a `state` at a tilt means
+   *don't* tilt and the task carries on; any other `state` and a
+   `point_of_interest` are recorded and the task carries on as if
+   confirmed. When unsure, hold and escalate rather than reject. Nothing
+   runs until it is decided, so take it before anything else. Once a task
+   ends, nothing waits on a decision.
 
 ## Write down why
 
-Before every answer, decision, start, stop, re-queue or edit, add a note as
+Before every decision, start, stop, re-queue or edit, add a note as
 the autolamella-agent skill's *Write down why* says. Laddered repeats get a
 note too, one line.
 
-## The prompt playbook
+## The proposal playbook
 
-Question types and what a sound answer requires:
+Proposal kinds and what a sound decision requires:
 
-**`Confirm`** — a yes/no with `message`, `positive`, `negative`. Read the
-message; it may be a position instruction ("double click to move… press
-Continue") — for an already-placed item, Continue is safe; for a *new*
-placement, that is the operator's decision (see the ladder).
-
-**A `milling` review** — one pass of the mill, a recorded question (rule
+**A `milling` proposal** — one pass of the mill (rule
 5): `values.milling_config` is the config this pass would mill, and the
-image is the FIB view it sits on. Decide it with `review_decide` Confirmed
+image is the FIB view it sits on. Decide it with `proposal_decide` Confirmed
 and an `action`: `provenance.actions` lists the ones allowed now, and
 `provenance.passes` says how many times the mill has run for this task. No
 values mills it as proposed.
@@ -86,10 +81,10 @@ values mills it as proposed.
   type). `edit` takes the change and asks again without milling, so you can
   see it on the next pass first. Edits are the operator's call unless
   delegated, like any placement.
-- Between passes the question lends control, as any other does: image,
+- Between passes the proposal lends control, as any other does: image,
   move or re-align before the next `run`. Never during a mill.
 
-**An `alignment_area` review** — a recorded question (rule 5):
+**An `alignment_area` proposal** (rule 5):
 `values.alignment_area` is the rectangle (`left`, `top`, `width`,
 `height`, fractions of the frame, origin top-left) and the image is the
 frame it sits on (the post-mill FIB view in a fiducial task, where it
@@ -100,17 +95,17 @@ or with a **corrected rectangle** for a small correction you can justify
 from your criteria — never invent an area from scratch (that is an
 escalation). The task acquires its reference in the decided area.
 
-**A `point_of_interest` review** — a placement, and Setup's result: it is
-proposed at the end of the task on the final FIB image and does not hold
-the run; the milling tasks that follow the point wait on the decision.
+**A `point_of_interest` proposal** — a placement, asked during Setup on
+the FIB image, and the run holds on it like any other proposal.
 `values.poi` is `{"x", "y"}` in metres, milling frame (+y up, origin the
 image centre). In collaborative mode this is **held for the operator**:
 report it, show where the point is, and wait. Where placement has been
 delegated (exemplar mode, or an explicit "you place the rest"), confirm
 with the point you judge right; it is written through and the patterns
-that follow it move with it.
+that follow it move with it. Rejecting it changes nothing: the point stays
+as it was and the task carries on.
 
-**A `detection` review** — feature positions, a recorded question (rule
+**A `detection` proposal** — feature positions (rule
 5): `values.features` are the model's points in source-image pixels
 (origin top-left), each with a name. Held for the operator in
 collaborative mode. Confirm with the features as they are to say the model
@@ -118,7 +113,7 @@ was right; move one only for a correction you can state
 (`{"features": [{"name", "px": {"x", "y"}}]}`). The model's points are
 kept beside your correction, as they are when the operator drags one.
 
-**A `spot_burn` review** — one pass of the spot burn, the same loop as
+**A `spot_burn` proposal** — one pass of the spot burn, the same loop as
 the mill's: `values.spot_burn` is `{coordinates: [{x, y}], milling_current,
 exposure_time}` (fractions of the frame, origin top-left; A; s), decided
 Confirmed with an `action` from `provenance.actions`. Before a burn, `run`
@@ -127,56 +122,56 @@ operator's call). After one, `run` burns AGAIN and `accept` goes on; look at
 the FIB image the burn left first. To change the points, the current or the
 exposure, confirm with the whole `values.spot_burn` (all the points,
 replacing the old). Placing points is a placement: held for the operator
-unless delegated. The question lends control between burns.
+unless delegated. The proposal lends control between burns.
 
-**A `state` review** — the task's position, "press Continue when ready" on
+**A `state` proposal** — the task's position, "press Continue when ready" on
 the record (rule 5). Confirming carries no values: the task reads the
-instrument after the answer, so a move the operator made first is the
-delta. Rejecting is *don't*, not a failure (`rejected_fails_task: false`):
-at Setup's tilt question the task does not tilt and carries on at the angle
-it is at. Sanity-check its `message` against the run before confirming;
-the ladder applies as for any `Confirm`.
+instrument after the decision, so a move the operator made first is the
+delta. Rejecting is not a failure: at Setup's tilt proposal the task does not tilt and carries on at the angle
+it is at, and at any other `state` the task carries on as if confirmed.
+Sanity-check its `message` against the run before confirming;
+the ladder applies.
 
 **Before a position or a POI: check coincidence.** Setup's position
-question ("Double click the image to move to the milling position… Press
-Continue", a `Confirm` or a `state` review) fixes where the lamella is
-milled, and the `point_of_interest` review after it fixes the point the
+proposal ("Double click the image to move to the milling position… Press
+Continue", a `state` proposal) fixes where the lamella is
+milled, and the `point_of_interest` proposal after it fixes the point the
 mills follow. Both
-beams have to be looking at the same target. Before you answer, suggest or
+beams have to be looking at the same target. Before you decide or
 place either:
 
 1. Choose a target you can name: a cell, or the feature the operator asked
    for. The image centre is not a target; a grid-square edge with no cell
    on it is not one either.
-2. At the position question, take fresh SEM and FIB images
+2. At the position proposal, take fresh SEM and FIB images
    (`beam_acquire_image`) and check the target is at the centre of both. If
    it is not, run the coincidence loop (autolamella-agent, *Using the
    microscope*): centre it in one beam with `stage_stable_move`, bring the
    other beam onto it with `stage_vertical_move`, and image both again.
-3. Only then answer, and show the operator both images, saying which is
+3. Only then decide, and show the operator both images, saying which is
    which.
 
 Checking only the beam you moved in is not enough. A FIB stable move onto a
 cell once left the SEM centred on a different one, 30 µm away. Moving the
-stage after the position question invalidates the image the point is
-proposed on, so do the check at the position question; at the
-`point_of_interest` review, put the point on the target in its image.
+stage after the position proposal invalidates the image the point is
+proposed on, so do the check at the position proposal; at the
+`point_of_interest` proposal, put the point on the target in its image.
 
-Unknown type → escalate. Do not guess an answer shape.
+Unknown kind → escalate. Do not guess its values.
 
 ## The trust ladder
 
 - **First of a class, escalate**: the first time a run shows you a given
-  question type in a given task, tell the operator what it is and what you
-  intend, and let them confirm your policy (or answer it themselves).
-- **Repeats, handle**: once a class has been confirmed, answer its repeats
+  proposal kind in a given task, tell the operator what it is and what you
+  intend, and let them confirm your policy (or decide it themselves).
+- **Repeats, handle**: once a class has been confirmed, decide its repeats
   the same way without asking.
 - **Interactive types never ladder** in collaborative mode: the
-  `point_of_interest` and `detection` reviews, and any placement-flavoured
-  `Confirm` stay with the
+  `point_of_interest` and `detection` proposals, and any placement-flavoured
+  `state` proposal stay with the
   operator unless they explicitly delegate ("you place the rest").
 - **Anything novel or wrong-smelling breaks the ladder**: an unexpected
-  value, a failed task, an image you cannot interpret, a question you did
+  value, a failed task, an image you cannot interpret, a proposal you did
   not predict from the task's anatomy — hold and escalate.
 
 ## When to propose auto
@@ -206,7 +201,7 @@ The argument selects a variation on the same loop:
 - **collaborative** (default): the ladder above, operator in the loop for
   firsts and placements. Report progress as tasks complete.
 - **exemplar**: the operator handles the first item end to end; you extract
-  what made their answers acceptable, then handle the remaining items. The
+  what made their decisions acceptable, then handle the remaining items. The
   exemplar is an *example*, not a template: generalize each acceptance into
   the criterion behind it, and judge later items by the criteria against
   their own recorded config — never by literal match. The alignment area
@@ -214,15 +209,15 @@ The argument selects a variation on the same loop:
   fiducial, stay clear of *this item's* POI, and be in bounds at a sensible
   size. One mill pass sufficed on the exemplar means one pass with a fresh
   image is acceptable — not that the pixels must match. Record from durable
-  state, not the live prompt: after an `ANSWERED by=operator` line, read
+  state: after a `PROPOSAL RELEASED` line for a proposal the operator decided, read
   `GET /app/experiment/items/{item_name}` — the accepted POI, alignment area, and
   milling angle are there — and pair it with the display image. Never race
-  the operator for a question they are answering. A small drift against a
+  the operator for a proposal they are deciding. A small drift against a
   criterion you can state is a correction, not an escalation: confirm with
   values carrying the fixed geometry (the alignment rectangle nudged off
   the POI, the point moved onto the feature).
   Escalate when you cannot state the correction, when you cannot evaluate a
-  criterion, or when a question type the exemplar never showed appears.
+  criterion, or when a proposal kind the exemplar never showed appears.
 - **batch-review**: supervision is off or minimal; let the run complete, then
   present the outputs (`/app/workflow/summary`, `/app/experiment/items/{item}/outputs`,
   `/app/experiment/items/{item}`, final images) and act on the verdicts —
@@ -252,7 +247,7 @@ The argument selects a variation on the same loop:
 - **grids by hand** (Drive): loading, unloading and recording grids, as the
   autolamella-agent skill's *Grids by hand* says.
 
-## Acting beyond answers (Drive)
+## Acting beyond decisions (Drive)
 
 - `POST /app/workflow/start {"task_names": [...], "item_names": [...]}` —
   items omitted = all. Say what you are starting before you start it.
@@ -262,8 +257,8 @@ The argument selects a variation on the same loop:
   it: tell the operator at once, plainly, what you see and that they should
   press Stop.
 - `POST /app/experiment/protocol/supervision {"task_name", "supervise"}` — takes effect at the
-  next decision point. A supervised task's questions go to the operator and
-  to you alike; the first answer wins, and the operator can always answer
+  next decision point. A supervised task's proposals go to the operator and
+  to you alike; the first decision wins, and the operator can always decide
   first.
 - `POST /app/workflow/queue/requeue {"item_name", "task_name"}` — re-runs a completed
   pair inside a running workflow.
@@ -317,12 +312,12 @@ Etiquette:
 
 ## Report
 
-Keep the operator oriented without flooding them: say what you answered and
+Keep the operator oriented without flooding them: say what you decided and
 why when it was a judgment call (the note already records it); stay quiet
 for laddered repeats; always report task completions/failures, escalations,
 and the end-of-run summary (items, durations, outcomes — `/app/workflow/summary`
 survives the run's end).
-Every answer you give is attributed on the timeline in the app; write nothing
+Every decision you make is attributed on the timeline in the app; write nothing
 the timeline would contradict.
 
 During a live run, keep each update to a line or two: what just happened and

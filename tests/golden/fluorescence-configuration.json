@@ -1,0 +1,100 @@
+{
+  "autofocus_settings": {
+    "channel_name": "GFP",
+    "method": "LAPLACIAN",
+    "passes": [
+      {
+        "enabled": true,
+        "search_range": 4e-05,
+        "step_size": 4e-06
+      },
+      {
+        "enabled": false,
+        "search_range": 8e-06,
+        "step_size": 1e-06
+      }
+    ],
+    "probe_dwell_time": 1e-06,
+    "probe_resolution": [
+      1536,
+      1024
+    ],
+    "reduced_area": {
+      "height": 0.4,
+      "left": 0.1,
+      "top": 0.2,
+      "width": 0.3
+    },
+    "use_autocontrast": false
+  },
+  "camera_settings": {
+    "binning": 2,
+    "gain": 0.3,
+    "offset": 0.1,
+    "transform": "FLIP_X"
+  },
+  "channel_settings": [
+    {
+      "color": "green",
+      "emission_filter": {
+        "bands": [
+          [
+            500.0,
+            550.0
+          ]
+        ],
+        "multi_band": false,
+        "name": "GFP"
+      },
+      "excitation_wavelength": 488.0,
+      "exposure_time": 0.1,
+      "gain": 0.5,
+      "name": "GFP",
+      "power": 0.2
+    },
+    {
+      "color": "gray",
+      "emission_filter": {
+        "bands": [],
+        "multi_band": false,
+        "name": "Reflection"
+      },
+      "excitation_wavelength": 550.0,
+      "exposure_time": 0.001,
+      "gain": 0.0,
+      "name": "Channel-01",
+      "power": 0.01
+    }
+  ],
+  "default_orientation": "FM",
+  "focus_position": 0.0083,
+  "limit_position": 0.0086,
+  "overview_parameters": {
+    "autofocus_mode": "EACH_ROW",
+    "cols": 3,
+    "objective_start": "FOCUS",
+    "overlap": 0.2,
+    "register_tiles": true,
+    "rows": 2,
+    "tile_mask": [
+      [
+        true,
+        false,
+        true
+      ],
+      [
+        true,
+        true,
+        false
+      ]
+    ],
+    "tile_order": "SERPENTINE",
+    "use_zstack": true
+  },
+  "z_parameters": {
+    "order": "Z_LEVEL",
+    "zmax": 5e-06,
+    "zmin": -5e-06,
+    "zstep": 5e-07
+  }
+}

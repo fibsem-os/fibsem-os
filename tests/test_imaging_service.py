@@ -136,6 +136,28 @@ def test_no_beam_no_service(microscope):
         microscope.auto_focus(BeamType.ELECTRON)
 
 
+def test_an_fm_with_no_beam_has_an_imaging_service(tmp_path):
+    """Its overviews and acquisitions run through the service like everyone's;
+    the beam commands refuse."""
+    import yaml
+
+    import fibsem.config as fconfig
+
+    with open(os.path.join(fconfig.CONFIG_PATH, "sim-arctis-configuration.yaml")) as f:
+        config = yaml.safe_load(f)
+    for device in config["hardware"]["devices"]:
+        if device["name"] in ("electron", "ion"):
+            device["enabled"] = False
+    path = tmp_path / "fm-only.yaml"
+    path.write_text(yaml.safe_dump(config, sort_keys=False))
+    scope, _ = utils.setup_session(manufacturer="Demo", config_path=str(path))
+
+    assert scope.beams == {}
+    assert scope.imaging is not None and scope.imaging.fm is scope.fm_devices["fm"]
+    with pytest.raises(ValueError, match="not enabled"):
+        scope.auto_focus(BeamType.ELECTRON)
+
+
 def test_the_beams_own_autofocus_is_recorded(microscope):
     """It moves the working distance as the sweep does, so it is on the record too
     (FIB-1355)."""

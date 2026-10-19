@@ -30,10 +30,7 @@ from fibsem.structures import FibsemUser, SessionInfo
 from fibsem.util.timestamps import now, to_datetime, to_iso
 from fibsem.utils import configure_logging as _configure_logging
 from fibsem.workflows.proposals import (
-    ItemPoses,
-    PreparedWrite,
     Proposal,
-    ValueRefused,
     proposals_from_dict,
     proposals_to_dict,
     record,
@@ -47,7 +44,7 @@ EXPERIMENT_FILENAME = "experiment.yaml"
 
 # One process, one open experiment: a single lock serialises the writers that
 # can run on different threads at once -- the workflow thread saving after a
-# task, and a review confirming from the GUI thread or the App Server. Held
+# task, and a decision from the GUI thread or the App Server. Held
 # briefly by both, so neither serialises a half-applied write of the other.
 EXPERIMENT_WRITE_LOCK = threading.RLock()
 
@@ -67,6 +64,9 @@ class BaseExperiment:
     # on the main thread. The window listens, to put the question up on the
     # widget it is answered on.
     asked = Signal(str, str)
+    # Fired after a suggestion on a pending proposal is made or declined, with
+    # (item_id, task_name), where the experiment is edited.
+    suggested = Signal(str, str)
 
     def __init__(
         self,
@@ -106,18 +106,6 @@ class BaseExperiment:
     def item_path(self, item: Any) -> Path:
         """The directory an item's recorded outputs are relative to."""
         return Path(item.path)
-
-    def prepare_items_at(self, item: Any, positions: List[ItemPoses]) -> PreparedWrite:
-        """Plan the items this experiment makes at confirmed overview
-        ``positions`` on ``item``, without touching anything yet: the write a
-        positions proposal makes when it is confirmed.
-
-        Planned in full and undone together: a half-made set is worse than
-        none. An experiment whose app makes no items at positions refuses
-        (``ValueRefused``), so the decision is refused before anything is
-        written.
-        """
-        raise ValueRefused("This experiment makes no items at positions.")
 
     def record_proposal(self, proposal: Proposal) -> Proposal:
         """Put ``proposal``, about the experiment itself, on the record. It

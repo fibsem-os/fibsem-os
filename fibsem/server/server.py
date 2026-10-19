@@ -242,8 +242,7 @@ def _words(name) -> str:
 # little ("Tried to requests").
 _REFUSED_ACTIONS = {
     "/app/agent/requests": "file a request",
-    "/app/workflow/prompt/suggest": "suggest an answer",
-    "/app/workflow/prompt/answer": "answer the run's question",
+    "/app/workflow/proposals/suggest": "suggest on a proposal",
 }
 
 
@@ -292,9 +291,12 @@ def _record_refusal(request: Request, exc: StarletteHTTPException) -> None:
 
 
 # Routes that put the agent's call on the record themselves: its requests, its
-# notes, its answers and suggestions to the workflow's questions. A stop says
-# so as it stops (`_stop_reason`).
-_RECORDS_ITSELF = ("/app/agent/", "/app/experiment/notes", "/app/workflow/prompt/")
+# notes, its suggestions. A stop says so as it stops (`_stop_reason`).
+_RECORDS_ITSELF = (
+    "/app/agent/",
+    "/app/experiment/notes",
+    "/app/workflow/proposals/suggest",
+)
 # POST routes that only read: a query, and the grid run's plan. Not the agent
 # acting, and the request store reads them to describe each request.
 _POSTED_READS = ("/queries/", "/app/workflow/grids/plan")
@@ -622,8 +624,8 @@ def build_server(
             build_app_stop_router(app_context),
             dependencies=[Depends(_drive), Depends(_stop_reason)],
         )
-        # Suggesting an answer to the run's question: Assist and Drive, with no
-        # request, since the operator's click is what answers.
+        # Suggesting on a pending proposal: Assist and Drive, with no request,
+        # since the operator's approval is what decides.
         app.include_router(
             build_app_suggest_router(app_context), dependencies=[Depends(_assist)]
         )
@@ -639,6 +641,7 @@ def build_server(
             frozenset(mounted),
             emit=getattr(app_context, "record_event", None),
             describe=getattr(app_context, "describe_action", None),
+            check=getattr(app_context, "check_action", None),
             not_allowed=_not_allowed(microscope) if serve_microscope else None,
             experiment_path=lambda: getattr(app_context, "experiment_path", None),
         )

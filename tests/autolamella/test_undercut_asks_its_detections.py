@@ -36,7 +36,7 @@ from fibsem.applications.autolamella.workflows.tasks.undercut import (
 )
 from fibsem.structures import Point
 from fibsem.workflows.attention import Attention
-from fibsem.workflows.proposals import DETECTION, TASK_RESULT, Decision, DecisionOutcome
+from fibsem.workflows.proposals import DETECTION, Decision, DecisionOutcome
 from fibsem.workflows.status import TaskStatus
 
 UNDERCUT = "Mill Undercut"
@@ -110,7 +110,7 @@ def _task(microscope, exp) -> MillUndercutTask:
 
 
 def test_the_task_declares_the_detection():
-    assert MillUndercutTask.questions == (DETECTION,)
+    assert MillUndercutTask.asks == (DETECTION,)
 
 
 def test_headless_every_detection_goes_on_the_record_unreviewed(
@@ -121,9 +121,9 @@ def test_headless_every_detection_goes_on_the_record_unreviewed(
 
     _task(microscope, exp).run()
 
-    assert [p.kind for p in lamella.proposals_from(UNDERCUT)] == [DETECTION] * 4 + [
-        TASK_RESULT
-    ], "two in the coincident alignment, one per undercut, one to finish"
+    assert [p.kind for p in lamella.proposals_from(UNDERCUT)] == [DETECTION] * 4, (
+        "two in the coincident alignment, one per undercut, one to finish"
+    )
     detections = [p for p in lamella.proposals_from(UNDERCUT) if p.kind == DETECTION]
     assert [p.provenance["features"] for p in detections] == [
         ["LamellaCentre"],

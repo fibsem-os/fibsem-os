@@ -165,13 +165,13 @@ def test_the_status_line_says_what_the_selection_allows(no_quit, qapp, tmp_path)
     ui.experiment = experiment
     experiment.task_protocol = AutoLamellaTaskProtocol()
     window._update_instructions()
-    workflow = window.lamella_workflow_widget
+    workflow = window.workflow_tab.lamella_workflow_widget
     workflow.add_lamella(experiment.positions[0], checked=False)
     workflow.add_task(AutoLamellaTaskDescription(name="Polishing"), checked=True)
-    window._on_workflow_selection_changed()
+    window.workflow_tab.selection_changed()
     assert window.status_bar.text == "Select a lamella to run the workflow."
     workflow.lamella_list.set_all_selected(True)
-    window._on_workflow_selection_changed()
+    window.workflow_tab.selection_changed()
     assert window.status_bar.text == "Ready to run: 1 lamella, 1 task."
     ui.microscope.disconnect()
     window.close()
