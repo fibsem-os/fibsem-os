@@ -8,15 +8,19 @@ from typing import Any, ClassVar, Dict, Optional
 from fibsem.applications.volume.tasks import (
     VolumeFIBMillingTaskConfig,
     VolumeSEMAcquisitionTaskConfig,
+    VolumeSetupImagingTaskConfig,
+    VolumeSetupMillingTaskConfig,
     load_volume_task_configs,
 )
+from fibsem.workflows.attention import Attention
 from fibsem.workflows.task_config import TaskConfig, TaskProtocol
 
 
 @dataclass
 class VolumeProtocol(TaskProtocol):
-    """The tasks each slice runs, in ``order``, with their settings: shared by
-    every position, which keeps its own poses and point of interest."""
+    """The tasks a position is set up with and each slice runs, in ``order``,
+    with their settings: shared by every position, which keeps its own poses
+    and point of interest."""
 
     NOUN: ClassVar[str] = "volume task"
 
@@ -30,8 +34,12 @@ class VolumeProtocol(TaskProtocol):
 
     @classmethod
     def default(cls) -> "VolumeProtocol":
-        """Mill a slice, then image it: the image needs the cut."""
+        """Set each position up, asking, then per slice mill it and image it:
+        the image needs the cut."""
         protocol = cls()
+        for setup in (VolumeSetupMillingTaskConfig(), VolumeSetupImagingTaskConfig()):
+            setup.attention = Attention.supervised
+            protocol.add(setup)
         mill, image = VolumeFIBMillingTaskConfig(), VolumeSEMAcquisitionTaskConfig()
         protocol.add(mill)
         protocol.add(image)

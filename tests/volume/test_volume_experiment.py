@@ -7,12 +7,17 @@ from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.volume.experiment import PROTOCOL_FILENAME, VolumeExperiment
 from fibsem.applications.volume.position import MILL_POSE, SEM_POSE, VolumePosition
 from fibsem.applications.volume.protocol import VolumeProtocol
-from fibsem.applications.volume.tasks import VolumeFIBMillingTaskConfig
+from fibsem.applications.volume.tasks import (
+    VolumeFIBMillingTaskConfig,
+    VolumeSetupMillingTaskConfig,
+)
 from fibsem.structures import FibsemStagePosition, MicroscopeState, Point
+from fibsem.workflows.attention import Attention
 from fibsem.workflows.experiment import load_experiment
 from fibsem.workflows.saved_format import WrongApplication
 from fibsem.workflows.status import TaskState, TaskStatus
 
+SETUP = ["Setup FIB Milling Position", "Setup SEM Acquisition"]
 TASKS = ["Volume FIB Milling", "Volume SEM Acquisition"]
 
 
@@ -47,7 +52,7 @@ def test_a_saved_experiment_reads_back_as_volume(experiment):
     (back,) = loaded.positions
     assert back.to_dict() == position.to_dict()
     assert back.pose(SEM_POSE).stage_position.x == pytest.approx(2e-3)
-    assert loaded.task_protocol.ordered_task_names == TASKS
+    assert loaded.task_protocol.ordered_task_names == SETUP + TASKS
     assert loaded.task_protocol.task_config[TASKS[0]].slice_thickness == 50e-9
 
 
@@ -56,7 +61,7 @@ def test_it_saves_as_app_volume_with_the_protocol_beside_it(experiment, tmp_path
     protocol = yaml.safe_load((tmp_path / "vol" / PROTOCOL_FILENAME).read_text())
 
     assert saved["app"] == "volume"
-    assert list(protocol["tasks"]) == TASKS
+    assert list(protocol["tasks"]) == SETUP + TASKS
 
 
 def test_an_autolamella_file_is_refused_and_left_alone(tmp_path):
@@ -77,7 +82,7 @@ def test_a_missing_protocol_reads_as_the_default(experiment, tmp_path):
 
     loaded = VolumeExperiment.load(tmp_path / "vol")
 
-    assert loaded.task_protocol.ordered_task_names == TASKS
+    assert loaded.task_protocol.ordered_task_names == SETUP + TASKS
 
 
 def test_position_names_are_unique(experiment):
@@ -130,3 +135,7 @@ def test_the_protocol_round_trips_its_configs():
 
     assert back.to_dict() == protocol.to_dict()
     assert isinstance(back.task_config[TASKS[0]], VolumeFIBMillingTaskConfig)
+    assert isinstance(back.task_config[SETUP[0]], VolumeSetupMillingTaskConfig)
+    # the setup asks; the image needs its slice's cut
+    assert all(back.task_config[t].attention is Attention.supervised for t in SETUP)
+    assert back.requirements(TASKS[1]) == [TASKS[0]]

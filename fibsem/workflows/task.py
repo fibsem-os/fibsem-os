@@ -23,15 +23,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, ClassVar, Dict, Optional, Tuple, Union
 
+from fibsem import acquire
 from fibsem.acting import TASK, acting
 from fibsem.cancellation import AnyStopEvent, OperationCancelledError, StopEvent
 from fibsem.control import lending
+from fibsem.devices.beam import nearest_resolution
 from fibsem.milling.tasks import (
     FibsemMillingTaskConfig,
     record_milling_skipped,
     run_milling_task,
 )
-from fibsem.structures import FibsemImage, FibsemRectangle
+from fibsem.structures import BeamType, FibsemImage, FibsemRectangle, ImageSettings
 from fibsem.util.timestamps import now, now_iso
 from fibsem.workflows.interaction import (
     INSTRUCTION_TIMEOUT_S,
@@ -99,6 +101,9 @@ _HOLD_REFRESH_S = 1.0
 # Steps recorded as the task's own lifecycle events (task_started,
 # task_completed), not as task_step.
 LIFECYCLE_STEPS = {"STARTED", "FINISHED"}
+
+# The alignment reference is taken at the listed resolution nearest this.
+ALIGNMENT_REFERENCE_RESOLUTION = (1536, 1024)
 
 
 class BaseTask(ABC):
@@ -530,6 +535,45 @@ class BaseTask(ABC):
         area = decision.values.get("alignment_area")
         if isinstance(area, FibsemRectangle):
             self.item.alignment_area = area
+
+    def _acquire_alignment_reference_image(
+        self,
+        image_settings: ImageSettings,
+        field_of_view: float,
+        reduced_area: FibsemRectangle,
+        beam_type: BeamType = BeamType.ION,
+    ) -> FibsemImage:
+        """Acquire the item's alignment reference, ``ref_alignment``, in
+        ``reduced_area`` with ``beam_type``.
+
+        Item state, read by later tasks (FIB-1258): in the item's folder and
+        overwritten each time, not in this run's own folder (FIB-1275).
+        """
+        self.log_status_message(
+            "ACQUIRE_ALIGNMENT_REFERENCE_IMAGE",
+            "Acquiring Alignment Reference Image...",
+        )
+        settings = deepcopy(image_settings)
+        settings.reduced_area = reduced_area
+        settings.beam_type = beam_type
+        settings.save = True
+        settings.hfw = field_of_view
+        settings.path = str(self.path)
+        settings.filename = "ref_alignment"
+        settings.resolution = self._alignment_resolution(beam_type)
+        settings.dwell_time = 1e-6
+        settings.autocontrast = True
+        return acquire.acquire_image(self.microscope, settings)
+
+    def _alignment_resolution(
+        self, beam_type: BeamType = BeamType.ION
+    ) -> Tuple[int, int]:
+        """The beam's listed resolution nearest the alignment reference's
+        1536x1024, so the reference is taken at one the instrument offers."""
+        beam = self.microscope.beams.get(beam_type)
+        parameter = None if beam is None else beam.parameters.get("resolution")
+        choices = None if parameter is None else parameter.choices
+        return nearest_resolution(ALIGNMENT_REFERENCE_RESOLUTION, choices)
 
     # -- lifecycle -------------------------------------------------------------
 
