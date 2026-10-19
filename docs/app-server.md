@@ -82,6 +82,11 @@ Under them is the agent's reason.
 One request waits at a time. Changing the level or pressing Stop agent
 cancels a waiting request, and stops an approved one before its next action.
 
+Each request is saved in the experiment's record (`experiment.yaml`) as an
+`actions` proposal, with who approved or rejected it and why. A request still
+waiting when the app closes reads as withdrawn the next time the experiment
+is opened.
+
 ## What the agent can see (Watch and above)
 
 Reading is the point of the feature:

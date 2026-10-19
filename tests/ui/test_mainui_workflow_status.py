@@ -184,10 +184,10 @@ def test_a_burning_report_renders_without_taking_the_app_down(main_ui):
         total_estimated_time=50.0,
     )
 
+    main_ui.status_bar.set_run(None)  # on its own line, whatever ran before
     main_ui.status_bar._on_spot_burn_progress(report)
 
     assert main_ui.status_bar.fraction == pytest.approx(0.4)
-    # Under the run's task if this module's window has one going, on its own if not.
     assert "Spot burn" in main_ui.status_bar.text
     assert main_ui.status_bar.text.endswith("spot 2 of 5 40% · 30s left")
 
@@ -197,6 +197,7 @@ def test_a_terminal_report_is_recognised_as_terminal(main_ui):
     bar's reset, so a fix that stopped the crash but misread the outcome would leave the
     bar full forever. Read through `status.is_terminal`, which is what both consumers of
     this signal use."""
+    main_ui.status_bar.set_run(None)
     main_ui.status_bar._on_spot_burn_progress(
         SpotBurnProgress(
             status=SpotBurnStatus.FINISHED, current_point=5, total_points=5
@@ -228,7 +229,7 @@ def test_an_event_without_status_bar_text_leaves_the_bar_alone(main_ui):
 def test_the_lamella_sub_tab_is_called_history_not_review(main_ui):
     """The lamella's per-task record is History, beside Protocol; the window
     has no Review tab."""
-    container = main_ui._lamella_tab_container
+    container = main_ui.lamella_tab
     from PyQt5.QtWidgets import QTabWidget
 
     tabs = container.findChild(QTabWidget)

@@ -15,6 +15,10 @@ approve its own request.
 One request is pending at a time; a batch covers "several things at once".
 There is no expiry at Assist -- silence means no -- but a request may carry one,
 with what expiry does, for Drive's countdown (FIB-1267).
+
+Each request is an ``actions`` proposal on the experiment, so it is saved with
+who approved or rejected it and why; this store keeps what only this session
+knows (applying, each action's result).
 """
 
 import asyncio
@@ -30,13 +34,15 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from fibsem.acting import AGENT, acting
+from fibsem.acting import AGENT, Actor, acting
 from fibsem.ai.agent.allowlist import image_refusal
 from fibsem.ai.agent.calls import AgentCall, calling, join_line
 from fibsem.ai.agent.catalog import CATALOG, ToolSpec, route_call
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.ai.agent.request_text import Describer, describe_action, describe_actions
 from fibsem.server.auth import AuthConfig, lending_drive, require_level
+from fibsem.workflows.actions import ACTION, action_record
+from fibsem.workflows.proposals import ACTIONS, Decision, DecisionOutcome, Proposal
 
 PENDING = "pending"
 APPLYING = "applying"
@@ -111,6 +117,8 @@ class AgentRequest:
     # The image the agent's evidence is in (a path inside the experiment): the
     # card shows it under Why, the actions' values drawn on it (FIB-1411).
     image: Optional[str] = None
+    # The experiment its proposal is on.
+    experiment: Any = field(default=None, repr=False)
     # Set when the level changes or the operator stops the agent mid-batch: the
     # actions not yet run are not run.
     _abort: Optional[str] = field(default=None, repr=False)
@@ -282,8 +290,11 @@ class RequestStore:
         check: Optional[Callable[[str, Dict[str, Any]], Optional[str]]] = None,
         not_allowed: Optional[Callable[[str, str], Optional[str]]] = None,
         experiment_path: Optional[Callable[[], Optional[str]]] = None,
+        experiment: Optional[Callable[[], Any]] = None,
     ) -> None:
         self._app = app
+        # The experiment a request is recorded on (``recording_experiment``).
+        self._experiment = experiment or (lambda: None)
         # Why a request's image path is refused (outside the experiment), or None.
         # The open experiment's folder: an image the agent shows is inside it.
         self._experiment_path = experiment_path or (lambda: None)
@@ -368,6 +379,7 @@ class RequestStore:
             )
         if on_expiry not in ("approve", "reject"):
             raise ValueError("on_expiry is 'approve' or 'reject'")
+        experiment = self._recording()
         self._describe_actions(resolved)
         with self._lock:
             waiting = self._pending_locked()
@@ -389,24 +401,34 @@ class RequestStore:
             )
             self._requests[request.id] = request
             self._trim_locked()
-        self._emit(
-            "request_raised",
-            {
-                "request_id": request.id,
-                "reason": request.reason,
+        request.experiment = experiment
+        provenance = {"reason": request.reason}
+        if image:
+            provenance["reference_image"] = image
+        if expires_at is not None:
+            provenance.update(expires_at=expires_at, on_expiry=on_expiry)
+        experiment.ask_proposal(
+            None,
+            "",
+            Proposal(
+                kind=ACTIONS,
+                id=request.id,
                 # With the card's own words, so a line about it later (the
                 # app's Recent list) reads as the card did.
-                "actions": [
-                    {
-                        "tool": a.tool,
-                        "arguments": a.arguments,
-                        "what": a.what,
-                        "change": a.change,
-                    }
-                    for a in resolved
-                ],
-                **({"image": image} if image else {}),
-            },
+                values={
+                    "actions": [
+                        {
+                            "tool": a.tool,
+                            "arguments": a.arguments,
+                            "what": a.what,
+                            "change": a.change,
+                        }
+                        for a in resolved
+                    ]
+                },
+                provenance=provenance,
+                asked_by=self._agent(),
+            ),
         )
         self._changed(request)
         return request
@@ -508,25 +530,17 @@ class RequestStore:
         thread: never the GUI thread, which the actions marshal onto."""
         with self._lock:
             request = self._pending_or_refuse(request_id)
-            if not self._assisting():
-                self._finish_locked(request, CANCELLED)
-                cancelled = True
-            else:
-                request.status = APPLYING
-                request.decided_by = by
-                request.decided_at = time.time()
-                cancelled = False
-        if cancelled:
-            self._cancelled(request, "the agent is no longer at Assist")
+            assisting = self._assisting()
+        if not assisting:
+            self._close(request, CANCELLED, "the agent is no longer at Assist")
             raise RequestRefused(
                 409,
                 "request_cancelled",
                 "The agent is no longer at Assist, so its request was cancelled.",
             )
-        self._emit(
-            "request_decided",
-            {"request_id": request.id, "outcome": "approved", "decided_by": by},
-        )
+        self._decide(request, DecisionOutcome.Confirmed, by)
+        with self._lock:
+            request.status = APPLYING
         self._changed(request)
         threading.Thread(
             target=self._apply,
@@ -541,14 +555,10 @@ class RequestStore:
     ) -> AgentRequest:
         with self._lock:
             request = self._pending_or_refuse(request_id)
-            request.decided_by = by
-            request.decided_at = time.time()
-            request.reject_reason = str(reason or "").strip()
+        request.reject_reason = str(reason or "").strip()
+        self._decide(request, DecisionOutcome.Rejected, by, request.reject_reason)
+        with self._lock:
             self._finish_locked(request, REJECTED)
-        payload = {"request_id": request.id, "outcome": "rejected", "decided_by": by}
-        if request.reject_reason:
-            payload["reason"] = request.reject_reason
-        self._emit("request_decided", payload)
         self._changed(request)
         return request
 
@@ -564,9 +574,11 @@ class RequestStore:
             )
         with self._lock:
             request = self._pending_or_refuse(request_id)
-            self._finish_locked(request, CANCELLED)
-        self._cancelled(
-            request, f"withdrawn by the agent: {reason.strip()}", withdrawn=True
+        self._close(
+            request,
+            CANCELLED,
+            f"withdrawn by the agent: {reason.strip()}",
+            actor=self._agent(),
         )
         return request
 
@@ -579,10 +591,9 @@ class RequestStore:
                 if running.status == APPLYING:
                     running._abort = why
             request = self._pending_locked()
-            if request is None:
-                return None
-            self._finish_locked(request, CANCELLED)
-        self._cancelled(request, why)
+        if request is None:
+            return None
+        self._close(request, CANCELLED, why)
         return request
 
     def _level_changed(self, level: AgentLevel, stopped: bool) -> None:
@@ -640,7 +651,15 @@ class RequestStore:
                 if not ok:
                     result["error"] = refused or (answer or {}).get("detail", answer)
                 request.results.append(result)
-                self._emit("request_applied", {"request_id": request.id, **result})
+                self._emit(
+                    ACTION,
+                    action_record(
+                        join_line(action.what, action.change) or action.tool,
+                        ok=ok,
+                        request_id=request.id,
+                        **{k: v for k, v in result.items() if k != "ok"},
+                    ),
+                )
                 self._changed(request)
                 if not ok:
                     status = FAILED
@@ -783,14 +802,72 @@ class RequestStore:
         ]:
             del self._requests[request.id]
 
-    def _cancelled(
-        self, request: AgentRequest, why: str, withdrawn: bool = False
+    def _recording(self) -> Any:
+        """The experiment a new request is recorded on, or refused."""
+        try:
+            experiment = self._experiment()
+        except OSError as exc:
+            experiment, why = None, str(exc)
+        else:
+            why = "no experiment is open"
+        if experiment is None:
+            raise RequestRefused(
+                409,
+                "no_experiment",
+                f"A request is recorded on the experiment, and {why}.",
+            )
+        return experiment
+
+    def _agent(self) -> Actor:
+        return Actor.agent(self._auth.agent_client or "agent")
+
+    def _decide(
+        self,
+        request: AgentRequest,
+        outcome: DecisionOutcome,
+        by: str,
+        reason: str = "",
     ) -> None:
-        request.cancel_reason = why
-        payload = {"request_id": request.id, "why": why}
-        if withdrawn:
-            payload["withdrawn"] = True
-        self._emit("request_cancelled", payload)
+        """The operator's (or expiry's) decision on the request's proposal."""
+        experiment = request.experiment
+        if by == "operator" and experiment is not None:
+            actor = experiment.actor()
+        else:
+            actor = Actor.parse(by) if ":" in by else Actor.task(by)
+        decided = experiment.decide(
+            None,
+            "",
+            Decision(
+                outcome=outcome,
+                actor=actor,
+                reason=reason,
+                via="request",
+                proposal_id=request.id,
+            ),
+        )
+        if not decided.applied:
+            raise RequestRefused(
+                409, decided.error_type or "not_pending", decided.reason
+            )
+        with self._lock:
+            request.decided_by = str(actor)
+            request.decided_at = time.time()
+
+    def _close(
+        self,
+        request: AgentRequest,
+        status: str,
+        why: str,
+        actor: Optional[Actor] = None,
+    ) -> None:
+        """End a request nobody decided, its proposal withdrawn with ``why``."""
+        with self._lock:
+            if request.status != PENDING:
+                return
+            request.cancel_reason = why
+            self._finish_locked(request, status)
+        if request.experiment is not None:
+            request.experiment.withdraw_experiment_proposal(request.id, why, actor)
         self._changed(request)
 
     def _emit(self, kind: str, payload: Dict[str, Any]) -> None:

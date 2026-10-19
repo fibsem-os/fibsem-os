@@ -117,8 +117,9 @@ class Imaging(Service):
     # on the acquiring thread. A Signal, not a Parameter: it carries a preview image.
     tiled_progress = Signal(TiledProgress)
     # An overview's mosaic once saved, beam (`FibsemImage`) or fluorescence
-    # (`FluorescenceImage`), with the path it was written to; before its run
-    # reports finished on ``tiled_progress``. Emitted on the acquiring thread.
+    # (`FluorescenceImage`), with the path it was written to. A fluorescence
+    # overview emits it before its run reports finished on ``tiled_progress``,
+    # a beam overview after. Emitted on the acquiring thread.
     overview_acquired = Signal(object, object)
     # Images someone asked the app's SEM and FIB views to show (`show`): a milling
     # task's result, a route's image. Not every acquisition: alignment and other

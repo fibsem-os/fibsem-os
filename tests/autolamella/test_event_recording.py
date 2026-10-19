@@ -302,7 +302,7 @@ def test_an_agent_note_about_an_item_is_filed_under_that_item(tmp_path, microsco
 
     def note(item_id, item_name):
         recorder.buffer.append(
-            "agent_note", {"text": "x", "item_name": item_name, "item_id": item_id}
+            "note", {"text": "x", "item_name": item_name, "item_id": item_id}
         )
 
     try:

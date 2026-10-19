@@ -29,10 +29,10 @@ from fibsem.structures import (
     MicroscopeState,
     Point,
 )
-from fibsem.workflows.experiment import EXPERIMENT_WRITE_LOCK
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.proposals import (
     ALIGNMENT_AREA,
+    EXPERIMENT_WRITE_LOCK,
     PROPOSAL_KINDS,
     STATE,
     Decision,

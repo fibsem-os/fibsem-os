@@ -134,7 +134,6 @@ class ExperimentHeader(QWidget):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(5, 0, 5, 0)
         layout.setSpacing(5)
-        layout.setSpacing(5)
 
         # Create / Load experiment buttons
         self.btn_create_experiment = QPushButton("Create Experiment")

@@ -495,15 +495,11 @@ class GridTaskManager(BaseTaskManager):
         self._notify(f"Grid screening report written: {path}", "info")
         self._say(status_bar="")
 
-    @staticmethod
-    def _notify(message: str, notification_type: str) -> None:
+    def _notify(self, message: str, notification_type: str) -> None:
         """A notification that stays in the app's history, so an overnight run's
         last word is there in the morning. Headless, the log line is all."""
-        try:
-            from fibsem.ui import notification_service
-        except ImportError:  # no Qt: a headless install
-            return
-        notification_service.show(message, notification_type)
+        if self.hook_manager is not None:
+            self.hook_manager.notify(message, notification_type)
 
     def _run_load_step(self, item: WorkItem, grid: GridRecord) -> None:
         """The planned exchange. Its outcome is the queue item's status, so the

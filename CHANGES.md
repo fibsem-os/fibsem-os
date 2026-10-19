@@ -165,6 +165,25 @@ lists where each key went.
   operator sees nothing change; old event logs still read. The window's
   responder only carries instructions (images, milling config, detections).
   Suggestions come back on pending proposals.
+- **One record for an act, one for a note.** Every act on the session's record
+  is an `action` event (what, whether it worked, why, and how: tool,
+  arguments, route, level, a request's step, what a stop `stops`), whoever did
+  it: the agent's calls and refusals, an approved request's steps, the agent's
+  stops, the operator's Stop, Stop Task, Stop agent and Stop Milling (the last
+  was not recorded before). Notes are `note` events: the agent's notes and
+  replies, the operator's messages. `agent_called`, `agent_refused`,
+  `agent_stop`, `agent_stopped`, `request_applied`, `workflow_stop`,
+  `agent_note` and `operator_message` are no longer written; old logs still
+  read in the card, the watcher and the dashboards.
+- **The agent's requests are on the experiment's record.** A request at Assist
+  is an `actions` proposal on the experiment, saved in `experiment.yaml` with
+  its decision: approved, rejected (with the operator's reason) or withdrawn
+  (the agent took it back, the level changed, Stop agent, or the app closed
+  with it waiting). The chip, the card and the request tools are unchanged.
+  `request_raised`, `request_decided` and `request_cancelled` give way to
+  `proposal_asked` and `proposal_decided` of kind `actions`; old logs still
+  read. Proposals about the experiment itself are decided by id
+  (`decide(None, ...)`), and the plain session experiment takes them too.
 - **Agent suggestions on proposals.** At Assist an agent suggests a decision
   on a pending proposal (`proposal_suggest`, `POST
   /app/workflow/proposals/suggest`), with its reason and optionally its

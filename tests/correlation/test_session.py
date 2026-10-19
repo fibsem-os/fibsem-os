@@ -861,7 +861,14 @@ def test_a_reset_starts_a_new_correlation(ready, tmp_path):
     assert ready.seeded_positions is None and not ready.ignore_placement_offset
     assert ready.prior_runs == [] and ready.project_dir is None
     assert ready.config == CorrelationConfig()
+    # Emptying the points was not an edit: given a run folder again, nothing
+    # is due until the user changes something.
+    folder = tmp_path / "next"
+    folder.mkdir()
+    ready.set_project_dir(str(folder))
     assert not ready.auto_save_due()
+    ready.points.add(_target())
+    assert ready.auto_save_due()
 
 
 def test_a_run_in_flight_at_a_reset_delivers_nothing(ready):

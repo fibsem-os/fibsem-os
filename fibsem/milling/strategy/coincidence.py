@@ -225,9 +225,6 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
 
     def _start_milling_and_acquisition(self) -> float:
         # start milling, and estimate time (if supported by microscope)
-        # explicitly re-select the FIB view before milling: FM live acquisition
-        # may have left a different channel active (see set_channel below in _setup_milling)
-        self.microscope.set_channel(self.microscope.milling_channel)
         self.microscope.start_milling()  # asynchronous start
         estimated_time = self.microscope.estimate_milling_time()
         time.sleep(1)
@@ -249,9 +246,6 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         # setup milling
         self.microscope.stop_milling()
         setup_milling(self.microscope, self.stage)
-        # explicitly select the FIB view before drawing patterns: the FM acquisition
-        # path can leave a non-FIB channel active, which breaks pattern drawing/milling
-        self.microscope.set_channel(self.microscope.milling_channel)
         self.microscope.draw_patterns(patterns=self.stage.define_patterns())
 
     def run(
@@ -339,9 +333,6 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         # finalize
         self.microscope.fm.acquisition_signal.disconnect(self.on_fm_acquisition_signal)
         self.cropped_image_signal.disconnect(self._save_fm_image)
-        # ensure the FIB view is active so finish_milling (clears patterns, puts the
-        # beam back) operates on the correct channel
-        self.microscope.set_channel(self.microscope.milling_channel)
         self.microscope.finish_milling()
 
         # post image acquisition handled by parent task

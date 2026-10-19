@@ -292,7 +292,7 @@ class TestFromTheWindow:
         main_ui._on_experiment_update()
         main_ui.grids_tab.set_experiment(exp)
 
-        card = main_ui.lamella_card_container._cards[exp.positions[0].id]
+        card = main_ui.lamella_tab.cards._cards[exp.positions[0].id]
         row = main_ui.workflow_tab.lamella_workflow_widget.lamella_list._row(0)
         assert card._grid_label.text() == "Grid-02"
         assert _colour(card._grid_label) == "muted"
