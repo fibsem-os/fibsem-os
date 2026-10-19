@@ -108,7 +108,8 @@ Each group contributes one kind of object:
 - **A monitor** (`fibsem.milling.monitors`): a `MillingMonitor` from
   `fibsem.milling.monitors` that runs during each mill step of a stage that
   lists it in `monitors`: it reports readings, pauses the mill to act, or ends
-  the step.
+  the step. A live monitor, which reads frames while the pattern mills
+  (`MillingStreamMonitor`), names the `view` it needs.
 - **A task** (`fibsem.autolamella.tasks`): an `AutoLamellaTask` with its
   configuration class, as described in the next section. It appears in the
   Add Task dialog.

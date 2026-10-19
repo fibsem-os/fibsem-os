@@ -15,9 +15,16 @@ from fibsem.milling.monitors import (
     MillingMonitorResult,
     MillingPeriodicMonitor,
     MillingPeriodicMonitorConfig,
+    MillingStreamMonitor,
 )
-from fibsem.services.milling import MillingStepFailed
-from tests.test_milling_run import RUNNING, Scripted, microscope, scripted  # noqa: F401
+from fibsem.services.milling import MillingStepFailed, MixedMonitorViews
+from tests.test_milling_run import (  # noqa: F401
+    IDLE,
+    RUNNING,
+    Scripted,
+    microscope,
+    scripted,
+)
 
 
 class Pausing(Scripted):
@@ -239,3 +246,208 @@ def test_a_stage_without_monitors_saves_an_empty_list():
     saved = FibsemMillingStage(name="s").to_dict()
     assert saved["monitors"] == []
     assert FibsemMillingStage.from_dict(saved).monitors == []
+
+
+# ── readings out (2b) ─────────────────────────────────────────────────────
+
+
+def test_readings_are_kept_for_reading_and_following(scripted, registered):
+    registered(Watch)
+    service = scripted([RUNNING, RUNNING])
+    notable = []
+    service.notable_reading.connect(notable.append)
+    _mill(service, _stage(MillingMonitorConfig().made_for(Watch)))
+
+    snapshot = service.readings.get_value()
+    assert snapshot["stage"] == "s" and snapshot["step"] == 0
+    assert snapshot["monitors"]["Watch"]["latest"]["reading"] == {"mean": 1.0}
+
+    followed = service.follow_readings(since=0)
+    assert [r["monitor"] for r in followed["readings"]] == ["Watch", "step"]
+    assert followed["readings"][-1]["reading"]["end"]["kind"] == "finished"
+    assert followed["seq"] == followed["readings"][-1]["seq"]
+    assert service.follow_readings(since=followed["seq"])["readings"] == []
+
+    assert [n["monitor"] for n in notable] == ["step"], "only the end is notable"
+
+
+def test_a_plain_stage_reports_no_readings(scripted):
+    service = scripted([RUNNING, RUNNING])
+    _mill(service, _stage())
+    assert service.follow_readings(since=0)["readings"] == []
+
+
+def test_a_follow_waits_for_the_next_reading():
+    from fibsem.milling.readings import MillingReadings
+
+    readings = MillingReadings()
+    readings.start_step("s", 0)
+
+    def later():
+        time.sleep(0.05)
+        readings.add(
+            {
+                "monitor": "m",
+                "seq": readings.next_seq(),
+                "milled_time": 0.0,
+                "notable": False,
+                "reading": {"x": 1},
+            }
+        )
+
+    import threading
+
+    threading.Thread(target=later).start()
+    followed = readings.follow(since=0, timeout=5)
+    assert [r["reading"] for r in followed["readings"]] == [{"x": 1}]
+
+
+class Chatty(MillingMonitor[MillingMonitorConfig]):
+    """Reports three readings at once, then a notable one."""
+
+    name = "Chatty"
+
+    def on_start(self):
+        for n in (1, 2, 3):
+            self.report({"n": n})
+        self.report({"n": 4, "drop": True}, notable=True)
+
+
+def test_readings_are_throttled_keeping_the_latest_and_notable_ones_go_at_once(
+    scripted, registered
+):
+    registered(Chatty)
+    service = scripted([RUNNING, RUNNING])
+    _mill(service, _stage(MillingMonitorConfig().made_for(Chatty)))
+
+    readings = service.follow_readings(since=0)["readings"]
+    assert [r["reading"].get("n") for r in readings if r["monitor"] == "Chatty"] == [
+        1,
+        4,
+        3,
+    ], "the first, the notable one, then the latest held back"
+
+
+# ── live monitors and one view per step (2b) ──────────────────────────────
+
+
+class FmLive(MillingMonitor[MillingMonitorConfig]):
+    name = "FmLive"
+    view = "fm"
+
+
+class SemLive(MillingMonitor[MillingMonitorConfig]):
+    name = "SemLive"
+    view = "sem"
+
+
+def test_live_monitors_needing_different_views_are_refused_before_milling(
+    scripted, registered
+):
+    registered(FmLive, SemLive)
+    service = scripted([RUNNING, RUNNING])
+    stage = _stage(
+        MillingMonitorConfig().made_for(FmLive),
+        MillingMonitorConfig().made_for(SemLive),
+    )
+    with pytest.raises(MixedMonitorViews, match="fm, sem"):
+        _mill(service, stage)
+    assert "start" not in service.steps
+
+
+def test_a_live_monitor_s_step_does_not_look_at_the_instrument_until_milled(
+    scripted, registered
+):
+    registered(FmLive)
+    service = scripted([IDLE], estimate=3.0)
+    status, step = _mill(service, _stage(MillingMonitorConfig().made_for(FmLive)))
+
+    assert status == "completed"
+    assert step.milled_time() == 3.0, "counted from the waits"
+    assert service.steps.count("poll") == 1, "one look, once the time was milled"
+
+
+@dataclass
+class LiveLookConfig(MillingPeriodicMonitorConfig):
+    pass
+
+
+class LiveLook(MillingPeriodicMonitor[LiveLookConfig]):
+    """A live FM monitor that also pauses once to look; counts the times it
+    was asked to take its view back."""
+
+    name = "LiveLook"
+    config_class = LiveLookConfig
+    view = "fm"
+    restored = 0
+
+    def on_tick(self):
+        with self.paused("look"):
+            pass
+
+    def restore_view(self):
+        LiveLook.restored += 1
+
+
+def test_a_live_monitor_gets_its_view_back_after_a_pause_and_resume(
+    pausing, registered, monkeypatch
+):
+    registered(LiveLook)
+    monkeypatch.setattr(LiveLook, "restored", 0)
+    service = pausing([IDLE], estimate=30.0)
+    status, step = _mill(service, _stage(LiveLookConfig(interval=2)))
+
+    assert status == "completed"
+    pauses = service.steps.count("pause")
+    assert pauses == service.steps.count("resume") >= 1
+    assert LiveLook.restored == 2 * pauses, "after each pause, and each resume"
+    last_resume = len(service.steps) - 1 - service.steps[::-1].index("resume")
+    assert (
+        last_resume < service.steps.index("poll") and service.steps.count("poll") == 1
+    )
+    paused = [
+        r["reading"]
+        for r in service.follow_readings(since=0)["readings"]
+        if "paused" in r["reading"]
+    ]
+    assert paused[0] == {"paused": "look", "by": "monitor:LiveLook"}
+    assert step.notable == [], "the pauses are in the step's record already"
+
+
+class Frames:
+    from psygnal import Signal
+
+    frame = Signal(object)
+
+
+FRAMES = Frames()
+
+
+class Bright(MillingStreamMonitor[MillingMonitorConfig]):
+    """Reads each frame's brightness off a source, while the pattern mills."""
+
+    name = "Bright"
+    view = "fm"
+
+    def source(self):
+        return FRAMES.frame
+
+    def on_start(self):
+        super().on_start()
+        self.seen = []
+        FRAMES.frame.emit(0.5)
+
+    def on_frame(self, frame):
+        self.seen.append(frame)
+
+    def result(self):
+        return MillingMonitorResult(facts={"Frames": len(self.seen)})
+
+
+def test_a_stream_monitor_reads_frames_until_the_step_ends(scripted, registered):
+    registered(Bright)
+    service = scripted([IDLE], estimate=2.0)
+    _, step = _mill(service, _stage(MillingMonitorConfig().made_for(Bright)))
+
+    assert step.to_dict()["monitors"] == [{"name": "Bright", "facts": {"Frames": 1}}]
+    assert len(FRAMES.frame) == 0, "it let go of the source"

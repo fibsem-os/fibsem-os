@@ -83,6 +83,7 @@ from fibsem.devices.core import DeviceParameter, ParameterMetadata, Role, comman
 from fibsem.devices.runs import current_run_id
 from fibsem.milling.base import FibsemMillingStage, estimate_milling_time
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
+from fibsem.milling.readings import MillingReadings
 from fibsem.milling.steps import (
     ENDED,
     FINISHED,
@@ -148,6 +149,11 @@ class UnsupportedPattern(NotImplementedError):
     """A pattern of a type this instrument's driver doesn't draw."""
 
 
+class MixedMonitorViews(ValueError):
+    """A stage's live monitors need different views; on one instrument view
+    only one can have it."""
+
+
 class MillingStepFailed(RuntimeError):
     """A monitor failed the mill step: a required monitor's error, or a pause
     longer than its ``max_pause``."""
@@ -175,6 +181,15 @@ class Milling(Service):
     progress = DeviceParameter(
         MillingProgress, doc="The run's state and times; read-only."
     )
+    # The readings the monitors of the latest mill step reported: per monitor,
+    # the latest and the last minute of milled time. `follow_readings` gives
+    # every reading, as it comes.
+    readings = DeviceParameter(
+        dict, doc="The mill step's monitor readings, latest and recent; read-only."
+    )
+    # Each notable reading (a drop, a trigger, a pause, an error, the end of a
+    # step with monitors), for the event log.
+    notable_reading = Signal(dict)
 
     # The patterns the next run mills, as drawn: the list so far after each
     # ``draw``, and empty when setup, ``clear`` or the end of a run removes them.
@@ -203,6 +218,7 @@ class Milling(Service):
         # What the driver says about its own fields, asked once.
         self._driver_settings: Dict[str, ParameterMetadata] = {}
         self._progress = progress_update(state=MillingState.IDLE)
+        self._readings = MillingReadings()
         # The run and stage the last task or stage start named, for the stage
         # updates that follow it; empty outside a milling task.
         self._run_context: Dict[str, Any] = {}
@@ -242,6 +258,19 @@ class Milling(Service):
 
     def read_progress(self) -> MillingProgress:
         return self._progress
+
+    def read_readings(self) -> Dict[str, Any]:
+        return self._readings.snapshot()
+
+    def _on_reading(self, entry: Dict[str, Any]) -> None:
+        """A step reported *entry*: keep it, and announce it when notable."""
+        entry = self._readings.add(entry)
+        try:
+            self.readings.report(self._readings.snapshot())
+            if entry["notable"]:
+                self.notable_reading.emit(entry)
+        except Exception:  # noqa: BLE001 - announcing must not cost the mill
+            logging.debug("could not announce a milling reading", exc_info=True)
 
     def _report(self, progress: MillingProgress) -> None:
         progress = self._in_run_context(progress)
@@ -534,11 +563,26 @@ class Milling(Service):
     def pause(self) -> None:
         """Pause milling."""
         self._pause()
+        step = self._step
+        if step is not None:
+            step.hold()
+            step.restore_view()
 
     @command
     def resume(self) -> None:
         """Resume paused milling."""
         self._resume()
+        step = self._step
+        if step is not None:
+            step.release()
+            step.restore_view()
+
+    @query
+    def follow_readings(self, since: int = 0, timeout: float = 0.0) -> Dict[str, Any]:
+        """Every monitor reading numbered after *since*, across steps, waiting up
+        to *timeout* seconds (at most 30) for one: ``{seq, readings, missed}``.
+        Pass the answer's ``seq`` as the next *since* to follow along."""
+        return self._readings.follow(since, timeout)
 
     @command(long=True)
     def run(
@@ -775,12 +819,24 @@ class Milling(Service):
                 self._set_drawn([])
             return COMPLETED
         stage = stage_run.stage if stage_run is not None else None
+        monitors = _monitors_of(stage)
+        views = sorted({m.view for m in monitors if m.view})
+        if len(views) > 1:
+            raise MixedMonitorViews(
+                f"The monitors of {getattr(stage, 'name', 'this stage')} need "
+                f"different views ({', '.join(views)}); the instrument has one."
+            )
+        index = len(stage_run.steps) if stage_run else 0
         step = MillingStep(
-            index=len(stage_run.steps) if stage_run else 0, milling=self, stage=stage
+            index=index, milling=self, stage=stage, seq=self._readings.next_seq
         )
+        step.live = [m for m in monitors if m.view]
+        step.view = views[0] if views else None
         if stage_run is not None:
             stage_run.steps.append(step)
-        monitors = _monitors_of(stage)
+        if monitors:
+            self._readings.start_step(getattr(stage, "name", None), index)
+            step.readings.connect(self._on_reading)
         self._step = step
         self._before_run()
         self._running = True
@@ -790,7 +846,12 @@ class Milling(Service):
                 monitor.start(step)
             if not step.ending.is_set():
                 self._start()
-                MillingStateMonitor(self, step, stop_event).watch(total)
+                milled = 0.0
+                if step.view not in (None, "fib"):
+                    # A live monitor holds another view: no looks at the
+                    # instrument until the milling time is milled.
+                    milled = MillingClock(self, step, stop_event).watch(total)
+                MillingStateMonitor(self, step, stop_event).watch(total, milled)
         except BaseException as error:
             step.end_as(MillingStepEnd.from_error(error))
             self._abort()
@@ -800,6 +861,13 @@ class Milling(Service):
             # However the step ended: its end is set, so monitors leave their loops.
             step.end_as(MillingStepEnd(FINISHED, by="instrument"))
             step.monitors = [monitor.stop() for monitor in monitors]
+            if monitors:
+                step.report(
+                    {"end": step.end.to_dict()},
+                    notable=True,
+                    monitor="step",
+                    keep=False,
+                )
             try:
                 self._after_run()
             finally:
@@ -965,13 +1033,15 @@ class MillingStateMonitor:
         self.step = step
         self.stop_event = stop_event
 
-    def watch(self, total: float) -> None:
-        """Look at the instrument until the step is over."""
+    def watch(self, total: float, milled: float = 0.0) -> None:
+        """Look at the instrument until the step is over; *milled* seconds are
+        milled already."""
         milling, step = self.milling, self.step
-        start_time = time.time()
+        start_time = time.time() - milled
         began = last = time.monotonic()
-        elapsed = 0.0
-        started = False
+        elapsed = milled
+        # Milled time counted already means the pattern was running.
+        started = milled > 0
         stop_deadline: Optional[float] = None
         while True:
             if self.stop_event is not None and self.stop_event.is_set():
@@ -1018,6 +1088,51 @@ class MillingStateMonitor:
                     )
                     break
             milling._wait(milling.poll_interval)
+
+
+class MillingClock:
+    """Counts the milled time while a live monitor holds a view other than the
+    milling one, so the instrument is not looked at: one ``poll_interval`` per
+    wait while the pattern is not paused. Ends when the milling time is milled,
+    or the step ends; the state monitor then sees the pattern out (a pattern is
+    never cut off). Pauses made outside fibsem are not seen."""
+
+    def __init__(
+        self,
+        milling: Milling,
+        step: MillingStep,
+        stop_event: Optional[Union[threading.Event, AnyStopEvent]],
+    ):
+        self.milling = milling
+        self.step = step
+        self.stop_event = stop_event
+
+    def watch(self, total: float) -> float:
+        """Count until the step is over or *total* seconds are milled; the
+        seconds milled."""
+        milling, step = self.milling, self.step
+        start_time = time.time()
+        milled = 0.0
+        while not step.ending.is_set():
+            if self.stop_event is not None and self.stop_event.is_set():
+                step.end_as(MillingStepEnd(STOPPED, reason="Milling stopped."))
+                break
+            held = step.held or step.pausing.is_set()
+            milling._report(
+                progress_update(
+                    state=MillingState.PAUSED if held else MillingState.RUNNING,
+                    start_time=start_time,
+                    total=total,
+                    remaining=max(0.0, total - milled),
+                )
+            )
+            if milled >= total:
+                break
+            milling._wait(milling.poll_interval)
+            if not (step.held or step.pausing.is_set()):
+                milled += milling.poll_interval
+                step.set_milled_time(milled)
+        return milled
 
 
 class _Drawn:

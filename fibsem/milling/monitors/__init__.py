@@ -18,6 +18,7 @@ from fibsem.milling.monitors.base import (
     MillingMonitorResult,
     MillingPeriodicMonitor,
     MillingPeriodicMonitorConfig,
+    MillingStreamMonitor,
 )
 from fibsem.plugins.loader import PluginRecord, PluginRegistry, subclass_of
 
@@ -29,6 +30,7 @@ __all__ = [
     "MillingMonitorResult",
     "MillingPeriodicMonitor",
     "MillingPeriodicMonitorConfig",
+    "MillingStreamMonitor",
     "get_monitor_config",
     "get_monitors",
     "monitor_class_for",

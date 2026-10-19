@@ -6,7 +6,8 @@ during one step. A stage lists its monitors (``stage.monitors``, each a
 step, starts them before the pattern and stops them however the step ends.
 
 A monitor reports readings (``report``), ends the step (``end``), or pauses the
-pattern to act (``paused``). It fails quietly: an error is reported and the
+pattern to act (``paused``). A live monitor reads or images while the pattern
+mills and names the ``view`` it needs; the live monitors of a step share one. It fails quietly: an error is reported and the
 monitor stops, and the step carries on, unless the monitor is ``required``.
 """
 
@@ -15,6 +16,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 from dataclasses import asdict, dataclass
 from typing import (
     TYPE_CHECKING,
@@ -66,6 +68,12 @@ class MillingMonitor(Generic[TMillingMonitorConfig]):
     config_class: ClassVar[Type[Any]] = MillingMonitorConfig
     # If it fails, the step fails.
     required: ClassVar[bool] = False
+    # The view a live monitor needs while the pattern mills: "fib", "sem" or
+    # "fm". None for one that only acts while paused, or reads no image.
+    view: ClassVar[Optional[str]] = None
+    # The shortest time between two readings that are not notable, in seconds:
+    # one coming sooner waits, and only the latest is reported.
+    report_interval: ClassVar[float] = 0.5
 
     def __init__(self, config: Optional[TMillingMonitorConfig] = None) -> None:
         self.config: TMillingMonitorConfig = (config or self.config_class()).made_for(
@@ -73,6 +81,9 @@ class MillingMonitor(Generic[TMillingMonitorConfig]):
         )
         self.step: Optional["MillingStep"] = None
         self.error: Optional[BaseException] = None
+        self._reported_at: Optional[float] = None
+        self._held_reading: Optional[Dict[str, Any]] = None
+        self._report_lock = threading.Lock()
 
     @property
     def by(self) -> str:
@@ -96,6 +107,7 @@ class MillingMonitor(Generic[TMillingMonitorConfig]):
     def stop(self) -> Dict[str, Any]:
         """Stop, and say what it saw, as the step's record holds it."""
         self.guarded(self.on_stop)
+        self._report_held()
         record: Dict[str, Any] = {"name": self.name}
         try:
             record.update(self.result().to_dict())
@@ -128,7 +140,28 @@ class MillingMonitor(Generic[TMillingMonitorConfig]):
     # ── what a monitor does to the step ───────────────────────────────────
 
     def report(self, reading: Dict[str, Any], notable: bool = False) -> None:
+        """Report *reading*. A notable one goes at once; others at most every
+        ``report_interval``, the latest kept meanwhile."""
+        with self._report_lock:
+            now = time.monotonic()
+            due = (
+                self._reported_at is None
+                or now - self._reported_at >= self.report_interval
+            )
+            if not notable and not due:
+                self._held_reading = reading
+                return
+            if not notable:
+                self._reported_at = now
+                self._held_reading = None
         self.step.report(reading, notable=notable, monitor=self.name)
+
+    def _report_held(self) -> None:
+        """Report the reading the interval held back, at the end of the step."""
+        with self._report_lock:
+            reading, self._held_reading = self._held_reading, None
+        if reading is not None and self.step is not None:
+            self.step.report(reading, monitor=self.name)
 
     def end(self, reason: str) -> None:
         """End this step, completed."""
@@ -153,6 +186,10 @@ class MillingMonitor(Generic[TMillingMonitorConfig]):
 
     def on_stop(self) -> None:
         """However the step ended."""
+
+    def restore_view(self) -> None:
+        """Take this live monitor's view back after the pattern was paused or
+        resumed, which selects the milling view on some instruments."""
 
     def result(self) -> MillingMonitorResult:
         return MillingMonitorResult()
@@ -202,3 +239,38 @@ class MillingPeriodicMonitor(MillingMonitor[TPeriodic]):
 
     def on_tick(self) -> None:
         """Every ``config.interval`` seconds of milled time."""
+
+
+class MillingStreamMonitor(MillingMonitor[TMillingMonitorConfig]):
+    """Reads frames from a source as they come (FM live imaging, an RTM
+    reader): ``on_frame`` on the source's thread, which must return quickly.
+    ``source`` names the signal to listen to; frames stop with the step and
+    are skipped while the pattern is paused."""
+
+    def __init__(self, config: Optional[TMillingMonitorConfig] = None) -> None:
+        super().__init__(config)
+        self.frames = 0
+        self._source: Any = None
+
+    def source(self) -> Any:
+        """The signal the frames come on (a psygnal signal instance)."""
+        raise NotImplementedError
+
+    def on_start(self) -> None:
+        self._source = self.source()
+        self._source.connect(self._frame)
+
+    def on_stop(self) -> None:
+        if self._source is not None:
+            self._source.disconnect(self._frame)
+            self._source = None
+
+    def _frame(self, frame: Any) -> None:
+        step = self.step
+        if step is None or step.ending.is_set() or step.pausing.is_set():
+            return
+        self.frames += 1
+        self.guarded(lambda: self.on_frame(frame))
+
+    def on_frame(self, frame: Any) -> None:
+        """One frame from the source."""
