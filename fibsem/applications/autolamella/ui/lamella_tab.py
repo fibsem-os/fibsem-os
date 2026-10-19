@@ -74,7 +74,6 @@ class LamellaTab(QWidget):
         # own controller, built eagerly so the splitter can embed the canvas before a
         # microscope connects.
         self.editor = AutoLamellaProtocolEditorWidget(parent=ui)
-        ui.system_widget.connected_signal.connect(self.editor._on_microscope_connected)
         self.editor.setMinimumWidth(550)
 
         protocol_splitter = QSplitter(Qt.Horizontal)
