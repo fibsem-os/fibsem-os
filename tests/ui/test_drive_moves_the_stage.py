@@ -20,9 +20,9 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 from PyQt5.QtCore import QCoreApplication, QEvent
 
+from fibsem.ai.agent.levels import AgentLevel
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.server import AuthConfig, build_server
-from fibsem.server.auth import AgentLevel
 
 AGENT = {"Authorization": "Bearer agent"}
 STEP = 20e-6  # metres: shows on the mm readout

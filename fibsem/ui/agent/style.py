@@ -4,7 +4,7 @@ set wherever they show."""
 
 from __future__ import annotations
 
-from fibsem.server.levels import AgentLevel
+from fibsem.ai.agent.levels import AgentLevel
 from fibsem.ui.tokens import (
     BORDER_COLOR,
     PURPLE_COLOR,

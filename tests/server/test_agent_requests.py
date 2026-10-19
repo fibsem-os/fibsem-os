@@ -16,14 +16,14 @@ from psygnal.containers import EventedDict  # noqa: E402
 import fibsem.applications.autolamella  # noqa: E402
 from fibsem import utils  # noqa: E402
 from fibsem.acting import WORKFLOW, current_actor  # noqa: E402
+from fibsem.ai.agent.catalog import CATALOG  # noqa: E402
+from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
     Experiment,
 )
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.auth import AgentLevel  # noqa: E402
-from fibsem.server.catalog import CATALOG  # noqa: E402
 from fibsem.server.requests import RequestRefused, route_call  # noqa: E402
 from fibsem.structures import MicroscopeState  # noqa: E402
 from tests.run_state import stub_session
@@ -581,7 +581,7 @@ def test_a_config_edit_reads_as_its_form_names_it_in_display_units(client, conte
 
 
 def test_a_mill_reads_as_its_patterns_and_its_run_as_how_long():
-    from fibsem.server.request_text import describe_actions
+    from fibsem.ai.agent.request_text import describe_actions
     from fibsem.structures import FibsemMillingSettings, FibsemRectangleSettings
 
     def rectangle(x):
@@ -623,7 +623,7 @@ def test_a_mill_reads_as_its_patterns_and_its_run_as_how_long():
 
 def test_a_mill_past_the_field_says_so_on_its_line():
     """Sim session 2026-10-16: the warning lived only in the picture's legend."""
-    from fibsem.server.request_text import describe_action
+    from fibsem.ai.agent.request_text import describe_action
     from fibsem.structures import FibsemMillingSettings, FibsemRectangleSettings
 
     def rectangle(x):
@@ -679,14 +679,14 @@ def test_a_mill_past_the_field_says_so_on_its_line():
     ],
 )
 def test_an_action_reads_as_one_plain_line(tool, arguments, line):
-    from fibsem.server.request_text import describe_action
+    from fibsem.ai.agent.request_text import describe_action
 
     described = describe_action(tool, arguments, "/x")
     assert (described["what"], described["change"]) == line
 
 
 def test_a_long_argument_is_cut_in_the_line_and_whole_in_the_details():
-    from fibsem.server.request_text import describe_action
+    from fibsem.ai.agent.request_text import describe_action
 
     path = "/data/" + "a" * 80 + ".tif"
     described = describe_action(
@@ -700,7 +700,7 @@ def test_a_long_argument_is_cut_in_the_line_and_whole_in_the_details():
 
 
 def test_an_unknown_tool_in_the_describer_falls_back_to_its_name():
-    from fibsem.server.request_text import describe_action
+    from fibsem.ai.agent.request_text import describe_action
 
     assert describe_action("new_tool", {}, "/x") == {
         "what": "New tool",
@@ -714,7 +714,7 @@ def test_an_unknown_tool_in_the_describer_falls_back_to_its_name():
 def test_no_acting_tool_reads_as_its_name_or_as_json():
     """FIB-1412: every tool the agent can put in a request has a plain line:
     the subject as the header, never the tool's name, and no JSON."""
-    from fibsem.server.request_text import describe_action
+    from fibsem.ai.agent.request_text import describe_action
 
     for spec in CATALOG:
         if spec.level != "drive":
@@ -731,7 +731,7 @@ def test_no_acting_tool_reads_as_its_name_or_as_json():
 def test_no_acting_tool_reads_none_with_its_required_arguments():
     """FIB-1425: filing needs every required argument, so a line never shows a
     value left out as "None"."""
-    from fibsem.server.request_text import describe_action
+    from fibsem.ai.agent.request_text import describe_action
 
     for spec in CATALOG:
         if spec.level != "drive":
@@ -748,8 +748,8 @@ def _reader(answers):
 
 
 def test_a_run_task_reads_by_its_stages_with_whose_estimate_it_is():
+    from fibsem.ai.agent.request_text import describe_action
     from fibsem.milling.tasks import FibsemMillingTaskConfig
-    from fibsem.server.request_text import describe_action
 
     protocol = AutoLamellaTaskProtocol.load(_PROTOCOL)
     rough = next(
@@ -939,7 +939,7 @@ def test_a_run_task_reads_by_its_stages_with_whose_estimate_it_is():
 def test_each_kind_reads_in_display_units_with_old_and_new(
     tool, arguments, answers, what, change
 ):
-    from fibsem.server.request_text import describe_action
+    from fibsem.ai.agent.request_text import describe_action
 
     path = "/microscope/devices/ion/current" if tool == "device_set_parameter" else "/x"
     described = describe_action(tool, arguments, path, read=_reader(answers))
@@ -947,7 +947,7 @@ def test_each_kind_reads_in_display_units_with_old_and_new(
 
 
 def test_a_new_experiment_says_what_it_replaces():
-    from fibsem.server.request_text import describe_action
+    from fibsem.ai.agent.request_text import describe_action
 
     described = describe_action(
         "experiment_create",
@@ -1041,7 +1041,7 @@ def test_the_sidecar_shows_an_approved_image_as_an_image(client, app):
     pytest.importorskip("mcp")
     import asyncio
 
-    from fibsem.mcp.sidecar import build_sidecar
+    from fibsem.ai.agent.mcp.sidecar import build_sidecar
 
     image = {"tool": "beam_acquire_image", "arguments": {"beam_type": "ION"}}
     request_id = _file(client, image).json()["request_id"]
@@ -1091,7 +1091,7 @@ def test_a_waiting_request_is_described_again_with_the_values_now(client, app, c
 def test_an_image_s_settings_read_in_display_units_now_and_new():
     """FIB-1428: no raw SI in the details; the beam's settings now beside what
     the image sets them to."""
-    from fibsem.server.request_text import describe_action
+    from fibsem.ai.agent.request_text import describe_action
 
     answers = {
         "/microscope/devices/ion/hfw": {"value": 3e-4},
@@ -1115,7 +1115,7 @@ def test_an_image_s_settings_read_in_display_units_now_and_new():
 
 
 def test_an_overview_s_details_are_labelled_and_short():
-    from fibsem.server.request_text import describe_action
+    from fibsem.ai.agent.request_text import describe_action
 
     described = describe_action(
         "beam_acquire_overview",
@@ -1139,7 +1139,7 @@ def test_an_overview_s_details_are_labelled_and_short():
 
 
 def test_an_item_edit_with_no_old_value_says_none():
-    from fibsem.server.request_text import describe_action
+    from fibsem.ai.agent.request_text import describe_action
 
     described = describe_action(
         "item_update",
@@ -1151,7 +1151,7 @@ def test_an_item_edit_with_no_old_value_says_none():
 
 
 def test_no_details_table_has_blank_headers():
-    from fibsem.server.request_text import describe_action
+    from fibsem.ai.agent.request_text import describe_action
 
     for tool, arguments in (
         ("item_add", {"stage_position": {"x": 0.0, "coordinate_system": "RAW"}}),
@@ -1164,7 +1164,7 @@ def test_no_details_table_has_blank_headers():
 
 def test_fluorescence_channel_settings_read_in_the_fm_panel_s_units():
     """Sim session 2026-10-16 F5: "power 0.05, exposure time 0.1"."""
-    from fibsem.server.request_text import describe_action
+    from fibsem.ai.agent.request_text import describe_action
 
     channel = {
         "name": "GFP",
@@ -1185,7 +1185,7 @@ def test_fluorescence_channel_settings_read_in_the_fm_panel_s_units():
 
 def test_a_filed_request_and_a_beam_switched_off_read_as_words():
     """Sim session 2026-10-16: "Request create · Run", "Electron · Set on to off"."""
-    from fibsem.server.request_text import describe_action
+    from fibsem.ai.agent.request_text import describe_action
 
     filed = describe_action(
         "request_create",
@@ -1206,7 +1206,7 @@ def test_a_filed_request_and_a_beam_switched_off_read_as_words():
 
 def test_a_protocol_s_re_alignment_reads_as_the_milling_panel_says_it():
     """Sim session 2026-10-16: "Interval enabled off → on / Interval 30 → 60"."""
-    from fibsem.server.request_text import describe_patch
+    from fibsem.ai.agent.request_text import describe_patch
     from fibsem.structures import MillingAlignment
 
     line = describe_patch(
@@ -1220,7 +1220,7 @@ def test_a_protocol_s_re_alignment_reads_as_the_milling_panel_says_it():
 def test_a_lamella_added_on_an_overview_names_the_overview_not_its_file():
     """Sim session 2026-10-16: "Add on overview-04-58-45.tif of Grid-01, at 60%
     across, 62% down"."""
-    from fibsem.server.request_text import describe_action
+    from fibsem.ai.agent.request_text import describe_action
 
     overview = {
         "grid_name": "Grid-01",

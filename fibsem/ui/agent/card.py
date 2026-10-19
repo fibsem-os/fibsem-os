@@ -53,7 +53,8 @@ from PyQt5.QtWidgets import (
     QWidgetAction,
 )
 
-from fibsem.applications.autolamella.ui.agent_style import (
+from fibsem.ai.agent.levels import AgentLevel
+from fibsem.ui.agent.style import (
     LEVEL_MENU,
     LEVEL_NAMES,
     LEVEL_STYLES,
@@ -61,7 +62,6 @@ from fibsem.applications.autolamella.ui.agent_style import (
     LEVEL_WORDS,
     STOP_CHIP,
 )
-from fibsem.server.levels import AgentLevel
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
@@ -431,7 +431,7 @@ class _Picture(QLabel):
 
     def _drawn(self, width: int) -> QPixmap:
         """The image *width* wide with its legend, `LEGEND_PX` on screen."""
-        from fibsem.applications.autolamella.ui.agent_previews import draw_legend
+        from fibsem.ui.agent.previews import draw_legend
 
         pixmap = QPixmap.fromImage(self._image)
         if pixmap.width() != width:
@@ -651,7 +651,7 @@ class AgentCard(QFrame):
         return self._recent_choice.get(self._level, self._level is AgentLevel.DRIVE)
 
     def set_recent(self, rows: List[Any]) -> None:
-        """What the agent did lately, newest first (`agent_recent.RecentRow`)."""
+        """What the agent did lately, newest first (`recent.RecentRow`)."""
         rows = list(rows)
         if rows == self._recent:
             return
@@ -717,7 +717,7 @@ class AgentCard(QFrame):
     ) -> None:
         """The image the waiting request's (or, *suggestion*, the suggested
         answer's) values were measured on, drawn on it, with what it is
-        ("FIB · 07:41") and its *legend* (`agent_previews.draw_legend`'s
+        ("FIB · 07:41") and its *legend* (`previews.draw_legend`'s
         entries); None for none, *caption* then why there is none."""
         key = "suggestion" if suggestion else "request"
         if image is None or image.isNull():

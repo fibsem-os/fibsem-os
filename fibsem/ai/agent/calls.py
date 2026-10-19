@@ -68,7 +68,7 @@ def describe(tool: Optional[str], arguments: Mapping[str, Any]) -> Optional[str]
     from) is left out."""
     if not tool:
         return None
-    from fibsem.server.request_text import describe_action
+    from fibsem.ai.agent.request_text import describe_action
 
     try:
         line = describe_action(tool, dict(arguments or {}), "")

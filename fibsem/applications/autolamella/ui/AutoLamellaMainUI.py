@@ -43,17 +43,12 @@ from PyQt5.QtWidgets import (
 import fibsem
 import fibsem.config as fibsem_cfg
 from fibsem.acting import OPERATOR
+from fibsem.ai.agent.levels import AgentLevel
 from fibsem.applications.autolamella.poses import remove_lamella
 from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
 )
-from fibsem.applications.autolamella.ui.agent_activity import AgentActivity
-from fibsem.applications.autolamella.ui.agent_level_chip import (
-    AgentLevelChip,
-    request_outcome,
-)
-from fibsem.applications.autolamella.ui.agent_previews import AgentPreviews
 from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
     AutoLamellaProtocolEditorWidget,
 )
@@ -107,12 +102,17 @@ from fibsem.applications.autolamella.workflows.tasks.attendance import (
     run_attendance,
 )
 from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
-from fibsem.server.levels import AgentLevel
 from fibsem.structures import BeamType
 from fibsem.tools.app_identity import set_app_identity
 from fibsem.tools.apps import AUTOLAMELLA, App, apps
 from fibsem.tools.launcher import Splash
 from fibsem.ui import notification_service
+from fibsem.ui.agent.activity import AgentActivity
+from fibsem.ui.agent.level_chip import (
+    AgentLevelChip,
+    request_outcome,
+)
+from fibsem.ui.agent.previews import AgentPreviews
 from fibsem.ui.icon import autolamella_icon, fibsem_icon
 from fibsem.ui.qt.gc import install_main_thread_gc
 from fibsem.ui.stylesheets import (
@@ -3687,7 +3687,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _on_connect_agent_dialog(self) -> None:
         """From the agent chip's menu: the agent token and how to register the
         sidecar (FIB-1035)."""
-        from fibsem.applications.autolamella.ui.connect_agent_dialog import (
+        from fibsem.ui.agent.connect_agent_dialog import (
             ConnectAgentDialog,
         )
 
@@ -3698,7 +3698,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _on_open_event_log(self) -> None:
         """From the agent chip's menu: the App Server's event log in the browser."""
-        from fibsem.applications.autolamella.ui.app_server_dialog import (
+        from fibsem.ui.agent.app_server_dialog import (
             AppServerDialog,
             open_in_browser,
         )
@@ -3710,7 +3710,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _on_app_server_dialog(self) -> None:
         """Open Tools → App Server: status, services, clients, the dashboard."""
-        from fibsem.applications.autolamella.ui.app_server_dialog import (
+        from fibsem.ui.agent.app_server_dialog import (
             AppServerDialog,
         )
 

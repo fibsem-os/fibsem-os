@@ -31,11 +31,12 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from fibsem.acting import AGENT, acting
-from fibsem.server.allowlist import image_refusal
-from fibsem.server.auth import AgentLevel, AuthConfig, lending_drive, require_level
-from fibsem.server.calls import AgentCall, calling, join_line
-from fibsem.server.catalog import CATALOG, ToolSpec, route_call
-from fibsem.server.request_text import Describer, describe_action, describe_actions
+from fibsem.ai.agent.allowlist import image_refusal
+from fibsem.ai.agent.calls import AgentCall, calling, join_line
+from fibsem.ai.agent.catalog import CATALOG, ToolSpec, route_call
+from fibsem.ai.agent.levels import AgentLevel
+from fibsem.ai.agent.request_text import Describer, describe_action, describe_actions
+from fibsem.server.auth import AuthConfig, lending_drive, require_level
 
 PENDING = "pending"
 APPLYING = "applying"

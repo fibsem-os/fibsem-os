@@ -10,8 +10,8 @@ from types import SimpleNamespace
 import pytest
 
 from fibsem import utils
+from fibsem.ai.agent.levels import AgentLevel
 from fibsem.applications.autolamella.structures import Experiment
-from fibsem.server.levels import AgentLevel
 from fibsem.workflows.event_recording import EVENTS_FILENAME, read_events, recorder_for
 from fibsem.workflows.session import AppSession
 
@@ -186,8 +186,8 @@ def test_letting_the_agent_act_with_nothing_open_makes_a_plain_experiment(
     session, microscope
 ):
     pytest.importorskip("fastapi")  # AuthConfig is the server's
+    from fibsem.ai.agent.levels import AgentLevel
     from fibsem.server import AuthConfig
-    from fibsem.server.levels import AgentLevel
     from fibsem.workflows.experiment import FibsemExperiment
 
     session.agent_auth = AuthConfig.generate()
@@ -210,8 +210,8 @@ def test_the_level_is_refused_when_there_is_nowhere_to_record(
 ):
     pytest.importorskip("fastapi")  # AuthConfig is the server's
     import fibsem.workflows.session as module
+    from fibsem.ai.agent.levels import AgentLevel
     from fibsem.server import AuthConfig
-    from fibsem.server.levels import AgentLevel
 
     blocked = tmp_path / "a-file"
     blocked.write_text("")
@@ -226,8 +226,8 @@ def test_the_level_is_refused_when_there_is_nowhere_to_record(
 
 def test_an_open_experiment_is_what_the_agent_records_to(session, experiment):
     pytest.importorskip("fastapi")  # AuthConfig is the server's
+    from fibsem.ai.agent.levels import AgentLevel
     from fibsem.server import AuthConfig
-    from fibsem.server.levels import AgentLevel
 
     session.experiment = experiment
     session.agent_auth = AuthConfig.generate()
@@ -241,7 +241,7 @@ def test_who_can_answer_is_what_is_attached_and_the_agent_at_drive(fake_hosting)
     Server serves it at Drive. Nobody, with neither: a question goes on the
     record instead of holding the run."""
     from fibsem.acting import AGENT, OPERATOR
-    from fibsem.server.levels import AgentLevel
+    from fibsem.ai.agent.levels import AgentLevel
 
     session = AppSession()
     assert session.answerers() == ()

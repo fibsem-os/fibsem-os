@@ -9,15 +9,15 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.ui.agent_card import AgentCard  # noqa: E402
-from fibsem.applications.autolamella.ui.agent_level_chip import (  # noqa: E402
+from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
+from fibsem.structures import BeamType  # noqa: E402
+from fibsem.ui.agent.card import AgentCard  # noqa: E402
+from fibsem.ui.agent.level_chip import (  # noqa: E402
     AgentLevelChip,
     last_heard_text,
     request_outcome,
 )
-from fibsem.applications.autolamella.ui.agent_recent import RecentRow  # noqa: E402
-from fibsem.server.levels import AgentLevel  # noqa: E402
-from fibsem.structures import BeamType  # noqa: E402
+from fibsem.ui.agent.recent import RecentRow  # noqa: E402
 from tests.run_state import StubRunner
 
 
@@ -218,7 +218,7 @@ def test_the_image_shows_beside_the_steps_and_follows_the_card_s_width(qapp):
     # wider as the card is; stacked under them with details open.
     from PyQt5.QtGui import QImage
 
-    from fibsem.applications.autolamella.ui.agent_card import PICTURE_MIN
+    from fibsem.ui.agent.card import PICTURE_MIN
 
     card = AgentCard()
     card.resize(780, 400)
@@ -396,7 +396,7 @@ def test_a_suggestion_turns_the_chip_and_the_card_offers_accept(qapp):
     chip.set_suggestion(_SUGGESTION)
     assert chip.text() == "Agent suggests"
     # In the level's look, not amber: the run's Attention Required is.
-    from fibsem.applications.autolamella.ui.agent_style import LEVEL_STYLES
+    from fibsem.ui.agent.style import LEVEL_STYLES
 
     assert chip.styleSheet() == LEVEL_STYLES[AgentLevel.ASSIST]
     card = chip.card
@@ -767,8 +767,8 @@ def test_the_window_draws_a_waiting_request_s_mill_on_the_card_and_takes_it_down
 def test_the_card_is_narrow_until_something_waits(qapp):
     from PyQt5.QtWidgets import QMainWindow
 
-    from fibsem.applications.autolamella.ui.agent_card import STACK_BELOW
-    from fibsem.applications.autolamella.ui.agent_level_chip import (
+    from fibsem.ui.agent.card import STACK_BELOW
+    from fibsem.ui.agent.level_chip import (
         NARROW_WIDTH,
         WIDE_WIDTH,
     )
@@ -918,7 +918,7 @@ def test_a_tall_details_table_scrolls_inside_the_card(qapp):
 def test_the_level_is_drawn_as_the_chip_and_opens_a_menu_of_the_four(qapp):
     from PyQt5.QtWidgets import QLabel
 
-    from fibsem.applications.autolamella.ui.agent_style import LEVEL_STYLES
+    from fibsem.ui.agent.style import LEVEL_STYLES
 
     card = AgentCard()
     card.set_level(AgentLevel.ASSIST)
@@ -984,7 +984,7 @@ def test_the_floating_card_can_be_kept_on_top_of_every_window(qapp):
 
 
 def _row(text, outcome="done", tone="ok", level=""):
-    from fibsem.applications.autolamella.ui.agent_recent import RecentRow
+    from fibsem.ui.agent.recent import RecentRow
 
     return RecentRow("16:08", text, outcome, tone, level)
 
@@ -996,7 +996,7 @@ def _called(action, status=200, level="drive"):
 
 def test_a_long_recent_line_wraps_rather_than_being_cut(qapp):
     # Patrick 2026-10-16: at Drive the card stays narrow and a long line wraps.
-    from fibsem.applications.autolamella.ui.agent_level_chip import NARROW_WIDTH
+    from fibsem.ui.agent.level_chip import NARROW_WIDTH
 
     long = "Imaging · Acquire FIB image: field of view 150 → 80 µm, " * 3
     card = AgentCard()
@@ -1078,8 +1078,8 @@ def test_at_drive_what_the_agent_does_shows_in_the_card_now_then_recent(qapp):
     from types import SimpleNamespace
 
     from fibsem.acting import AGENT, acting
-    from fibsem.applications.autolamella.ui.agent_activity import AgentActivity
     from fibsem.control import Control
+    from fibsem.ui.agent.activity import AgentActivity
     from fibsem.ui.widgets.status_bar import FibsemStatusBar
     from fibsem.workflows.events import EventBuffer
 
@@ -1123,8 +1123,8 @@ def test_at_drive_each_direct_call_shows_in_now_then_recent_with_its_level(qapp)
     from types import SimpleNamespace
 
     from fibsem.acting import AGENT, acting
-    from fibsem.applications.autolamella.ui.agent_activity import AgentActivity
     from fibsem.control import Control
+    from fibsem.ui.agent.activity import AgentActivity
     from fibsem.ui.widgets.status_bar import FibsemStatusBar
     from fibsem.workflows.events import EventBuffer
 
@@ -1189,7 +1189,7 @@ def test_at_drive_each_direct_call_shows_in_now_then_recent_with_its_level(qapp)
 def test_a_row_s_outcome_changes_on_the_card(qapp):
     # Round 8 screenshots: an overview read "running" after it ended, since
     # the row was changed in place and the card saw the same rows.
-    from fibsem.applications.autolamella.ui.agent_recent import RecentActions
+    from fibsem.ui.agent.recent import RecentActions
 
     recent = RecentActions()
     run = {"service": "imaging", "run_id": "o", "action": "Overview", "level": "drive"}
@@ -1381,11 +1381,11 @@ def test_the_coincidence_viewer_follows_the_border_switch(
 
 
 def test_the_chip_pulses_while_the_agent_acts_and_ends_a_whole_cycle(qapp):
-    from fibsem.applications.autolamella.ui.agent_level_chip import (
+    from fibsem.ui.agent.level_chip import (
         PULSE_MS,
         PULSE_STEP_MS,
     )
-    from fibsem.applications.autolamella.ui.agent_style import LEVEL_STYLES
+    from fibsem.ui.agent.style import LEVEL_STYLES
 
     chip = AgentLevelChip()
     chip.set_level(AgentLevel.DRIVE)

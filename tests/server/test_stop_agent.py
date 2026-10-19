@@ -7,8 +7,8 @@ import pytest
 
 from fibsem import utils
 from fibsem.acting import AGENT, SCRIPT, WORKFLOW
+from fibsem.ai.agent.levels import AgentLevel
 from fibsem.server.hosting import AppServerHost
-from fibsem.server.levels import AgentLevel
 
 pytest.importorskip("fastapi")
 

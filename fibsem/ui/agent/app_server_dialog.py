@@ -23,8 +23,8 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
 )
 
-from fibsem.applications.autolamella.ui.agent_level_chip import last_heard_text
 from fibsem.ui import stylesheets
+from fibsem.ui.agent.level_chip import last_heard_text
 from fibsem.ui.tokens import OK_COLOR, TEXT_MUTED_COLOR, TEXT_STRONG_COLOR
 
 __all__ = ["AppServerDialog"]

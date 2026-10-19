@@ -530,7 +530,7 @@ def test_what_a_structure_writes_it_reads_back(read_client):
 
 
 def _tool(client, name, arguments):
-    from fibsem.server.catalog import CATALOG, route_call
+    from fibsem.ai.agent.catalog import CATALOG, route_call
 
     spec = next(spec for spec in CATALOG if spec.name == name)
     method, path, body = route_call(spec, arguments)

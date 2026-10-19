@@ -184,7 +184,7 @@ def test_a_failed_task_s_run_says_why(client, microscope):
 
 def test_service_wait_for_run_waits_for_a_task_s_mill(client, microscope):
     pytest.importorskip("mcp")
-    from fibsem.mcp.sidecar import build_sidecar
+    from fibsem.ai.agent.mcp.sidecar import build_sidecar
 
     task = run_milling_task(microscope, _config("Rough"))
     sidecar = build_sidecar(client, client.get("/capabilities").json())

@@ -15,10 +15,10 @@ pytest.importorskip("httpx")  # TestClient transport
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+from fibsem.ai.agent.catalog import CATALOG, route_call  # noqa: E402
+from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
+from fibsem.ai.agent.request_text import describe_action  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.auth import AgentLevel  # noqa: E402
-from fibsem.server.catalog import CATALOG, route_call  # noqa: E402
-from fibsem.server.request_text import describe_action  # noqa: E402
 from tests.fixtures.demo_stage import demo_grid_loader, demo_session  # noqa: E402
 from tests.run_state import stub_session  # noqa: E402
 from tests.server.test_agent_requests import RecordingContext  # noqa: E402
@@ -227,7 +227,7 @@ def test_a_grid_action_reads_as_what_the_loader_will_do(
 def test_a_load_after_an_unload_step_doesn_t_say_the_unload_again():
     """Sim session 2026-10-16: "(unloads 'Grid-01' first)" after a step that
     unloads it."""
-    from fibsem.server.request_text import describe_actions
+    from fibsem.ai.agent.request_text import describe_actions
 
     unload, load = describe_actions(
         [("grid_unload", {}, "/x"), ("grid_load", {"grid_name": "G2"}, "/x")],

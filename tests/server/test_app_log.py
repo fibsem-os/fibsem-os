@@ -230,7 +230,7 @@ def test_no_experiment_is_unavailable(client, host):
 
 def test_the_tool_passes_the_window(client):
     pytest.importorskip("mcp")
-    from fibsem.mcp.sidecar import build_sidecar
+    from fibsem.ai.agent.mcp.sidecar import build_sidecar
 
     client.headers["Authorization"] = f"Bearer {TOKEN}"
     sidecar = build_sidecar(client, client.get("/capabilities").json())

@@ -13,7 +13,7 @@ import uuid
 from typing import TYPE_CHECKING, Any, Callable, List, Optional, Set
 
 from fibsem.acting import OPERATOR
-from fibsem.server.levels import AgentLevel
+from fibsem.ai.agent.levels import AgentLevel
 
 if TYPE_CHECKING:
     from fibsem.workflows.session import AppSession

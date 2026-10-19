@@ -83,6 +83,7 @@ from fastapi import (
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
 
+from fibsem.ai.agent.calls import current_call
 from fibsem.cancellation import NothingToStop, OperationCancelledError
 from fibsem.devices.core import (
     Device,
@@ -106,7 +107,6 @@ from fibsem.devices.wire import (
     to_wire,
 )
 from fibsem.schema import arguments_schema
-from fibsem.server.calls import current_call
 from fibsem.server.images import (
     TIFF_MEDIA_TYPE,
     image_answer,
