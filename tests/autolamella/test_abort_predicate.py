@@ -36,7 +36,7 @@ def manager(tmp_path: Path) -> TaskManager:
     experiment.positions.append(
         Lamella(path=Path(experiment.path) / "L1", number=1, petname="L1")
     )
-    return TaskManager(microscope=NoMicroscope(), experiment=experiment, parent_ui=None)
+    return TaskManager(microscope=NoMicroscope(), experiment=experiment)
 
 
 # ── The predicate ─────────────────────────────────────────────────────────────

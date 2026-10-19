@@ -86,15 +86,12 @@ def _experiment(tmp_path: Path, microscope, attention=Attention.automated):
 
 
 def _task(microscope, exp, cls=_AsksForAPoint, body=None, answerers=None):
-    manager = TaskManager(
-        microscope=microscope, experiment=exp, parent_ui=None, answerers=answerers
-    )
+    manager = TaskManager(microscope=microscope, experiment=exp, answerers=answerers)
     lamella = exp.positions[0]
     task = cls(
         microscope=microscope,
         config=lamella.task_config[ROUGH],
         lamella=lamella,
-        parent_ui=None,
         task_manager=manager,
     )
     if body is not None:

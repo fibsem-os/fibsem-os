@@ -92,14 +92,8 @@ def test_items_without_rounds_run_as_queued():
 
 def test_a_status_report_names_its_queue_entry_and_iteration():
     reports = []
-    window = SimpleNamespace(
-        workflow_status_signal=SimpleNamespace(
-            emit=lambda event: reports.append(event.report)
-        ),
-        queue_changed_signal=SimpleNamespace(emit=lambda _payload: None),
-    )
     manager = _Rounds(iterations=1)
-    manager.parent_ui = window
+    manager.status.connect(lambda event: reports.append(event.report))
     entry = manager.queue.add("p1", "Mill", iteration=0)
 
     manager._emit_report(entry, "p1", TaskStatus.InProgress)

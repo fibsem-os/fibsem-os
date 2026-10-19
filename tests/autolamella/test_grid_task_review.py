@@ -101,7 +101,7 @@ def experiment(tmp_path, microscope):
 
 def _run(microscope, experiment) -> GridTaskManager:
     ui = _UI()
-    manager = GridTaskManager(microscope, experiment, parent_ui=ui)
+    manager = GridTaskManager(microscope, experiment)
     ui.session.runner.manager = manager
     manager.run([OVERVIEW], [GRID])
     return manager

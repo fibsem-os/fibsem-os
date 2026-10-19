@@ -142,7 +142,6 @@ def make_lamella_manager(
     microscope: Any,
     experiment: Any,
     request: RunRequest,
-    parent_ui: Any = None,
     hook_manager: Any = None,
     responder: Any = None,
     answerers: Any = None,
@@ -151,7 +150,6 @@ def make_lamella_manager(
     return TaskManager(
         microscope=microscope,
         experiment=experiment,
-        parent_ui=parent_ui,
         hook_manager=hook_manager,
         responder=responder,
         answerers=answerers,

@@ -423,12 +423,11 @@ def manager(widget, tmp_path) -> TaskManager:
         lambda info: widget.refresh_queue(info["queue_items"])
     )
 
-    m = TaskManager(
-        microscope=_NoMicroscope(), experiment=experiment, parent_ui=parent_ui
-    )
+    m = TaskManager(microscope=_NoMicroscope(), experiment=experiment)
     # What AutoLamellaUI does with the runner's relay of it: re-emit on Qt.
     m.queue_changed.connect(lambda info: parent_ui.queue_changed_signal.emit(info))
     m.status.connect(lambda event: parent_ui.workflow_status_signal.emit(event))
+    m.ui = parent_ui
     m.queue.build_from_matrix(
         ["Trench", "Undercut"], [p.name for p in experiment.positions]
     )
@@ -471,7 +470,6 @@ def test_notify_queue_changed_is_heard_headless(tmp_path):
     m = TaskManager(
         microscope=_NoMicroscope(),
         experiment=_experiment(tmp_path, names=["L1"]),
-        parent_ui=None,
     )
     m.queue.build_from_matrix(["Trench"], ["L1"])
     heard = []
@@ -490,8 +488,8 @@ def test_a_queue_edit_stays_off_the_status_channel(manager):
     manager.queue.add("L9", "Polish")
     manager.notify_queue_changed()
 
-    assert manager.parent_ui.status_events == []
-    assert len(manager.parent_ui.queue_changes) == 1
+    assert manager.ui.status_events == []
+    assert len(manager.ui.queue_changes) == 1
 
 
 def test_task_status_goes_out_on_the_status_signal(manager):
@@ -499,8 +497,8 @@ def test_task_status_goes_out_on_the_status_signal(manager):
     item = manager.queue.next()
     emit(manager, item, Status.InProgress)
 
-    assert len(manager.parent_ui.status_events) == 1
-    assert manager.parent_ui.queue_changes == []
+    assert len(manager.ui.status_events) == 1
+    assert manager.ui.queue_changes == []
 
 
 def test_every_lifecycle_event_carries_its_report(manager):
@@ -517,5 +515,5 @@ def test_every_lifecycle_event_carries_its_report(manager):
     manager.queue.mark_done(item, Status.Completed)
     emit(manager, item, Status.Completed, task_duration=1.0)
 
-    assert manager.parent_ui.status_events
-    assert all(event.report is not None for event in manager.parent_ui.status_events)
+    assert manager.ui.status_events
+    assert all(event.report is not None for event in manager.ui.status_events)

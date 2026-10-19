@@ -148,7 +148,6 @@ def _task(ui, points=((0.5, 0.5),)):
     manager = TaskManager(
         microscope=ui.microscope,
         experiment=ui.experiment,
-        parent_ui=ui,
         responder=ui.ui_responder,
         answerers=ui.session.answerers,
     )
@@ -158,7 +157,6 @@ def _task(ui, points=((0.5, 0.5),)):
         microscope=ui.microscope,
         config=config,
         lamella=lamella,
-        parent_ui=ui,
         task_manager=manager,
     )
     task._manager = manager

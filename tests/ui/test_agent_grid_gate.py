@@ -102,7 +102,7 @@ def test_the_agent_s_start_is_refused_while_the_grid_is_off_the_stage(ui, monkey
 
 
 def test_the_agent_s_requeue_is_refused_while_the_grid_is_off_the_stage(ui):
-    manager = TaskManager(ui.microscope, ui.experiment, parent_ui=None)
+    manager = TaskManager(ui.microscope, ui.experiment)
     manager.queue.build_from_matrix([TASK_NAME], ["on-two"])
     # Run once already, so asking again is a re-run, not a pair still waiting.
     manager.queue.mark_done(manager.queue.items[0], TaskStatus.Completed)

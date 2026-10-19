@@ -421,9 +421,7 @@ def live(app, tmp_path):
     parent_ui.queue_changed_signal.connect(
         lambda info: widget.refresh_queue(info["queue_items"])
     )
-    manager = TaskManager(
-        microscope=_NoMicroscope(), experiment=experiment, parent_ui=parent_ui
-    )
+    manager = TaskManager(microscope=_NoMicroscope(), experiment=experiment)
     # What AutoLamellaUI does with the runner's relay of it: re-emit on Qt.
     manager.queue_changed.connect(
         lambda info: parent_ui.queue_changed_signal.emit(info)

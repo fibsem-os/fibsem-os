@@ -137,7 +137,6 @@ class GridTaskManager(BaseTaskManager):
         self,
         microscope: "FibsemMicroscope",
         experiment: "GridExperiment",
-        parent_ui: Optional[Any] = None,
         hook_manager: Optional[HookManager] = None,
         responder: Optional[Responder] = None,
         answerers: Optional[Callable[[], Tuple[ActorKind, ...]]] = None,
@@ -154,7 +153,6 @@ class GridTaskManager(BaseTaskManager):
         super().__init__(
             microscope,
             experiment,
-            parent_ui,
             hook_manager,
             responder,
             answerers,
@@ -749,7 +747,6 @@ class GridTaskManager(BaseTaskManager):
                 task_name,
                 self.experiment,
                 grid,
-                parent_ui=self.parent_ui,
                 task_manager=self,
             )
         except Exception as e:

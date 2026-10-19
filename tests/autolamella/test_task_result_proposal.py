@@ -86,13 +86,12 @@ def _experiment(
 
 
 def _task(microscope, exp: Experiment, body=None) -> MillRoughTask:
-    manager = TaskManager(microscope=microscope, experiment=exp, parent_ui=None)
+    manager = TaskManager(microscope=microscope, experiment=exp)
     lamella = exp.positions[0]
     task = MillRoughTask(
         microscope=microscope,
         config=lamella.task_config[ROUGH],
         lamella=lamella,
-        parent_ui=None,
         task_manager=manager,
     )
 

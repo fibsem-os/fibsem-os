@@ -295,7 +295,6 @@ def _manager_with_summary_hook(experiment: Experiment) -> TaskManager:
     return TaskManager(
         microscope=_NoMicroscope(),
         experiment=experiment,
-        parent_ui=None,
         hook_manager=hooks,
     )
 
@@ -362,7 +361,6 @@ def test_a_failing_artifact_does_not_break_the_run(experiment, caplog):
     manager = TaskManager(
         microscope=_NoMicroscope(),
         experiment=experiment,
-        parent_ui=None,
         hook_manager=hooks,
     )
     lamella = _complete_lamella(experiment, "lam-1")

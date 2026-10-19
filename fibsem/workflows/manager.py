@@ -89,7 +89,6 @@ class BaseTaskManager:
         self,
         microscope: FibsemMicroscope,
         experiment: WorkflowExperiment,
-        parent_ui: Optional[Any] = None,
         hook_manager: Optional[HookManager] = None,
         responder: Optional[Responder] = None,
         answerers: Optional[Callable[[], Tuple[ActorKind, ...]]] = None,
@@ -97,7 +96,6 @@ class BaseTaskManager:
     ):
         self.microscope = microscope
         self.experiment = experiment
-        self.parent_ui = parent_ui
         self.hook_manager = hook_manager
         # Who answers the run's questions: the session's responder. None
         # asks nobody: a supervised step runs as if unsupervised.

@@ -92,7 +92,6 @@ def make_grid_manager(
     microscope: Any,
     experiment: Any,
     request: RunRequest,
-    parent_ui: Any = None,
     hook_manager: Any = None,
     responder: Any = None,
     answerers: Any = None,
@@ -101,7 +100,6 @@ def make_grid_manager(
     return GridTaskManager(
         microscope=microscope,
         experiment=experiment,
-        parent_ui=parent_ui,
         hook_manager=hook_manager,
         responder=responder,
         answerers=answerers,

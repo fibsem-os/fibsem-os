@@ -64,9 +64,7 @@ def _make_task(tmp_path, *, autofocus: bool):
         autofocus=autofocus,
         coordinates=[Point(0.5, 0.5)],
     )
-    return SpotBurnFiducialTask(
-        microscope=MagicMock(), config=config, lamella=lamella, parent_ui=None
-    )
+    return SpotBurnFiducialTask(microscope=MagicMock(), config=config, lamella=lamella)
 
 
 def _record_run(task, calls):

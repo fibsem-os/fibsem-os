@@ -130,7 +130,6 @@ def _start(window):
     manager = TaskManager(
         microscope=ui.microscope,
         experiment=experiment,
-        parent_ui=ui,
         responder=ui.ui_responder,
         answerers=ui.session.answerers,
     )
@@ -141,7 +140,6 @@ def _start(window):
         microscope=ui.microscope,
         config=lamella.task_config[SETUP],
         lamella=lamella,
-        parent_ui=ui,
         task_manager=manager,
     )
     seen = {}

@@ -46,14 +46,17 @@ def align_feature_coincident(
     run: Optional[Any],
     detect: Callable[..., DetectedFeatures],
     hfw: float = fcfg.REFERENCE_HFW_MEDIUM,
-    feature: Feature = LamellaCentre(),
+    feature: Optional[Feature] = None,
 ) -> "Lamella":
     """Align the feature in the electron and ion beams to be coincident.
 
     ``detect`` is how the two detections are asked: a task passes its own
     ``detect`` so they go on its record. ``run`` is the task's manager: where
-    the status and the images go.
+    the status and the images go. ``feature`` is a new LamellaCentre by default:
+    detection writes onto the feature it is given.
     """
+    if feature is None:
+        feature = LamellaCentre()
 
     # bookkeeping
     features = [feature]

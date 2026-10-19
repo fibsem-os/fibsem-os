@@ -23,14 +23,12 @@ from fibsem.workflows.status import TaskStatus
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment, Lamella
-    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 
 
 def run_task(
     microscope: FibsemMicroscope,
     task_name: str,
     lamella: "Lamella",
-    parent_ui: Optional["AutoLamellaUI"] = None,
     task_manager: Optional["TaskManager"] = None,
 ) -> None:
     """Run a specific AutoLamella task."""
@@ -51,7 +49,6 @@ def run_task(
         microscope=microscope,
         config=task_config,
         lamella=lamella,
-        parent_ui=parent_ui,
         task_manager=task_manager,
     )
     task.run()
@@ -66,7 +63,6 @@ class TaskManager(BaseTaskManager):
         self,
         microscope: FibsemMicroscope,
         experiment: "Experiment",
-        parent_ui: Optional["AutoLamellaUI"] = None,
         hook_manager: Optional[HookManager] = None,
         responder: Optional[Responder] = None,
         answerers: Optional[Callable[[], Tuple[ActorKind, ...]]] = None,
@@ -75,7 +71,6 @@ class TaskManager(BaseTaskManager):
         super().__init__(
             microscope,
             experiment,
-            parent_ui,
             hook_manager,
             responder,
             answerers,
@@ -552,7 +547,6 @@ class TaskManager(BaseTaskManager):
                 microscope=self.microscope,
                 task_name=task_name,
                 lamella=lamella,
-                parent_ui=self.parent_ui,
                 task_manager=self,
             )
         except Exception as e:

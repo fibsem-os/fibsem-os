@@ -105,7 +105,6 @@ def _task(ui):
     manager = TaskManager(
         microscope=ui.microscope,
         experiment=experiment,
-        parent_ui=ui,
         responder=ui.ui_responder,
         answerers=ui.session.answerers,
     )
@@ -115,7 +114,6 @@ def _task(ui):
         microscope=ui.microscope,
         config=lamella.task_config[ROUGH],
         lamella=lamella,
-        parent_ui=ui,
         task_manager=manager,
     )
     task._manager = manager

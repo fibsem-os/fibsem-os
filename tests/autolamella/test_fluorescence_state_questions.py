@@ -94,13 +94,12 @@ def _experiment(tmp_path: Path, microscope, attention=Attention.automated):
 
 
 def _task(cls, name, microscope, exp):
-    manager = TaskManager(microscope=microscope, experiment=exp, parent_ui=None)
+    manager = TaskManager(microscope=microscope, experiment=exp)
     lamella = exp.positions[0]
     return cls(
         microscope=microscope,
         config=lamella.task_config[name],
         lamella=lamella,
-        parent_ui=None,
         task_manager=manager,
     )
 

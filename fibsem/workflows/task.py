@@ -93,7 +93,6 @@ class BaseTask(ABC):
         config: Any,
         item: Any,
         experiment: Optional[Any] = None,
-        parent_ui: Optional[Any] = None,
         task_manager: Optional[Any] = None,
     ) -> None:
         self.microscope = microscope
@@ -104,7 +103,6 @@ class BaseTask(ABC):
             if experiment is not None
             else getattr(task_manager, "experiment", None)
         )
-        self.parent_ui = parent_ui
         self.task_manager = task_manager
         self.task_id = str(uuid.uuid4())
         # The iteration of the item's tasks this run is, when the item runs in

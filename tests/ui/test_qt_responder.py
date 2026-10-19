@@ -299,7 +299,6 @@ def test_fluorescence_channels_reach_the_fm_widget(ui, qapp):
     channels = [ChannelSettings(name="channel-from-the-workflow")]
 
     class _Task:
-        parent_ui = ui
         responder = ui.ui_responder
         _check_for_abort = staticmethod(lambda *a, **k: False)
 

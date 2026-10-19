@@ -122,7 +122,6 @@ from fibsem.workflows.task import BaseTask, run_folder
 
 if TYPE_CHECKING:
     from fibsem.alignment import AlignmentResult
-    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
     from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
     from fibsem.autofunctions.autofocus import AutoFocusResult
     from fibsem.fm.structures import FluorescenceImage
@@ -168,12 +167,9 @@ class AutoLamellaTask(BaseTask):
         microscope: FibsemMicroscope,
         config: AutoLamellaTaskConfig,
         lamella: Lamella,
-        parent_ui: Optional["AutoLamellaUI"] = None,
         task_manager: Optional["TaskManager"] = None,
     ):
-        super().__init__(
-            microscope, config, lamella, parent_ui=parent_ui, task_manager=task_manager
-        )
+        super().__init__(microscope, config, lamella, task_manager=task_manager)
         # This task object is one run: its folder is fixed as it starts (FIB-1275).
         self._output_dir = run_folder(
             lamella.path, config.task_name, now(), iteration=self.iteration

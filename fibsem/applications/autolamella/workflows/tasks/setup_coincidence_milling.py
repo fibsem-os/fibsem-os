@@ -344,17 +344,13 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
 
         Only a listed task: the protocol reads an unlisted task as automated,
         and running Setup on its own is not asking for that. Read through the
-        task manager, which a headless run and a GUI run share, and through
-        the window only when there is no manager."""
-        for holder in (self.task_manager, self.parent_ui):
-            experiment = getattr(holder, "experiment", None)
-            protocol = getattr(experiment, "task_protocol", None)
-            if protocol is None:
-                continue
+        task manager, which a headless run and a GUI run share."""
+        experiment = getattr(self.task_manager, "experiment", None)
+        protocol = getattr(experiment, "task_protocol", None)
+        if protocol is not None:
             for task in protocol.workflow_config.tasks:
                 if task.name == self.task_name:
                     return task.attention
-            return None
         return None
 
     def _hand_off(self) -> None:

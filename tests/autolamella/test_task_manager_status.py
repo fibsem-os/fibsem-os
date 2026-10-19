@@ -254,7 +254,7 @@ def test_emit_passes_through_error_and_skip_detail(manager):
 
 def test_emit_is_a_noop_headless(tmp_path):
     experiment = make_experiment(tmp_path, lamella_names=["L1"])
-    m = TaskManager(microscope=NoMicroscope(), experiment=experiment, parent_ui=None)
+    m = TaskManager(microscope=NoMicroscope(), experiment=experiment)
     m.queue.build_from_matrix(["Trench"], ["L1"])
     m._emit_status(
         item=m.queue.items[0],
