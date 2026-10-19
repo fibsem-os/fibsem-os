@@ -383,6 +383,124 @@ def test_a_review_decision_s_point_is_drawn_on_the_card_on_its_own_image():
     assert previews.request_picture is None and card.shown[False] is None
 
 
+def _pass_request(proposal, **arguments):
+    """A waiting request to decide *proposal*, a loop's pass."""
+    return {
+        "request_id": "pq34",
+        "status": "pending",
+        "actions": [
+            {
+                "tool": "review_decide",
+                "what": "01-full-magpie · Rough Milling",
+                "arguments": {
+                    "item_id": "01",
+                    "task_name": "Rough Milling",
+                    "proposal_id": proposal.id,
+                    "outcome": "Confirmed",
+                    **arguments,
+                },
+            }
+        ],
+    }
+
+
+def _pass_previews(proposal, reference):
+    card = _Card()
+    previews = AgentPreviews(
+        lambda: _Controller(),
+        reference_image=lambda arguments: reference,
+        show_picture=card,
+        review_proposal=lambda arguments: (
+            proposal if arguments.get("proposal_id") == proposal.id else None
+        ),
+    )
+    return previews, card
+
+
+def test_a_request_to_run_a_mill_pass_draws_its_patterns_as_patched():
+    """A pass the agent asks to run draws what it would mill, its patch
+    applied, on the image the pass was asked on: what the operator approves."""
+    from fibsem.milling.base import FibsemMillingStage
+    from fibsem.milling.tasks import FibsemMillingTaskConfig
+    from fibsem.workflows.proposals import MILLING, Proposal
+
+    config = FibsemMillingTaskConfig.from_stages(
+        [FibsemMillingStage(name="Trench")], name="Rough Milling"
+    )
+    proposal = Proposal(kind=MILLING, values={"milling_config": config})
+    reference = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=100e-6)
+    previews, card = _pass_previews(proposal, reference)
+
+    previews.show_request(_pass_request(proposal, action="run"))
+    frame, layers = previews.request_picture
+    assert frame is reference
+    purple = layers[1]
+    assert purple.fill and len(purple.patterns) == len(
+        config.stages[0].define_patterns()
+    )
+    assert card.shown[False][1].startswith("01-full-magpie · Rough Milling · FIB")
+
+    wider = config.stages[0].pattern.width * 2
+    previews.show_request(None)
+    previews.show_request(
+        _pass_request(
+            proposal, action="run", patch={"stages.Trench.pattern.width": wider}
+        )
+    )
+    _, layers = previews.request_picture
+    assert layers[1].patterns != purple.patterns
+    # the pass itself is not changed
+    assert config.stages[0].pattern.width == pytest.approx(wider / 2)
+
+
+def test_a_request_to_accept_a_mill_pass_outlines_what_is_not_milled():
+    from fibsem.milling.base import FibsemMillingStage
+    from fibsem.milling.tasks import FibsemMillingTaskConfig
+    from fibsem.workflows.proposals import MILLING, Proposal
+
+    config = FibsemMillingTaskConfig.from_stages(
+        [FibsemMillingStage(name="Trench")], name="Fiducial"
+    )
+    proposal = Proposal(kind=MILLING, values={"milling_config": config})
+    reference = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=100e-6)
+    previews, _card = _pass_previews(proposal, reference)
+    previews.show_request(_pass_request(proposal, action="accept"))
+    _, layers = previews.request_picture
+    assert not layers[1].patterns, "nothing to mill"
+    unmilled = layers[-1]
+    assert unmilled.patterns and not unmilled.fill
+    assert unmilled.keys == [("outline", "not milled")]
+
+
+def test_a_request_to_run_a_spot_burn_pass_draws_its_points():
+    from fibsem.imaging.spot import SpotBurnSettings
+    from fibsem.workflows.proposals import SPOT_BURN, Proposal
+
+    proposal = Proposal(
+        kind=SPOT_BURN,
+        values={"spot_burn": SpotBurnSettings(coordinates=[Point(0.5, 0.5)])},
+    )
+    reference = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=100e-6)
+    previews, _card = _pass_previews(proposal, reference)
+    # The call's own points, not the pass's.
+    values = {
+        "spot_burn": {
+            "coordinates": [{"x": 0.25, "y": 0.5}, {"x": 0.75, "y": 0.25}],
+            "milling_current": 60e-12,
+            "exposure_time": 5,
+        }
+    }
+    previews.show_request(_pass_request(proposal, action="run", values=values))
+    frame, layers = previews.request_picture
+    assert frame is reference
+    dots = [d for layer in layers for d in layer.dots]
+    assert dots == [pytest.approx((50.0, 50.0)), pytest.approx((150.0, 25.0))]
+    # Skipped, nothing is burned: nothing drawn.
+    previews.show_request(None)
+    previews.show_request(_pass_request(proposal, action="skip"))
+    assert previews.request_picture is None
+
+
 def _item_edit(request_id="kl12"):
     return {
         "request_id": request_id,

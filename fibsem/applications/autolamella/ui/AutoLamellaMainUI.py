@@ -1650,6 +1650,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             item_image=self._agent_item_image,
             overview_image=self._agent_overview_image,
             item_overview=self._agent_item_overview,
+            review_proposal=self._agent_review_proposal,
         )
         self._agent_chip_timer = QTimer(self)
         self._agent_chip_timer.setInterval(1000)
@@ -4102,14 +4103,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 continue
         return None
 
-    def _agent_review_image(self, arguments: dict):
-        """The image a waiting ``review_decide``'s values sit on: its proposal's
-        reference image, found as the Review tab finds it. None when the
-        proposal is not pending or has none."""
-        from fibsem.applications.autolamella.ui.review_tab_widget import (
-            _load_reference_image,
-        )
-
+    def _agent_review_pending(self, arguments: dict):
+        """``(item, proposal)``: the pending proposal a waiting
+        ``review_decide`` decides, by its id, else its item and task; None."""
         experiment = self.autolamella_ui.experiment
         if experiment is None:
             return None
@@ -4119,8 +4115,26 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 and arguments.get("item_id") == item.id
                 and arguments.get("task_name") == task_name
             ):
-                return _load_reference_image(experiment, item, proposal)
+                return item, proposal
         return None
+
+    def _agent_review_proposal(self, arguments: dict):
+        """The pending proposal a waiting ``review_decide`` decides, or None."""
+        found = self._agent_review_pending(arguments)
+        return found[1] if found is not None else None
+
+    def _agent_review_image(self, arguments: dict):
+        """The image a waiting ``review_decide``'s values sit on: its proposal's
+        reference image, found as the Review tab finds it. None when the
+        proposal is not pending or has none."""
+        from fibsem.applications.autolamella.ui.review_tab_widget import (
+            _load_reference_image,
+        )
+
+        found = self._agent_review_pending(arguments)
+        if found is None:
+            return None
+        return _load_reference_image(self.autolamella_ui.experiment, *found)
 
     def _on_agent_suggestion(self, suggestion: Optional[dict]) -> None:
         """GUI thread: the agent's suggested answer went up or came down. It

@@ -33,6 +33,7 @@ AREA_MARK = "area"
 ITEM_MARK = "item"
 POSE_MARK = "pose"
 POSE_NOW_MARK = "pose_now"
+SPOT_MARK = "spot"
 
 # The beam a move tool works in when the agent does not say: as the tools do.
 _MOVE_BEAMS = {
@@ -135,6 +136,53 @@ def config_edit_stages(
                 milling = dict(getattr(source, "milling", None) or {}).get(name)
                 stages.extend(s for s in getattr(milling, "stages", []) if s.enabled)
     return before, after
+
+
+def review_passes(
+    request: Dict[str, Any], proposal_for: Callable[[Dict[str, Any]], object]
+) -> Tuple[List, List, List]:
+    """``(milled, kept, points)``: what the request's ``review_decide`` calls on
+    a loop's pass would do. A run mills ``milled`` (the pass's config as
+    decided: the call's values, patched, else the pass's own) or burns
+    ``points`` (fractions of the frame); a pass decided without running leaves
+    its stages in ``kept``. *proposal_for* gives the pass a call decides (its
+    arguments), or None; a call that does not read is left out: the route
+    refuses it."""
+    from fibsem.workflows.proposals import (
+        ACTION_RUN,
+        MILLING,
+        SPOT_BURN,
+        _decode_values,
+        patch_values,
+    )
+
+    milled, kept, points = [], [], []
+    for action in request.get("actions", []):
+        if action.get("tool") != "review_decide":
+            continue
+        arguments = action.get("arguments") or {}
+        proposal = proposal_for(arguments)
+        kind = getattr(proposal, "kind", None)
+        if kind not in (MILLING, SPOT_BURN):
+            continue
+        try:
+            values = _decode_values(arguments.get("values") or {}) or dict(
+                proposal.values
+            )
+            if arguments.get("patch"):
+                values = patch_values(kind, values, dict(arguments["patch"]))
+        except Exception:  # noqa: BLE001 - described, not drawn
+            continue
+        runs = arguments.get("action") == ACTION_RUN
+        if kind == SPOT_BURN:
+            if runs:
+                settings = values.get("spot_burn")
+                points.extend((p.x, p.y) for p in getattr(settings, "coordinates", []))
+            continue
+        config = values.get("milling_config")
+        stages = [s for s in getattr(config, "stages", []) or [] if s.enabled]
+        (milled if runs else kept).extend(stages)
+    return milled, kept, points
 
 
 def request_outside_field(
@@ -660,12 +708,16 @@ class AgentPreviews:
         overview_image: Optional[Callable[[str, str], object]] = None,
         load_image: Optional[Callable[[str], object]] = None,
         item_overview: Optional[Callable[[str], object]] = None,
+        review_proposal: Optional[Callable[[Dict[str, Any]], object]] = None,
     ) -> None:
         # Asked when there is something to draw: the views are built after this.
         self._view_controller = view_controller
         # The image a review_decide action's values sit on (its arguments), or
         # None: the window reads it from the experiment.
         self._reference_image = reference_image or (lambda arguments: None)
+        # The pending proposal a review_decide action decides (its arguments),
+        # or None: for a loop's pass, what it would run.
+        self._review_proposal = review_proposal or (lambda arguments: None)
         # An item's task config (item name, task name), for a config edit's
         # patterns; None when there is none.
         self._task_config = task_config or (lambda item, task: None)
@@ -716,12 +768,14 @@ class AgentPreviews:
             return
         patterns = request_patterns(request)
         before, after = config_edit_stages(request, self._task_config)
-        milled = request_stages(request) + after
+        passed, kept, _points = review_passes(request, self._review_proposal)
+        milled = request_stages(request) + after + passed
         live = _frame(controller, BeamType.ION)
         aspect = live.data.shape[0] / live.data.shape[1] if live is not None else 2 / 3
         outside = request_outside_field(request, aspect, milled)
         missing: List[str] = []
         marks = self._request_marks(request, missing)
+        pass_title = ""
         # The agent's own image when it gave one; else the one the values were
         # measured on.
         evidence = _agent_image(self._load_image, request.get("image"))
@@ -730,9 +784,14 @@ class AgentPreviews:
             beam = frame.metadata.image_settings.beam_type or BeamType.ION
         else:
             frame, beam = self._measured_on(
-                controller, marks, bool(patterns or milled or before)
+                controller, marks, bool(patterns or milled or before or kept)
             )
-            if not (patterns or milled or before):
+            if passed or kept:
+                # A pass's patterns, on the image the pass was asked on.
+                found = self._pass_frame(request)
+                if found is not None:
+                    frame, beam, pass_title = found
+            if not (patterns or milled or before or kept):
                 frame, beam = self._pose_overview(marks, frame, beam)
         # The card: the image the values were measured on, every value on it.
         if frame is None:
@@ -752,13 +811,21 @@ class AgentPreviews:
             purple.patterns = patterns + _stage_patterns(milled)
             red.patterns = outside
             grey.key(OUTLINE, "as now", grey.patterns)
+            if kept:
+                # A pass decided without running: nothing is milled.
+                unmilled = _Layer(PURPLE_COLOR)
+                unmilled.patterns = _stage_patterns(kept)
+                unmilled.key(OUTLINE, "not milled", unmilled.patterns)
+                layers.append(unmilled)
             purple.key(
                 FILL, "after the edit" if before else "patterns", purple.patterns
             )
             _key_past_field(frame, red)
         self._add_marks(frame, [m for m in marks.values() if not m.before], purple)
         self._add_marks(frame, [m for m in marks.values() if m.before], grey)
-        title = next((m.title for m in marks.values() if m.title and m.places), "")
+        title = next(
+            (m.title for m in marks.values() if m.title and m.places), pass_title
+        )
         self._picture(
             frame,
             beam,
@@ -767,6 +834,17 @@ class AgentPreviews:
             agent_image=evidence is not None,
             title="" if evidence is not None else title,
         )
+
+    def _pass_frame(self, request: Dict[str, Any]):
+        """``(image, ION, what)``: the image the first pass a request decides
+        was asked on, and what the call names; None when it has none."""
+        for action in request.get("actions", []):
+            if action.get("tool") != "review_decide":
+                continue
+            image = self._reference_image(action.get("arguments") or {})
+            if _has_pixel_size(image):
+                return image, BeamType.ION, str(action.get("what") or "")
+        return None
 
     def _measured_on(self, controller, marks: Dict[str, "_Mark"], milling: bool):
         """The frame the request's values were measured on: a review's or an
@@ -839,16 +917,7 @@ class AgentPreviews:
             arguments = action.get("arguments") or {}
             self._item_marks(tool, arguments, add)
             if tool == "review_decide":
-                poi = _point((arguments.get("values") or {}).get("poi"))
-                image = self._reference_image(arguments) if poi is not None else None
-                if poi is not None and _has_pixel_size(image):
-                    add(
-                        POI_MARK,
-                        BeamType.ION,
-                        "point of interest",
-                        [(image, _offset_pixel(image, poi))],
-                        title=str(action.get("what") or ""),
-                    )
+                self._review_marks(request, action, arguments, add)
             elif tool == "item_update":
                 # Metres in the item's milling frame, and fractions of it: on
                 # the item's own last FIB image, never the live view, which may
@@ -883,6 +952,37 @@ class AgentPreviews:
                         title=item,
                     )
         return marks
+
+    def _review_marks(self, request, action, arguments, add) -> None:
+        """A review decision's values on the image its proposal sits on: a
+        point of interest, a spot burn's points."""
+        poi = _point((arguments.get("values") or {}).get("poi"))
+        _milled, _kept, points = review_passes(
+            {"actions": [action]}, self._review_proposal
+        )
+        if poi is None and not points:
+            return
+        image = self._reference_image(arguments)
+        if not _has_pixel_size(image):
+            return
+        title = str(action.get("what") or "")
+        if poi is not None:
+            add(
+                POI_MARK,
+                BeamType.ION,
+                "point of interest",
+                [(image, _offset_pixel(image, poi))],
+                title=title,
+            )
+        if points:
+            add(
+                SPOT_MARK,
+                BeamType.ION,
+                "spot burn points",
+                [(image, _fraction_pixel(image, p)) for p in points],
+                shape=DOT,
+                title=title,
+            )
 
     def _item_marks(self, tool: str, arguments: Dict[str, Any], add) -> None:
         """Where an item edit puts a lamella: a new one on its overview or where
