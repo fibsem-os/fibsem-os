@@ -6,19 +6,12 @@ put, greyed out, next to a label repeating the name -- three controls and roughl
 third of the tab bar spent on actions the File menu already carries. Now the name
 itself becomes the button, and it holds those actions in a menu.
 
-The window cannot be constructed offscreen -- it builds a napari viewer and a vispy
-quad view, neither of which survives `QT_QPA_PLATFORM=offscreen` -- so its handler is
-borrowed onto a host carrying the three real buttons, the same way
-`test_status_bar_tile_outcome.py` does. The buttons are the real ones and so is the
-Experiment; only the widget that owns them is stood in for.
+The header widget is built on its own; the buttons and the Experiment are real.
 """
 
 from __future__ import annotations
 
-import ast
-import inspect
 import os
-import textwrap
 from datetime import datetime
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -35,48 +28,18 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
     Experiment,
     Lamella,
 )
-from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (  # noqa: E402
+from fibsem.applications.autolamella.ui.experiment_header import (  # noqa: E402
     BUTTON_ICON_SIZE,
     EXPERIMENT_MENU_MAX_WIDTH,
-    AutoLamellaSingleWindowUI,
     experiment_tooltip,
     set_button_icon,
 )
-
-
-class _UIStub:
-    """Stands in for AutoLamellaUI: the header reads exactly these two attributes."""
-
-    def __init__(self, experiment=None, microscope=None):
-        self.experiment = experiment
-        self.microscope = microscope
-
-
-class _HeaderHost:
-    _update_experiment_header = AutoLamellaSingleWindowUI._update_experiment_header
-
-    def __init__(self):
-        # This file is about the experiment half of the header, which behaves the
-        # same either way once a microscope is connected. The connection chip's own
-        # flag is exercised in `test_connection_chip.py`.
-        self._connection_chip_enabled = True
-        self.btn_create_experiment = QPushButton("Create Experiment")
-        self.btn_load_experiment = QPushButton("Load Experiment")
-        self.btn_experiment_menu = QPushButton()
-        self.autolamella_ui = _UIStub()
-
-    def close(self):
-        for btn in (
-            self.btn_create_experiment,
-            self.btn_load_experiment,
-            self.btn_experiment_menu,
-        ):
-            btn.deleteLater()
+from tests.fixtures.experiment_header import HeaderHost  # noqa: E402
 
 
 @pytest.fixture
 def host(qapp):
-    host = _HeaderHost()
+    host = HeaderHost()
     yield host
     host.close()
 
@@ -94,7 +57,7 @@ def test_buttons_wait_for_a_microscope(host):
     removed from the loaded state. Only true with that chip present, which is why
     the host sets its flag; `test_connection_chip.py` covers the other branch.
     """
-    host._update_experiment_header()
+    host.update_experiment_header()
 
     assert host.btn_create_experiment.isHidden()
     assert host.btn_load_experiment.isHidden()
@@ -103,9 +66,9 @@ def test_buttons_wait_for_a_microscope(host):
 
 
 def test_buttons_appear_once_connected(host):
-    host.autolamella_ui.microscope = object()
+    host.microscope = object()
 
-    host._update_experiment_header()
+    host.update_experiment_header()
 
     assert not host.btn_create_experiment.isHidden()
     assert not host.btn_load_experiment.isHidden()
@@ -116,10 +79,10 @@ def test_buttons_appear_once_connected(host):
 
 
 def test_name_button_replaces_the_pair_once_loaded(host, experiment):
-    host.autolamella_ui.microscope = object()
-    host.autolamella_ui.experiment = experiment
+    host.microscope = object()
+    host.experiment = experiment
 
-    host._update_experiment_header()
+    host.update_experiment_header()
 
     assert host.btn_create_experiment.isHidden()
     assert host.btn_load_experiment.isHidden()
@@ -133,20 +96,20 @@ def test_default_length_name_is_not_elided(host, tmp_path):
     button's entire job, and an allowance guessed for the icon, padding and chevron
     once cut one short."""
     name = "AutoLamella-2026-08-21-11-04"
-    host.autolamella_ui.microscope = object()
-    host.autolamella_ui.experiment = Experiment(path=str(tmp_path), name=name)
+    host.microscope = object()
+    host.experiment = Experiment(path=str(tmp_path), name=name)
 
-    host._update_experiment_header()
+    host.update_experiment_header()
 
     assert host.btn_experiment_menu.text() == name
 
 
 def test_long_name_is_elided_not_stretched(host, tmp_path):
     long_name = "AutoLamella-2026-08-21-" + "grid" * 20
-    host.autolamella_ui.microscope = object()
-    host.autolamella_ui.experiment = Experiment(path=str(tmp_path), name=long_name)
+    host.microscope = object()
+    host.experiment = Experiment(path=str(tmp_path), name=long_name)
 
-    host._update_experiment_header()
+    host.update_experiment_header()
 
     text = host.btn_experiment_menu.text()
     assert text != long_name
@@ -156,32 +119,16 @@ def test_long_name_is_elided_not_stretched(host, tmp_path):
     assert host.btn_experiment_menu.sizeHint().width() <= EXPERIMENT_MENU_MAX_WIDTH
 
 
-def test_menu_reuses_the_file_menu_actions():
+def test_menu_reuses_the_file_menu_actions(host):
     """The header menu must add the File menu's own QActions, not rebuild them.
 
     Two separate sets would drift: a shortcut, a rename or a new guard added in one
-    place would silently miss the other. The constructor cannot be run here, so the
-    source is read for which actions it adds.
+    place would silently miss the other.
     """
-    tree = ast.parse(
-        textwrap.dedent(
-            inspect.getsource(AutoLamellaSingleWindowUI.create_notification_button)
-        )
-    )
-    added = {
-        node.args[0].attr
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "addAction"
-        and node.args
-        and isinstance(node.args[0], ast.Attribute)
-    }
-    assert added == {
-        "action_new_experiment",
-        "action_load_experiment",
-        "action_open_experiment_directory",
-    }
+    menu_actions = [
+        a for a in host.btn_experiment_menu.menu().actions() if not a.isSeparator()
+    ]
+    assert menu_actions == host.actions
 
 
 class TestExperimentTooltip:

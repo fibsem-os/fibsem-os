@@ -23,8 +23,8 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaWorkflowConfig,
     Experiment,
 )
-from fibsem.applications.autolamella.ui.AutoLamellaMainUI import _parse_args
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+from fibsem.applications.autolamella.ui.launch import _parse_args
 from fibsem.applications.autolamella.workflows.tasks.reference_image import (
     AcquireReferenceImageConfig,
 )
