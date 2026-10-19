@@ -13,7 +13,7 @@ from typing import Any, Callable, Dict, List, Optional, Protocol, Set, Tuple
 
 from psygnal import Signal
 
-from fibsem.acting import WORKFLOW, ActorKind
+from fibsem.acting import AGENT, OPERATOR, WORKFLOW, ActorKind
 from fibsem.cancellation import AnyStopEvent, OperationCancelledError
 from fibsem.control import MicroscopeBusy
 from fibsem.hooks import HookEvent, HookManager, fire_event
@@ -303,35 +303,53 @@ class BaseTaskManager:
     @contextmanager
     def holding_a_question(self, item_name: str, task_name: str):
         """The run is held on a question a task asked mid-run (``ask``): the
-        task is stopped on its next line until the decision lands in the
-        Review tab. The same hold kind as a park between tasks, because it is
-        released the same way and the attention button goes to the same
-        place; the workflow line says which task is stopped and where.
+        task is stopped on its next line until the decision lands. The same
+        hold kind as a park between tasks, because it is released the same way
+        and the attention button goes to the same place; the workflow line
+        says which task is stopped and who can answer it.
+
+        A supervised question waits whoever is there, nobody included (Patrick
+        2026-10-19: an answer is never taken unreviewed). Yields ``refresh``,
+        which the waiting task calls as it waits: when who can answer changes
+        (the window opens or closes, the agent goes quiet or comes back), the
+        hold and the record say so (``question_waiting``).
 
         Said on the record too (``question_asked`` / ``question_released``):
         a question asked this way raises no prompt, so nothing else in the
         event stream tells a watcher that the run has stopped to be told
         something (FIB-1050)."""
-        self._set_hold(
-            Hold(
-                kind=HoldKind.decision,
-                releases=f"decide {item_name} in the Review tab",
-                items=(f"{item_name}/{task_name}",),
-            ),
-            note=f"{task_name} is waiting for your decision on {item_name} "
-            "in the Review tab.",
-            message=None,
-        )
-        self._record_event(
-            "question_asked", {"item_name": item_name, "task_name": task_name}
-        )
+        names = {"item_name": item_name, "task_name": task_name}
+        shown: List[Tuple[ActorKind, ...]] = []
+
+        def refresh() -> None:
+            who = self.answerers()
+            if shown and shown[-1] == who:
+                return
+            first = not shown
+            shown.append(who)
+            releases, note = _question_hold_text(item_name, task_name, who)
+            self._set_hold(
+                Hold(
+                    kind=HoldKind.decision,
+                    releases=releases,
+                    items=(f"{item_name}/{task_name}",),
+                ),
+                note=note,
+                message=None,
+            )
+            if not first:
+                self._record_event(
+                    "question_waiting",
+                    {**names, "answerers": [w.value for w in who]},
+                )
+
+        refresh()
+        self._record_event("question_asked", dict(names))
         try:
-            yield
+            yield refresh
         finally:
             self._set_hold(None, message=None)
-            self._record_event(
-                "question_released", {"item_name": item_name, "task_name": task_name}
-            )
+            self._record_event("question_released", dict(names))
 
     def _record_event(self, kind: str, payload: Dict[str, Any]) -> None:
         """A fact for the experiment's record, through the microscope's
@@ -537,7 +555,8 @@ class BaseTaskManager:
 
     def answerers(self) -> Tuple[ActorKind, ...]:
         """Who can answer this run's questions now: the session's surfaces
-        (``AppSession.answerers``). Empty: a question goes on the record."""
+        (``AppSession.answerers``). Empty: nobody, and a supervised question
+        waits for someone to come back."""
         return self._answerers() if self._answerers is not None else ()
 
     @property
@@ -797,3 +816,27 @@ def _named(names: List[str], noun: str = "lamellae") -> str:
     if len(names) <= 1:
         return "".join(names)
     return f"{', '.join(names[:-1])} and {names[-1]}"
+
+
+def _question_hold_text(
+    item_name: str, task_name: str, who: Tuple[ActorKind, ...]
+) -> Tuple[str, str]:
+    """What releases a hold on a question, and the workflow line, given who
+    can answer it now."""
+    asked = f"{task_name} on {item_name}"
+    names = [
+        name
+        for kind, name in ((OPERATOR, "the operator"), (AGENT, "the agent"))
+        if kind in who
+    ]
+    if not names:
+        return (
+            f"nobody can answer {asked}: open the app, or connect the agent at Drive",
+            f"{task_name} is waiting for an answer on {item_name}. Nobody can "
+            "answer it: open the app, or connect the agent at Drive.",
+        )
+    by = " or ".join(names)
+    return (
+        f"answer {asked}",
+        f"{task_name} is waiting for {by} to answer on {item_name}.",
+    )

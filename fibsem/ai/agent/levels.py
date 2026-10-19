@@ -24,3 +24,10 @@ class AgentLevel(str, Enum):
     WATCH = "watch"
     ASSIST = "assist"
     DRIVE = "drive"
+
+
+# How recently the agent must have been heard to count as listening: someone
+# who can answer a run's questions at Drive. A supervising agent long-polls the
+# event stream, so a connected one is heard every few seconds; past this it has
+# gone, and a held question waits for it to come back.
+AGENT_LISTENING_S = 120.0

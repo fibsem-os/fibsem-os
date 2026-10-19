@@ -334,15 +334,17 @@ class AutoLamellaTask(BaseTask):
         task reads ``.outcome`` and ``.values``; a task applies the decided
         values itself, so a kind asked here must not write them through.
 
-        Supervised, with someone to answer (``answerers``: the operator at a
-        window, or the agent at Drive): the run holds here -- the manager
-        raises the hold, the Review tab is fronted -- until the decision
-        lands, or Stop, which withdraws the question and raises
-        ``InterruptedError``. Otherwise nobody is asked: the proposal goes on
-        the record with an ``Unreviewed`` decision carrying the proposed
-        values, for someone to check afterwards, and returns at once. A
-        declared kind that ``questions_for`` leaves out under this config is
-        the same: recorded, not asked.
+        Supervised: the run holds here -- the manager raises the hold --
+        until the decision lands, or Stop, which withdraws the question and
+        raises ``InterruptedError``. It holds whoever can answer, nobody
+        included: an answer is never taken unreviewed (Patrick 2026-10-19), so
+        with no window and no agent listening at Drive the question waits for
+        one to come back, and the hold says who can answer as that changes.
+        Automated, nobody is asked: the proposal goes on the record with an
+        ``Unreviewed`` decision carrying the proposed values, for someone to
+        check afterwards, and returns at once. A declared kind that
+        ``questions_for`` leaves out under this config is the same: recorded,
+        not asked.
 
         ``decided`` is for a confirmation: an answer that says "as it stands"
         and carries no values of its own (a state, confirmed from the prompt
@@ -411,8 +413,9 @@ class AutoLamellaTask(BaseTask):
             with lending():
                 if not experiment.ask_proposal(item.id, self.task_name, proposal):
                     raise RuntimeError(f"could not record the {kind} question")
-                with manager.holding_a_question(item.name, self.task_name):
+                with manager.holding_a_question(item.name, self.task_name) as refresh:
                     while not answered.wait(0.1):
+                        refresh()
                         if self._stop_event is not None and self._stop_event.is_set():
                             experiment.withdraw_proposal(
                                 item.id,
@@ -437,15 +440,13 @@ class AutoLamellaTask(BaseTask):
 
     def unasked_reason(self, kind: str, *, enabled: bool = True) -> str:
         """Why a question of ``kind`` would be recorded rather than asked now;
-        empty when it would be asked. Asked when this config asks it, the task
-        is supervised, and someone can answer: the operator at a window, or
-        the agent at Drive."""
+        empty when it would be asked. Asked when this config asks it and the
+        task is supervised, whether or not anyone can answer yet: a supervised
+        question waits for an answer (``ask``)."""
         if not enabled or kind not in type(self).questions_for(self.config):
             return "turned off in the task's settings"
         if not self.supervised:
             return "nobody was asked: the task is not supervised"
-        if not self.task_manager.answerers():
-            return "nobody was asked: nobody to answer"
         return ""
 
     def detect(

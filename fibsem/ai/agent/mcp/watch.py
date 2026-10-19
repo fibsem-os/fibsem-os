@@ -169,11 +169,7 @@ def _print_events(events, since, out):
         data = event.get("payload") or {}
         since = max(since, event.get("seq", since))
         if kind == "question_asked":
-            out(
-                f"QUESTION item={data.get('item_name')} task={data.get('task_name')} "
-                "-- the run is stopped on a recorded question: find it in "
-                "review_list (holding_the_run) and decide it"
-            )
+            out(_question_line(data.get("item_name"), data.get("task_name")))
         elif kind == "question_released":
             out(
                 f"QUESTION RELEASED item={data.get('item_name')} "
@@ -328,6 +324,31 @@ def _counts(counts):
     return ", ".join((ran or ["nothing ran"]) + skipped)
 
 
+def _question_line(item_name, task_name):
+    return (
+        f"QUESTION item={item_name} task={task_name} "
+        "-- the run is stopped on a recorded question: find it in "
+        "review_list (holding_the_run) and decide it"
+    )
+
+
+def _held_questions(client):
+    """The questions a run is stopped on now, as (item_name, task_name), from
+    /app/workflow/reviews; empty when it cannot say."""
+    try:
+        response = client.request("GET", "/app/workflow/reviews", timeout=10.0)
+        if response.status_code >= 400:
+            return []
+        reviews = response.json().get("reviews") or []
+    except (OSError, HTTPException, ValueError, AttributeError, TypeError):
+        return []
+    return [
+        (r.get("item_name"), r.get("task_name"))
+        for r in reviews
+        if isinstance(r, dict) and r.get("holding_the_run")
+    ]
+
+
 def _run_is_live(client):
     """Whether /app/workflow/status says a run is going; None when it cannot say."""
     try:
@@ -375,6 +396,11 @@ def watch(client, out=None, sleep_fn=None, poll_s=POLL_S, clock=None, since=None
     stream = snapshot.get("stream")
     if since is None:
         since = snapshot.get("latest_seq") or 0
+        # Started at the tail, so a question asked before this watch began is
+        # behind the cursor: say the ones the run is stopped on now, first. An
+        # agent that reconnects to a held run hears what it is held on.
+        for item_name, task_name in _held_questions(client):
+            out(_question_line(item_name, task_name))
     elif (snapshot.get("latest_seq") or 0) < since:
         # Resumed with a seq from before the app restarted.
         out(RESTARTED_LINE)
