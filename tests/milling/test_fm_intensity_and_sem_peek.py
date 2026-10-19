@@ -202,16 +202,22 @@ def test_sem_peek_pauses_images_and_resumes_on_the_demo(tmp_path, milling_in_rea
 def test_fm_intensity_reads_the_sim_arctis_fm(
     tmp_path, milling_in_real_time, monkeypatch
 ):
+    import yaml
+
     import fibsem.drivers.demo.services as demo_services
 
-    # the sim renders an FM frame about once a second: mill for a few
-    monkeypatch.setattr(demo_services, "_PATTERN_TIME", 4)
-    arctis = milling_in_real_time(
-        config_path=os.path.join(fconfig.CONFIG_PATH, "sim-arctis-configuration.yaml")
-    )
+    # The sample scene off: noise frames come fast, where a rendered scene
+    # takes about a second a frame.
+    with open(os.path.join(fconfig.CONFIG_PATH, "sim-arctis-configuration.yaml")) as f:
+        config = yaml.safe_load(f)
+    config.setdefault("sim", {}).setdefault("sample", {})["enabled"] = False
+    config_path = tmp_path / "sim-arctis-configuration.yaml"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False))
+    monkeypatch.setattr(demo_services, "_PATTERN_TIME", 2)
+    arctis = milling_in_real_time(config_path=str(config_path))
     assert arctis.fm is not None
     stage = _stage(_fm(warmup_duration=0.5))
-    stage.output_dir = str(tmp_path)
+    stage.output_dir = str(tmp_path / "out")
 
     with arctis.milling.stage_run(stage) as stage_run:
         arctis.milling.draw(stage.pattern.define())
