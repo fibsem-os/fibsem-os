@@ -307,7 +307,7 @@ class AutoLamellaUI(QMainWindow):
         # gone: every workflow interaction is a typed request on its own future
         # (fibsem/workflows/interaction.py).
         self.hold: Optional[Hold] = None
-        # A state question a task asked (``AutoLamellaTask.ask`` with the
+        # A state question a task asked (``BaseTask.ask`` with the
         # ``state`` kind), shown on the prompt bar: (item_id, task_name,
         # proposal_id). Continue decides it; the decision takes it down.
         self._state_question: Optional[Tuple[str, str, str]] = None

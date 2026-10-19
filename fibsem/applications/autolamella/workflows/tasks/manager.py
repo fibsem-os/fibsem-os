@@ -1,7 +1,6 @@
 """AutoLamella's lamella workflow: its task manager and how a run is started."""
 
 import logging
-import time
 from collections import Counter
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
@@ -397,24 +396,19 @@ class TaskManager(BaseTaskManager):
         if scheduled_at.tzinfo is not None:
             scheduled_at = scheduled_at.astimezone().replace(tzinfo=None)
         target_str = scheduled_at.strftime(DATETIME_DISPLAY_AMPM)
-        next_update = 0.0  # force an immediate first message
         self._set_workflow_pending(True)
         try:
             while not self.should_abort:
                 remaining = (scheduled_at - datetime.now()).total_seconds()
                 if remaining <= 0:
                     break
-
-                now = time.monotonic()
-                if now >= next_update:
-                    msg = (
-                        f"Waiting until {target_str} to start {task_name} on "
-                        f"{lamella.name} ({format_duration_rounded(remaining)} remaining)."
-                    )
-                    update_status_ui(self, "", status_bar=msg)
-                    next_update = now + 15.0
-
-                time.sleep(min(1.0, remaining))
+                msg = (
+                    f"Waiting until {target_str} to start {task_name} on "
+                    f"{lamella.name} ({format_duration_rounded(remaining)} remaining)."
+                )
+                update_status_ui(self, "", status_bar=msg)
+                # Either stop wakes this at once.
+                self.abort_token.wait(min(15.0, remaining))
         finally:
             # The time arriving, a stop, and an exception all have to clear this.
             # A stranded flag would leave the border reading "nothing is running"

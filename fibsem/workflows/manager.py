@@ -14,7 +14,7 @@ from typing import Any, Callable, Dict, List, Optional, Protocol, Set, Tuple
 from psygnal import Signal
 
 from fibsem.acting import AGENT, OPERATOR, WORKFLOW, ActorKind
-from fibsem.cancellation import AnyStopEvent, OperationCancelledError
+from fibsem.cancellation import AnyStopEvent, OperationCancelledError, StopEvent
 from fibsem.control import MicroscopeBusy
 from fibsem.hooks import HookEvent, HookManager, fire_event
 from fibsem.microscope import FibsemMicroscope
@@ -107,12 +107,12 @@ class BaseTaskManager:
         # tasks: what ``held`` and ``pending`` last said.
         self.hold: Optional[Hold] = None
         self.waiting = False
-        self._stop_event = threading.Event()
+        self._stop_event = StopEvent()
         # Stopping one task is a different intent from stopping the run, so it is a
         # different event. A flag on a single event would need care not to be
         # downgraded when a run-wide Stop arrives mid-unwind; with two, there is no
         # path by which cancelling a task can set is_stopped.
-        self._task_stop_event = threading.Event()
+        self._task_stop_event = StopEvent()
         # Built once: the token's identity is captured by every task at construction.
         self._abort_token = AnyStopEvent(self._stop_event, self._task_stop_event)
         self.queue = TaskQueue(fixed_tasks=self.FIXED_TASKS)
@@ -218,13 +218,11 @@ class BaseTaskManager:
     @contextmanager
     def holding_a_question(self, item_name: str, task_name: str):
         """The run is held on a question a task asked mid-run (``ask``): the
-        task is stopped on its next line until the decision lands. The same
-        hold kind as a park between tasks, because it is released the same way
-        and the attention button goes to the same place; the workflow line
-        says which task is stopped and who can answer it.
+        task is stopped on its next line until the decision lands. The
+        workflow line says which task is stopped and who can answer it.
 
-        A supervised question waits whoever is there, nobody included (Patrick
-        2026-10-19: an answer is never taken unreviewed). Yields ``refresh``,
+        A supervised question waits whoever is there, nobody included: an
+        answer is never taken unreviewed. Yields ``refresh``,
         which the waiting task calls as it waits: when who can answer changes
         (the window opens or closes, the agent goes quiet or comes back), the
         hold and the record say so (``question_waiting``).
@@ -468,9 +466,8 @@ class BaseTaskManager:
 
         Captured by AutoLamellaTask and GridTask, handed on to milling and
         autofocus via `raise_if_cancelled`, and read directly by the fluorescence,
-        coincidence-milling and grid tasks. Only `is_set()` is ever called on it,
-        which is what lets it widen beyond a bare Event without touching any of
-        those call sites.
+        coincidence-milling and grid tasks. `is_set()` is what they call; a
+        wait on it (`wait`) wakes the moment either stop is set.
         """
         return self._abort_token
 
