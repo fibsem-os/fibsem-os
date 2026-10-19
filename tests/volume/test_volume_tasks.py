@@ -5,15 +5,12 @@ import threading
 
 import pytest
 
-from fibsem import acquire, utils
-from fibsem.applications.volume.experiment import VolumeExperiment
-from fibsem.applications.volume.position import FIB_REFERENCE, SEM_REFERENCE
+from fibsem.applications.volume.position import FIB_REFERENCE
 from fibsem.applications.volume.tasks import (
     VolumeFIBMillingTask,
     run_volume_task,
 )
-from fibsem.applications.volume.tasks import milling as milling_module
-from fibsem.structures import BeamType, ImageSettings, Point
+from fibsem.structures import BeamType
 from fibsem.workflows.status import TaskStatus
 
 MILL = "Volume FIB Milling"
@@ -30,47 +27,6 @@ class FakeManager:
     @property
     def should_abort(self) -> bool:
         return self.abort_token.is_set()
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    return microscope
-
-
-@pytest.fixture
-def experiment(tmp_path):
-    return VolumeExperiment.create(tmp_path, "vol")
-
-
-@pytest.fixture
-def position(experiment, microscope):
-    position = experiment.add_position(
-        "aspen", microscope.get_microscope_state(), Point(0, 1e-6), iterations=3
-    )
-    folder = experiment.position_path(position)
-    folder.mkdir(parents=True)
-    for beam, filename in (
-        (BeamType.ION, FIB_REFERENCE),
-        (BeamType.ELECTRON, SEM_REFERENCE),
-    ):
-        settings = ImageSettings(beam_type=beam, hfw=50e-6, resolution=(256, 170))
-        acquire.acquire_image(microscope, settings).save(str(folder / filename))
-    return position
-
-
-@pytest.fixture
-def milled(monkeypatch):
-    """The configs the milling task hands to the mill."""
-    configs = []
-    real = milling_module.run_milling_task
-
-    def run(microscope, config, **kwargs):
-        configs.append(config)
-        return real(microscope, config, **kwargs)
-
-    monkeypatch.setattr(milling_module, "run_milling_task", run)
-    return configs
 
 
 def test_a_slice_is_milled_at_its_point_of_interest(

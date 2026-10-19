@@ -157,6 +157,7 @@ APP_RUNS: Dict[str, AppRuns] = {}
 # Read on first use, so the runner never imports an app it does not run.
 _BUILTIN_RUNS: Dict[str, str] = {
     "autolamella": "fibsem.applications.autolamella.workflows.runs:RUNS",
+    "volume": "fibsem.applications.volume.runs:RUNS",
 }
 
 
