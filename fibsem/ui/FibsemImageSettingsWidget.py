@@ -867,8 +867,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             msg = "Edit Alignment Area. Press Continue when done."
             if not is_valid:
                 msg = "Invalid Alignment Area. Please adjust inside FIB Image."
-            self.parent.label_instructions.setText(msg)
-            self.parent.pushButton_yes.setEnabled(is_valid)
+            self.parent.prompt_bar.revise(msg, can_continue=is_valid)
         except Exception as e:
             logging.info(f"Error updating alignment area: {e}")
 

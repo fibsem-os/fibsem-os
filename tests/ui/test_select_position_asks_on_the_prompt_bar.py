@@ -158,9 +158,9 @@ def _prompt_says(ui, words: str) -> bool:
     # Text and enabled state, not isVisible(): the window is never shown
     # offscreen, so nothing in it is "visible".
     return (
-        words in ui.label_instructions.text()
-        and not ui.label_instructions.isHidden()
-        and ui.pushButton_yes.isEnabled()
+        words in ui.prompt_bar.message.text()
+        and not ui.prompt_bar.message.isHidden()
+        and ui.prompt_bar.yes.isEnabled()
     )
 
 
@@ -173,12 +173,12 @@ def test_the_tilt_and_the_position_are_confirmed_on_the_prompt_bar(window, qapp)
 
     # 1. the tilt
     assert _pump(qapp, lambda: _prompt_says(ui, "Tilt to the milling angle")), (
-        ui.label_instructions.text(),
+        ui.prompt_bar.message.text(),
         ui.hold,
         seen,
     )
-    assert (ui.pushButton_yes.text(), ui.pushButton_no.text()) == ("Tilt", "Skip")
-    assert ui.pushButton_no.isEnabled(), "Skip is how not to tilt"
+    assert (ui.prompt_bar.yes.text(), ui.prompt_bar.no.text()) == ("Tilt", "Skip")
+    assert ui.prompt_bar.no.isEnabled(), "Skip is how not to tilt"
     assert ui.hold is not None and ui.hold.kind is HoldKind.proposal
     tilt = lamella.proposal(SETUP, STATE)
     assert tilt is not None and tilt.pending and tilt.asking
@@ -186,11 +186,11 @@ def test_the_tilt_and_the_position_are_confirmed_on_the_prompt_bar(window, qapp)
         "not tilted until confirmed"
     )
 
-    ui.pushButton_yes.click()
+    ui.prompt_bar.yes.click()
 
     # 2. the position, on the image taken at the milling angle
     assert _pump(qapp, lambda: _prompt_says(ui, "Double click the image")), (
-        ui.label_instructions.text(),
+        ui.prompt_bar.message.text(),
         seen,
     )
     assert microscope.get_current_milling_angle() == pytest.approx(MILLING_ANGLE)
@@ -201,13 +201,13 @@ def test_the_tilt_and_the_position_are_confirmed_on_the_prompt_bar(window, qapp)
     position = lamella.proposal(SETUP, STATE)
     assert position is not tilt and position.asking
     assert position.provenance["reference_image"].endswith("_post_tilt_ib.tif")
-    assert ui.pushButton_yes.text() == "Continue" and ui.pushButton_no.isHidden()
+    assert ui.prompt_bar.yes.text() == "Continue" and ui.prompt_bar.no.isHidden()
 
-    ui.pushButton_yes.click()
+    ui.prompt_bar.yes.click()
 
     # 3. the point of interest, as the marker on the FIB view
     assert _pump(qapp, lambda: _prompt_says(ui, "Move the marker")), (
-        ui.label_instructions.text(),
+        ui.prompt_bar.message.text(),
         seen,
     )
     pose = position.current.values["stage_position"]
@@ -220,11 +220,11 @@ def test_the_tilt_and_the_position_are_confirmed_on_the_prompt_bar(window, qapp)
     col, row = marker[0]
     controller.set_points(BeamType.ION, "poi", [(col + 40, row)])
 
-    ui.pushButton_yes.click()
+    ui.prompt_bar.yes.click()
 
     # 4. the alignment area, as the rectangle on the FIB view
     assert _pump(qapp, lambda: _prompt_says(ui, "alignment area")), (
-        ui.label_instructions.text(),
+        ui.prompt_bar.message.text(),
         seen,
     )
     assert point.current.outcome is DecisionOutcome.Confirmed
@@ -236,7 +236,7 @@ def test_the_tilt_and_the_position_are_confirmed_on_the_prompt_bar(window, qapp)
     assert area.provenance["reference_image"].endswith("_post_tilt_ib.tif")
     assert isinstance(area.values["alignment_area"], FibsemRectangle)
 
-    ui.pushButton_yes.click()
+    ui.prompt_bar.yes.click()
 
     assert _pump(qapp, lambda: not thread.is_alive()), "the task went on"
     assert "error" not in seen, seen
@@ -263,14 +263,14 @@ def test_skip_does_not_tilt(window, qapp):
     task, thread, seen = _start(window)
 
     assert _pump(qapp, lambda: _prompt_says(ui, "Tilt to the milling angle")), (
-        ui.label_instructions.text(),
+        ui.prompt_bar.message.text(),
         seen,
     )
     tilt = lamella.proposal(SETUP, STATE)
-    ui.pushButton_no.click()
+    ui.prompt_bar.no.click()
 
     assert _pump(qapp, lambda: _prompt_says(ui, "Double click the image")), (
-        ui.label_instructions.text(),
+        ui.prompt_bar.message.text(),
         seen,
     )
     assert "error" not in seen, seen

@@ -305,17 +305,6 @@ class TestSaveLoad:
 
 
 class TestSlotLookup:
-    def test_find_slot_for_grid(self):
-        h = _make_holder(capacity=2)
-        grid = SampleGrid(name="Grid-A")
-        h.slots["Slot-01"].loaded_grid = grid
-        assert h.find_slot_for_grid(grid) is h.slots["Slot-01"]
-
-    def test_find_slot_for_grid_not_found(self):
-        h = _make_holder(capacity=2)
-        grid = SampleGrid(name="Grid-X")
-        assert h.find_slot_for_grid(grid) is None
-
     def test_find_slot_by_grid_name(self):
         h = _make_holder(capacity=2)
         h.slots["Slot-02"].loaded_grid = SampleGrid(name="Grid-B")

@@ -175,6 +175,16 @@ lists where each key went.
   `agent_stop`, `agent_stopped`, `request_applied`, `workflow_stop`,
   `agent_note` and `operator_message` are no longer written; old logs still
   read in the card, the watcher and the dashboards.
+- **The agent shows its evidence.** Every acting agent tool takes an optional
+  `evidence`: the image it judged from, one of the experiment's or one it drew
+  itself (uploaded, saved under `<experiment>/evidence/`, at most 2048 px), with
+  labelled points and areas marked on it; its reason says what it saw. Its
+  calls, requests, suggestions, decisions and notes cite it by id (the
+  `X-Agent-Evidence` header; `POST /app/experiment/evidence` keeps it). The
+  Agent card shows it as its picture, a beam image with the request's values
+  drawn on it, "No evidence" under Why when there is none, and Recent opens it.
+  The `image` argument of `request_create` and `proposal_suggest` is replaced
+  by it.
 - **The agent's requests are on the experiment's record.** A request at Assist
   is an `actions` proposal on the experiment, saved in `experiment.yaml` with
   its decision: approved, rejected (with the operator's reason) or withdrawn

@@ -24,7 +24,6 @@ from PyQt5.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
-    QPushButton,
     QSizePolicy,
     QSpacerItem,
     QTabWidget,
@@ -36,6 +35,7 @@ from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
     LamellaNameListWidget,
 )
 from fibsem.applications.autolamella.ui.poi_marker import PoiMarker
+from fibsem.applications.autolamella.ui.prompt_bar import PromptBar
 from fibsem.applications.autolamella.ui.qt_responder import QtResponder
 from fibsem.applications.autolamella.ui.selected_lamella_widget import (
     SelectedLamellaWidget,
@@ -56,7 +56,6 @@ from fibsem.ui import (
     FibsemSystemSetupWidget,
     MillingTaskViewerWidget,
     notification_service,
-    stylesheets,
 )
 from fibsem.ui import utils as fui
 from fibsem.ui.FibsemSampleWidget import FibsemSampleWidget
@@ -359,18 +358,11 @@ class AutoLamellaUI(QMainWindow):
 
         self.label_workflow_information = QLabel("Workflow Information")
 
-        # The question a running workflow is asking; hidden when it is not asking
-        # one. Idle guidance lives in the window's status bar.
-        self.label_instructions = QLabel("Instructions")
-
-        self.pushButton_yes = QPushButton("Yes")
-        self.pushButton_no = QPushButton("No")
+        self.prompt_bar = PromptBar()
 
         self.gridLayout.addWidget(self.tabWidget, 1, 0, 1, 2)
         self.gridLayout.addWidget(self.label_workflow_information, 2, 0, 1, 2)
-        self.gridLayout.addWidget(self.label_instructions, 3, 0, 1, 2)
-        self.gridLayout.addWidget(self.pushButton_yes, 4, 0)
-        self.gridLayout.addWidget(self.pushButton_no, 4, 1)
+        self.gridLayout.addWidget(self.prompt_bar, 3, 0, 1, 2)
 
         self.setCentralWidget(self.centralwidget)
         self.tabWidget.setCurrentIndex(0)
@@ -404,8 +396,7 @@ class AutoLamellaUI(QMainWindow):
         self.system_widget.disconnected_signal.connect(self.disconnect_from_microscope)
 
         # workflow interaction
-        self.pushButton_yes.clicked.connect(self.push_interaction_button)
-        self.pushButton_no.clicked.connect(self.push_interaction_button)
+        self.prompt_bar.answered.connect(self._on_prompt_answered)
 
         # signals
         self.workflow_status_signal.connect(self.handle_workflow_status)
@@ -424,7 +415,6 @@ class AutoLamellaUI(QMainWindow):
 
         # workflow info
         self.set_current_workflow_message(msg=None, show=False)
-        self.label_instructions.setWordWrap(True)
         self.label_workflow_information.setWordWrap(True)
 
         # refresh ui
@@ -1332,7 +1322,7 @@ class AutoLamellaUI(QMainWindow):
         # bar, which is where it belongs -- shown in both places it read as two
         # different messages that happened to agree. This label is for the question
         # a running workflow is asking, which the Yes/No buttons below it answer.
-        self.set_instructions_msg("")
+        self.prompt_bar.clear()
 
     def _on_workflow_config_changed(self, wcfg: AutoLamellaWorkflowConfig):
         if self.experiment is None or self.experiment.task_protocol is None:
@@ -1810,39 +1800,6 @@ class AutoLamellaUI(QMainWindow):
             f"Saved Protocol to {os.path.basename(protocol_path)}", "info"
         )
 
-    def set_instructions_msg(
-        self,
-        msg: str = "",
-        pos: Optional[str] = None,
-        neg: Optional[str] = None,
-    ) -> None:
-        """Set the instructions message, and user interaction buttons.
-        Args:
-            msg: The message to display.
-            pos: The positive button text.
-            neg: The negative button text.
-        """
-        self.label_instructions.setText(msg)
-        # An empty prompt is not a blank line: with no message there is no question,
-        # so the label goes away rather than reserving space for one.
-        self.label_instructions.setVisible(bool(msg))
-        self.pushButton_yes.setText(pos)
-        self.pushButton_no.setText(neg)
-
-        # enable buttons
-        self.pushButton_yes.setEnabled(pos is not None)
-        self.pushButton_yes.setVisible(pos is not None)
-        self.pushButton_no.setEnabled(neg is not None)
-        self.pushButton_no.setVisible(neg is not None)
-
-        if pos in ("Run Milling", "Run Spot Burn"):
-            self.pushButton_yes.setStyleSheet(
-                stylesheets.SUPERVISION_STATUS_AUTOMATED_STYLESHEET
-            )
-        else:
-            self.pushButton_yes.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
-        self.pushButton_no.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-
     def set_current_workflow_message(
         self, msg: Optional[str] = None, show: bool = True
     ):
@@ -1851,12 +1808,7 @@ class AutoLamellaUI(QMainWindow):
             self.label_workflow_information.setText(msg)
         self.label_workflow_information.setVisible(show)
 
-    def push_interaction_button(self):
-        """Handle the user interaction with the workflow."""
-        self.pushButton_yes.setEnabled(False)
-        self.pushButton_no.setEnabled(False)
-
-        clicked_yes = bool(self.sender() == self.pushButton_yes)
+    def _on_prompt_answered(self, clicked_yes: bool) -> None:
         # A click with no proposal up (a stray double-click after the
         # decision landed) means nothing.
         if self._loop_proposal is not None:
@@ -1886,7 +1838,7 @@ class AutoLamellaUI(QMainWindow):
         message = str(
             proposal.provenance.get("message") or "Press Continue when ready."
         )
-        self.set_instructions_msg(
+        self.prompt_bar.ask(
             message,
             str(proposal.provenance.get("positive") or "Continue"),
             proposal.provenance.get("negative") or None,
@@ -1904,7 +1856,7 @@ class AutoLamellaUI(QMainWindow):
         )
 
         self._state_proposal = None
-        self.set_instructions_msg("")
+        self.prompt_bar.clear()
         self.workflow_status_signal.emit(WorkflowStatusEvent(message=""))
 
     def _decide_state_proposal(self, clicked_yes: bool = True) -> None:
@@ -1925,7 +1877,7 @@ class AutoLamellaUI(QMainWindow):
                 actor=experiment.actor(),
                 via="workflow",
                 proposal_id=proposal_id,
-                reason="" if clicked_yes else f"{self.pushButton_no.text()} pressed",
+                reason="" if clicked_yes else f"{self.prompt_bar.no.text()} pressed",
             ),
         )
         if not result.applied:
@@ -1933,8 +1885,7 @@ class AutoLamellaUI(QMainWindow):
             logging.warning(
                 f"{task_name}: could not confirm the state: {result.reason}"
             )
-            self.pushButton_yes.setEnabled(True)
-            self.pushButton_no.setEnabled(bool(self.pushButton_no.text()))
+            self.prompt_bar.reopen()
 
     # -- a loop's pass, on the prompt bar over its widget ----------------------
 
@@ -1974,7 +1925,7 @@ class AutoLamellaUI(QMainWindow):
             widget.milling_widget.pushButton_run_milling.setVisible(False)
         self._loop_proposal = (item_id, task_name, proposal)
         prompt = loop_prompt(proposal)
-        self.set_instructions_msg(prompt.message, prompt.positive, prompt.negative)
+        self.prompt_bar.ask(prompt.message, prompt.positive, prompt.negative)
         self.workflow_status_signal.emit(WorkflowStatusEvent())
 
     def loop_proposal_host(self):
@@ -1994,7 +1945,7 @@ class AutoLamellaUI(QMainWindow):
         from fibsem.workflows.status import WorkflowStatusEvent
 
         self._loop_proposal = None
-        self.set_instructions_msg("")
+        self.prompt_bar.clear()
         self.workflow_status_signal.emit(WorkflowStatusEvent(message=""))
 
     def _decide_loop_proposal(self, clicked_yes: bool) -> None:
@@ -2040,8 +1991,7 @@ class AutoLamellaUI(QMainWindow):
         if not result.applied:
             # Left up: the question is still open, and the reason is logged.
             logging.warning(f"{task_name}: could not decide the pass: {result.reason}")
-            self.pushButton_yes.setEnabled(True)
-            self.pushButton_no.setEnabled(prompt.negative is not None)
+            self.prompt_bar.reopen()
 
     # -- a value edited on its own widget, on the prompt bar ------------------
 
@@ -2077,7 +2027,7 @@ class AutoLamellaUI(QMainWindow):
             self.tabWidget.setCurrentWidget(self.tab)
             self._follow_poi_frames()
         self._widget_proposal = (item_id, task_name, proposal)
-        self.set_instructions_msg(message or "Press Continue when ready.", "Continue")
+        self.prompt_bar.ask(message or "Press Continue when ready.", "Continue")
         self.workflow_status_signal.emit(WorkflowStatusEvent())
 
     def _reference_image(self, item_id: str, proposal):
@@ -2141,7 +2091,7 @@ class AutoLamellaUI(QMainWindow):
             self.image_widget.clear_alignment_area()
         elif kind == POINT_OF_INTEREST:
             self.poi_marker.remove()
-        self.set_instructions_msg("")
+        self.prompt_bar.clear()
         self.workflow_status_signal.emit(WorkflowStatusEvent(message=""))
 
     def _widget_value(self, proposal) -> Dict[str, Any]:
@@ -2186,7 +2136,7 @@ class AutoLamellaUI(QMainWindow):
         if not result.applied:
             # Left up: the question is still open, and the reason is logged.
             logging.warning(f"{task_name}: could not decide it: {result.reason}")
-            self.pushButton_yes.setEnabled(True)
+            self.prompt_bar.reopen()
 
     def handle_acquisition_update(self, ddict: dict) -> None:
         if ddict.get("finished", False):
@@ -2318,5 +2268,5 @@ class AutoLamellaUI(QMainWindow):
         refreshes while its question is up.
         """
         if event.message is not None:
-            self.set_instructions_msg(event.message)
+            self.prompt_bar.ask(event.message)
         self.set_current_workflow_message(event.workflow_info)

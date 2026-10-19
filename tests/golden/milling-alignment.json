@@ -1,0 +1,38 @@
+{
+  "enabled": false,
+  "full_frame_below": 1e-10,
+  "imaging": {
+    "autocontrast": true,
+    "beam_type": "ION",
+    "drift_correction": true,
+    "dwell_time": 2e-06,
+    "filename": "reference",
+    "frame_integration": 4,
+    "hfw": 8e-05,
+    "line_integration": 2,
+    "path": "/data/experiment",
+    "reduced_area": {
+      "height": 0.4,
+      "left": 0.1,
+      "top": 0.2,
+      "width": 0.3
+    },
+    "resolution": [
+      768,
+      512
+    ],
+    "save": true,
+    "scan_interlacing": null
+  },
+  "interval": 30,
+  "interval_enabled": false,
+  "rect": {
+    "height": 0.4,
+    "left": 0.1,
+    "top": 0.2,
+    "width": 0.3
+  },
+  "steps": 2,
+  "use_autocontrast": true,
+  "use_autofocus": false
+}

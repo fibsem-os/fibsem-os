@@ -698,6 +698,8 @@ class Decision:
     action: str = ""
     # The suggestion this decision approved; empty when it approved none.
     suggestion_id: str = ""
+    # The evidence the decider cited (`fibsem.workflows.evidence`), by id.
+    evidence: str = ""
 
     def __post_init__(self) -> None:
         # a string from the file, the wire or a test is accepted and parsed
@@ -718,6 +720,8 @@ class Decision:
             doc["action"] = self.action
         if self.suggestion_id:
             doc["suggestion_id"] = self.suggestion_id
+        if self.evidence:
+            doc["evidence"] = self.evidence
         return doc
 
     @classmethod
@@ -733,6 +737,7 @@ class Decision:
             proposal_id=data.get("proposal_id", ""),
             action=data.get("action", ""),
             suggestion_id=data.get("suggestion_id", ""),
+            evidence=data.get("evidence", ""),
         )
 
 
@@ -744,7 +749,8 @@ class Suggestion:
 
     ``patch`` is kept as sent when the suggester edited fields of the proposed
     value (a milling config's depth); ``values`` when it sent whole values.
-    ``image`` is a path inside the experiment the suggester's evidence is in.
+    ``evidence`` is the id of the evidence it cites; ``image``, the beam image
+    (inside the experiment) its value is drawn on.
     """
 
     actor: Actor
@@ -754,6 +760,7 @@ class Suggestion:
     patch: Dict[str, Any] = field(default_factory=dict)
     action: str = ""
     image: str = ""
+    evidence: str = ""
     timestamp: Optional[datetime] = field(default_factory=now)
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
     declined: bool = False
@@ -783,7 +790,7 @@ class Suggestion:
             doc["values"] = _encode_values(self.values)
         if self.patch:
             doc["patch"] = dict(self.patch)
-        for name in ("action", "image", "declined_reason"):
+        for name in ("action", "image", "evidence", "declined_reason"):
             if getattr(self, name):
                 doc[name] = getattr(self, name)
         if self.declined:
@@ -800,6 +807,7 @@ class Suggestion:
             patch=dict(data.get("patch", {})),
             action=data.get("action", ""),
             image=data.get("image", ""),
+            evidence=data.get("evidence", ""),
             timestamp=to_datetime(data.get("timestamp")),
             id=data.get("id") or uuid.uuid4().hex,
             declined=bool(data.get("declined", False)),

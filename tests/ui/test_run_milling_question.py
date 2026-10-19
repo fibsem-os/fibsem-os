@@ -150,7 +150,7 @@ def _start(ui, qapp, config=None, milling_enabled=True, wait_for=FIRST):
 def _wait_for_prompt(ui, qapp, text, timeout_s=10.0):
     _wait(
         qapp,
-        lambda: ui.label_instructions.text() == text and ui.pushButton_yes.isEnabled(),
+        lambda: ui.prompt_bar.message.text() == text and ui.prompt_bar.yes.isEnabled(),
         timeout_s,
         f"the prompt {text!r} never appeared",
     )
@@ -192,20 +192,20 @@ def _settle(qapp, seconds):
 def test_run_then_accept_mills_once_on_the_workflow_thread(ui, qapp):
     task, thread, outcome = _start(ui, qapp)
 
-    assert ui.pushButton_yes.text() == "Run Milling"
-    assert ui.pushButton_no.text() == "Skip"
+    assert ui.prompt_bar.yes.text() == "Run Milling"
+    assert ui.prompt_bar.no.text() == "Skip"
     assert _pass(ui).provenance["passes"] == 0
     assert ui.hold is not None and ui.hold.kind is HoldKind.proposal
 
-    ui.pushButton_yes.click()  # run
+    ui.prompt_bar.yes.click()  # run
     _wait_for_prompt(ui, qapp, AGAIN)
     assert len(ui._mills) == 1
     assert ui._mills[0].thread is thread, "the task mills, not the GUI"
     assert _pass(ui).provenance["passes"] == 1
-    assert ui.pushButton_yes.text() == "Mill Again"
-    assert ui.pushButton_no.text() == "Accept"
+    assert ui.prompt_bar.yes.text() == "Mill Again"
+    assert ui.prompt_bar.no.text() == "Accept"
 
-    ui.pushButton_no.click()  # accept
+    ui.prompt_bar.no.click()  # accept
     _finish(thread, qapp)
 
     assert "error" not in outcome
@@ -217,13 +217,13 @@ def test_run_then_accept_mills_once_on_the_workflow_thread(ui, qapp):
 def test_mill_again_runs_a_second_pass(ui, qapp):
     task, thread, outcome = _start(ui, qapp)
 
-    ui.pushButton_yes.click()
+    ui.prompt_bar.yes.click()
     _wait_for_prompt(ui, qapp, AGAIN)
-    ui.pushButton_yes.click()  # Mill Again
+    ui.prompt_bar.yes.click()  # Mill Again
     _wait(qapp, lambda: len(ui._mills) == 2)
     _wait_for_prompt(ui, qapp, AGAIN)
     assert _pass(ui).provenance["passes"] == 2
-    ui.pushButton_no.click()
+    ui.prompt_bar.no.click()
     _finish(thread, qapp)
 
     assert "error" not in outcome
@@ -235,17 +235,17 @@ def test_a_failed_mill_asks_again_with_the_error(ui, qapp):
     ui._mill_failures.append(RuntimeError("could not load type"))
     task, thread, outcome = _start(ui, qapp)
 
-    ui.pushButton_yes.click()  # run, and it fails
+    ui.prompt_bar.yes.click()  # run, and it fails
     _wait_for_prompt(ui, qapp, f"Milling failed: could not load type\n\n{AGAIN}")
     assert thread.is_alive(), "a failed mill does not end the question"
     assert _pass(ui).provenance["last_error"] == "could not load type"
 
-    ui.pushButton_yes.click()  # retry, and it succeeds
+    ui.prompt_bar.yes.click()  # retry, and it succeeds
     _wait_for_prompt(ui, qapp, AGAIN)
     assert len(ui._mills) == 2
     assert _pass(ui).provenance["passes"] == 2
 
-    ui.pushButton_no.click()
+    ui.prompt_bar.no.click()
     _finish(thread, qapp)
 
     assert "error" not in outcome
@@ -255,9 +255,9 @@ def test_accept_after_a_failed_mill_goes_on(ui, qapp):
     ui._mill_failures.append(RuntimeError("could not load type"))
     task, thread, outcome = _start(ui, qapp)
 
-    ui.pushButton_yes.click()
+    ui.prompt_bar.yes.click()
     _wait_for_prompt(ui, qapp, f"Milling failed: could not load type\n\n{AGAIN}")
-    ui.pushButton_no.click()
+    ui.prompt_bar.no.click()
     _finish(thread, qapp)
 
     assert "error" not in outcome
@@ -281,7 +281,7 @@ def test_unsupervised_a_failed_mill_fails_the_task(ui, qapp):
 def test_skip_goes_on_without_a_mill(ui, qapp):
     task, thread, outcome = _start(ui, qapp)
 
-    ui.pushButton_no.click()  # skip
+    ui.prompt_bar.no.click()  # skip
     _finish(thread, qapp)
 
     assert "error" not in outcome
@@ -307,8 +307,8 @@ def test_disabled_milling_only_confirms_the_patterns(ui, qapp):
         wait_for=f"{MSG} Press Continue when the config is right.",
     )
 
-    assert ui.pushButton_yes.text() == "Continue"
-    ui.pushButton_yes.click()
+    assert ui.prompt_bar.yes.text() == "Continue"
+    ui.prompt_bar.yes.click()
     _finish(thread, qapp)
 
     assert "error" not in outcome
@@ -320,9 +320,9 @@ def test_what_mills_is_what_the_editor_held(ui, qapp):
     task, thread, outcome = _start(ui, qapp)
 
     ui.milling_task_config_widget.update_from_settings(_config("edited-by-operator"))
-    ui.pushButton_yes.click()
+    ui.prompt_bar.yes.click()
     _wait_for_prompt(ui, qapp, AGAIN)
-    ui.pushButton_no.click()
+    ui.prompt_bar.no.click()
     _finish(thread, qapp)
 
     assert ui._mills[0].config.name == "edited-by-operator"
@@ -334,10 +334,10 @@ def test_accept_returns_what_was_milled_not_a_later_edit(ui, qapp):
     claim it (FIB-580)."""
     task, thread, outcome = _start(ui, qapp)
 
-    ui.pushButton_yes.click()
+    ui.prompt_bar.yes.click()
     _wait_for_prompt(ui, qapp, AGAIN)
     ui.milling_task_config_widget.update_from_settings(_config("never-milled"))
-    ui.pushButton_no.click()
+    ui.prompt_bar.no.click()
     _finish(thread, qapp)
 
     assert outcome["config"].name == "rough"
@@ -388,7 +388,7 @@ def test_an_agents_edit_lands_in_the_editor_and_asks_again(ui, qapp):
     _wait_for_prompt(ui, qapp, AGAIN)
     assert ui._mills[0].config.stages[1].pattern.depth == pytest.approx(2.5e-6)
 
-    ui.pushButton_no.click()
+    ui.prompt_bar.no.click()
     _finish(thread, qapp)
     assert "error" not in outcome
 
@@ -397,9 +397,9 @@ def test_every_pass_is_on_the_record_with_its_action(ui, qapp):
     """One proposal per pass, sharing the run: Run, then Accept, each with
     who decided it."""
     task, thread, outcome = _start(ui, qapp)
-    ui.pushButton_yes.click()
+    ui.prompt_bar.yes.click()
     _wait_for_prompt(ui, qapp, AGAIN)
-    ui.pushButton_no.click()
+    ui.prompt_bar.no.click()
     _finish(thread, qapp)
 
     passes = [
@@ -439,13 +439,13 @@ def test_a_stop_during_the_mill_ends_the_task_without_asking_again(ui, qapp):
     task, thread, outcome = _start(ui, qapp)
     ui._on_mill.append(lambda: _stop(ui, task))  # Stop pressed mid-mill
 
-    ui.pushButton_yes.click()
+    ui.prompt_bar.yes.click()
     _finish(thread, qapp)
     _settle(qapp, 0.3)
 
     assert isinstance(outcome.get("error"), InterruptedError)
     assert len(ui._mills) == 1
-    assert ui.label_instructions.text() != AGAIN, "the aborted prompt came back"
+    assert ui.prompt_bar.message.text() != AGAIN, "the aborted prompt came back"
     assert ui.hold is None
 
 
@@ -456,7 +456,7 @@ def test_a_click_after_a_stop_starts_nothing(ui, qapp):
     _finish(thread, qapp)
     assert isinstance(outcome.get("error"), InterruptedError)
 
-    ui.pushButton_yes.click()  # "Run Milling", but the asker is gone
+    ui.prompt_bar.yes.click()  # "Run Milling", but the asker is gone
     _settle(qapp, 0.3)
 
     assert ui._mills == []
@@ -468,7 +468,7 @@ def test_flipping_to_auto_mid_mill_goes_on_without_asking_again(ui, qapp):
     task, thread, outcome = _start(ui, qapp)
     ui._on_mill.append(lambda: ui._supervision.update(supervised=False))
 
-    ui.pushButton_yes.click()
+    ui.prompt_bar.yes.click()
     _finish(thread, qapp)
 
     assert "error" not in outcome
@@ -482,7 +482,7 @@ def test_flipping_to_supervised_mid_mill_asks_at_its_end(ui, qapp):
     task, thread, outcome = _start(ui, qapp, wait_for=AGAIN)
 
     assert len(ui._mills) == 1
-    ui.pushButton_no.click()  # accept
+    ui.prompt_bar.no.click()  # accept
     _finish(thread, qapp)
 
     assert "error" not in outcome
@@ -496,11 +496,11 @@ def test_every_mill_is_the_task_s_and_writes_under_its_folder(ui, qapp):
     ui._mill_failures.append(RuntimeError("could not load type"))
     task, thread, outcome = _start(ui, qapp)
 
-    ui.pushButton_yes.click()  # run, and it fails
+    ui.prompt_bar.yes.click()  # run, and it fails
     _wait_for_prompt(ui, qapp, f"Milling failed: could not load type\n\n{AGAIN}")
-    ui.pushButton_yes.click()  # the operator's retry
+    ui.prompt_bar.yes.click()  # the operator's retry
     _wait_for_prompt(ui, qapp, AGAIN)
-    ui.pushButton_no.click()
+    ui.prompt_bar.no.click()
     _finish(thread, qapp)
 
     assert [mill.actor for mill in ui._mills] == [TASK, TASK]
@@ -542,7 +542,7 @@ def test_the_question_is_the_task_s_and_the_answer_the_operator_s(ui, qapp, tmp_
     )
     try:
         task, thread, _ = _start(ui, qapp)
-        ui.pushButton_no.click()  # skip
+        ui.prompt_bar.no.click()  # skip
         _finish(thread, qapp)
     finally:
         recorder.close()

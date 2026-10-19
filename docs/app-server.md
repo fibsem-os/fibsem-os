@@ -70,7 +70,13 @@ amber and says how many actions it is asking for ("Agent asks · 3"). Click
 the chip: the request is at the top of its menu. Each action is shown with
 what it acts on and what it changes (a setting shows old → new). These
 lines are written by the app from the actions themselves, not by the agent.
-Under them is the agent's reason.
+Under them is the agent's reason. The picture beside it is the image the agent
+judged from, its evidence, with any points or areas it marked: a beam image has
+the actions' values drawn on it too, while an image the agent drew itself is
+shown as it is. Without evidence the picture is the image the values were
+measured on, and "No evidence" shows under the reason. Evidence is kept in the
+experiment under `evidence/`, and Recent has an "evidence" link on each row
+that cites some.
 
 - **Approve** runs the actions in order, each checked as if the agent had
   made the call at Drive. The block shows each one's progress. If one is

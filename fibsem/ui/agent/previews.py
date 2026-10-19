@@ -496,6 +496,71 @@ def _key_past_field(frame, layer: "_Layer") -> None:
         layer.key(OUTLINE, "past the field", layer.patterns)
 
 
+def evidence_picture(evidence: Optional[Dict[str, Any]]):
+    """The image of the agent's *evidence*, its marks drawn on it, at most
+    `PICTURE_WIDTH` wide: a QImage, or None when there is no image to show."""
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtGui import QImage
+
+    path = (evidence or {}).get("image")
+    if not path:
+        return None
+    image = QImage(str(path))
+    if image.isNull():
+        # A beam image (TIFF): as the card draws a frame.
+        from fibsem.imaging.export import _to_uint8
+        from fibsem.ui.utils import arr_to_qimage
+
+        try:
+            frame = _load_beam_image(str(path))
+            image = arr_to_qimage(_to_uint8(frame.data))
+        except Exception:  # noqa: BLE001 - shown without it
+            return None
+    width = image.width()
+    scale = min(1.0, PICTURE_WIDTH / max(width, 1))
+    if scale < 1.0:
+        image = image.scaledToWidth(int(width * scale), Qt.SmoothTransformation)  # type: ignore
+    image = image.convertToFormat(QImage.Format_RGB32)
+    draw_evidence_marks(image, (evidence or {}).get("marks"), scale)
+    return image
+
+
+def draw_evidence_marks(image, marks: Optional[Dict[str, Any]], scale: float) -> None:
+    """The agent's *marks* (its image's pixels, times *scale*) on the QImage
+    *image*, in the agent's purple: a cross per point, a box per area, each
+    with its label."""
+    from PyQt5.QtCore import QPointF, QRectF
+    from PyQt5.QtGui import QColor, QFont, QPainter, QPen
+
+    if not marks:
+        return
+    painter = QPainter(image)
+    painter.setRenderHint(QPainter.Antialiasing)
+    line = max(2.0, image.width() / 150)
+    painter.setPen(QPen(QColor(PURPLE_COLOR), line))
+    font = QFont()
+    font.setPixelSize(max(14, int(image.width() / 32)))
+    painter.setFont(font)
+    size = line * 5
+    for point in marks.get("points") or []:
+        x, y = point["x"] * scale, point["y"] * scale
+        painter.drawLine(QPointF(x - size, y), QPointF(x + size, y))
+        painter.drawLine(QPointF(x, y - size), QPointF(x, y + size))
+        if point.get("label"):
+            painter.drawText(QPointF(x + size + line, y - line), point["label"])
+    for area in marks.get("areas") or []:
+        rect = QRectF(
+            area["x"] * scale,
+            area["y"] * scale,
+            area["width"] * scale,
+            area["height"] * scale,
+        )
+        painter.drawRect(rect)
+        if area.get("label"):
+            painter.drawText(rect.topLeft() + QPointF(0, -line), area["label"])
+    painter.end()
+
+
 def draw_picture(frame, layers: List[_Layer]):
     """*frame* with *layers* drawn on it, as the card shows it: a QImage at most
     `PICTURE_WIDTH` wide (FIB-1411). Patterns are drawn as the milling view
@@ -727,6 +792,11 @@ class AgentPreviews:
             self._picture(None, None, [], suggestion=suggestion)
         if not waiting:
             return
+        cited = request.get("evidence") or {}
+        if cited.get("uploaded"):
+            # An image the agent made: shown as it is, its marks on it.
+            self._evidence_only(cited, suggestion)
+            return
         controller = self._view_controller()
         if controller is None:
             return
@@ -801,7 +871,17 @@ class AgentPreviews:
             suggestion=suggestion,
             agent_image=evidence is not None,
             title="" if evidence is not None else title,
+            marks=cited.get("marks") if evidence is not None else None,
         )
+
+    def _evidence_only(self, evidence: Dict[str, Any], suggestion: bool) -> None:
+        image = evidence_picture(evidence)
+        drawn = (evidence, []) if image is not None else None
+        if suggestion:
+            self.suggestion_picture = drawn
+        else:
+            self.request_picture = drawn
+        self._show_picture(image, "The agent's image", suggestion=suggestion)
 
     def _pass_frame(self, request: Dict[str, Any]):
         """``(image, ION, what)``: the image the first pass a request decides
@@ -1069,6 +1149,7 @@ class AgentPreviews:
         suggestion: bool = False,
         agent_image: bool = False,
         title: str = "",
+        marks: Optional[Dict[str, Any]] = None,
     ) -> None:
         drawn = None
         # The agent's own image shows with nothing drawn on it, too.
@@ -1084,8 +1165,11 @@ class AgentPreviews:
         caption = picture_caption(frame, beam)
         if title:
             caption = f"{title} · {caption}"
+        image = draw_picture(frame, layers)
+        if marks:
+            draw_evidence_marks(image, marks, image.width() / frame.data.shape[1])
         self._show_picture(
-            draw_picture(frame, layers),
+            image,
             f"The agent's image · {caption}" if agent_image else caption,
             suggestion=suggestion,
             legend=legend_entries(layers),

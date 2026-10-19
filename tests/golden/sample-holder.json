@@ -1,0 +1,40 @@
+{
+  "capacity": 2,
+  "description": "two slots",
+  "name": "Shuttle",
+  "pre_tilt": 35.0,
+  "slots": {
+    "Slot-01": {
+      "calibration": {
+        "captured_at": "2026-10-01T10:00:00+10:00",
+        "fibsem_version": "0.6.0",
+        "orientation": "SEM",
+        "pre_tilt": 35.0,
+        "rotation_reference": 10.0
+      },
+      "index": 0,
+      "loaded_grid": {
+        "description": "cryo",
+        "name": "grid-01",
+        "radius": 0.0014
+      },
+      "name": "Slot-01",
+      "position": {
+        "coordinate_system": null,
+        "name": "Slot-01",
+        "r": 0.0,
+        "t": 0.0,
+        "x": 0.001,
+        "y": 0.002,
+        "z": 0.0
+      }
+    },
+    "Slot-02": {
+      "calibration": null,
+      "index": 1,
+      "loaded_grid": null,
+      "name": "Slot-02",
+      "position": null
+    }
+  }
+}

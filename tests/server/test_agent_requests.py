@@ -16,6 +16,7 @@ from psygnal.containers import EventedDict  # noqa: E402
 import fibsem.applications.autolamella  # noqa: E402
 from fibsem import utils  # noqa: E402
 from fibsem.acting import WORKFLOW, current_actor  # noqa: E402
+from fibsem.ai.agent.calls import EVIDENCE_HEADER  # noqa: E402
 from fibsem.ai.agent.catalog import CATALOG  # noqa: E402
 from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
@@ -165,28 +166,33 @@ def test_a_malformed_request_is_refused(client, action, reason, error_type):
     assert _detail(refused)["error_type"] == error_type
 
 
-def test_a_request_carries_the_image_its_evidence_is_in(client, tmp_path):
-    # FIB-1411: the agent's own image, shown under Why. Inside the experiment.
+def test_a_request_cites_its_evidence(client, context, tmp_path):
+    # FIB-1411: what the agent judged from, shown under Why; its beam image is
+    # what the actions' values are drawn on.
     folder = tmp_path / "exp" / "requests-exp"
     folder.mkdir(parents=True, exist_ok=True)
-    inside = folder / "ref_trench.tif"
-    inside.write_bytes(b"tif")
-    outside = tmp_path / "elsewhere.tif"
-    outside.write_bytes(b"tif")
+    (folder / "ref_trench.tif").write_bytes(b"tif")
+    kept = client.post(
+        "/app/experiment/evidence",
+        headers=AGENT,
+        json={"image": str(folder / "ref_trench.tif")},
+    ).json()
 
-    def file(image):
+    def file(evidence_id):
         return client.post(
             "/app/agent/requests",
-            headers=AGENT,
-            json={"actions": [NUDGE], "reason": "the trench", "image": image},
+            headers={**AGENT, EVIDENCE_HEADER: evidence_id},
+            json={"actions": [NUDGE], "reason": "the trench"},
         )
 
-    assert _detail(file(str(outside)))["error_type"] == "not_allowed"
-    missing = file(str(folder / "none.tif"))
-    assert missing.status_code == 422 and _detail(missing)["error_type"] == "invalid"
-    filed = file(str(inside))
+    missing = file("00000000")
+    assert missing.status_code == 404 and _detail(missing)["error_type"] == "not_found"
+    filed = file(kept["evidence_id"])
     assert filed.status_code == 202, filed.text
-    assert filed.json()["image"] == str(inside)
+    assert filed.json()["evidence"]["evidence_id"] == kept["evidence_id"]
+    assert filed.json()["image"] == os.path.realpath(folder / "ref_trench.tif")
+    proposal = _proposal(context, filed.json()["request_id"])
+    assert proposal.provenance["evidence"] == kept["evidence_id"]
 
 
 @pytest.mark.parametrize(

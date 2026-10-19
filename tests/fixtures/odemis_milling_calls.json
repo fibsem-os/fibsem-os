@@ -85,15 +85,14 @@
       "width": 1e-05,
       "height": 5e-06,
       "depth": 1e-06,
-      "rotation": 0,
-      "cleaning_cross_section": false,
+      "rotation": 0.0,
       "scan_direction": "TopToBottom",
       "cross_section": "Rectangle",
       "passes": 0,
       "time": 0.0,
       "is_exclusion": false,
-      "center_x": 0,
-      "center_y": 0
+      "center_x": 0.0,
+      "center_y": 0.0
      }
     ],
     {}
@@ -258,15 +257,14 @@
       "width": 1e-05,
       "height": 5e-06,
       "depth": 1e-06,
-      "rotation": 0,
-      "cleaning_cross_section": false,
+      "rotation": 0.0,
       "scan_direction": "TopToBottom",
       "cross_section": "Rectangle",
       "passes": 0,
       "time": 0.0,
       "is_exclusion": false,
-      "center_x": 0,
-      "center_y": 0
+      "center_x": 0.0,
+      "center_y": 0.0
      }
     ],
     {}

@@ -51,12 +51,22 @@ from fibsem.structures import (
     FibsemManipulatorPosition,
     FibsemRectangle,
     FibsemStagePosition,
+    FibsemUser,
     FocusStackSettings,
+    GridSlot,
     ImageSettings,
+    ManipulatorSystemSettings,
     MicroscopeSettings,
     MicroscopeState,
+    MillingAlignment,
     OverviewAcquisitionSettings,
     Point,
+    ReferenceImageParameters,
+    SampleGrid,
+    SampleHolder,
+    SessionInfo,
+    SlotCalibration,
+    SystemInfo,
     TileOrderStrategy,
 )
 
@@ -393,3 +403,133 @@ def test_a_numpy_tile_mask_saves_as_plain_bools():
     assert saved["tile_mask"] == [[True, False], [False, True]]
     assert all(type(v) is bool for row in saved["tile_mask"] for v in row)
     yaml.safe_dump(saved)
+
+
+# ---- holders, sessions, alignment and the rest of fibsem.structures ----------
+
+GRID = SampleGrid(name="grid-01", description="cryo", radius=1.4e-3)
+CALIBRATION = SlotCalibration(
+    orientation="SEM",
+    pre_tilt=35.0,
+    rotation_reference=10.0,
+    captured_at="2026-10-01T10:00:00+10:00",
+    fibsem_version="0.6.0",
+)
+SLOT = GridSlot(
+    name="Slot-01",
+    index=0,
+    position=FibsemStagePosition(name="Slot-01", x=1e-3, y=2e-3, z=0.0, r=0.0, t=0.0),
+    loaded_grid=GRID,
+    calibration=CALIBRATION,
+)
+BUILT_REST = {
+    "sample-grid": GRID,
+    "slot-calibration": CALIBRATION,
+    "grid-slot": SLOT,
+    "sample-holder": SampleHolder(
+        pre_tilt=35.0,
+        name="Shuttle",
+        description="two slots",
+        capacity=2,
+        slots={"Slot-01": SLOT, "Slot-02": GridSlot(name="Slot-02", index=1)},
+    ),
+    "session-info": SessionInfo(
+        recorded_at=datetime.fromisoformat("2026-10-01T10:00:00+10:00"),
+        system=SystemInfo(
+            name="Arctis",
+            manufacturer="Thermo",
+            fibsem_version="0.6.0",
+            fibsem_revision="v0.6.0-1-gabcdef0",
+        ),
+        user=FibsemUser(name="operator", email="op@example.com"),
+        plugins={"fibsem-plugin-example": "0.1.0"},
+        utc_offset="+10:00",
+        zone_name="AEST",
+    ),
+    "milling-alignment": MillingAlignment(
+        enabled=False, rect=RECTANGLE, steps=2, imaging=IMAGE, full_frame_below=1e-10
+    ),
+    "reference-image-parameters": ReferenceImageParameters(
+        imaging=IMAGE, field_of_view1=80e-6, acquire_fib=False, acquire_image2=False
+    ),
+    "manipulator-system-settings": ManipulatorSystemSettings(enabled=False),
+}
+
+
+@pytest.mark.parametrize("case", sorted(BUILT_REST))
+def test_a_built_rest_structure_saves_as_pinned_and_reads_back(case):
+    value = BUILT_REST[case]
+    saved = value.to_dict()
+    _check(case, saved)
+    assert _plain(type(value).from_dict(_plain(saved)).to_dict()) == _plain(saved)
+
+
+OLD_REST = {
+    "old-overview-use-focus-stack": (
+        OverviewAcquisitionSettings,
+        {"use_focus_stack": True},
+    ),
+    "old-overview-mode-in-autofocus": (
+        OverviewAcquisitionSettings,
+        {"autofocus_settings": {"mode": "EACH_ROW"}},
+    ),
+    "old-overview-no-autocontrast-mode": (
+        OverviewAcquisitionSettings,
+        {"image_settings": {"autocontrast": True}, "tile_order": "serpentine"},
+    ),
+    "old-overview-empty": (OverviewAcquisitionSettings, {}),
+    "old-alignment-empty": (MillingAlignment, {}),
+    "old-slot-calibration-blank-time": (
+        SlotCalibration,
+        {
+            "orientation": "SEM",
+            "pre_tilt": 35,
+            "rotation_reference": 0,
+            "captured_at": "",
+            "fibsem_version": "built-in",
+        },
+    ),
+    "old-slot-calibration-naive-time": (
+        SlotCalibration,
+        {
+            "orientation": "FIB",
+            "pre_tilt": 35.0,
+            "rotation_reference": 0.0,
+            "captured_at": "2026-09-01T10:00:00",
+            "fibsem_version": "0.5.3",
+        },
+    ),
+    "old-holder-no-pre-tilt": (
+        SampleHolder,
+        {
+            "name": "Old Shuttle",
+            "capacity": 2,
+            "slots": {
+                "Slot-01": {
+                    "name": "Slot-01",
+                    "index": 0,
+                    "position": {
+                        "name": "Slot-01",
+                        "x": 0.001,
+                        "y": 0.0,
+                        "z": 0.0,
+                        "r": 0.0,
+                        "t": 0.0,
+                        "coordinate_system": "RAW",
+                    },
+                    "loaded_grid": None,
+                }
+            },
+        },
+    ),
+    "old-session-posix": (
+        SessionInfo,
+        {"recorded_at": 1760000000.0, "system": None, "user": None},
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(OLD_REST))
+def test_an_old_rest_shape_saves_again_as_pinned(case):
+    cls, data = OLD_REST[case]
+    _check(case, cls.from_dict(data).to_dict())

@@ -35,7 +35,12 @@ from typing import Annotated, Any, List, Optional, Tuple
 from urllib.parse import quote, urlencode
 
 from fibsem.ai.agent.calls import headers_for
-from fibsem.ai.agent.catalog import CATALOG, route_call, tools_for_capabilities
+from fibsem.ai.agent.catalog import (
+    CATALOG,
+    EVIDENCE_PARAM,
+    route_call,
+    tools_for_capabilities,
+)
 
 _TIMEOUT_S = 120.0  # acquisitions and moves on real hardware are slow
 # How long start-up looks for the server before answering the MCP client anyway:
@@ -292,6 +297,10 @@ _calling: "ContextVar[Optional[Tuple[str, dict]]]" = ContextVar(
     "fibsem_mcp_calling", default=None
 )
 
+# The evidence the running tool's call cites, by id, once the sidecar has kept
+# it (`_with_evidence`).
+_citing: "ContextVar[Optional[str]]" = ContextVar("fibsem_mcp_citing", default=None)
+
 # fibsem.structures.MillingState by value, without importing it: the sidecar
 # stays light. tests/server/test_sidecar.py pins the two in step.
 _MILLING_STATES = ("IDLE", "RUNNING", "STOPPING", "PAUSED", "ERROR", "UNKNOWN")
@@ -365,7 +374,7 @@ def _call(client, method, path, payload=None):
     tool = _calling.get()
     if tool is not None and method != "GET":
         # The server describes the call for the operator from these (FIB-1426).
-        kwargs["headers"] = headers_for(*tool)
+        kwargs["headers"] = headers_for(*tool, evidence=_citing.get())
     try:
         resp = client.request(method, path, **kwargs)
     except ServerUnreachable as exc:
@@ -1144,10 +1153,8 @@ def build_sidecar(client, capabilities):
             body["reply_to"] = str(reply_to)
         return _app_post("/app/experiment/notes", body)
 
-    def request_create(actions: list, reason: str, image: Optional[str] = None):
+    def request_create(actions: list, reason: str):
         body = {"actions": list(actions), "reason": str(reason)}
-        if image:
-            body["image"] = str(image)
         return _app_post("/app/agent/requests", body)
 
     def request_withdraw(request_id: str, reason: str):
@@ -1496,7 +1503,6 @@ def build_sidecar(client, capabilities):
         values: Optional[dict] = None,
         patch: Optional[dict] = None,
         action: str = "",
-        image: str = "",
         actor: str = "",
     ):
         body = {
@@ -1513,8 +1519,6 @@ def build_sidecar(client, capabilities):
             body["patch"] = dict(patch)
         if action:
             body["action"] = str(action)
-        if image:
-            body["image"] = str(image)
         return _app_post("/app/workflow/proposals/suggest", body)
 
     implementations = {
@@ -1668,8 +1672,12 @@ def build_sidecar(client, capabilities):
     for name, fn in implementations.items():
         if name in offered:
             spec = by_name[name]
+            params = dict(spec.params)
+            if spec.takes_evidence:
+                fn = _with_evidence(fn, client)
+                params["evidence"] = EVIDENCE_PARAM
             mcp.add_tool(
-                _described(_flag_failures(fn, name), spec.params),
+                _described(_flag_failures(fn, name), params),
                 name=name,
                 title=spec.title,
                 description=spec.full_description,
@@ -1707,6 +1715,73 @@ def _described(fn, params):
     return fn
 
 
+def _evidence_body(evidence):
+    """The body that keeps *evidence* (the tool's ``evidence`` argument): a
+    ``file`` on this machine is read and sent as an upload. A `_Failure` when it
+    can't be read."""
+    if not isinstance(evidence, dict):
+        return _Failure(
+            'refused (422): {"error_type": "invalid", "message": "evidence is '
+            '{image or file, marks?, source?, item_name?}"}'
+        )
+    body = {k: v for k, v in evidence.items() if k != "file"}
+    path = evidence.get("file")
+    if path:
+        try:
+            with open(os.path.expanduser(str(path)), "rb") as f:
+                body["upload"] = base64.b64encode(f.read()).decode("ascii")
+        except OSError as exc:
+            return _Failure(
+                "refused (422): "
+                + json.dumps(
+                    {
+                        "error_type": "invalid",
+                        "message": f"evidence file {path} can't be read: {exc}",
+                    }
+                )
+            )
+    return body
+
+
+def _with_evidence(fn, client):
+    """*fn*, taking the optional ``evidence`` an acting tool takes: kept in the
+    experiment first (``POST /app/experiment/evidence``), then cited by id on
+    the call's requests (`calls.EVIDENCE_HEADER`)."""
+    import functools
+    import inspect
+
+    signature = inspect.signature(fn, eval_str=True)
+
+    @functools.wraps(fn)
+    def tool(*args, evidence: Optional[dict] = None, **kwargs):
+        if not evidence:
+            return fn(*args, **kwargs)
+        body = _evidence_body(evidence)
+        if isinstance(body, _Failure):
+            return body
+        saved, err = _call(client, "POST", "/app/experiment/evidence", body)
+        if err:
+            return err
+        token = _citing.set(saved.get("evidence_id"))
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            _citing.reset(token)
+
+    tool.__signature__ = signature.replace(
+        parameters=[
+            *signature.parameters.values(),
+            inspect.Parameter(
+                "evidence",
+                inspect.Parameter.KEYWORD_ONLY,
+                default=None,
+                annotation=Optional[dict],
+            ),
+        ]
+    )
+    return tool
+
+
 def _flag_failures(fn, name=None):
     """*fn*, with a server error it answers (`_Failure`) raised as the MCP
     ToolError, so the call is flagged an error rather than read as a refusal.
@@ -1721,7 +1796,9 @@ def _flag_failures(fn, name=None):
 
     @functools.wraps(fn)
     def tool(*args, **kwargs):
-        token = _calling.set((name, kwargs) if name else None)
+        # The arguments the server describes: the evidence is cited apart.
+        arguments = {k: v for k, v in kwargs.items() if k != "evidence"}
+        token = _calling.set((name, arguments) if name else None)
         try:
             answer = fn(*args, **kwargs)
         except ToolError:

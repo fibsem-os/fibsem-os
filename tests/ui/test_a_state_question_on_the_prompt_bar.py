@@ -136,9 +136,9 @@ def _prompt_is_up(ui) -> bool:
     # Text and enabled state, not isVisible(): the window is never shown
     # offscreen, so nothing in it is "visible".
     return (
-        "Press Continue" in ui.label_instructions.text()
-        and not ui.label_instructions.isHidden()
-        and ui.pushButton_yes.isEnabled()
+        "Press Continue" in ui.prompt_bar.message.text()
+        and not ui.prompt_bar.message.isHidden()
+        and ui.prompt_bar.yes.isEnabled()
     )
 
 
@@ -146,7 +146,7 @@ def _prompt_is_down(ui) -> bool:
     # The label doubles as the task's status line, so it is not empty once
     # the task carries on; what matters is that the question is gone from it.
     return (
-        "Press Continue" not in ui.label_instructions.text()
+        "Press Continue" not in ui.prompt_bar.message.text()
         and ui._state_proposal is None
     )
 
@@ -158,19 +158,19 @@ def test_the_question_is_asked_on_the_prompt_bar_and_continue_decides_it(window,
 
     assert _pump(qapp, lambda: _prompt_is_up(ui)), (
         "the prompt bar asks",
-        ui.label_instructions.text(),
+        ui.prompt_bar.message.text(),
         ui.hold,
         [(str(p.asked_by), p.kind) for p in lamella.proposals],
         seen,
     )
-    assert ui.pushButton_yes.text() == "Continue"
-    assert ui.pushButton_no.isHidden(), "one verb"
+    assert ui.prompt_bar.yes.text() == "Continue"
+    assert ui.prompt_bar.no.isHidden(), "one verb"
     assert window.tab_widget.currentIndex() == 0, "on the Microscope tab"
     assert ui.hold is not None and ui.hold.kind is HoldKind.proposal
     question = lamella.proposal(REF, STATE)
     assert question is not None and question.pending and question.asking
 
-    ui.pushButton_yes.click()
+    ui.prompt_bar.yes.click()
 
     assert _pump(qapp, lambda: not thread.is_alive()), "the task went on"
     assert "error" not in seen
