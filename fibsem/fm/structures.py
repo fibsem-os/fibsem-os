@@ -53,7 +53,6 @@ from ome_types.model import (
 from ome_types.model import (
     Filter as OMEFilter,
 )
-from pydantic_core import core_schema
 
 # Autofocus types are canonical in fibsem.autofunctions.autofocus; re-export here
 # so existing `from fibsem.fm.structures import ...` imports keep working.
@@ -173,84 +172,10 @@ def safe_ome_from_tiff(filename: str) -> OMEMetadata:
     return ome
 
 
-@dataclass
-class FMStagePosition:
-    """Stage position for fluorescence microscopy with position names."""
-
-    name: str
-    stage_position: FibsemStagePosition
-    objective_position: float  # meters, z-axis position of objective
-
-    def to_dict(self) -> dict:
-        return encode(self)
-
-    @classmethod
-    def from_dict(cls, ddict: dict) -> "FMStagePosition":
-        return decode(cls, ddict)
-
-    def __str__(self) -> str:
-        """String representation of the stage position."""
-        return f"FMStagePosition(name='{self.name}', stage={self.stage_position}, obj_z={self.objective_position:.6f})"
-
-    def __repr__(self) -> str:
-        """Detailed string representation."""
-        return (
-            f"FMStagePosition(name='{self.name}', "
-            f"stage_position={repr(self.stage_position)}, "
-            f"objective_position={self.objective_position})"
-        )
-
-    def format_position_info(self) -> str:
-        """Format position information for UI display.
-
-        Returns:
-            str: Formatted string with stage coordinates and objective position
-                 (e.g., "X: 123.4 μm, Y: 567.8 μm, Z: 90.1 μm, Obj: 12.345 mm")
-        """
-        info_text = f"X: {self.stage_position.x * 1e6:.1f} μm, Y: {self.stage_position.y * 1e6:.1f} μm"
-        if hasattr(self.stage_position, "z") and self.stage_position.z is not None:
-            info_text += f", Z: {self.stage_position.z * 1e6:.1f} μm"
-        info_text += f", Obj: {self.objective_position * 1e3:.3f} mm"
-        return info_text
-
-    @property
-    def pretty_name(self) -> str:
-        """Generate a pretty name for the stage position."""
-        return f"{self.name} ({self.stage_position.x * 1e6:.1f}μm, {self.stage_position.y * 1e6:.1f}μm, {self.objective_position * 1e3:.3f}mm)"
-
-    @classmethod
-    def create_from_current_position(
-        cls,
-        stage_position: FibsemStagePosition,
-        objective_position: float,
-        num: int = 0,
-    ) -> "FMStagePosition":
-        """Create FMStagePosition with automatic name generation if needed.
-
-        Args:
-            stage_position: The stage position coordinates
-            objective_position: Current objective z-position in meters
-            num: Optional index to use for name generation (default: 0)
-
-        Returns:
-            FMStagePosition: New position with generated or provided name
-        """
-        # Generate petname-style name with index
-        import petname
-
-        name = f"{num:02d}-{petname.generate(2)}"
-
-        return cls(
-            name=name,
-            stage_position=stage_position,
-            objective_position=objective_position,
-        )
-
-
 Band = Tuple[float, Optional[float]]  # edges in nm; the top may be unknown
 
 
-@dataclass(frozen=True, init=False)
+@dataclass(frozen=True)
 class EmissionFilter(Configurable):
     """One emission filter the filter set can put in the light path.
 
@@ -259,8 +184,6 @@ class EmissionFilter(Configurable):
     filter whose bands the driver doesn't know (an FM that reports only a
     fluorescence mode) has ``multi_band`` set and no bands. A driver that knows only a band's
     bottom edge gives ``(low, None)``.
-
-    ``EmissionFilter("GFP", low=510, high=560)`` is shorthand for one band.
     """
 
     name: str = param(doc="The filter's name, as the filter set reports it.")
@@ -274,44 +197,26 @@ class EmissionFilter(Configurable):
         doc="True for a filter that passes more than one band, even when its bands are not known.",
     )
 
-    def __init__(
-        self,
-        name: str,
-        low: Optional[float] = None,
-        high: Optional[float] = None,
-        *,
-        bands: Sequence[Sequence[Optional[float]]] = (),
-        multi_band: bool = False,
-    ):
-        if low is not None:
-            if bands:
-                raise ValueError("give either low and high, or bands")
-            bands = ((low, high),)
+    def __post_init__(self):
         edges = tuple(
-            (float(lo), None if hi is None else float(hi)) for lo, hi in bands
+            (float(lo), None if hi is None else float(hi)) for lo, hi in self.bands
         )
-        object.__setattr__(self, "name", name)
         object.__setattr__(self, "bands", tuple(sorted(edges, key=lambda b: b[0])))
-        object.__setattr__(self, "multi_band", bool(multi_band or len(edges) > 1))
+        object.__setattr__(self, "multi_band", bool(self.multi_band or len(edges) > 1))
 
     @classmethod
-    def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
-        # Read through __init__, which sorts the bands and marks more than one as
-        # multi-band; the generic reader would set the fields as written.
-        return core_schema.no_info_after_validator_function(
-            lambda read: cls(read.name, bands=read.bands, multi_band=read.multi_band),
-            handler(source),
-        )
+    def band(
+        cls, name: str, low: float, high: Optional[float] = None
+    ) -> "EmissionFilter":
+        """A single-band filter."""
+        return cls(name, bands=((low, high),))
 
     def to_dict(self) -> Dict[str, Any]:
         return encode(self)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "EmissionFilter":
-        """Reads ``bands``, or the single ``low``/``high`` of the first version."""
-        from fibsem.codec.upgrades.fluorescence import emission_filter
-
-        return decode(cls, emission_filter(data))
+        return decode(cls, data)
 
     @property
     def low(self) -> Optional[float]:

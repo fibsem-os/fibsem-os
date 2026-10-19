@@ -1,11 +1,9 @@
 """Fluorescence structures as older versions wrote them, in the current shape.
 
 A channel appears in protocols, the FM working configuration, the recent channels
-and each FM image's metadata, so its upgrade is shared by all of them:
-
-- before FIB-1439 a channel named its filter by ``emission_wavelength`` (None for
-  reflection, a label for a multi-band filter, or the band's bottom edge in nm);
-- the first ``emission_filter`` gave one band as ``low`` and ``high``.
+and each FM image's metadata, so its upgrade is shared by all of them.
+Before FIB-1439 a channel named its filter by ``emission_wavelength`` (None for
+reflection, a label for a multi-band filter, or the band's bottom edge in nm).
 
 The rest belongs to one file each:
 
@@ -22,25 +20,13 @@ from fibsem.codec.upgrades.autofocus import settings as upgrade_autofocus
 from fibsem.codec.upgrades.hardware_geometry import upgrade as upgrade_geometry
 
 
-def emission_filter(data: Dict[str, Any]) -> Dict[str, Any]:
-    """``EmissionFilter`` data from any version, in the current shape."""
-    if not isinstance(data, dict) or "bands" in data:
-        return data
-    data = dict(data)
-    low, high = data.pop("low", None), data.pop("high", None)
-    data["bands"] = [] if low is None else [[low, high]]
-    return data
-
-
 def channel(data: Dict[str, Any]) -> Dict[str, Any]:
     """``ChannelSettings`` (or an image's channel) data from any version."""
     from fibsem.fm.structures import emission_filter_for
 
     data = dict(data)
     wavelength = data.pop("emission_wavelength", None)
-    if "emission_filter" in data:
-        data["emission_filter"] = emission_filter(data["emission_filter"])
-    else:
+    if "emission_filter" not in data:
         data["emission_filter"] = emission_filter_for(wavelength, {})
     return data
 

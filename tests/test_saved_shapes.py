@@ -36,7 +36,6 @@ from fibsem.fm.structures import (
     FluorescenceConfiguration,
     FluorescenceImage,
     FluorescenceImageMetadata,
-    FMStagePosition,
     ObjectiveStartPosition,
     OverviewParameters,
     ZParameters,
@@ -244,9 +243,6 @@ BUILT_FM = {
     "overview-parameters": FM_OVERVIEW,
     "camera-settings": FM_CAMERA,
     "autofocus-settings": FOCUS,
-    "fm-stage-position": FMStagePosition(
-        name="01-grid", stage_position=STAGE, objective_position=8.4e-3
-    ),
     "fluorescence-configuration": FluorescenceConfiguration(
         channel_settings=[FM_CHANNEL, ChannelSettings()],
         z_parameters=FM_Z,
@@ -323,10 +319,6 @@ OLD_FM = {
     "old-channel-emission-wavelength-none": (
         ChannelSettings,
         {"name": "Refl", "excitation_wavelength": 550, "emission_wavelength": None},
-    ),
-    "old-channel-filter-low-high": (
-        ChannelSettings,
-        {"name": "GFP", "emission_filter": {"name": "GFP", "low": 500, "high": 550}},
     ),
     "old-autofocus-coarse-fine": (
         AutoFocusSettings,

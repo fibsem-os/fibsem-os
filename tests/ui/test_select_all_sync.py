@@ -42,8 +42,8 @@ def qapp():
 class _FakeFilterSet:
     available_excitation_wavelengths = [405.0, 488.0, 550.0]
     available_emission_filters = [
-        EmissionFilter("450 nm", low=450.0),
-        EmissionFilter("520 nm", low=520.0),
+        EmissionFilter.band("450 nm", 450.0),
+        EmissionFilter.band("520 nm", 520.0),
     ]
 
 
@@ -75,7 +75,7 @@ def _channel_list() -> ChannelListWidget:
         ChannelSettings(
             name=f"Channel-{i:02d}",
             excitation_wavelength=405.0,
-            emission_filter=EmissionFilter("450 nm", low=450.0),
+            emission_filter=EmissionFilter.band("450 nm", 450.0),
         )
         for i in range(1, 4)
     ]

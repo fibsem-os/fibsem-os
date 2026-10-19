@@ -98,7 +98,7 @@ def test_the_emission_filter_is_one_typed_choice(fm):
     filters.emission_filter.set_value(REFLECTION)
     assert filters.emission_filter.get_value() == REFLECTION
     with pytest.raises(ValueError):
-        filters.emission_filter.set_value(EmissionFilter("GFP", 510.0, 560.0))
+        filters.emission_filter.set_value(EmissionFilter.band("GFP", 510.0, 560.0))
 
 
 def test_an_excitation_between_bands_selects_the_nearest(fm, caplog):

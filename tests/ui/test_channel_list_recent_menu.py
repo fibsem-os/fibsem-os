@@ -36,8 +36,8 @@ def recents_env():
 class _FakeFilterSet:
     available_excitation_wavelengths = [405.0, 488.0, 550.0]
     available_emission_filters = [
-        EmissionFilter("450 nm", low=450.0),
-        EmissionFilter("520 nm", low=520.0),
+        EmissionFilter.band("450 nm", 450.0),
+        EmissionFilter.band("520 nm", 520.0),
     ]
 
 
@@ -55,7 +55,7 @@ def _widget(qapp):
     channel = ChannelSettings(
         name="Channel-01",
         excitation_wavelength=405.0,
-        emission_filter=EmissionFilter("450 nm", low=450.0),
+        emission_filter=EmissionFilter.band("450 nm", 450.0),
     )
     return clw.ChannelListWidget(fm=_FakeFM(), channel_settings=[channel])
 
@@ -78,7 +78,7 @@ def test_channel_available_matches_filter_set(qapp):
         ChannelSettings(
             name="GFP",
             excitation_wavelength=488.0,
-            emission_filter=EmissionFilter("520 nm", low=520.0),
+            emission_filter=EmissionFilter.band("520 nm", 520.0),
         )
     )
     # emission None (reflection) is always allowed
@@ -92,7 +92,7 @@ def test_channel_available_matches_filter_set(qapp):
         ChannelSettings(
             name="Bad",
             excitation_wavelength=999.0,
-            emission_filter=EmissionFilter("520 nm", low=520.0),
+            emission_filter=EmissionFilter.band("520 nm", 520.0),
         )
     )
     # emission not on the filter set
@@ -100,7 +100,7 @@ def test_channel_available_matches_filter_set(qapp):
         ChannelSettings(
             name="Bad",
             excitation_wavelength=405.0,
-            emission_filter=EmissionFilter("999 nm", low=999.0),
+            emission_filter=EmissionFilter.band("999 nm", 999.0),
         )
     )
 
@@ -127,12 +127,12 @@ def test_menu_lists_new_channel_then_recents(qapp, monkeypatch):
         ChannelSettings(
             name="GFP",
             excitation_wavelength=488.0,
-            emission_filter=EmissionFilter("520 nm", low=520.0),
+            emission_filter=EmissionFilter.band("520 nm", 520.0),
         ),
         ChannelSettings(
             name="Bad",
             excitation_wavelength=999.0,
-            emission_filter=EmissionFilter("520 nm", low=520.0),
+            emission_filter=EmissionFilter.band("520 nm", 520.0),
         ),
     ]
     monkeypatch.setattr(clw, "load_recent_channels", lambda state: recents)
@@ -173,7 +173,7 @@ def test_recent_selected_adds_copy_and_uniquifies_name(qapp):
     recent = ChannelSettings(
         name="Channel-01",
         excitation_wavelength=405.0,
-        emission_filter=EmissionFilter("450 nm", low=450.0),
+        emission_filter=EmissionFilter.band("450 nm", 450.0),
     )
     before = w._list.count()
     w._on_recent_selected(QMenu(), recent)
@@ -196,12 +196,12 @@ def test_recent_removed_updates_store(qapp, recents_env):
             ChannelSettings(
                 name="GFP",
                 excitation_wavelength=488.0,
-                emission_filter=EmissionFilter("520 nm", low=520.0),
+                emission_filter=EmissionFilter.band("520 nm", 520.0),
             ),
             ChannelSettings(
                 name="DAPI",
                 excitation_wavelength=405.0,
-                emission_filter=EmissionFilter("450 nm", low=450.0),
+                emission_filter=EmissionFilter.band("450 nm", 450.0),
             ),
         ],
         recents_env,
@@ -225,7 +225,7 @@ def test_removing_last_recent_empties_store(qapp, recents_env):
         ChannelSettings(
             name="GFP",
             excitation_wavelength=488.0,
-            emission_filter=EmissionFilter("520 nm", low=520.0),
+            emission_filter=EmissionFilter.band("520 nm", 520.0),
         ),
         recents_env,
     )

@@ -30,7 +30,7 @@ from fibsem.workflows.event_recording import (
 CHANNEL = ChannelSettings(
     name="GFP",
     excitation_wavelength=488,
-    emission_filter=EmissionFilter("509 nm", low=509),
+    emission_filter=EmissionFilter.band("509 nm", 509),
     power=0.2,
     exposure_time=0.1,
 )

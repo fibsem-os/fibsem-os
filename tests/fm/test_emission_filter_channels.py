@@ -14,8 +14,8 @@ from fibsem.fm.structures import (
     matching_emission_filter,
 )
 
-GFP = EmissionFilter("GFP", low=510, high=560)
-RFP = EmissionFilter("RFP", low=600, high=650)
+GFP = EmissionFilter.band("GFP", 510, 560)
+RFP = EmissionFilter.band("RFP", 600, 650)
 DUAL = EmissionFilter("Dual", bands=[(450, 490), (600, 650)])
 FLUORESCENCE = EmissionFilter("Fluorescence", multi_band=True)
 QUAD = EmissionFilter("Quad-band", bands=[(414, 450), (499.5, 530), (580, 611)])
@@ -26,7 +26,7 @@ QUAD = EmissionFilter("Quad-band", bands=[(414, 450), (499.5, 530), (580, 611)])
     [
         (GFP, [REFLECTION, GFP, RFP], GFP),
         (EmissionFilter("GFP"), [REFLECTION, GFP], GFP),
-        (EmissionFilter("510 nm", low=512), [REFLECTION, GFP, RFP], GFP),
+        (EmissionFilter.band("510 nm", 512), [REFLECTION, GFP, RFP], GFP),
         (REFLECTION, [REFLECTION, FLUORESCENCE], REFLECTION),
         (GFP, [REFLECTION, FLUORESCENCE], FLUORESCENCE),
         (DUAL, [REFLECTION, FLUORESCENCE], FLUORESCENCE),
