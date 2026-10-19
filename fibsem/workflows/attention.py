@@ -16,13 +16,10 @@ class Attention(str, Enum):
     of the producing task, set by the protocol author.
 
     supervised -- a person decides. A question the task needs answered before
-                  it can carry on is asked in the workflow and holds the run;
-                  a value another task consumes -- the task's result, a point
-                  of interest -- ends the task AwaitingDecision, and what
-                  requires it waits for the decision in the Review tab while
-                  the run carries on with other work. Which of the two a task
-                  has is a property of the task, not a setting.
-    automated  -- nobody is asked; the record is made and listed to check.
+                  it can carry on is asked in the workflow, where its widget
+                  is, and holds the run until it is answered. Nothing waits
+                  on a decision after the task ends.
+    automated  -- nobody is asked; the record is made, Unreviewed.
 
     Where the run waits is not a third setting: a "Review later" mode existed
     on development builds before 0.6.0 and is read as supervised.
@@ -46,10 +43,9 @@ def attention_from(value: Any, where: str = "") -> Attention:
     if isinstance(value, bool):
         return Attention.supervised if value else Attention.automated
     if value in ("review", "review_later"):
-        # A third mode, the operator deciding afterwards in the Review tab,
-        # existed on development builds before 0.6.0 and never shipped. It
-        # was Supervised with the wait in a different place, and is read as
-        # Supervised: the task's own shape says where the run waits.
+        # A third mode, the operator deciding afterwards, existed on
+        # development builds before 0.6.0 and never shipped. It is read as
+        # Supervised: the task's own questions say where the run waits.
         return Attention.supervised
     try:
         return Attention(value)

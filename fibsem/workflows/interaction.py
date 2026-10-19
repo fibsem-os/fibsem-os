@@ -450,6 +450,14 @@ class ClearMillingConfig(Request[None]):
 
 
 @dataclass(frozen=True)
+class ShowDetection(Request[None]):
+    """Put what the model found on the detection widget, for the ``detection``
+    question asked on the record next."""
+
+    detection: "DetectedFeatures"
+
+
+@dataclass(frozen=True)
 class ClearSpotBurn(Request[None]):
     """Clear the spot burn widget's points and leave workflow mode."""
 

@@ -52,12 +52,11 @@ def test_a_supervised_task_with_a_session_needs_you_there():
     assert att.needs_a_person_present
     assert att.present == ("detection", "milling")
     assert att.line == (
-        "Needs you at the microscope while it runs: detection and milling. "
-        "Polishing waits for your decision on its result."
+        "Needs you at the microscope while it runs: detection and milling."
     )
 
 
-def test_a_task_that_asks_nothing_runs_on_its_own_and_its_value_waits():
+def test_a_task_that_asks_only_its_mill_needs_you_for_that():
     att = attendance(
         MillRoughTask,
         MillRoughTaskConfig(task_name=ROUGH),
@@ -71,10 +70,7 @@ def test_a_task_that_asks_nothing_runs_on_its_own_and_its_value_waits():
         Attention.supervised,
     )
     assert auto.present == ("the position",)
-    assert auto.line == (
-        "Needs you at the microscope while it runs: the position. "
-        "Nothing waits on its result; it is listed to check."
-    )
+    assert auto.line == ("Needs you at the microscope while it runs: the position.")
 
 
 def test_setups_settings_turn_its_questions_off():
@@ -87,17 +83,23 @@ def test_setups_settings_turn_its_questions_off():
     with_all = attendance(
         SelectMillingPositionTask, on, Attention.supervised, waiters=[ROUGH]
     )
-    assert with_all.present == ("the position", "detection", "the alignment area")
+    assert with_all.present == (
+        "the position",
+        "detection",
+        "the point of interest",
+        "the alignment area",
+    )
     fewer = attendance(
         SelectMillingPositionTask, off, Attention.supervised, waiters=[ROUGH]
     )
     assert fewer.present == ("the position", "the alignment area")
-    assert fewer.line.endswith(
-        f"{ROUGH} waits for your decision on the point of interest."
-    )
+    assert fewer.line == (
+        "Needs you at the microscope while it runs: the position and the "
+        "alignment area."
+    ), "nothing waits on it once it ends"
 
 
-def test_automated_nobody_is_asked_and_the_value_is_open_until_used():
+def test_automated_nobody_is_asked():
     att = attendance(
         SelectMillingPositionTask,
         SelectMillingPositionTaskConfig(task_name=SETUP),
@@ -105,9 +107,7 @@ def test_automated_nobody_is_asked_and_the_value_is_open_until_used():
         waiters=[ROUGH],
     )
     assert not att.needs_a_person_present
-    assert att.line == (
-        f"Nobody is asked. The point of interest is open to correct until {ROUGH} starts."
-    )
+    assert att.line == "Nobody is asked."
     alone = attendance(
         SelectMillingPositionTask,
         SelectMillingPositionTaskConfig(task_name=SETUP),
@@ -149,7 +149,11 @@ def test_the_protocol_names_the_type_the_attention_and_who_waits():
     setup = attendance_for(protocol, SETUP)
     assert setup.attention is Attention.supervised
     assert setup.waiters == (ROUGH,)
-    assert setup.present == ("the position", "the alignment area")
+    assert setup.present == (
+        "the position",
+        "the point of interest",
+        "the alignment area",
+    )
     rough = attendance_for(protocol, ROUGH)
     assert rough.attention is Attention.automated and rough.waiters == ()
     assert attendance_for(protocol, "Ghost") is None, "no config, nothing said"

@@ -69,10 +69,6 @@ class ExperimentItem:
         satisfies after a rerun failed or was rejected."""
         return self.latest_status(task_name) is TaskStatus.Completed
 
-    def is_awaiting_decision(self, task_name: str) -> bool:
-        """Whether the latest run of ``task_name`` ended waiting on a decision."""
-        return self.latest_status(task_name) is TaskStatus.AwaitingDecision
-
     def set_task_status(
         self, task_name: str, status: TaskStatus, message: str = ""
     ) -> None:
@@ -80,8 +76,8 @@ class ExperimentItem:
         and on the live task_state when that is the same run.
 
         The two are separate objects (task_history holds a copy frozen at the
-        end of the run), so a status that changes after the run -- a decision
-        landing on a task that was awaiting one -- has to be written to both.
+        end of the run), so a status that changes after the run has to be
+        written to both.
         """
         for task in reversed(self.task_history):
             if task.name == task_name:
