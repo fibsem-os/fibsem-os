@@ -384,6 +384,17 @@ class ProposalReview:
                     },
                 }
             )
+            # Saved here, so no decider can forget to: the prompt bar, the
+            # App Server and a task's own decision all land on disk. A save
+            # that fails leaves the decision in memory, and says so.
+            try:
+                self.save()
+            except Exception as e:
+                logging.exception(
+                    f"{item.name}: the decision on {task_name} landed but the "
+                    "experiment could not be saved"
+                )
+                result.save_error = str(e) or type(e).__name__
         # Committed: a subscriber that raises is logged, and does not turn a
         # decision that landed into an error for the decider.
         try:

@@ -41,6 +41,7 @@ from fibsem.workflows.proposals import (
     Decision,
     DecisionOutcome,
 )
+from tests.answering import answering
 
 SETUP = "Setup Lamella Position"
 ROUGH = "Rough Milling"

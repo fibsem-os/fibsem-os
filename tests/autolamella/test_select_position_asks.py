@@ -333,7 +333,7 @@ def test_a_switched_off_alignment_area_is_recorded_and_not_asked(
     )
 
 
-def test_without_a_window_the_alignment_area_waits_and_the_point_is_proposed(
+def test_without_a_window_the_alignment_area_and_the_point_wait(
     microscope, tmp_path, monkeypatch
 ):
     _supervised_in_a_window_less_run(monkeypatch)
@@ -346,5 +346,5 @@ def test_without_a_window_the_alignment_area_waits_and_the_point_is_proposed(
     area = lamella.proposal(SETUP, ALIGNMENT_AREA)
     assert area in answered and not area.unreviewed
     point = lamella.proposal(SETUP, POINT_OF_INTEREST)
-    assert point.unreviewed and "nobody to answer" in point.current.reason
+    assert point in answered and not point.unreviewed, "asked during the task"
     assert lamella.latest_run_completed(SETUP), "nothing waits after it ends"

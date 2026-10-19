@@ -454,8 +454,10 @@ class EventRecorder:
             try:
                 self._proposals = ProposalTap(self.buffer, experiment)
             except Exception:  # noqa: BLE001 - recording must not cost the experiment
-                logging.debug(
-                    "could not watch the experiment's decisions", exc_info=True
+                logging.warning(
+                    "could not watch the experiment's decisions; they are not "
+                    "being recorded",
+                    exc_info=True,
                 )
 
     def close(self) -> None:

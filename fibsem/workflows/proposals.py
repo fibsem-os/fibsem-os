@@ -1090,10 +1090,14 @@ class DecisionResult:
     error_type: str = ""
     delta: Dict[str, Any] = field(default_factory=dict)
     synced_tasks: List[str] = field(default_factory=list)
+    # Applied, but the experiment could not be saved after it: the decision is
+    # in memory and not yet on disk. Empty when it was saved.
+    save_error: str = ""
 
     def to_dict(self) -> dict:
         return {
             "applied": self.applied,
+            "save_error": self.save_error,
             "reason": self.reason,
             "running": self.running,
             "error_type": self.error_type,

@@ -2043,12 +2043,6 @@ class AutoLamellaAppContext:
         doc = result.to_dict()
         doc["available"] = True
         if result.applied:
-            try:
-                experiment.save()
-            except Exception:
-                logging.exception(
-                    "saving the experiment after an agent decision failed"
-                )
             self.record_event(
                 "review_decided",
                 {

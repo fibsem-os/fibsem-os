@@ -1048,6 +1048,54 @@ def test_a_decision_on_a_decided_proposal_is_refused_and_nothing_moves(tmp_path)
     assert len(lamella.proposal(SETUP).decisions) == 1, "nothing appended"
 
 
+def test_a_decision_is_saved_by_decide(tmp_path):
+    """Saving is decide's job, not each decider's: the prompt bar never
+    saved, so a decision made there lived only in memory until something
+    else wrote the experiment."""
+    exp = _experiment(tmp_path)
+    lamella = _finished(exp, _proposal(Point(1e-6, 0)))
+
+    result = exp.decide(
+        lamella.id,
+        SETUP,
+        Decision(
+            task_id=RUN,
+            outcome=DecisionOutcome.Confirmed,
+            actor="operator:op",
+            values={"poi": Point(3e-6, 0)},
+        ),
+    )
+
+    assert result.applied and result.save_error == ""
+    again = Experiment.load(Path(exp.path) / "experiment.yaml")
+    decided = again.positions[0].proposal(SETUP)
+    assert decided.current.values["poi"] == Point(3e-6, 0), "on disk"
+
+
+def test_a_decision_whose_save_fails_says_so(tmp_path, monkeypatch):
+    """The decision has landed (a task waiting on it is released), so it is
+    not refused; but the decider is told it is not on disk."""
+    exp = _experiment(tmp_path)
+    lamella = _finished(exp, _proposal(Point(1e-6, 0)))
+    monkeypatch.setattr(exp, "save", _raise)
+
+    result = exp.decide(
+        lamella.id,
+        SETUP,
+        Decision(
+            task_id=RUN,
+            outcome=DecisionOutcome.Confirmed,
+            actor="operator:op",
+            values={"poi": Point(3e-6, 0)},
+        ),
+    )
+
+    assert result.applied
+    assert result.save_error
+    assert result.to_dict()["save_error"] == result.save_error
+    assert not lamella.proposal(SETUP).pending
+
+
 def test_an_empty_confirm_on_a_pending_proposal_with_values_is_refused(tmp_path):
     exp = _experiment(tmp_path)
     lamella = _finished(exp, _proposal())
