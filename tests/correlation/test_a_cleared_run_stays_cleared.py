@@ -122,7 +122,7 @@ def test_a_run_finishing_after_the_points_are_cleared_is_dropped(
 
     widget._run()
     widget._images_tab._load_fib(str(other))  # another image; clear the points
-    assert widget._current_positions() == []
+    assert widget.session.positions() == []
     _deliver(widget, qapp)
 
     assert widget.session.result is None

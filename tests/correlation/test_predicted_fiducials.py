@@ -901,7 +901,7 @@ def test_a_previous_runs_offset_moves_the_first_placement_and_can_be_ignored(loa
     cl = loaded._coords_tab
 
     loaded.set_prior_runs(_offset_runs([3.0, -4.0], age_days=9))
-    nominal, _ = loaded._nominal_transform()
+    nominal = loaded.session.seed().transform
     assert np.allclose(nominal.translation, bare + np.array([3.0, -4.0]) / px_um)
     text = cl._lbl_projection.text()
     assert "calibrated placement (9 days old)" in text and 'href="ignore"' in text
@@ -910,14 +910,14 @@ def test_a_previous_runs_offset_moves_the_first_placement_and_can_be_ignored(loa
     assert "FM px per slice along the beam" in cl._lbl_projection.toolTip()
 
     loaded._on_projection_link("ignore")
-    nominal, _ = loaded._nominal_transform()
+    nominal = loaded.session.seed().transform
     assert np.allclose(nominal.translation, bare)
     text = cl._lbl_projection.text()
     assert "placed from stage metadata" in text and 'href="use"' in text
     assert "ignored for this lamella" in cl._lbl_projection.toolTip()
 
     loaded._on_projection_link("use")
-    nominal, _ = loaded._nominal_transform()
+    nominal = loaded.session.seed().transform
     assert np.allclose(nominal.translation, bare + np.array([3.0, -4.0]) / px_um)
 
 
@@ -970,7 +970,7 @@ def test_a_run_records_the_offset_its_fiducials_measured(loaded, monkeypatch):
     loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
     loaded.project_fm_from_fib()
     loaded.accept_all_predictions()
-    seed = loaded._seed()
+    seed = loaded.session.seed()
 
     def measured(result):
         return measure_placement_offset(
@@ -998,6 +998,19 @@ def test_a_run_records_the_offset_its_fiducials_measured(loaded, monkeypatch):
     )
     fitted = fit_module.fit_transform(loaded.session.fit_data, seed)
     assert fitted.placement_offset == pytest.approx(list(expected))
+
+
+def test_a_refresh_works_out_the_seed_once(loaded, monkeypatch):
+    """The projection row, its tooltip, the source clause and the hint all read
+    one seed: each used to work out the prior again."""
+    session = loaded.session
+    real_seed = session.seed
+    calls = []
+    monkeypatch.setattr(session, "seed", lambda: calls.append(1) or real_seed())
+
+    loaded._refresh_prediction_panel()
+
+    assert len(calls) == 1
 
 
 def test_a_previous_run_far_from_the_geometry_is_not_used_as_the_prior(loaded):
@@ -1030,8 +1043,8 @@ def test_a_previous_run_far_from_the_geometry_is_not_used_as_the_prior(loaded):
         return [("02-other, run r", run)]
 
     loaded.set_prior_runs(runs(about_x @ geometry.rotation))
-    assert loaded._prior_transform() is None
-    nominal, _ = loaded._nominal_transform()
+    assert loaded.session.seed().prior is None
+    nominal = loaded.session.seed().transform
     assert np.allclose(nominal.projection, geometry.projection)
     row = loaded._coords_tab._lbl_projection
     assert row.text().startswith("geometry ·")
@@ -1040,7 +1053,7 @@ def test_a_previous_run_far_from_the_geometry_is_not_used_as_the_prior(loaded):
     )
 
     loaded.set_prior_runs(runs(geometry.rotation))
-    assert loaded._prior_transform() is not None
+    assert loaded.session.seed().prior is not None
     assert loaded._coords_tab._lbl_projection.text().startswith(
         "previous run (02-other) ·"
     )

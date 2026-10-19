@@ -182,6 +182,24 @@ def test_mismatched_pairs_are_refused(client, images):
     assert "pairs" in resp.text
 
 
+@pytest.mark.parametrize(
+    "points, said",
+    [
+        (
+            dict(fib_points=[[1.0, 2.0]] * 3, fm_points=[[1.0, 2.0, 3.0]] * 3),
+            "at least",
+        ),
+        (dict(poi_points=[]), "point of interest"),
+    ],
+)
+def test_points_the_gate_refuses_are_refused_in_the_querys_terms(
+    client, images, points, said
+):
+    resp = _correlate(client, images, **points)
+    assert resp.status_code == 422
+    assert said in resp.text
+
+
 def test_paths_outside_the_experiment_are_refused(client, images, tmp_path):
     resp = _correlate(client, images, lamella_path=str(tmp_path))
     assert resp.status_code == 403, resp.text
