@@ -198,7 +198,7 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
     )
 
     assert options.permission_mode == "dontAsk"
-    assert options.allowed_tools == ["mcp__fibsem__*"]
+    assert options.allowed_tools == ["mcp__fibsem__*", "ToolSearch"]
     assert options.tools == ["Skill", "ToolSearch"]
     for tool in ("Bash", "Read", "Write", "Edit", "WebFetch", "WebSearch"):
         assert tool in options.disallowed_tools
@@ -223,6 +223,21 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
     assert options.verbatim_prompts
     assert options.max_turns == runner_mod.MAX_TURNS
     assert options.max_budget_usd == runner_mod.MAX_BUDGET_USD
+
+    # And what the CLI is told, as the SDK builds its command line.
+    from claude_agent_sdk._internal.transport.subprocess_cli import (
+        SubprocessCLITransport,
+    )
+
+    transport = SubprocessCLITransport("", options)
+    transport._cli_path = "claude"
+    command = transport._build_command()
+    assert "--strict-mcp-config" in command
+    assert "--setting-sources=project" in command
+    assert command[command.index("--permission-mode") + 1] == "dontAsk"
+    allowed = command[command.index("--allowedTools") + 1].split(",")
+    assert "Skill(autolamella-agent)" in allowed and "mcp__fibsem__*" in allowed
+    assert "bypassPermissions" not in command
 
 
 # --- turning lines into turns -------------------------------------------------
@@ -401,6 +416,83 @@ def test_a_spent_budget_ends_the_run(session):
     agent = ScriptedAgent(reply)
     assert _runner(session, agent).ended() == 2
     assert agent.closed and len(agent.prompts) == 1
+
+
+def test_a_model_that_cannot_sign_in_ends_the_run(session):
+    # Not waiting for a wake-up the model could never answer.
+    async def reply(prompt):
+        return TurnEnd(error="authentication_failed")
+
+    agent = ScriptedAgent(reply)
+    assert _runner(session, agent).ended() == 1
+    assert agent.closed and len(agent.prompts) == 1
+
+
+def test_a_turn_with_no_result_ends_the_run(session):
+    # The CLI died: the next wake-up would find no one to answer.
+    async def reply(prompt):
+        return TurnEnd("no_result")
+
+    agent = ScriptedAgent(reply)
+    assert _runner(session, agent).ended() == 1
+    assert agent.closed
+
+
+def test_a_cli_that_dies_on_the_ctrl_c_still_stops_cleanly(session):
+    # A Ctrl-C at the terminal reaches the CLI too, which may end mid-turn.
+    async def reply(prompt):
+        await agent.until_interrupted()
+        raise RuntimeError("the CLI exited")
+
+    agent = ScriptedAgent(reply)
+    running = _runner(session, agent)
+    _until(lambda: agent.prompts, what="the kickoff")
+    assert running.stop() == 0
+    assert agent.closed
+
+
+def test_the_kickoff_waits_while_the_agent_is_off(session, caplog):
+    operator = AgentSession(session)
+    assert operator.set_level(AgentLevel.OFF) is None
+    agent = ScriptedAgent()
+    running = _runner(session, agent)
+    _until(lambda: _heard(caplog, "AGENT OFF"), what="AGENT OFF")
+    time.sleep(5 * POLL_S)
+    assert not agent.prompts, "a kickoff the server would refuse"
+
+    assert operator.set_level(AgentLevel.WATCH) is None
+    _until(lambda: agent.prompts, what="the kickoff")
+    assert running.stop() == 0
+    assert agent.prompts == [kickoff("observe")]
+
+
+class _NoEvents:
+    """The real client, with an event stream that fails: a server that
+    answers but can't be watched."""
+
+    def __init__(self, client):
+        self._client = client
+
+    def request(self, method, path, *args, **kwargs):
+        if path.startswith("/app/events"):
+            return watch_mod._Response(500, b"{}")
+        return self._client.request(method, path, *args, **kwargs)
+
+
+def test_a_server_whose_events_cannot_be_read_gets_no_turns(session):
+    agent = ScriptedAgent()
+    connect = _connect(session)
+    running = Running(
+        Runner(
+            agent,
+            lambda: _NoEvents(connect()),
+            server_wait_s=1.0,
+            poll_s=POLL_S,
+            retry_s=RETRY_S,
+        )
+    )
+    assert running.ended() == 1
+    assert not agent.started and not agent.prompts
 
 
 def test_with_no_server_the_agent_never_starts():

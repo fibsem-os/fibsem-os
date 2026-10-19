@@ -22,7 +22,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, List, Optional, Union
+from typing import Callable, List, Optional
 
 from fibsem.ai.agent.mcp import watch as watch_mod
 from fibsem.util import timestamps
@@ -32,8 +32,9 @@ BASE_SKILL = "autolamella-agent"
 SKILLS = (BASE_SKILL,) + tuple(f"{role}-autolamella" for role in ROLES)
 
 SERVER = "fibsem"
-# The server's level gate decides what these may do, so they need no prompt.
-ALLOWED_TOOLS = [f"mcp__{SERVER}__*"]
+# The server's level gate decides what the fibsem tools may do, so they need no
+# prompt; ToolSearch only finds them.
+ALLOWED_TOOLS = [f"mcp__{SERVER}__*", "ToolSearch"]
 # The only built-in tools the agent has: reading its skills, and finding the
 # sidecar's tools when the CLI defers them.
 BUILT_IN_TOOLS = ["Skill", "ToolSearch"]
@@ -52,8 +53,12 @@ DENIED_TOOLS = [
 # Nothing waits on a permission prompt: what is not allowed above is denied.
 PERMISSION_MODE = "dontAsk"
 
+# The model can't answer until someone fixes the sign-in or the account, so
+# waiting for the next wake-up would wait for ever.
+FATAL_ERRORS = {"authentication_failed", "billing_error"}
+
 MAX_TURNS = 40  # tool calls per wake-up
-MAX_BUDGET_USD = 5.0  # the whole session's spend
+MAX_BUDGET_USD = 5.0  # what one run spends
 SERVER_WAIT_S = 600.0
 RETRY_MAX_S = 60.0
 
@@ -139,6 +144,9 @@ class Wakes:
             if line.startswith("AGENT OFF"):
                 self.off = True
             elif line.startswith("AGENT BACK"):
+                if not self.off:
+                    # The level came back before the agent heard it go.
+                    continue
                 self.off = False
             self._held.append(line)
         if self.off or not self._held:
@@ -154,28 +162,17 @@ class TurnEnd:
     subtype: str = "success"
     cost_usd: Optional[float] = None
     session_id: Optional[str] = None
+    # Why the model did not answer (the SDK's AssistantMessage.error), if so.
+    error: Optional[str] = None
 
 
 class _Stopped(Exception):
     """The runner is stopping: raised inside ``watch()`` to end it."""
 
 
-class _StoppableClient:
-    """The watch's client: it refuses another request once stopped, and says
-    when the first has returned, which is when the watch holds its place."""
-
-    def __init__(self, client, stopping: threading.Event, answered: threading.Event):
-        self._client = client
-        self._stopping = stopping
-        self._answered = answered
-
-    def request(self, *args, **kwargs):
-        if self._stopping.is_set():
-            raise _Stopped
-        try:
-            return self._client.request(*args, **kwargs)
-        finally:
-            self._answered.set()
+class _Seeded:
+    """The watch has read where the event stream stands: from here on, no
+    line is missed."""
 
 
 @dataclass
@@ -183,14 +180,53 @@ class _WatchEnded:
     code: int
 
 
+# What the watch prints just before it gives up.
+LAST_LINES = ("SERVER GONE", "SERVER UNAVAILABLE", "NO EVENTS")
+
+
+def _last_line(batch) -> bool:
+    return any(isinstance(item, str) and item.startswith(LAST_LINES) for item in batch)
+
+
+def _has_events(response) -> bool:
+    if response.status_code != 200:
+        return False
+    try:
+        return bool(response.json().get("available"))
+    except (ValueError, AttributeError):
+        return False
+
+
+class _WatchClient:
+    """The watch's client: it refuses another request once stopped, and
+    calls ``on_seeded`` when the event stream first answers."""
+
+    def __init__(self, client, stopping: threading.Event, on_seeded) -> None:
+        self._client = client
+        self._stopping = stopping
+        self._on_seeded = on_seeded
+        self._seeded = False
+
+    def request(self, method, path, *args, **kwargs):
+        if self._stopping.is_set():
+            raise _Stopped
+        response = self._client.request(method, path, *args, **kwargs)
+        if not self._seeded and path.startswith("/app/events"):
+            if _has_events(response):
+                self._seeded = True
+                self._on_seeded()
+        return response
+
+
 class Watcher:
-    """``watch()`` on a daemon thread: each line goes to ``deliver``, and
-    ``deliver`` gets a ``_WatchEnded`` when the watch gives up."""
+    """``watch()`` on a daemon thread. ``deliver`` gets each line, a
+    ``_Seeded`` once the watch holds its place, and a ``_WatchEnded`` when it
+    gives up."""
 
     def __init__(
         self,
         client,
-        deliver: Callable[[Union[str, _WatchEnded]], None],
+        deliver: Callable[[object], None],
         poll_s: float = watch_mod.POLL_S,
         retry_s: Optional[float] = None,
     ) -> None:
@@ -199,18 +235,12 @@ class Watcher:
         self._poll_s = poll_s
         self._retry_s = retry_s
         self._stopping = threading.Event()
-        self._seeded = threading.Event()
         self._thread = threading.Thread(
             target=self._run, name="fibsem-agent-watch", daemon=True
         )
 
     def start(self) -> None:
         self._thread.start()
-
-    def wait_seeded(self, timeout: float = 30.0) -> bool:
-        """Whether the watch has read where the stream stands, so a line from
-        now on is not missed."""
-        return self._seeded.wait(timeout)
 
     def stop(self) -> None:
         """Ends the watch at its next request; a parked poll is not waited for."""
@@ -219,8 +249,8 @@ class Watcher:
     def _out(self, line: str) -> None:
         if self._stopping.is_set():
             raise _Stopped
-        log.info("watch: %s", line)
         self._deliver(line)
+        log.info("watch: %s", line)
 
     def _sleep(self, seconds: float) -> None:
         if self._retry_s is not None:
@@ -228,12 +258,12 @@ class Watcher:
         self._stopping.wait(seconds)
 
     def _run(self) -> None:
+        client = _WatchClient(
+            self._client, self._stopping, lambda: self._deliver(_Seeded())
+        )
         try:
             code = watch_mod.watch(
-                _StoppableClient(self._client, self._stopping, self._seeded),
-                out=self._out,
-                sleep_fn=self._sleep,
-                poll_s=self._poll_s,
+                client, out=self._out, sleep_fn=self._sleep, poll_s=self._poll_s
             )
         except _Stopped:
             return
@@ -287,7 +317,8 @@ class Runner:
         self._retry_s = retry_s
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._stopping: Optional[asyncio.Event] = None
-        self._lines: Optional[asyncio.Queue] = None
+        # (watch, item): an item from a watch that has been replaced is dropped.
+        self._items: Optional[asyncio.Queue] = None
         self._watcher: Optional[Watcher] = None
         self._wakes = Wakes()
         self._code = 0
@@ -306,42 +337,80 @@ class Runner:
     async def run(self) -> int:
         self._loop = asyncio.get_running_loop()
         self._stopping = asyncio.Event()
-        self._lines = asyncio.Queue()
+        self._items = asyncio.Queue()
         if self._stop_requested:
             return 0
-        client = await self._wait_for_server()
-        if client is None:
+        # The kickoff's own actions are news: the watch starts at the tail, so
+        # it has to hold its place before the agent acts.
+        if not await self._watch():
             return self._code
-        await self._start_watcher(client)
         try:
             await self._agent.start()
             prompt = kickoff(self._role, self._resumed)
             while prompt is not None and await self._turn(prompt):
                 prompt = await self._next_prompt()
+        except Exception:
+            # Ctrl-C reaches the CLI as well, which may end before its turn.
+            if not self._stopping.is_set():
+                raise
+            log.debug("The agent's process ended as it stopped.", exc_info=True)
         finally:
             if self._watcher is not None:
                 self._watcher.stop()
-            await self._agent.close()
+            try:
+                await self._agent.close()
+            except Exception:
+                log.debug("Closing the session failed.", exc_info=True)
         return self._code
 
-    async def _start_watcher(self, client) -> None:
-        loop, lines = self._loop, self._lines
+    def _start_watcher(self, client) -> None:
+        loop, items = self._loop, self._items
+        if self._watcher is not None:
+            self._watcher.stop()
+        watcher = None
 
         def deliver(item):
             try:
-                loop.call_soon_threadsafe(lines.put_nowait, item)
+                loop.call_soon_threadsafe(items.put_nowait, (watcher, item))
             except RuntimeError:  # the loop has closed
                 raise _Stopped from None
 
-        self._watcher = Watcher(
-            client, deliver, poll_s=self._poll_s, retry_s=self._retry_s
-        )
-        self._watcher.start()
-        # The kickoff's own actions are news: the watch starts at the tail, so
-        # it has to be there before the agent acts.
-        await asyncio.get_running_loop().run_in_executor(
-            None, self._watcher.wait_seeded
-        )
+        watcher = Watcher(client, deliver, poll_s=self._poll_s, retry_s=self._retry_s)
+        self._watcher = watcher
+        watcher.start()
+
+    async def _watch(self) -> bool:
+        """Watch the app until the watch holds its place: True then, False
+        when that hasn't happened within ``server_wait_s`` or the run was
+        stopped. While the level is Off it waits for the level, not a time."""
+        deadline = time.monotonic() + self._server_wait_s
+        delay = self._retry_s or watch_mod.RETRY_DELAY_S
+        while True:
+            client = await self._wait_for_server(deadline)
+            if client is None:
+                return False
+            self._start_watcher(client)
+            while True:
+                item = await self._get()
+                if item is None:
+                    return False
+                if isinstance(item, _Seeded):
+                    return True
+                if isinstance(item, _WatchEnded):
+                    break
+            # The server answers, but its events can't be read yet.
+            self._watcher.stop()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not await self._pause(min(delay, remaining)):
+                if not self._stopping.is_set():
+                    log.error(
+                        "The App Server's events could not be read within "
+                        "%.0f s; fibsem-agent stops.",
+                        self._server_wait_s,
+                    )
+                    self._code = 1
+                return False
+            delay = min(delay * 2, RETRY_MAX_S)
 
     async def _turn(self, prompt: str) -> bool:
         """One turn, interrupted if the run is stopped; False when the run is
@@ -353,40 +422,84 @@ class Runner:
             end = await self._agent.turn(prompt)
         finally:
             interrupter.cancel()
+        if self._stopping.is_set():
+            return False
+        session = end.session_id or getattr(self._agent, "session_id", None)
+        if end.error in FATAL_ERRORS:
+            log.error(
+                "The model can't answer (%s); fibsem-agent stops. It signs in as "
+                "Claude Code does on this machine: run `claude` and /login, or "
+                "set ANTHROPIC_API_KEY.",
+                end.error,
+            )
+            self._code = 1
+            return False
         if end.subtype == "error_max_budget_usd":
             log.error(
-                "The session's budget is spent (--max-budget-usd); fibsem-agent "
-                "stops. Raise it and --resume %s to carry on.",
-                end.session_id or getattr(self._agent, "session_id", None),
+                "The budget is spent (--max-budget-usd); fibsem-agent stops. "
+                "Raise it and --resume %s to carry on.",
+                session,
             )
             self._code = 2
+            return False
+        if end.subtype == "no_result":
+            log.error(
+                "The agent's process ended without finishing its turn; "
+                "fibsem-agent stops. --resume %s carries the session on.",
+                session,
+            )
+            self._code = 1
             return False
         if end.subtype == "error_max_turns":
             log.warning(
                 "The turn hit --max-turns before it finished; the next wake-up "
                 "starts a new one."
             )
-        elif end.subtype != "success" and not self._stopping.is_set():
+        elif end.subtype != "success":
             log.warning("The turn ended with %s.", end.subtype)
-        return not self._stopping.is_set()
+        return True
 
     async def _interrupt_on_stop(self) -> None:
         await self._stopping.wait()
         log.info("Stopping: interrupting the agent's turn.")
-        await self._agent.interrupt()
+        try:
+            await self._agent.interrupt()
+        except Exception:
+            # The CLI may have had the Ctrl-C too, and be gone.
+            log.debug("Interrupting the turn failed.", exc_info=True)
+
+    async def _pause(self, seconds: float) -> bool:
+        """Wait, unless the run is stopped; False when it was."""
+        try:
+            await asyncio.wait_for(self._stopping.wait(), timeout=max(seconds, 0))
+        except asyncio.TimeoutError:
+            return True
+        return False
 
     async def _get(self):
-        """The next watcher item, or None once the run is stopped."""
-        if self._stopping.is_set():
-            return None
-        get = asyncio.ensure_future(self._lines.get())
-        stop = asyncio.ensure_future(self._stopping.wait())
-        done, _ = await asyncio.wait({get, stop}, return_when=asyncio.FIRST_COMPLETED)
-        stop.cancel()
-        if get in done:
-            return get.result()
-        get.cancel()
+        """The current watch's next item, or None once the run is stopped."""
+        while not self._stopping.is_set():
+            get = asyncio.ensure_future(self._items.get())
+            stop = asyncio.ensure_future(self._stopping.wait())
+            done, _ = await asyncio.wait(
+                {get, stop}, return_when=asyncio.FIRST_COMPLETED
+            )
+            stop.cancel()
+            if get not in done:
+                get.cancel()
+                return None
+            watcher, item = get.result()
+            if watcher is self._watcher:
+                return item
         return None
+
+    def _drain(self) -> list:
+        items = []
+        while not self._items.empty():
+            watcher, item = self._items.get_nowait()
+            if watcher is self._watcher:
+                items.append(item)
+        return items
 
     async def _next_prompt(self) -> Optional[str]:
         """The next turn: every line that arrived since the last one, held
@@ -395,11 +508,16 @@ class Runner:
             item = await self._get()
             if item is None:
                 return None
-            batch = [item]
-            while not self._lines.empty():
-                batch.append(self._lines.get_nowait())
-            lines = [line for line in batch if isinstance(line, str)]
+            batch = [item] + self._drain()
             ended = any(isinstance(line, _WatchEnded) for line in batch)
+            if not ended and _last_line(batch):
+                # Its end comes right after: one turn, not two.
+                item = await self._get()
+                if item is None:
+                    return None
+                batch.append(item)
+                ended = isinstance(item, _WatchEnded)
+            lines = [line for line in batch if isinstance(line, str)]
             prompt = self._wakes.add(lines)
             if ended:
                 prompt = await self._rewatch(prompt)
@@ -414,10 +532,8 @@ class Runner:
         self._watcher.stop()
         log.warning("The watcher stopped: the app can't be watched.")
         started = time.monotonic()
-        client = await self._wait_for_server()
-        if client is None:
+        if not await self._watch():
             return None
-        await self._start_watcher(client)
         # A restarted app starts its own session, at Watch.
         self._wakes = Wakes()
         back = (
@@ -427,10 +543,9 @@ class Runner:
         )
         return f"{prompt}\n\n{back}" if prompt else back
 
-    async def _wait_for_server(self):
+    async def _wait_for_server(self, deadline: float):
         """The watch's client once the App Server answers; None when it has
-        not within ``server_wait_s`` or the run was stopped."""
-        deadline = time.monotonic() + self._server_wait_s
+        not by ``deadline`` or the run was stopped."""
         delay = self._retry_s or watch_mod.RETRY_DELAY_S
         said = False
         while not self._stopping.is_set():
@@ -457,12 +572,8 @@ class Runner:
                     remaining,
                 )
                 said = True
-            try:
-                await asyncio.wait_for(
-                    self._stopping.wait(), timeout=min(delay, remaining)
-                )
-            except asyncio.TimeoutError:
-                pass
+            if not await self._pause(min(delay, remaining)):
+                return None
             delay = min(delay * 2, RETRY_MAX_S)
         return None
 
@@ -483,16 +594,19 @@ class SdkAgent:
         await self._client.connect()
 
     async def turn(self, prompt: str) -> TurnEnd:
-        from claude_agent_sdk import ResultMessage
+        from claude_agent_sdk import AssistantMessage, ResultMessage
 
         await self._client.query(prompt)
-        end = TurnEnd(subtype="no_result")
+        end, error = TurnEnd(subtype="no_result"), None
         async for message in self._client.receive_response():
             _show(message, self)
+            if isinstance(message, AssistantMessage) and message.error:
+                error = message.error
             if isinstance(message, ResultMessage):
                 end = TurnEnd(
                     message.subtype, message.total_cost_usd, message.session_id
                 )
+        end.error = error
         return end
 
     async def interrupt(self) -> None:
@@ -718,7 +832,7 @@ def main(argv=None) -> int:
         "--max-budget-usd",
         type=float,
         default=MAX_BUDGET_USD,
-        help="spend for the whole session, after which fibsem-agent stops "
+        help="what this run may spend, after which fibsem-agent stops "
         f"(default {MAX_BUDGET_USD:g})",
     )
     parser.add_argument(
