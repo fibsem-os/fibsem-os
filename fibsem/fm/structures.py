@@ -1336,30 +1336,19 @@ class FluorescenceImage:
 
 
 @dataclass
-class FluorescenceChannelMetadata:
-    """Metadata for a single fluorescence channel."""
+class FluorescenceChannelMetadata(ChannelSettings):
+    """A channel as an image records it: its settings, and the camera and objective
+    it was acquired with."""
 
-    # Channel identification
-    name: str
-
-    # Optical parameters
-    excitation_wavelength: float  # nm
-
-    # Light source
-    power: float  # light source power
-
-    # Camera settings
-    exposure_time: float  # seconds
-    gain: Optional[float]  # camera gain (None when the camera has no gain control)
-    offset: float  # camera offset
-
-    # Fields with defaults must come after required fields
-    emission_filter: EmissionFilter = REFLECTION
+    gain: Optional[float] = param(
+        0.0,
+        doc="The camera's gain, as a fraction of its range; null when the camera has no gain control.",
+    )
+    offset: float = 0.0  # camera offset
     binning: int = 1  # binning factor (1, 2, 4, 8)
     objective_position: float = 0.0  # z-axis position in meters
     objective_magnification: Optional[float] = None
     objective_numerical_aperture: Optional[float] = None
-    color: str = "gray"  # Display color for the channel
 
 
 @dataclass
