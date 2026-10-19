@@ -22,17 +22,20 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
+    AutoLamellaSingleWindowUI,
+)
 from fibsem.applications.autolamella.workflows import ui as workflow_ui
 from fibsem.applications.autolamella.workflows.ui import set_images_ui
 from fibsem.structures import BeamType
 from fibsem.workflows.interaction import ask
+from tests.fixtures.main_window import close_window
 from tests.run_state import Stopped
 
 
 @pytest.fixture
 def ui(qapp, monkeypatch):
-    """A real AutoLamellaUI, connected (Demo), same harness as the payload tests.
+    """A real window, connected (Demo), same harness as the payload tests.
 
     Pinned to the simulated Arctis configuration rather than whatever this
     machine's default is: `DemoMicroscope` only builds a fluorescence microscope
@@ -47,7 +50,7 @@ def ui(qapp, monkeypatch):
         "config",
         "sim-arctis-configuration.yaml",
     )
-    widget = AutoLamellaUI(parent_ui=None)
+    widget = AutoLamellaSingleWindowUI()
     monkeypatch.setattr(
         widget.system_widget,
         "load_configuration",
@@ -57,7 +60,7 @@ def ui(qapp, monkeypatch):
     yield widget
     if widget.microscope is not None:
         widget.microscope.disconnect()
-    widget.close()
+    close_window(widget)
 
 
 class _Run:

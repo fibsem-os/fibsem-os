@@ -23,7 +23,9 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
+    AutoLamellaSingleWindowUI,
+)
 from fibsem.applications.autolamella.ui.grid_positions_widget import (
     GridPositionsWidget,
 )
@@ -41,6 +43,7 @@ from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition, ImageS
 from fibsem.ui.widgets.stored_overview_canvas import VIEW_FM
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskState, TaskStatus
+from tests.fixtures.main_window import close_window
 
 _app = QApplication.instance() or QApplication([])
 
@@ -51,7 +54,7 @@ _ARCTIS = os.path.join(
 
 @pytest.fixture
 def ui(qapp, monkeypatch, tmp_path):
-    widget = AutoLamellaUI(parent_ui=None)
+    widget = AutoLamellaSingleWindowUI()
     monkeypatch.setattr(
         widget.system_widget,
         "load_configuration",
@@ -65,7 +68,7 @@ def ui(qapp, monkeypatch, tmp_path):
     yield widget
     widget.experiment = None
     widget.microscope.disconnect()
-    widget.close()
+    close_window(widget)
 
 
 def _entry(name, relpath):

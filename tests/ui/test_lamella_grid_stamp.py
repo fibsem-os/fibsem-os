@@ -20,13 +20,16 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
+    AutoLamellaSingleWindowUI,
+)
 from fibsem.structures import FibsemStagePosition, SampleGrid, SlotCalibration
 from fibsem.workflows.grids import GridRecord
+from tests.fixtures.main_window import close_window
 
 
 def _ui(monkeypatch, tmp_path, arctis: bool):
-    widget = AutoLamellaUI(parent_ui=None)
+    widget = AutoLamellaSingleWindowUI()
     if arctis:
         config = os.path.join(
             os.path.dirname(fibsem_config.__file__),
@@ -53,7 +56,7 @@ def arctis(qapp, monkeypatch, tmp_path):
     yield widget
     widget.experiment = None
     widget.microscope.disconnect()
-    widget.close()
+    close_window(widget)
 
 
 @pytest.fixture
@@ -68,7 +71,7 @@ def fixed(qapp, monkeypatch, tmp_path):
     yield widget
     widget.experiment = None
     microscope.disconnect()
-    widget.close()
+    close_window(widget)
 
 
 class TestWithALoader:

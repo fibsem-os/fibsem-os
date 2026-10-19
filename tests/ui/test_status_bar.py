@@ -489,15 +489,15 @@ def test_autolamella_shows_milling_from_its_microscope(no_quit, qapp):
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
 
     window = module.AutoLamellaSingleWindowUI()
-    window.autolamella_ui.system_widget.connect_to_microscope()
-    microscope = window.autolamella_ui.microscope
+    window.system_widget.connect_to_microscope()
+    microscope = window.microscope
     microscope.milling.report(_tick())
     assert window.status_bar.fraction == pytest.approx(0.5)
     assert not hasattr(window, "milling_progress_bar"), "one place for it"
     assert not hasattr(window, "progress_widget"), "tiles and spot burn too"
 
     # The window hears the session lose its microscope.
-    window.autolamella_ui.disconnect_from_microscope()
+    window.disconnect_from_microscope()
     microscope.milling.report(_tick(remaining=15.0))
     assert window.status_bar.fraction is None
     microscope.disconnect()
@@ -548,8 +548,8 @@ def test_a_run_that_fails_a_task_leaves_a_line_until_the_next_run(
     )
     window = module.AutoLamellaSingleWindowUI()
     # A report locks the protocol editor, whose UI the first connect builds.
-    window.autolamella_ui.system_widget.connect_to_microscope()
-    signal = window.autolamella_ui.run_relay.status
+    window.system_widget.connect_to_microscope()
+    signal = window.run_relay.status
     from fibsem.workflows.queue import WorkItem
 
     def _queue(second):
@@ -599,7 +599,7 @@ def test_a_run_that_fails_a_task_leaves_a_line_until_the_next_run(
     # A run with a summary is announced once, by the "Run ended" toast.
     import pandas as pd
 
-    runner = window.autolamella_ui.session.runner
+    runner = window.session.runner
     runner.last_summary = pd.DataFrame(
         [{"lamella_name": "01", "task_name": "Polishing", "task_status": "Completed"}]
     )
@@ -607,7 +607,7 @@ def test_a_run_that_fails_a_task_leaves_a_line_until_the_next_run(
     signal.emit(_report(TaskStatus.InProgress, item="01-fancy-mite"))
     window._on_workflow_finished()
     assert toasts[before:] == []
-    window.autolamella_ui.microscope.disconnect()
+    window.microscope.disconnect()
     _close(window, qapp)
 
 
@@ -621,7 +621,7 @@ def test_a_held_run_says_so_on_the_line(no_quit, qapp):
     )
 
     window = module.AutoLamellaSingleWindowUI()
-    ui = window.autolamella_ui
+    ui = window
     ui.system_widget.connect_to_microscope()
     ui.run_relay.status.emit(_report(TaskStatus.InProgress))
     ui.run_relay.hold = Hold(

@@ -243,7 +243,7 @@ class TestFromTheWindow:
         from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
 
         window = module.AutoLamellaSingleWindowUI()
-        ui = window.autolamella_ui
+        ui = window
         config = os.path.join(
             os.path.dirname(fibsem_config.__file__),
             "config",
@@ -276,7 +276,7 @@ class TestFromTheWindow:
     def test_a_load_from_the_grids_tab_reaches_every_lamella_display(
         self, main_ui, tmp_path
     ):
-        ui = main_ui.autolamella_ui
+        ui = main_ui
         stage = ui.microscope.sample_handling
         exp = Experiment(path=tmp_path, name="exp")
         (tmp_path / "exp").mkdir()

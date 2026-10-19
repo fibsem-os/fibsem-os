@@ -23,11 +23,14 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaWorkflowConfig,
     Experiment,
 )
-from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
+    AutoLamellaSingleWindowUI,
+)
 from fibsem.applications.autolamella.ui.launch import _parse_args
 from fibsem.applications.autolamella.workflows.tasks.reference_image import (
     AcquireReferenceImageConfig,
 )
+from tests.fixtures.main_window import close_window
 
 TASKS = ["Trench", "Polishing"]
 
@@ -71,12 +74,12 @@ def remember(experiment: Experiment) -> None:
 
 @pytest.fixture
 def ui(qapp):
-    """A real AutoLamellaUI, without the main window that normally hosts it."""
-    widget = AutoLamellaUI(parent_ui=None)
+    """A real window."""
+    widget = AutoLamellaSingleWindowUI()
     yield widget
     if widget.microscope is not None:
         widget.microscope.disconnect()
-    widget.close()
+    close_window(widget)
 
 
 # ── Flags ─────────────────────────────────────────────────────────────────────

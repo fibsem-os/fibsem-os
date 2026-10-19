@@ -15,24 +15,27 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
+    AutoLamellaSingleWindowUI,
+)
 from fibsem.workflows.status import Hold, HoldKind
+from tests.fixtures.main_window import close_window
 
 
 @pytest.fixture
 def ui(qapp):
-    """A real AutoLamellaUI, connected, without the main window that hosts it.
+    """A real window, connected.
 
     Connected because the handler needs ``image_widget`` and
     ``milling_task_config_widget``, which ``update_microscope_ui()`` builds. The
     shipped default configuration is Demo, so this touches no hardware.
     """
-    widget = AutoLamellaUI(parent_ui=None)
+    widget = AutoLamellaSingleWindowUI()
     widget.system_widget.connect_to_microscope()
     yield widget
     if widget.microscope is not None:
         widget.microscope.disconnect()
-    widget.close()
+    close_window(widget)
 
 
 def _status_event(msg="", workflow_info=None):

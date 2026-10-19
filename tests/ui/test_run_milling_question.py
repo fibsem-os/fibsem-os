@@ -61,7 +61,7 @@ def _config(name: str = "rough") -> FibsemMillingTaskConfig:
 
 @pytest.fixture
 def ui(qapp, monkeypatch, tmp_path):
-    """A real AutoLamellaUI (Demo) with a supervised Rough Milling item, and
+    """A real window (Demo) with a supervised Rough Milling item, and
     the mill itself stubbed where the task calls it."""
     mills, failures, supervision = [], [], {"supervised": True}
 
@@ -91,7 +91,7 @@ def ui(qapp, monkeypatch, tmp_path):
         {ROUGH: MillRoughTaskConfig(task_name=ROUGH)},
         supervised=[ROUGH],
     ) as window:
-        widget = window.autolamella_ui
+        widget = window
         widget._mills = mills  # for the tests to inspect
         widget._mill_failures = failures  # errors the next runs end with, in order
         widget._supervision = supervision

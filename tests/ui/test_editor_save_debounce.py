@@ -60,20 +60,22 @@ _PAST_DEBOUNCE_MS = _SAVE_DEBOUNCE_MS + 250
 
 @pytest.fixture(scope="module")
 def connected_ui():
-    """A real AutoLamellaUI on a Demo microscope -- the editor needs one to build.
+    """A real window on a Demo microscope -- the editor needs one to build.
 
-    `parent_ui=None` is only stored, so the widget stands alone; the shipped default
-    configuration is Demo, so `connect_to_microscope` builds a real microscope with no
+    The shipped default configuration is Demo, so `connect_to_microscope` builds a real microscope with no
     hardware in about 0.15 s. Module-scoped because that cost is per-connect, not
     per-test, and the editor is rebuilt per test anyway.
     """
-    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+    from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
+        AutoLamellaSingleWindowUI,
+    )
+    from tests.fixtures.main_window import close_window
 
-    ui = AutoLamellaUI(parent_ui=None)
+    ui = AutoLamellaSingleWindowUI()
     ui.system_widget.connect_to_microscope()
     assert ui.microscope is not None, "Demo connect failed; the editor cannot be built"
     yield ui
-    ui.close()
+    close_window(ui)
 
 
 @pytest.fixture

@@ -43,10 +43,10 @@ def main_ui(qapp):
     window = module.AutoLamellaSingleWindowUI()
     # First connect builds the protocol editor's full UI (its lock path runs on
     # every lifecycle report); Demo, so no hardware.
-    window.autolamella_ui.system_widget.connect_to_microscope()
+    window.system_widget.connect_to_microscope()
     yield window
-    if window.autolamella_ui.microscope is not None:
-        window.autolamella_ui.microscope.disconnect()
+    if window.microscope is not None:
+        window.microscope.disconnect()
     # closeEvent ends in app.quit() — the shipped quit-freeze workaround. On the
     # shared test QApplication that latches an interrupt (no event loop is running
     # to consume it), and every later QEventLoop.exec_() in the pytest process
@@ -76,7 +76,7 @@ def test_a_status_event_report_shows_the_run_on_the_status_bar(main_ui):
 
     # Through the embedded window's signal: a direct connection runs the handler
     # synchronously, so this also pins that the main window is connected to it.
-    main_ui.autolamella_ui.run_relay.status.emit(WorkflowStatusEvent(report=report))
+    main_ui.run_relay.status.emit(WorkflowStatusEvent(report=report))
 
     assert main_ui.status_bar.text == "lamella-02 › Polishing · 3 of 4"
     assert main_ui.status_bar.showing == "run"
@@ -89,7 +89,7 @@ def test_a_status_event_carries_transient_status_bar_text(main_ui):
         WorkflowStatusEvent,
     )
 
-    main_ui.autolamella_ui.run_relay.status.emit(
+    main_ui.run_relay.status.emit(
         WorkflowStatusEvent(status_bar="Scheduled start in 4 s")
     )
 
@@ -121,14 +121,14 @@ def test_a_status_event_snapshot_reaches_the_windows_own_timeline(main_ui):
         queue_items=items,
     )
 
-    main_ui.autolamella_ui.run_relay.status.emit(WorkflowStatusEvent(report=report))
+    main_ui.run_relay.status.emit(WorkflowStatusEvent(report=report))
 
     rows = [(i.item_name, i.task_name) for i in main_ui.workflow_tab.timeline._items]
     assert rows == [("lamella-03", "Trench"), ("lamella-04", "Trench")]
 
     # Reconcile back down to zero rows so the module-scoped window carries no
     # timeline state into other tests (an empty snapshot means exactly that).
-    main_ui.autolamella_ui.run_relay.status.emit(
+    main_ui.run_relay.status.emit(
         WorkflowStatusEvent(
             report=WorkflowStatusUpdate(queue_items=[]),
         )
@@ -145,14 +145,14 @@ def test_a_status_event_refreshes_the_waiting_indicators(main_ui):
         WorkflowStatusEvent,
     )
 
-    main_ui.autolamella_ui.run_relay.hold = Hold(
+    main_ui.run_relay.hold = Hold(
         HoldKind.proposal, "answer the question on the Microscope tab"
     )
-    main_ui.autolamella_ui.run_relay.status.emit(WorkflowStatusEvent())
+    main_ui.run_relay.status.emit(WorkflowStatusEvent())
     assert main_ui.workflow_controls.attention_btn.isVisibleTo(main_ui)
 
-    main_ui.autolamella_ui.run_relay.hold = None
-    main_ui.autolamella_ui.run_relay.status.emit(WorkflowStatusEvent())
+    main_ui.run_relay.hold = None
+    main_ui.run_relay.status.emit(WorkflowStatusEvent())
     assert not main_ui.workflow_controls.attention_btn.isVisibleTo(main_ui)
 
 
@@ -215,9 +215,7 @@ def test_an_event_without_status_bar_text_leaves_the_bar_alone(main_ui):
     main_ui.status_bar.set_run_step("previous message")
     before = main_ui.status_bar.text
 
-    main_ui.autolamella_ui.run_relay.status.emit(
-        WorkflowStatusEvent(message="not for the status bar")
-    )
+    main_ui.run_relay.status.emit(WorkflowStatusEvent(message="not for the status bar"))
 
     assert main_ui.status_bar.text == before
 

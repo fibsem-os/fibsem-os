@@ -6,7 +6,7 @@ re-posing the stage position into the other orientation.
 
 Which one was picked depends on where the marking happened, and *that* is the thing
 worth being careful about. Every caller until now marked positions on the beam side, so
-`AutoLamellaUI.add_new_lamella` could take its argument as the milling pose and derive
+`ExperimentTab.add_new_lamella` could take its argument as the milling pose and derive
 the fluorescence pose from it. The FM overview tab marks positions on the fluorescence
 side, and handing one of those to the same function sets a milling pose at t = -180 --
 an orientation nothing mills at. Nothing rejects it; it fails later, somewhere else.
@@ -264,7 +264,7 @@ def add_lamella(
 ):
     """Add a lamella to *experiment* and save it; returns the new lamella.
 
-    `AutoLamellaUI.add_new_lamella` without the redraw: see it for the arguments.
+    `ExperimentTab.add_new_lamella` without the redraw: see it for the arguments.
     The current stage position when *stage_position* is None.
     """
     poses = build_lamella_poses(

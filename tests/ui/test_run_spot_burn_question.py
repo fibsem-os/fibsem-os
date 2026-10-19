@@ -87,7 +87,7 @@ def window(qapp, tmp_path_factory):
         setattr(module_, name, value)
 
     window = module.AutoLamellaSingleWindowUI()
-    ui = window.autolamella_ui
+    ui = window
     ui.system_widget.connect_to_microscope()
     # Read unconditionally by the main window's workflow update; the window
     # sets it when a run starts.
@@ -131,7 +131,7 @@ def window(qapp, tmp_path_factory):
 
 @pytest.fixture
 def ui(window):
-    ui = window.autolamella_ui
+    ui = window
     ui._burns.clear()
     ui._burn_failures.clear()
     ui._supervision["supervised"] = True

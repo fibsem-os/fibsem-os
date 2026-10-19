@@ -20,22 +20,25 @@ from psygnal import Signal
 pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.structures import Experiment
-from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
+    AutoLamellaSingleWindowUI,
+)
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.cancellation import OperationCancelledError
+from tests.fixtures.main_window import close_window
 from tests.run_state import Stopped
 
 
 @pytest.fixture
 def ui(qapp, tmp_path, monkeypatch):
-    """A real AutoLamellaUI, connected (Demo), ready to run the worker inline."""
-    widget = AutoLamellaUI(parent_ui=None)
+    """A real window, connected (Demo), ready to run the worker inline."""
+    widget = AutoLamellaSingleWindowUI()
     widget.system_widget.connect_to_microscope()
     widget.experiment = Experiment(path=tmp_path, name="test-exp")
     yield widget
     if widget.microscope is not None:
         widget.microscope.disconnect()
-    widget.close()
+    close_window(widget)
 
 
 def _run_with_manager_raising(ui, monkeypatch, exc):

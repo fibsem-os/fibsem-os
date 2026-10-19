@@ -33,7 +33,7 @@ def _preferences(tmp_path, monkeypatch):
 @pytest.fixture
 def main_ui(qapp):
     window = module.AutoLamellaSingleWindowUI()
-    ui = window.autolamella_ui
+    ui = window
     ui.system_widget.connect_to_microscope()
     yield window
     window.lamella_tab.editor._save_timer.stop()
@@ -48,7 +48,7 @@ def main_ui(qapp):
 
 @pytest.fixture
 def experiment(main_ui, tmp_path):
-    ui = main_ui.autolamella_ui
+    ui = main_ui
     exp = Experiment(path=tmp_path, name="exp")
     (tmp_path / "exp").mkdir()
     exp.task_protocol = AutoLamellaTaskProtocol()

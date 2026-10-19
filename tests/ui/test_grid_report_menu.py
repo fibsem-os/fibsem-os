@@ -23,7 +23,7 @@ from fibsem.workflows.grids import GridRecord
 @pytest.fixture
 def window(qapp):
     window = module.AutoLamellaSingleWindowUI()
-    ui = window.autolamella_ui
+    ui = window
     ui.system_widget.connect_to_microscope()
     yield window
     ui.microscope.disconnect()
@@ -67,7 +67,7 @@ def test_it_refuses_with_nothing_to_report(window, experiment, monkeypatch):
     monkeypatch.setattr(window, "show_toast", lambda msg, *a, **k: toasts.append(msg))
     window.menu_bar.action_generate_grid_report.trigger()
     assert toasts == ["Open an experiment to report on."]
-    window.autolamella_ui.experiment = experiment
+    window.experiment = experiment
     window._on_experiment_update()
     window.menu_bar.action_generate_grid_report.trigger()
     assert "No grids in this experiment" in toasts[-1]
@@ -76,7 +76,7 @@ def test_it_refuses_with_nothing_to_report(window, experiment, monkeypatch):
 def test_it_shows_the_grids_tab_and_writes_there(window, experiment, monkeypatch):
     pytest.importorskip("reportlab")
     experiment.add_grid(GridRecord(name="grid-oak"))
-    window.autolamella_ui.experiment = experiment
+    window.experiment = experiment
     window._on_experiment_update()
     tab = window.grids_tab
     tab._synchronous = True

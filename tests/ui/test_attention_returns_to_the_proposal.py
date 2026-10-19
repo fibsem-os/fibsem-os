@@ -21,9 +21,12 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QWidget
 
-from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
+    AutoLamellaSingleWindowUI,
+)
 from fibsem.detection.detection import DetectedFeatures, LamellaCentre
 from fibsem.workflows.proposals import DETECTION, Proposal
+from tests.fixtures.main_window import close_window
 
 ITEM, TASK = "item-1", "Setup"
 
@@ -50,7 +53,7 @@ class _DetWidget(QWidget):
 
 @pytest.fixture
 def ui(qapp):
-    widget = AutoLamellaUI(parent_ui=None)
+    widget = AutoLamellaSingleWindowUI()
     widget.system_widget.connect_to_microscope()
     det_widget = _DetWidget()
     widget.panel.det_widget = det_widget
@@ -59,7 +62,7 @@ def ui(qapp):
     yield widget
     if widget.microscope is not None:
         widget.microscope.disconnect()
-    widget.close()
+    close_window(widget)
 
 
 def _detection() -> DetectedFeatures:
@@ -160,10 +163,10 @@ def main_ui(qapp):
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
 
     window = module.AutoLamellaSingleWindowUI()
-    window.autolamella_ui.system_widget.connect_to_microscope()
+    window.system_widget.connect_to_microscope()
     yield window
-    if window.autolamella_ui.microscope is not None:
-        window.autolamella_ui.microscope.disconnect()
+    if window.microscope is not None:
+        window.microscope.disconnect()
     original_quit = qapp.quit
     qapp.quit = lambda: None
     try:
@@ -179,7 +182,7 @@ def test_a_proposal_on_one_of_the_windows_own_tabs_is_fronted_there(main_ui, qap
     standing in for a proposal's host."""
     host = main_ui.grids_tab
     main_ui.tab_widget.setTabEnabled(main_ui.tab_widget.indexOf(host), True)
-    main_ui.autolamella_ui.proposals.proposal_host = lambda: host
+    main_ui.proposals.proposal_host = lambda: host
     main_ui.tab_widget.setCurrentIndex(0)
 
     main_ui.attention.attention_clicked()
@@ -190,7 +193,7 @@ def test_a_proposal_on_one_of_the_windows_own_tabs_is_fronted_there(main_ui, qap
 def test_a_proposal_elsewhere_still_lands_on_the_microscope_tab(main_ui, qapp):
     """A proposal on the shared prompt bar has no tab of its own and must not
     be dragged into whatever the last host was."""
-    main_ui.autolamella_ui.proposals.proposal_host = lambda: None
+    main_ui.proposals.proposal_host = lambda: None
     main_ui.tab_widget.setCurrentWidget(main_ui.grids_tab)
 
     main_ui.attention.attention_clicked()

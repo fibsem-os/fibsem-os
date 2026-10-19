@@ -45,7 +45,7 @@ def ui(qapp, monkeypatch, tmp_path):
         {ROUGH: MillRoughTaskConfig(task_name=ROUGH)},
         supervised=[ROUGH],
     ) as window:
-        yield window.autolamella_ui
+        yield window
 
 
 def _mill(*args, **kwargs):

@@ -34,7 +34,7 @@ def main_ui(qapp):
     """The default Demo configuration: not a compustage, no loader, a fixed
     holder with no slot calibrated. Nothing about grids is set up."""
     window = module.AutoLamellaSingleWindowUI()
-    ui = window.autolamella_ui
+    ui = window
     ui.system_widget.connect_to_microscope()
     stage = ui.microscope.sample_handling
     assert stage.magazine is None, "the default Demo grew a loader"
@@ -49,7 +49,7 @@ def main_ui(qapp):
 
 
 def test_nothing_grid_aware_gets_in_the_way(main_ui, tmp_path, monkeypatch):
-    ui = main_ui.autolamella_ui
+    ui = main_ui
     exp = Experiment(path=tmp_path, name="exp")
     (tmp_path / "exp").mkdir()
     exp.task_protocol = AutoLamellaTaskProtocol(

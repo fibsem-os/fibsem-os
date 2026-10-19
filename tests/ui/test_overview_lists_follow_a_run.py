@@ -27,7 +27,7 @@ def main_ui(qapp, monkeypatch):
     import fibsem.config as fibsem_config
 
     window = module.AutoLamellaSingleWindowUI()
-    ui = window.autolamella_ui
+    ui = window
     config = os.path.join(
         os.path.dirname(fibsem_config.__file__),
         "config",
@@ -52,7 +52,7 @@ def _statuses(tab):
 
 
 def test_a_status_report_reaches_both_overview_lists(main_ui, tmp_path):
-    ui = main_ui.autolamella_ui
+    ui = main_ui
     exp = Experiment(path=tmp_path, name="exp")
     (tmp_path / "exp").mkdir()
     exp.task_protocol = AutoLamellaTaskProtocol()

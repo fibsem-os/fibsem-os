@@ -51,8 +51,8 @@ def window(qapp, tmp_path):
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
 
     win = module.AutoLamellaSingleWindowUI()
-    win.autolamella_ui.system_widget.connect_to_microscope()
-    ui = win.autolamella_ui
+    win.system_widget.connect_to_microscope()
+    ui = win
     experiment = Experiment(path=tmp_path, name="ask-exp")
     os.makedirs(experiment.path, exist_ok=True)
     experiment.task_protocol = AutoLamellaTaskProtocol(
@@ -107,7 +107,7 @@ def _pump(qapp, predicate, timeout_s=10.0) -> bool:
 
 
 def _task(window):
-    ui = window.autolamella_ui
+    ui = window
     experiment = ui.experiment
     manager = TaskManager(
         microscope=ui.microscope,
@@ -150,7 +150,7 @@ def _start(window, kind=DETECTION, values=PROPOSED):
 
 
 def test_the_run_holds_on_the_question_until_it_is_decided(window, qapp):
-    ui = window.autolamella_ui
+    ui = window
     lamella = ui.experiment.positions[0]
     task, thread, seen = _start(window)
 
@@ -208,7 +208,7 @@ def test_the_run_holds_on_the_question_until_it_is_decided(window, qapp):
 def test_a_window_that_starts_listening_mid_hold_puts_the_question_up(window, qapp):
     """A run can be asking before the window listens to its experiment (a run
     started without it). The question already standing is put up at once."""
-    ui = window.autolamella_ui
+    ui = window
     lamella = ui.experiment.positions[0]
     task, thread, seen = _start(window)
     assert _pump(qapp, lambda: ui.proposals._widget_proposal is not None)
@@ -231,7 +231,7 @@ def test_continue_on_a_question_the_widget_never_got_confirms_it_as_proposed(
     """The task asked without loading its detection into the window (a window
     that started listening mid-question has none): Continue confirms what was
     proposed instead of reading an empty Detection tab."""
-    ui = window.autolamella_ui
+    ui = window
     lamella = ui.experiment.positions[0]
     task, thread, seen = _start(window)
     assert _pump(qapp, lambda: ui.proposals._widget_proposal is not None)
@@ -250,7 +250,7 @@ def test_a_point_asked_with_no_frame_to_show_it_on_is_confirmed_as_proposed(
 ):
     """No FIB frame on the view and no reference image on disk: the marker
     cannot go up, and Continue confirms the point as proposed."""
-    ui = window.autolamella_ui
+    ui = window
     ui.panel.image_widget.ib_image = None
     task, thread, seen = _start(window, POINT_OF_INTEREST, {"poi": Point(1e-6, 2e-6)})
     assert _pump(qapp, lambda: ui.proposals._widget_proposal is not None), "put up"
@@ -282,7 +282,7 @@ def test_the_poi_marker_follows_the_view_to_another_frame(window, qapp):
     from fibsem import conversions
     from fibsem.structures import BeamType
 
-    ui = window.autolamella_ui
+    ui = window
     _swap_view_frame(ui, 150e-6)
     initial = Point(x=5e-6, y=-3e-6)
     task, thread, seen = _start(window, POINT_OF_INTEREST, {"poi": initial})
@@ -305,7 +305,7 @@ def test_the_poi_marker_follows_the_view_to_another_frame(window, qapp):
 
 
 def test_stop_withdraws_the_question_and_cancels_the_task(window, qapp):
-    ui = window.autolamella_ui
+    ui = window
     lamella = ui.experiment.positions[0]
     task, thread, seen = _start(window)
     assert _pump(qapp, lambda: ui.run_relay.hold is not None)
@@ -345,7 +345,7 @@ def test_the_run_lends_control_while_the_question_stands(window, qapp):
 
     from fibsem.server import AuthConfig, build_server
 
-    ui = window.autolamella_ui
+    ui = window
     lamella = ui.experiment.positions[0]
     control = ui.microscope.control
     client = TestClient(

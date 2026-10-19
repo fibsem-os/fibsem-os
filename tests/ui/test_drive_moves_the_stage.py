@@ -35,8 +35,8 @@ def window(qapp, tmp_path, request):
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
 
     win = module.AutoLamellaSingleWindowUI()
-    win.autolamella_ui.system_widget.connect_to_microscope()
-    ui = win.autolamella_ui
+    win.system_widget.connect_to_microscope()
+    ui = win
     if request.param:
         experiment = Experiment(path=tmp_path, name="drive-exp")
         os.makedirs(experiment.path, exist_ok=True)
@@ -71,7 +71,7 @@ def _pump(qapp, predicate, timeout_s=10.0) -> bool:
 
 
 def test_an_agent_at_drive_moves_the_stage_and_the_window_follows(window, qapp):
-    ui = window.autolamella_ui
+    ui = window
     auth = AuthConfig(token="agent")
     auth.set_level(AgentLevel.DRIVE)
     client = TestClient(

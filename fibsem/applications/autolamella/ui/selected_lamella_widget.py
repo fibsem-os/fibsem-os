@@ -35,7 +35,7 @@ class SelectedLamellaWidget(QWidget):
     Shows the objective-position control and the lamella's poses. This is a
     view: it reads display state from the lamella passed to :meth:`set_lamella`
     and emits signals for user actions. All microscope/experiment side effects
-    are handled by the parent (AutoLamellaUI) via the connected signals.
+    are handled by the parent (ExperimentTab) via the connected signals.
     """
 
     objective_position_changed = pyqtSignal(float)  # value in µm

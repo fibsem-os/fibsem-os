@@ -20,9 +20,8 @@ from fibsem.workflows.grids import GridRecord  # noqa: E402
 def _window(experiment):
     refreshed = []
     window = SimpleNamespace(
-        autolamella_ui=SimpleNamespace(
-            experiment=experiment, microscope=SimpleNamespace(sample_handling=None)
-        ),
+        experiment=experiment,
+        microscope=SimpleNamespace(sample_handling=None),
         grids_tab=SimpleNamespace(refresh=lambda: refreshed.append("grids")),
         workflow_tab=SimpleNamespace(
             grid_workflow_widget=SimpleNamespace(refresh=lambda: None)
