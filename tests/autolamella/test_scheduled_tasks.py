@@ -121,7 +121,7 @@ def test_a_stop_ends_the_wait(manager):
     far_off = datetime.now() + timedelta(hours=6)
     Thread(target=manager.stop, daemon=True).start()
 
-    assert elapsed_running(manager, scheduled_at=far_off) < 3.0
+    assert elapsed_running(manager, scheduled_at=far_off) < 0.5
 
 
 def test_a_task_stop_ends_the_wait_too(manager):
@@ -130,7 +130,7 @@ def test_a_task_stop_ends_the_wait_too(manager):
     far_off = datetime.now() + timedelta(hours=6)
     Thread(target=manager.stop_task, daemon=True).start()
 
-    assert elapsed_running(manager, scheduled_at=far_off) < 3.0
+    assert elapsed_running(manager, scheduled_at=far_off) < 0.5
 
 
 def test_a_timezone_aware_time_does_not_raise(manager):
@@ -296,12 +296,11 @@ def test_pending_clears_when_a_stop_ends_the_wait(manager, ui):
 def test_pending_clears_if_the_wait_raises(manager, ui, monkeypatch):
     """Why the clear is in a `finally`. A stranded flag would leave the border
     claiming nothing is running for the remainder of the run."""
-    import fibsem.applications.autolamella.workflows.tasks.manager as manager_module
 
     def boom(_seconds):
         raise RuntimeError("something blew up mid-wait")
 
-    monkeypatch.setattr(manager_module.time, "sleep", boom)
+    monkeypatch.setattr(manager.abort_token, "wait", boom)
 
     with pytest.raises(RuntimeError):
         elapsed_running(manager, scheduled_at=datetime.now() + timedelta(hours=6))
