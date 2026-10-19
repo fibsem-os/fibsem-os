@@ -1059,7 +1059,7 @@ def test_an_odemis_microscope_builds_its_fm_from_the_devices(odemis):
     _CURRENT.append(world)
     try:
         fm = build_odemis_fm(
-            DeviceEntry.from_dict(microscope.system.fm.to_dict(), name="fm"),
+            DeviceEntry.from_dict({"name": "fm", **microscope.system.fm.to_dict()}),
             BuildContext(microscope=microscope),
         )
     finally:

@@ -198,13 +198,15 @@ def test_a_partial_legacy_blob_recovers_the_same_geometry_either_way(
     rather than of one call site, and this pins it in the direction that matters: both
     routes, every block, same answer.
     """
+    from fibsem.codec.upgrades.configuration import upgrade
     from fibsem.structures import SystemSettings
 
     full = load("thermo_aquilos_v3.json")["system"]
     partial = {k: v for k, v in full.items() if k != missing}
 
     geometry = FibsemHardwareGeometry.from_dict(legacy_geometry(partial))
-    system = SystemSettings.from_dict(copy.deepcopy(partial))
+    # `SystemSettings` reads the current shape; an old blob is upgraded first.
+    system = SystemSettings.from_dict(upgrade(partial))
 
     assert geometry.shuttle_pre_tilt == system.stage.shuttle_pre_tilt
     assert geometry.rotation_reference == system.stage.rotation_reference

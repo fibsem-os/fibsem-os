@@ -17,6 +17,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.codec.upgrades.configuration import upgrade
 from fibsem.structures import (
     CONFIGURATION_VERSION,
     DEFAULT_FIB_COLUMN_TILT,
@@ -267,7 +268,7 @@ def test_a_configuration_that_says_nothing_extra_reports_nothing():
         "info": {"name": "x", "ip_address": "y", "manufacturer": "Demo"},
         "stage": {"rotation_reference": 0.0},
     }
-    assert utils.unrecognised_configuration_keys(config) == []
+    assert utils.unrecognised_configuration_keys(upgrade(config)) == []
 
 
 def test_reporting_is_logged_at_load(caplog):
@@ -323,14 +324,17 @@ def test_the_old_two_key_spelling_still_reads(block: dict, expected):
     utils.configuration_device(config, "ion").pop("plasma_gas", None)
     # In the old flat spelling, which is where a file carrying the flag would have it.
     config["ion"] = block
-    assert MicroscopeSettings.from_dict(config).system.ion.plasma_gas == expected
+    assert (
+        MicroscopeSettings.from_dict(upgrade(config)).system.ion.plasma_gas == expected
+    )
 
 
-def test_the_old_plasma_flag_is_read_for_migration_and_not_written():
+def test_the_old_plasma_flag_is_upgraded_and_not_written():
     """A file stating `ion.plasma` is neither warned about nor saved back with it."""
     config = copy.deepcopy(_load("microscope-configuration.yaml"))
     config["ion"] = {"plasma": False}  # the old flat spelling
-    assert "ion.plasma" not in utils.unrecognised_configuration_keys(config)
+    config = upgrade(config)
+    assert utils.unrecognised_configuration_keys(config) == []
 
     written = MicroscopeSettings.from_dict(config).to_dict()
     ion = utils.configuration_device(written, "ion")

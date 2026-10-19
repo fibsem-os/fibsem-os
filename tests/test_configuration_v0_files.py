@@ -12,11 +12,13 @@ the "no gas" spelling `plasma_gas: None` as the *string* "None".
 
 import math
 import os
+import shutil
 
 import pytest
 import yaml
 
 from fibsem import utils
+from fibsem.structures import CONFIGURATION_VERSION
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures", "configuration_v0")
 
@@ -109,18 +111,38 @@ def _load(path):
     return utils.load_microscope_configuration(str(path))
 
 
+def _copy(filename, tmp_path):
+    """The fixture copied out, since loading an old file saves it back upgraded."""
+    path = tmp_path / filename
+    shutil.copy(os.path.join(FIXTURES, filename), path)
+    return path
+
+
 @pytest.mark.parametrize("filename", sorted(READS_AS))
-def test_an_old_file_reads_as_it_did(filename):
-    settings = _load(os.path.join(FIXTURES, filename))
+def test_an_old_file_reads_as_it_did(filename, tmp_path):
+    settings = _load(_copy(filename, tmp_path))
 
     assert _reads_as(settings) == READS_AS[filename]
 
 
 @pytest.mark.parametrize("filename", sorted(READS_AS))
+def test_an_old_file_is_saved_upgraded_and_kept_as_it_was(filename, tmp_path):
+    path = _copy(filename, tmp_path)
+    _load(path)
+
+    assert utils.load_yaml(path)["version"] == CONFIGURATION_VERSION
+    kept = utils.configuration_backup_path(path, before=1)
+    with open(os.path.join(FIXTURES, filename)) as f:
+        assert kept.read_text() == f.read()
+    assert _reads_as(_load(path)) == READS_AS[filename]
+
+
+@pytest.mark.parametrize("filename", sorted(READS_AS))
 def test_an_old_file_saved_by_this_version_still_reads_the_same(filename, tmp_path):
-    saved = tmp_path / filename
+    saved = tmp_path / "saved" / filename
+    saved.parent.mkdir()
     saved.write_text(
-        yaml.safe_dump(utils._plain(_load(os.path.join(FIXTURES, filename)).to_dict()))
+        yaml.safe_dump(utils._plain(_load(_copy(filename, tmp_path)).to_dict()))
     )
 
     assert _reads_as(_load(saved)) == READS_AS[filename]

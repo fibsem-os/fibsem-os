@@ -2609,15 +2609,11 @@ class StageDeviceSettings:
     def from_dict(
         ddict: dict,
         default_orientations: Sequence[str] = (),
-        default_range: Optional[FibsemStagePosition] = None,
     ) -> "StageDeviceSettings":
         """Read a device's stage position.
 
         `available_orientations` missing is the device type's default; stated empty is
-        an error. The configuration version 1 spelling, `acquisition_orientations`, is
-        read too, and there an empty list meant "any orientation", so it reads as all
-        of them. `range` missing is *default_range*, or 1 mm on each axis the origin
-        sets.
+        an error. `range` missing is 1 mm on each axis the origin sets.
         """
         origin = device_axes_from_dict(ddict.get("origin"), "device origin")
         if "available_orientations" in ddict:
@@ -2628,9 +2624,6 @@ class StageDeviceSettings:
                     f"orientation. Name at least one of {list(KNOWN_ORIENTATIONS)}, "
                     "or leave the key out for the device's default."
                 )
-        elif "acquisition_orientations" in ddict:
-            orientations = [str(o) for o in ddict["acquisition_orientations"] or []]
-            orientations = orientations or list(KNOWN_ORIENTATIONS)
         else:
             orientations = list(default_orientations) or list(BEAM_ORIENTATIONS)
         # Validated here, at the one place configuration enters, because a typo would
@@ -2644,14 +2637,11 @@ class StageDeviceSettings:
             )
         if ddict.get("range"):
             range_ = device_axes_from_dict(ddict["range"], "device range")
-        elif default_range is not None:
-            range_ = deepcopy(default_range)
         else:
             range_ = default_device_range(origin)
         # A range covers every axis the origin sets; one it leaves out gets the
         # default. Otherwise `contains` answers no on that axis, and the device -- a
-        # version 1 `{x: 20 mm}` copied onto an origin that also sets y -- could never
-        # be arrived at.
+        # `{x: 20 mm}` range on an origin that also sets y -- could never be arrived at.
         for axis in DEVICE_AXES:
             if getattr(origin, axis) is not None and getattr(range_, axis) is None:
                 setattr(range_, axis, DEFAULT_DEVICE_RANGE_EXTENT)
@@ -2675,11 +2665,6 @@ def default_device_range(origin: FibsemStagePosition) -> FibsemStagePosition:
         }
     )
 
-
-# The range every device shared in configuration version 1 when the file stated none.
-# A version 1 file is read with its `device_range` (or this) copied onto each device,
-# so an existing site keeps the window it had; the 1 mm default is for new entries.
-VERSION_1_DEVICE_RANGE = FibsemStagePosition(x=20.0e-3)
 
 # The ion column's angle from the electron column, in degrees. A property of the
 # instrument rather than a preference, and the same on every dual-beam this supports,
@@ -2959,11 +2944,6 @@ class StageSystemSettings(Configurable):
 
     @staticmethod
     def from_dict(settings: dict):
-        # `rotation_180` is deliberately not read. A file written before FIB-834 still
-        # carries the key and still loads -- the value is simply ignored, because it is
-        # now derived from the two fields that decide it. Ignoring beats honouring: a
-        # stored value that disagrees with the derivation is a value someone typed
-        # wrong, and reading it back would preserve the mistake.
         holders = {
             name: _configured_holder_from(name, holder)
             for name, holder in (settings.get("holders") or {}).items()
@@ -2983,7 +2963,7 @@ class StageSystemSettings(Configurable):
             enabled=settings.get("enabled", True),
             rotation=settings.get("rotation", True),
             milling_angle=settings.get("milling_angle", 15.0),
-            devices=_version_1_stage_devices(settings),
+            devices=deepcopy(DEFAULT_STAGE_DEVICES),
             holders=holders,
             active_holder=active_holder,
             rotation_centre_correction=_parse_rotation_centre(
@@ -2993,63 +2973,14 @@ class StageSystemSettings(Configurable):
         )
 
 
-def _version_1_stage_devices(stage: dict) -> Dict[str, StageDeviceSettings]:
-    """The device positions a version 1 `stage:` block declares, or the defaults.
-
-    Version 1 kept them under `stage.devices`, keyed `FIBSEM` and `FM`, with one
-    `device_range` for all of them. Each declared device gets that range (or the 20 mm
-    version 1 used when the file stated none), so an existing site keeps the window it
-    had. The beams are the implicit zero and unbounded whatever the file said; a
-    version 1 origin for them away from zero is not kept, and is warned about.
-    """
-    devices = stage.get("devices")
-    result = deepcopy(DEFAULT_STAGE_DEVICES)
-    if not devices:
-        return result
-    range_ = (
-        device_axes_from_dict(stage["device_range"], "device range")
-        if stage.get("device_range")
-        else deepcopy(VERSION_1_DEVICE_RANGE)
-    )
-    for key, device in devices.items():
-        if key == BEAMS_STAGE_DEVICE:
-            origin = device_axes_from_dict(
-                (device or {}).get("origin"), "device origin"
-            )
-            if any(getattr(origin, axis) for axis in DEVICE_AXES):
-                logging.warning(
-                    f"stage.devices.{key}.origin {device_axes_to_dict(origin)} is not "
-                    "kept: the beams are the stage's zero."
-                )
-            continue
-        result[key] = StageDeviceSettings.from_dict(
-            device or {},
-            default_orientations=DEFAULT_AVAILABLE_ORIENTATIONS.get(
-                stage_device_entry_name(key), ()
-            ),
-            default_range=range_,
-        )
-    # A version 1 file that declared devices declared all of them: one it left out
-    # did not exist there.
-    for key in list(result):
-        if key != BEAMS_STAGE_DEVICE and key not in devices:
-            del result[key]
-    return result
-
-
 def _detector_block_from(settings: dict) -> dict:
-    """The detector keys of a beam block, in the names `FibsemDetectorSettings` reads.
-
-    The prefixed spelling wins when both are present, because it is the one the
-    writer produces and the one every shipped file uses.
-    """
-    block = {}
-    for name in ("type", "mode", "brightness", "contrast"):
-        if f"detector_{name}" in settings:
-            block[name] = settings[f"detector_{name}"]
-        elif name in settings:
-            block[name] = settings[name]
-    return block
+    """The detector keys of a beam block (``detector_type``), in the names
+    `FibsemDetectorSettings` reads (``type``)."""
+    return {
+        name: settings[f"detector_{name}"]
+        for name in ("type", "mode", "brightness", "contrast")
+        if f"detector_{name}" in settings
+    }
 
 
 # Written by `BeamSettings` / `FibsemDetectorSettings` and not defaults: the column's
@@ -3172,32 +3103,8 @@ class BeamSystemSettings:
             detector=FibsemDetectorSettings.from_dict(_detector_block_from(settings)),
             eucentric_height=settings.get("eucentric_height", 0.0),
             column_tilt=settings.get("column_tilt", default_column_tilt),
-            plasma_gas=_plasma_gas_from(settings),
+            plasma_gas=settings.get("plasma_gas"),
         )
-
-
-def _plasma_gas_from(settings: dict) -> Optional[str]:
-    """The plasma gas a block states, or None for a column without one.
-
-    Reads the old two-key spelling as well as the new one. `plasma: false` means no
-    plasma source whatever the gas key says, because the flag was the one the
-    drivers consulted. And the shipped files wrote "no gas" as `plasma_gas: None`,
-    which YAML reads as the *string* "None", so that spelling (and its lower-case
-    and empty cousins) is read as None too.
-    """
-    if settings.get("plasma") is False:
-        return None
-    gas = settings.get("plasma_gas")
-    if gas is None or str(gas).strip().lower() in ("", "none", "null"):
-        if settings.get("plasma") is True:
-            # The old flag without a gas. Not a plasma column until the instrument
-            # names its gas at connect (`FibsemMicroscope._read_plasma_source`).
-            logging.info(
-                "The configuration says `plasma: true` but names no plasma gas; the "
-                "gas is read from the instrument at connect."
-            )
-        return None
-    return str(gas)
 
 
 @dataclass
@@ -3497,10 +3404,10 @@ class DeviceEntry:
         return block
 
     @staticmethod
-    def from_dict(data: dict, name: Optional[str] = None) -> "DeviceEntry":
-        """Read one entry. *name* is the block's key, for a version 1 block."""
+    def from_dict(data: dict) -> "DeviceEntry":
+        """Read one entry."""
         data = dict(data or {})
-        name = data.pop("name", None) or name
+        name = data.pop("name", None)
         type_ = data.pop("type", None)
         if name is None and type_ is None:
             raise ValueError(
@@ -3544,11 +3451,8 @@ STAGE_POSITION_KEYS = ("origin", "available_orientations", "range")
 def read_device_entries(settings: dict) -> Dict[str, DeviceEntry]:
     """Every device a configuration dict names, by name, in file order.
 
-    Reads all three shapes a file can be in: the blocks at the top level from before the
-    sections (`stage:`), the version 1 blocks under `hardware:` (`hardware.stage:`) --
-    both only for the devices that had one, `CONFIGURED_DEVICES` -- and the version 2
-    list (`hardware.devices:`). A later shape wins key by key, so a file
-    half way between two reads as it says. Two list entries with one name are an error:
+    Reads the list (`hardware.devices:`); a file in an older shape is upgraded first
+    (`fibsem.codec.upgrades.configuration`). Two entries with one name are an error:
     which of them the file meant cannot be known. A list entry with no type whose name
     is no device type is ignored with a warning, so a file naming a device this version
     no longer has still loads.
@@ -3556,29 +3460,9 @@ def read_device_entries(settings: dict) -> Dict[str, DeviceEntry]:
     settings = settings or {}
     hardware = settings.get("hardware") or {}
     entries: Dict[str, DeviceEntry] = {}
-
-    def merge(entry: DeviceEntry) -> None:
-        old = entries.get(entry.name)
-        if old is None:
-            entries[entry.name] = entry
-            return
-        entries[entry.name] = DeviceEntry.from_dict(
-            {**old.to_dict(), **entry.to_dict()}
-        )
-
-    for name in CONFIGURED_DEVICES:
-        if isinstance(settings.get(name), dict):
-            merge(DeviceEntry.from_dict(settings[name], name=name))
-    # Only the blocks version 1 wrote. Any other `hardware.<name>` block was never read,
-    # and reading it now would build a device from a key a site left there for nothing.
-    for name in CONFIGURED_DEVICES:
-        if isinstance(hardware.get(name), dict):
-            merge(DeviceEntry.from_dict(hardware[name], name=name))
-
     listed = hardware.get("devices") or []
     if not isinstance(listed, list):
         raise ValueError("hardware.devices must be a list of devices.")
-    seen: Set[str] = set()
     for item in listed:
         try:
             entry = DeviceEntry.from_dict(item)
@@ -3586,13 +3470,12 @@ def read_device_entries(settings: dict) -> Dict[str, DeviceEntry]:
             # such as a device this version no longer has
             logging.warning(f"{e} It is ignored.")
             continue
-        if entry.name in seen:
+        if entry.name in entries:
             raise ValueError(
                 f"hardware.devices names '{entry.name}' twice. Give each device its "
                 "own name."
             )
-        seen.add(entry.name)
-        merge(entry)
+        entries[entry.name] = entry
     return entries
 
 
@@ -3720,20 +3603,14 @@ class SystemSettings:
         # not a corrupt file, and this is what lets a key be removed from the
         # shipped files without every existing one raising `KeyError` at load.
         #
-        # `defaults:` names what a session starts from; `electron:` / `ion:` describe
+        # `defaults:` names what a session starts from; a column's entry describes
         # what the column *is*. Merged back together here because nothing downstream
-        # cares about the split -- the records are unchanged, and the readers of
-        # `system.electron.beam` and `system.ion.detector` do not move. `defaults:`
-        # wins a collision: every file written before the split states the keys in
-        # the flat block only, which is why the merge is in this direction and why
-        # those files load unchanged.
-        # Every file written before the sections existed has its blocks at the top
-        # level, so each block is read from there first and from `hardware:` over
-        # it; `calibration:` folds into the stage record it belongs to.
+        # cares about the split -- the readers of `system.electron.beam` and
+        # `system.ion.detector` do not move. `defaults:` wins a collision.
+        # `calibration:` folds into the stage record it belongs to.
         #
-        # Version 2 lists the devices (`hardware.devices`); `read_device_entries`
-        # reads the list and both older shapes, and gives each device back as the
-        # block its record has always read.
+        # The current version only: a file in an older shape is upgraded before it
+        # gets here (`fibsem.codec.upgrades.configuration`).
         calibration = settings.get("calibration") or {}
         defaults = settings.get("defaults") or {}
         entries = read_device_entries(settings)
@@ -3757,9 +3634,7 @@ class SystemSettings:
         ion["beam_type"] = BeamType.ION.name
 
         # Device positions are on each device's entry (`origin`,
-        # `available_orientations`, `range`); version 1 kept them under
-        # `stage.devices`, which `StageSystemSettings.from_dict` reads. An entry's
-        # wins.
+        # `available_orientations`, `range`), over the defaults.
         stage_settings = StageSystemSettings.from_dict(stage)
         for name, entry in entries.items():
             position = {
@@ -4111,11 +3986,8 @@ class MicroscopeSettings:
 
         return MicroscopeSettings(
             system=SystemSettings.from_dict(settings),
-            # `defaults.imaging` first, the old top-level `imaging:` after it.
             image=ImageSettings.from_dict(
-                (settings.get("defaults") or {}).get("imaging")
-                or settings.get("imaging")
-                or {}
+                (settings.get("defaults") or {}).get("imaging") or {}
             ),
             protocol=protocol,
             fm=fm_config,
