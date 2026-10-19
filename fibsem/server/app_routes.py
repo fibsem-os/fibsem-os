@@ -16,7 +16,6 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 
-from fibsem.ai.agent import allowlist
 from fibsem.server import files
 from fibsem.server.auth import take_control
 
@@ -25,7 +24,6 @@ __all__ = [
     "build_app_control_router",
     "build_app_router",
     "build_app_stop_router",
-    "build_app_suggest_router",
 ]
 
 
@@ -353,10 +351,6 @@ def build_app_router(context: Any) -> APIRouter:
             files.read, path, box=_numbers(box), fraction=_numbers(fraction)
         )
 
-    @router.get("/workflow/prompt")
-    def pending_prompt():
-        return context.pending_prompt()
-
     @router.get("/workflow/proposals")
     def proposals():
         return context.proposals()
@@ -424,64 +418,16 @@ def build_app_control_router(context: Any) -> APIRouter:
     """
     router = APIRouter(prefix="/app")
 
-    @router.post("/workflow/prompt/answer")
-    def answer_prompt(body: Dict[str, Any]):
-        # The question id is mandatory: an answer must name the question it answers
-        # (from GET /app/workflow/prompt), never "whatever is pending by the time this
-        # lands" — the prompt can change between the read and the answer.
-        try:
-            question_id = int(body["question_id"])
-        except (KeyError, TypeError, ValueError):
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "missing_question_id",
-                    "message": "Echo the integer question_id from GET /app/workflow/prompt; "
-                    "an answer must name the question it answers.",
-                },
-            )
-        value = body.get("value")
-        if value is not None and not isinstance(value, dict):
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "invalid_value",
-                    "message": "value, when given, must be a JSON object, in "
-                    "the shape the prompt's value field gives.",
-                },
-            )
-        result = context.answer_prompt(
-            bool(body.get("response", False)), question_id, value=value
-        )
-        if result.get("stale"):
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "error_type": "stale_prompt",
-                    "message": f"That question is no longer pending (question {question_id}); "
-                    "re-read /app/workflow/prompt and answer the current one.",
-                },
-            )
-        if result.get("invalid_value"):
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "invalid_value",
-                    "message": result["invalid_value"],
-                },
-            )
-        return result
-
     @router.post("/workflow/decide")
     def decide(body: Dict[str, Any]):
-        # The same function the operator's answer goes through, on the main thread, blocking
+        # The same function the operator's decision goes through, on the main thread, blocking
         # until applied. Item by id, never by name: names change.
         item_id = body.get("item_id")
         task_name = body.get("task_name")
         outcome = body.get("outcome")
         # What the decision is on: the proposal's own id, or -- from a caller
         # that has not learned it -- the run it came from. The id is the one to
-        # pass: a task may ask several questions in one run.
+        # pass: a task may ask several proposals in one run.
         proposal_id = body.get("proposal_id") or ""
         task_id = body.get("task_id") or ""
         named = [v for v in (proposal_id, task_id) if v]
@@ -639,90 +585,6 @@ def build_app_control_router(context: Any) -> APIRouter:
         task_names = _names(body, "task_names", "the grid tasks to add")
         grid_names = _names(body, "grid_names", "the grids to add them for")
         return context.queue_grid_tasks(task_names, grid_names)
-
-    return router
-
-
-def build_app_suggest_router(context: Any) -> APIRouter:
-    """The agent's suggested answer to the run's question (FIB-1283). Mounted
-    (by build_server) for Assist and Drive: a suggestion answers nothing, so it
-    needs no request."""
-    router = APIRouter(prefix="/app")
-
-    @router.post("/workflow/prompt/suggest")
-    def suggest_answer(body: Dict[str, Any]):
-        try:
-            question_id = int(body["question_id"])
-        except (KeyError, TypeError, ValueError):
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "missing_question_id",
-                    "message": "Echo the integer question_id from GET /app/workflow/prompt; "
-                    "a suggestion must name the question it is for.",
-                },
-            )
-        reason = body.get("reason")
-        if not isinstance(reason, str) or not reason.strip():
-            raise _missing_field(
-                "Pass a reason: it is shown under the suggestion, "
-                "for the operator deciding whether to take it."
-            )
-        value = body.get("value")
-        if value is not None and not isinstance(value, dict):
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "invalid_value",
-                    "message": "value, when given, must be a JSON object, in "
-                    "the shape the prompt's value field gives.",
-                },
-            )
-        image = body.get("image") or None
-        if image is not None:
-            # The image the agent's evidence is in, shown on the card (FIB-1424).
-            refusal = allowlist.image_refusal(
-                image, lambda: getattr(context, "experiment_path", None)
-            )
-            if refusal is not None:
-                status, error_type, message = refusal
-                raise HTTPException(
-                    status_code=status,
-                    detail={"error_type": error_type, "message": message},
-                )
-        suggest = getattr(context, "suggest_answer", None)
-        if suggest is None:
-            return {"available": False, "suggested": False, "stale": False}
-        result = suggest(
-            bool(body.get("response", False)),
-            question_id,
-            reason.strip(),
-            value=value,
-            **({"image": image} if image else {}),
-        )
-        if result.get("stale"):
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "error_type": "stale_prompt",
-                    "message": f"That question is no longer pending (question "
-                    f"{question_id}); re-read /app/workflow/prompt.",
-                },
-            )
-        if result.get("invalid_value"):
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "invalid_value",
-                    "message": result["invalid_value"],
-                },
-            )
-        if result.get("error"):
-            raise HTTPException(
-                status_code=409,
-                detail={"error_type": "not_suggestible", "message": result["error"]},
-            )
-        return result
 
     return router
 

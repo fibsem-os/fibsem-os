@@ -1,6 +1,6 @@
 ---
 name: assist-autolamella
-description: Work alongside an AutoLamella operator at the Assist level — read the session, suggest answers to its questions, and ask the operator to approve each action before it runs. Use when the agent level is Assist, or when asked to help with a run but act only with the operator's approval.
+description: Work alongside an AutoLamella operator at the Assist level — read the session and its proposals, and ask the operator to approve each action before it runs. Use when the agent level is Assist, or when asked to help with a run but act only with the operator's approval.
 argument-hint: [optional: what the operator wants help with]
 ---
 
@@ -30,10 +30,10 @@ Connect as the autolamella-agent skill says, and read
 `server_get_capabilities`:
 
 - `level: "assist"` is the level this skill is for. Tell the operator in a
-  sentence what that means: you read and suggest, and you ask before
+  sentence what that means: you read, and you ask before
   acting, stopping included. A direct call that needs Drive is refused with
   `ask_first`; that is what you can call directly, not what you can ask for.
-- `level: "watch"`: you can read and add notes, and suggest nothing. Work as
+- `level: "watch"`: you can read and add notes, and act on nothing. Work as
   the observe skill says. If they want your help acting, they raise you to
   Assist from the Agent chip.
 - `level: "drive"`: you may act directly. The supervise skill is the one for
@@ -46,7 +46,6 @@ The tools this skill uses, with their routes for plain HTTP:
 | `request_create` | `POST /app/agent/requests` |
 | `request_get` | `GET /app/agent/requests/{request_id}` |
 | `request_withdraw` | `POST /app/agent/requests/{request_id}/withdraw` with `{"reason": ...}` |
-| `prompt_suggest_answer` | `POST /app/workflow/prompt/suggest` |
 | `experiment_add_note` | `POST /app/experiment/notes` |
 | `workflow_stop`, `milling_stop` | `POST /app/workflow/stop`, `POST /microscope/services/milling/commands/stop`, each with `{"reason": ...}` |
 
@@ -145,55 +144,31 @@ A direct acting call at Assist is refused with `403 ask_first`. That is
 the server reminding you to ask, so put the call in a request. Never treat
 it as an error to work around, and never retry it through another tool.
 
-## The run's questions: suggest, don't answer
+## Proposals the run is stopped on
 
-When the watcher prints `PROMPT`, read `prompt_get` and judge it as
-the supervise skill's *Answer* and *The prompt playbook* sections say: name
-the question, check image freshness, and separate reading from acting. Then
-**suggest** the answer:
+When the watcher prints `PROPOSAL item=… task=…` (a position, an alignment
+area, a detection, a mill's or a spot burn's pass), read it with
+`proposal_list` and judge it as the supervise skill's playbook says: check
+image freshness, and separate reading from acting. At Assist you decide it
+only through a request: file the `proposal_decide` call with your reason, and
+the operator approves it or decides it themselves in the window.
 
-```json
-{"question_id": 7, "response": true,
- "reason": "The lamella is centred in both the 02:14 SEM and FIB images. Continue."}
-```
+Two playbook rules hold at Assist too. Before you put forward a Setup
+position or a POI, check coincidence as *Before a position or a POI* says:
+the fresh SEM and FIB images and any `stage_stable_move` or
+`stage_vertical_move` go in one request, and you file the decision only once
+both beams agree. And *When to propose auto*: propose switching the milling
+tasks to auto only after one lamella's mills all passed first time; the
+switch is a request too, and so is turning supervision back on.
 
-The prompt shows "Agent suggests: <the button>" with your reason under it.
-The operator's click answers, as theirs, and the watcher's `ANSWERED` line
-shows `suggested_by=agent`. If they answer some other way, your suggestion
-is dropped. That's their call, not an error. They may also dismiss it,
-with or without a why: the watcher's `SUGGESTION DISMISSED` line carries
-their reason. Read it before you suggest again. A suggestion carries a
-`value` when the prompt has a `value` field, as `prompt_answer` would. It
-is placed on screen only if the operator takes the suggestion. When you
-judged on an image (the fresh SEM and FIB pair for a position), pass its
-path as `image`, as for a request: the card shows it with your value drawn
-on it.
-
-Two playbook rules hold at Assist too. Before you suggest a Setup position
-or a POI, check coincidence as *Before a position or a POI* says: the fresh
-SEM and FIB images and any `stage_stable_move` or `stage_vertical_move` go
-in one request, and you suggest only once both beams agree. And *When to
-propose auto*: propose switching the milling tasks to auto only after one
-lamella's mills all passed first time; the switch is a request too, and so
-is turning supervision back on.
-
-A **recorded question** (`QUESTION item=… task=…`: a position, an
-alignment area, a detection, a mill's or a spot burn's pass) is decided,
-not answered, so a suggestion is refused (`409 not_suggestible`). At Assist, file the `proposal_decide` call
-as a request, with your reason.
-
-A suggestion leaves the click to the operator, so the supervise skill's
-first-of-a-kind escalation is already met. Suggest when you can judge it.
-
-When you can't judge a question, don't suggest. Tell the operator what you
-see and that it's theirs, and put that on the record with `experiment_add_note`
-(nobody else will). Typical cases:
+When you can't judge a proposal, don't file a decision. Tell the operator
+what you see and that it's theirs, and put that on the record with
+`experiment_add_note` (nobody else will). Typical cases:
 
 - an image you can't read, or one with no `acquired_at` (treat it as
   stale);
-- a type you haven't seen;
-- a question the record doesn't back up, such as "Task finished, continue?"
-  with no run going and nothing in the task history;
+- a kind you haven't seen;
+- a proposal the record doesn't back up;
 - anything else that smells wrong.
 
 ## Stopping
@@ -230,7 +205,7 @@ served they are refused when you file them (`not_available`).
 Notes work at Assist as at Watch (autolamella-agent, *Write down why*). Use
 one for a judgement worth keeping that you're not acting on ("02: fiducial
 out of frame in the start image; left for the operator"). A request's reason
-and a suggestion's reason are already on the record; don't repeat them in a
+is already on the record; don't repeat them in a
 note. A site's origin goes in the lamella's description, asked for with
 `item_update`; leave `name` out of an `item_add`.
 
@@ -241,5 +216,5 @@ note. A site's origin goes in the lamella's description, asked for with
 - After a request finishes, say what happened in a line, with any refusal
   and its reason.
 - Say what you didn't check. Keep inference marked as inference.
-- Stay quiet about requests and suggestions that went as expected beyond
+- Stay quiet about requests that went as expected beyond
   that one line.

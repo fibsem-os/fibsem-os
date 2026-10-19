@@ -68,13 +68,13 @@ def test_a_stamp_adds_fields_but_cannot_replace_the_record_s_own():
 
 
 def test_the_writer_s_actor_is_on_the_envelope_with_or_without_a_stamp():
-    # Who acted is the envelope's, never the payload's: an answer delivered on
-    # the GUI thread still names whoever answered.
+    # Who acted is the envelope's, never the payload's: a decision delivered on
+    # the GUI thread still names whoever decided.
     for buffer in (EventBuffer(), EventBuffer(stamp=lambda kind, payload, actor: {})):
-        buffer.append("prompt_answered", {"question_id": 1}, actor="agent")
+        buffer.append("proposal_decided", {"item_id": "L1"}, actor="agent")
         (record,) = buffer.events_since(0)["events"]
         assert record["actor"] == "agent"
-        assert record["payload"] == {"question_id": 1}
+        assert record["payload"] == {"item_id": "L1"}
 
 
 def test_a_failing_stamp_costs_the_stamp_not_the_event():
@@ -280,7 +280,7 @@ def test_each_event_says_where_in_the_run_it_happened(
             item_id="L1", item_name="01-lamella", task_id="T1", task_name="Mill"
         )
         recorder.buffer.append("inside", {})
-        recorder.buffer.append("prompt_answered", {}, actor="agent")
+        recorder.buffer.append("proposal_decided", {}, actor="agent")
     finally:
         ref.clear_workflow_metadata()
         recorder.close()

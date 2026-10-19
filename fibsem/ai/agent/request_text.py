@@ -1751,11 +1751,6 @@ def _line(
                 change += f", setting {_values_text(a.get('patch'))}"
         name = _proposal_item(get("/app/workflow/proposals"), a.get("item_id"))
         return {"what": f"{name or a.get('item_id')} · {task}", "change": change}
-    if tool == "prompt_answer":
-        change = "Answer yes" if a.get("response") else "Answer no"
-        if a.get("value"):
-            change += f" with {_values_text(a.get('value'))}"
-        return {"what": "The run's question", "change": change}
     if tool == "experiment_create":
         protocol = a.get("protocol")
         replaces = _open_experiment(get)

@@ -57,7 +57,7 @@ class ToolSpec:
         if self.hardware:
             return (
                 f"{note} Refused (409) while a run or script is in control, "
-                "except while a run waits on a question: then one action at a "
+                "except while a run waits on a proposal: then one action at a "
                 "time, and the run waits for it to finish."
             )
         return f"{note} The operator sets the level from the Agent chip in AutoLamella."
@@ -110,7 +110,6 @@ GROUP_TITLES: Dict[str, str] = {
     "item": "Item",
     "grid": "Grid",
     "workflow": "Workflow",
-    "prompt": "Prompt",
     "proposal": "Proposal",
     "request": "Request",
 }
@@ -126,10 +125,9 @@ _WRITES_AT_WATCH = frozenset(
     }
 )
 
-# Writes that only add: notes, the agent's own requests and suggestions, a new
+# Writes that only add: notes, the agent's own requests, a new
 # item or experiment. Every other write changes or removes something.
 _ADDITIVE = _WRITES_AT_WATCH | {
-    "prompt_suggest_answer",
     "item_add",
     "experiment_create",
     "protocol_add_task",
@@ -1967,7 +1965,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="protocol_set_supervision",
-        description="Set whether a task asks for supervision, in the live protocol. Takes effect at the workflow's next prompt-or-proceed decision, mid-run — the same behaviour as the GUI's supervised/automated toggle.",
+        description="Set whether a task asks for supervision, in the live protocol. Takes effect at the workflow's next decision point, mid-run — the same behaviour as the GUI's supervised/automated toggle.",
         method="POST",
         path="/app/experiment/protocol/supervision",
         level="drive",
@@ -2025,14 +2023,6 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         router="app",
     ),
     ToolSpec(
-        name="prompt_get",
-        description="The supervision question awaiting an answer, if any — message, options, and context images. suggestion_dismissed: {reason} when the operator dismissed your suggested answer to it.",
-        method="GET",
-        path="/app/workflow/prompt",
-        level="watch",
-        router="app",
-    ),
-    ToolSpec(
         name="proposal_list",
         description="Every pending proposal: what a task is stopped on, waiting for a decision. Which item and task, its own id (proposal_id, which proposal_decide passes back), the run it is from (task_id), its kind, the proposed values (a point of interest in metres, milling frame), provenance, and the reference image the values sit on as a JPEG preview. An empty list when nothing is pending.",
         method="GET",
@@ -2068,37 +2058,6 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "action",
             "patch",
         ),
-    ),
-    ToolSpec(
-        name="prompt_answer",
-        description="Answer the pending supervision question, exactly as clicking the matching button would. True = the positive option. Echo the question_id from prompt_get; if that question is no longer pending the answer is refused (409 stale_prompt) — re-read and answer the current one. A question whose prompt has a value field takes a value in the shape that field gives: the edit the operator could make in that widget, placed into it (the operator sees it land) and then answered through the same click path; value_required means the answer must carry one. When your value moved the widget, moved_from in the answer is what it showed before, in the same shape as value; absent when it already showed your value. The value is what is stored. An out-of-bounds or wrong-shape value is refused (422 invalid_value) without clicking anything.",
-        method="POST",
-        path="/app/workflow/prompt/answer",
-        level="drive",
-        router="app",
-        params={
-            "response": "true for the positive option, false for the negative",
-            "question_id": "the question_id from prompt_get, naming the question being answered",
-            "value": "the edit, in the shape the prompt's value field gives; only for a question that has one",
-        },
-        optional=("value",),
-    ),
-    ToolSpec(
-        name="prompt_suggest_answer",
-        description="Suggest an answer to the pending supervision question, for the operator to take or not. Nothing is answered: the prompt shows 'Agent suggests: <the button>' with your reason under it, and the operator's click on it answers as theirs, recorded with you as the one who suggested it (prompt_suggested, then prompt_answered with suggested_by). Answering any other way ignores it; the operator may dismiss it, saying why (prompt_suggestion_dismissed, with their reason); a new posting of the question drops it. Echo the question_id from prompt_get (409 stale_prompt if it has gone). value is as for prompt_answer, and is placed in the widget only when the operator takes the suggestion.",
-        method="POST",
-        path="/app/workflow/prompt/suggest",
-        level="assist",
-        router="app",
-        params={
-            "response": "true for the positive option, false for the negative",
-            "question_id": "the question_id from prompt_get",
-            "reason": "why: shown under the suggestion for the operator",
-            "value": "the edit, as for prompt_answer",
-            "image": "optional: the path of the image your evidence is in, inside the experiment (as the image tools answered it); the card shows it with the suggested value drawn on it",
-        },
-        optional=("value", "image"),
-        note="Works at Assist and Drive; refused (403) at Watch. At Drive you may prompt_answer directly instead.",
     ),
     ToolSpec(
         name="experiment_list_recent",

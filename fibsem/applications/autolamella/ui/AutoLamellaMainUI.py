@@ -69,7 +69,7 @@ from fibsem.applications.autolamella.ui.lamella_task_image_widget import (
 from fibsem.applications.autolamella.ui.lamella_workflow_widget import (
     LamellaWorkflowWidget,
 )
-from fibsem.applications.autolamella.ui.loop_question import LOOP_KINDS
+from fibsem.applications.autolamella.ui.loop_proposal import LOOP_KINDS
 from fibsem.applications.autolamella.ui.overview_container_tab import (
     AutoLamellaOverviewContainerTab,
 )
@@ -1604,13 +1604,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.agent_chip.stop_clicked.connect(self._on_stop_agent)
         self.agent_chip.approve_clicked.connect(self._on_approve_agent_request)
         self.agent_chip.reject_clicked.connect(self._on_reject_agent_request)
-        self.agent_chip.accept_clicked.connect(self._on_accept_agent_suggestion)
-        self.agent_chip.dismiss_clicked.connect(self._on_dismiss_agent_suggestion)
         self.agent_chip.message_sent.connect(self._on_operator_message)
-        # The suggestion the operator dropped by answering otherwise, until the
-        # answer that dropped it is heard (the responder takes the suggestion
-        # down before it says the question was answered).
-        self._dropped_agent_suggestion: Optional[dict] = None
         self.status_bar.add_action(self.agent_chip)
         # The agent's requests (FIB-1283) move the chip as they change.
         self.agent_request_changed.connect(self._refresh_agent_chip)
@@ -1624,7 +1618,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.agent_activity.recent_changed.connect(self.agent_chip.set_recent)
         # A waiting request's lines, read again while the operator looks at it.
         self._agent_request_described: Tuple[Optional[str], float] = (None, 0.0)
-        # What the agent's waiting request or suggestion would do: on the card,
+        # What the agent's waiting request would do: on the card,
         # on the image its values were measured on; on the views.
         self.agent_previews = AgentPreviews(
             lambda: getattr(self, "view_controller", None),
@@ -1674,7 +1668,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         this window's (GUI) thread."""
         self._set_border_state("stopping")
 
-    def _listen_for_questions(self, experiment) -> None:
+    def _listen_for_proposals(self, experiment) -> None:
         """A question a task asks mid-run (``BaseTask.ask``) is put up
         on the widget its kind is answered on when it is recorded. One
         subscription per experiment; the previous experiment's is dropped. A
@@ -1685,18 +1679,18 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
         if previous is not None:
             try:
-                previous.asked.disconnect(self._on_question_asked)
-                previous.decided.disconnect(self._on_question_decided)
+                previous.asked.disconnect(self._on_proposal_asked)
+                previous.decided.disconnect(self._on_proposal_decided)
             except Exception:
                 pass
         self._asked_experiment = experiment
         if experiment is not None:
-            experiment.asked.connect(self._on_question_asked)
-            experiment.decided.connect(self._on_question_decided)
+            experiment.asked.connect(self._on_proposal_asked)
+            experiment.decided.connect(self._on_proposal_decided)
             for item, task_name, _proposal in experiment.pending_proposals():
-                self._on_question_asked(item.id, task_name)
+                self._on_proposal_asked(item.id, task_name)
 
-    def _on_question_asked(self, item_id: str, task_name: str) -> None:
+    def _on_proposal_asked(self, item_id: str, task_name: str) -> None:
         """Put a question a task just asked in front of the operator, where
         its kind is answered: a mill's or a spot burn's pass on the prompt bar
         over its widget, where the operator edits what runs; a detection, an
@@ -1711,18 +1705,18 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if proposal is None or not proposal.asking:
             return
         if proposal.kind in LOOP_KINDS:
-            self.autolamella_ui.show_loop_question(item_id, task_name, proposal)
+            self.autolamella_ui.show_loop_proposal(item_id, task_name, proposal)
         elif proposal.kind in WIDGET_KINDS:
-            self.autolamella_ui.show_widget_question(item_id, task_name, proposal)
+            self.autolamella_ui.show_widget_proposal(item_id, task_name, proposal)
         else:
-            self.autolamella_ui.show_state_question(item_id, task_name, proposal)
+            self.autolamella_ui.show_state_proposal(item_id, task_name, proposal)
 
-    def _on_question_decided(self, item_id: str, task_name: str) -> None:
+    def _on_proposal_decided(self, item_id: str, task_name: str) -> None:
         """However a question was answered -- the prompt bar, an agent, or
         withdrawn by Stop -- the prompt comes down."""
-        self.autolamella_ui.clear_state_question(item_id, task_name)
-        self.autolamella_ui.clear_loop_question(item_id, task_name)
-        self.autolamella_ui.clear_widget_question(item_id, task_name)
+        self.autolamella_ui.clear_state_proposal(item_id, task_name)
+        self.autolamella_ui.clear_loop_proposal(item_id, task_name)
+        self.autolamella_ui.clear_widget_proposal(item_id, task_name)
 
     def _on_user_attention_clicked(self):
         """Handle user attention button click - switch to the Microscope tab.
@@ -1733,16 +1727,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         destination comes from the question, never from the hold's kind: the
         kind says only that something holds the run.
         """
-        # The agent's suggested answer is on its card, not on the prompt.
-        if self.agent_chip.suggestion is not None:
-            self.agent_chip.show_card()
-        host = self.autolamella_ui.question_host()
+        host = self.autolamella_ui.proposal_host()
         if host is not None and self.tab_widget.indexOf(host) != -1:
             # A question answered on one of this window's own tabs.
             self.tab_widget.setCurrentWidget(host)
             return
         self.tab_widget.setCurrentIndex(0)  # Microscope tab is index 0
-        self.autolamella_ui.front_question()
+        self.autolamella_ui.front_proposal()
 
     def _on_run_workflow_clicked(self):
         """Run the workflow using the lamella and task selections from the workflow widget."""
@@ -2339,10 +2330,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._refresh_quad_overviews
         )
         self.autolamella_ui._hook_toast_signal.connect(self.show_toast)
-        # Question lifecycle refreshes the waiting chrome. GUI thread: the
-        # responder emits these where the lifecycle already runs.
-        self.autolamella_ui.ui_responder.add_question_observer(self._on_question_event)
-        self.autolamella_ui.suggestion_changed.connect(self._on_agent_suggestion)
         self.autolamella_ui.grids_changed.connect(self._refresh_after_naming)
         notification_service._get_service().toast.connect(self._on_notification_service)
         notification_service._get_service().toast_action.connect(
@@ -2435,7 +2422,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.grid_workflow_widget.set_experiment(self.autolamella_ui.experiment)
         experiment = self.autolamella_ui.experiment
         self.quad_overview_page.set_experiment(experiment)
-        self._listen_for_questions(experiment)
+        self._listen_for_proposals(experiment)
         if experiment is not None and experiment.task_protocol is not None:
             self.lamella_workflow_widget.set_experiment(experiment)
             self.lamella_workflow_widget.set_workflow_config(
@@ -3773,22 +3760,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 "No experiment is recording: the agent can't hear messages", "warning"
             )
 
-    def _on_question_event(self, kind: str, payload: dict, actor: str) -> None:
-        """GUI thread, from the responder: a question was raised, answered or
-        cancelled, so the waiting chrome follows."""
-        dropped, self._dropped_agent_suggestion = self._dropped_agent_suggestion, None
-        if (
-            dropped is not None
-            and kind == "prompt_answered"
-            and actor == OPERATOR
-            and not payload.get("suggested_by")
-        ):
-            notification_service.show(
-                "Agent's suggestion dropped: you answered the question yourself",
-                "info",
-            )
-        self._refresh_workflow_indicators()
-
     def _agent_task_config(self, item_name: str, task_name: str):
         """An item's config for a task, for a waiting config edit's preview;
         None when there is no such item or task."""
@@ -3917,41 +3888,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if found is None:
             return None
         return load_reference_image(self.autolamella_ui.experiment, *found)
-
-    def _on_agent_suggestion(self, suggestion: Optional[dict]) -> None:
-        """GUI thread: the agent's suggested answer went up or came down. It
-        shows on the agent's card, not on the prompt (FIB-1407)."""
-        shown = self.agent_chip.suggestion
-        self._dropped_agent_suggestion = shown if suggestion is None else None
-        self.agent_chip.set_suggestion(suggestion)
-        self.agent_previews.show_suggested_point(
-            suggestion.get("point") if suggestion is not None else None
-        )
-        responder = self.autolamella_ui.ui_responder
-        standing = responder.suggestion if suggestion is not None else None
-        self.agent_previews.show_suggestion(
-            responder.pending_question() if standing else None,
-            standing[2] if standing else None,
-            image=standing[4] if standing else None,
-        )
-
-    def _on_accept_agent_suggestion(self) -> None:
-        """Accept on the agent's card: the operator answers with the agent's
-        suggestion, as theirs."""
-        self._dropped_agent_suggestion = None
-        if not self.autolamella_ui.take_suggestion():
-            notification_service.show(
-                "The agent's suggestion had gone: the question was answered or "
-                "taken down",
-                "info",
-            )
-
-    def _on_dismiss_agent_suggestion(self, reason: str) -> None:
-        """Dismiss on the agent's card: the operator declines the suggestion,
-        recorded with their reason for the agent; the question stays up."""
-        self.autolamella_ui.dismiss_suggestion(reason)
-        # Declined, not dropped: no "you answered it yourself" later.
-        self._dropped_agent_suggestion = None
 
     def _refresh_workflow_indicators(self) -> None:
         """Re-read the waiting/supervised/running state into the window chrome."""

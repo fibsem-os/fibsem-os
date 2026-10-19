@@ -341,7 +341,7 @@ def test_assist_asks_to_stop_as_it_asks_for_the_rest(
         ("/app/workflow/stop", why),
         ("/microscope/services/milling/commands/stop", why),
         (MOVE_RELATIVE, {}),
-        ("/app/workflow/prompt/answer", {}),
+        ("/app/workflow/decide", {}),
     ):
         refused = client.post(path, headers=AGENT, json=body)
         assert refused.status_code == 403, path

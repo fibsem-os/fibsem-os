@@ -96,7 +96,7 @@ def test_watch_reads_and_notes_but_acts_on_nothing(client):
     note = client.post("/app/experiment/notes", headers=AGENT, json={"text": "seen"})
     assert note.status_code == 200
 
-    for path in ("/app/workflow/stop", STOP_MILLING, "/app/workflow/prompt/answer"):
+    for path in ("/app/workflow/stop", STOP_MILLING, "/app/workflow/decide"):
         response = client.post(path, headers=AGENT, json={})
         assert response.status_code == 403, path
         assert _error(response) == "level"

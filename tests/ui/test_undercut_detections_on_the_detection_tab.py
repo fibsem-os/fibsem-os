@@ -192,7 +192,7 @@ def test_each_detection_is_answered_on_the_detection_tab_and_the_stage_follows(
     )
     first = _asking(lamella)
     assert ui.hold.kind is HoldKind.proposal
-    assert _pump(qapp, lambda: ui.question_host() is ui.det_widget), "fronted"
+    assert _pump(qapp, lambda: ui.proposal_host() is ui.det_widget), "fronted"
     assert first.provenance["features"] == ["LamellaCentre"]
     assert first.provenance["reference_image"].endswith("_eb.tif")
     (feature,) = first.values["features"]
@@ -227,14 +227,14 @@ def test_each_detection_is_answered_on_the_detection_tab_and_the_stage_follows(
     second = _asking(lamella)
     assert first.current.outcome is DecisionOutcome.Confirmed
     assert first.delta()["features"]
-    assert _pump(qapp, lambda: ui._widget_question is not None)
+    assert _pump(qapp, lambda: ui._widget_proposal is not None)
     ui.pushButton_yes.click()
 
     # 3. the undercut's own detection, then the milling session's Continue
     assert _pump(qapp, lambda: (_asking(lamella) or second) is not second), seen
     third = _asking(lamella)
     assert third.provenance["features"] == ["LamellaTopEdge"]
-    assert _pump(qapp, lambda: ui._widget_question is not None)
+    assert _pump(qapp, lambda: ui._widget_proposal is not None)
     ui.pushButton_yes.click()
     assert _pump(qapp, lambda: "Run Milling" in ui.label_instructions.text()), (
         ui.label_instructions.text(),
@@ -247,7 +247,7 @@ def test_each_detection_is_answered_on_the_detection_tab_and_the_stage_follows(
     assert _pump(qapp, lambda: (_asking(lamella) or third) is not third), seen
     fourth = _asking(lamella)
     assert fourth.provenance["features"] == ["LamellaCentre"]
-    assert _pump(qapp, lambda: ui._widget_question is not None)
+    assert _pump(qapp, lambda: ui._widget_proposal is not None)
     ui.pushButton_yes.click()
 
     assert _pump(qapp, lambda: not thread.is_alive()), "the task went on to its end"

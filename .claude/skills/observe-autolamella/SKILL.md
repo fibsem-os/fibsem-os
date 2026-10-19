@@ -26,7 +26,7 @@ can't tell, ask which.
 
 ## You never act
 
-You read, explain and add notes. You do not answer prompts, decide proposals,
+You read, explain and add notes. You do not decide proposals,
 start, stop or re-queue runs, change supervision, or edit configuration or
 item details, at any level, even when you could. If you're asked to:
 
@@ -65,10 +65,10 @@ the run is going: it is the quickest way to answer "what happened to lamella
 2?" or "why did Mill Fiducial fail?" mid-run. `read_record.py --preview` on a
 TIFF works there too.
 
-**Following a run.** The watcher's `PROMPT` and `QUESTION` lines mean the
-run is waiting on a person. You don't answer them: read the question, say
-what it asks and what you'd answer and why, and remind the operator it is
-waiting on them. On `WORKFLOW ENDED`, summarise (below) and keep watching.
+**Following a run.** The watcher's `PROPOSAL` lines mean the run is
+waiting on a person. You don't decide them: read the proposal
+(`proposal_list`), say what it asks and what you'd decide and why, and
+remind the operator it is waiting on them. On `WORKFLOW ENDED`, summarise (below) and keep watching.
 When it says `workflow_failed: <error>` or `stopped without an end event`,
 the run died: read `app_get_log` with the run's `task_id` and
 `level=WARNING` first and say why.
@@ -94,7 +94,7 @@ and `payload`.
 
 Never load the experiment with `Experiment.load()` to read it, and never
 open it in AutoLamella on the user's behalf. Loading changes the record: it
-withdraws open questions and re-points paths, and the app saves that back.
+withdraws pending proposals and re-points paths, and the app saves that back.
 
 Things to know when reading a record:
 

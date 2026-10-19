@@ -73,7 +73,7 @@ def test_the_dashboard_token_reads_the_monitoring_routes(client, path):
     "method, path",
     [
         ("POST", "/app/workflow/stop"),  # on the read router, but it acts
-        ("POST", "/app/workflow/prompt/answer"),  # control
+        ("POST", "/app/workflow/decide"),  # control
         ("POST", "/app/workflow/schedule"),  # configure
         ("GET", "/microscope/devices/stage/position"),  # the microscope
         ("GET", "/microscope/devices"),

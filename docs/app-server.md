@@ -12,9 +12,9 @@ the *why*.)
 When you enable the App Server, AutoLamella hosts a small, token-protected
 API on your machine while a microscope is connected. An AI agent (Claude,
 Codex, or anything that speaks MCP or plain HTTP) can connect to it and watch
-your session: the workflow, the queue, the images on screen, the questions the
-workflow is asking. Raise its level to Drive and it can also act — answer
-those questions, start and stop workflows, change supervision, edit task
+your session: the workflow, the queue, the images on screen, the proposals the
+workflow is stopped on. Raise its level to Drive and it can also act — decide
+those proposals, start and stop workflows, change supervision, edit task
 parameters.
 
 Nothing about your workflow changes when the feature is off, and nothing about
@@ -46,8 +46,8 @@ One knob, on the Agent chip in the status bar, set in two clicks:
 |---|---|
 | **Off** | nothing: every request is refused |
 | **Watch** | see everything below and add notes; never act |
-| **Assist** | also stop what it started itself, suggest answers to the run's questions, and ask you to approve anything else it wants done |
-| **Drive** | also answer, start and stop (a run, or a mill it didn't start), change supervision, re-queue, and edit configuration; with the microscope served, use it too |
+| **Assist** | also stop what it started itself, and ask you to approve anything else it wants done, deciding a proposal included |
+| **Drive** | also decide proposals, start and stop (a run, or a mill it didn't start), change supervision, re-queue, and edit configuration; with the microscope served, use it too |
 
 Every launch starts at **Watch**. The level lasts the session: nothing in any
 file raises it. Changing it is recorded on the event stream, with you as the
@@ -82,10 +82,6 @@ Under them is the agent's reason.
 One request waits at a time. Changing the level or pressing Stop agent
 cancels a waiting request, and stops an approved one before its next action.
 
-When a run asks a question, the agent can suggest an answer. The prompt
-shows "Agent suggests: Continue" with the agent's reason under it. Clicking
-it answers as you; answering any other way ignores it.
-
 ## What the agent can see (Watch and above)
 
 Reading is the point of the feature:
@@ -95,11 +91,11 @@ Reading is the point of the feature:
 - **What your screen shows** — the SEM/FIB images on display, as small
   previews, with when they were acquired. Not a fresh acquisition: the agent
   sees what you see.
-- **The standing question** — when a supervised task asks something, the agent
-  sees the same question, including its images and the live position of a
-  marker you are dragging.
-- **Events** — task starts and finishes, milling progress, questions raised
-  and answered (and by whom), as a live feed.
+- **Pending proposals** — when a supervised task stops on a proposal (a
+  position, a point of interest, a detection, a mill's pass), the agent sees
+  the same proposal, with the image its values sit on.
+- **Events** — task starts and finishes, milling progress, proposals asked
+  and decided (and by whom), as a live feed.
 - **Run history** — the run summary and each item's produced files.
 - **Each item's details** — status, failure flag, point of interest,
   alignment area, milling angle, and where its poses put the stage.
@@ -111,8 +107,8 @@ Reading is the point of the feature:
 
 Every image travels as a downscaled preview that carries its own scale: the
 preview's size, the source image's size, the field width, and the physical
-size of a source pixel. Positions are never left to guesswork — point
-questions state their convention in the payload (metres, origin at the image
+size of a source pixel. Positions are never left to guesswork — a point
+proposal states its convention in the payload (metres, origin at the image
 centre, +y up), detected features are in source-image pixels, and alignment
 areas are fractions of the frame. An agent drawing on or measuring against a
 preview should always use the scale in the payload it arrived with — the live
@@ -122,17 +118,12 @@ view's field width can differ from the acquisition's.
 
 At Drive the agent may:
 
-- **answer supervision questions** — through exactly the same path as your
-  Yes/No buttons. First answer wins: you can always answer first, and your
-  click beats the agent's every time. Every answer is attributed — the line
-  under the buttons reads `agent · answered Continue · 14:22:31`.
-  For the two geometry questions (alignment area, point of interest) an
-  answer can carry an adjustment: the agent's proposed rectangle or marker
-  is placed on your screen through the same widgets you would drag, then
-  accepted — you see exactly what it chose, out-of-bounds proposals are
-  refused before anything moves, and the record marks the answer as
-  adjusted. Milling parameters cannot travel this way; only the geometry
-  the question itself is about;
+- **decide proposals** — through the same decision as your Continue. The
+  first decision wins: you can always decide first. Every decision is
+  attributed to whoever made it, in the History tab and on the record. A
+  decision on a position, an alignment area or a detection can carry the
+  agent's own values; out-of-bounds values are refused before anything is
+  written;
 - **start and stop workflows** — the same as your Run and Stop buttons, and
   stop milling. Stopping a run, or a mill the workflow or you started, needs
   Drive or a request you approve at Assist; at Assist the agent stops only its
@@ -167,8 +158,8 @@ runs, so it never acts beside anything else:
 
 - while a workflow run or a microscope script is in control, the command is
   refused with `409 microscope_busy`, naming who is in control;
-- while the run waits on a question, the run lends control: whoever answers
-  may act, one command at a time, and the run carries on when it ends;
+- while the run waits on a proposal, the run lends control: whoever decides
+  it may act, one command at a time, and the run carries on when it ends;
 - stopping never takes control, so a stop is never refused by whoever is in
   control. The agent stops its own command at Assist; anything else (a mill
   the workflow or you started) needs Drive. A stop when nothing is milling
@@ -185,11 +176,11 @@ request answers 403 `agent_off`).
 
 ## Supervised tasks and the agent
 
-A supervised task's question goes to you and to any connected agent alike.
-The first answer wins, and you can always answer first. The window shows the
+A supervised task's proposal goes to you and to any connected agent alike.
+The first decision wins, and you can always decide first. The window shows the
 ordinary orange border, attention button and sound whether or not an agent is
-connected, and the timeline records who answered. At Watch the agent sees the
-question and can tell you what it would answer; at Drive it may answer it.
+connected, and the record keeps who decided. At Watch the agent sees the
+proposal and can tell you what it would decide; at Drive it may decide it.
 
 ## The dashboard
 
@@ -200,7 +191,7 @@ strip of each completed task's final image, and progress through the tasks,
 plus the live workflow queue and event feed while a run is up. It updates
 itself from the event stream; there is nothing to refresh.
 
-It is a monitor, not a second cockpit: questions are answered in AutoLamella.
+It is a monitor, not a second cockpit: proposals are decided in AutoLamella.
 The page is served by the App Server itself, so it exists wherever the
 server does — on this machine by default. The button hands the page the
 dashboard's own token in the URL fragment, which stays in the browser
@@ -262,7 +253,7 @@ bearer token — the sidecar is convenience, not a requirement.
   attempt to connect.
 - **One server per machine.** A second AutoLamella refuses
   to start its own while one is alive.
-- **Everything is attributed.** Answers carry who gave them; the event stream
+- **Everything is attributed.** Decisions carry who made them; the event stream
   and the log keep the record.
 
 ## When something is off
@@ -275,6 +266,3 @@ bearer token — the sidecar is convenience, not a requirement.
 - *The agent says it can't act* — it is at Watch. Raise it from the Agent chip
   if you want it to: to Assist, where it asks you before each action, or Drive; refusals name the level (`level`, or `ask_first` at Assist),
   a stop (`agent_stopped`) or Off (`agent_off`).
-- *An agent's answer is refused with `stale_prompt`* — the question changed
-  between the agent reading it and answering (often: you answered first).
-  That refusal is correct behaviour; the agent re-reads and continues.
