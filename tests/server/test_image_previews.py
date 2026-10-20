@@ -62,7 +62,7 @@ def test_small_image_is_not_upscaled():
 def test_a_bare_array_payload_carries_the_source_size():
     # A fluorescence composite has no metadata, so the payload reports the
     # preview and the source dimensions only.
-    from fibsem.applications.autolamella.server.image_payloads import image_payload
+    from fibsem.server.image_payloads import image_payload
 
     data = (np.random.rand(600, 1600) * 255).astype(np.uint8)
     payload = image_payload(data)

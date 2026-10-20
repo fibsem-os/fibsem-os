@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from fibsem.applications.autolamella.server import log_tail
+from fibsem.server import log_tail
 from tests.run_state import stub_session
 
 T0 = datetime(2026, 10, 12, 9, 0, 0)
