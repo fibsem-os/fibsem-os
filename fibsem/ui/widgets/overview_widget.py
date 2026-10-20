@@ -1440,7 +1440,7 @@ class FibsemOverviewWidget(QWidget):
         if frame is None:
             return
         try:
-            anchor = frame.to_canvas(self._gridbar_anchor(frame))
+            anchor = frame.to_canvas(self._gridbar_anchor_on_canvas(frame))
             squash = frame.surface_foreshortening()
             dx, dy = self._gridbar_offset
             centre = (
@@ -1495,13 +1495,20 @@ class FibsemOverviewWidget(QWidget):
         self._refresh_gridbars()
         self._refresh_gridbar_placement()
 
+    def _gridbar_anchor_on_canvas(self, frame: StageFrame) -> FibsemStagePosition:
+        """The grid bars' anchor where the holder overlays draw the grid, so the bars
+        stay centred on the grid boundary (`stage_context.at_click_height`)."""
+        return stage_context.at_click_height(
+            frame, self._gridbar_anchor(frame), self.session.stage_position
+        )
+
     def _on_gridbars_moved(self, cx: float, cy: float) -> None:
         """The lattice was dragged: back from the canvas to metres along the surface."""
         frame = self._frame()
         if frame is None:
             return
         try:
-            anchor = frame.to_canvas(self._gridbar_anchor(frame))
+            anchor = frame.to_canvas(self._gridbar_anchor_on_canvas(frame))
             here = self.canvas.canvas_to_metres(cx, cy)
             there = self.canvas.canvas_to_metres(*anchor)
             squash = frame.surface_foreshortening() or 1.0
@@ -2936,8 +2943,8 @@ class FibsemOverviewWidget(QWidget):
         which is every moment the answer could have changed.
 
         *stage_moved* redraws only what follows the stage -- the planned grid, the
-        working area, the marker and its readout -- unless the frame or the views
-        changed too. The limits, holder slots, grid bars, aligned images and view chips
+        working area, the marker and its readout -- unless the frame, the views or
+        the stage's height off the view's plane changed too. The limits, holder slots, grid bars, aligned images and view chips
         are drawn in the view's frame, which a translation leaves where it was, and the
         stage is polled constantly. Everything that does change them -- a toggle, a
         setting, an image re-anchoring a view, the holder -- comes through here
@@ -2956,6 +2963,7 @@ class FibsemOverviewWidget(QWidget):
             self.acquisition_view,
             self._origins.get(self._current_view),
             self.canvas.reference_pixel_size,
+            stage_context.click_height_key(frame, self.session.stage_position),
         )
         redraw = not stage_moved or drawn_for != self._context_drawn_for
         self._context_drawn_for = drawn_for
@@ -2968,6 +2976,7 @@ class FibsemOverviewWidget(QWidget):
                     limits=self.overlay_controls.is_visible(_OVERLAY_LIMITS),
                     boundaries=self.overlay_controls.is_visible(_OVERLAY_BOUNDARIES),
                     slots=self.overlay_controls.is_visible(_OVERLAY_SLOTS),
+                    stage=self.session.stage_position,
                 )
             )
         self._declare_working_area(frame)
