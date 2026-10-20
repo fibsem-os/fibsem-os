@@ -28,9 +28,6 @@ from psygnal.containers import EventedDict
 
 from fibsem.acting import TASK, Actor, current_actor
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
-    AutoLamellaTaskProtocol,
-    AutoLamellaWorkflowConfig,
     Experiment,
 )
 from fibsem.applications.autolamella.workflows.tasks import base, spot_burn
@@ -50,6 +47,7 @@ from fibsem.workflows.proposals import (
     DecisionOutcome,
 )
 from fibsem.workflows.status import HoldKind
+from tests.protocols import planned, task_protocol
 from tests.run_state import Stopped
 
 SPOT = "Spot Burn Fiducial"
@@ -95,14 +93,8 @@ def window(qapp, tmp_path_factory):
     path = tmp_path_factory.mktemp("spot-burn")
     experiment = Experiment(path=path, name="spot-burn-question-exp")
     os.makedirs(experiment.path, exist_ok=True)
-    experiment.task_protocol = AutoLamellaTaskProtocol(
-        workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[
-                AutoLamellaTaskDescription(
-                    name=SPOT, required=True, attention=Attention.supervised
-                )
-            ]
-        )
+    experiment.task_protocol = task_protocol(
+        planned(name=SPOT, required=True, attention=Attention.supervised)
     )
     experiment.add_new_lamella(
         ui.microscope.get_microscope_state(),

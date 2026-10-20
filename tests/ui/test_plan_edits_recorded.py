@@ -21,7 +21,6 @@ from PyQt5.QtTest import QTest  # noqa: E402
 
 from fibsem.acting import OPERATOR  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
-    AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     Experiment,
 )
@@ -42,6 +41,7 @@ from fibsem.applications.autolamella.workflows.tasks.tasks import (  # noqa: E40
 )
 from fibsem.structures import MicroscopeState, Point  # noqa: E402
 from fibsem.workflows.event_recording import EventRecorder  # noqa: E402
+from fibsem.workflows.task_config import TaskPlan
 
 TASK = "Rough Milling"
 KEY = "mill_rough"
@@ -171,7 +171,7 @@ def test_an_edit_settles_on_its_own(window, editor, edits):
 
     ((event),) = edits()
     payload = event["payload"]
-    assert payload["target"] == "parameters.reacquire_alignment_reference"
+    assert payload["target"] == "reacquire_alignment_reference"
     assert (payload["before"], payload["after"]) == (False, True)
 
 
@@ -276,7 +276,7 @@ def test_adding_a_spot_burn_point_records_the_points(editor, experiment, edits):
     assert payload["item"]["name"] == lamella.name
     assert (payload["task"], payload["target"], payload["via"]) == (
         SPOT,
-        "parameters.coordinates",
+        "coordinates",
         "lamella editor",
     )
     assert payload["before"] == []
@@ -323,7 +323,7 @@ def test_a_protocol_edit_and_a_sync_to_the_lamellae(
 
     edit, *synced = (e["payload"] for e in edits())
     assert (edit["item"], edit["task"]) == (None, TASK)
-    assert edit["target"] == "protocol.parameters.sync_to_poi"
+    assert edit["target"] == "protocol.sync_to_poi"
     assert (edit["before"], edit["after"], edit["via"]) == (
         True,
         False,
@@ -338,8 +338,8 @@ def test_a_protocol_edit_and_a_sync_to_the_lamellae(
             TASK,
             "task_config",
         )
-        assert e["before"]["parameters"]["sync_to_poi"] is True
-        assert e["after"]["parameters"]["sync_to_poi"] is False
+        assert e["before"]["sync_to_poi"] is True
+        assert e["after"]["sync_to_poi"] is False
 
 
 def test_a_protocol_pattern_edit_is_recorded_from_what_it_was(
@@ -443,7 +443,7 @@ def test_removing_a_task_records_the_protocol_the_workflow_and_each_lamella(
         lambda *a, **k: protocol_editor_module.QMessageBox.Yes,
     )
     workflow = experiment.task_protocol.workflow_config
-    workflow.tasks = [AutoLamellaTaskDescription(name=TASK)]
+    workflow.tasks = [TaskPlan(name=TASK)]
     had = experiment.task_protocol.task_config[TASK].to_dict()
     workflow_had = workflow.to_dict()
     lamellae_had = {p.name: p.task_config[TASK].to_dict() for p in experiment.positions}

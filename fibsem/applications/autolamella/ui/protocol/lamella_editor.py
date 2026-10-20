@@ -1151,7 +1151,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self._edits.touch(
             selected_lamella,
             selected_task_name,
-            f"parameters.{field_name}",
+            field_name,
             lambda: getattr(task_config, field_name, None),
         )
         setattr(task_config, field_name, new_value)
@@ -1207,7 +1207,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             self._edits.touch(
                 selected_lamella,
                 selected_task_name,
-                "parameters.coordinates",
+                "coordinates",
                 lambda: task_config.coordinates,
             )
             task_config.coordinates = list(settings.coordinates)

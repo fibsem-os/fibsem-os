@@ -23,9 +23,6 @@ from PyQt5.QtCore import QCoreApplication, QEvent
 
 from fibsem.acting import ActorKind
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
-    AutoLamellaTaskProtocol,
-    AutoLamellaWorkflowConfig,
     Experiment,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
@@ -44,6 +41,7 @@ from fibsem.workflows.proposals import (
     DecisionOutcome,
 )
 from fibsem.workflows.status import HoldKind, TaskStatus
+from tests.protocols import planned, task_protocol
 
 SETUP = "Setup Lamella Position"
 ROUGH = "Rough Milling"
@@ -59,15 +57,9 @@ def window(qapp, tmp_path):
     ui = win
     experiment = Experiment(path=tmp_path, name="setup-exp")
     os.makedirs(experiment.path, exist_ok=True)
-    experiment.task_protocol = AutoLamellaTaskProtocol(
-        workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[
-                AutoLamellaTaskDescription(
-                    name=SETUP, required=True, attention=Attention.supervised
-                ),
-                AutoLamellaTaskDescription(name=ROUGH, required=True, requires=[SETUP]),
-            ]
-        )
+    experiment.task_protocol = task_protocol(
+        planned(name=SETUP, required=True, attention=Attention.supervised),
+        planned(name=ROUGH, required=True, requires=[SETUP]),
     )
     experiment.add_new_lamella(
         ui.microscope.get_microscope_state(),

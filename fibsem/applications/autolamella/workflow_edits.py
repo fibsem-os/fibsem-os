@@ -1,6 +1,6 @@
 """Edits to an experiment's workflow that the window and the agent both make.
 
-Each applies the change through the workflow config's own rule, saves it with
+Each applies the change through the protocol's own rule, saves it with
 the protocol and puts it on the session's record as ``workflow_changed``,
 through the ``record(kind, payload)`` it is given. Each answers a plain dict:
 what was applied, or why not.
@@ -43,13 +43,17 @@ def set_supervision(
     at the next one, mid-run included. A supervised proposal goes to the
     operator and the agent alike, and the first decision wins (FIB-1035).
     """
-    config = experiment.task_protocol.workflow_config
+    protocol = experiment.task_protocol
     supervise = bool(supervise)
-    why = config.set_attention(
+    why = protocol.set_attention(
         task_name, Attention.supervised if supervise else Attention.automated
     )
     if why:
-        return {"applied": False, "error": why, "task_names": config.workflow}
+        return {
+            "applied": False,
+            "error": why,
+            "task_names": protocol.workflow_config.workflow,
+        }
     saved = save_workflow_change(
         experiment,
         {"field": "attention", "task_name": task_name, "supervise": supervise},

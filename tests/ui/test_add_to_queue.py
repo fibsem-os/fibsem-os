@@ -18,9 +18,6 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
-    AutoLamellaTaskProtocol,
-    AutoLamellaWorkflowConfig,
     Experiment,
     Lamella,
 )
@@ -30,6 +27,7 @@ from fibsem.applications.autolamella.workflows.tasks.reference_image import (
 from fibsem.ui.widgets.workflow.timeline import WorkflowProgressWidget
 from fibsem.workflows.queue import TaskQueue
 from fibsem.workflows.status import TaskStatus as Status
+from tests.protocols import planned, task_protocol
 
 TASKS = ["Trench", "Undercut", "Polishing"]
 
@@ -37,10 +35,8 @@ TASKS = ["Trench", "Undercut", "Polishing"]
 @pytest.fixture
 def experiment(tmp_path: Path) -> Experiment:
     exp = Experiment(path=tmp_path, name="test-exp")
-    exp.task_protocol = AutoLamellaTaskProtocol(
-        workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[AutoLamellaTaskDescription(name=n, required=False) for n in TASKS]
-        ),
+    exp.task_protocol = task_protocol(
+        *[planned(name=n, required=False) for n in TASKS],
         task_config={n: AcquireReferenceImageConfig(task_name=n) for n in TASKS},
     )
     for i, name in enumerate(("L1", "L2"), start=1):

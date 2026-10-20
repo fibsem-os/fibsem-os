@@ -1,6 +1,10 @@
 {
   "available": true,
   "config": {
+    "align_to_reference": true,
+    "alignment_expansion": 150.0,
+    "attention": "supervised",
+    "confirm_alignment_area": true,
     "milling": {
       "fiducial": {
         "acquisition": {
@@ -102,11 +106,6 @@
         ]
       }
     },
-    "parameters": {
-      "align_to_reference": true,
-      "alignment_expansion": 150,
-      "confirm_alignment_area": true
-    },
     "reference_imaging": {
       "acquire_fib": true,
       "acquire_image1": true,
@@ -133,9 +132,13 @@
         "scan_interlacing": null
       }
     },
+    "requires": [
+      "Setup Lamella Position"
+    ],
+    "task_name": "Mill Fiducial",
     "task_type": "MILL_FIDUCIAL"
   },
   "level": "protocol",
   "task_name": "Mill Fiducial",
-  "version": "cc1137deee5b334e"
+  "version": "cd0c513b3cccef41"
 }

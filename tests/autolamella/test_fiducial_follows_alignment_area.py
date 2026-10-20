@@ -31,6 +31,7 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
 from fibsem.milling.patterning.utils import get_patterns_bounding_box
 from fibsem.structures import FibsemImage, FibsemRectangle, Point
 from tests.autolamella._on_the_record import manager_for
+from tests.protocols import planned, task_protocol
 
 CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
 SETUP, FIDUCIAL, ROUGH = "Setup", "Mill Fiducial", "Rough Milling"
@@ -155,9 +156,6 @@ def test_setup_again_after_the_fiducial_saves_and_reloads(
     import numpy as np
 
     from fibsem.applications.autolamella.structures import (
-        AutoLamellaTaskDescription,
-        AutoLamellaTaskProtocol,
-        AutoLamellaWorkflowConfig,
         Experiment,
     )
     from fibsem.applications.autolamella.workflows.tasks.fiducial import (
@@ -166,13 +164,8 @@ def test_setup_again_after_the_fiducial_saves_and_reloads(
     from tests.run_state import run_lamellae
 
     exp = Experiment(path=tmp_path, name="fid-save")
-    exp.task_protocol = AutoLamellaTaskProtocol(
-        workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[
-                AutoLamellaTaskDescription(name=SETUP, required=True),
-                AutoLamellaTaskDescription(name=FIDUCIAL, required=True),
-            ]
-        )
+    exp.task_protocol = task_protocol(
+        planned(name=SETUP, required=True), planned(name=FIDUCIAL, required=True)
     )
     os.makedirs(exp.path, exist_ok=True)
     exp.add_new_lamella(

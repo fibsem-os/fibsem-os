@@ -1,5 +1,4 @@
 {
-  "_id": "pinned-protocol-id",
   "correlation": {
     "auto_interpolate": false,
     "auto_rerun": false,
@@ -25,11 +24,14 @@
   },
   "description": "On Grid Lamella Preparation Protocol",
   "grid_tasks": {
-    "_id": "pinned-grid-protocol-id",
+    "id": "pinned-grid-protocol-id",
     "name": "Grid Task Protocol",
-    "order": [],
-    "tasks": {}
+    "task_config": {},
+    "workflow_config": {
+      "tasks": []
+    }
   },
+  "id": "pinned-protocol-id",
   "lamella_defaults": {
     "name_prefix": "",
     "use_petname": true
@@ -39,8 +41,12 @@
     "show_run_summary": true,
     "turn_beams_off": false
   },
-  "tasks": {
+  "task_config": {
     "Mill Fiducial": {
+      "align_to_reference": true,
+      "alignment_expansion": 150.0,
+      "attention": "supervised",
+      "confirm_alignment_area": true,
       "milling": {
         "fiducial": {
           "acquisition": {
@@ -142,11 +148,6 @@
           ]
         }
       },
-      "parameters": {
-        "align_to_reference": true,
-        "alignment_expansion": 150,
-        "confirm_alignment_area": true
-      },
       "reference_imaging": {
         "acquire_fib": true,
         "acquire_image1": true,
@@ -173,9 +174,12 @@
           "scan_interlacing": null
         }
       },
+      "requires": [],
+      "task_name": "Mill Fiducial",
       "task_type": "MILL_FIDUCIAL"
     },
     "Polishing": {
+      "attention": "supervised",
       "milling": {
         "mill_polishing": {
           "acquisition": {
@@ -280,9 +284,6 @@
           ]
         }
       },
-      "parameters": {
-        "sync_to_poi": true
-      },
       "reference_imaging": {
         "acquire_fib": true,
         "acquire_image1": true,
@@ -309,9 +310,15 @@
           "scan_interlacing": null
         }
       },
+      "requires": [
+        "Rough Milling"
+      ],
+      "sync_to_poi": true,
+      "task_name": "Polishing",
       "task_type": "MILL_POLISHING"
     },
     "Rough Milling": {
+      "attention": "supervised",
       "milling": {
         "mill_rough": {
           "acquisition": {
@@ -489,11 +496,7 @@
           ]
         }
       },
-      "parameters": {
-        "reacquire_alignment_reference": false,
-        "sync_polishing_position": true,
-        "sync_to_poi": true
-      },
+      "reacquire_alignment_reference": false,
       "reference_imaging": {
         "acquire_fib": true,
         "acquire_image1": true,
@@ -520,21 +523,22 @@
           "scan_interlacing": null
         }
       },
+      "requires": [
+        "Mill Fiducial"
+      ],
+      "sync_polishing_position": true,
+      "sync_to_poi": true,
+      "task_name": "Rough Milling",
       "task_type": "MILL_ROUGH"
     },
     "Setup Lamella Position": {
+      "attention": "supervised",
+      "auto_milling_alignment": false,
+      "confirm_alignment_area": true,
+      "confirm_position": true,
+      "confirm_tilt": true,
       "milling": {},
-      "parameters": {
-        "auto_milling_alignment": false,
-        "confirm_alignment_area": true,
-        "confirm_position": true,
-        "confirm_tilt": true,
-        "milling_angle": 15,
-        "select_poi": true,
-        "sync_fiducial_position": true,
-        "sync_fluorescence_pose": false,
-        "use_autofocus": true
-      },
+      "milling_angle": 15.0,
       "reference_imaging": {
         "acquire_fib": true,
         "acquire_image1": true,
@@ -561,44 +565,38 @@
           "scan_interlacing": null
         }
       },
-      "task_type": "SELECT_MILLING_POSITION"
+      "requires": [],
+      "select_poi": true,
+      "sync_fiducial_position": true,
+      "sync_fluorescence_pose": false,
+      "task_name": "Setup Lamella Position",
+      "task_type": "SELECT_MILLING_POSITION",
+      "use_autofocus": true
     }
   },
   "version": "1.0",
-  "workflow": {
+  "workflow_config": {
     "description": "",
     "name": "",
     "tasks": [
       {
-        "attention": "supervised",
         "name": "Setup Lamella Position",
         "required": true,
-        "requires": [],
         "scheduled_at": null
       },
       {
-        "attention": "supervised",
         "name": "Mill Fiducial",
         "required": true,
-        "requires": [],
         "scheduled_at": null
       },
       {
-        "attention": "supervised",
         "name": "Rough Milling",
         "required": true,
-        "requires": [
-          "Mill Fiducial"
-        ],
         "scheduled_at": null
       },
       {
-        "attention": "supervised",
         "name": "Polishing",
         "required": true,
-        "requires": [
-          "Rough Milling"
-        ],
         "scheduled_at": null
       }
     ]

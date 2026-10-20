@@ -75,4 +75,4 @@ def test_closing_the_window_writes_the_last_edit_and_stops_the_writer(window, tm
     assert recorder_for(microscope) is None
     records = list(read_events(Path(experiment.path) / EVENTS_FILENAME))
     ((edit),) = [r for r in records if r["kind"] == "edit"]
-    assert edit["payload"]["target"] == "parameters.reacquire_alignment_reference"
+    assert edit["payload"]["target"] == "reacquire_alignment_reference"

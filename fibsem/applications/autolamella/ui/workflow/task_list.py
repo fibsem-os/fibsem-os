@@ -17,11 +17,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
-    AutoLamellaTaskProtocol,
-    AutoLamellaWorkflowConfig,
-)
+from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
 from fibsem.applications.autolamella.workflows.tasks.attendance import (
     Attendance,
     attendance_for,
@@ -47,6 +43,7 @@ from fibsem.ui.widgets.lists import (
     tinted_chip_style,
 )
 from fibsem.workflows.attention import Attention
+from fibsem.workflows.task_config import RunPlan, TaskConfig, TaskPlan
 
 # The dependency column: present, but never competing with the name it belongs to.
 # Fixed width, so the entries line up down the list and the text elides inside it
@@ -82,7 +79,7 @@ class _DraggableTaskList(QListWidget):
     listen to ``reordered`` and rebuild the row widgets.
     """
 
-    reordered = pyqtSignal(list)  # List[AutoLamellaTaskDescription]
+    reordered = pyqtSignal(list)  # List[TaskPlan]
 
     def dropEvent(self, event) -> None:
         super().dropEvent(event)
@@ -94,34 +91,34 @@ class _DraggableTaskList(QListWidget):
         self.reordered.emit(tasks)
 
 
-def attention_state(task: AutoLamellaTaskDescription) -> str:
-    """Which of the chip's states the task is in: the one question the user
-    has about a task, *when am I involved?*, read from the task's attention.
+def attention_state(attention: Attention) -> str:
+    """Which of the chip's states a task with *attention* is in: the one
+    question the user has about a task, *when am I involved?*
 
     There is no Agent state (FIB-1035): a supervised question goes to the
     operator and any connected agent alike.
     """
-    if task.attention is Attention.supervised:
+    if attention is Attention.supervised:
         return "supervised"
     return "automated"
 
 
 def _attention_chip(
-    task: AutoLamellaTaskDescription,
+    attention: Attention,
     attendance: Optional[Attendance] = None,
 ) -> tuple[str, str, str]:
     """(label, colour, tooltip) for the chip: the word is the state, the
     colour is the mode's, and the tooltip says what the state means for this
     task -- whether it needs you there while it runs -- when the task's
     type is known (``attendance``)."""
-    label, colour, tip = _attention_chip_words(task)
+    label, colour, tip = _attention_chip_words(attention)
     if attendance is not None:
         tip = f"{label} — {attendance.line} Click to change."
     return label, colour, tip
 
 
-def _attention_chip_words(task: AutoLamellaTaskDescription) -> tuple[str, str, str]:
-    state = attention_state(task)
+def _attention_chip_words(attention: Attention) -> tuple[str, str, str]:
+    state = attention_state(attention)
     label = ATTENTION_LABELS[state]
     if state == "supervised":
         tip = (
@@ -143,7 +140,7 @@ def chip_style(colour: str, muted: bool = False) -> str:
     return tinted_chip_style(NEUTRAL_700 if muted else colour)
 
 
-def _requires_text(task: AutoLamellaTaskDescription, font: QFont) -> str:
+def _requires_text(task: TaskPlan, requires: List[str], font: QFont) -> str:
     """What the task waits for, and when it is scheduled, sized to the
     column that holds them.
 
@@ -157,8 +154,8 @@ def _requires_text(task: AutoLamellaTaskDescription, font: QFont) -> str:
     carries the full list.
     """
     parts = []
-    if task.requires:
-        parts.append("after " + requires_phrase(task.requires))
+    if requires:
+        parts.append("after " + requires_phrase(requires))
     if task.scheduled_at is not None:
         parts.append("at " + task.scheduled_at.strftime("%d %b %H:%M"))
     if not parts:
@@ -177,21 +174,25 @@ class WorkflowTaskRowWidget(QWidget):
     """One task: its name, what it waits for, and one chip for when a person
     is involved (Automated / Supervised), plus schedule, edit, remove.
 
-    The chip writes the task's ``attention`` and emits ``attention_changed``.
+    Reads the task's attention and requirements from its *config* (None for a
+    task the protocol has no config for). The chip changes nothing itself: it
+    emits ``attention_toggled`` for the host to apply.
     """
 
-    attention_changed = pyqtSignal(object)  # AutoLamellaTaskDescription
-    edit_clicked = pyqtSignal(object)  # AutoLamellaTaskDescription
-    selection_changed = pyqtSignal(object, bool)  # AutoLamellaTaskDescription, checked
+    attention_toggled = pyqtSignal(object)  # TaskPlan
+    edit_clicked = pyqtSignal(object)  # TaskPlan
+    selection_changed = pyqtSignal(object, bool)  # TaskPlan, checked
 
     def __init__(
         self,
-        task: AutoLamellaTaskDescription,
+        task: TaskPlan,
+        config: Optional[TaskConfig],
         checked: bool = True,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self.task = task
+        self.config = config
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
         layout = QHBoxLayout(self)
@@ -261,7 +262,7 @@ class WorkflowTaskRowWidget(QWidget):
         self.checkbox.stateChanged.connect(
             lambda s: self.selection_changed.emit(self.task, bool(s))
         )
-        self.btn_attention.clicked.connect(self._on_attention_clicked)
+        self.btn_attention.clicked.connect(lambda: self.attention_toggled.emit(task))
         self.btn_edit.clicked.connect(lambda: self.edit_clicked.emit(self.task))
 
         self.refresh()
@@ -273,30 +274,25 @@ class WorkflowTaskRowWidget(QWidget):
             self._attendance = attendance
             self.refresh()
 
-    def _on_attention_clicked(self) -> None:
-        """Toggle Supervised ↔ Automated."""
-        task = self.task
-        before = task.attention
-        task.attention = (
-            Attention.automated
-            if attention_state(task) == "supervised"
-            else Attention.supervised
-        )
-        self.refresh()
-        if before != task.attention:
-            self.attention_changed.emit(task)
+    @property
+    def attention(self) -> Attention:
+        return self.config.attention if self.config is not None else Attention.automated
+
+    @property
+    def requires(self) -> List[str]:
+        return list(self.config.requires) if self.config is not None else []
 
     def refresh(self) -> None:
-        """Re-read all display fields from the stored task."""
+        """Re-read all display fields from the stored task and its config."""
         self.name_label.setText(self.task.name)
-        requires = _requires_text(self.task, self.requires_label.font())
+        requires = _requires_text(self.task, self.requires, self.requires_label.font())
         self.requires_label.setText(requires)
         # The column only where there is something in it: on the rows without a
         # dependency the name has the room ("Acquire Fluorescence Image").
         self.requires_label.setVisible(bool(requires))
         tips = []
-        if self.task.requires:
-            tips.append("Requires: " + requires_phrase(self.task.requires))
+        if self.requires:
+            tips.append("Requires: " + requires_phrase(self.requires))
         if self.task.scheduled_at is not None:
             tips.append(
                 "Scheduled: "
@@ -306,10 +302,10 @@ class WorkflowTaskRowWidget(QWidget):
         if self._attendance is not None:
             tips.append(self._attendance.line)
         self.setToolTip("\n".join(tips))
-        label, colour, tooltip = _attention_chip(self.task, self._attendance)
+        label, colour, tooltip = _attention_chip(self.attention, self._attendance)
         self.btn_attention.setText(label)
         self.btn_attention.setIcon(
-            fibsem_icon(CHIP_ICONS[attention_state(self.task)], color=colour)
+            fibsem_icon(CHIP_ICONS[attention_state(self.attention)], color=colour)
         )
         self.btn_attention.setToolTip(tooltip)
         self.btn_attention.setStyleSheet(chip_style(colour))
@@ -336,13 +332,14 @@ class _WorkflowTaskListHeader(ListHeader):
 
 
 class WorkflowTaskList(QWidget):
-    """List widget displaying AutoLamellaWorkflowConfig tasks with name, supervised, edit and remove actions."""
+    """The tasks of a run plan, each with its name, what it requires, its
+    attention chip, and edit; their configs are the protocol's."""
 
-    attention_changed = pyqtSignal(object)  # AutoLamellaTaskDescription
-    edit_requested = pyqtSignal(object)  # AutoLamellaTaskDescription
-    remove_requested = pyqtSignal(object)  # AutoLamellaTaskDescription
-    selection_changed = pyqtSignal(list)  # List[AutoLamellaTaskDescription]
-    order_changed = pyqtSignal(list)  # List[AutoLamellaTaskDescription]
+    attention_toggled = pyqtSignal(object)  # TaskPlan
+    edit_requested = pyqtSignal(object)  # TaskPlan
+    remove_requested = pyqtSignal(object)  # TaskPlan
+    selection_changed = pyqtSignal(list)  # List[TaskPlan]
+    order_changed = pyqtSignal(list)  # List[TaskPlan]
     add_task_clicked = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
@@ -350,8 +347,8 @@ class WorkflowTaskList(QWidget):
 
         self._remove_allowed = True
         self._checked: Dict[int, bool] = {}  # id(task) -> checked
-        # The protocol the tasks belong to, for what each task's type asks:
-        # the workflow config alone names tasks, not their types.
+        # The protocol the tasks belong to, for each task's config and what its
+        # type asks: the plan alone names tasks.
         self._protocol: Optional[AutoLamellaTaskProtocol] = None
 
         layout = QVBoxLayout(self)
@@ -388,8 +385,8 @@ class WorkflowTaskList(QWidget):
     # Public API
     # ------------------------------------------------------------------
 
-    def set_config(self, config: AutoLamellaWorkflowConfig) -> None:
-        """Populate the list from an AutoLamellaWorkflowConfig, keeping the ticks.
+    def set_config(self, config: RunPlan) -> None:
+        """Populate the list from a run plan, keeping the ticks.
 
         Reached on every protocol edit (``workflow_config_changed``), not only when
         the task set changes, and the ticked rows are the run selection. Rebuilding
@@ -401,11 +398,9 @@ class WorkflowTaskList(QWidget):
         for task in config.tasks:
             self.add_task(task, checked=task.name in checked)
 
-    def add_task(
-        self, task: AutoLamellaTaskDescription, checked: bool = False
-    ) -> WorkflowTaskRowWidget:
+    def add_task(self, task: TaskPlan, checked: bool = False) -> WorkflowTaskRowWidget:
         self._checked[id(task)] = checked
-        row = WorkflowTaskRowWidget(task, checked)
+        row = WorkflowTaskRowWidget(task, self._config_for(task), checked)
         item = QListWidgetItem()
         item.setData(Qt.ItemDataRole.UserRole, task)
         item.setSizeHint(QSize(0, _ROW_HEIGHT))
@@ -416,6 +411,10 @@ class WorkflowTaskList(QWidget):
         self._refresh_attendance()
         self._sync_select_all()
         return row
+
+    def _config_for(self, task: TaskPlan) -> Optional[TaskConfig]:
+        protocol = self._protocol
+        return protocol.task_config.get(task.name) if protocol is not None else None
 
     def _refresh_attendance(self) -> None:
         """Tell each row what its task needs from a person."""
@@ -429,9 +428,7 @@ class WorkflowTaskList(QWidget):
             )
 
     def _connect_row(self, row: WorkflowTaskRowWidget) -> None:
-        row.attention_changed.connect(self.attention_changed)
-        # what the task needs from a person is said by its mode
-        row.attention_changed.connect(lambda _t: self._refresh_attendance())
+        row.attention_toggled.connect(self.attention_toggled)
         row.edit_clicked.connect(self.edit_requested)
         row.selection_changed.connect(self._on_row_selection_changed)
 
@@ -448,7 +445,7 @@ class WorkflowTaskList(QWidget):
     def remove_allowed(self) -> bool:
         return self._remove_allowed
 
-    def remove_task(self, task: AutoLamellaTaskDescription) -> None:
+    def remove_task(self, task: TaskPlan) -> None:
         for i in range(self._list.count()):
             if self._row(i).task is task:
                 self._list.takeItem(i)
@@ -456,7 +453,7 @@ class WorkflowTaskList(QWidget):
                 break
         self._sync_select_all()
 
-    def refresh_task(self, task: AutoLamellaTaskDescription) -> None:
+    def refresh_task(self, task: TaskPlan) -> None:
         for i in range(self._list.count()):
             row = self._row(i)
             if row.task is task:
@@ -464,21 +461,25 @@ class WorkflowTaskList(QWidget):
                 break
 
     def set_protocol(self, protocol: Optional[AutoLamellaTaskProtocol]) -> None:
-        """The protocol whose tasks these are, so each row can say what its
-        task needs from a person. None: nothing is said."""
+        """The protocol whose tasks these are, for each task's config and what
+        it needs from a person. None: nothing is said."""
         self._protocol = protocol
-        self._refresh_attendance()
+        self.refresh_all()
 
     def refresh_all(self) -> None:
+        """Re-read every row, its config included: a config can be replaced
+        (the protocol loaded again, or a lamella's copied onto it)."""
         for i in range(self._list.count()):
-            self._row(i).refresh()
+            row = self._row(i)
+            row.config = self._config_for(row.task)
+            row.refresh()
         self._refresh_attendance()
 
-    def get_tasks(self) -> List[AutoLamellaTaskDescription]:
+    def get_tasks(self) -> List[TaskPlan]:
         """Return tasks in current display order."""
         return [self._row(i).task for i in range(self._list.count())]
 
-    def get_selected(self) -> List[AutoLamellaTaskDescription]:
+    def get_selected(self) -> List[TaskPlan]:
         return [
             self._row(i).task
             for i in range(self._list.count())
@@ -517,20 +518,18 @@ class WorkflowTaskList(QWidget):
     def _row(self, i: int) -> WorkflowTaskRowWidget:
         return self._list.itemWidget(self._list.item(i))  # type: ignore[return-value]
 
-    def request_remove(self, task: AutoLamellaTaskDescription) -> None:
+    def request_remove(self, task: TaskPlan) -> None:
         """Drop the task's row and announce it. The confirmation happened in
         the edit dialog; this is the one removal path."""
         self.remove_task(task)
         self.remove_requested.emit(task)
 
-    def _on_row_selection_changed(
-        self, task: AutoLamellaTaskDescription, checked: bool
-    ) -> None:
+    def _on_row_selection_changed(self, task: TaskPlan, checked: bool) -> None:
         self._checked[id(task)] = checked
         self._sync_select_all()
         self.selection_changed.emit(self.get_selected())
 
-    def _on_reordered(self, tasks: List[AutoLamellaTaskDescription]) -> None:
+    def _on_reordered(self, tasks: List[TaskPlan]) -> None:
         """Rebuild all row widgets after a drag-and-drop reorder.
 
         Qt clears itemWidget associations when items are moved internally, so
@@ -541,7 +540,7 @@ class WorkflowTaskList(QWidget):
             if item is None:
                 continue
             checked = self._checked.get(id(task), True)
-            row = WorkflowTaskRowWidget(task, checked)
+            row = WorkflowTaskRowWidget(task, self._config_for(task), checked)
             item.setSizeHint(QSize(0, _ROW_HEIGHT))
             self._list.setItemWidget(item, row)
             self._connect_row(row)

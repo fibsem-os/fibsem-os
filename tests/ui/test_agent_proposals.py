@@ -21,9 +21,6 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
-    AutoLamellaTaskProtocol,
-    AutoLamellaWorkflowConfig,
     Experiment,
 )
 from fibsem.applications.autolamella.ui.window import AutoLamellaWindow  # noqa: E402
@@ -51,6 +48,7 @@ from fibsem.workflows.proposals import (  # noqa: E402
 from fibsem.workflows.status import TaskStatus  # noqa: E402
 from tests.fixtures.main_window import close_window  # noqa: E402
 from tests.proposal_records import set_proposals  # noqa: E402
+from tests.protocols import planned, task_protocol
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -85,15 +83,9 @@ def ui(qapp, monkeypatch, tmp_path):
     )
     widget.system_widget.connect_to_microscope()
     exp = Experiment(path=tmp_path / "exp", name="review-exp")
-    exp.task_protocol = AutoLamellaTaskProtocol(
-        workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[
-                AutoLamellaTaskDescription(
-                    name=SETUP, required=True, attention=Attention.supervised
-                ),
-                AutoLamellaTaskDescription(name=ROUGH, required=True, requires=[SETUP]),
-            ]
-        )
+    exp.task_protocol = task_protocol(
+        planned(name=SETUP, required=True, attention=Attention.supervised),
+        planned(name=ROUGH, required=True, requires=[SETUP]),
     )
     (tmp_path / "exp").mkdir(parents=True, exist_ok=True)
     exp.add_new_lamella(

@@ -45,7 +45,7 @@ def _unknown_parameter_warnings(caplog):
     return [
         r.getMessage()
         for r in caplog.records
-        if r.levelno == logging.WARNING and "Unknown parameter" in r.getMessage()
+        if r.levelno == logging.WARNING and "Unknown field" in r.getMessage()
     ]
 
 
@@ -64,7 +64,7 @@ def test_a_saved_config_loads_without_unknown_parameter_warnings(config, caplog)
 @pytest.mark.parametrize("config", CONFIGS, ids=lambda c: c.task_type)
 def test_an_unknown_parameter_warns_once_naming_the_task(config, caplog):
     ddict = config.to_dict()
-    ddict["parameters"]["exposure_tme"] = 3
+    ddict["exposure_tme"] = 3
 
     with caplog.at_level(logging.WARNING):
         type(config).from_dict(ddict)
@@ -72,7 +72,7 @@ def test_an_unknown_parameter_warns_once_naming_the_task(config, caplog):
     warnings = _unknown_parameter_warnings(caplog)
     assert len(warnings) == 1
     assert "'exposure_tme'" in warnings[0]
-    assert config.task_type in warnings[0]
+    assert type(config).__name__ in warnings[0]
 
 
 def test_a_retired_parameter_is_dropped_without_a_warning(caplog):
@@ -80,8 +80,8 @@ def test_a_retired_parameter_is_dropped_without_a_warning(caplog):
     alignment to the legacy ref_PositionReady.tif. Loading one is not a problem
     to report; a key nobody recognises still is."""
     ddict = MillTrenchTaskConfig(charge_neutralisation=False).to_dict()
-    ddict["parameters"]["align_reference"] = True
-    ddict["parameters"]["charge_neutralistion"] = True
+    ddict["align_reference"] = True
+    ddict["charge_neutralistion"] = True
 
     with caplog.at_level(logging.WARNING):
         loaded = MillTrenchTaskConfig.from_dict(ddict)

@@ -19,9 +19,7 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.acting import ActorKind
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-    AutoLamellaWorkflowConfig,
     Experiment,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
@@ -41,6 +39,7 @@ from fibsem.workflows.proposals import (
     DecisionOutcome,
 )
 from tests.answering import answering
+from tests.protocols import planned, task_protocol
 
 SETUP = "Setup Lamella Position"
 ROUGH = "Rough Milling"
@@ -66,15 +65,9 @@ def _experiment(
     tmp_path: Path, microscope, attention: Attention = Attention.automated
 ) -> Experiment:
     exp = Experiment(path=tmp_path, name="test-exp")
-    exp.task_protocol = AutoLamellaTaskProtocol(
-        workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[
-                AutoLamellaTaskDescription(
-                    name=SETUP, required=True, attention=attention
-                ),
-                AutoLamellaTaskDescription(name=ROUGH, required=True, requires=[SETUP]),
-            ]
-        )
+    exp.task_protocol = task_protocol(
+        planned(name=SETUP, required=True, attention=attention),
+        planned(name=ROUGH, required=True, requires=[SETUP]),
     )
     os.makedirs(exp.path, exist_ok=True)
     exp.add_new_lamella(
@@ -225,18 +218,34 @@ def test_with_select_poi_off_the_point_is_not_asked(microscope, tmp_path):
 
 
 def test_attention_round_trips_through_the_protocol():
-    d = AutoLamellaTaskDescription(
-        name=SETUP, required=True, attention=Attention.supervised
+    protocol = task_protocol(
+        planned(
+            name=SETUP,
+            attention=Attention.supervised,
+            config=SelectMillingPositionTaskConfig(),
+        )
     )
-    assert d.to_dict()["attention"] == "supervised"
-    again = AutoLamellaTaskDescription.from_dict(d.to_dict())
-    assert again.attention is Attention.supervised
-    assert AutoLamellaTaskDescription(name=SETUP, attention="supervised").attention is (
-        Attention.supervised
-    ), "a string from a hand-edited file is the enum"
-    cfg_ = AutoLamellaWorkflowConfig(tasks=[d])
-    assert cfg_.get_attention(SETUP) is Attention.supervised
-    assert cfg_.get_attention("nope") is Attention.automated
+    saved = protocol.to_dict()
+    assert saved["task_config"][SETUP]["attention"] == "supervised"
+    again = AutoLamellaTaskProtocol.from_dict(saved)
+    assert again.get_attention(SETUP) is Attention.supervised
+    assert again.get_attention("nope") is Attention.automated
+
+
+def _load_protocol(**entry) -> AutoLamellaTaskProtocol:
+    """A protocol file whose workflow entry for SETUP carries *entry*."""
+    return AutoLamellaTaskProtocol.from_dict(
+        {
+            "name": "p",
+            "tasks": {SETUP: {"task_type": "SELECT_MILLING_POSITION"}},
+            "workflow": {"tasks": [{"name": SETUP, "required": True, **entry}]},
+        }
+    )
+
+
+def _load_entry(**entry) -> Attention:
+    """The attention a protocol file's workflow entry for SETUP reads as."""
+    return _load_protocol(**entry).get_attention(SETUP)
 
 
 def test_a_protocol_saved_with_the_third_mode_still_loads(caplog):
@@ -246,15 +255,10 @@ def test_a_protocol_saved_with_the_third_mode_still_loads(caplog):
     Supervised. A stored value goes through the one reader, so neither of
     those spellings nor one this build does not know takes the whole protocol
     down."""
-    load = AutoLamellaTaskDescription.from_dict
-    base = {"name": SETUP, "required": True, "requires": []}
     for old in ("review", "review_later"):
-        assert load({**base, "attention": old}).attention is Attention.supervised
-        assert load({**base, "attention": old}).to_dict()["attention"] == (
-            "supervised"
-        ), "and it is written back as supervised"
+        assert _load_entry(attention=old) is Attention.supervised
     with caplog.at_level("WARNING"):
-        assert load({**base, "attention": "gate"}).attention is Attention.automated
+        assert _load_entry(attention="gate") is Attention.automated
     assert f"Unknown attention 'gate' on task {SETUP!r}" in caplog.text
 
 
@@ -263,13 +267,13 @@ def test_a_protocol_written_with_the_supervise_flag_still_loads():
     and experiment saved by it still loads. The ``review`` flag and the interim
     mode strings that briefly sat beside it never shipped, and are now dropped
     as any unknown key is, rather than mapped."""
-    load = AutoLamellaTaskDescription.from_dict
-    base = {"name": SETUP, "required": True, "requires": []}
-    assert load({**base, "supervise": True}).attention is Attention.supervised
-    assert load({**base, "supervise": False}).attention is Attention.automated
-    assert load(base).attention is Attention.automated, "neither key: automated"
-    assert load({**base, "review": True}).attention is Attention.automated
-    assert load({**base, "supervise": True, "review": "gate"}).attention is (
-        Attention.supervised
-    ), "review is dropped; supervise still decides"
-    assert "supervise" not in load({**base, "supervise": True}).to_dict()
+    assert _load_entry(supervise=True) is Attention.supervised
+    assert _load_entry(supervise=False) is Attention.automated
+    assert _load_entry() is Attention.automated, "neither key: automated"
+    assert _load_entry(review=True) is Attention.automated
+    assert _load_entry(supervise=True, review="gate") is Attention.supervised, (
+        "review is dropped; supervise still decides"
+    )
+    saved = _load_protocol(supervise=True).to_dict()
+    assert "supervise" not in saved["workflow_config"]["tasks"][0]
+    assert saved["task_config"][SETUP]["attention"] == "supervised"

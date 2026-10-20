@@ -1,6 +1,9 @@
 {
   "available": true,
   "config": {
+    "align_to_reference": true,
+    "alignment_expansion": 150.0,
+    "confirm_alignment_area": true,
     "milling": {
       "fiducial": {
         "acquisition": {
@@ -102,11 +105,6 @@
         ]
       }
     },
-    "parameters": {
-      "align_to_reference": true,
-      "alignment_expansion": 150,
-      "confirm_alignment_area": true
-    },
     "reference_imaging": {
       "acquire_fib": true,
       "acquire_image1": true,
@@ -133,10 +131,11 @@
         "scan_interlacing": null
       }
     },
+    "task_name": "Mill Fiducial",
     "task_type": "MILL_FIDUCIAL"
   },
   "item_name": "Lamella-01",
   "level": "item",
   "task_name": "Mill Fiducial",
-  "version": "be0be81c2a7df744"
+  "version": "7aa7989ca9887648"
 }

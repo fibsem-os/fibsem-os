@@ -9,13 +9,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
-    AutoLamellaTaskProtocol,
-    AutoLamellaWorkflowConfig,
-    Experiment,
-    Lamella,
-)
+from fibsem.applications.autolamella.structures import Experiment, Lamella
 from fibsem.applications.autolamella.workflows.estimate import (
     step_seconds,
     task_schedule,
@@ -30,6 +24,7 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.estimate import estimate_run
 from fibsem.workflows.runner import ITEMS, RunRequest, item_task_pairs
+from tests.protocols import planned, task_protocol
 
 NOW = datetime(2026, 8, 18, 14, 0, 0)
 
@@ -50,19 +45,22 @@ def _experiment(
         exp.add_lamella(lamella)
 
     # task_protocol is None on a fresh Experiment -- "must be set externally"
-    exp.task_protocol = AutoLamellaTaskProtocol()
-    exp.task_protocol.workflow_config = AutoLamellaWorkflowConfig(
-        tasks=[
-            AutoLamellaTaskDescription(
+    exp.task_protocol = task_protocol(
+        *(
+            planned(
                 name=name,
                 attention=(
                     Attention.supervised if name in supervised else Attention.automated
                 ),
                 required=True,
                 scheduled_at=(scheduled or {}).get(name),
+                config=config,
             )
-            for name in ("Setup Lamella Position", "Mill Fiducial")
-        ]
+            for name, config in (
+                ("Setup Lamella Position", SelectMillingPositionTaskConfig()),
+                ("Mill Fiducial", MillFiducialTaskConfig()),
+            )
+        )
     )
     return exp
 

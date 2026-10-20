@@ -26,7 +26,6 @@ from psygnal.containers import EventedDict  # noqa: E402
 from fibsem.acting import OPERATOR, current_actor  # noqa: E402
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
-    AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     Experiment,
 )
@@ -42,6 +41,7 @@ from fibsem.workflows.grid.imaging import (  # noqa: E402
 from fibsem.workflows.grids import GridRecord  # noqa: E402
 from fibsem.workflows.runner import GRIDS, ITEMS, RunRequest
 from tests.fixtures.main_window import close_window  # noqa: E402
+from tests.protocols import add_planned, planned
 from tests.run_state import hold_runs
 
 TOKEN = "test-token"
@@ -68,9 +68,7 @@ def ui(qapp, monkeypatch, tmp_path):
 
     experiment = Experiment(path=tmp_path, name="agent-verbs")
     experiment.task_protocol = AutoLamellaTaskProtocol()
-    experiment.task_protocol.workflow_config.tasks.append(
-        AutoLamellaTaskDescription(name=TASK_NAME, required=True)
-    )
+    add_planned(experiment.task_protocol, planned(name=TASK_NAME, required=True))
     experiment.grid_protocol.add(BeamOverviewGridTaskConfig(task_name="overview_sem"))
     experiment.add_grid(GridRecord(name="grid-aspen"))
     experiment.add_new_lamella(MicroscopeState(), EventedDict())

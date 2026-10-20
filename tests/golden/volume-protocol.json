@@ -1,13 +1,7 @@
 {
-  "_id": "pinned-volume-protocol-id",
+  "id": "pinned-volume-protocol-id",
   "name": "Volume Protocol",
-  "order": [
-    "Setup FIB Milling Position",
-    "Setup SEM Acquisition",
-    "Volume FIB Milling",
-    "Volume SEM Acquisition"
-  ],
-  "tasks": {
+  "task_config": {
     "Setup FIB Milling Position": {
       "attention": "supervised",
       "face": {
@@ -505,5 +499,29 @@
       "task_name": "Volume SEM Acquisition",
       "task_type": "VOLUME_SEM_ACQUISITION"
     }
+  },
+  "workflow_config": {
+    "tasks": [
+      {
+        "name": "Setup FIB Milling Position",
+        "required": true,
+        "scheduled_at": null
+      },
+      {
+        "name": "Setup SEM Acquisition",
+        "required": true,
+        "scheduled_at": null
+      },
+      {
+        "name": "Volume FIB Milling",
+        "required": true,
+        "scheduled_at": null
+      },
+      {
+        "name": "Volume SEM Acquisition",
+        "required": true,
+        "scheduled_at": null
+      }
+    ]
   }
 }

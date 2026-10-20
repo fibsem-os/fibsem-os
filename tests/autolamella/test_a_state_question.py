@@ -16,9 +16,6 @@ from psygnal.containers import EventedDict
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
-    AutoLamellaTaskProtocol,
-    AutoLamellaWorkflowConfig,
     Experiment,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
@@ -34,6 +31,7 @@ from fibsem.workflows.proposals import (
     DecisionOutcome,
     compute_delta,
 )
+from tests.protocols import planned, task_protocol
 
 REF = "Acquire Reference Image"
 CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
@@ -48,12 +46,8 @@ def microscope():
 
 def _experiment(tmp_path: Path, microscope, attention=Attention.automated):
     exp = Experiment(path=tmp_path, name="state-exp")
-    exp.task_protocol = AutoLamellaTaskProtocol(
-        workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[
-                AutoLamellaTaskDescription(name=REF, required=True, attention=attention)
-            ]
-        )
+    exp.task_protocol = task_protocol(
+        planned(name=REF, required=True, attention=attention)
     )
     os.makedirs(exp.path, exist_ok=True)
     exp.add_new_lamella(

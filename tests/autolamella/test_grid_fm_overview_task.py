@@ -79,7 +79,7 @@ class TestConfig:
         config.zparams = ZParameters(zmin=-2e-6, zmax=2e-6, zstep=1e-6)
         experiment.save(save_protocol=True)
         data = yaml.safe_load((tmp_path / "exp" / "protocol.yaml").read_text())
-        saved = data["grid_tasks"]["tasks"]["overview_fm"]
+        saved = data["grid_tasks"]["task_config"]["overview_fm"]
         assert [c["name"] for c in saved["channels"]] == ["GFP", "mCherry"]
         assert saved["overview"]["rows"] == 1
 

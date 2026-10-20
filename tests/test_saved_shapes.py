@@ -759,3 +759,96 @@ def test_the_app_servers_protocol_documents_are_as_pinned():
         context.item_task_config("Lamella-01", "Mill Fiducial"),
     )
     _check("app-grid-task-config", context.grid_task_config("SEM Overview"))
+
+
+# ---- the shapes FORMAT_VERSION 2 wrote -----------------------------------------
+# Saved by the build before task configs went flat, and read by this one into the
+# shapes pinned above.
+
+V2 = FIXTURES / "saved_shapes_v2"
+
+
+def _v2(name):
+    return json.loads((V2 / f"{name}.json").read_text())
+
+
+def test_a_v2_protocol_reads_as_the_current_one():
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
+
+    saved = AutoLamellaTaskProtocol.from_dict(_v2("protocol-shipped-task-protocol"))
+    assert _plain(saved.to_dict()) == _plain(
+        _task_protocol(PROTOCOLS / "task-protocol.yaml").to_dict()
+    )
+
+
+def test_a_v2_experiment_reads_as_the_current_one():
+    from fibsem.applications.autolamella.structures import Experiment
+
+    loaded = Experiment.from_dict(_v2("experiment-with-lamellae"))
+    assert _plain(loaded.to_dict()) == _plain(_experiment().to_dict())
+
+
+@pytest.mark.parametrize(
+    "case, build",
+    [("grid-protocol", _grid_protocol), ("volume-protocol", _volume_protocol)],
+)
+def test_a_v2_engine_protocol_reads_as_the_current_one(case, build):
+    protocol = build()
+    loaded = type(protocol).from_dict(_v2(case))
+    assert _plain(loaded.to_dict()) == _plain(protocol.to_dict())
+
+
+def test_each_upgrade_step_moves_one_shape():
+    from fibsem.codec.upgrades import protocol as protocol_upgrade
+
+    assert protocol_upgrade.task_config(
+        {"task_name": "a", "parameters": {"depth": 1, "task_name": "b"}}
+    ) == {"depth": 1, "task_name": "a"}, "a key already at the top level wins"
+    assert protocol_upgrade.run_plan({"tasks": ["a", None, {"name": "b"}]}) == {
+        "tasks": [{"name": "a"}, {"name": "", "required": False}, {"name": "b"}]
+    }
+    assert protocol_upgrade.task_protocol(
+        {"_id": "x", "tasks": {"a": {"parameters": {"n": 1}}}, "order": ["a"]}
+    ) == {
+        "id": "x",
+        "task_config": {"a": {"n": 1}},
+        "workflow_config": {"tasks": [{"name": "a"}]},
+    }
+    old = {
+        "tasks": {"a": {}, "b": {"attention": "automated"}},
+        "workflow": {
+            "tasks": [
+                {"name": "a", "supervise": True, "requires": []},
+                {"name": "b", "attention": "supervised", "requires": ["a"]},
+                {"name": "ghost", "attention": "supervised"},
+            ]
+        },
+    }
+    new = protocol_upgrade.autolamella_protocol(old)
+    assert new["task_config"] == {
+        "a": {"attention": "supervised", "requires": []},
+        "b": {"attention": "automated", "requires": ["a"]},
+    }, "the config's own attention wins; a task with no config keeps nothing"
+    assert new["workflow_config"]["tasks"] == [
+        {"name": "a"},
+        {"name": "b"},
+        {"name": "ghost"},
+    ]
+    current = deepcopy(new)
+    assert protocol_upgrade.autolamella_protocol(current) == new, (
+        "the current shape is kept"
+    )
+
+
+def test_an_upgrade_leaves_what_it_is_given_alone():
+    from fibsem.codec.upgrades import protocol as protocol_upgrade
+
+    for name, step in (
+        ("protocol-shipped-task-protocol", protocol_upgrade.autolamella_protocol),
+        ("experiment-with-lamellae", protocol_upgrade.experiment),
+        ("grid-protocol", protocol_upgrade.task_protocol),
+    ):
+        data = _v2(name)
+        before = deepcopy(data)
+        step(data)
+        assert data == before, name

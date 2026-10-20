@@ -24,11 +24,10 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtCore import QDateTime
 from PyQt5.QtWidgets import QApplication
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskDescription
 from fibsem.applications.autolamella.ui.workflow.task_editor import (
     WorkflowTaskEditorWidget,
 )
-from fibsem.workflows.attention import Attention
+from fibsem.workflows.task_config import TaskPlan
 
 
 @pytest.fixture(scope="module")
@@ -37,19 +36,14 @@ def qapp():
     yield app
 
 
-def _task(scheduled_at=None) -> AutoLamellaTaskDescription:
-    return AutoLamellaTaskDescription(
-        name="MillRough",
-        attention=Attention.supervised,
-        required=True,
-        scheduled_at=scheduled_at,
-    )
+def _task(scheduled_at=None) -> TaskPlan:
+    return TaskPlan(name="MillRough", required=True, scheduled_at=scheduled_at)
 
 
-def _applied(editor: WorkflowTaskEditorWidget) -> AutoLamellaTaskDescription:
+def _applied(editor: WorkflowTaskEditorWidget) -> TaskPlan:
     """Click Apply and return the task it emitted."""
     emitted = []
-    editor.apply_clicked.connect(emitted.append)
+    editor.apply_clicked.connect(lambda task, requires: emitted.append(task))
     editor._on_apply()
     assert emitted, "Apply emitted nothing"
     return emitted[0]

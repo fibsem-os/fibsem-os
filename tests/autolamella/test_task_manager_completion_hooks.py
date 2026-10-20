@@ -14,9 +14,6 @@ from typing import List
 import pytest
 
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
-    AutoLamellaTaskProtocol,
-    AutoLamellaWorkflowConfig,
     DefectType,
     Experiment,
     Lamella,
@@ -24,6 +21,7 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.hooks import FunctionHook, HookContext, HookEvent, HookManager
 from fibsem.workflows.status import TaskState, TaskStatus
+from tests.protocols import planned, task_protocol
 
 REQUIRED_TASKS = ["MillTrench", "MillUndercut"]
 
@@ -43,13 +41,8 @@ def experiment(tmp_path: Path) -> Experiment:
     """An experiment whose workflow requires two tasks of every lamella."""
     exp = Experiment(path=tmp_path, name="test-exp")
     # task_protocol is None until one is loaded, so build one
-    exp.task_protocol = AutoLamellaTaskProtocol(
-        workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[
-                AutoLamellaTaskDescription(name=name, required=True)
-                for name in REQUIRED_TASKS
-            ]
-        )
+    exp.task_protocol = task_protocol(
+        *[planned(name=name, required=True) for name in REQUIRED_TASKS]
     )
     return exp
 

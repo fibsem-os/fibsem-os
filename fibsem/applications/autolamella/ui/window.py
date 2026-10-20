@@ -424,8 +424,7 @@ class AutoLamellaWindow(QMainWindow):
         if protocol is None:
             return
         supervised = (
-            protocol.workflow_config.get_attention(self._current_task_name)
-            is Attention.supervised
+            protocol.get_attention(self._current_task_name) is Attention.supervised
         )
         set_supervision(
             self.experiment,

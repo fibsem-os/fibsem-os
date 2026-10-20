@@ -23,11 +23,9 @@ import pandas as pd
 import pytest
 
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
-    AutoLamellaTaskProtocol,
-    AutoLamellaWorkflowConfig,
     Experiment,
 )
+from tests.protocols import planned, task_protocol
 
 _FIBSEM = Path(__file__).resolve().parents[2] / "fibsem"
 _REPORTING = _FIBSEM / "applications" / "autolamella" / "tools" / "reporting.py"
@@ -83,11 +81,7 @@ def test_the_workflow_rename_targets_columns_that_exist() -> None:
     this fails if either side moves.
     """
     exp = Experiment(path="/tmp", name="x")
-    exp.task_protocol = AutoLamellaTaskProtocol(
-        workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[AutoLamellaTaskDescription(name="MillTrench", required=True)]
-        )
-    )
+    exp.task_protocol = task_protocol(planned(name="MillTrench", required=True))
 
     rename_keys = _workflow_rename_keys()
 

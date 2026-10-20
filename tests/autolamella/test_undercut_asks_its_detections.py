@@ -23,9 +23,6 @@ pytest.importorskip("segmentation_models_pytorch")
 import fibsem.config as fibsem_config
 from fibsem import utils
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
-    AutoLamellaTaskProtocol,
-    AutoLamellaWorkflowConfig,
     Experiment,
 )
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
@@ -38,6 +35,7 @@ from fibsem.structures import Point
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import DETECTION, Decision, DecisionOutcome
 from fibsem.workflows.status import TaskStatus
+from tests.protocols import planned, task_protocol
 
 UNDERCUT = "Mill Undercut"
 CHECKPOINT = "autolamella-waffle-20240107.pt"
@@ -75,14 +73,8 @@ def microscope():
 
 def _experiment(tmp_path: Path, microscope, attention=Attention.automated):
     exp = Experiment(path=tmp_path, name="undercut-exp")
-    exp.task_protocol = AutoLamellaTaskProtocol(
-        workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[
-                AutoLamellaTaskDescription(
-                    name=UNDERCUT, required=True, attention=attention
-                )
-            ]
-        )
+    exp.task_protocol = task_protocol(
+        planned(name=UNDERCUT, required=True, attention=attention)
     )
     os.makedirs(exp.path, exist_ok=True)
     exp.add_new_lamella(

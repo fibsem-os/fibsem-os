@@ -97,10 +97,10 @@ def _task_tooltips(protocol: AutoLamellaTaskProtocol) -> Dict[str, str]:
         if task is None:
             run = "not included"
         else:
-            parts = [task.attention.value]
+            parts = [config.attention.value]
             parts.append("required" if task.required else "optional")
-            if task.requires:
-                parts.append("after " + ", ".join(task.requires))
+            if config.requires:
+                parts.append("after " + ", ".join(config.requires))
             run = ", ".join(parts)
         tips[name] = f"{name}\nType: {kind}\nWorkflow: {run}"
     return tips
@@ -607,7 +607,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self._edits.touch(
             None,
             selected_task_name,
-            f"protocol.parameters.{field_name}",
+            f"protocol.{field_name}",
             lambda: getattr(task_config, field_name, None),
         )
         setattr(task_config, field_name, new_value)

@@ -100,7 +100,7 @@ class SetupCoincidenceMillingTaskConfig(AutoLamellaTaskConfig):
 
     @property
     def parameters(self) -> tuple[str, ...]:
-        # the two non-scalar fields serialise under their own keys below
+        # written by the task from the viewer, not on the form
         return tuple(
             p for p in super().parameters if p not in ("fm_roi", "pattern_offset")
         )
@@ -117,35 +117,6 @@ class SetupCoincidenceMillingTaskConfig(AutoLamellaTaskConfig):
         total = super().estimated_duration
         total += timing.stage_move_cost(1)  # objective insert stands in for a move
         return total
-
-    def to_dict(self) -> dict:
-        ddict = super().to_dict()
-        ddict["fm_roi"] = self.fm_roi.to_dict() if self.fm_roi is not None else None
-        ddict["pattern_offset"] = self.pattern_offset.to_dict()
-        return ddict
-
-    @classmethod
-    def from_dict(cls, ddict: dict) -> "SetupCoincidenceMillingTaskConfig":
-        params = ddict.get("parameters") or {}
-        cls._warn_unknown_parameters(params)
-        objective_position = params.get("objective_position")
-        fm_roi = ddict.get("fm_roi")
-        pattern_offset = ddict.get("pattern_offset")
-        return cls(
-            **cls._load_core(ddict),
-            field_of_view=float(params.get("field_of_view", 80e-6)),
-            intensity_drop_fraction=float(params.get("intensity_drop_fraction", 0.4)),
-            align_coincidence=bool(params.get("align_coincidence", False)),
-            objective_position=(
-                float(objective_position) if objective_position is not None else None
-            ),
-            fm_roi=FibsemRectangle.from_dict(fm_roi) if fm_roi is not None else None,
-            pattern_offset=(
-                Point.from_dict(pattern_offset)
-                if pattern_offset is not None
-                else Point(0.0, 0.0)
-            ),
-        )
 
 
 class SetupCoincidenceMillingTask(AutoLamellaTask):
@@ -347,11 +318,9 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
         task manager, which a headless run and a GUI run share."""
         experiment = getattr(self.task_manager, "experiment", None)
         protocol = getattr(experiment, "task_protocol", None)
-        if protocol is not None:
-            for task in protocol.workflow_config.tasks:
-                if task.name == self.task_name:
-                    return task.attention
-        return None
+        if protocol is None or protocol.workflow_config.get(self.task_name) is None:
+            return None
+        return protocol.get_attention(self.task_name)
 
     def _hand_off(self) -> None:
         """Give the operator the viewer to place the boxes. Wired in FIB-911.
