@@ -153,7 +153,10 @@ against exactly the state it last read (a concurrent edit of yours makes the
 agent's write stale, and it is refused, never merged). A task already
 running has copied its settings and is refused outright; pending tasks pick
 changes up when they start. Every applied change is recorded on the
-timeline, old value and new.
+timeline, old value and new. Supervision and what a task requires are not
+parameters: a parameter edit that names them is refused, and they change
+only through their own requests, which leave the agent's parameter edits
+current.
 
 At Drive the agent can also start a **grid screening run** — the Grids
 view's Run or Screen all grids, remotely — over the grid tasks in your

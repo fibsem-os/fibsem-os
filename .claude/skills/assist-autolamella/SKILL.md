@@ -118,7 +118,10 @@ when it is a beam image; without it, the card says "No evidence".
 the stage position before filing, and pass the `version` you read. Until
 the operator approves, nothing is checked against the live state. A stale
 version is refused when the request runs (`409 stale_config`), which is
-correct. Read again and ask again. A stage move has no version: a relative
+correct. Read again and ask again. A config's patch paths start at its top
+level, where its parameters are; `attention` and `requires` are refused in
+a patch, and are asked for with `protocol_set_supervision` and
+`protocol_set_task_requirements`. A stage move has no version: a relative
 move runs from wherever the stage is when the operator approves it, so
 say in the reason where you read it from. Before asking for a
 `workflow_requeue`, read the queue (`workflow_get_queue`): a pair already waiting is
