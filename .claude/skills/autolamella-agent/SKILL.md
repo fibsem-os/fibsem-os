@@ -14,7 +14,8 @@ skills build on it:
 - **assist-autolamella**: at **Assist**, ask the operator to approve each
   action.
 - **supervise-autolamella**: at **Drive**, decide the workflow's proposals
-  and act.
+  and act. Its lead mode calls the `autolamella-*` agents, specialists
+  that each make or check one kind of decision.
 
 When in doubt, wait and ask the operator. A workflow's proposals have no
 timeout, so nothing is lost by waiting.
@@ -468,6 +469,16 @@ the task, one `milling_run_stage` per step:
   field of view (15 µm, not 30 µm).
 - After rough milling, measure the band's tilt and rotate the polishing
   patterns to match. A 0.6° mismatch left a 55 nm wedge along the lamella.
+- Faint means thin. A band that turns faint is thinner than its width
+  says: a band read as 300 nm wide, but faint, milled through on the next
+  pass. Measure before another step.
+- Don't take a step at a smaller gap than this grid has already shown
+  leaves the band intact without measuring the band first. Where the run
+  has a recipe card, its stop rules override this guidance.
+- `item_measure_thickness`'s `centre_offset_nm` is advisory. Move the
+  patterns by it only once you have seen on the image that the band it
+  measured is the lamella, and the only bright band in its window: residue
+  in a trench once drew it 538 nm off.
 - Check the SEM view of the face after each step as a second opinion:
   contrast changes, cracks, bending.
 - Report each step: current, gap, time, the alignment residual, the band
@@ -569,6 +580,13 @@ on the feature itself before acting, as an operator would.
   hidden under the next tile; check it in the tiles on both sides before you
   count it.
 - A square you haven't looked at is unassessed, never "empty" or "bad".
+- Space the sites by their features, not their centres: the gap that
+  matters is between the nearest trench, stress-relief cut or fiducial of
+  two lamellae. Film between two facing stress-relief cuts 15 µm apart tore
+  during a rough mill and lost both. Setup moves each fiducial not yet
+  milled to the centre of the alignment area chosen there (its *Sync
+  Fiducial Position*), so the area decides where the fiducial lands: check
+  it against the neighbours there, not where the protocol drew it.
 - Confirm shorthand before acting on it. "3:3" or "C2" can name a square, a
   cell or a rank; ask which the operator means.
 - Record each site as *Write down why* says: `item_add` without `name`, and

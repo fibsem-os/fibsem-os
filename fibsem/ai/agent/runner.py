@@ -32,26 +32,52 @@ BASE_SKILL = "autolamella-agent"
 SKILLS = (BASE_SKILL,) + tuple(f"{role}-autolamella" for role in ROLES)
 
 SERVER = "fibsem"
+# The specialists a Run Lead calls (supervise-autolamella, lead mode): the
+# checkout's .claude/agents, each with its own tool list.
+SPECIALISTS = (
+    "autolamella-surveyor",
+    "autolamella-placement",
+    "autolamella-checker",
+    "autolamella-pilot",
+    "autolamella-pass-judge",
+    "autolamella-verifier",
+    "autolamella-scheduler",
+    "autolamella-auditor",
+)
 # The server's level gate decides what the fibsem tools may do, so they need no
 # prompt; ToolSearch only finds them.
-ALLOWED_TOOLS = [f"mcp__{SERVER}__*", "ToolSearch"]
-# The only built-in tools the agent has: reading its skills, and finding the
-# sidecar's tools when the CLI defers them.
-BUILT_IN_TOOLS = ["Skill", "ToolSearch"]
-# Named as well, so a CLI that adds one back still refuses it.
+ALLOWED_TOOLS = [f"mcp__{SERVER}__*", "ToolSearch"] + [
+    f"Agent({name})" for name in SPECIALISTS
+]
+# The only built-in tools the agent has: reading its skills, finding the
+# sidecar's tools when the CLI defers them, and calling a specialist.
+BUILT_IN_TOOLS = ["Skill", "ToolSearch", "Agent"]
+# Named as well, so a CLI that adds one back still refuses it: a specialist
+# that lists a tool gets it unless it is denied here. The CLI's own agents
+# would carry every fibsem tool, without a specialist's limits.
 DENIED_TOOLS = [
     "Bash",
     "Read",
+    "Grep",
+    "Glob",
     "Write",
     "Edit",
     "MultiEdit",
     "NotebookEdit",
     "WebFetch",
     "WebSearch",
-    "Agent",
+    "Agent(claude)",
+    "Agent(general-purpose)",
+    "Agent(Explore)",
+    "Agent(Plan)",
+    "Agent(statusline-setup)",
+    "Agent(claude-code-guide)",
 ]
 # Nothing waits on a permission prompt: what is not allowed above is denied.
 PERMISSION_MODE = "dontAsk"
+# The CLI's environment. A specialist answers inside the turn that called it:
+# one the CLI ran in the background would answer after the turn had ended.
+CLI_ENV = {"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1"}
 
 # The model can't answer until someone fixes the sign-in or the account, so
 # waiting for the next wake-up would wait for ever.
@@ -70,8 +96,9 @@ interactive Claude Code session. Nobody is at a terminal.
 arrives as your next message, starting "The watcher printed:". Don't start a \
 watcher, don't loop app_get_events, and don't wait inside a turn: do what the \
 lines call for, then end your turn.
-- Your tools are the mcp__fibsem__* tools and Skill. There is no shell, no \
-file access and no web. Where a skill shows curl, python or a script, use the \
+- Your tools are the mcp__fibsem__* tools, Skill, and Agent for the \
+autolamella-* specialists only. There is no shell, no file access and no web, \
+for you or for them. Where a skill shows curl, python or a script, use the \
 matching mcp__fibsem__ tool, or say what you can't do.
 - Your replies go to fibsem-agent's console and log, which the operator may \
 not be reading. Anything the operator must see goes on the record with \
@@ -777,6 +804,7 @@ def build_options(
         disallowed_tools=list(DENIED_TOOLS),
         permission_mode=PERMISSION_MODE,
         mcp_servers={SERVER: server},
+        env=dict(CLI_ENV),
         # Only the server above: not a `fibsem` registered in ~/.claude.json.
         strict_mcp_config=True,
         system_prompt={
