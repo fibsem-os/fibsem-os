@@ -18,7 +18,9 @@ from fibsem.devices.beam import Beam
 from fibsem.devices.chamber import Chamber
 from fibsem.devices.core import Device
 from fibsem.devices.fm import FM, Objective
+from fibsem.devices.gis import GasInjector
 from fibsem.devices.manipulator import Manipulator
+from fibsem.devices.sputter_coater import SputterCoater
 from fibsem.devices.stage import Stage
 from fibsem.services.milling import Milling
 from fibsem.services.stage_movement import StageMovement
@@ -39,6 +41,10 @@ _BLOCKED: Tuple[Tuple[type, Dict[str, Any]], ...] = (
     (Stage, {"command": {"home", "link", "move_absolute"}}),
     # Every move and the insert, stop included: blocked for now, to revisit.
     (Manipulator, {"write": ALL, "command": ALL}),
+    # The needle, heater and valve, and the coater's current and run: the
+    # operator's until a bench run on the Arctis and the Hydra Bio (2026-10-20).
+    (GasInjector, {"write": ALL, "command": ALL}),
+    (SputterCoater, {"write": ALL, "command": ALL}),
     # The safety limit the objective's moves are checked against.
     (Objective, {"write": {"limit_position"}}),
     # The raw absolute move: the safe one tilts flat for a large rotation and
@@ -58,6 +64,8 @@ _WHY = {
     Chamber: "pumping and venting are the operator's, at the microscope",
     Stage: "homing and the stage link are the operator's; move with stage_move_absolute",
     Manipulator: "the manipulator is the operator's for now",
+    GasInjector: "the GIS is the operator's for now",
+    SputterCoater: "the sputter coater is the operator's for now",
     Objective: "the objective's safety limit",
     FM: "stop the FM with the imaging service's stop",
     StageMovement: "move with safe_absolute_stage_movement (stage_move_absolute)",

@@ -158,3 +158,25 @@ def test_blocks_go_by_the_kind_of_device_not_its_name(microscope):
     assert blocked(microscope.devices["ion"], "write", "hfw") is None
     assert blocked(microscope.devices["stage"], "command", "move_relative") is None
     assert blocked(microscope.devices["manipulator"], "command", "stop")
+
+
+def test_the_gis_and_sputter_coater_are_the_operators(microscope):
+    """Every write and command is blocked; their values stay readable."""
+    from fibsem.drivers.demo.devices import DemoGasInjector, DemoSputterCoater
+
+    gis = DemoGasInjector(microscope).connect()
+    coater = DemoSputterCoater(microscope).connect()
+    for command in (
+        "insert",
+        "retract",
+        "heater_on",
+        "heater_off",
+        "open",
+        "close",
+        "purge",
+    ):
+        assert blocked(gis, "command", command)
+    assert blocked(coater, "command", "run")
+    assert blocked(coater, "write", "current")
+    assert gis.state.get_value() is not None
+    assert coater.current.get_value() > 0
