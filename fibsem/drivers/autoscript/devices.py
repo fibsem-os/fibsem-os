@@ -82,6 +82,7 @@ from fibsem.devices.core import (
     resources_of,
 )
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
+from fibsem.devices.gis import GasInjector
 from fibsem.devices.manipulator import Manipulator
 from fibsem.devices.sample_loader import (
     GridExchangeError,
@@ -1330,6 +1331,283 @@ def bind_autoscript_manipulator(
     ).connect()
 
 
+# -- The gas injector ---------------------------------------------------------------
+#
+# Built on an Arctis only (``is_arctis``): it is the one Thermo instrument fibsem-os
+# drives a GIS on. Anything else gets no ``gis`` device, and a configuration that
+# names one there is refused.
+
+MULTICHEM = "Multichem"
+"""The ``port`` a ``gis`` entry names to use the multichem rather than a GIS port."""
+
+GIS_READ_BACK_VERSION = "4.13.1"
+"""From this AutoScript, ``GisPort`` reads back ``state``, ``is_heated`` and
+``is_open``. Before it, the device reports what its own commands last did."""
+
+GIS_HEATED_TEMPERATURE = 300.0
+"""Kelvin. ``heater_on`` waits for the gas to reach it, as the old driver did."""
+
+GIS_HEATER_TIMEOUT = 15.0
+"""Seconds ``heater_on`` waits for ``GIS_HEATED_TEMPERATURE`` before it fails."""
+
+
+def is_arctis(microscope: ThermoMicroscope) -> bool:
+    """Whether the instrument is an Arctis, by the model name xT reports."""
+    model = getattr(microscope.system.info, "model", None) or ""
+    return "arctis" in str(model).lower()
+
+
+def gis_read_back_supported(connection: AutoScriptConnection) -> bool:
+    """Whether both AutoScript ends are at least ``GIS_READ_BACK_VERSION``; False when
+    either version can't be read."""
+    from packaging.version import parse as parse_version
+
+    try:
+        autoscript = connection.sdk.service.autoscript
+        versions = (autoscript.client.version, autoscript.server.version)
+        return all(
+            parse_version(str(v)) >= parse_version(GIS_READ_BACK_VERSION)
+            for v in versions
+        )
+    except Exception:  # noqa: BLE001 - an old server, or a version string we can't parse
+        return False
+
+
+def _retractable_state(state: Any) -> InsertableDeviceState:
+    """A vendor ``RetractableDeviceState`` ("Inserted", "Retracted", ...)."""
+    name = str(getattr(state, "name", state)).upper()
+    if name == "INSERTED":
+        return InsertableDeviceState.INSERTED
+    if name == "RETRACTED":
+        return InsertableDeviceState.RETRACTED
+    return InsertableDeviceState.UNKNOWN
+
+
+class _AutoscriptGasInjector(GasInjector):
+    """What a GIS port and the multichem share: the vendor object, looked up on every
+    call, the heater's wait for temperature, and the state the device tracks where
+    AutoScript can't read it back.
+
+    The old driver's insertion guard (raw stage z at most 4 mm) isn't kept: it was set
+    for a bulk stage, and an Arctis compustage's raw z is another frame.
+
+    The heater is left on between grids: turning it off and on again leaves the valve
+    reading "GIS port valve is not controllable" until the gas is back at temperature.
+    """
+
+    def __init__(
+        self,
+        parent: ThermoMicroscope,
+        connection: AutoScriptConnection,
+        resources: Optional[Resources] = None,
+    ):
+        super().__init__(parent=parent, resources=resources)
+        self.connection = connection
+        self._inserted = False
+        self._heated = False
+        self._opened = False
+
+    @property
+    def _vendor(self) -> Any:
+        raise NotImplementedError
+
+    def _insert(self, position: Optional[str]) -> None:
+        vendor = self._vendor
+        if position:
+            logging.info(f"Inserting {self.name} to {position}")
+            vendor.insert(position)
+        else:
+            logging.info(f"Inserting {self.name}")
+            vendor.insert()
+        self._inserted = True
+
+    def _retract(self) -> None:
+        logging.info(f"Retracting {self.name}")
+        self._vendor.retract()
+        self._inserted = False
+
+    def _open(self) -> None:
+        logging.info(f"Opening the {self.name} valve")
+        self._vendor.open()
+        self._opened = True
+
+    def _close(self) -> None:
+        logging.info(f"Closing the {self.name} valve")
+        self._vendor.close()
+        self._opened = False
+
+    def _wait_for_temperature(self) -> None:
+        """Wait for the heating to finish (``_heating_done``) or the gas to reach
+        ``GIS_HEATED_TEMPERATURE``; raise ``TimeoutError`` after
+        ``GIS_HEATER_TIMEOUT``. The vendor's ``turn_heater_on`` returns before the
+        heating is done."""
+        deadline = time.monotonic() + GIS_HEATER_TIMEOUT
+        while True:
+            temperature = self.read_temperature()
+            logging.info(
+                f"{self.name} heater: {temperature:.1f} K, "
+                f"waiting for {GIS_HEATED_TEMPERATURE:.0f} K"
+            )
+            if self._heating_done() or temperature >= GIS_HEATED_TEMPERATURE:
+                return
+            if time.monotonic() >= deadline:
+                raise TimeoutError(
+                    f"{self.name}: the gas reached {temperature:.1f} K, not "
+                    f"{GIS_HEATED_TEMPERATURE:.0f} K, within {GIS_HEATER_TIMEOUT:.0f} s."
+                )
+            time.sleep(1.0)
+
+    def _heating_done(self) -> bool:
+        """Whether the instrument reports the heating finished; False where it
+        can't say."""
+        return False
+
+
+class AutoscriptGisPort(_AutoscriptGasInjector):
+    """One GIS port, ``gas.get_gis_port(port)``; ``port`` is one of
+    ``gas.list_all_gis_ports()``, which names each port by its gas.
+
+    From AutoScript 4.13.1 (both ends, ``gis_read_back_supported``) ``state``,
+    ``heated`` and ``opened`` are the port's ``state``, ``is_heated`` and ``is_open``,
+    so a change made in xT shows. Before it they are what this device's own commands
+    last did: retracted, off and closed until then. A purge is the base class's open,
+    wait, close.
+    """
+
+    def __init__(
+        self,
+        parent: ThermoMicroscope,
+        connection: AutoScriptConnection,
+        port: str,
+        read_back: bool = False,
+        resources: Optional[Resources] = None,
+    ):
+        super().__init__(parent, connection, resources)
+        self.port = port
+        self.read_back = read_back
+
+    @property
+    def _vendor(self) -> Any:
+        return self.connection.sdk.gas.get_gis_port(self.port)
+
+    def is_installed(self) -> Optional[bool]:
+        return self.port in self.connection.sdk.gas.list_all_gis_ports()
+
+    def read_gas(self) -> str:
+        return self.port
+
+    def read_state(self) -> InsertableDeviceState:
+        if self.read_back:
+            return _retractable_state(self._vendor.state)
+        if self._inserted:
+            return InsertableDeviceState.INSERTED
+        return InsertableDeviceState.RETRACTED
+
+    def read_heated(self) -> bool:
+        # with read-back, is_heated: "True if GIS heating has completed"
+        return bool(self._vendor.is_heated) if self.read_back else self._heated
+
+    def _heating_done(self) -> bool:
+        return self.read_back and bool(self._vendor.is_heated)
+
+    def read_opened(self) -> bool:
+        return bool(self._vendor.is_open) if self.read_back else self._opened
+
+    def read_temperature(self) -> float:
+        return float(self._vendor.get_temperature())
+
+    def _heater_on(self, gas: Optional[str]) -> None:
+        if gas is not None and gas != self.port:
+            raise ValueError(
+                f"{self.name}: the {self.port} port has no gas {gas!r}; a gas is "
+                "chosen on a multichem only."
+            )
+        logging.info(f"Turning on the {self.name} heater ({self.port})")
+        self._vendor.turn_heater_on()
+        self._heated = True
+        self._wait_for_temperature()
+
+    def _heater_off(self) -> None:
+        logging.info(f"Turning off the {self.name} heater")
+        self._vendor.turn_heater_off()
+        self._heated = False
+
+
+class AutoscriptMultichem(_AutoscriptGasInjector):
+    """The multichem, ``gas.get_multichem()``.
+
+    ``state`` is the multichem's ``state``. Its heater and valve can't be read back
+    with the calls documented for AutoScript 4.9, so ``heated`` and ``opened`` are
+    what this device's own commands last did. The heater and ``temperature`` take a
+    gas name: ``gas`` is the one ``heater_on`` was last given, and reads "" (with no
+    temperature) until then. ``insert`` takes a ``MultiChemInsertPosition`` name.
+
+    ``Multichem.purge()`` (AutoScript 4.11) isn't used: its arguments aren't
+    documented in the reference this was written from. A purge is the base class's
+    open, wait, close.
+    """
+
+    def __init__(
+        self,
+        parent: ThermoMicroscope,
+        connection: AutoScriptConnection,
+        resources: Optional[Resources] = None,
+    ):
+        super().__init__(parent, connection, resources)
+        self._gas = ""
+
+    @property
+    def _vendor(self) -> Any:
+        return self.connection.sdk.gas.get_multichem()
+
+    def is_installed(self) -> Optional[bool]:
+        return bool(self.connection.sdk.gas.list_all_multichem_ports())
+
+    def read_gas(self) -> str:
+        return self._gas
+
+    def read_state(self) -> InsertableDeviceState:
+        return _retractable_state(self._vendor.state)
+
+    def read_heated(self) -> bool:
+        return self._heated
+
+    def read_opened(self) -> bool:
+        return self._opened
+
+    def read_temperature(self) -> float:
+        if not self._gas:
+            return math.nan
+        return float(self._vendor.get_temperature(self._gas))
+
+    def _heater_on(self, gas: Optional[str]) -> None:
+        gas = gas or self._gas
+        if not gas:
+            raise ValueError(f"{self.name}: name the gas to heat on the multichem.")
+        logging.info(f"Turning on the {self.name} heater ({gas})")
+        self._vendor.turn_heater_on(gas)
+        self._gas = gas
+        self._heated = True
+        self._wait_for_temperature()
+
+    def _heater_off(self) -> None:
+        logging.info(f"Turning off the {self.name} heater ({self._gas})")
+        self._vendor.turn_heater_off(self._gas)
+        self._heated = False
+
+
+def gis_fitted(microscope: ThermoMicroscope) -> bool:
+    """Whether to build a ``gis`` by default: an Arctis that lists a GIS port or a
+    multichem. False when AutoScript can't say."""
+    if not is_arctis(microscope):
+        return False
+    try:
+        gas = microscope._connection.sdk.gas
+        return bool(gas.list_all_gis_ports()) or bool(gas.list_all_multichem_ports())
+    except Exception:  # noqa: BLE001 - no gas API on this instrument, or not ready
+        return False
+
+
 # -- Builders by entry --------------------------------------------------------------
 #
 # The Thermo driver's device builders (``DRIVER.devices`` in ``autoscript``): each
@@ -1387,6 +1665,43 @@ def build_autoscript_sample_loader(
 ) -> AutoscriptSampleLoader:
     microscope = context.microscope
     return _named(AutoscriptSampleLoader(microscope, microscope._connection), entry)
+
+
+def build_autoscript_gis(
+    entry: DeviceEntry, context: BuildContext
+) -> _AutoscriptGasInjector:
+    """The gas injector, on an Arctis only: the port an entry's ``port`` names
+    (``MULTICHEM`` for the multichem), else the multichem where there is one, else the
+    first GIS port."""
+    microscope = context.microscope
+    if not is_arctis(microscope):
+        raise ValueError(
+            f"a Thermo GIS is supported on an Arctis only, not on "
+            f"{microscope.system.info.model!r}"
+        )
+    connection = microscope._connection
+    gas = connection.sdk.gas
+    port = entry.options.get("port")
+    if port is None:
+        if gas.list_all_multichem_ports():
+            port = MULTICHEM
+        else:
+            ports = list(gas.list_all_gis_ports())
+            if not ports:
+                raise ValueError("the instrument lists no GIS port and no multichem")
+            port = ports[0]
+    if port == MULTICHEM:
+        device = AutoscriptMultichem(microscope, connection)
+    else:
+        device = AutoscriptGisPort(
+            microscope,
+            connection,
+            str(port),
+            read_back=gis_read_back_supported(connection),
+        )
+    if device.is_installed() is False:
+        raise ValueError(f"the instrument has no GIS port {port!r}")
+    return _named(device, entry)
 
 
 # The FM.

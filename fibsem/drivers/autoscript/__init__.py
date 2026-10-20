@@ -28,6 +28,7 @@ DRIVER = DriverEntry(
             "manipulator",
             "sample_loader",
             "fm",
+            "gis",
         )
     },
 )

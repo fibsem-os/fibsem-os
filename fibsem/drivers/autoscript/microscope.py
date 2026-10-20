@@ -405,7 +405,10 @@ _BEAM_TYPES = ("beam",)
 _STAGE_TYPES = ("stage",)
 _PART_TYPES = ("chamber", "chamber_camera", "manipulator")
 _LOADER_TYPES = ("sample_loader",)
-_OWN_TYPES = _BEAM_TYPES + _STAGE_TYPES + _PART_TYPES + _LOADER_TYPES + ("fm",)
+_GIS_TYPES = ("gis",)
+_OWN_TYPES = (
+    _BEAM_TYPES + _STAGE_TYPES + _PART_TYPES + _LOADER_TYPES + _GIS_TYPES + ("fm",)
+)
 
 
 class ThermoMicroscope(FibsemMicroscope):
@@ -696,8 +699,8 @@ class ThermoMicroscope(FibsemMicroscope):
 
     def _build_parts(self) -> None:
         """Build the chamber, its camera and the manipulator, and keep the
-        manipulator only when it says it is fitted. Then build any other device the
-        configuration adds.
+        manipulator only when it says it is fitted; then the GIS, on an Arctis. Then
+        build any other device the configuration adds.
 
         ``pump``, ``vent`` and the manipulator's raw moves then go through the
         devices. The corrected and offset needle moves stay here and move through
@@ -712,9 +715,21 @@ class ThermoMicroscope(FibsemMicroscope):
             _PART_TYPES,
         )
         self._keep_if_fitted("manipulator")
+        self._build_gis()
 
         # whatever else the configuration adds, such as a device on its own PC
         self._build_devices([], exclude_types=_OWN_TYPES)
+
+    def _build_gis(self) -> None:
+        """The ``gis`` device, built on an Arctis that lists a GIS port or a
+        multichem, unless the configuration switches it off. No other Thermo
+        instrument gets one; a configuration that names one there fails to build it."""
+        from fibsem.drivers.autoscript.devices import gis_fitted
+
+        fitted = []
+        if gis_fitted(self):
+            fitted.append(DeviceEntry(name="gis", type="gis"))
+        self._build_devices(fitted, _GIS_TYPES)
 
     def _build_sample_handling(self) -> None:
         """The sample handling service, after the ``sample_loader`` device on a
