@@ -46,6 +46,7 @@ from fibsem.workflows.task_config import TaskPlan
 TASK = "Rough Milling"
 KEY = "mill_rough"
 SPOT = "Spot Burn Fiducial"
+FM = "Acquire Fluorescence Image"
 
 
 @pytest.fixture(scope="module")
@@ -107,7 +108,7 @@ def editor(window, experiment):
     assert editor._selected_lamella is experiment.positions[0]
     editor.listWidget_selected_task.set_tasks([TASK], preferred=TASK)
     assert editor.listWidget_selected_task.selected_task == TASK
-    editor._current_milling_key = KEY
+    assert editor.task_editor.task_name == TASK
     return editor
 
 
@@ -148,7 +149,7 @@ def test_a_burst_of_pattern_edits_is_one_event_from_its_start_to_its_end(
     original = lamella.task_config[TASK].milling[KEY]
     start = original.stages[0].pattern.depth
     for depth in (2e-6, 3e-6, 4e-6):  # a drag, step by step
-        editor._on_milling_task_config_updated(_deeper(original, depth))
+        editor.task_editor.set_values({f"milling.{KEY}": _deeper(original, depth)})
     assert edits() == [], "recorded before the edit settled"
 
     editor.flush_pending_save()
@@ -164,7 +165,7 @@ def test_a_burst_of_pattern_edits_is_one_event_from_its_start_to_its_end(
 
 
 def test_an_edit_settles_on_its_own(window, editor, edits):
-    editor._on_task_parameters_config_changed("reacquire_alignment_reference", True)
+    editor.task_editor.set_values({"reacquire_alignment_reference": True})
     assert edits() == []
 
     _settle(window)
@@ -176,8 +177,8 @@ def test_an_edit_settles_on_its_own(window, editor, edits):
 
 
 def test_an_edit_put_back_records_nothing(editor, edits):
-    editor._on_task_parameters_config_changed("reacquire_alignment_reference", True)
-    editor._on_task_parameters_config_changed("reacquire_alignment_reference", False)
+    editor.task_editor.set_values({"reacquire_alignment_reference": True})
+    editor.task_editor.set_values({"reacquire_alignment_reference": False})
     editor.flush_pending_save()
     assert edits() == []
 
@@ -286,6 +287,52 @@ def test_adding_a_spot_burn_point_records_the_points(editor, experiment, edits):
     assert len(payload["after"]) == 1
 
 
+def test_a_reference_imaging_edit_is_recorded(editor, experiment, edits):
+    lamella = experiment.positions[0]
+    config = lamella.task_config[TASK]
+    start = config.reference_imaging.field_of_view1
+    settings = deepcopy(config.reference_imaging)
+    settings.field_of_view1 = 2 * start
+
+    # the form's own signal, as a field of view box sends it
+    editor.task_editor.reference_imaging.settings_changed.emit(settings)
+    editor.flush_pending_save()
+
+    ((event),) = edits()
+    payload = event["payload"]
+    assert (payload["task"], payload["target"], payload["via"]) == (
+        TASK,
+        "reference_imaging",
+        "lamella editor",
+    )
+    assert payload["before"]["field_of_view1"] == start
+    assert payload["after"]["field_of_view1"] == 2 * start
+    assert config.reference_imaging is not settings  # the form keeps its own
+
+
+def test_a_fluorescence_edit_is_recorded(editor, experiment, edits):
+    from fibsem.applications.autolamella.workflows.tasks.tasks import (
+        AcquireFluorescenceImageConfig,
+    )
+
+    lamella = experiment.positions[0]
+    lamella.task_config[FM] = AcquireFluorescenceImageConfig(task_name=FM)
+    editor.listWidget_selected_task.set_tasks([TASK, FM])
+    editor.listWidget_selected_task.select(FM)
+    assert editor.task_editor.task_name == FM
+    sent = deepcopy(lamella.task_config[FM])
+    sent.orientation = "SEM"
+
+    editor.task_editor.fluorescence.settings_changed.emit(sent)
+    editor.flush_pending_save()
+
+    ((event),) = edits()
+    payload = event["payload"]
+    assert (payload["task"], payload["target"]) == (FM, "orientation")
+    assert (payload["before"], payload["after"]) == (None, "SEM")
+    assert lamella.task_config[FM].orientation == "SEM"
+
+
 # ── the protocol editor ──────────────────────────────────────────────────────
 
 
@@ -307,7 +354,7 @@ def test_a_protocol_edit_and_a_sync_to_the_lamellae(
     protocol_editor.task_list_widget.select(TASK)
     assert protocol_editor.task_list_widget.selected_task == TASK
 
-    protocol_editor._on_task_parameters_config_changed("sync_to_poi", False)
+    protocol_editor.task_editor.set_values({"sync_to_poi": False})
     _settle(window)
 
     monkeypatch.setattr(
@@ -352,7 +399,7 @@ def test_a_protocol_pattern_edit_is_recorded_from_what_it_was(
 
     # The pattern panel's own signal, as its depth box sends it. The panel sets
     # the pattern on the stage it was given before the editor hears of it.
-    stages = protocol_editor.milling_task_editor.config_widget.milling_stages_widget
+    stages = protocol_editor.task_editor.milling.config_widget.milling_stages_widget
     stages._pattern_widget.pattern_changed.emit(deeper)
     _settle(window)
 
@@ -410,10 +457,9 @@ def test_adding_a_task_records_it_on_the_protocol_and_each_lamella(
     window, protocol_editor, experiment, edits, monkeypatch
 ):
     def accept(dialog):
-        dialog.comboBox_task_type.setCurrentIndex(
-            dialog.comboBox_task_type.findData("MILL_ROUGH")
-        )
-        dialog.lineEdit_task_name.setText("Extra Rough")
+        dialog.type_combo.setCurrentIndex(dialog.type_combo.findData("MILL_ROUGH"))
+        dialog.name_edit.setText("Extra Rough")
+        dialog._on_accept()
         return protocol_editor_module.QDialog.Accepted
 
     monkeypatch.setattr(protocol_editor_module.AddTaskDialog, "exec_", accept)
@@ -499,7 +545,6 @@ def test_the_protocol_s_spot_burn_points_are_recorded(
 
     config = SpotBurnFiducialTaskConfig(task_name=SPOT)
     experiment.task_protocol.task_config[SPOT] = config
-    had = config.to_dict()
     editor = window.task_widget
     editor.set_experiment(experiment)
     editor.task_list_widget.select(SPOT)
@@ -519,10 +564,10 @@ def test_the_protocol_s_spot_burn_points_are_recorded(
     assert (payload["item"], payload["task"], payload["target"]) == (
         None,
         SPOT,
-        "protocol.task_config",
+        "protocol.coordinates",
     )
-    assert (payload["via"], payload["before"]) == ("protocol editor", had)
-    assert payload["after"] == config.to_dict()
+    assert (payload["via"], payload["before"]) == ("protocol editor", [])
+    assert payload["after"] == [p.to_dict() for p in config.coordinates]
     assert len(config.coordinates) == 1
 
 
@@ -775,7 +820,7 @@ def test_an_operator_edit_still_settling_when_the_agent_patches_is_the_operator_
 ):
     """The patch flushes the editor first, under the agent's mark: the edit
     still says who made it."""
-    editor._on_task_parameters_config_changed("reacquire_alignment_reference", True)
+    editor.task_editor.set_values({"reacquire_alignment_reference": True})
     path = f"milling.{KEY}.stages.0.pattern.depth"
     assert _agent_patch(window, experiment.positions[0], {path: 3.1e-6})["applied"]
 
@@ -862,7 +907,7 @@ def test_the_replay_shows_each_edit_on_the_lamella_edited(
     other_start = second.task_config[TASK].milling[KEY].stages[0].pattern.depth
     try:
         for depth in (2e-6, 3e-6):
-            editor._on_milling_task_config_updated(_deeper(original, depth))
+            editor.task_editor.set_values({f"milling.{KEY}": _deeper(original, depth)})
         editor.flush_pending_save()
         path = f"milling.{KEY}.stages.0.pattern.depth"
         assert _agent_patch(window, second, {path: 2.5e-6})["applied"] is True

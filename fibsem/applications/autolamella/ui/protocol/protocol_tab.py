@@ -1,11 +1,9 @@
-import copy
 import logging
-from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, Optional, Tuple
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
-    QComboBox,
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -28,14 +26,12 @@ from fibsem.applications.autolamella.ui.protocol.dialogs import (
     ProtocolHeaderWidget,
 )
 from fibsem.applications.autolamella.ui.protocol.edit_recording import PendingEdits
-from fibsem.applications.autolamella.ui.protocol.forms import (
-    AutoLamellaFluorescenceAcquisitionTaskConfigWidget,
-)
+from fibsem.applications.autolamella.ui.protocol.editor import TaskConfigEditor
 from fibsem.applications.autolamella.ui.protocol.lamella_template import (
     LamellaDefaultConfigWidget,
 )
+from fibsem.applications.autolamella.workflows.tasks import get_tasks
 from fibsem.applications.autolamella.workflows.tasks.tasks import (
-    AcquireFluorescenceImageConfig,
     SpotBurnFiducialTaskConfig,
 )
 from fibsem.structures import BeamType, FibsemImage
@@ -51,12 +47,7 @@ from fibsem.ui.widgets.canvas.quad_view import (
     MicroscopeViewController,
 )
 from fibsem.ui.widgets.custom_widgets import TaskNameListWidget
-from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
-from fibsem.ui.widgets.reference_image_parameters_widget import (
-    ReferenceImageParametersWidget,
-)
 from fibsem.ui.widgets.spot_burn_coordinates_widget import SpotBurnCoordinatesWidget
-from fibsem.ui.widgets.task_config_form import AutoLamellaTaskParametersConfigWidget
 
 # Frame used by the spot-burn coordinate dialog when the task's stored reference
 # imaging is unusable (missing/zero). Matches ImageSettings' own defaults.
@@ -75,8 +66,6 @@ def _valid_resolution(resolution) -> Tuple[int, int]:
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
-    from fibsem.milling.tasks import FibsemMillingTaskConfig
-    from fibsem.structures import ReferenceImageParameters
     from fibsem.workflows.session import AppSession
 
 
@@ -206,10 +195,9 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         )
         self.setStyleSheet(stylesheets.NAPARI_STYLE)
 
-        self.milling_task_editor: Optional[MillingTaskViewerWidget] = None
+        self.task_editor: Optional[TaskConfigEditor] = None
         self.microscope = self.session.microscope  # type: ignore[assignment]
         self.experiment: "Experiment" = self.session.experiment  # type: ignore[assignment]
-        self._current_milling_key: Optional[str] = None
 
         self._main_layout = QVBoxLayout(self)
         self._main_layout.setContentsMargins(0, 0, 0, 0)
@@ -219,7 +207,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
     def _try_initialize(self) -> None:
         """Create and populate widgets once both microscope and experiment are available."""
-        if self.milling_task_editor is not None:
+        if self.task_editor is not None:
             return  # already initialized
         if self.microscope is None:
             return
@@ -234,36 +222,18 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         if self.session.microscope is None:
             raise ValueError("Microscope is None, cannot open protocol editor.")
         self.microscope = self.session.microscope
-        if self.milling_task_editor is not None:
-            # Reconnect: this editor is built once and survives disconnect, so every
-            # widget under it still holds the microscope it was built with, and each
-            # one has to be told. See FIB-525: updating only the milling editor left
-            # the fluorescence channel editor offering a disconnected microscope's
-            # filters -- or none at all, if the first connection had no FM.
-            #
-            # The milling subtree has the same fault and is deliberately not fixed
-            # here (FIB-530): the line below updates this widget but not the two
-            # children it handed the microscope to at construction.
-            self.milling_task_editor.microscope = self.microscope
-            # Asked for by name rather than assumed present: the condition above
-            # tests one widget, but _create_widgets assigns it before the others and
-            # is not guarded, so a constructor raising midway leaves this branch
-            # reachable with the rest missing.
-            fluorescence_widget = getattr(
-                self, "fluorescence_acquisition_task_config_widget", None
-            )
-            if fluorescence_widget is not None:
-                fluorescence_widget.set_microscope(self.microscope)
-            grid_protocol = getattr(self, "grid_protocol", None)
-            if grid_protocol is not None:
-                grid_protocol.set_microscope(self.microscope)
+        if self.task_editor is not None:
+            # Reconnect: built once, so every widget under it still holds the
+            # microscope it was built with, and each one has to be told.
+            self.task_editor.set_microscope(self.microscope)
+            self.grid_protocol.set_microscope(self.microscope)
         else:
             self._try_initialize()
 
     def set_experiment(self, experiment: "Experiment"):
         """Set the experiment for the protocol editor."""
         self.experiment = experiment
-        if self.milling_task_editor is None:
+        if self.task_editor is None:
             self._try_initialize()
         else:
             self._initialise_widgets()
@@ -284,23 +254,10 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.grid_protocol.set_microscope(self.microscope)
         self.grid_protocol.protocol_changed.connect(self.grid_protocol_changed)
 
-        # Task parameters (Column 2)
-        self.task_parameters_config_widget = AutoLamellaTaskParametersConfigWidget(
-            parent=self
-        )
-        self.ref_image_params_widget = ReferenceImageParametersWidget(parent=self)
-
-        # Milling task editor (Column 3 — no controller, config panels only)
-        self.milling_task_editor = MillingTaskViewerWidget(
-            microscope=self.microscope,  # type: ignore[arg-type]
-            milling_enabled=False,
-            parent=self,
-        )
-
-        self.fluorescence_acquisition_task_config_widget = (
-            AutoLamellaFluorescenceAcquisitionTaskConfigWidget(
-                microscope=self.microscope, config=None, parent=self
-            )
+        # Task forms (Column 2), and their milling editor (Column 3 — no
+        # controller, config panels only)
+        self.task_editor = TaskConfigEditor(
+            self.session, self.microscope, self._edits, "protocol", parent=self
         )
 
         # lamella, milling controls (Column 1)
@@ -389,9 +346,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         col2_content = QWidget()
         col2_layout = QVBoxLayout(col2_content)
         col2_layout.setContentsMargins(4, 4, 4, 4)
-        col2_layout.addWidget(self.task_parameters_config_widget)
-        col2_layout.addWidget(self.ref_image_params_widget)
-        col2_layout.addWidget(self.fluorescence_acquisition_task_config_widget)
+        col2_layout.addWidget(self.task_editor)
         col2_layout.addWidget(self.grid_protocol.editor_panel)
         self.grid_protocol.editor_panel.setVisible(False)
         col2_layout.addStretch()
@@ -404,7 +359,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         col3_scroll = QScrollArea()
         col3_scroll.setWidgetResizable(True)
         col3_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # type: ignore
-        col3_scroll.setWidget(self.milling_task_editor)
+        col3_scroll.setWidget(self.task_editor.milling)
 
         # --- 3-column splitter ---
         splitter = QSplitter(Qt.Horizontal)  # type: ignore
@@ -463,18 +418,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         )
         self.task_list_widget.add_clicked.connect(self._on_add_task_clicked)
         self.task_list_widget.remove_clicked.connect(self._on_remove_task_clicked)
-        self.milling_task_editor.settings_changed.connect(
-            self._on_milling_settings_changed
-        )
-        self.task_parameters_config_widget.parameter_changed.connect(
-            self._on_task_parameters_config_changed
-        )
-        self.ref_image_params_widget.settings_changed.connect(
-            self._on_ref_image_settings_changed
-        )
-        self.fluorescence_acquisition_task_config_widget.settings_changed.connect(
-            self._on_fluorescence_acquisition_settings_changed
-        )
+        self.task_editor.edited.connect(lambda _: self._set_protocol_dirty(True))
         self.pushButton_edit_spot_burn.clicked.connect(
             self._on_spot_burn_coordinates_clicked
         )
@@ -519,51 +463,13 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
             self._on_selected_task_changed()
 
     def _on_selected_task_changed(self):
-        """Callback when the selected milling stage changes."""
-        selected_task_name = self.task_list_widget.selected_task
-
-        task_config = self.experiment.task_protocol.task_config.get(selected_task_name)
+        """Show the selected task's config."""
+        task_config = self.task_editor.show_task(self.task_list_widget.selected_task)
         if task_config is None:
             # No lamella task to show: a protocol with none yet (a grid-only
             # experiment, or one being built from an empty protocol). The
             # columns wait for a task rather than the editor failing to open.
-            self.task_parameters_config_widget.setVisible(False)
-            self.ref_image_params_widget.setVisible(False)
-            self._current_milling_key = None
-            self.milling_task_editor.clear()
-            self.milling_task_editor.setVisible(False)
-            self.fluorescence_acquisition_task_config_widget.setVisible(False)
             return
-        self.task_parameters_config_widget.setVisible(True)
-        self.ref_image_params_widget.setVisible(True)
-        self.task_parameters_config_widget.set_task_config(task_config)
-        self.ref_image_params_widget.update_from_settings(task_config.reference_imaging)
-
-        # set milling task config
-        if task_config.milling:
-            self._current_milling_key = next(iter(task_config.milling))
-            # A copy, as the lamella editor's: the viewer edits the stages it is
-            # given in place, so the protocol would change before the handler.
-            self.milling_task_editor.set_config(
-                copy.deepcopy(task_config.milling[self._current_milling_key])
-            )
-            self.milling_task_editor.setVisible(True)
-        else:
-            self._current_milling_key = None
-            self.milling_task_editor.clear()
-            self.milling_task_editor.setVisible(False)
-
-        # special handling for fluorescence acquisition task
-        is_fluorescence_task = isinstance(task_config, AcquireFluorescenceImageConfig)
-        self.fluorescence_acquisition_task_config_widget.setVisible(
-            is_fluorescence_task
-        )
-        self.task_parameters_config_widget.setVisible(not is_fluorescence_task)
-        self.ref_image_params_widget.setVisible(not is_fluorescence_task)
-        if is_fluorescence_task:
-            self.fluorescence_acquisition_task_config_widget.set_task_config(
-                task_config
-            )
 
         self._set_protocol_dirty(False)
 
@@ -573,72 +479,9 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
             isinstance(task_config, SpotBurnFiducialTaskConfig)
         )
 
-    def _on_milling_settings_changed(self, config: "FibsemMillingTaskConfig"):
-        """Callback when the milling task config is changed."""
-        self._set_protocol_dirty(True)
-        selected_task_name = self.task_list_widget.selected_task
-        key = self._current_milling_key
-        if key and selected_task_name in self.experiment.task_protocol.task_config:
-            milling = self.experiment.task_protocol.task_config[
-                selected_task_name
-            ].milling
-            self._edits.touch(
-                None,
-                selected_task_name,
-                f"protocol.milling.{key}",
-                lambda: milling.get(key),
-            )
-            milling[key] = config
-            logging.info(f"Updated {selected_task_name} Task, milling key '{key}'")
-
-        # save the experiment
-        self._save_experiment()
-
-    def _on_task_parameters_config_changed(self, field_name: str, new_value: Any):
-        """Callback when the task parameters config is updated."""
-        self._set_protocol_dirty(True)
-        selected_task_name = self.task_list_widget.selected_task
-        logging.info(
-            f"Updated {selected_task_name} Task Parameters: {field_name} = {new_value}"
-        )
-
-        # update parameters in the task config
-        task_config = self.experiment.task_protocol.task_config[selected_task_name]
-        self._edits.touch(
-            None,
-            selected_task_name,
-            f"protocol.{field_name}",
-            lambda: getattr(task_config, field_name, None),
-        )
-        setattr(task_config, field_name, new_value)
-
-        # save the experiment
-        self._save_experiment()
-
-    def _on_ref_image_settings_changed(self, settings: "ReferenceImageParameters"):
-        """Callback when the image settings are changed."""
-        self._set_protocol_dirty(True)
-        # Update the image settings in the task config
-        selected_task_name = self.task_list_widget.selected_task
-        self.experiment.task_protocol.task_config[
-            selected_task_name
-        ].reference_imaging = settings
-
-        # Save the experiment
-        self._save_experiment()
-
-    def _on_fluorescence_acquisition_settings_changed(
-        self, config: "AcquireFluorescenceImageConfig"
-    ):
-        """Callback when the fluorescence acquisition settings are changed."""
-        self._set_protocol_dirty(True)
-        # Update the task config
-        selected_task_name = self.task_list_widget.selected_task
-        self.experiment.task_protocol.task_config[selected_task_name] = config
-        logging.info(f"Updated {selected_task_name} Fluorescence Acquisition Settings")
-
-        # # Save the experiment
-        self._save_experiment()
+    def flush_pending_save(self) -> None:
+        """Record and write the edits still settling. Safe to call at any time."""
+        self._edits.flush()
 
     def _on_spot_burn_coordinates_clicked(self):
         """Edit this task's default spot-burn coordinates on a reference frame.
@@ -725,16 +568,16 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         dialog.resize(1000, 560)
         try:
             if dialog.exec_() == QDialog.Accepted:
-                # apply onto the stored config rather than replacing it, so the task's
-                # other fields (milling, reference imaging, autofocus) survive the edit
-                self._touch_protocol(task_name)
-                config.apply_settings(coord_widget.get_settings())
-                self._set_protocol_dirty(True)
-                logging.info(
-                    f"Updated {task_name} spot burn coordinates "
-                    f"({len(config.coordinates)} point(s))"
+                # the fields the dialog edits (``apply_settings``), so the task's
+                # others (milling, reference imaging, autofocus) survive the edit
+                settings = coord_widget.get_settings()
+                self.task_editor.set_values(
+                    {
+                        "coordinates": list(settings.coordinates),
+                        "milling_current": settings.milling_current,
+                        "exposure_time": settings.exposure_time,
+                    }
                 )
-                self._save_experiment()
         finally:
             # QDialog(self) parents the dialog to this editor, so Qt keeps it alive after
             # exec_ returns and every open would strand another canvas + controller for
@@ -756,28 +599,28 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
     def _on_add_task_clicked(self):
         """Show dialog to add a new task."""
-        dialog = AddTaskDialog(self.experiment.task_protocol.task_config, parent=self)  # type: ignore
-        if dialog.exec_() == QDialog.Accepted:
-            task_type, task_name = dialog.get_task_info()
-            if task_type and task_name:
-                via = "add task"
-                self._touch_protocol(task_name, via)
-                self._edits.touch_task_configs(
-                    self.experiment.positions, [task_name], via
-                )
-                # To the protocol, the workflow and every lamella
-                self.experiment.add_task(task_type, task_name)
+        dialog = AddTaskDialog(
+            {task_type: cls.config_cls for task_type, cls in get_tasks().items()},
+            self.experiment.task_protocol.task_config,
+            parent=self,
+        )
+        if dialog.exec_() != QDialog.Accepted or dialog.chosen is None:
+            return
+        task_type, task_name = dialog.chosen
+        via = "add task"
+        self._touch_protocol(task_name, via)
+        self._edits.touch_task_configs(self.experiment.positions, [task_name], via)
+        # To the protocol, the workflow and every lamella
+        self.experiment.add_task(task_type, task_name)
 
-                # Save experiment
-                self._save_experiment()
+        # Save experiment
+        self._save_experiment()
 
-                # Refresh widgets
-                self._initialise_widgets()
-                self.task_list_widget.select(task_name)
-                self.workflow_config_changed.emit(
-                    self.experiment.task_protocol.workflow_config
-                )
-                logging.info(f"Added new task: {task_name} ({task_type})")
+        # Refresh widgets
+        self._initialise_widgets()
+        self.task_list_widget.select(task_name)
+        self.workflow_config_changed.emit(self.experiment.task_protocol.workflow_config)
+        logging.info(f"Added new task: {task_name} ({task_type})")
 
     def _on_remove_task_clicked(self):
         """Remove the selected task with confirmation dialog."""
@@ -937,14 +780,9 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         """Lamella or Grid: the columns to the right show that kind's settings."""
         grid = self.grid_protocol_active
         self.grid_protocol.editor_panel.setVisible(grid)
+        self.task_editor.setVisible(not grid)
         if grid:
-            for widget in (
-                self.task_parameters_config_widget,
-                self.ref_image_params_widget,
-                self.fluorescence_acquisition_task_config_widget,
-                self.milling_task_editor,
-            ):
-                widget.setVisible(False)
+            self.task_editor.milling.setVisible(False)
             self.pushButton_edit_spot_burn.setVisible(False)
             self.grid_protocol.refresh()
         else:

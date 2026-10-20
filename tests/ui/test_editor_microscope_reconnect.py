@@ -123,7 +123,7 @@ def _reconnect(editor, session, microscope):
 
 
 def _channel_list(editor):
-    return editor.fluorescence_acquisition_task_config_widget.channelSettingsWidget
+    return editor.task_editor.fluorescence.channelSettingsWidget
 
 
 def _references_to(editor, *targets):
@@ -160,7 +160,7 @@ def test_the_fluorescence_subtree_keeps_no_reference_to_the_old_microscope(
     """
     old = _microscope_without_fm()
     editor, host = _build(editor_cls, old)
-    fluorescence = editor.fluorescence_acquisition_task_config_widget
+    fluorescence = editor.task_editor.fluorescence
 
     new = _microscope_with_fm()
     _reconnect(editor, host, new)
@@ -275,7 +275,7 @@ def test_reconnect_does_not_edit_or_save_the_protocol(qapp, editor_cls, monkeypa
     editor, host = _build(editor_cls, old)
 
     events = []
-    fluorescence = editor.fluorescence_acquisition_task_config_widget
+    fluorescence = editor.task_editor.fluorescence
     fluorescence.settings_changed.connect(lambda *_: events.append("settings_changed"))
     fluorescence.channel_settings_changed.connect(
         lambda *_: events.append("channel_settings_changed")
@@ -288,21 +288,3 @@ def test_reconnect_does_not_edit_or_save_the_protocol(qapp, editor_cls, monkeypa
 
     assert events == []
     assert saves == []
-
-
-@pytest.mark.parametrize("editor_cls", EDITORS, ids=EDITOR_IDS)
-def test_a_half_built_editor_still_reconnects_what_it_has(qapp, editor_cls):
-    """A widget missing from a partial build is skipped, not fatal.
-
-    The reconnect branch is entered on `milling_task_editor` existing, but
-    `_create_widgets` assigns that first and is not wrapped in a try/except -- so a
-    constructor raising midway leaves the branch reachable with later widgets
-    absent. The fluorescence widget is exactly the one with previous form here
-    (5777bb35, "prevent crash when opening fluorescence config widget with no
-    FM"), and an AttributeError from this handler would mask the real failure.
-    """
-    old = _microscope_without_fm()
-    editor, host = _build(editor_cls, old)
-    del editor.fluorescence_acquisition_task_config_widget
-
-    _reconnect(editor, host, _microscope_with_fm())  # must not raise

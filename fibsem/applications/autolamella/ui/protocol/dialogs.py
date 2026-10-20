@@ -9,12 +9,13 @@ one thing that panel earned; the dialog behind the pencil does the rest.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Collection, Dict, List, Optional, Tuple
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
@@ -25,6 +26,7 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -34,7 +36,6 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.workflows.tasks import get_tasks
 from fibsem.constants import SI_TO_MICRO
 from fibsem.structures import (
     BeamType,
@@ -49,7 +50,6 @@ from fibsem.ui.widgets.custom_widgets import (
     ElidedLabel,
     IconToolButton,
     TitledPanel,
-    ValueComboBox,
     ValueSpinBox,
 )
 from fibsem.ui.widgets.form_builder import configure_spinbox
@@ -416,102 +416,78 @@ class ProtocolDetailsDialog(QDialog):
 
 
 class AddTaskDialog(QDialog):
-    """Dialog for adding a new task to the protocol."""
+    """Pick a task type and a name for a new task: the lamella tasks' on the
+    Protocol tab, the grid tasks' on its Grid page.
+
+    *config_classes* is task type -> config class, from the registry, so a new
+    task type shows up without a change. The name offered is the type's default
+    (*default_names*, else its display name), numbered past the *existing*
+    names. ``chosen`` is (task type, name) once accepted.
+    """
 
     def __init__(
-        self, existing_task_config: Dict[str, Any], parent: Optional[QWidget] = None
+        self,
+        config_classes: Dict[str, type],
+        existing: Collection[str],
+        title: str = "Add task",
+        default_names: Optional[Dict[str, str]] = None,
+        parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
-        self.existing_task_config = existing_task_config
-        self.setWindowTitle("Add New Task")
-        self.setModal(True)
+        self.setWindowTitle(title)
+        self.setMinimumWidth(380)
+        self._title = title
+        self._config_classes = config_classes
+        self._existing = existing
+        self._default_names = default_names or {}
+        self.chosen: Optional[Tuple[str, str]] = None
 
-        # Create widgets
-        self.label_task_type = QLabel("Task Type:")
-        self.comboBox_task_type = ValueComboBox()
-
-        # Populate task types from registry (includes plugins and runtime registrations)
-        for task_type, task_cls in get_tasks().items():
-            display_name = task_cls.config_cls.display_name
-            self.comboBox_task_type.addItem(f"{display_name} ({task_type})", task_type)
-
-        self.label_task_name = QLabel("Task Name:")
-        self.lineEdit_task_name = QLineEdit()
-
-        self.label_warning = QLabel("")
-        self.label_warning.setStyleSheet("color: orange; font-weight: bold;")
-
-        # Dialog buttons
-        self.button_box = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
-        )
-        self.button_box.accepted.connect(self.validate_and_accept)
-        self.button_box.rejected.connect(self.reject)
-
-        # Layout
-        layout = QVBoxLayout()
-        form_layout = QGridLayout()
-        form_layout.addWidget(self.label_task_type, 0, 0)
-        form_layout.addWidget(self.comboBox_task_type, 0, 1)
-        form_layout.addWidget(self.label_task_name, 1, 0)
-        form_layout.addWidget(self.lineEdit_task_name, 1, 1)
-        layout.addLayout(form_layout)
-        layout.addWidget(self.label_warning)
-        layout.addWidget(self.button_box)
-        self.setLayout(layout)
-
-        # Connect signals
-        self.lineEdit_task_name.textChanged.connect(self.validate_task_name)
-        self.comboBox_task_type.currentIndexChanged.connect(
-            self.update_default_task_name
-        )
-
-        # Set default task name
-        self.update_default_task_name()
-
-        # Set minimum width
-        self.setMinimumWidth(400)
-
-    def update_default_task_name(self):
-        """Update the default task name based on the selected task type."""
-        task_type = self.comboBox_task_type.currentData()
-        task_registry = get_tasks()
-        if task_type and task_type in task_registry:
-            display_name = task_registry[task_type].config_cls.display_name
-            self.lineEdit_task_name.setText(display_name)
-
-    def validate_task_name(self):
-        """Validate the task name and show warning if it already exists."""
-        task_name = self.lineEdit_task_name.text().strip()
-
-        if not task_name:
-            self.label_warning.setText("")
-            return False
-
-        if task_name in self.existing_task_config:
-            self.label_warning.setText(
-                f"⚠ Warning: Task name '{task_name}' already exists!"
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+        self.type_combo = QComboBox()
+        for task_type, config_cls in config_classes.items():
+            self.type_combo.addItem(config_cls.display_name, task_type)
+            self.type_combo.setItemData(
+                self.type_combo.count() - 1, task_type, Qt.ToolTipRole
             )
-            return False
+        self.type_combo.currentIndexChanged.connect(self._suggest_name)
+        form.addRow("Task", self.type_combo)
+        self.name_edit = QLineEdit()
+        self.name_edit.setToolTip(
+            "Unique within the protocol; the task's outputs are filed under it"
+        )
+        form.addRow("Name", self.name_edit)
+        layout.addLayout(form)
 
-        self.label_warning.setText("")
-        return True
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self._on_accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        self._suggest_name()
 
-    def validate_and_accept(self):
-        """Validate inputs before accepting the dialog."""
-        task_name = self.lineEdit_task_name.text().strip()
-
-        if not task_name:
-            self.label_warning.setText("⚠ Warning: Task name cannot be empty!")
+    def _suggest_name(self) -> None:
+        task_type = self.type_combo.currentData()
+        if task_type is None:
             return
+        base = self._default_names.get(
+            task_type, self._config_classes[task_type].display_name
+        )
+        # numbered as the name is written: "Mill Rough 2", "overview_sem_2"
+        separator = " " if " " in base else "_"
+        name, n = base, 2
+        while name in self._existing:
+            name, n = f"{base}{separator}{n}", n + 1
+        self.name_edit.setText(name)
 
-        if not self.validate_task_name():
+    def _on_accept(self) -> None:
+        name = self.name_edit.text().strip()
+        if not name:
+            QMessageBox.warning(self, self._title, "Give the task a name.")
             return
-
+        if name in self._existing:
+            QMessageBox.warning(
+                self, self._title, f"There is already a task named {name}."
+            )
+            return
+        self.chosen = (self.type_combo.currentData(), name)
         self.accept()
-
-    def get_task_info(self) -> Tuple[str, str]:
-        """Get the selected task type and name."""
-        task_type = self.comboBox_task_type.currentData()
-        task_name = self.lineEdit_task_name.text().strip()
-        return task_type, task_name

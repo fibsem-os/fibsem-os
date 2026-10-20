@@ -51,14 +51,13 @@ def editor(qapp):
 
 def test_an_added_task_saves_its_milling_images_to_each_lamella(editor, monkeypatch):
     class _Dialog:
+        chosen = ("MILL_UNDERCUT", "Undercut")
+
         def __init__(self, *args, **kwargs):
             pass
 
         def exec_(self):
             return QDialog.Accepted
-
-        def get_task_info(self):
-            return "MILL_UNDERCUT", "Undercut"
 
     monkeypatch.setattr(editor_module, "AddTaskDialog", _Dialog)
 
@@ -69,3 +68,22 @@ def test_an_added_task_saves_its_milling_images_to_each_lamella(editor, monkeypa
         paths = [m.acquisition.imaging.path for m in milling]
         assert paths, "the undercut carries a milling config"
         assert all(pathlib.Path(p) == pathlib.Path(lamella.path) for p in paths)
+
+
+def test_the_add_dialog_numbers_a_taken_name(editor, monkeypatch):
+    """The dialog offers the type's name, numbered past the protocol's own."""
+    from fibsem.applications.autolamella.workflows.tasks.rough import (
+        MillRoughTaskConfig,
+    )
+
+    configs = editor.experiment.task_protocol.task_config
+    configs["Rough Milling"] = MillRoughTaskConfig(task_name="Rough Milling")
+    shown = []
+    monkeypatch.setattr(
+        editor_module.AddTaskDialog, "exec_", lambda d: shown.append(d) or 0
+    )
+    editor._on_add_task_clicked()
+
+    (dialog,) = shown
+    dialog.type_combo.setCurrentIndex(dialog.type_combo.findData("MILL_ROUGH"))
+    assert dialog.name_edit.text() == "Rough Milling 2"
