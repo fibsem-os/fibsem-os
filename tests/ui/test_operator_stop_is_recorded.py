@@ -72,7 +72,7 @@ def test_the_stop_button_records_the_operator_s_stop(
     monkeypatch.setattr(
         QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes)
     )
-    main_ui._on_stop_workflow_clicked()
+    main_ui.run_view._on_stop_workflow_clicked()
     assert runner.stops == ["run"]
     assert _stops(recorder) == [({"stopped": "workflow", "via": "Stop"}, "operator")]
 
@@ -81,7 +81,7 @@ def test_a_stop_not_confirmed_records_nothing(main_ui, recorder, runner, monkeyp
     monkeypatch.setattr(
         QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.No)
     )
-    main_ui._on_stop_workflow_clicked()
+    main_ui.run_view._on_stop_workflow_clicked()
     assert runner.stops == [], "stopped without a yes"
     assert _stops(recorder) == []
 
@@ -90,7 +90,7 @@ def test_closing_the_window_mid_run_records_the_stop(
     main_ui, recorder, runner, monkeypatch
 ):
     monkeypatch.setattr(QMessageBox, "exec_", lambda self: QMessageBox.Yes)
-    assert main_ui._confirm_close_during_workflow() is True
+    assert main_ui.run_view.confirm_close() is True
     assert _stops(recorder) == [
         ({"stopped": "workflow", "via": "closing the window"}, "operator")
     ]

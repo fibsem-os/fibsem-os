@@ -569,6 +569,7 @@ def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeyp
     ui = main_ui
     # The post-run summary is modal; under offscreen it would block forever.
     from fibsem.applications.autolamella.ui import window as ui_module
+    from fibsem.applications.autolamella.ui.run import view as run_view_module
 
     class _NoDialog:
         def __init__(self, *args, **kwargs):
@@ -577,7 +578,7 @@ def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeyp
         def exec_(self):
             return 0
 
-    monkeypatch.setattr(ui_module, "WorkflowSummaryDialog", _NoDialog)
+    monkeypatch.setattr(run_view_module, "WorkflowSummaryDialog", _NoDialog)
     ui.system_widget.connect_to_microscope()
     microscope = ui.microscope
     microscope.stage_device.compustage = False

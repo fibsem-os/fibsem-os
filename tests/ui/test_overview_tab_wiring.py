@@ -141,8 +141,8 @@ def test_the_lock_is_derived_from_both_pages(container_tree):
 
 
 def test_a_run_locks_the_overviews(window_source):
-    assert "self.overview_tab.locks.set_run_allows(False)" in window_source
-    assert "self.overview_tab.locks.set_run_allows(True)" in window_source
+    # The run view locks the tabs through the window's _lock_for_run.
+    assert "self.overview_tab.locks.set_run_allows(not running)" in window_source
 
 
 def test_the_retired_flag_is_gone_everywhere(window_source):

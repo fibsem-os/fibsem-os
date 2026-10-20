@@ -90,7 +90,7 @@ def test_nothing_grid_aware_gets_in_the_way(main_ui, tmp_path, monkeypatch):
     assert len(main_ui.workflow_tab.lamella_workflow_widget.get_selected_lamella()) == 2
     warnings, confirmations = [], []
     monkeypatch.setattr(
-        module.QMessageBox, "warning", lambda *a, **k: warnings.append(a[2])
+        workflow_tab.QMessageBox, "warning", lambda *a, **k: warnings.append(a[2])
     )
     monkeypatch.setattr(
         workflow_tab,

@@ -286,6 +286,7 @@ def test_screen_all_grids_from_the_window_runs_on_the_named_grids(
 
     from fibsem.applications.autolamella.ui import window as module
     from fibsem.applications.autolamella.ui import window as ui_module
+    from fibsem.applications.autolamella.ui.run import view as run_view_module
     from fibsem.applications.autolamella.ui.workflow import tab as workflow_tab
     from fibsem.workflows.grid import (
         BeamOverviewGridTaskConfig,
@@ -303,7 +304,7 @@ def test_screen_all_grids_from_the_window_runs_on_the_named_grids(
         def exec_(self):
             return 0
 
-    monkeypatch.setattr(ui_module, "WorkflowSummaryDialog", _NoDialog)
+    monkeypatch.setattr(run_view_module, "WorkflowSummaryDialog", _NoDialog)
     ran = []
 
     def _run_single_task(self, task_name, grid):
