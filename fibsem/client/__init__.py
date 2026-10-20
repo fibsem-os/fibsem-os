@@ -53,15 +53,15 @@ class FibsemClient:
 
     def capabilities(self) -> Dict[str, Any]:
         """What the server serves, and the agent level."""
-        return self.transport.request("GET", "/capabilities")
+        return self.transport.fetch("GET", "/capabilities")
 
     def health(self) -> Dict[str, Any]:
-        return self.transport.request("GET", "/health")
+        return self.transport.fetch("GET", "/health")
 
     def info(self) -> Dict[str, Any]:
         """Who the microscope is: manufacturer, model, serial number, software,
         what is fitted, and its configuration."""
-        return self.transport.request("GET", "/microscope")
+        return self.transport.fetch("GET", "/microscope")
 
     @property
     def system(self) -> SystemSettings:
@@ -77,12 +77,12 @@ class FibsemClient:
         return self._system
 
     def state(self) -> MicroscopeState:
-        answer = self.transport.request("GET", "/microscope/state")
+        answer = self.transport.fetch("GET", "/microscope/state")
         return MicroscopeState.from_dict(answer["microscope_state"])
 
     def set_state(self, state: MicroscopeState) -> None:
         """Restore beams and stage, in their set order."""
-        self.transport.request(
+        self.transport.fetch(
             "PUT", "/microscope/state", {"microscope_state": state.to_dict()}
         )
 

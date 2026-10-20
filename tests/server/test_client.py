@@ -269,7 +269,87 @@ def test_a_restarted_server_is_followed(app, monkeypatch):
 
     transport = Discovered()
     found["token"] = TOKEN
-    assert transport.request("GET", "/capabilities")["level"] == "drive"
+    assert transport.fetch("GET", "/capabilities")["level"] == "drive"
+
+
+class _Mocked(Transport):
+    """A transport whose servers are *answers*, by url."""
+
+    def __init__(self, answers, url=None, token=None):
+        self.answers = answers
+        super().__init__(url, token)
+
+    def _client(self, url, headers):
+        return httpx.Client(
+            transport=httpx.MockTransport(self.answers[url]),
+            base_url=url,
+            headers=headers,
+        )
+
+
+def _discovered(monkeypatch, found):
+    monkeypatch.delenv("FIBSEM_SERVER_URL", raising=False)
+    monkeypatch.delenv("FIBSEM_SERVER_TOKEN", raising=False)
+    monkeypatch.setattr("fibsem.client.transport.read_discovery_file", lambda: found)
+
+
+def test_resolve_takes_what_is_given_then_the_environment_then_discovery(
+    monkeypatch,
+):
+    from fibsem.client.transport import resolve
+
+    _discovered(monkeypatch, None)
+    assert resolve() is None
+    assert resolve("http://x", None) is None  # a url without a token
+    assert resolve("http://x", "t") == ("http://x", "t")
+    monkeypatch.setenv("FIBSEM_SERVER_TOKEN", "e")
+    assert resolve("http://x") == ("http://x", "e")
+    _discovered(monkeypatch, {"url": "http://d", "token": "d"})
+    assert resolve() == ("http://d", "d")
+
+
+def test_a_401_with_nothing_new_to_find_is_answered_as_is(monkeypatch):
+    _discovered(monkeypatch, {"url": "http://x", "token": "t"})
+    transport = _Mocked({"http://x": lambda request: httpx.Response(401)})
+    assert transport.request("GET", "/capabilities").status_code == 401
+
+
+def test_a_refused_connection_follows_a_moved_server_with_its_user_agent(
+    monkeypatch,
+):
+    found = {"url": "http://x", "token": "t"}
+    _discovered(monkeypatch, found)
+    seen = []
+
+    def gone(request):
+        raise httpx.ConnectError("refused")
+
+    def moved(request):
+        seen.append(request.headers["User-Agent"])
+        return httpx.Response(200, json={"ok": True})
+
+    transport = _Mocked({"http://x": gone, "http://y": moved})
+    transport.user_agent = "fibsem-mcp/0.6 claude-code/2.1.3"
+    found["url"] = "http://y"
+    assert transport.fetch("GET", "/app/workflow/status") == {"ok": True}
+    assert transport.url == "http://y"
+    assert seen == ["fibsem-mcp/0.6 claude-code/2.1.3"]
+
+
+def test_a_request_that_timed_out_is_not_sent_again(monkeypatch):
+    found = {"url": "http://x", "token": "t"}
+    _discovered(monkeypatch, found)
+    sent = []
+
+    def slow(request):
+        sent.append(request.url.path)
+        raise httpx.ReadTimeout("no answer")
+
+    transport = _Mocked({"http://x": slow, "http://y": slow})
+    found["url"] = "http://y"
+    with pytest.raises(ServerUnreachable, match="no answer in time"):
+        transport.request("POST", "/microscope/devices/stage/commands/move")
+    assert sent == ["/microscope/devices/stage/commands/move"]
 
 
 @pytest.fixture(scope="module")

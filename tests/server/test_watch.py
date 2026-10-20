@@ -23,6 +23,7 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
     Experiment,
 )
+from fibsem.client.transport import Transport  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.server.discovery import write_discovery_file  # noqa: E402
 from fibsem.structures import MicroscopeState  # noqa: E402
@@ -101,18 +102,18 @@ def app(microscope, tmp_path, discovery):
     thread.join(timeout=5)
 
 
-class _Steered(watch_mod._UrllibClient):
-    """The real client, with a test's hand on what happens before poll N."""
+class _Steered(Transport):
+    """The real transport, with a test's hand on what happens before request N."""
 
     steps = {}
     requests = 0
 
-    def request(self, method, path, json=None, timeout=10.0):
+    def request(self, method, path, **kwargs):
         type(self).requests += 1
         step = self.steps.get(type(self).requests)
         if step is not None:
             step()
-        return super().request(method, path, json=json, timeout=timeout)
+        return super().request(method, path, **kwargs)
 
 
 class _Seen(Exception):
@@ -130,7 +131,7 @@ def _watch(steps, sleeps=None, since=None, until=_ended):
     The watch runs for the whole session (FIB-1431), so the test stops it.
     ``code`` is None when it did, or what the watch returned when it gave up."""
     client_type = type("Steered", (_Steered,), {"steps": steps, "requests": 0})
-    client = watch_mod.connect(client_factory=client_type)
+    client = watch_mod.connect(transport=client_type)
     assert client is not None
     lines = []
 
@@ -146,6 +147,8 @@ def _watch(steps, sleeps=None, since=None, until=_ended):
         )
     except _Seen:
         code = None
+    finally:
+        client.close()
     return code, lines
 
 
@@ -726,6 +729,7 @@ def test_without_an_event_stream_the_poll_parks_and_the_watch_ends(
         lines = []
         assert watch_mod.watch(client, out=lines.append) == 1
         assert lines[0].startswith("NO EVENTS")
+        client.close()
     finally:
         server.should_exit = True
         thread.join(timeout=5)
@@ -736,7 +740,7 @@ def test_the_subcommand_runs_without_the_mcp_extra(tmp_path):
     # importable, the entry point still runs it. Port 9 (discard) refuses.
     script = (
         "import sys\n"
-        "for name in ('mcp', 'httpx', 'fastapi', 'uvicorn', 'starlette'):\n"
+        "for name in ('mcp', 'fastapi', 'uvicorn', 'starlette', 'requests'):\n"
         "    sys.modules[name] = None\n"
         "from fibsem.ai.agent.mcp.sidecar import main\n"
         "main(['watch', '--url', 'http://127.0.0.1:9', '--token', 't'])\n"

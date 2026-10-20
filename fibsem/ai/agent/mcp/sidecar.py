@@ -41,8 +41,8 @@ from fibsem.ai.agent.catalog import (
     route_call,
     tools_for_capabilities,
 )
+from fibsem.client.transport import ServerUnreachable, Transport
 
-_TIMEOUT_S = 120.0  # acquisitions and moves on real hardware are slow
 # How long start-up looks for the server before answering the MCP client anyway:
 # a client gives a server only so long to start (FIB-1416).
 _PROBE_S = 2.0
@@ -79,94 +79,27 @@ def _user_agent(client_info=None):
     return agent
 
 
-def _try_resolve(url, token):
-    # type: (Optional[str], Optional[str]) -> Optional[Tuple[str, str]]
-    """One resolution attempt; None when no server is known (yet)."""
-    url = url or os.environ.get("FIBSEM_SERVER_URL")
-    token = token or os.environ.get("FIBSEM_SERVER_TOKEN")
-    if url and token:
-        return url, token
-    from fibsem.server.discovery import read_discovery_file
-
-    found = read_discovery_file()
-    if found is not None:
-        return url or found["url"], token or found["token"]
-    return None
+def _connect(url, token):
+    """A connection to the server, found as `fibsem.client.transport.resolve`
+    finds it, or None when none is known (yet). It follows a restarted
+    server itself."""
+    try:
+        return Transport(url, token, user_agent=_user_agent())
+    except ServerUnreachable:
+        return None
 
 
-class ServerUnreachable(Exception):
-    """No server found, or none answering, within the wait: the message says
-    which and what to do."""
-
-
-class _ReconnectingClient:
-    """An httpx-style client that follows a restarted server.
-
-    A server restart (a microscope reconnect, a devices toggle) can bring a
-    new address or token; the sidecar would otherwise answer 401 until the MCP
-    client restarted it. On a 401 or a failed connection, re-resolve once --
-    the discovery file names the server now running -- and retry with the
-    fresh client. Explicit ``--url``/``--token`` re-resolve to themselves, so
-    they just fail as before.
-    """
-
-    def __init__(self, client_factory, url, token, client, resolved):
-        self._factory = client_factory
-        self._url = url
-        self._token = token
-        self._client = client
-        self._resolved = resolved
-        self._user_agent = None
-
-    def set_user_agent(self, user_agent: str) -> None:
-        """Send *user_agent* from now on, through a reconnect too."""
-        self._user_agent = user_agent
-        self._apply_user_agent()
-
-    def _apply_user_agent(self) -> None:
-        headers = getattr(self._client, "headers", None)
-        if self._user_agent is not None and headers is not None:
-            headers["User-Agent"] = self._user_agent
-
-    def request(self, method, path, **kwargs):
-        try:
-            resp = self._client.request(method, path, **kwargs)
-        except Exception:
-            if not self._reresolve():
-                raise
-            return self._client.request(method, path, **kwargs)
-        if resp.status_code == 401 and self._reresolve():
-            return self._client.request(method, path, **kwargs)
-        return resp
-
-    def _reresolve(self) -> bool:
-        fresh = _try_resolve(self._url, self._token)
-        if fresh is None or fresh == self._resolved:
-            return False
-        self._client.close()
-        self._client = self._factory(fresh[0], fresh[1])
-        self._resolved = fresh
-        self._apply_user_agent()
-        return True
-
-    def close(self):
-        self._client.close()
-
-    def __getattr__(self, name):  # base_url and the like
-        return getattr(self._client, name)
-
-
-def _connect_with_retry(client_factory, url, token, wait_s, sleep_fn=None):
-    """Resolve + reach a server, retrying until the deadline.
+def _connect_with_retry(url, token, wait_s, sleep_fn=None, connect=_connect):
+    """Find and reach a server, retrying until the deadline.
 
     MCP clients launch the sidecar at session start, often before the human has
     started the server — dying instantly turns a harmless ordering mistake into
     a CONNECTION_CLOSED (learned in the very first live session). So: keep
-    re-resolving (the discovery file appears when the server starts) and
-    re-trying /capabilities until ``wait_s`` runs out.
+    looking (the discovery file appears when the server starts) and re-trying
+    /capabilities until ``wait_s`` runs out.
 
-    Returns (client, capabilities), the client a :class:`_ReconnectingClient`.
-    Raises :class:`ServerUnreachable` with guidance on timeout.
+    Returns (transport, capabilities). Raises `ServerUnreachable` with guidance
+    on timeout.
     """
     import time
 
@@ -174,24 +107,17 @@ def _connect_with_retry(client_factory, url, token, wait_s, sleep_fn=None):
     deadline = time.monotonic() + wait_s
     waiting_reported = False
     while True:
-        resolved = _try_resolve(url, token)
-        if resolved is not None:
-            client = client_factory(resolved[0], resolved[1])
-            try:
-                capabilities, err = _call(client, "GET", "/capabilities")
-            except Exception as e:  # connection refused, DNS, ...
-                capabilities, err = None, str(e)
+        transport = connect(url, token)
+        if transport is not None:
+            capabilities, err = _call(transport, "GET", "/capabilities")
             if err is None:
-                return (
-                    _ReconnectingClient(client_factory, url, token, client, resolved),
-                    capabilities,
-                )
-            client.close()
+                return transport, capabilities
+            transport.close()
         if time.monotonic() >= deadline:
-            if resolved is None:
+            if transport is None:
                 raise ServerUnreachable(_NO_SERVER_MSG)
             raise ServerUnreachable(
-                f"fibsem-mcp: cannot reach the server at {resolved[0]} — "
+                f"fibsem-mcp: cannot reach the server at {transport.url} — "
                 "is it running, and is the token current?"
             )
         if not waiting_reported:
@@ -204,7 +130,7 @@ def _connect_with_retry(client_factory, url, token, wait_s, sleep_fn=None):
 
 
 class _LazyClient:
-    """The server's client, connected on the first tool call rather than at
+    """The server's connection, made on the first tool call rather than at
     start-up (FIB-1416).
 
     An MCP client gives a server only so long to answer its handshake, and the
@@ -226,9 +152,9 @@ class _LazyClient:
         with self._lock:
             if self._client is None:
                 client, capabilities = self._connect()
-                _say_connected(client.base_url, capabilities)
+                _say_connected(client.url, capabilities)
                 if self._user_agent is not None:
-                    client.set_user_agent(self._user_agent)
+                    client.user_agent = self._user_agent
                 self._client = client
             return self._client
 
@@ -244,7 +170,7 @@ class _LazyClient:
         with self._lock:
             self._user_agent = user_agent
             if self._client is not None:
-                self._client.set_user_agent(user_agent)
+                self._client.user_agent = user_agent
 
     def close(self):
         if self._client is not None:
@@ -276,20 +202,19 @@ def _say_connected(base_url, capabilities):
         print(line, file=sys.stderr)
 
 
-def _probe(client_factory, url, token):
+def _probe(url, token, connect=_connect):
     """The server's /capabilities if it answers within ``_PROBE_S``, so the
     tools can match it; None otherwise, and the sidecar starts anyway."""
-    resolved = _try_resolve(url, token)
-    if resolved is None:
+    transport = connect(url, token)
+    if transport is None:
         return None
-    client = client_factory(resolved[0], resolved[1])
     try:
-        resp = client.request("GET", "/capabilities", timeout=_PROBE_S)
+        resp = transport.request("GET", "/capabilities", timeout=_PROBE_S)
         return resp.json() if resp.status_code == 200 else None
     except Exception:  # noqa: BLE001 - refused, timed out: start without it
         return None
     finally:
-        client.close()
+        transport.close()
 
 
 # The tool running and its arguments, for the server's words (`_flag_failures`).
@@ -1876,8 +1801,6 @@ def main(argv=None):
         sys.exit(
             "fibsem-mcp needs the [mcp] extra (Python 3.10+): pip install fibsem[mcp]"
         )
-    import httpx
-
     parser = argparse.ArgumentParser(
         description="MCP sidecar for a fibsem server",
         epilog="fibsem-mcp watch: print one line per app event worth waking "
@@ -1903,25 +1826,16 @@ def main(argv=None):
     )
     args = parser.parse_args(argv)
 
-    def client_factory(url, token):
-        return httpx.Client(
-            base_url=url,
-            headers={"Authorization": f"Bearer {token}", "User-Agent": _user_agent()},
-            timeout=_TIMEOUT_S,
-        )
-
     if args.check:
         try:
-            client, capabilities = _connect_with_retry(
-                client_factory, args.url, args.token, 0.0
-            )
+            client, capabilities = _connect_with_retry(args.url, args.token, 0.0)
         except ServerUnreachable as exc:
             sys.exit(str(exc))
-        _say_connected(client.base_url, capabilities)
+        _say_connected(client.url, capabilities)
         return
     # Answer the MCP client's handshake first, and wait for a server in the
     # first call (FIB-1416).
-    capabilities = _probe(client_factory, args.url, args.token)
+    capabilities = _probe(args.url, args.token)
     if capabilities is None:
         print(
             "fibsem-mcp: no fibsem server answered yet; the first tool call "
@@ -1929,9 +1843,7 @@ def main(argv=None):
             file=sys.stderr,
         )
     wait_s = max(0.0, args.wait)
-    client = _LazyClient(
-        lambda: _connect_with_retry(client_factory, args.url, args.token, wait_s)
-    )
+    client = _LazyClient(lambda: _connect_with_retry(args.url, args.token, wait_s))
     build_sidecar(client, capabilities).run()
 
 

@@ -51,7 +51,7 @@ class Run:
     def refresh(self, wait: float = 0.0) -> str:
         """Read the run again, waiting up to *wait* seconds (at most a minute) for
         it to end. Its state."""
-        answer = self._remote._transport.request(
+        answer = self._remote._transport.fetch(
             "GET",
             f"{self._remote.path}/run",
             params={"run_id": self.run_id, "wait": min(wait, RUN_WAIT_S)},
@@ -121,12 +121,12 @@ class Remote:
 
     def get(self, parameter: str) -> Any:
         """A live read."""
-        value = self._transport.request("GET", f"{self.path}/{parameter}")["value"]
+        value = self._transport.fetch("GET", f"{self.path}/{parameter}")["value"]
         return typed(self._value_type(parameter), value)
 
     def set(self, parameter: str, value: Any) -> Any:
         """Write a parameter; the server checks it and answers the value written."""
-        answer = self._transport.request(
+        answer = self._transport.fetch(
             "PUT", f"{self.path}/{parameter}", {"value": to_wire(value)}
         )
         return typed(self._value_type(parameter), answer["value"])
@@ -134,12 +134,12 @@ class Remote:
     def values(self) -> Dict[str, Any]:
         """Every parameter's value in one read; those this backend lacks are left
         out."""
-        answer = self._transport.request("GET", f"{self.path}/values")["values"]
+        answer = self._transport.fetch("GET", f"{self.path}/values")["values"]
         return {name: typed(self._value_type(name), v) for name, v in answer.items()}
 
     def metadata(self, parameter: str) -> Dict[str, Any]:
         """A parameter's limits, choices and whether it is settable, now."""
-        return self._transport.request("GET", f"{self.path}/{parameter}/metadata")
+        return self._transport.fetch("GET", f"{self.path}/{parameter}/metadata")
 
     def call(self, command: str, /, reason: Optional[str] = None, **kwargs: Any) -> Any:
         """Run a command: its result, a `FibsemImage` for a beam's image, an array
@@ -152,9 +152,7 @@ class Remote:
                 "properties", {}
             ):
                 body["kwargs"]["reason"] = reason  # a command that records it too
-        answer = self._transport.request(
-            "POST", f"{self.path}/commands/{command}", body
-        )
+        answer = self._transport.fetch("POST", f"{self.path}/commands/{command}", body)
         if not isinstance(answer, dict):  # an image, an array: data, not JSON
             return answer
         if self.commands.get(command, {}).get("long"):
@@ -163,7 +161,7 @@ class Remote:
 
     def ask(self, query: str, /, **kwargs: Any) -> Any:
         """Ask a query: a read that takes arguments and moves nothing."""
-        answer = self._transport.request(
+        answer = self._transport.fetch(
             "POST", f"{self.path}/queries/{query}", {"kwargs": _wire(kwargs)}
         )
         return typed(self.returns(query), answer["result"])
@@ -172,7 +170,7 @@ class Remote:
         """The latest run of a long command, whoever started it; None when none
         has run."""
         try:
-            answer = self._transport.request("GET", f"{self.path}/run")["run"]
+            answer = self._transport.fetch("GET", f"{self.path}/run")["run"]
         except ServerError as error:
             if error.status == 404 and error.error_type == "not_found":
                 return None
@@ -210,7 +208,7 @@ class Remotes(Mapping[str, Remote]):
         self._remotes: Optional[Dict[str, Remote]] = None
 
     def refresh(self) -> None:
-        listing = self._transport.request("GET", self.root)
+        listing = self._transport.fetch("GET", self.root)
         self._remotes = {
             name: Remote(self._transport, self.root, name, description)
             for name, description in listing.items()
