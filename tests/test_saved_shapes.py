@@ -14,6 +14,7 @@ Write the golden files again with::
 import json
 import math
 import os
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 
@@ -633,3 +634,128 @@ def test_an_old_stage_shape_saves_again_as_pinned(case):
     from fibsem.milling.base import FibsemMillingStage
 
     _check(case, FibsemMillingStage.from_dict(OLD_STAGES[case]).to_dict())
+
+
+# ---- task protocols and experiments --------------------------------------------
+
+PROTOCOLS = TESTS.parent / "fibsem" / "applications" / "autolamella" / "protocol"
+PROTOCOL_FILES = {
+    f"protocol-{folder}-{path.stem}": path
+    for folder, paths in (
+        (
+            "shipped",
+            [
+                PROTOCOLS / "task-protocol.yaml",
+                PROTOCOLS / "task-protocol-waffle.yaml",
+                PROTOCOLS / "development" / "task-protocol-coincidence.yaml",
+            ],
+        ),
+        ("v0.5.2", sorted((FIXTURES / "protocol_v0_5_2").glob("*.yaml"))),
+    )
+    for path in paths
+}
+
+
+def _task_protocol(path=PROTOCOLS / "task-protocol.yaml"):
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
+
+    protocol = AutoLamellaTaskProtocol.from_dict(yaml.safe_load(path.read_text()))
+    protocol.id = "pinned-protocol-id"
+    protocol.grid_tasks.id = "pinned-grid-protocol-id"
+    return protocol
+
+
+@pytest.mark.parametrize("case", sorted(PROTOCOL_FILES))
+def test_a_task_protocol_file_saves_again_as_pinned_and_reads_back(case):
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
+
+    saved = _task_protocol(PROTOCOL_FILES[case]).to_dict()
+    _check(case, saved)
+    again = AutoLamellaTaskProtocol.from_dict(_plain(saved)).to_dict()
+    assert _plain(again) == _plain(saved)
+
+
+def test_a_legacy_protocol_converts_as_pinned():
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
+
+    protocol = AutoLamellaTaskProtocol.load_from_old_protocol(
+        PROTOCOLS / "legacy" / "protocol-on-grid.yaml"
+    )
+    protocol.id = "pinned-protocol-id"
+    protocol.grid_tasks.id = "pinned-grid-protocol-id"
+    _check("protocol-legacy-on-grid", protocol.to_dict())
+
+
+def _experiment():
+    from fibsem.applications.autolamella.structures import Experiment, Lamella
+
+    experiment = Experiment(path=Path("/data"), name="pinned-experiment")
+    experiment.id = "pinned-experiment-id"
+    experiment.created_at = datetime.fromisoformat("2026-10-20T09:00:00+10:00")
+    experiment.task_protocol = _task_protocol()
+    for number in (1, 2):
+        name = f"Lamella-{number:02d}"
+        lamella = Lamella(
+            path=Path("/data/pinned-experiment") / name,
+            number=number,
+            petname=name,
+            id=f"lamella-{number}",
+            task_config=deepcopy(experiment.task_protocol.task_config),
+        )
+        lamella.task_state.task_id = f"task-{number}"
+        lamella.task_state.start_timestamp = experiment.created_at
+        experiment.positions.append(lamella)
+    return experiment
+
+
+def test_an_experiment_with_lamellae_saves_as_pinned_and_reads_back():
+    from fibsem.applications.autolamella.structures import Experiment
+
+    saved = _experiment().to_dict()
+    _check("experiment-with-lamellae", saved)
+    again = Experiment.from_dict(_plain(saved)).to_dict()
+    assert _plain(again) == _plain(saved)
+
+
+def _grid_protocol():
+    from fibsem.workflows.grid.protocol import GridTaskProtocol
+
+    data = yaml.safe_load((PROTOCOLS / "task-protocol.yaml").read_text())
+    protocol = GridTaskProtocol.from_dict(data["grid_tasks"])
+    protocol.id = "pinned-grid-protocol-id"
+    return protocol
+
+
+def _volume_protocol():
+    from fibsem.applications.volume.protocol import VolumeProtocol
+
+    protocol = VolumeProtocol.default()
+    protocol.id = "pinned-volume-protocol-id"
+    return protocol
+
+
+@pytest.mark.parametrize(
+    "case, build",
+    [("grid-protocol", _grid_protocol), ("volume-protocol", _volume_protocol)],
+)
+def test_an_engine_protocol_saves_as_pinned_and_reads_back(case, build):
+    protocol = build()
+    saved = protocol.to_dict()
+    _check(case, saved)
+    assert _plain(type(protocol).from_dict(_plain(saved)).to_dict()) == _plain(saved)
+
+
+def test_the_app_servers_protocol_documents_are_as_pinned():
+    from fibsem.applications.autolamella.server import AutoLamellaAppContext
+    from tests.run_state import stub_session
+
+    session = stub_session()
+    session.experiment = _experiment()
+    context = AutoLamellaAppContext(session)
+    _check("app-protocol", context.protocol())
+    _check("app-protocol-task-config", context.protocol_task_config("Mill Fiducial"))
+    _check(
+        "app-item-task-config",
+        context.item_task_config("Lamella-01", "Mill Fiducial"),
+    )
+    _check("app-grid-task-config", context.grid_task_config("SEM Overview"))
