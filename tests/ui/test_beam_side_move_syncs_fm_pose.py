@@ -133,10 +133,16 @@ def test_dragging_a_lamella_on_the_overview_moves_its_fluorescence_pose(tmp_path
         def refresh_positions(self):
             pass
 
-    _Tab()._on_move_requested(
+    tab = _Tab()
+    changed = []
+    tab.experiment.positions.events.changed.connect(lambda *a: changed.append(a))
+    tab._on_move_requested(
         lamella.name, _at(microscope, MILLING_ORIENTATION, 400e-6, -200e-6)
     )
 
+    # One rule for every move (`poses.move_lamella`): saved, and changed emitted
+    # so the other views re-mark it.
+    assert tab.experiment.saves == 1 and len(changed) == 1
     assert lamella.milling_pose.stage_position.x == pytest.approx(400e-6)
     assert lamella.fluorescence_pose.stage_position.x == pytest.approx(400e-6)
     assert lamella.fluorescence_pose.stage_position.x != pytest.approx(before)

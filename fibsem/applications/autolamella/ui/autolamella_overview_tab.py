@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING, Callable, Optional
 
 from PyQt5.QtWidgets import QWidget
 
-from fibsem.applications.autolamella.poses import sync_fluorescence_pose
+from fibsem.applications.autolamella.poses import move_lamella
 from fibsem.applications.autolamella.structures import DefectType
 from fibsem.applications.autolamella.ui.overview_tab_base import (
     AutoLamellaOverviewTabBase,
@@ -379,13 +379,10 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
     def _on_move_requested(self, name: str, position) -> None:
         """A user asked to move a marked lamella to a point on the overview.
 
-        Moves the milling pose, and takes the fluorescence one with it. They describe
-        one piece of sample from two sides, so leaving the other behind would have it go
-        on naming where this lamella *used to be* -- and nothing about a stale pose
-        looks wrong.
-
-        Not shared with the fluorescence tab, which derives both poses through
-        `build_lamella_poses` and confirms first. See `overview_tab_base`.
+        Moves the milling pose, and takes the fluorescence one with it
+        (`poses.move_lamella`). They describe one piece of sample from two sides, so
+        leaving the other behind would have it go on naming where this lamella *used
+        to be* -- and nothing about a stale pose looks wrong.
         """
         experiment = self.experiment
         if experiment is None:
@@ -395,10 +392,6 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
             logger.debug(f"Cannot move {name!r}: no such lamella in the experiment.")
             return
 
-        lamella.stage_position = position
-        lamella.update_milling_angle(self.microscope)
-        sync_fluorescence_pose(self.microscope, lamella)
-
-        experiment.save()
+        move_lamella(experiment, self.microscope, lamella, position)
         self.refresh_positions()
         notification_service.show_toast(f"Moved {name}.", "info")
