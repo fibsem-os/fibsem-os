@@ -117,7 +117,7 @@ class _Dialog:
 
 @pytest.fixture
 def toasts(monkeypatch):
-    from fibsem.applications.autolamella.ui import window as ui_module
+    from fibsem.applications.autolamella.ui.run import view as ui_module
 
     _Dialog.opened = []
     monkeypatch.setattr(ui_module, "WorkflowSummaryDialog", _Dialog)
@@ -133,7 +133,7 @@ def toasts(monkeypatch):
 
 
 def test_run_summary_survives_the_run_end_toast(ui, toasts):
-    # The live-run regression: _show_workflow_summary used to consume
+    # The live-run regression: the run-end summary used to consume
     # the last run summary to make the dialog once-only, so a remote read after
     # the run always found nothing. The run's end is shown once; the record
     # stays readable.
@@ -149,8 +149,8 @@ def test_run_summary_survives_the_run_end_toast(ui, toasts):
         ]
     )
 
-    ui._show_workflow_summary()
-    ui._show_workflow_summary()  # a second finished-signal must not re-show
+    ui.run_view.show_summary()
+    ui.run_view.show_summary()  # a second finished-signal must not re-show
     assert len(toasts) == 1
     message, notification_type, action = toasts[0]
     assert message == "Run ended: 1 completed"
@@ -167,7 +167,7 @@ def test_run_summary_survives_the_run_end_toast(ui, toasts):
 
     # The next run's capture is a new object: it shows again.
     ui.session.runner.last_summary = pd.DataFrame([{"task_name": "Polishing"}])
-    ui._show_workflow_summary()
+    ui.run_view.show_summary()
     assert len(toasts) == 2
 
 
@@ -186,7 +186,7 @@ def test_with_the_summary_off_only_the_toast_shows(ui, toasts, tmp_path):
     ui.session.runner.last_summary = summary
     ui.session.runner.last_note = ""
 
-    ui._show_workflow_summary()
+    ui.run_view.show_summary()
     assert _Dialog.opened == []
     _message, notification_type, (_text, callback) = toasts[0]
     assert notification_type == "warning"  # a failure is not a plain finish

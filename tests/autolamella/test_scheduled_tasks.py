@@ -239,7 +239,7 @@ def test_the_workflow_config_finds_a_task_schedule():
 class RecordingUI:
     """Listens to the run the way RunRelay does: ``pending`` sets its
     ``pending``, and each ``status`` samples it, where the real window
-    reads it (the border block runs at the end of `_on_workflow_status`). That
+    reads it (the border block runs at the end of `RunView._on_status`). That
     makes these tests about what the border can *see*, not merely about a flag
     being written and rewritten around the call.
     """

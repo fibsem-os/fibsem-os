@@ -79,7 +79,7 @@ def test_run_is_refused_by_name_until_the_grid_is_loaded(
 
     warnings, confirmations = [], []
     monkeypatch.setattr(
-        module.QMessageBox, "warning", lambda *a, **k: warnings.append(a[2])
+        workflow_tab.QMessageBox, "warning", lambda *a, **k: warnings.append(a[2])
     )
     monkeypatch.setattr(
         workflow_tab,

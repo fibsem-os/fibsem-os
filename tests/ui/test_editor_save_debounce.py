@@ -198,13 +198,14 @@ class TestTheWindowFlushesToo:
     napari viewer, neither of which survives `QT_QPA_PLATFORM=offscreen`."""
 
     def test_a_run_flushes_before_it_starts(self):
-        from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
+        from fibsem.applications.autolamella.ui.run.view import RunView
         from fibsem.workflows.runner import WorkflowRunner
 
-        # Every start, the agent's too: the window flushes on the runner's
-        # starting signal, which goes out before the run's thread starts.
-        chrome = inspect.getsource(AutoLamellaWindow._on_run_starting)
-        assert "self.flush_editors()" in chrome
+        # Every start, the agent's too: the run view flushes the window's
+        # editors on the runner's starting signal, which goes out before the
+        # run's thread starts.
+        chrome = inspect.getsource(RunView._on_run_starting)
+        assert "self._flush_editors()" in chrome
         source = inspect.getsource(WorkflowRunner.start)
         flush = source.index("self.starting.emit(")
         start = source.index("thread.start()")

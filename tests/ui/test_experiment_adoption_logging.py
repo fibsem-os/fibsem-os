@@ -30,7 +30,6 @@ class _StubUI:
 
     def __init__(self):
         self.session = AppSession()
-        self.disconnected = 0
         self.connected = 0
         # What the session said, and how much of the wiring was done by then.
         self.heard = []
@@ -41,9 +40,6 @@ class _StubUI:
     @property
     def experiment(self):
         return self.session.experiment
-
-    def _disconnect_experiment_events(self):
-        self.disconnected += 1
 
     def _setup_experiment_connections(self):
         self.connected += 1
@@ -91,7 +87,6 @@ def test_adopting_an_experiment_still_does_the_rest_of_the_wiring(
     AutoLamellaWindow.adopt_experiment(ui, experiment)
 
     assert ui.experiment is experiment
-    assert ui.disconnected == 1
     assert ui.connected == 1
     # Said once, after the experiment's events are wired.
     assert ui.heard == [(EXPERIMENT, 1)]

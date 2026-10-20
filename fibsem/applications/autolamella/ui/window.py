@@ -5,28 +5,25 @@ import os
 import sys
 import threading
 import warnings
-from typing import TYPE_CHECKING, List, Optional, Tuple
+from typing import Optional
 
 try:
     sys.modules.pop("PySide6.QtCore")
 except Exception:
     pass
 
-from psygnal import EmissionInfo
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QApplication,
     QMainWindow,
-    QMessageBox,
     QSplitter,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
-from superqt import ensure_main_thread
 
 import fibsem.config as fibsem_cfg
-from fibsem.acting import AGENT, OPERATOR
+from fibsem.acting import OPERATOR
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.experiment_setup import load_for_adoption
 from fibsem.applications.autolamella.poses import remove_lamella
@@ -50,7 +47,7 @@ from fibsem.applications.autolamella.ui.grids.overview import QuadOverviewPage
 from fibsem.applications.autolamella.ui.grids.tab import GridsTabWidget
 from fibsem.applications.autolamella.ui.header import ExperimentHeader
 from fibsem.applications.autolamella.ui.lamella.tab import LamellaTab
-from fibsem.applications.autolamella.ui.menu_bar import MainMenuBar
+from fibsem.applications.autolamella.ui.menu_bar import MainMenuBar, MenuActions
 from fibsem.applications.autolamella.ui.overview.container import (
     AutoLamellaOverviewContainerTab,
 )
@@ -62,9 +59,8 @@ from fibsem.applications.autolamella.ui.protocol.protocol_tab import (
 from fibsem.applications.autolamella.ui.run.attention import AttentionRouter
 from fibsem.applications.autolamella.ui.run.proposals import ProposalPresenter
 from fibsem.applications.autolamella.ui.run.responder import QtResponder
+from fibsem.applications.autolamella.ui.run.view import RunView
 from fibsem.applications.autolamella.ui.workflow.tab import WorkflowTab
-from fibsem.applications.autolamella.workflow_edits import set_supervision
-from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import MicroscopeSettings
 from fibsem.ui import FibsemSystemSetupWidget, notification_service
@@ -80,31 +76,21 @@ from fibsem.ui.stylesheets import (
 )
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 from fibsem.ui.widgets.notifications import ToastManager
-from fibsem.ui.widgets.run_border import RunBorder, run_border_state
+from fibsem.ui.widgets.run_border import RunBorder
 from fibsem.ui.widgets.status_bar import FibsemStatusBar
-from fibsem.ui.widgets.workflow.controls import AUTOMATED, SUPERVISED, WorkflowControls
-from fibsem.ui.widgets.workflow_summary_dialog import (
-    WorkflowSummaryDialog,
-    run_counts_text,
-)
+from fibsem.ui.widgets.workflow.controls import WorkflowControls
 from fibsem.versioning import get_version_string
-from fibsem.workflows.attention import Attention
 from fibsem.workflows.grid.naming import (
     grid_rename_refusal,
     record_inventoried_grids,
     rename_and_save_grid,
 )
-from fibsem.workflows.runner import GRIDS, RunRequest
 from fibsem.workflows.session import EXPERIMENT, MICROSCOPE, AppSession
 from fibsem.workflows.status import (
     TaskStatus,
     WorkflowStatusEvent,
     WorkflowStatusUpdate,
 )
-
-if TYPE_CHECKING:
-    import pandas as pd
-
 
 # Suppress a specific upstream Napari/NumPy warning from shapes miter computation. This
 # module no longer imports napari, but the minimap still loads it, and a filter is matched
@@ -182,10 +168,6 @@ class AutoLamellaWindow(QMainWindow):
         self.session = AppSession()
         self.settings: Optional[MicroscopeSettings] = None
         self._protocol_lock = threading.RLock()
-        # The summary already toasted (by identity): the run-end toast is
-        # once-per-run, while the runner's last_summary itself must survive as
-        # the record remote readers see.
-        self._shown_run_summary: Optional["pd.DataFrame"] = None
         self.setWindowTitle(f"AutoLamella v{get_version_string()} ")
         self.resize(1600, 1000)
 
@@ -209,13 +191,28 @@ class AutoLamellaWindow(QMainWindow):
         # create menus, status bar, and tabs
         self.menu_bar = MainMenuBar(
             self,
-            view_controller=lambda: getattr(self, "view_controller", None),
+            session=self.session,
+            actions=MenuActions(
+                new_experiment=self.create_experiment,
+                load_experiment=self.load_experiment,
+                open_experiment_directory=self._open_experiment_directory,
+                load_protocol=self.load_protocol,
+                save_protocol=self.export_protocol_ui,
+                fm_image_viewer=self._open_fm_image_viewer,
+                coincidence_viewer=self._open_coincidence_milling_viewer,
+                generate_report=self.action_generate_report,
+                generate_overview_plot=self.action_generate_overview_plot,
+                grid_report=self._on_generate_grid_report,
+                app_server=self._on_app_server_dialog,
+                export_ml_data=self.export_targeting_ml_data,
+                about=self.open_information_dialog,
+            ),
+            panel=lambda: self.panel,
+            system_widget=lambda: self.system_widget,
+            view_controller=self._view_controller,
             run_border=self.run_border,
             preferences=self._preferences,
             show_toast=self.show_toast,
-            on_app_server=self._on_app_server_dialog,
-            on_grid_report=self._on_generate_grid_report,
-            on_coincidence_viewer=self._open_coincidence_milling_viewer,
             parent=self,
         )
         self.menu_bar.preferences_saved.connect(self._on_preferences_saved)
@@ -287,15 +284,6 @@ class AutoLamellaWindow(QMainWindow):
         right."""
         self.status_bar = FibsemStatusBar(self)
         self.setStatusBar(self.status_bar)
-        # This run's failures, for the line it leaves when it ends (FIB-1188). Here
-        # rather than on the Run click: an agent starts runs too, and the report
-        # handlers read these unconditionally (FIB-329).
-        self._run_active = False
-        self._run_failures: List[Tuple[str, str]] = []
-        self._run_total = 0
-        self.status_bar.failure_details_requested.connect(self._show_run_failures)
-
-        self._current_task_name = None  # Track current task for supervision toggle
         # The agent's chip, beside the workflow buttons (FIB-1035).
         self.agent_host = AgentChipHost(
             self.status_bar,
@@ -307,32 +295,10 @@ class AutoLamellaWindow(QMainWindow):
         )
 
         # Attention Required, the supervision chip, Run and Stop: one component on the
-        # right of the bar, which shows what it is told; what a click does is here.
+        # right of the bar, which shows what it is told; the run view says what a
+        # click does.
         self.workflow_controls = WorkflowControls(self.status_bar)
-        self.workflow_controls.supervision_clicked.connect(
-            self._on_supervised_status_clicked
-        )
-        self.workflow_controls.stop_clicked.connect(self._on_stop_workflow_clicked)
         self.status_bar.add_action(self.workflow_controls)
-
-    def _on_stop_workflow_clicked(self):
-        """Handle stop workflow button click with confirmation."""
-        reply = QMessageBox.question(
-            self,
-            "Stop Workflow",
-            "Are you sure you want to stop the workflow?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if reply == QMessageBox.Yes:
-            # The border goes red on the run relay's stopping, as for any stop.
-            self.stop_task_workflow(actor=OPERATOR, via="Stop")
-
-    def _on_workflow_stopping(self) -> None:
-        """A stop was asked of the run, from any source. A bound method rather
-        than a lambda, so a stop from the App Server's thread is delivered on
-        this window's (GUI) thread."""
-        self.run_border.set_state("stopping")
 
     def _refresh_after_naming(self) -> None:
         self.grids_tab.refresh()
@@ -344,102 +310,12 @@ class AutoLamellaWindow(QMainWindow):
             if widget is not None:
                 widget.refresh()
 
-    def _on_run_starting(self, request: RunRequest) -> None:
-        """Any run, whoever started it (the Run click, the Grids view, the
-        agent), before its thread starts: the border and the Stop button."""
-        if request.kind == GRIDS:
-            self.run_border.set_state("automated")
-        else:
-            self.run_border.set_state(self._running_border_state(request.task_names[0]))
-        # The run writes the experiment from its own thread. Land any edit still
-        # waiting in the editors first, so there is only ever one writer (FIB-683).
-        self.flush_editors()
-        # Show the Stop button immediately so the run is cancellable even while
-        # waiting for a scheduled first task (before any task status arrives).
-        self.set_workflow_running()
-
     def _say_selection(self, text: str) -> None:
         """What the Workflow tab's selection means, as the status line's last
         instruction: the panel's footer said it, under the lists, before the
         status line could."""
         self._selection_instruction = text
         self._update_instructions()
-
-    def set_workflow_running(self):
-        """Show the stop button, and lock what a run owns.
-
-        Called on every report of a run, so the start is the first call after
-        `hide_workflow_running`: that is when the last run's failure line goes."""
-        if not self._run_active:
-            self._run_active = True
-            self._run_failures = []
-            self._run_total = 0
-            self.status_bar.dismiss_failure()
-        self.workflow_controls.set_running(True)
-        self.overview_tab.locks.set_run_allows(False)
-        # A run owns the loader: no manual exchange from the Grids tab meanwhile.
-        if getattr(self, "grids_tab", None) is not None:
-            self.grids_tab.set_controls_enabled(False)
-        self.workflow_tab.grid_workflow_widget.set_controls_enabled(False)
-        sample = self.panel.sample_widget
-        if sample is not None:
-            sample.set_controls_enabled(False)
-        self.workflow_tab.set_running(True)
-
-    def hide_workflow_running(self):
-        """Hide the stop button and show run button."""
-        self._run_active = False
-        self.status_bar.set_waiting(None)
-        self.status_bar.set_run(None)
-        self.workflow_controls.set_running(False)
-        self.overview_tab.locks.set_run_allows(True)
-        self.workflow_tab.set_running(False)
-
-    def _running_border_state(self, task_name: Optional[str]) -> str:
-        """The border for a running workflow: automated or supervised."""
-        if task_name is None or not get_task_supervision(task_name, self.experiment):
-            return "automated"
-        return "supervised"
-
-    def _update_supervised_status(self) -> bool:
-        """Update the supervised status chip for the current task."""
-        task_name = self._current_task_name
-        if task_name is None:
-            return False
-        supervised = get_task_supervision(task_name, self.experiment)
-        if supervised:
-            mode = SUPERVISED
-        else:
-            mode = AUTOMATED
-        agent = AGENT in self.session.deciders()
-        self.workflow_controls.set_supervision(mode, task_name, agent=agent)
-
-        return supervised
-
-    def _on_supervised_status_clicked(self):
-        """Toggle supervision for the current task, as the agent's
-        ``set_supervision`` does: saved and on the record."""
-        if self._current_task_name is None:
-            return
-        protocol = self.protocol
-        if protocol is None:
-            return
-        supervised = (
-            protocol.get_attention(self._current_task_name) is Attention.supervised
-        )
-        set_supervision(
-            self.experiment,
-            self._current_task_name,
-            not supervised,
-            self.session.record_event,
-        )
-        self._update_supervised_status()
-        if self.session.runner.is_running:
-            self.run_border.set_state(
-                self._running_border_state(self._current_task_name)
-            )
-        # Refresh the workflow widget to reflect the toggled supervise state
-        self.workflow_tab.lamella_workflow_widget.workflow.refresh_all()
 
     def _update_instructions(self):
         """Update the status bar with the current instruction based on application state."""
@@ -554,7 +430,9 @@ class AutoLamellaWindow(QMainWindow):
         self.system_widget.connected_signal.connect(self.connect_to_microscope)
         self.system_widget.disconnected_signal.connect(self.disconnect_from_microscope)
         self.run_relay.status.connect(self.panel.handle_workflow_status)
-        self._refresh_panel()
+        # After the Connection tab is in: hiding the Experiment tab while it is
+        # the only one leaves the panel showing nothing.
+        self.panel.refresh()
 
     def _create_main_tab(self):
         """Create the main AutoLamella tab."""
@@ -566,13 +444,8 @@ class AutoLamellaWindow(QMainWindow):
         self._create_panel()
 
         # Everything the workflow says without needing an answer arrives here
-        self.run_relay.status.connect(self._on_workflow_status)
         self.run_relay.step.connect(self._on_step_update)
         self.experiment_update_signal.connect(self._on_experiment_update)
-        self.run_relay.finished.connect(self._on_workflow_finished)
-        self.session.runner.starting.connect(self._on_run_starting)
-        # Red while a stop unwinds, whoever asked for it (the agent's too).
-        self.run_relay.stopping.connect(self._on_workflow_stopping)
         # A grid task records its overview as it finishes, and says so in a status.
         self.run_relay.status.connect(self._refresh_quad_overviews)
         self.run_relay.finished.connect(self._refresh_quad_overviews)
@@ -653,6 +526,26 @@ class AutoLamellaWindow(QMainWindow):
             sound_enabled=lambda: self._preferences.display.sound_enabled,
             parent=self,
         )
+        self.run_view = RunView(
+            self.session,
+            self.run_relay,
+            host=self,
+            status_bar=self.status_bar,
+            controls=self.workflow_controls,
+            border=self.run_border,
+            attention=self.attention,
+            flush_editors=self.flush_editors,
+            lock=self._lock_for_run,
+            show_failures=self._show_run_failures,
+            after_supervision=(
+                self.workflow_tab.lamella_workflow_widget.workflow.refresh_all
+            ),
+            reset_panel=self._reset_panel_after_run,
+        )
+        # After the run view's, so a run has locked or released what it owns
+        # before the tabs redraw.
+        self.run_relay.status.connect(self._on_workflow_status)
+        self.run_relay.finished.connect(self._on_workflow_finished)
 
         self.experiment_header = ExperimentHeader(
             chip_enabled=self.menu_bar.connection_chip_enabled,
@@ -1041,26 +934,14 @@ class AutoLamellaWindow(QMainWindow):
             self._syncing_selection = False
 
     def _on_workflow_status(self, event: "WorkflowStatusEvent"):
-        """Handle a fire-and-forget status update, from the run relay.
-
-        The one channel for everything the workflow says without needing an
-        answer — the dict workflow_update_signal is gone. The run indicators
-        refresh on every event because any of them can change what they show: a
-        lifecycle report starts or finishes the run, and the responder pings
-        this signal when a question flips the waiting state.
-        """
-        # What the run is doing now (a scheduled-start countdown, waiting on
-        # decisions, loading a grid), under the task it is for; "" clears it.
-        if event.status_bar is not None:
-            self.status_bar.set_run_step(event.status_bar)
-
+        """A status update from the run relay: the tabs redraw for its report.
+        The run line, chip and border are the run view's."""
         if event.report is not None:
             self._apply_status_report(event.report)
 
-        self._refresh_workflow_indicators()
-
     def _apply_status_report(self, report: "WorkflowStatusUpdate") -> None:
-        """Render one task-lifecycle report: timeline, run message, list refreshes."""
+        """Redraw the tabs for one task-lifecycle report: timeline, editor lock,
+        list refreshes."""
         # No build-once guard: update_from_status reconciles rows against the
         # snapshot by WorkItem id, so first paint and every later change go
         # through the same path.
@@ -1068,35 +949,7 @@ class AutoLamellaWindow(QMainWindow):
 
         task_name = report.task_name
         lamella_name = report.item_name
-        queue_position = report.queue_position
-        queue_total = report.queue_total
         status = report.status
-
-        # Position in the live queue, not the launch matrix — stays correct
-        # when the queue is added to or reordered mid-run.
-        # `queue_total` is a count, so 0 means "nothing to be in the middle of"
-        # rather than "unknown" -- truthiness, not `is not None`, or a malformed
-        # payload renders "3 of 0".
-        where = None
-        if queue_position is not None and queue_total:
-            where = f"{queue_position} of {queue_total}"
-
-        self.status_bar.set_run(f"{lamella_name} › {task_name}", None, where)
-        self.set_workflow_running()
-        if queue_total:
-            self._run_total = queue_total
-        if status is TaskStatus.Failed:
-            # Said for a moment under its own name -- the run moves on to the next
-            # item -- and kept for the line the run leaves when it ends.
-            what = f"{lamella_name} › {task_name}"
-            reason = report.error_message or "failed"
-            self._run_failures.append((what, reason))
-            self.status_bar.show_outcome(
-                what, f"failed: {reason}", failed=True, standalone=True
-            )
-
-        # update current task
-        self._current_task_name = task_name
 
         # Lock editor when the active lamella/task is being processed
         if status is TaskStatus.InProgress:
@@ -1185,25 +1038,6 @@ class AutoLamellaWindow(QMainWindow):
             lambda p: setattr(p.app_server, "microscope", bool(serve))
         )
         self.set_app_server_microscope(serve)
-
-    def _refresh_workflow_indicators(self) -> None:
-        """Re-read the waiting/supervised/running state into the window chrome."""
-        # refresh the supervised status chip
-        self._update_supervised_status()
-
-        hold = self.run_relay.hold
-        self.attention.show_hold(hold)
-
-        self.run_border.set_state(
-            run_border_state(
-                self.run_border.state,
-                held=hold is not None,
-                pending=self.run_relay.pending,
-                running=self._running_border_state(self._current_task_name)
-                if self.session.runner.is_running
-                else None,
-            )
-        )
 
     def _rebuild_lamella_list(self):
         """Clear and repopulate the lamella list and card container from the current experiment."""
@@ -1301,35 +1135,42 @@ class AutoLamellaWindow(QMainWindow):
         if not remove_lamella(self.experiment, lamella):
             return
         self.panel.experiment_tab.update_lamella_combobox(latest=True)
-        self._refresh_panel()
+        self.panel.refresh()
 
     def _on_step_update(self, label: str) -> None:
         """Handle per-step update from the workflow worker thread."""
         self.workflow_tab.timeline.update_step(label)
 
     def _on_workflow_finished(self, cancelled: bool = False):
-        """Handle workflow finished signal."""
-        self._workflow_finished()
+        """The tabs' half of a run ending; the run view has said how it ended."""
         # The next run's items carry new ids, so the timeline rebuilds itself on
         # its first status update — nothing to reset here.
         # Resolve any outer row left in ACTIVE state (e.g. if workflow was cancelled)
         self.workflow_tab.timeline.finish_current_step(failed=cancelled)
         self.workflow_tab.timeline.clear_steps()
-        self.hide_workflow_running()
         self.lamella_tab.editor.set_active_lamella_name(None)
-        if getattr(self, "grids_tab", None) is not None:
-            self.grids_tab.set_controls_enabled(True)
-        self.workflow_tab.grid_workflow_widget.set_controls_enabled(True)
         self.workflow_tab.grid_workflow_widget.refresh()
         sample = self.panel.sample_widget
         if sample is not None:
-            sample.set_controls_enabled(True)
             sample.refresh()
-        self.workflow_controls.set_attention(None)
         self.workflow_tab.lamella_workflow_widget.lamella_list.refresh_all()
         self.lamella_tab.cards.refresh_all()
-        self._say_how_the_run_ended()
-        self.run_border.set_state("idle")
+
+    def _lock_for_run(self, running: bool) -> None:
+        """Take from the tabs what a run owns while it goes, or give it back."""
+        self.overview_tab.locks.set_run_allows(not running)
+        # A run owns the loader: no manual exchange from the Grids tab meanwhile.
+        self.grids_tab.set_controls_enabled(not running)
+        self.workflow_tab.grid_workflow_widget.set_controls_enabled(not running)
+        sample = self.panel.sample_widget
+        if sample is not None:
+            sample.set_controls_enabled(not running)
+        self.workflow_tab.set_running(running)
+
+    def _reset_panel_after_run(self) -> None:
+        self.panel.reset_after_run(str(self.experiment.path))
+        self.panel.refresh()
+        self.panel.set_current_workflow_message(msg=None, show=False)
 
     def _show_run_failures(self) -> None:
         """The failure line's Show: the Workflow tab, with the run's
@@ -1337,27 +1178,6 @@ class AutoLamellaWindow(QMainWindow):
         laid out, failures marked, and where they are queued again."""
         self.tab_widget.setCurrentWidget(self.workflow_tab)
         self.workflow_tab.timeline.show_first_failed()
-
-    def _say_how_the_run_ended(self) -> None:
-        """The run's line has gone (`hide_workflow_running`). A run with failures,
-        or one that stalled, leaves a line that stays until it is dismissed or the
-        next run starts; a clean one says so once, as a toast, and the line goes
-        back to the instruction. A run with a summary was already announced by
-        the "Run ended" toast (`_show_workflow_summary`), so this says nothing."""
-        runner = self.session.runner
-        note = runner.last_note
-        failures = self._run_failures
-        if failures:
-            what, reason = failures[-1]
-            n = len(failures)
-            count = f"{n} of {self._run_total}" if self._run_total >= n else f"{n}"
-            self.status_bar.show_failure(
-                "Run finished", f"{count} failed · {what}: {reason}"
-            )
-        elif note:
-            self.status_bar.show_failure("Run stalled", note)
-        elif runner.last_summary is None or runner.last_summary.empty:
-            notification_service.show_toast("Workflow finished.")
 
     def add_overview_tab(self):
         """Reserve the Overview tab: both modalities, one tab.
@@ -1499,42 +1319,9 @@ class AutoLamellaWindow(QMainWindow):
         tab = getattr(self, "overview_tab", None)
         return tab is not None and tab.is_acquiring
 
-    @ensure_main_thread
-    def _on_experiment_updated(self, evt: EmissionInfo) -> None:
-        """Handle when positions are updated from the minimap."""
-        if self.experiment is None:
-            return
-
-        if evt.signal.name not in ["inserted", "removed", "changed"]:
-            # TODO: update the ui with new state
-            # logging.info(f"Unhandled event: {evt.signal.name}: {evt.path}, {evt.args}")
-            return
-
-        self.panel.experiment_tab.update_lamella_combobox()
-        self._refresh_panel()
-
-    def _disconnect_experiment_events(self) -> None:
-        """Disconnect existing experiment and microscope event subscribers.
-
-        This prevents duplicate event connections when creating/loading multiple experiments.
-        """
-        # Disconnect experiment events
-        if self.experiment is not None:
-            try:
-                self.experiment.events.disconnect(self._on_experiment_updated)  # type: ignore
-                logging.info("Disconnected previous experiment event subscribers.")
-            except Exception as e:
-                logging.debug(f"Could not disconnect experiment events: {e}")
-
     def _setup_experiment_connections(self) -> None:
-        """Setup connections and metadata for the loaded/created experiment.
-
-        This handles:
-        - Updating settings image path
-        - Connecting event subscribers
-        - Registering metadata
-        - Updating UI components
-        """
+        """Point the image settings at the experiment, and register the
+        microscope's metadata with it. The panel follows the experiment itself."""
         if self.experiment is None:
             logging.warning("Cannot setup experiment connections: experiment is None")
             return
@@ -1543,19 +1330,9 @@ class AutoLamellaWindow(QMainWindow):
         if self.settings is not None:
             self.settings.image.path = self.experiment.path
 
-        # Connect position updates
-        self.experiment.events.connect(self._on_experiment_updated)  # type: ignore
-
         # Register metadata
         if self.microscope is not None:
             self.experiment.register_metadata(self.microscope)
-
-        # Update UI
-        self.panel.experiment_tab.update_lamella_combobox()
-        self._refresh_panel()
-
-        # set the experiment tab as active
-        self.panel.show_experiment_tab()
 
     def create_experiment(self) -> None:
         """Create a new experiment using the experiment creation dialog."""
@@ -1653,9 +1430,6 @@ class AutoLamellaWindow(QMainWindow):
         points logging at its logfile, and wire the window to it."""
         # The window hears the new experiment once this is set up.
         with self.session.changed.paused():
-            # Disconnect existing event subscribers if there's an existing experiment
-            self._disconnect_experiment_events()
-
             self.session.adopt(experiment)
 
             # Setup experiment connections and update UI
@@ -1671,9 +1445,7 @@ class AutoLamellaWindow(QMainWindow):
             if self.experiment is not None:
                 self.settings.image.path = self.experiment.path
             self._show_microscope()
-            self._refresh_panel()
             if self.experiment is not None:
-                self._disconnect_experiment_events()
                 self._setup_experiment_connections()
             self._start_event_recorder()
             self._start_app_server()
@@ -1753,7 +1525,6 @@ class AutoLamellaWindow(QMainWindow):
             self.microscope = None
             self.settings = None
             self._show_microscope()
-            self._refresh_panel()
 
     def _show_microscope(self) -> None:
         """The panel's microscope tabs for the connected microscope, or none."""
@@ -1931,7 +1702,7 @@ class AutoLamellaWindow(QMainWindow):
         try:
             experiment_tab = self.panel.experiment_tab
             experiment_tab.update_lamella_combobox(latest=select_latest)
-            self._refresh_panel()
+            self.panel.refresh()
             lamella = experiment_tab.get_selected_lamella()
             if lamella is not None:
                 experiment_tab.selected_lamella_widget.set_lamella(lamella)
@@ -2021,30 +1792,12 @@ class AutoLamellaWindow(QMainWindow):
     def stop_task_workflow(self, actor=None, via: str = "") -> None:
         """Stop the run; ``actor`` and ``via`` say who stopped it and from
         where, for the record (``runner.stop``)."""
-        if not self.session.runner.is_running:
-            return
-        self.session.runner.stop(actor=actor, via=via)
-        self.run_relay.stopping.emit()
+        self.run_view.stop(actor=actor, via=via)
 
     def stop_current_task(self, actor=None, via: str = "", **details) -> None:
         """Abandon the task now running and carry on with the rest of the
         queue (``runner.stop_task``)."""
         self.session.runner.stop_task(actor=actor, via=via, **details)
-
-    def _refresh_panel(self):
-        """Redraw the panel for the current state of the application."""
-        self.panel.experiment_tab.refresh()
-        if self.session.runner.is_running:
-            return
-
-        # force order: connect -> experiment -> protocol
-        self.panel.refresh_tabs()
-
-        # Nothing to say while idle. The same guidance is in the window's status
-        # bar, which is where it belongs -- shown in both places it read as two
-        # different messages that happened to agree. This label is for the question
-        # a running workflow is asking, which the Yes/No buttons below it answer.
-        self.panel.prompt_bar.clear()
 
     def _on_workflow_config_changed(self, wcfg: AutoLamellaWorkflowConfig):
         if self.experiment is None or self.experiment.task_protocol is None:
@@ -2053,7 +1806,7 @@ class AutoLamellaWindow(QMainWindow):
         self.experiment.save()
         self.experiment.save_protocol()
 
-        self._refresh_panel()
+        self.panel.refresh()
 
     #### PROTOCOL
     def load_protocol(self):
@@ -2089,7 +1842,7 @@ class AutoLamellaWindow(QMainWindow):
         thread."""
         self.experiment.task_protocol = protocol
         self.experiment.save_protocol()
-        self._refresh_panel()
+        self.panel.refresh()
         self.experiment_update_signal.emit()
 
     def export_protocol_ui(self):
@@ -2115,76 +1868,6 @@ class AutoLamellaWindow(QMainWindow):
             f"Saved Protocol to {os.path.basename(protocol_path)}", "info"
         )
 
-    def _workflow_finished(self):
-        """The panel's half of a run ending, then the summary."""
-        logging.info("Workflow finished.")
-        if self.panel.image_widget is None:
-            return
-        if self.microscope is None:
-            return
-        if self.experiment is None or self.protocol is None:
-            return
-
-        self.run_relay.hold = None
-        self.run_relay.pending = False
-
-        self.panel.reset_after_run(str(self.experiment.path))
-        self._refresh_panel()
-
-        self.panel.set_current_workflow_message(msg=None, show=False)
-
-        # show the post-workflow summary of tasks run this session
-        self._show_workflow_summary()
-
-    def _show_workflow_summary(self) -> None:
-        """Toast the end of the last workflow, and open its summary unless the
-        workflow's "Show summary after completion" is off.
-
-        The toast always comes, with a Show summary link, and stays in the
-        notification bell, so any run's summary is a click away after it
-        fades. The dialog opens without blocking the window (FIB-1376): as a
-        modal it held the window at the end of every run, which an agent
-        starting many short runs, or a run ending overnight, left standing
-        over the app. That is also when to turn it off.
-
-        Show-once, but never consume: the runner's ``last_summary`` is also
-        the record the App Server's ``run_summary`` endpoint reads after the
-        manager is gone. The record stays until the next run's capture
-        overwrites it; only the toast is once-only.
-        """
-        runner = self.session.runner
-        summary = runner.last_summary
-        if summary is None or summary is self._shown_run_summary:
-            return
-        self._shown_run_summary = summary
-        if summary.empty:
-            return
-        note = runner.last_note
-        failed = (
-            "task_status" in summary.columns
-            and (summary["task_status"] == "Failed").any()
-        )
-        notification_service.show(
-            f"Run ended: {run_counts_text(summary)}",
-            "warning" if note or failed else "success",
-            action=(
-                "Show summary",
-                lambda: self._open_workflow_summary(summary, note),
-            ),
-        )
-        protocol = self.protocol
-        if protocol is None or protocol.options.show_run_summary:
-            self._open_workflow_summary(summary, note)
-
-    def _open_workflow_summary(self, summary: "pd.DataFrame", note: str) -> None:
-        """Open a run's summary dialog, without blocking the window."""
-        try:
-            dialog = WorkflowSummaryDialog(summary, note=note, parent=self)
-            dialog.setAttribute(Qt.WA_DeleteOnClose)
-            dialog.show()
-        except Exception as e:
-            logging.warning(f"Failed to show workflow summary dialog: {e}")
-
     def _on_notification_service(
         self, message: str, notification_type: str, temporary: bool
     ) -> None:
@@ -2205,35 +1888,10 @@ class AutoLamellaWindow(QMainWindow):
             action=(action_text, callback),
         )
 
-    def _confirm_close_during_workflow(self) -> bool:
-        """Ask before closing ends a workflow in progress; True to go ahead.
-
-        Only asked while one is running: any other close loses nothing, since
-        pending edits are flushed on the way out. Confirming stops the run, the
-        same as Stop Workflow, without waiting for it to wind down -- the worker
-        may be waiting on this thread, and it is a daemon thread, so it cannot
-        hold the process open.
-        """
-        if not self.session.runner.is_running:
-            return True
-        box = QMessageBox(self)
-        box.setIcon(QMessageBox.Warning)
-        box.setWindowTitle("Workflow Running")
-        box.setText("A workflow is running. Close anyway?")
-        box.setInformativeText(
-            "Closing stops the workflow and disconnects from the microscope."
-        )
-        box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-        box.setDefaultButton(QMessageBox.No)
-        if box.exec_() != QMessageBox.Yes:
-            return False
-        self.stop_task_workflow(actor=OPERATOR, via="closing the window")
-        return True
-
     def closeEvent(self, event):
         """Flush what is still pending, then let the application go."""
         # Before anything else, so a cancelled close leaves the session untouched.
-        if not self._confirm_close_during_workflow():
+        if not self.run_view.confirm_close():
             event.ignore()
             return
         # The editor holds edits for a moment before writing them (FIB-683); this is
