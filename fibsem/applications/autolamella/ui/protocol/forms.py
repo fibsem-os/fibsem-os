@@ -7,15 +7,8 @@ from PyQt5.QtWidgets import QGridLayout, QLabel, QWidget
 from fibsem.applications.autolamella.workflows.tasks.tasks import (
     AcquireFluorescenceImageConfig,
 )
-from fibsem.fm.structures import (
-    AutoFocusSettings,
-    ZParameters,
-)
-from fibsem.ui.fm.widgets import (
-    AutofocusWidget,
-    ZParametersWidget,
-)
-from fibsem.ui.widgets.custom_widgets import TitledPanel, ValueComboBox
+from fibsem.ui.fm.widgets.acquisition_settings import FMAcquisitionSettingsWidget
+from fibsem.ui.widgets.custom_widgets import ValueComboBox
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
@@ -51,54 +44,21 @@ class AutoLamellaFluorescenceAcquisitionTaskConfigWidget(QWidget):
         )
         self.orientation_combo.currentIndexChanged.connect(self._on_orientation_changed)
 
-        # Channel Settings
-        from fibsem.ui.fm.widgets.fm_multi_channel_widget import (
-            FluorescenceMultiChannelWidget,
-        )
-
-        self.channelSettingsWidget = FluorescenceMultiChannelWidget(
+        self.acquisition_settings = FMAcquisitionSettingsWidget(
             fm=self.microscope.fm,
             channel_settings=self.config.channel_settings,
+            z_parameters=self.config.zparams,
+            autofocus_settings=self.config.autofocus_settings,
             parent=self,
         )
-        self.channelPanel = TitledPanel(
-            "Channel Settings", content=self.channelSettingsWidget, collapsible=True
+        self.acquisition_settings.channel_settings_changed.connect(
+            self.channel_settings_changed
         )
-
-        # Z Parameters
-        self.z_parameters_widget = ZParametersWidget(self.config.zparams, parent=self)
-        self.zParametersPanel = TitledPanel(
-            "Z Parameters", content=self.z_parameters_widget, collapsible=True
-        )
-
-        # Create autofocus widget
-        self.autofocusWidget = AutofocusWidget(
-            channel_settings=self.channelSettingsWidget.channel_settings, parent=self
-        )
-        self.autofocusWidget.set_autofocus_settings(self.config.autofocus_settings)
-        self.autofocusPanel = TitledPanel(
-            "Autofocus Settings", content=self.autofocusWidget, collapsible=True
-        )
-
-        # propagate settings change events
-        self.channelSettingsWidget.settings_changed.connect(
-            self._on_channel_settings_changed
-        )
-        self.z_parameters_widget.settings_changed.connect(self._on_z_parameters_changed)
-        self.autofocusWidget.settings_changed.connect(
-            self._on_autofocus_settings_changed
-        )
+        self.acquisition_settings.settings_changed.connect(self._emit_settings_changed)
 
         layout.addWidget(orientation_label, 0, 0)
         layout.addWidget(self.orientation_combo, 0, 1)
-        layout.addWidget(self.channelPanel, 1, 0, 1, 2)
-        layout.addWidget(self.zParametersPanel, 2, 0, 1, 2)
-        layout.addWidget(self.autofocusPanel, 3, 0, 1, 2)
-
-        self.zParametersPanel.collapse()
-        self.autofocusPanel.collapse()
-
-        self.channelSettingsWidget.set_live_acquisition_controls(enabled=False)
+        layout.addWidget(self.acquisition_settings, 1, 0, 1, 2)
 
         self.setLayout(layout)
 
@@ -116,45 +76,26 @@ class AutoLamellaFluorescenceAcquisitionTaskConfigWidget(QWidget):
         """
         self.microscope = microscope
         self.fm = microscope.fm
-        self.channelSettingsWidget.set_fm(microscope.fm)
+        self.acquisition_settings.set_fm(microscope.fm)
 
     def get_task_config(self) -> AcquireFluorescenceImageConfig:
         self.config.orientation = self.orientation_combo.value()
-        self.config.zparams = self.z_parameters_widget.z_parameters
-        self.config.channel_settings = self.channelSettingsWidget.channel_settings
-        self.config.autofocus_settings = self.autofocusWidget.get_autofocus_settings()
+        self.config.zparams = self.acquisition_settings.z_parameters
+        self.config.channel_settings = self.acquisition_settings.channel_settings
+        self.config.autofocus_settings = self.acquisition_settings.autofocus_settings
         return self.config
 
     def set_task_config(self, config: AcquireFluorescenceImageConfig):
         self.blockSignals(True)
         self.config = copy.deepcopy(config)
         self.orientation_combo.set_value(config.orientation)
-        self.z_parameters_widget.z_parameters = config.zparams
-        self.channelSettingsWidget.channel_settings = (
-            config.channel_settings
-        )  # this also updates autofocus channels...
-        self.autofocusWidget.set_autofocus_settings(config.autofocus_settings)
+        self.acquisition_settings.z_parameters = config.zparams
+        self.acquisition_settings.channel_settings = config.channel_settings
+        self.acquisition_settings.autofocus_settings = config.autofocus_settings
         self.blockSignals(False)
 
     def _on_orientation_changed(self):
         self.config.orientation = self.orientation_combo.value()
-        self._emit_settings_changed()
-
-    def _on_channel_settings_changed(self, channel_settings: list):
-        """Relay channel settings updates."""
-        self.config.channel_settings = channel_settings
-        self.autofocusWidget.update_channels(channel_settings)
-        self.channel_settings_changed.emit(channel_settings)
-        self._emit_settings_changed()
-
-    def _on_z_parameters_changed(self, zparams: ZParameters):
-        """Relay z-parameter updates."""
-        self.config.zparams = zparams
-        self._emit_settings_changed()
-
-    def _on_autofocus_settings_changed(self, autofocus_settings: AutoFocusSettings):
-        """Relay autofocus settings updates."""
-        self.config.autofocus_settings = autofocus_settings
         self._emit_settings_changed()
 
     def _emit_settings_changed(self):

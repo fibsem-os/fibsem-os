@@ -173,7 +173,3 @@ class FluorescenceMultiChannelWidget(QWidget):
         self.fm = fm
         self._list.set_fm(fm)
         self._settings_widget.set_fm(fm)
-
-    def set_live_acquisition_controls(self, enabled: bool) -> None:
-        """Stub for ChannelSettingsWidget/ChannelListWidget compatibility."""
-        pass
