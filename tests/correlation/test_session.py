@@ -827,7 +827,9 @@ def test_a_new_experiment_starts_a_new_correlation(tmp_path):
     first = app.correlation
     first.points.add(_target())
 
-    app.adopt(Experiment(path=tmp_path, name="next"))
+    experiment = Experiment(path=tmp_path, name="next")
+    os.makedirs(experiment.path, exist_ok=True)
+    app.adopt(experiment)
 
     assert app.correlation is not first
     assert len(app.correlation.points) == 0

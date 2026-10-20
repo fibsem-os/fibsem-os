@@ -210,14 +210,17 @@ class AppSession:
         return self.executor(call)
 
     def adopt(self, experiment: Any) -> None:
-        """Open ``experiment``: the session's, and the one its events are
-        recorded to from now on. The correlation belongs to the experiment it
-        was made in, so the next one asked for is a fresh one."""
+        """Open ``experiment``: the session's, the one its events are recorded
+        to and the one the process logs to from now on. The correlation belongs
+        to the experiment it was made in, so the next one asked for is a fresh
+        one."""
         with self._correlation_lock:
             self._correlation = None
         if self.recorder is not None:
             self.recorder.set_experiment(experiment.path, experiment)
         self.experiment = experiment
+        experiment.configure_logging()
+        logging.info(f"Logging to experiment {experiment.name} at {experiment.path}")
         self.changed.emit(EXPERIMENT)
 
     def recording_experiment(self) -> Any:

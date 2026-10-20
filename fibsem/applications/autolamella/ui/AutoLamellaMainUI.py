@@ -1644,27 +1644,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         )
 
     def adopt_experiment(self, experiment: Experiment) -> None:
-        """Make ``experiment`` the current one, and point logging at its logfile.
-
-        The single place the app takes ownership of an experiment, whether it was
-        just created or loaded from disk. Logging is configured here rather than in
-        Experiment.load/create because those are also called to *read* an
-        experiment -- the load dialog calls load() on every single click to preview
-        a recent entry, which previously repointed the app's root logger at each one
-        in turn, and closed the previous handler, even when the dialog was then
-        cancelled. See FIB-421.
-        """
+        """Make ``experiment`` the current one through the session, which also
+        points logging at its logfile, and wire the window to it."""
         # The window hears the new experiment once this is set up.
         with self.session.changed.paused():
             # Disconnect existing event subscribers if there's an existing experiment
             self._disconnect_experiment_events()
 
             self.session.adopt(experiment)
-
-            experiment.configure_logging()
-            logging.info(
-                f"Logging to experiment {experiment.name} at {experiment.path}"
-            )
 
             # Setup experiment connections and update UI
             self._setup_experiment_connections()

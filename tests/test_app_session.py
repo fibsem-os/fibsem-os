@@ -3,6 +3,7 @@
 A window is one client of an ``AppSession``; these drive it with none.
 """
 
+import logging
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -72,6 +73,16 @@ def test_the_session_says_an_experiment_was_opened_once_it_is_set_up(
     )
     session.adopt(experiment)
     assert heard == [(EXPERIMENT, experiment, False)]
+
+
+def test_adopting_an_experiment_logs_to_its_logfile(session, experiment):
+    session.adopt(experiment)
+
+    logging.info("after adoption")
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+    logfile = Path(experiment.path) / "logfile.log"
+    assert "after adoption" in logfile.read_text(encoding="utf-8")
 
 
 def test_no_microscope_records_nothing(session):
