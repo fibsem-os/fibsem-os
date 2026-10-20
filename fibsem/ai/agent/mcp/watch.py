@@ -18,8 +18,8 @@ monitor's trigger or error), task ``EVENT`` lines,
 ``WORKFLOW STARTED``, ``WORKFLOW ENDED``, ``MESSAGE`` (the operator wrote to
 the agent from its card, FIB-1423; one still unanswered when the watch starts
 is said first), ``NOTE`` (the operator kept a note on a
-grid), ``GAP``, ``RESTARTED`` and
-``AGENT OFF``/``AGENT BACK``.
+grid), ``GAP``, ``RESTARTED``, ``LEVEL`` (the operator
+changed the agent level) and ``AGENT OFF``/``AGENT BACK``.
 
 It follows the whole session, not one workflow: the agent starts and stops
 workflows itself, and between them it still has to hear the app (FIB-1431). A
@@ -41,6 +41,7 @@ import json
 import sys
 import time
 
+from fibsem.ai.agent.levels import LEVEL_SKILLS, AgentLevel
 from fibsem.client.transport import Transport
 
 # Kinds that end a workflow: report it, and keep watching. A stalled workflow
@@ -166,6 +167,10 @@ def _print_events(events, since, out):
             out(f"NOTE from the operator on {data.get('item_name')}: {text}")
         elif _is_message(event):
             out(_message_line(data))
+        elif kind == "agent_level_set":
+            line = _level_line(data)
+            if line:
+                out(line)
         elif kind == "workflow_started":
             out("WORKFLOW STARTED")
             running = True
@@ -210,6 +215,22 @@ def _unanswered(events):
         if _is_message(event) and data.get("id") and data["id"] not in answered:
             waiting.append(data)
     return waiting
+
+
+def _level_line(data):
+    """The operator changed the level, with the skill to work by at it. Off
+    has no line here: the agent is refused, and the watch says AGENT OFF."""
+    try:
+        level = AgentLevel(data.get("level"))
+    except ValueError:
+        return None
+    skill = LEVEL_SKILLS.get(level)
+    if skill is None:
+        return None
+    return (
+        f"LEVEL {level.value} (was {data.get('previous')}): the operator set the "
+        f"agent level; work by the {skill} skill"
+    )
 
 
 def _item_of(event):
