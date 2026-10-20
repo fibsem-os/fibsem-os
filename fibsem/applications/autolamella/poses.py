@@ -294,25 +294,36 @@ def add_lamella(
 
 
 def set_lamella_pose(
-    microscope: "FibsemMicroscope", lamella, pose_name: str, state: MicroscopeState
+    experiment,
+    microscope: "FibsemMicroscope",
+    lamella,
+    pose_name: str,
+    state: MicroscopeState,
 ) -> bool:
-    """Set *state* as the lamella's pose *pose_name*. Returns whether the
-    fluorescence pose was moved to follow it (only ever for MILLING).
+    """Set *state* as the lamella's pose *pose_name*, and save *experiment* when
+    there is one. Returns whether the fluorescence pose was moved to follow it
+    (only ever for MILLING). The Experiment tab's and the coincidence viewer's
+    Set pose, and the App Server's.
 
     The objective position of an existing pose is kept: the microscope state does
     not capture it, so replacing the pose outright would wipe its focus. Replacing
     the milling pose moves the lamella, so what derives from it follows: the
     milling angle, and the fluorescence pose of the same piece of sample. The
-    caller saves.
+    experiment's positions emit changed: the overview canvases draw the poses
+    themselves, and a pose written in place emits nothing on its own.
     """
     existing = lamella.poses.get(pose_name)
     if existing is not None and existing.objective_position is not None:
         state.objective_position = existing.objective_position
     lamella.poses[pose_name] = state
-    if pose_name != "MILLING":
-        return False
-    lamella.update_milling_angle(microscope)
-    return sync_fluorescence_pose(microscope, lamella)
+    followed = False
+    if pose_name == "MILLING":
+        lamella.update_milling_angle(microscope)
+        followed = sync_fluorescence_pose(microscope, lamella)
+    if experiment is not None:
+        experiment.save()
+        experiment.positions.events.changed.emit()
+    return followed
 
 
 def fluorescence_move(

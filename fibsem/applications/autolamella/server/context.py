@@ -1374,12 +1374,9 @@ class AutoLamellaAppContext:
             }
         state = microscope.get_microscope_state()
 
-        def set_pose():
-            moved = set_lamella_pose(microscope, lamella, pose_name, state)
-            experiment.save()
-            return moved
-
-        followed = self._agent_call(set_pose)
+        followed = self._agent_call(
+            lambda: set_lamella_pose(experiment, microscope, lamella, pose_name, state)
+        )
         return {
             "applied": True,
             "item_name": item_name,
