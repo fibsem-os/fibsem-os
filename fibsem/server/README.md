@@ -27,7 +27,7 @@ level the operator sets from the Agent chip: reads at Watch, asking first at
 Assist (a request the operator approves), acting at Drive; at Off everything is
 refused. A refusal is a structured 403
 naming why (`level`, `ask_first`, `agent_off`, `agent_stopped`, `not_allowed`).
-Separate from the level, an allowlist (`fibsem/ai/agent/allowlist.py`) names what
+Separate from the level, a blocklist (`fibsem/ai/agent/blocklist.py`) names what
 the agent may never write or run, at any level and in an approved request too:
 a beam's `on`, `angular_correction`, `tilt_correction` and `plasma_gas`; the
 stage's `home`, `link` and raw `move_absolute` (stage_movement's too: the agent moves with `safe_absolute_stage_movement`); every chamber and manipulator write and command; the

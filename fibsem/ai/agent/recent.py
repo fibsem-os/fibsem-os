@@ -30,12 +30,8 @@ from dataclasses import dataclass, replace
 from typing import Any, Dict, List, Optional
 
 from fibsem.acting import AGENT, OPERATOR
-from fibsem.ai.agent.request_text import (
-    _stage_place,
-    _values_text,
-    describe_action,
-    describe_done,
-)
+from fibsem.ai.agent.catalog.describe import describe_action, describe_done
+from fibsem.util import wording
 
 # Rows kept: the card scrolls through them all.
 SIZE = 50
@@ -161,11 +157,13 @@ def _suggested(p: Dict[str, Any]) -> str:
     place = values.get("stage_position") if len(values) == 1 else None
     if isinstance(place, dict):
         kept = values == (p.get("proposed") or {})
-        return f"{'keep the position' if kept else 'move to'} {_stage_place(place)}"
+        return (
+            f"{'keep the position' if kept else 'move to'} {wording.stage_place(place)}"
+        )
     if values:
-        return _values_text(values)
+        return wording.values_text(values)
     if p.get("patch"):
-        return f"set {_values_text(p['patch'])}"
+        return f"set {wording.values_text(p['patch'])}"
     return "confirm it"
 
 

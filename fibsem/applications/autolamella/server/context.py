@@ -1537,7 +1537,7 @@ class AutoLamellaAppContext:
         """A config edit in an agent's request, as the config's form names it
         (FIB-1403): each setting in display units, old -> new. None for any
         other action, or a config this experiment doesn't have."""
-        from fibsem.ai.agent.request_text import describe_patch
+        from fibsem.util.wording import describe_patch
 
         config = self._edited_task_config(tool, arguments)
         if config is None:

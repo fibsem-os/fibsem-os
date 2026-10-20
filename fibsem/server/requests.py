@@ -37,8 +37,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fibsem.acting import AGENT, Actor, acting
 from fibsem.ai.agent.calls import AgentCall, calling, current_call, join_line
 from fibsem.ai.agent.catalog import CATALOG, ToolSpec, route_call
+from fibsem.ai.agent.catalog.describe import (
+    Describer,
+    describe_action,
+    describe_actions,
+)
 from fibsem.ai.agent.levels import AgentLevel
-from fibsem.ai.agent.request_text import Describer, describe_action, describe_actions
 from fibsem.server.auth import AuthConfig, lending_drive, require_level
 from fibsem.workflows.actions import ACTION, action_record
 from fibsem.workflows.evidence import EvidenceRefused, frame_path
@@ -79,7 +83,7 @@ class Action:
     method: str
     path: str
     body: Optional[Dict[str, Any]]
-    # The operator's two lines for it, written by the server (request_text).
+    # The operator's two lines for it, written by the server (catalog.describe).
     what: str = ""
     change: str = ""
     # Every value, for the operator's "Show details": {columns, rows}, or None.
@@ -307,12 +311,12 @@ class RequestStore:
         self._experiment_path = experiment_path or (lambda: None)
         self._describe = describe
         # Why the app would refuse an action when it runs (a config edit that
-        # does not apply), or None: refused at filing, as the allowlist is.
+        # does not apply), or None: refused at filing, as the blocklist is.
         self._check = check
         self._auth = auth
         self._mounted = mounted
         self._emit_fn = emit
-        # Why a route call is never the agent's (the allowlist), or None: refused
+        # Why a route call is never the agent's (the blocklist), or None: refused
         # at filing, so the operator is never asked about what cannot run.
         self._not_allowed = not_allowed
         self._lock = threading.Lock()
