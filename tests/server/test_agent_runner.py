@@ -171,22 +171,19 @@ def _heard(caplog, start):
 # --- the kickoff and the session's tools ------------------------------------
 
 
-@pytest.mark.parametrize("role", runner_mod.ROLES)
-def test_the_kickoff_reads_the_role_s_skill_and_the_level(role):
-    first = kickoff(role)
+def test_the_kickoff_reads_the_skill_for_the_level():
+    first = kickoff()
     assert "autolamella-agent" in first
-    assert f"{role}-autolamella" in first
+    assert "skill for the level" in first
     assert "server_get_capabilities" in first
     assert "don't start one" in first
     # The runner never sets the level: it tells the agent whose it is.
     assert "level is the operator's" in first
-    again = kickoff(role, resumed=True)
+    again = kickoff(resumed=True)
     assert "resumed" in again and "server_get_capabilities" in again
-
-
-def test_a_role_that_is_not_a_skill_is_refused():
-    with pytest.raises(ValueError):
-        Runner(ScriptedAgent(), lambda: None, role="drive")
+    # Which skill goes with which level is the system prompt's.
+    for skill in ("observe", "assist", "supervise"):
+        assert f"{skill}-autolamella" in runner_mod.RUNNER_PROMPT
 
 
 def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path):
@@ -214,15 +211,21 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
     assert list(options.mcp_servers) == ["fibsem"]
     server = options.mcp_servers["fibsem"]
     assert os.path.isabs(server["command"])
-    assert server["env"] == {
-        "FIBSEM_SERVER_URL": "http://127.0.0.1:9",
-        "FIBSEM_SERVER_TOKEN": "t0k",
-    }
+    # Not in the server entry, which goes on the CLI's command line: in the
+    # CLI's environment, which the sidecar inherits.
+    assert "env" not in server
     assert options.cwd == str(checkout)
     assert options.resume == "abc"
     assert options.verbatim_prompts
     assert options.max_turns == runner_mod.MAX_TURNS
     assert options.max_budget_usd == runner_mod.MAX_BUDGET_USD
+    # No developer CLAUDE.md or auto memory in an operator's agent.
+    assert options.env == {
+        "CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1",
+        "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
+        "FIBSEM_SERVER_URL": "http://127.0.0.1:9",
+        "FIBSEM_SERVER_TOKEN": "t0k",
+    }
 
     # And what the CLI is told, as the SDK builds its command line.
     from claude_agent_sdk._internal.transport.subprocess_cli import (
@@ -238,6 +241,7 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
     allowed = command[command.index("--allowedTools") + 1].split(",")
     assert "Skill(autolamella-agent)" in allowed and "mcp__fibsem__*" in allowed
     assert "bypassPermissions" not in command
+    assert not any("t0k" in part for part in command), "the token is in argv"
 
 
 # --- turning lines into turns -------------------------------------------------
@@ -248,6 +252,8 @@ def test_a_gap_or_a_restart_asks_the_agent_to_re_read():
     assert runner_mod.REREAD_PROPOSALS in gap
     restarted = Wakes().add([watch_mod.RESTARTED_LINE])
     assert runner_mod.REREAD_LEVEL in restarted
+    level = Wakes().add(["LEVEL drive (was watch): the operator set the agent level"])
+    assert runner_mod.REREAD_LEVEL in level
     plain = Wakes().add(["EVENT task_started 01"])
     assert plain == "The watcher printed:\nEVENT task_started 01"
 
@@ -287,7 +293,7 @@ def test_an_operator_message_wakes_the_agent_and_it_answers(session):
     agent = ScriptedAgent(reply)
     running = _runner(session, agent)
     _until(lambda: agent.prompts, what="the kickoff")
-    assert agent.started and agent.prompts[0] == kickoff("observe")
+    assert agent.started and agent.prompts[0] == kickoff()
 
     message_id = AgentSession(session).message("is 01 ok?")
     _until(answered.is_set, what="the answer")
@@ -385,7 +391,7 @@ def test_the_agent_answers_a_supervised_run_through_the_runner(session):
             ended.set()
 
     agent = ScriptedAgent(reply)
-    running = _runner(session, agent, role="supervise")
+    running = _runner(session, agent)
     _until(ended.is_set, timeout=90, what="the run's end")
     assert running.stop() == 0
 
@@ -463,7 +469,7 @@ def test_the_kickoff_waits_while_the_agent_is_off(session, caplog):
     assert operator.set_level(AgentLevel.WATCH) is None
     _until(lambda: agent.prompts, what="the kickoff")
     assert running.stop() == 0
-    assert agent.prompts == [kickoff("observe")]
+    assert agent.prompts == [kickoff()]
 
 
 class _NoEvents:

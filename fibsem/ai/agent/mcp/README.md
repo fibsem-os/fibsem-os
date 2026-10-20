@@ -111,12 +111,15 @@ unchanged.
 
 ```bash
 pip install -e ".[server,agent]"
-fibsem-agent --role observe        # or assist, supervise
+export ANTHROPIC_API_KEY=...       # a Claude API key
+fibsem-agent
 ```
 
-- **Role, not level.** `--role` picks the skill the agent works by and what
-  its first turn says. The level is still set from the Agent chip, and the
-  server still refuses what it doesn't allow. The runner never sets it.
+- **The level decides.** The agent works by the skill for its level
+  (observe at Watch, assist at Assist, supervise at Drive), and the watcher
+  prints a `LEVEL` line when the operator changes it. The level is set from
+  the Agent chip, the server still refuses what it doesn't allow, and the
+  runner never sets it.
 - **Tools.** The `mcp__fibsem__*` tools run without a prompt, since the
   server decides what they may do. The agent also has the Skill tool, and
   ToolSearch to find the fibsem tools, and nothing else: no shell, no file
@@ -126,10 +129,13 @@ fibsem-agent --role observe        # or assist, supervise
 - **Your Claude Code config stays out.** The session loads this checkout's
   project settings and skills, not `~/.claude`, and only this sidecar, not a
   `fibsem` server you registered with `claude mcp add`.
-- **Signing in.** It signs in the way Claude Code does on this machine: with
-  your Claude Code login, or with `ANTHROPIC_API_KEY` set in its environment,
-  which takes precedence over the login. If the model refuses the sign-in,
-  the runner stops with exit code 1 rather than wait.
+- **Signing in.** Set `ANTHROPIC_API_KEY` to a Claude API key in its
+  environment, or configure Amazon Bedrock or Google Vertex as the Agent SDK
+  documents. Not a claude.ai login: products built on the Agent SDK use API
+  keys. If the model refuses the sign-in, the runner stops with exit code 1
+  rather than wait. Its log never shows a bearer token or an API key.
+- **Instructions.** It reads this checkout's skills and nothing else: not the
+  checkout's `CLAUDE.md` (developer guidance) and not Claude Code's auto memory.
 - **What it says.** The agent's replies and tool calls go to the console and
   to `~/.fibsem/agent/fibsem-agent-<time>.log` (`--log` to choose). What the
   operator must see in the app, it puts in a note (`experiment_add_note`),
@@ -148,8 +154,8 @@ fibsem-agent --role observe        # or assist, supervise
   session cleanly; a second Ctrl-C ends it at once. The log names the session
   id, and `--resume <id>` carries it on after a restart. The watcher starts
   again from then, so the agent is told to re-read where things stand.
-- **From another machine**, `--url`/`--token` work as they do for the
-  sidecar.
+- **From another machine**, pass `--url` and put the token in
+  `FIBSEM_SERVER_TOKEN`, never on the command line.
 
 ## Order and troubleshooting
 

@@ -6,14 +6,15 @@ batch of the watcher's lines is the agent's next turn. The App Server still
 decides what the agent may do, and the runner never sets the level. Needs the
 [agent] extra; nothing else in fibsem imports ``claude_agent_sdk``.
 
-    fibsem-agent --role observe
-    fibsem-agent --role supervise --resume <session id>
+    fibsem-agent
+    fibsem-agent --resume <session id>
 """
 
 import argparse
 import asyncio
 import json
 import logging
+import os
 import shutil
 import signal
 import sys
@@ -24,12 +25,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, List, Optional
 
+from fibsem.ai.agent.levels import LEVEL_SKILLS
 from fibsem.ai.agent.mcp import watch as watch_mod
 from fibsem.util import timestamps
 
-ROLES = ("observe", "assist", "supervise")
 BASE_SKILL = "autolamella-agent"
-SKILLS = (BASE_SKILL,) + tuple(f"{role}-autolamella" for role in ROLES)
+SKILLS = (BASE_SKILL,) + tuple(LEVEL_SKILLS.values())
 
 SERVER = "fibsem"
 # The server's level gate decides what the fibsem tools may do, so they need no
@@ -57,6 +58,13 @@ PERMISSION_MODE = "dontAsk"
 # waiting for the next wake-up would wait for ever.
 FATAL_ERRORS = {"authentication_failed", "billing_error"}
 
+# The CLI's environment: no CLAUDE.md (the checkout's is developer guidance)
+# and no auto memory from a developer's sessions in the same folder.
+CLI_ENV = {
+    "CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1",
+    "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
+}
+
 MAX_TURNS = 40  # tool calls per wake-up
 MAX_BUDGET_USD = 5.0  # what one run spends
 SERVER_WAIT_S = 600.0
@@ -76,43 +84,44 @@ matching mcp__fibsem__ tool, or say what you can't do.
 - Your replies go to fibsem-agent's console and log, which the operator may \
 not be reading. Anything the operator must see goes on the record with \
 experiment_add_note; answer a MESSAGE with its reply_to.
-- The operator sets your level in the app. A refusal is the server's answer: \
-handle it as the skills say."""
+- The operator sets your level in the app. Work by the skill for your level: \
+observe-autolamella at Watch, assist-autolamella at Assist, \
+supervise-autolamella at Drive. A LEVEL line means it changed: read that \
+level's skill if you haven't. A refusal is the server's answer: handle it as \
+the skills say."""
 
 REREAD_PROPOSALS = (
     "Events were lost: re-read proposal_list and app_get_status before acting "
     "on the lines above."
 )
 REREAD_LEVEL = (
-    "Your level may have changed: re-read server_get_capabilities, then "
-    "app_get_status and proposal_list."
+    "Your level may have changed: re-read server_get_capabilities and work by "
+    "the skill for the level it gives, then re-read app_get_status and "
+    "proposal_list."
 )
 
 log = logging.getLogger("fibsem.agent.runner")
 
 
-def kickoff(role: str, resumed: bool = False) -> str:
+def kickoff(resumed: bool = False) -> str:
     """The first turn: the skills, the level, and where things stand."""
     if resumed:
         return (
-            f"fibsem-agent restarted and resumed this session; you are still the "
-            f"AutoLamella {role} agent. Its watcher started again from now, so "
-            "whatever happened while it was down is not in its lines. Read the "
-            f"{BASE_SKILL} and {role}-autolamella skills again if they are no "
-            "longer in your context. Call server_get_capabilities, tell the "
-            "operator in a sentence what your level means now, re-read "
+            "fibsem-agent restarted and resumed this session. Its watcher started "
+            "again from now, so whatever happened while it was down is not in its "
+            "lines. Call server_get_capabilities, read the skill for your level "
+            f"again if it is no longer in your context ({BASE_SKILL} first), tell "
+            "the operator in a sentence what your level means now, re-read "
             "app_get_status and proposal_list, then end your turn."
         )
     return (
-        f"You are the AutoLamella {role} agent, run by fibsem-agent.\n"
-        f"1. Read the skills with the Skill tool: {BASE_SKILL} first, then "
-        f"{role}-autolamella.\n"
-        "2. Call server_get_capabilities and tell the operator in a sentence "
-        "what your level means for this session and whether the microscope is "
-        "served. If an experiment is open, put that sentence on the record with "
-        "experiment_add_note too, so the operator sees it in the app. The "
-        "level is the operator's: if it doesn't fit your role, say so and work "
-        "at the level.\n"
+        "You are the AutoLamella agent, run by fibsem-agent.\n"
+        f"1. Read the {BASE_SKILL} skill with the Skill tool.\n"
+        "2. Call server_get_capabilities, then read the skill for the level it "
+        "gives. Tell the operator in a sentence what your level means for this "
+        "session and whether the microscope is served. If an experiment is "
+        "open, put that sentence on the record with experiment_add_note too, so "
+        "the operator sees it in the app. The level is the operator's.\n"
         "3. Read where things stand, as the base skill's Session setup says. "
         "The watcher is already running: don't start one.\n"
         "Then end your turn. The runner wakes you with the watcher's lines."
@@ -125,7 +134,7 @@ def turn_prompt(lines: List[str]) -> str:
     prompt = "The watcher printed:\n" + "\n".join(lines)
     if any(line.startswith("GAP") for line in lines):
         prompt += "\n\n" + REREAD_PROPOSALS
-    if any(line.startswith(("AGENT BACK", "RESTARTED")) for line in lines):
+    if any(line.startswith(("AGENT BACK", "RESTARTED", "LEVEL")) for line in lines):
         prompt += "\n\n" + REREAD_LEVEL
     return prompt
 
@@ -311,17 +320,13 @@ class Runner:
         self,
         agent,
         connect: Callable[[], Optional[object]],
-        role: str = "observe",
         resumed: bool = False,
         server_wait_s: float = SERVER_WAIT_S,
         poll_s: float = watch_mod.POLL_S,
         retry_s: Optional[float] = None,
     ) -> None:
-        if role not in ROLES:
-            raise ValueError(f"role must be one of {ROLES}, not {role!r}")
         self._agent = agent
         self._connect = connect
-        self._role = role
         self._resumed = resumed
         self._server_wait_s = server_wait_s
         self._poll_s = poll_s
@@ -357,7 +362,7 @@ class Runner:
             return self._code
         try:
             await self._agent.start()
-            prompt = kickoff(self._role, self._resumed)
+            prompt = kickoff(self._resumed)
             while prompt is not None and await self._turn(prompt):
                 prompt = await self._next_prompt()
         except Exception:
@@ -438,9 +443,9 @@ class Runner:
         session = end.session_id or getattr(self._agent, "session_id", None)
         if end.error in FATAL_ERRORS:
             log.error(
-                "The model can't answer (%s); fibsem-agent stops. It signs in as "
-                "Claude Code does on this machine: run `claude` and /login, or "
-                "set ANTHROPIC_API_KEY.",
+                "The model can't answer (%s); fibsem-agent stops. Set "
+                "ANTHROPIC_API_KEY to a Claude API key (or configure Bedrock or "
+                "Vertex), then start it again.",
                 end.error,
             )
             self._code = 1
@@ -759,16 +764,16 @@ def build_options(
 
     command = sidecar_command()
     server = {"type": "stdio", "command": command[0], "args": command[1:]}
-    env = {}
+    # In the CLI's environment, which the sidecar inherits: the server entry
+    # goes on the CLI's command line, where anyone can list it.
+    env = dict(CLI_ENV)
     if url:
         env["FIBSEM_SERVER_URL"] = url
     if token:
         env["FIBSEM_SERVER_TOKEN"] = token
-    if env:
-        server["env"] = env
     return ClaudeAgentOptions(
         cwd=str(checkout),
-        # The checkout's .claude/skills and CLAUDE.md, and none of
+        # The checkout's .claude/skills (CLAUDE.md is off, see CLI_ENV), and none of
         # ~/.claude: the user's own settings, hooks and skills stay out.
         setting_sources=["project"],
         skills=list(SKILLS),
@@ -777,6 +782,7 @@ def build_options(
         disallowed_tools=list(DENIED_TOOLS),
         permission_mode=PERMISSION_MODE,
         mcp_servers={SERVER: server},
+        env=env,
         # Only the server above: not a `fibsem` registered in ~/.claude.json.
         strict_mcp_config=True,
         system_prompt={
@@ -826,14 +832,11 @@ def main(argv=None) -> int:
         "terminal session: it wakes on the app's events.",
     )
     parser.add_argument(
-        "--role",
-        choices=ROLES,
-        default="observe",
-        help="how the agent works, and which skill it reads (default observe); "
-        "the level set in the app decides what it may do",
+        "--url",
+        default=None,
+        help="App Server URL, for a server on another machine; its token goes "
+        "in FIBSEM_SERVER_TOKEN, never on the command line",
     )
-    parser.add_argument("--url", default=None, help="App Server URL")
-    parser.add_argument("--token", default=None, help="the agent's bearer token")
     parser.add_argument("--model", default=None, help="model (default: the CLI's)")
     parser.add_argument(
         "--max-turns",
@@ -888,16 +891,16 @@ def main(argv=None) -> int:
             file=sys.stderr,
         )
         return 1
+    # From the environment, so it is not in the process list or shell history.
+    token = os.environ.get("FIBSEM_SERVER_TOKEN")
     log_path = Path(args.log).expanduser() if args.log else _default_log()
     _log_to(log_path)
-    log.info(
-        "fibsem-agent: %s role, skills from %s, log %s", args.role, checkout, log_path
-    )
+    log.info("fibsem-agent: skills from %s, log %s", checkout, log_path)
 
     options = build_options(
         checkout,
         url=args.url,
-        token=args.token,
+        token=token,
         model=args.model,
         max_turns=args.max_turns,
         max_budget_usd=args.max_budget_usd,
@@ -906,8 +909,7 @@ def main(argv=None) -> int:
     agent = SdkAgent(options)
     runner = Runner(
         agent,
-        lambda: watch_mod.connect(args.url, args.token),
-        role=args.role,
+        lambda: watch_mod.connect(args.url, token),
         resumed=args.resume is not None,
         server_wait_s=args.server_wait,
     )

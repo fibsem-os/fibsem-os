@@ -1,6 +1,6 @@
 ---
 name: autolamella-agent
-description: The ground every agent working with a running AutoLamella stands on — connecting to the App Server, the levels and their refusals, the watcher, writing down why, reading the experiment and using the microscope. Read it first whenever you connect to AutoLamella, then the role skill for your level (observe, assist or supervise).
+description: The ground every agent working with a running AutoLamella stands on — connecting to the App Server, the levels and their refusals, the watcher, writing down why, reading the experiment and using the microscope. Read it first whenever you connect to AutoLamella, then the skill for your level (observe at Watch, assist at Assist, supervise at Drive).
 ---
 
 # Working with AutoLamella
@@ -160,6 +160,8 @@ Its lines:
   `/app/workflow/status`. `RESTARTED`: the app restarted, and the watcher
   reads it from the start.
 - `AGENT OFF` and `AGENT BACK`: the operator set the level to Off and back.
+- `LEVEL <level> (was <level>)`: the operator changed your level. Re-read
+  `server_get_capabilities` and work by the skill the line names.
 - `MESSAGE id=…`: the operator wrote to you from the Agent card. See
   *Messages from the operator*.
 - `NOTE from the operator on <grid>`: the operator kept a note on a grid.
