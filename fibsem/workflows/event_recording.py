@@ -376,6 +376,11 @@ def _workflow_ends() -> frozenset:
 _WORKFLOW_ENDS = _workflow_ends()
 
 
+_PROPOSAL_EVENTS = frozenset(
+    ("proposal_asked", "proposal_decided", "proposal_suggested", "suggestion_declined")
+)
+
+
 class _HookRef:
     """A lifecycle event's own context, read like ``microscope.experiment``."""
 
@@ -518,6 +523,13 @@ class EventRecorder:
             if item is None or item.get("id") != named["id"]:
                 task = None
             item = named
+        if kind in _PROPOSAL_EVENTS and isinstance(payload, dict):
+            # A proposal is its own item's, or the experiment's (an agent's
+            # request): not the running task's, unless it is that task's
+            # (FIB-1510).
+            named = payload.get("item")
+            if named is None or item is None or item.get("id") != named.get("id"):
+                item, task = named, None
         if actor is None:
             if kind in _WORKFLOW_ENDS or (
                 kind in _LIFECYCLE_EVENTS and task is not None
