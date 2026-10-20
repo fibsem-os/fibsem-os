@@ -6,7 +6,9 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QMenu  # noqa: E402
 
-from fibsem.ui.widgets.coincidence_menu import CoincidenceMenu  # noqa: E402
+from fibsem.applications.autolamella.ui.coincidence.menu import (
+    CoincidenceMenu,  # noqa: E402
+)
 
 
 def test_the_entries_sit_in_their_own_submenu_and_need_a_microscope(qapp):

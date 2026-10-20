@@ -16,12 +16,12 @@ from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import QAction, QDialog, QMainWindow, QMessageBox
 
 import fibsem.config as fibsem_cfg
+from fibsem.applications.autolamella.ui.coincidence.menu import CoincidenceMenu
 from fibsem.structures import BeamType
 from fibsem.tools.apps import AUTOLAMELLA, App, apps
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.sound import play_notification_sound
 from fibsem.ui.stylesheets import GRAY_ICON_COLOR
-from fibsem.ui.widgets.coincidence_menu import CoincidenceMenu
 from fibsem.ui.widgets.connection_dialog import connect_to_microscope_dialog
 from fibsem.ui.widgets.run_border import RunBorder
 
@@ -523,7 +523,9 @@ class MainMenuBar(QObject):
         )
 
     def _on_open_preferences(self):
-        from fibsem.ui.widgets.preferences_dialog import PreferencesDialog
+        from fibsem.applications.autolamella.ui.dialogs.preferences import (
+            PreferencesDialog,
+        )
 
         # Fresh from disk, so saving the dialog's result does not put back anything
         # another widget has changed since start-up.

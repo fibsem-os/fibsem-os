@@ -58,6 +58,9 @@ from PyQt5.QtWidgets import (
 from superqt import ensure_main_thread
 
 from fibsem import conversions
+from fibsem.applications.autolamella.ui.coincidence.confirmation import (
+    CoincidenceMillingConfirmationDialog,
+)
 from fibsem.applications.autolamella.ui.lamella.rows import LamellaNameListWidget
 from fibsem.applications.autolamella.ui.lamella.selected import (
     SelectedLamellaController,
@@ -93,9 +96,6 @@ from fibsem.ui.tokens import (
 )
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 from fibsem.ui.widgets.canvas.overlays import RectOverlay, ScanDirectionArrowOverlay
-from fibsem.ui.widgets.coincidence_milling_confirmation_dialog import (
-    CoincidenceMillingConfirmationDialog,
-)
 from fibsem.ui.widgets.custom_widgets import (
     IntegerValueSpinBox,
     TitledPanel,
