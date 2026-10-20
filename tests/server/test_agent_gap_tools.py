@@ -600,3 +600,22 @@ def test_a_grid_run_line_gives_its_time_and_overview_size():
     first, overview = line["change"].split("\n")
     assert first.endswith(", about 2 min")
     assert overview.startswith("SEM Overview: 3 × 3 tiles of 500 µm, about 1.4 mm")
+
+
+def test_a_masked_overview_line_counts_the_tiles_it_takes():
+    """15 of 25 tiles, not a plain 5 × 5 (round 11 R3)."""
+    from fibsem.ai.agent.catalog.imaging import _beam_acquire_overview
+    from fibsem.util import wording
+
+    mask = [[r in (1, 2, 3) for _ in range(5)] for r in range(5)]
+    line = _beam_acquire_overview(
+        {"settings": {"nrows": 5, "ncols": 5, "tile_mask": mask}},
+        wording.ActionContext(),
+    )
+    assert line["change"].startswith(
+        "Take a 5 × 5 SEM overview with 15 of its 25 tiles"
+    )
+    whole = _beam_acquire_overview(
+        {"settings": {"nrows": 5, "ncols": 5}}, wording.ActionContext()
+    )
+    assert "tiles," not in whole["change"].split(",")[0]

@@ -25,6 +25,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from fibsem.services.milling import parse_patterns
 from fibsem.structures import BeamType, Point
 from fibsem.ui.tokens import PURPLE_COLOR, RED_COLOR, WHITE_ICON_COLOR
+from fibsem.workflows.evidence import frame_path
 
 # What a request places on the sample, by kind.
 TARGET_MARK = "target"
@@ -814,7 +815,7 @@ class AgentPreviews:
         if not waiting:
             return
         cited = request.get("evidence") or {}
-        if cited.get("uploaded"):
+        if cited.get("image") and frame_path(cited) is None:
             # An image the agent made: shown as it is, its marks on it.
             self._evidence_only(cited, suggestion)
             return

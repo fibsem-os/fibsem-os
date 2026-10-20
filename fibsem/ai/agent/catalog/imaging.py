@@ -146,7 +146,7 @@ def _beam_acquire_overview(
     beam = wording.beam_short(image.get("beam_type"))
     hfw = image.get("hfw")
     grid = f"{rows} × {cols} " if rows and cols else ""
-    change = f"Take a {grid}{beam} overview"
+    change = f"Take a {grid}{beam} overview{_tiles_on(rows, cols, settings.get('tile_mask'))}"
     size = _overview_size(settings)
     if hfw is not None and size:
         change += f", {wording.distance(hfw)} tiles ({size})"
@@ -176,6 +176,16 @@ def _beam_acquire_overview(
         "change": change,
         "details": wording.table(("Setting", "Value"), table),
     }
+
+
+def _tiles_on(rows: Any, cols: Any, mask: Any) -> str:
+    """ " with 15 of its 25 tiles" when *mask* turns some off; else empty."""
+    try:
+        total = int(rows) * int(cols)
+        on = sum(1 for row in mask for enabled in row if enabled)
+    except (TypeError, ValueError):
+        return ""
+    return f" with {on} of its {total} tiles" if on < total else ""
 
 
 def _overview_size(settings: Dict[str, Any]) -> Optional[str]:
@@ -296,7 +306,8 @@ def _fm_acquire_overview(
     parameters = a.get("parameters") if isinstance(a.get("parameters"), dict) else {}
     rows, cols = parameters.get("rows"), parameters.get("cols")
     grid = f"{rows} × {cols} " if rows and cols else ""
-    line = _fm_channels(a, f"Take a {grid}overview")
+    tiles = _tiles_on(rows, cols, parameters.get("tile_mask"))
+    line = _fm_channels(a, f"Take a {grid}overview{tiles}")
     asked = {k: a[k] for k in ("channels", "parameters", "zparams") if a.get(k)}
     estimate = wording.result_of(ctx.get(_IMAGING + "fm_estimate_overview", asked))
     if isinstance(estimate, dict):

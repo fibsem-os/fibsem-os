@@ -263,7 +263,11 @@ def find(experiment_path: Optional[str], evidence_id: Any) -> Optional[Dict[str,
 
 def frame_path(evidence: Optional[Dict[str, Any]]) -> Optional[str]:
     """The beam image *evidence* is, to draw values on; None for none or for an
-    image the agent made, which is shown as it is."""
+    image the agent made (uploaded, or a picture it rendered such as markers on
+    an overview), which is shown as it is."""
     if not evidence or evidence.get("uploaded"):
         return None
-    return evidence.get("image")
+    image = evidence.get("image")
+    if not image or not str(image).lower().endswith((".tif", ".tiff")):
+        return None
+    return image
