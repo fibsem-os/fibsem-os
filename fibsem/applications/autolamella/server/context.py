@@ -37,9 +37,11 @@ from fibsem.acting import Actor
 from fibsem.applications.autolamella import task_outputs as _task_outputs
 from fibsem.applications.autolamella.config_edits import (
     ITEM_PATCH_FIELDS,
+    apply_correlation,
     config_version,
     item_fields_version,
     item_patch_refusal,
+    poi_patch,
     workflow_field_refusal,
 )
 from fibsem.geometry.saved_images import image_point_to_stage_position, stage_projector
@@ -1500,11 +1502,7 @@ class AutoLamellaAppContext(AppContext):
         it is version-checked, the patterns that follow the point move with it,
         and it is saved and shown as the agent's edit.
         """
-        from fibsem.correlation.history import (
-            correlation_dir,
-            correlation_record,
-            load_run,
-        )
+        from fibsem.correlation.history import correlation_dir, load_run
 
         experiment = self._experiment
         if experiment is None:
@@ -1529,18 +1527,18 @@ class AutoLamellaAppContext(AppContext):
                 "error_type": "invalid",
                 "error": f"the run at {run_path} has no fitted point of interest.",
             }
-        poi = result.poi[0].px_m
-        applied = self.apply_item_patch(
-            item_name,
-            {"poi.x": float(poi.x), "poi.y": float(poi.y)},
-            item_fields_version(lamella),
-            timeout=timeout,
+        version = item_fields_version(lamella)
+        applied = apply_correlation(
+            result,
+            lamella,
+            folder,
+            experiment.path,
+            lambda poi: self.apply_item_patch(
+                item_name, poi_patch(poi), version, timeout=timeout
+            ),
+            self.record_event,
         )
         if applied.get("applied"):
-            self.record_event(
-                "correlation",
-                correlation_record(result, lamella, folder, experiment.path),
-            )
             applied["run_path"] = run_path
         return applied
 
