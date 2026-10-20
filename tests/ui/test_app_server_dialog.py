@@ -16,6 +16,7 @@ from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
 from fibsem.server.agent_setup import agent_setup_text, sidecar_path  # noqa: E402
 from fibsem.server.auth import AuthConfig  # noqa: E402
 from fibsem.server.discovery import dev_checkout  # noqa: E402
+from fibsem.server.hosting import event_log_url  # noqa: E402
 from fibsem.ui.agent.app_server_dialog import (  # noqa: E402
     AppServerDialog,
 )
@@ -191,7 +192,7 @@ def test_no_server_disables_the_event_log(qapp):
 
 
 def test_the_event_log_link_carries_the_dashboard_token(qapp, host):
-    url = AppServerDialog.event_log_url(host)
+    url = event_log_url(host)
     assert url == (
         f"http://127.0.0.1:8001/dashboard/log#token={host.auth.dashboard_token}"
     )

@@ -21,7 +21,15 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WINDOW = REPO_ROOT / "fibsem" / "applications" / "autolamella" / "ui" / "window.py"
-PREFERENCES_DIALOG = REPO_ROOT / "fibsem" / "ui" / "widgets" / "preferences_dialog.py"
+PREFERENCES_DIALOG = (
+    REPO_ROOT
+    / "fibsem"
+    / "applications"
+    / "autolamella"
+    / "ui"
+    / "dialogs"
+    / "preferences.py"
+)
 CONTAINER_SOURCE = (
     REPO_ROOT
     / "fibsem"
@@ -141,8 +149,8 @@ def test_the_lock_is_derived_from_both_pages(container_tree):
 
 
 def test_a_run_locks_the_overviews(window_source):
-    assert "self.overview_tab.locks.set_run_allows(False)" in window_source
-    assert "self.overview_tab.locks.set_run_allows(True)" in window_source
+    # The run view locks the tabs through the window's _lock_for_run.
+    assert "self.overview_tab.locks.set_run_allows(not running)" in window_source
 
 
 def test_the_retired_flag_is_gone_everywhere(window_source):

@@ -18,8 +18,13 @@ hold nothing, and a caller that wants one shape does not want a base class.
 from __future__ import annotations
 
 import logging
+from copy import deepcopy
 from typing import List, Optional, Tuple
 
+import numpy as np
+
+from fibsem.geometry.frames import StageModel
+from fibsem.geometry.projection import BeamStageProjection, lifted
 from fibsem.structures import FibsemStagePosition
 from fibsem.ui.tokens import (
     GRID_BOUNDARY_COLOUR,
@@ -100,6 +105,8 @@ __all__ = [
     "context_overlay_entries",
     "holder_is_calibrated",
     "landmark",
+    "at_click_height",
+    "click_height_key",
     "canvas_span",
     "holder_slots",
     "slot_landmark",
@@ -127,6 +134,69 @@ def landmark(
     """
     origin = frame.origin
     return FibsemStagePosition(name=name, x=x, y=y, z=0.0, r=origin.r, t=origin.t)
+
+
+def _same_pose(
+    a: FibsemStagePosition, b: FibsemStagePosition, axes: Tuple[str, ...] = ("r", "t")
+) -> bool:
+    return all(
+        getattr(a, axis) is not None
+        and getattr(b, axis) is not None
+        and np.isclose(getattr(a, axis), getattr(b, axis), atol=np.deg2rad(1.0))
+        for axis in axes
+    )
+
+
+def at_click_height(
+    frame: StageFrame,
+    place: FibsemStagePosition,
+    stage: Optional[FibsemStagePosition],
+) -> FibsemStagePosition:
+    """*place*, moved to where the canvas draws it so that a click there resolves to its
+    x and y: on the sample surface through *stage*, then taken off the stage's lift
+    (`lifted`), the inverse of how a click is resolved.
+
+    Without it a place drawn at its own z slides in y wherever the view is tilted, by
+    the height times the sine of the view's tilt: hundreds of microns on an Arctis at
+    the milling pose. With the stage in another pose, which a click is refused in, the
+    frame's origin stands in for it. A beam view only, and *place* only at the frame's
+    rotation (a slot carries the SEM pose's tilt, which the projection ignores);
+    otherwise *place* is returned as it is.
+    """
+    if (
+        stage is None
+        or not isinstance(frame.projection, BeamStageProjection)
+        or not _same_pose(place, frame.origin, axes=("r",))
+    ):
+        return place
+    if not _same_pose(stage, frame.origin):
+        stage = frame.origin
+    model = StageModel.from_geometry(frame.projection.geometry)
+    along_y, along_z = model.in_plane_direction(stage.r or 0.0)
+    place = deepcopy(place)
+    place.z = (stage.z or 0.0) + ((place.y or 0.0) - (stage.y or 0.0)) * (
+        along_z / along_y
+    )
+    return lifted(frame.projection, frame.origin, place, stage, sign=-1.0)
+
+
+def click_height_key(
+    frame: StageFrame, stage: Optional[FibsemStagePosition]
+) -> Optional[Tuple[float, ...]]:
+    """What `at_click_height` depends on in *stage*, to the nearest 0.1 um: its lift off
+    the frame's plane and its pose. Unchanged by a move along the sample surface."""
+    if stage is None or not isinstance(frame.projection, BeamStageProjection):
+        return None
+    lift = lifted(
+        frame.projection,
+        frame.origin,
+        FibsemStagePosition(x=0.0, y=0.0, z=0.0),
+        stage,
+    )
+    return tuple(
+        round((value or 0.0) * 1e7)
+        for value in (lift.x, lift.y, lift.z, stage.r, stage.t)
+    )
 
 
 def canvas_span(frame: StageFrame, length: float) -> Tuple[float, float]:
@@ -271,7 +341,9 @@ def at_device(
         return place
 
 
-def limit_shapes(microscope, frame: StageFrame) -> List[ShapeSpec]:
+def limit_shapes(
+    microscope, frame: StageFrame, stage: Optional[FibsemStagePosition] = None
+) -> List[ShapeSpec]:
     """The stage's travel envelope, wherever limits are configured.
 
     Not gated on the stage type. The fluorescence copy gated this and the grid boundary
@@ -279,8 +351,8 @@ def limit_shapes(microscope, frame: StageFrame) -> List[ShapeSpec]:
     the grid circle -- and travel limits have nothing to do with grids. One guard was
     answering two questions.
     """
-    stage = microscope.stage
-    limits = stage.position.limits if stage is not None else None
+    device = microscope.stage
+    limits = device.position.limits if device is not None else None
     if not limits:
         return []
     try:
@@ -289,7 +361,7 @@ def limit_shapes(microscope, frame: StageFrame) -> List[ShapeSpec]:
         # whatever it does to them. The box stays axis-aligned -- the terms are a scale
         # per axis and a possible flip of both.
         corners = [
-            frame.to_canvas(landmark(frame, x, y))
+            frame.to_canvas(at_click_height(frame, landmark(frame, x, y), stage))
             for x in (limits["x"].min, limits["x"].max)
             for y in (limits["y"].min, limits["y"].max)
         ]
@@ -314,7 +386,10 @@ def limit_shapes(microscope, frame: StageFrame) -> List[ShapeSpec]:
 
 
 def boundary_shapes(
-    microscope, frame: StageFrame, device: Optional[str] = None
+    microscope,
+    frame: StageFrame,
+    device: Optional[str] = None,
+    stage: Optional[FibsemStagePosition] = None,
 ) -> List[ShapeSpec]:
     """A grid boundary around every slot the holder carries.
 
@@ -341,7 +416,7 @@ def boundary_shapes(
             continue
         place = at_device(microscope, device, place)
         try:
-            cx, cy = frame.to_canvas(place)
+            cx, cy = frame.to_canvas(at_click_height(frame, place, stage))
             span_x, span_y = canvas_span(frame, GRID_BOUNDARY_RADIUS_M)
         except Exception as e:
             logger.debug(f"Could not draw a grid boundary: {e}")
@@ -361,7 +436,10 @@ def boundary_shapes(
 
 
 def slot_shapes(
-    microscope, frame: StageFrame, device: Optional[str] = None
+    microscope,
+    frame: StageFrame,
+    device: Optional[str] = None,
+    stage: Optional[FibsemStagePosition] = None,
 ) -> List[ShapeSpec]:
     """The sample holder's slots, as crosshairs at their configured positions.
 
@@ -375,7 +453,7 @@ def slot_shapes(
             continue
         place = at_device(microscope, device, place)
         try:
-            cx, cy = frame.to_canvas(place)
+            cx, cy = frame.to_canvas(at_click_height(frame, place, stage))
         except Exception as e:
             logger.debug(f"Could not draw a holder slot: {e}")
             continue
@@ -398,6 +476,7 @@ def context_shapes(
     boundaries: bool = True,
     slots: bool = True,
     device: Optional[str] = None,
+    stage: Optional[FibsemStagePosition] = None,
 ) -> List[ShapeSpec]:
     """All three, in draw order, with each switchable.
 
@@ -408,12 +487,14 @@ def context_shapes(
 
     `device` names the device the canvas is the view from -- see `at_device`. The
     beam canvas leaves it out; the fluorescence canvas passes "FM".
+
+    `stage` draws each place where a click resolves to it (`at_click_height`).
     """
     specs: List[ShapeSpec] = []
     if limits:
-        specs.extend(limit_shapes(microscope, frame))
+        specs.extend(limit_shapes(microscope, frame, stage))
     if boundaries:
-        specs.extend(boundary_shapes(microscope, frame, device))
+        specs.extend(boundary_shapes(microscope, frame, device, stage))
     if slots:
-        specs.extend(slot_shapes(microscope, frame, device))
+        specs.extend(slot_shapes(microscope, frame, device, stage))
     return specs

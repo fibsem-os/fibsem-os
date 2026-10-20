@@ -249,34 +249,18 @@ def test_item_detail_serves_the_durable_item_facts(experiment):
 
 
 def test_stop_workflow_takes_the_stop_path_only_while_running():
-    calls = []
-
-    class Window:
-        def stop_task_workflow(self):
-            calls.append("stop")
-
     host = stub_session()
-    ctx = AutoLamellaAppContext(host, window=Window())
+    ctx = AutoLamellaAppContext(host)
     idle = ctx.stop_workflow()
     assert idle == {
         "available": True,
         "stopped": False,
         "reason": "no workflow is running",
     }
-    assert calls == []
+    assert host.runner.stops == []
 
     host.runner.is_running = True
     assert ctx.stop_workflow() == {"available": True, "stopped": True}
-    assert calls == ["stop"]
-    assert host.runner.stops == [], "the window's Stop stops the run"
-
-
-def test_stop_workflow_with_no_window_stops_the_run():
-    host = stub_session(is_running=True)
-    assert AutoLamellaAppContext(host).stop_workflow() == {
-        "available": True,
-        "stopped": True,
-    }
     assert host.runner.stops == ["run"]
 
 

@@ -103,7 +103,7 @@ def test_an_approved_request_starts_the_run_from_the_gui_thread(ui, qapp, monkey
     auth.set_level(AgentLevel.ASSIST)
     app = build_server(
         ui.microscope,
-        app_context=AutoLamellaAppContext(ui.session, window=ui),
+        app_context=AutoLamellaAppContext(ui.session),
         auth=auth,
     )
     with TestClient(app, raise_server_exceptions=False) as client:

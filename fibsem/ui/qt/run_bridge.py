@@ -13,8 +13,9 @@ Built on the GUI thread: the queued signal delivers to the thread this lives on.
 """
 
 import functools
+import logging
 from concurrent.futures import Future
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 from PyQt5.QtCore import QObject, pyqtSignal
 
@@ -55,6 +56,7 @@ class RunRelay(QObject):
         # scheduled-start wait. Set from the worker thread, read by the border.
         self.pending: bool = False
 
+        runner.stopping.connect(self._on_stopping)
         runner.finished.connect(self._on_finished)
         runner.notice.connect(self._on_notice)
         runner.queue_changed.connect(self._on_queue_changed)
@@ -62,6 +64,9 @@ class RunRelay(QObject):
         runner.held.connect(self._on_held)
         runner.pending.connect(self._on_pending)
         runner.step.connect(self._on_step)
+
+    def _on_stopping(self) -> None:
+        self.stopping.emit()
 
     def _on_finished(self, cancelled: bool) -> None:
         self.finished.emit(cancelled)
@@ -101,8 +106,11 @@ class GuiExecutor(QObject):
     # asked (FIB-1276) -- the mark stays on the requesting thread.
     _call = pyqtSignal(object)
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, before: Callable[[], None], parent=None) -> None:
+        """*before* runs ahead of every call: what the GUI holds unwritten
+        (an editor's pending edit) is written before anything else edits."""
         super().__init__(parent)
+        self._before = before
         # A bound method, not a lambda: the slot must run on this object's thread.
         self._call.connect(self._run)
 
@@ -115,4 +123,8 @@ class GuiExecutor(QObject):
 
     def _run(self, call) -> None:
         """GUI thread."""
+        try:
+            self._before()
+        except Exception:
+            logging.exception("writing what the GUI holds before an edit failed")
         call()

@@ -87,7 +87,7 @@ from fibsem.devices.core import (
     command,
     query,
 )
-from fibsem.devices.runs import current_run_id
+from fibsem.devices.runs import RUNNING, current_run, current_run_id
 from fibsem.milling.base import FibsemMillingStage, estimate_milling_time
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.milling.readings import MillingReadings
@@ -137,6 +137,8 @@ _RUN_CONTEXT = (
 
 # A run outside a task that ``setup`` gave no name.
 UNNAMED_RUN = "Prepared patterns"
+# The commands that mill, which a stop ends even before they start milling.
+_RUNS = ("run", "run_task", "run_stage")
 
 # How a run outside a task ended, as the terminal report that ends its progress.
 _ENDED_AS = {
@@ -779,8 +781,14 @@ class Milling(Service):
 
         Refused with `NothingToStop` when nothing is milling and no task is running.
         """
+        # The run first: one that has yet to register its task or start its
+        # step takes the stop from it (FIB-1506).
+        run = self.runs.latest
+        starting = run is not None and run.state == RUNNING and run.command in _RUNS
+        if starting:
+            run.stop.set()
         task_stop = self._task_stop
-        if task_stop is None and not self._is_milling():
+        if task_stop is None and not starting and not self._is_milling():
             raise NothingToStop("Nothing is milling.")
         if task_stop is not None:
             task_stop.set()
@@ -841,6 +849,12 @@ class Milling(Service):
             yield
         finally:
             self._task_stop = previous
+
+    def _stopped_before_it_mills(self) -> bool:
+        """Whether a stop came for the run going on here before it could
+        take one: before its task or its step was there to stop."""
+        run = current_run()
+        return run is not None and run.service == self.name and run.stop.is_set()
 
     def _is_milling(self) -> bool:
         """Whether a run is in progress, or the instrument says it is milling (a
@@ -935,6 +949,8 @@ class Milling(Service):
         # (while the reference image is taken) ends the task too.
         stop_event = threading.Event()
         with self.task_running(stop_event):
+            if self._stopped_before_it_mills():
+                stop_event.set()
             task = run_milling_task(
                 self.parent,
                 config,
@@ -1153,6 +1169,8 @@ class Milling(Service):
         self._running = True
         try:
             total = float(self._estimate() or 0.0)
+            if self._stopped_before_it_mills():
+                step.end_as(MillingStepEnd(STOPPED, reason="Milling stopped."))
             for monitor in monitors:
                 monitor.start(step)
             if not step.ending.is_set():

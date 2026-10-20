@@ -6,20 +6,34 @@ on the Grids page -- had a header each, each its own: a bold "Select All" over a
 "Status" column, a larger bold "Select All" with a +, a 16 px "Grids" with a present
 count. Their rows were 34, 40 and 32 px, with names at 11, 15 and 16 px. Here is the
 one version they all use, so the four lists read as one widget.
+
+Also here: the list a drag reorders, and the popup behind a list header's ⚙.
 """
 
 from __future__ import annotations
 
 from typing import Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import QPoint, Qt, pyqtSignal
 from PyQt5.QtGui import QColor
-from PyQt5.QtWidgets import QCheckBox, QHBoxLayout, QLabel, QToolButton, QWidget
+from PyQt5.QtWidgets import (
+    QAbstractItemView,
+    QCheckBox,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
+    BORDER_COLOR,
     CANVAS_BG,
     GRAY_ICON_COLOR,
+    PANEL_COLOR,
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
 )
@@ -38,8 +52,7 @@ class ListHeader(QWidget):
     """A list's header: a tick box for the whole list, the list's title and a muted
     count, then whatever the list puts on the right (`add_widget`).
 
-    The tick box is `checkbox_all`, as it was on each list's own header: the lists
-    keep their tri-state sync and only the widget they write to changed.
+    The tick box is `checkbox_all`; the list sets it from its rows with `sync`.
     """
 
     select_all_changed = pyqtSignal(bool)
@@ -96,11 +109,80 @@ class ListHeader(QWidget):
         """The muted figure after the title: "6", "1 · 0 present"."""
         self.count_label.setText(text)
 
+    def sync(self, checked: int, total: int) -> None:
+        """Set the tick box from its rows: all ticked, some (partly), or none,
+        so its next click means the opposite. Emits nothing."""
+        box = self.checkbox_all
+        box.blockSignals(True)
+        if total and checked == total:
+            box.setCheckState(Qt.CheckState.Checked)
+        elif checked:
+            box.setTristate(True)
+            box.setCheckState(Qt.CheckState.PartiallyChecked)
+        else:
+            box.setCheckState(Qt.CheckState.Unchecked)
+        box.blockSignals(False)
+
     def add_widget(self, widget: QWidget, stretch: int = 0) -> None:
         self._layout.addWidget(widget, stretch)
 
     def add_stretch(self) -> None:
         self._layout.addStretch(1)
+
+
+class ReorderableListWidget(QListWidget):
+    """A list the user reorders by dragging, which says the new order -- each
+    item's UserRole data -- after a drop. Qt drops the item widgets when items
+    move, so the owner listens to `reordered` and rebuilds its rows."""
+
+    reordered = pyqtSignal(list)
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setDragDropMode(QAbstractItemView.InternalMove)
+        self.setDefaultDropAction(Qt.DropAction.MoveAction)
+
+    def dropEvent(self, event) -> None:
+        super().dropEvent(event)
+        items = (self.item(i) for i in range(self.count()))
+        data = (item.data(Qt.ItemDataRole.UserRole) for item in items if item)
+        self.reordered.emit([d for d in data if d is not None])
+
+
+class OptionsPopup(QFrame):
+    """What sits behind the ⚙ on a list's header: a titled panel that opens under
+    the button (`show_under`) and closes on a click outside it."""
+
+    def __init__(
+        self,
+        title: str,
+        parent: QWidget,
+        margins: tuple[int, int, int, int] = (8, 8, 8, 8),
+        spacing: int = 6,
+    ) -> None:
+        super().__init__(parent, Qt.Popup)
+        self.setObjectName("optionsPopup")
+        self.setStyleSheet(
+            f"#optionsPopup {{ background: {PANEL_COLOR}; "
+            f"border: 1px solid {BORDER_COLOR}; border-radius: 4px; }}"
+        )
+        self.setFixedWidth(340)
+        self.body = QVBoxLayout(self)
+        self.body.setContentsMargins(*margins)
+        self.body.setSpacing(spacing)
+        label = QLabel(title)
+        label.setStyleSheet(
+            f"color: {TEXT_STRONG_COLOR}; font-size: 13px; font-weight: 600; "
+            "background: transparent;"
+        )
+        self.body.addWidget(label)
+
+    def show_under(self, button: QWidget) -> None:
+        """Open below *button*, its right edge on the button's."""
+        self.adjustSize()
+        corner = button.mapToGlobal(QPoint(button.width(), button.height()))
+        self.move(corner.x() - self.width(), corner.y() + 2)
+        self.show()
 
 
 def column_label(text: str) -> QLabel:

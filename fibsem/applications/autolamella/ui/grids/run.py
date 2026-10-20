@@ -17,12 +17,10 @@ from __future__ import annotations
 import logging
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from PyQt5.QtCore import QPoint, QSize, Qt, pyqtSignal
+from PyQt5.QtCore import QSize, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
-    QAbstractItemView,
     QCheckBox,
     QDialog,
-    QFrame,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -63,10 +61,8 @@ from fibsem.ui.tokens import (
     NEUTRAL_550,
     NEUTRAL_700,
     OK_COLOR,
-    PANEL_COLOR,
     TEXT_COLOR,
     TEXT_MUTED_COLOR,
-    TEXT_STRONG_COLOR,
 )
 from fibsem.ui.widgets.custom_widgets import (
     ElidedLabel,
@@ -79,6 +75,8 @@ from fibsem.ui.widgets.lists import (
     NAME_PX,
     ROW_HEIGHT,
     ListHeader,
+    OptionsPopup,
+    ReorderableListWidget,
     column_label,
     help_button,
     row_chip,
@@ -433,22 +431,6 @@ class _TaskRow(QWidget):
         self.btn_attention.setStyleSheet(chip_style(colour))
 
 
-class _DraggableList(QListWidget):
-    """The task list: InternalMove drag-and-drop that says the new order after a
-    drop. Qt drops the item widgets when items move, so the owner rebuilds rows."""
-
-    reordered = pyqtSignal(list)  # task names, in the new order
-
-    def dropEvent(self, event) -> None:
-        super().dropEvent(event)
-        names = [
-            self.item(i).data(Qt.ItemDataRole.UserRole)
-            for i in range(self.count())
-            if self.item(i).data(Qt.ItemDataRole.UserRole) is not None
-        ]
-        self.reordered.emit(names)
-
-
 # Rows sit flush with their header, as on the Lamella page.
 _LIST_STYLESHEET = (
     stylesheets.LIST_WIDGET_STYLESHEET + "QListWidget::item { padding: 0; }"
@@ -516,7 +498,7 @@ def _add_row(widget: QListWidget, row: QWidget, key: Optional[str] = None) -> No
 # ---------------------------------------------------------------------------
 
 
-class GridRunOptionsPopup(QFrame):
+class GridRunOptionsPopup(OptionsPopup):
     """How a grid run ends, behind the ⚙ on the task list's header, as the Lamella
     page keeps its workflow settings: unload the last grid, write the screening
     report. Set once if at all, and kept for the session: every run started from
@@ -525,22 +507,7 @@ class GridRunOptionsPopup(QFrame):
     changed = pyqtSignal()
 
     def __init__(self, parent: QWidget) -> None:
-        super().__init__(parent, Qt.Popup)
-        self.setObjectName("gridRunOptions")
-        self.setStyleSheet(
-            f"#gridRunOptions {{ background: {PANEL_COLOR}; "
-            f"border: 1px solid {BORDER_COLOR}; border-radius: 4px; }}"
-        )
-        self.setFixedWidth(340)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(6)
-        title = QLabel("Grid workflow options")
-        title.setStyleSheet(
-            f"color: {TEXT_STRONG_COLOR}; font-size: 13px; font-weight: 600; "
-            "background: transparent;"
-        )
-        layout.addWidget(title)
+        super().__init__("Grid workflow options", parent)
         self.unload_check = QCheckBox("Unload the grid when the run finishes")
         self.unload_check.setToolTip(
             "Return the last grid to the magazine once every queued task has "
@@ -564,7 +531,7 @@ class GridRunOptionsPopup(QFrame):
                 f"QCheckBox:disabled {{ color: {TEXT_MUTED_COLOR}; }}"
             )
             box.toggled.connect(self.changed)
-            layout.addWidget(box)
+            self.body.addWidget(box)
         self.set_availability(can_unload=False, report_unavailable="")
 
     def set_availability(self, can_unload: bool, report_unavailable: str) -> None:
@@ -592,13 +559,6 @@ class GridRunOptionsPopup(QFrame):
     def report_at_end(self) -> bool:
         """Whether a run writes the grid screening report as it ends."""
         return self.report_check.isEnabled() and self.report_check.isChecked()
-
-    def show_under(self, button: QWidget) -> None:
-        """Open below *button*, its right edge on the button's."""
-        self.adjustSize()
-        corner = button.mapToGlobal(QPoint(button.width(), button.height()))
-        self.move(corner.x() - self.width(), corner.y() + 2)
-        self.show()
 
 
 class GridWorkflowWidget(QWidget):
@@ -658,7 +618,7 @@ class GridWorkflowWidget(QWidget):
         self.btn_help = help_button(TASK_LIST_HINTS)
         self.task_header.add_widget(self.btn_help)
         root.addWidget(self.task_header)
-        self.task_list = _DraggableList()
+        self.task_list = ReorderableListWidget()
         self.task_list.setStyleSheet(_LIST_STYLESHEET)
         self.task_list.setSelectionMode(QListWidget.SingleSelection)
         self.task_list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -666,8 +626,6 @@ class GridWorkflowWidget(QWidget):
         self.task_list.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
-        self.task_list.setDragDropMode(QAbstractItemView.InternalMove)
-        self.task_list.setDefaultDropAction(Qt.DropAction.MoveAction)
         self.task_list.reordered.connect(self._on_reordered)
         root.addWidget(self.task_list, 1)
         self.task_empty = _empty_line(
@@ -770,17 +728,7 @@ class GridWorkflowWidget(QWidget):
             # the row's own word, not isEnabled(): that is False for every row
             # while the Workflow tab is, before an experiment is loaded
             boxes = [r.checkbox for r in rows.values() if r.selectable]
-            n_checked = sum(b.isChecked() for b in boxes)
-            box = header.checkbox_all
-            box.blockSignals(True)
-            if boxes and n_checked == len(boxes):
-                box.setCheckState(Qt.CheckState.Checked)
-            elif n_checked:
-                box.setTristate(True)
-                box.setCheckState(Qt.CheckState.PartiallyChecked)
-            else:
-                box.setCheckState(Qt.CheckState.Unchecked)
-            box.blockSignals(False)
+            header.sync(sum(b.isChecked() for b in boxes), len(boxes))
 
     def refresh(self) -> None:
         """Redraw from the inventory and the records; no hardware call."""

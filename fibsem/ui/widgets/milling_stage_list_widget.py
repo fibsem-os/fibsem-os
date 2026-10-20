@@ -6,14 +6,12 @@ from typing import List, Optional
 from PyQt5.QtCore import QEvent, QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor, QIcon, QPixmap
 from PyQt5.QtWidgets import (
-    QAbstractItemView,
     QCheckBox,
     QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QListView,
-    QListWidget,
     QListWidgetItem,
     QSizePolicy,
     QToolButton,
@@ -35,6 +33,7 @@ from fibsem.ui.tokens import (
 )
 from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueComboBox, ValueSpinBox
 from fibsem.ui.widgets.form_builder import configure_spinbox
+from fibsem.ui.widgets.lists import ReorderableListWidget
 
 # Columns are flexible: each is (minimum_width, stretch). The header and every row
 # consume the SAME spec so their column boundaries stay aligned as the panel resizes,
@@ -88,25 +87,6 @@ def _make_color_icon(color_name: str, size: int = 16) -> QIcon:
     px = QPixmap(size, size)
     px.fill(QColor(color_name))
     return QIcon(px)
-
-
-class _DraggableStageList(QListWidget):
-    """QListWidget with InternalMove drag-and-drop that emits the new stage order after each drop.
-
-    Qt clears itemWidget associations when items are moved, so the parent must
-    listen to ``reordered`` and rebuild the row widgets.
-    """
-
-    reordered = pyqtSignal(list)  # List[FibsemMillingStage]
-
-    def dropEvent(self, event) -> None:
-        super().dropEvent(event)
-        stages = [
-            self.item(i).data(Qt.ItemDataRole.UserRole)
-            for i in range(self.count())
-            if self.item(i).data(Qt.ItemDataRole.UserRole) is not None
-        ]
-        self.reordered.emit(stages)
 
 
 class MillingStageRowWidget(QWidget):
@@ -507,9 +487,7 @@ class MillingStageListWidget(QWidget):
         sep.setStyleSheet("color: #3a3d42;")
         layout.addWidget(sep)
 
-        self._list = _DraggableStageList()
-        self._list.setDragDropMode(QAbstractItemView.InternalMove)
-        self._list.setDefaultDropAction(Qt.MoveAction)
+        self._list = ReorderableListWidget()
         self._list.setSpacing(0)
         # Sized to its rows (see _update_empty_state): QListWidget's default size
         # hint is 256px, which left a band of nothing under three stages.

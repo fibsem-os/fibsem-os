@@ -1,6 +1,6 @@
 ---
 name: autolamella-agent
-description: The ground every agent working with a running AutoLamella stands on — connecting to the App Server, the levels and their refusals, the watcher, writing down why, reading the experiment and using the microscope. Read it first whenever you connect to AutoLamella, then the role skill for your level (observe, assist or supervise).
+description: The ground every agent working with a running AutoLamella stands on — connecting to the App Server, the levels and their refusals, the watcher, writing down why, reading the experiment and using the microscope. Read it first whenever you connect to AutoLamella, then the skill for your level (observe at Watch, assist at Assist, supervise at Drive).
 ---
 
 # Working with AutoLamella
@@ -37,7 +37,9 @@ curl -s "http://127.0.0.1:8001/capabilities" -H "Authorization: Bearer $TOKEN"
 On the curl path your own harness may gate commands that change state: a
 permission prompt for the operator in an interactive session, a hard denial
 when running on your own. Treat a harness denial exactly like a server 403:
-stop and ask, and never repackage the call to get past it.
+stop and ask, and never repackage the call to get past it. Under
+`fibsem-agent` there is no shell, so there is no curl path: the MCP tools are
+the way in.
 
 Read `server_get_capabilities` (`/capabilities`) before anything else:
 
@@ -104,7 +106,7 @@ fibsem-mcp watch
 ```
 
 It comes with fibsem and finds the app the way the MCP tools do. Where
-`fibsem-mcp` is not on your PATH, run `python -m fibsem.mcp.sidecar watch` with
+`fibsem-mcp` is not on your PATH, run `python -m fibsem.ai.agent.mcp.sidecar watch` with
 the Python fibsem is installed in, from a folder that holds no other fibsem
 checkout (the current folder is searched first). Check it is the fibsem the
 app runs: a watcher from before Assist prints no `REQUEST` lines and has no
@@ -125,6 +127,10 @@ the last line you read (`tail -n +43 -f watch.log` when you have read 42), so
 a line written in between still reaches you. The watcher keeps running. Other
 harnesses need the same thing: a line from the watcher has to start your
 turn.
+
+Under `fibsem-agent` that is done for you: it runs the watcher, and each
+batch of its lines arrives as your next turn (`The watcher printed: …`).
+Don't start one of your own.
 
 If your harness can't keep a background process alive while you are idle
 (spawned subagents usually can't: the watcher dies with your turn), don't go
@@ -154,6 +160,8 @@ Its lines:
   `/app/workflow/status`. `RESTARTED`: the app restarted, and the watcher
   reads it from the start.
 - `AGENT OFF` and `AGENT BACK`: the operator set the level to Off and back.
+- `LEVEL <level> (was <level>)`: the operator changed your level. Re-read
+  `server_get_capabilities` and work by the skill the line names.
 - `MESSAGE id=…`: the operator wrote to you from the Agent card. See
   *Messages from the operator*.
 - `NOTE from the operator on <grid>`: the operator kept a note on a grid.
@@ -225,7 +233,7 @@ Every read works at Watch.
 | One lamella | `item_get`, `item_list_outputs`, `item_get_output_image` |
 | How thick is it? | `item_measure_thickness` on a FIB image from `item_list_outputs` |
 | The plan | `protocol_get`, `item_get_task_config`, `protocol_get_task_config` |
-| Grids | `grid_list`, `grid_get`, `grid_get_markers`, `grid_render_markers` |
+| Grids | `grid_list`, `grid_get`, `grid_get_markers`, `experiment_render_markers` |
 | Grids on the hardware now | `grid_get_inventory` (which grid is loaded), `grid_get_current` |
 | Any other file | `experiment_list_files`, `experiment_read_file`, `experiment_crop_image` |
 
@@ -360,8 +368,10 @@ The other moves, by when to use them:
 
 Retract the FM objective before any move that changes the pose
 (`item_move_to_pose`, `stage_move_to_orientation`,
-`stage_move_to_milling_angle`, `stage_move_absolute`): nothing retracts it
-for you. In a request, put the retract first.
+`stage_move_to_milling_angle`, `stage_move_absolute`). In a request, put the
+retract first. The one exception: on an offset FM mount, `item_move_to_pose`
+or `stage_move_absolute` to a position at the other device crosses the
+chamber with the objective out by itself.
 
 After every move, read the position back and compare it with what you asked
 for, then take a fresh image and check where the feature landed before the
@@ -531,7 +541,11 @@ it doesn't list to one it does, so a square 2048 × 2048 came back as
   estimate (`beam_estimate_overview`, `fm_estimate_overview`): it judges reach
   from where the stage is, and an acquire with any tile it lists as
   unreachable is refused, so turn those off in `tile_mask` and acquire the
-  rest. Say in your note which part of the grid the overview could not cover.
+  rest. Reach is judged by each tile's centre, so use an odd number of rows
+  and columns: a tile then sits on the grid's centre line. An even count can
+  lose a row the stage half reaches (on the Arctis, 4 rows at 500 µm keep 2,
+  5 rows keep 3). Say in your note which part of the grid the overview could
+  not cover.
 - "Take a tile set" (a 3 × 3 at 500 µm, say) means where the stage is now, at
   the size and field of view the operator gave.
 - Any other image, yours or the operator's ("image the lamella", a look
@@ -561,8 +575,9 @@ on the feature itself before acting, as an operator would.
   cell or a rank; ask which the operator means.
 - Record each site as *Write down why* says: `item_add` without `name`, and
   how to find it again in its description.
-- Show the operator what you picked: `grid_render_markers` draws the items on
-  the overview, and its `path` is the evidence of the note that reports them
+- Show the operator what you picked: `experiment_render_markers` draws the
+  items on any beam image in the experiment, your own overview included, and
+  its `path` is the evidence of the note that reports them
   (`experiment_add_note` with `evidence: {image: path}`), shown in the card.
 
 **Grids by hand.** `grid_list` is the experiment's records; `grid_get_inventory`
@@ -619,7 +634,7 @@ At the start of a session:
 1. Connect and read `/capabilities`. Tell the operator the level and what it
    means, and whether the microscope is served.
 2. Start the watcher before anything else, so nothing that happens while you
-   read is missed.
+   read is missed. Under `fibsem-agent` it is already running.
 3. Read where things stand: `app_get_status`, `workflow_get_queue`,
    `proposal_list`. A pending proposal comes first.
 4. Before the first microscope action, get your bearings (above).

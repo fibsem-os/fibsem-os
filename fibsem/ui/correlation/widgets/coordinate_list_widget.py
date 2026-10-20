@@ -15,12 +15,10 @@ from typing import Dict, List, Optional, Tuple
 from PyQt5.QtCore import QEvent, QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QFontMetrics
 from PyQt5.QtWidgets import (
-    QAbstractItemView,
     QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
-    QListWidget,
     QListWidgetItem,
     QMenu,
     QVBoxLayout,
@@ -50,6 +48,7 @@ from fibsem.ui.tokens import (
     state_style,
 )
 from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueSpinBox
+from fibsem.ui.widgets.lists import ReorderableListWidget
 from fibsem.ui.widgets.point_store import PointStore
 
 _NAME_FIXED_WIDTH = 100
@@ -86,36 +85,6 @@ def _name_col_width(point_type: Optional[PointType]) -> int:
     font.setPixelSize(11)  # ...at the row/name label font-size
     text_w = QFontMetrics(font).horizontalAdvance(label)
     return max(48, min(text_w + 14, _NAME_FIXED_WIDTH))  # +padding, clamped
-
-
-# ---------------------------------------------------------------------------
-# Draggable list
-# ---------------------------------------------------------------------------
-
-
-class _DraggableCoordinateList(QListWidget):
-    """QListWidget with InternalMove drag-and-drop.
-
-    Qt clears itemWidget on move, so the parent must listen to ``reordered``
-    and rebuild row widgets after each drop.
-    """
-
-    reordered = pyqtSignal(list)  # List[Coordinate]
-
-    def __init__(self, parent=None) -> None:
-        super().__init__(parent)
-        self.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
-        self.setDefaultDropAction(Qt.DropAction.MoveAction)
-
-    def dropEvent(self, event) -> None:
-        super().dropEvent(event)
-        coords = [
-            self.item(i).data(Qt.ItemDataRole.UserRole)
-            for i in range(self.count())
-            if self.item(i) is not None
-            and self.item(i).data(Qt.ItemDataRole.UserRole) is not None
-        ]
-        self.reordered.emit(coords)
 
 
 # ---------------------------------------------------------------------------
@@ -536,7 +505,7 @@ class CoordinateListWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self._list = _DraggableCoordinateList()
+        self._list = ReorderableListWidget()
         # The item highlight would show through the row's translucent widget
         # only where no child covers it, reading as a stray box beside the
         # numbers; the row paints its own selected background instead.

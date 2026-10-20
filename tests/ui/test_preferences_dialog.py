@@ -21,8 +21,8 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
+from fibsem.applications.autolamella.ui.dialogs.preferences import PreferencesDialog
 from fibsem.config import MODE_COMPACT, FeatureFlags, UserPreferences
-from fibsem.ui.widgets.preferences_dialog import PreferencesDialog
 
 # Flags deliberately not offered in the dialog. Anything here is a decision, not an
 # oversight — which is the point of listing them rather than skipping the check.

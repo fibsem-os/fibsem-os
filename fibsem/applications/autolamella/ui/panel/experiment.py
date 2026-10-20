@@ -170,17 +170,12 @@ class ExperimentTab(QWidget):
         self.refresh_run_edits()
 
     def refresh_run_edits(self) -> None:
-        """While a run is on, the selected lamella stays editable unless the run
-        is working on it; the stage and objective are the run's."""
-        runner = self.session.runner
-        lamella = self.get_selected_lamella()
-        busy = bool(
-            lamella is not None
-            and lamella_edit_refusal(runner, self.experiment, lamella, "edit it")
-        )
-        self.selected_lamella_widget.setEnabled(not busy)
+        """While a run is on, the selected lamella stays editable, the one the
+        run is on included (only its running task's config waits, FIB-1505);
+        the stage and objective are the run's."""
+        self.selected_lamella_widget.setEnabled(True)
         self.selected_lamella_widget.set_instrument_actions_enabled(
-            not runner.is_running
+            not self.session.runner.is_running
         )
 
     def move_to_lamella_position(self):

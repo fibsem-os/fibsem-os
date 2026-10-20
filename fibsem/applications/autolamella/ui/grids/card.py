@@ -9,8 +9,6 @@ arrives on every refresh and is only drawn.
 
 from __future__ import annotations
 
-import os
-from collections import OrderedDict
 from typing import Dict, List, Optional, Tuple
 
 from PyQt5.QtCore import Qt, pyqtSignal
@@ -33,6 +31,7 @@ from fibsem.applications.autolamella.ui.common.lamella_display import (
     add_verdict_actions,
     mark_current_verdict,
 )
+from fibsem.applications.autolamella.ui.common.thumbnails import cached_thumbnail
 from fibsem.config import CARD_MODES, MODE_COMPACT, MODE_COZY, MODE_STANDARD
 from fibsem.structures import GridInventoryEntry, GridSlotState
 from fibsem.ui import stylesheets
@@ -142,20 +141,6 @@ def grid_headline(grid: GridRecord) -> Tuple[str, str]:
     return f"{last.name} ({last.completed_at})", NEUTRAL_550
 
 
-# -- thumbnails, decoded once per file -----------------------------------------
-
-_THUMBNAIL_CACHE: "OrderedDict[tuple, QImage]" = OrderedDict()
-_THUMBNAIL_CACHE_MAX = 200
-
-
-def _stamp(path: str) -> Optional[tuple]:
-    try:
-        st = os.stat(path)
-    except OSError:
-        return None
-    return (st.st_mtime_ns, st.st_size)
-
-
 def grid_thumbnail_path(experiment: Experiment, grid: GridRecord) -> Optional[str]:
     """The latest overview thumbnail a run recorded for the grid, SEM first."""
     for role in _THUMBNAIL_ROLES:
@@ -163,32 +148,6 @@ def grid_thumbnail_path(experiment: Experiment, grid: GridRecord) -> Optional[st
         if path is not None:
             return path
     return None
-
-
-def _thumbnail_image(path: Optional[str], w: int, h: int) -> Optional[QImage]:
-    """The thumbnail scaled for a `w` x `h` label, decoded at most once per file
-    (the lamella card's lesson, FIB-681: a strip of cards must not re-decode on
-    every refresh)."""
-    if path is None:
-        return None
-    key = (path, _stamp(path), w, h)
-    image = _THUMBNAIL_CACHE.get(key)
-    if image is not None:
-        _THUMBNAIL_CACHE.move_to_end(key)
-        return image
-    image = QImage(path)
-    if image.isNull():
-        return None
-    image = image.scaled(
-        w,
-        h,
-        Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-        Qt.TransformationMode.SmoothTransformation,
-    )
-    _THUMBNAIL_CACHE[key] = image
-    if len(_THUMBNAIL_CACHE) > _THUMBNAIL_CACHE_MAX:
-        _THUMBNAIL_CACHE.popitem(last=False)
-    return image
 
 
 class GridCardWidget(QWidget):
@@ -450,10 +409,16 @@ class GridCardWidget(QWidget):
             f"Quality: {verdict}. A person's verdict; no task sets it."
         )
 
-        image = _thumbnail_image(
-            grid_thumbnail_path(self.experiment, grid) if self.experiment else None,
-            self._thumb_label.width(),
-            self._thumb_label.height(),
+        path = grid_thumbnail_path(self.experiment, grid) if self.experiment else None
+        image = (
+            None
+            if path is None
+            else cached_thumbnail(
+                path,
+                self._thumb_label.width(),
+                self._thumb_label.height(),
+                lambda: QImage(path),
+            )
         )
         if image is not None:
             self._thumb_label.setText("")

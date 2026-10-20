@@ -220,8 +220,8 @@ def test_the_three_preflight_dialogs_share_one_style():
     a stronger statement than importing the same helper: they cannot lay it out
     differently, because neither of them lays it out at all.
     """
+    from fibsem.applications.autolamella.ui.coincidence import confirmation as milling
     from fibsem.ui.fm.widgets import fm_overview_confirmation_dialog as fm
-    from fibsem.ui.widgets import coincidence_milling_confirmation_dialog as milling
     from fibsem.ui.widgets import overview_confirmation_dialog as beam
     from fibsem.ui.widgets import preflight
     from fibsem.util import durations

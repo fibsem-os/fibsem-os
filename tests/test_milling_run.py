@@ -525,6 +525,21 @@ def test_ending_with_nothing_milling_is_refused(scripted):
         service.end("nothing", by="agent")
 
 
+def test_a_stop_before_the_run_mills_cancels_it(scripted):
+    """``run`` answers "running" from its own thread before it starts the
+    pattern; a stop then cancels it, and nothing mills (FIB-1506)."""
+    service = scripted([RUNNING] * 10)
+    gate = threading.Event()
+    service._before_run = lambda: (service.steps.append("before"), gate.wait(5))
+
+    run = service.runs.start("run", service.run)
+    service.stop()
+    gate.set()
+
+    assert service.runs.wait(run.run_id, 5).state == "cancelled"
+    assert "start" not in service.steps
+
+
 def test_an_end_the_beam_ignores_gives_up(scripted):
     service = scripted([RUNNING] * 100, stop_timeout=3)
     service._stop = lambda: service.steps.append("stop")  # never stops

@@ -1,5 +1,5 @@
 """The experiment's lamellae drawn on an overview: one figure for the overview
-plot dialog and for the picture the agent cites (`grid_render_markers`).
+plot dialog and for the picture the agent cites (`experiment_render_markers`).
 
 Pure: no Qt. Positions are the lamellae's milling poses, reprojected by
 `plot_minimap`.
