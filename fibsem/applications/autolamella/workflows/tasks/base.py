@@ -66,7 +66,6 @@ from fibsem.detection.detection import (
     LamellaTopEdge,
     VolumeBlockCentre,
 )
-from fibsem.devices.beam import nearest_resolution
 from fibsem.fm.structures import ChannelSettings
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.patterning.utils import get_pattern_reduced_area
@@ -110,8 +109,6 @@ TAutoLamellaTaskConfig = TypeVar(
 
 MAX_ALIGNMENT_ATTEMPTS = 3
 ALIGNMENT_REFERENCE_IMAGE_FILENAME = "ref_alignment_ib.tif"
-# the alignment reference is taken at the listed resolution nearest this
-ALIGNMENT_REFERENCE_RESOLUTION = (1536, 1024)
 
 
 class AutoLamellaTask(BaseTask):
@@ -659,54 +656,6 @@ class AutoLamellaTask(BaseTask):
         if orientation is None:
             return stage_position
         return self.microscope.get_target_position(stage_position, orientation)
-
-    def _acquire_alignment_reference_image(
-        self,
-        image_settings: ImageSettings,
-        field_of_view: float,
-        reduced_area: FibsemRectangle,
-    ) -> FibsemImage:
-        """Acquire alignment reference image with reduced area.
-        Args:
-            image_settings (ImageSettings): The image settings to use for acquisition.
-            field_of_view (float): The field of view to use for acquisition.
-            reduced_area (FibsemRectangle): The reduced area to use for acquisition.
-        Returns:
-            FibsemImage: The acquired alignment reference image.
-        """
-        self.log_status_message(
-            "ACQUIRE_ALIGNMENT_REFERENCE_IMAGE",
-            "Acquiring Alignment Reference Image...",
-        )
-        alignment_image_settings = deepcopy(image_settings)
-
-        # set reduced area for fiducial alignment
-        alignment_image_settings.reduced_area = reduced_area
-
-        # acquire reference image for alignment
-        alignment_image_settings.beam_type = BeamType.ION
-        alignment_image_settings.save = True
-        alignment_image_settings.hfw = field_of_view
-        # Lamella state, read by later tasks (FIB-1258): in the lamella's folder
-        # and overwritten each time, not in this run's own folder (FIB-1275).
-        alignment_image_settings.path = str(self.lamella.path)
-        alignment_image_settings.filename = "ref_alignment"
-        alignment_image_settings.resolution = self._alignment_resolution()
-        alignment_image_settings.dwell_time = 1e-6
-        alignment_image_settings.autocontrast = (
-            True  # enable autocontrast for alignment
-        )
-        fib_image = acquire.acquire_image(self.microscope, alignment_image_settings)
-
-        return fib_image
-
-    def _alignment_resolution(self) -> Tuple[int, int]:
-        """The ion beam's listed resolution nearest the alignment reference's
-        1536x1024, so the reference is taken at one the instrument offers."""
-        ion = self.microscope.beams.get(BeamType.ION)
-        parameter = None if ion is None else ion.parameters.get("resolution")
-        choices = None if parameter is None else parameter.choices
-        return nearest_resolution(ALIGNMENT_REFERENCE_RESOLUTION, choices)
 
     def set_fluorescence_channels_ui(
         self, channel_settings: List[ChannelSettings]
