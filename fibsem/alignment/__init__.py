@@ -140,6 +140,25 @@ class AlignmentResult:
     final_image: Optional[FibsemImage] = None
     validation: Optional[AlignmentDifferential] = None
 
+    def check(self) -> dict:
+        """Whether the run looks trustworthy, without stopping anything:
+        ``passed``, ``doubtful`` with the reasons, or ``unchecked`` when it
+        was not validated and no step failed."""
+        reasons = [
+            f"step {i + 1} scored under the minimum response, so it did not move"
+            for i, step in enumerate(self.results)
+            if not step.success
+        ]
+        if self.validation is not None and not self.validation.agreement:
+            reasons.append(
+                f"the methods disagree by {self.validation.max_disagreement_px:.1f} px"
+            )
+        if reasons:
+            verdict = "doubtful"
+        else:
+            verdict = "passed" if self.validation is not None else "unchecked"
+        return {"verdict": verdict, "reasons": reasons}
+
     def to_dict(self) -> dict:
         return {
             "name": self.name,
@@ -610,6 +629,8 @@ def _record_alignment(
             "status": CANCELLED if aborted else COMPLETED,
             "started_at": started_at,
         }
+        if not aborted:
+            payload["check"] = run.check()
     except Exception:  # noqa: BLE001 - recording must not matter
         logging.debug("could not record an alignment", exc_info=True)
         return

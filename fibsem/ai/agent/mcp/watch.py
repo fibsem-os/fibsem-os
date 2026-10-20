@@ -14,7 +14,8 @@ The lines: ``PROMPT``, ``ANSWERED``, ``PROMPT WITHDRAWN``, ``PROPOSAL``,
 ``PROPOSAL RELEASED``, ``REQUEST`` (the agent's request decided, finished or
 cancelled, FIB-1283), ``COMMAND ENDED``, ``MILL STAGE STARTED`` and
 ``MILL ENDED`` (every mill, whoever started it), ``MILL READING`` (a milling
-monitor's trigger or error), task ``EVENT`` lines,
+monitor's trigger or error), ``AUTOFOCUS`` and ``ALIGNMENT`` (every one, with
+its check: passed, doubtful and why, or unchecked), task ``EVENT`` lines,
 ``WORKFLOW STARTED``, ``WORKFLOW ENDED``, ``MESSAGE`` (the operator wrote to
 the agent from its card, FIB-1423; one still unanswered when the watch starts
 is said first), ``NOTE`` (the operator kept a note on a
@@ -161,6 +162,10 @@ def _print_events(events, since, out):
             line = _reading_line(data)
             if line:
                 out(line)
+        elif kind == "autofocus":
+            out(_autofocus_line(event, data))
+        elif kind == "alignment":
+            out(_alignment_line(event, data))
         elif kind == "note" and event.get("actor") == "operator" and not data.get("id"):
             # A note the operator kept on an item (a grid's note), not to the agent.
             text = " ".join(str(data.get("text", "")).split())
@@ -281,6 +286,51 @@ def _mill_ended_line(event, data):
     if stages:
         line += " stages: " + ", ".join(stages)
     return f"{line} ({data['error']})" if data.get("error") else line
+
+
+def _check_part(data):
+    """How an auto function's result was judged, for its line: `` passed``,
+    `` doubtful (why)``, or how it ended when it did not complete."""
+    status = data.get("status")
+    if status != "completed":
+        reason = data.get("error") or data.get("reason")
+        return f" status={status}" + (f" ({reason})" if reason else "")
+    check = data.get("check") or {}
+    verdict = check.get("verdict", "unchecked")
+    reasons = check.get("reasons") or []
+    return f" {verdict}" + (f" ({'; '.join(reasons)})" if reasons else "")
+
+
+def _autofocus_line(event, data):
+    """An autofocus ended: the beam, the working distance it left and moved
+    from, its score and its check, so a bad focus is seen, not trusted."""
+    line = f"AUTOFOCUS{_item_of(event)} beam={data.get('beam_type')}"
+    start, wd = data.get("initial_working_distance"), data.get("working_distance")
+    if isinstance(start, (int, float)) and isinstance(wd, (int, float)):
+        line += f" wd={start * 1e3:.3f}->{wd * 1e3:.3f} mm"
+    if data.get("focus_score") is not None:
+        line += f" score={data['focus_score']:.3g}"
+    line += _check_part(data)
+    return f"{line} path={data['path']}" if data.get("path") else line
+
+
+def _alignment_line(event, data):
+    """An alignment ended: its name, the beam, the last step's shift and
+    score, and its check (the methods agree, every step moved)."""
+    line = (
+        f"ALIGNMENT '{data.get('name')}'{_item_of(event)} beam={data.get('beam_type')}"
+    )
+    steps = data.get("results") or []
+    if steps:
+        last = steps[-1]
+        shift = last.get("shift") or {}
+        x, y = shift.get("x"), shift.get("y")
+        if isinstance(x, (int, float)) and isinstance(y, (int, float)):
+            line += f" shift=({x * 1e9:.0f}, {y * 1e9:.0f}) nm"
+        if isinstance(last.get("score"), (int, float)):
+            line += f" score={last['score']:.2f}"
+    line += _check_part(data)
+    return f"{line} path={data['path']}" if data.get("path") else line
 
 
 def _stage_part(stage):

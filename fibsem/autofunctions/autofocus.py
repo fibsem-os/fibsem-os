@@ -35,6 +35,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# A focus that moves the working distance further than this is doubtful: a
+# starting guess (2026-10-19 run: dark sites picked a bad WD), to be set from
+# the verdicts real runs record.
+MAX_WD_JUMP = 100e-6
+
 
 class FocusMethod(NamedEnum, str, Enum):
     """Focus measurement methods for autofocus algorithms."""
@@ -210,6 +215,28 @@ class AutoFocusResult:
             return False
         tried = [it.working_distance for it in self.iterations]
         return self.working_distance in (min(tried), max(tried))
+
+    def check(self) -> dict:
+        """Whether the result looks trustworthy, without stopping anything:
+        ``passed`` or ``doubtful`` with the reasons. ``peak_ratio`` (best score
+        over the sweep's median) is recorded only, to set a score rule from
+        real runs later."""
+        reasons = []
+        if self.at_edge:
+            reasons.append("the best focus is at the edge of the sweep")
+        jump = self.working_distance - self.initial_working_distance
+        if abs(jump) > MAX_WD_JUMP:
+            reasons.append(
+                f"the working distance moved {jump * 1e3:+.3f} mm, more than "
+                f"{MAX_WD_JUMP * 1e3:g} mm"
+            )
+        scores = [it.focus_score for it in self.iterations]
+        median = float(np.median(scores)) if scores else 0.0
+        return {
+            "verdict": "doubtful" if reasons else "passed",
+            "reasons": reasons,
+            "peak_ratio": round(self.focus_score / median, 3) if median > 0 else None,
+        }
 
     def to_dict(self) -> dict:
         """The result without its images: the working distances, scores and
@@ -412,6 +439,7 @@ def run_auto_focus(
             "initial_working_distance": result.initial_working_distance,
             "working_distance": result.working_distance,
             "focus_score": result.focus_score,
+            "check": result.check(),
             "path": saved,
         },
     )
