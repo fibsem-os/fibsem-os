@@ -1,9 +1,8 @@
 # The App Server
 
 The HTTP server AutoLamella hosts for agents and the dashboard (the App
-Server), and `FibsemClient`, the client that talks to it. The client keeps
-`FibsemMicroscope`'s method names where it has them, but it is not a subclass. The user
-guide is [docs/app-server.md](../../docs/app-server.md).
+Server). Its client is `fibsem.client.FibsemClient`. The user guide is
+[docs/app-server.md](../../docs/app-server.md).
 
 ## Installation
 
@@ -43,7 +42,7 @@ A long service command (marked `long: true` in the listing: milling's `run`,
 `align_to_reference`; spot burn's `run`) answers at once with its run (`run_id`, `state: running`)
 and runs on in control of the microscope; `GET /microscope/services/{service}/run`
 reads it, waiting up to `?wait=` seconds (at most 60) for the end, and the end is
-a `command_ended` event. `FibsemClient.run_milling` waits for it. The run is the
+a `command_ended` event. The client's `Run.wait` waits for it. The run is the
 service's (`fibsem/devices/runs.py`), so the same route reads a run a workflow
 task or the operator started: a milling task is a run under its
 `milling_run_id`.
@@ -84,153 +83,50 @@ experiment name in the path.
 
 ## Using the Client
 
-```python
-from fibsem.server import FibsemClient
-
-microscope = FibsemClient(host="192.168.1.100", port=8001, token="<token from Connect an agent…>")
-```
-
-### Image Acquisition
+`fibsem.client.FibsemClient` reaches the devices and services by name, from what
+the server describes. A new parameter, command or query on the server needs no
+client change. Values and results come back as the types the server declares.
 
 ```python
-from fibsem.structures import BeamType
+from fibsem.client import FibsemClient
+from fibsem.structures import BeamType, FibsemStagePosition
 
-# Acquire a fresh image (uses current microscope settings)
-image = microscope.acquire_image(BeamType.ELECTRON)
-image = microscope.acquire_image(BeamType.ION)
+# With no url and token, the App Server on this machine (~/.fibsem/app-server.json),
+# else FIBSEM_SERVER_URL and FIBSEM_SERVER_TOKEN.
+with FibsemClient("http://192.168.1.100:8001", "<token>") as client:
+    electron = client.devices["electron"]
+    electron.get("hfw")                          # a live read, as a float
+    electron.get("stigmation")                   # a Point
+    electron.set("hfw", 150e-6)                  # checked server-side; the value written
+    electron.values()                            # every parameter, one read
+    electron.metadata("hfw")                     # limits, choices, settable
+    image = electron.acquire()                   # a FibsemImage
 
-# Chamber overview image
-image = microscope.acquire_chamber_image()
+    stage_movement = client.services["stage_movement"]
+    stage_movement.move_relative(delta=FibsemStagePosition(x=10e-6))  # a FibsemStagePosition
+    stage_movement.project_stable_move(
+        dx=10e-6, dy=0, beam_type=BeamType.ELECTRON,
+        base_position=client.devices["stage"].get("position"),
+    )
 
-# image.data is a numpy array; image.metadata contains full FibsemImageMetadata
-print(image.data.shape, image.data.dtype)
+    # A long command answers at once with its run, which runs on.
+    run = client.services["milling"].run()
+    run.wait(timeout=3600)                       # its result; a failed run raises
+    client.services["milling"].stop(reason="stopped from a script")  # a stop needs a reason
+
+    client.analysis["correlation"]               # the analysis services (/services)
+    client.state()                               # MicroscopeState
+    client.system                                # SystemSettings
 ```
 
-### Stage Movement
-
-```python
-from fibsem.structures import FibsemStagePosition, BeamType
-
-# Get current position
-pos = microscope.get_stage_position()
-
-# Move to an absolute position (metres / radians). The raw move: the App
-# Server's allowlist refuses it to an agent token; use the safe move below.
-pos = microscope.move_stage_absolute(
-    FibsemStagePosition(x=0.001, y=0.0, z=0.004, r=0.0, t=0.0, coordinate_system="RAW")
-)
-
-# Move by a relative offset (None fields are ignored)
-pos = microscope.move_stage_relative(FibsemStagePosition(x=50e-6, y=-20e-6))
-
-# Beam-corrected lateral move (compensates for stage tilt)
-pos = microscope.stable_move(dx=10e-6, dy=5e-6, beam_type=BeamType.ELECTRON)
-
-# Vertical move (along the beam axis)
-pos = microscope.vertical_move(dy=5e-6)
-
-# Safe move with collision avoidance
-microscope.safe_absolute_stage_movement(FibsemStagePosition(x=0.0, y=0.0, z=0.004))
-
-# Move to a named orientation ("SEM", "FIB", "MILLING", or "FM" on a compustage)
-microscope.move_to_orientation("SEM")
-microscope.move_to_orientation("FIB")
-```
-
-### Milling
-
-Milling follows a setup → draw → run → finish sequence.
-
-```python
-from fibsem.structures import FibsemMillingSettings, FibsemRectangleSettings
-
-# 1. Configure mill settings (current, voltage, application file, etc.)
-mill_settings = FibsemMillingSettings(
-    milling_current=20e-12,
-    milling_voltage=30000,
-)
-microscope.setup_milling(mill_settings)
-
-# 2. Draw patterns onto the ion beam
-rect = FibsemRectangleSettings(
-    width=10e-6,
-    height=5e-6,
-    depth=1e-6,
-    centre_x=0.0,
-    centre_y=0.0,
-)
-microscope.draw_patterns([rect])
-
-# Supported pattern types: FibsemRectangleSettings, FibsemLineSettings,
-#                          FibsemCircleSettings, FibsemBitmapSettings, FibsemPolygonSettings
-
-# 3. Run milling: the server runs it as a long command; this waits for the end
-ended = microscope.run_milling(timeout=3600)   # "completed" or "cancelled"
-
-# 4. Restore imaging conditions
-microscope.finish_milling()                 # clear, put the beam back as setup found it
-
-# --- Control ---
-microscope.start_milling()           # start without blocking
-microscope.pause_milling()
-microscope.resume_milling()
-microscope.stop_milling()
-microscope.clear_patterns()
-
-# --- State ---
-state   = microscope.get_milling_state()    # MillingState enum
-seconds = microscope.estimate_milling_time() # float
-```
-
-### Devices and beam settings
-
-Every device the microscope built (`microscope.devices`: `electron`, `ion`,
-`stage`, `chamber`, `manipulator`, FM parts) is served generically, the same
-routes the device server (`fibsem/server/devices.py`) serves. The chamber's
-`state` and `pressure` are reads; pumping and venting are the operator's, at the
-microscope, so the allowlist refuses them.
-
-```python
-microscope.list_devices()                               # parameters + commands per device
-microscope.get_parameter("ion", "current")              # live read
-microscope.set_parameter("electron", "hfw", 150e-6)     # checked server-side, returns the value written
-microscope.parameter_metadata("ion", "current")         # limits, choices, settable
-microscope.call_command("ion", "blank")
-image = microscope.call_command("electron", "acquire")  # a FibsemImage
-
-# FibsemMicroscope's wrappers are kept, over the same routes
-microscope.set_beam_current(1e-9, BeamType.ION)         # PUT /microscope/devices/ion/current
-microscope.get_beam_settings(BeamType.ION)              # GET /microscope/devices/ion/values
-```
-
-The settings groups (beam, imaging, detector) are put together by the client
-from one `values` read, and written parameter by parameter. Stage moves and
-milling go through the `stage_movement` and `milling` services.
+A command or query is a method (`electron.acquire(...)`), or `call(name, ...)` and
+`ask(name, ...)`. A refusal raises the exception it names (`StageLimitError`,
+`ResourceBusy`, `DeviceFault`, ...), else `ServerError` with the status and the
+server's `error_type`. An unreachable server raises `ServerUnreachable`.
 
 Reads work at Watch. Parameter writes and commands need Drive, or a request the
-operator approved at Assist, and take control of the microscope, except the stops (`stop`, `stop_live`), which follow
-the stop rule above and never take control.
-
-`microscope.devices` gives the served beams and FM parts as live devices, by name,
-like `FibsemMicroscope.devices`, with no event stream: `changed` fires only for this
-client's own reads and writes. The other devices are reached by name as above.
-
-```python
-microscope.devices["ion"].current.get_value()           # a live read
-microscope.get_values("electron")                       # every parameter, one read
-microscope.call_query("stage", "pose_table")
-
-# Services, by name
-microscope.get_service_parameter("milling", "state")
-microscope.set_service_parameter("stage_movement", "milling_angle", 0.3)
-microscope.call_service_command("stage_movement", "move_relative", delta=FibsemStagePosition(x=10e-6))
-microscope.call_service_query(
-    "stage_movement", "project_stable_move",
-    dx=10e-6, dy=0, beam_type=BeamType.ELECTRON, base_position=microscope.get_stage_position(),
-)
-run = microscope.call_service_command("alignment", "align", reference_path="ref.tif")
-microscope.wait_for_run("alignment", run["run_id"])     # a long command's result
-```
+operator approved at Assist, and take control of the microscope, except the stops,
+which follow the stop rule above.
 
 ---
 
@@ -242,7 +138,7 @@ microscope.wait_for_run("alignment", run["run_id"])     # a long command's resul
 | `GET` | `/capabilities` | API version, routers served, the agent level |
 | `GET` | `/microscope` | Who the microscope is: manufacturer, model, serial number, software, fitted parts, its configuration |
 | `GET`/`PUT` | `/microscope/state` | The whole microscope state |
-| `GET` | `/microscope/devices` | Every device: parameters (type, unit, limits, choices, settable) and commands |
+| `GET` | `/microscope/devices` | Every device: parameters (type and its `type_path`, unit, limits, choices, settable), and commands and queries (arguments, what they return) |
 | `GET` | `/microscope/devices/{device}` | One device |
 | `GET` | `/microscope/devices/{device}/values` | Every parameter's value in one read; the ones unavailable now listed apart |
 | `GET` | `/microscope/devices/{device}/{parameter}` | Live read of a parameter |

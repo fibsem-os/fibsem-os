@@ -232,6 +232,7 @@ def describe_device(device: Device, refuse: Optional[Refuse] = None) -> Dict[str
         "parameters": {
             name: {
                 **info,
+                "type_path": _type_path(device, name),
                 "limits": _limits_to_wire(info["limits"]),
                 "choices": _choices_to_wire(info["choices"]),
                 **agent("write", name, info["settable"]),
@@ -271,6 +272,16 @@ def _arguments(device: Device, name: str) -> Dict[str, Any]:
     except Exception as error:  # a schema is a help, never a reason to fail a listing
         logging.warning(f"{device.name}.{name}: no argument schema: {error!r}")
         return {}
+
+
+def _type_path(device: Device, parameter: str) -> Optional[str]:
+    """A parameter's type as its path (`type_path`), so a client reads its value
+    as that type."""
+    try:
+        return type_path(device.declared_parameters()[parameter].type)
+    except Exception as error:  # a type is a help, never a reason to fail a listing
+        logging.warning(f"{device.name}.{parameter}: no type path: {error!r}")
+        return None
 
 
 def _returns(device: Device, name: str) -> Optional[str]:

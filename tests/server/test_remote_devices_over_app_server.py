@@ -1,5 +1,5 @@
-"""FibsemClient.devices: the remote driver's devices over a running App Server,
-with the client's token.
+"""The remote driver's devices over a running App Server's ``/microscope`` routes,
+with its token and no event stream: what a drop-in microscope off the PC builds on.
 
 Skipped when the [server] extra is not installed.
 """
@@ -7,7 +7,6 @@ Skipped when the [server] extra is not installed.
 import os
 import threading
 
-import numpy as np
 import pytest
 
 pytest.importorskip("fastapi")
@@ -19,9 +18,9 @@ from fibsem.drivers.remote.devices import (  # noqa: E402
     DeviceClient,
     RemoteBeam,
     RemoteDeviceError,
+    connect_remote_beams,
 )
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.client import FibsemClient  # noqa: E402
 from fibsem.structures import BeamType  # noqa: E402
 
 TOKEN = "test-token"
@@ -57,48 +56,50 @@ def port(microscope):
 
 
 @pytest.fixture
-def client(port):
-    with FibsemClient("127.0.0.1", port, token=TOKEN) as client:
-        yield client
+def remote(port):
+    remote = DeviceClient(
+        "127.0.0.1", port, token=TOKEN, events=False, root="/microscope"
+    )
+    yield remote
+    remote.close()
 
 
-def test_the_client_connects_and_reads_what_is_fitted(client, microscope):
-    fitted = microscope.is_available("manipulator")
-    assert client.system.manipulator.enabled is fitted
+@pytest.fixture
+def beams(remote, port):
+    beams = connect_remote_beams("127.0.0.1", port, client=remote)
+    return {beam.name: beam for beam in beams.values()}
 
 
-def test_devices_are_the_remote_beams(client):
-    assert set(client.devices) == {"electron", "ion"}
-    assert isinstance(client.devices["electron"], RemoteBeam)
-    assert client.devices is not client.devices  # read-only views...
-    assert client.devices["ion"] is client.devices["ion"]  # ...of one build
+def test_the_beams_are_remote_beams(beams):
+    assert set(beams) == {"electron", "ion"}
+    assert isinstance(beams["electron"], RemoteBeam)
 
 
-def test_a_read_is_live(client, microscope):
+def test_a_read_is_live(beams, microscope):
     microscope.set_field_of_view(150e-6, BeamType.ELECTRON)
-    hfw = client.devices["electron"].parameters["hfw"]
+    hfw = beams["electron"].parameters["hfw"]
     assert hfw.get_value() == pytest.approx(150e-6)
     microscope.set_field_of_view(160e-6, BeamType.ELECTRON)
     assert hfw.get_value() == pytest.approx(160e-6)
 
 
-def test_a_write_reaches_the_microscope(client, microscope):
-    written = client.devices["electron"].parameters["hfw"].set_value(120e-6)
+def test_a_write_reaches_the_microscope(beams, microscope):
+    written = beams["electron"].parameters["hfw"].set_value(120e-6)
     assert written == pytest.approx(120e-6)
     assert microscope.get_field_of_view(BeamType.ELECTRON) == pytest.approx(120e-6)
 
 
-def test_a_command_runs_on_the_microscope(client, microscope):
-    ion = client.devices["ion"]
+def test_a_command_runs_on_the_microscope(beams, microscope):
+    ion = beams["ion"]
     ion.call_command("blank")
     assert microscope.beams[BeamType.ION].blanked.get_value() is True
     ion.call_command("unblank")
     assert microscope.beams[BeamType.ION].blanked.get_value() is False
 
 
-def test_the_devices_send_the_token(client, port):
-    client.devices["electron"].parameters["current"].get_value()
-    session = client._device_client._session
+def test_the_devices_send_the_token(beams, remote, port):
+    beams["electron"].parameters["current"].get_value()
+    session = remote._session
     assert session.headers["Authorization"] == f"Bearer {TOKEN}"
     url = f"http://127.0.0.1:{port}/microscope/devices/electron/current"
     assert requests.get(url, timeout=5).status_code == 401
@@ -110,27 +111,6 @@ def test_the_devices_send_the_token(client, port):
         tokenless.close()
 
 
-def test_no_event_stream_is_opened(client):
-    client.devices["electron"].parameters["hfw"].get_value()
-    assert client._device_client._events is None
-
-
-def test_the_geometry_reads_go_through_the_stage_movement_service(client, microscope):
-    """The client's orientation, milling angle and projection calls reach the
-    stage movement service's queries, parameter and command (FIB-1346)."""
-    assert client.move_to_milling_angle(15.0) is True
-    assert client.get_current_milling_angle() == pytest.approx(15.0, abs=0.5)
-    assert client.is_close_to_milling_angle(15.0) is True
-    assert client.get_stage_orientation() == microscope.get_stage_orientation()
-
-    here = microscope.get_stage_position()
-    projected = client.project_stable_move(2e-6, 0.0, BeamType.ELECTRON, here)
-    expected = microscope.project_stable_move(2e-6, 0.0, BeamType.ELECTRON, here)
-    assert projected.x == pytest.approx(expected.x)
-
-    stored = microscope.system.stage.milling_angle
-    try:
-        client.set_milling_angle(22.0)
-        assert microscope.system.stage.milling_angle == pytest.approx(22.0)
-    finally:
-        microscope.set_milling_angle(stored)
+def test_no_event_stream_is_opened(beams, remote):
+    beams["electron"].parameters["hfw"].get_value()
+    assert remote._events is None
