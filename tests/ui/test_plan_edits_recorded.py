@@ -759,11 +759,11 @@ def test_the_replay_shows_a_correlation_before_the_point_it_moved(
 
 
 def _agent_edit(window, level, item_name, task_name, patch, version):
-    """An agent's config edit as the App Server makes it, with this window."""
+    """An agent's config edit as the App Server makes it, beside this window."""
     from fibsem.applications.autolamella.server import AutoLamellaAppContext
 
     ui = window
-    context = AutoLamellaAppContext(ui.session, window=ui)
+    context = AutoLamellaAppContext(ui.session)
     return context._config_edit(level, item_name, task_name, patch, version, 10.0)
 
 

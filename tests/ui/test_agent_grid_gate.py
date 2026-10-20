@@ -106,7 +106,7 @@ def test_the_agent_s_requeue_is_refused_while_the_grid_is_off_the_stage(ui):
     # Run once already, so asking again is a re-run, not a pair still waiting.
     manager.queue.mark_done(manager.queue.items[0], TaskStatus.Completed)
     ui.session.runner.manager = manager
-    ctx = AutoLamellaAppContext(ui.session, window=ui)
+    ctx = AutoLamellaAppContext(ui.session)
     before = len(manager.queue.items)
 
     refused = ctx.requeue_task("on-two", TASK_NAME)

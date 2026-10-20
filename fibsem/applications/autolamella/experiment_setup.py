@@ -24,6 +24,7 @@ from fibsem.config import (
     load_user_preferences,
     save_user_preferences,
 )
+from fibsem.workflows.session import PROTOCOL
 
 
 def default_experiment_directory() -> str:
@@ -125,3 +126,12 @@ def create_experiment(
     protocol.save(os.path.join(experiment.path, "protocol.yaml"))
     record_recent(experiment)
     return experiment
+
+
+def adopt_protocol(session, protocol: AutoLamellaTaskProtocol) -> None:
+    """Make *protocol* the open experiment's and save it beside it: the Load
+    Protocol dialog's OK. Where the experiment is edited; whoever draws the
+    protocol hears it on ``session.changed``."""
+    session.experiment.task_protocol = protocol
+    session.experiment.save_protocol()
+    session.changed.emit(PROTOCOL)

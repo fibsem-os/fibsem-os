@@ -18,7 +18,6 @@ from fibsem.ui.agent.level_chip import (  # noqa: E402
     last_heard_text,
     request_outcome,
 )
-from tests.run_state import StubRunner
 
 
 def _labels(widget):
@@ -1433,12 +1432,13 @@ def test_the_agent_s_workflow_stop_turns_the_border_red(main_ui, qapp):
     from fibsem.applications.autolamella.server import AutoLamellaAppContext
 
     ui = main_ui
-    previous = ui.session.runner
-    ui.session.runner = StubRunner(ui.session, is_running=True)
+    runner = ui.session.runner
+    # Running, as far as a stop can tell: the window hears this runner's stop.
+    runner._thread = threading.current_thread()
     main_ui.run_border.set_state("automated")
     answers = []
     try:
-        context = AutoLamellaAppContext(ui.session, window=ui)
+        context = AutoLamellaAppContext(ui.session)
         server = threading.Thread(
             target=lambda: answers.append(context.stop_workflow())
         )
@@ -1450,7 +1450,7 @@ def test_the_agent_s_workflow_stop_turns_the_border_red(main_ui, qapp):
         assert answers == [{"available": True, "stopped": True}]
         assert main_ui.run_border.shown == "stopping"
     finally:
-        ui.session.runner = previous
+        runner._thread = None
         main_ui.run_border.state = None
         main_ui.run_border.set_state("idle")
 

@@ -5,7 +5,7 @@ import os
 import sys
 import threading
 import warnings
-from typing import Optional
+from typing import Any, Optional
 
 try:
     sys.modules.pop("PySide6.QtCore")
@@ -25,7 +25,10 @@ from PyQt5.QtWidgets import (
 import fibsem.config as fibsem_cfg
 from fibsem.acting import OPERATOR
 from fibsem.applications.autolamella import config as cfg
-from fibsem.applications.autolamella.experiment_setup import load_for_adoption
+from fibsem.applications.autolamella.experiment_setup import (
+    adopt_protocol,
+    load_for_adoption,
+)
 from fibsem.applications.autolamella.poses import remove_lamella
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
@@ -85,7 +88,14 @@ from fibsem.workflows.grid.naming import (
     record_inventoried_grids,
     rename_and_save_grid,
 )
-from fibsem.workflows.session import EXPERIMENT, MICROSCOPE, AppSession
+from fibsem.workflows.session import (
+    CONFIG,
+    EXPERIMENT,
+    GRID_RECORDS,
+    MICROSCOPE,
+    PROTOCOL,
+    AppSession,
+)
 from fibsem.workflows.status import (
     TaskStatus,
     WorkflowStatusEvent,
@@ -140,10 +150,7 @@ class AutoLamellaWindow(QMainWindow):
     """
 
     # The session's `changed`, carried to the GUI thread.
-    _session_changed = pyqtSignal(str)
-    experiment_update_signal = pyqtSignal()
-    # The agent added or renamed grid records (App Server); the grid views redraw.
-    grids_changed = pyqtSignal()
+    _session_changed = pyqtSignal(str, object)
 
     @property
     def microscope(self) -> Optional[FibsemMicroscope]:
@@ -358,14 +365,25 @@ class AutoLamellaWindow(QMainWindow):
             "No fluorescence microscope available" if no_fm else "No image"
         )
 
-    def _hear_session(self, what: str) -> None:
-        self._session_changed.emit(what)
+    def _hear_session(self, what: str, detail: Any = None) -> None:
+        self._session_changed.emit(what, detail)
 
-    def _on_session_changed(self, what: str) -> None:
+    def _on_session_changed(self, what: str, detail: Any) -> None:
         if what == MICROSCOPE:
             self._on_microscope_changed()
         elif what == EXPERIMENT:
+            self._setup_experiment_connections()
             self._on_experiment_update()
+        elif what == PROTOCOL:
+            self._on_experiment_update()
+        elif what == GRID_RECORDS:
+            self._refresh_after_naming()
+        elif what == CONFIG:
+            try:
+                self._show_config_edit(**detail)
+            except Exception:
+                # Chrome only: the edit has applied whatever happens here.
+                logging.exception("showing an agent's config edit failed")
 
     def _on_microscope_changed(self):
         """Another microscope, or none: hand it to everything that holds one."""
@@ -413,7 +431,9 @@ class AutoLamellaWindow(QMainWindow):
         # The operator decides the run's proposals here, for the session's life.
         self.session.attach_decider(OPERATOR)
         # Edits to the experiment run on this thread: its widgets listen to it.
-        self.session.executor = GuiExecutor(parent=self)
+        # The editors' pending edits are written first (FIB-683): an edit
+        # from elsewhere to the same config then finds it changed.
+        self.session.executor = GuiExecutor(self.flush_editors, parent=self)
 
         self.system_widget = FibsemSystemSetupWidget(parent=self)
         # The Connection tab is a gate in a bar that otherwise means "the instrument
@@ -445,12 +465,10 @@ class AutoLamellaWindow(QMainWindow):
 
         # Everything the workflow says without needing an answer arrives here
         self.run_relay.step.connect(self._on_step_update)
-        self.experiment_update_signal.connect(self._on_experiment_update)
         # A grid task records its overview as it finishes, and says so in a status.
         self.run_relay.status.connect(self._refresh_quad_overviews)
         self.run_relay.finished.connect(self._refresh_quad_overviews)
         self.run_relay.notice.connect(self.show_toast)
-        self.grids_changed.connect(self._refresh_after_naming)
         notification_service._get_service().toast.connect(self._on_notification_service)
         notification_service._get_service().toast_action.connect(
             self._on_notification_service_action
@@ -860,7 +878,7 @@ class AutoLamellaWindow(QMainWindow):
             controls=self.workflow_controls,
             flush_edits=self.flush_editors,
             on_config_changed=self._on_workflow_config_changed,
-            stop_task=self.stop_current_task,
+            stop_task=self.session.runner.stop_task,
             after_naming=self._refresh_after_naming,
             say=self._say_selection,
             show_toast=self.show_toast,
@@ -1349,7 +1367,7 @@ class AutoLamellaWindow(QMainWindow):
             notification_service.show_toast("Experiment creation cancelled.", "info")
             return
 
-        self.adopt_experiment(experiment)
+        self.session.adopt(experiment)
 
     def load_experiment(self) -> None:
         """Load an existing experiment using the experiment loading dialog."""
@@ -1366,7 +1384,7 @@ class AutoLamellaWindow(QMainWindow):
             notification_service.show_toast("Experiment loading cancelled.", "info")
             return
 
-        self.adopt_experiment(experiment)
+        self.session.adopt(experiment)
 
     def quickstart(self, load_experiment: bool = False) -> None:
         """Connect to the microscope without waiting to be clicked (``--quickstart``).
@@ -1420,20 +1438,10 @@ class AutoLamellaWindow(QMainWindow):
             notification_service.show_toast(msg, "warning")
             return
 
-        self.adopt_experiment(experiment)
+        self.session.adopt(experiment)
         logging.info(
             f"Quickload: loaded experiment {experiment.name} from {experiment_path}"
         )
-
-    def adopt_experiment(self, experiment: Experiment) -> None:
-        """Make ``experiment`` the current one through the session, which also
-        points logging at its logfile, and wire the window to it."""
-        # The window hears the new experiment once this is set up.
-        with self.session.changed.paused():
-            self.session.adopt(experiment)
-
-            # Setup experiment connections and update UI
-            self._setup_experiment_connections()
 
     # TODO: create a dialog to get the user to connect to microscope and create load experiment before continuing
     # then remove the system widget entirely... you will always be connected once you start
@@ -1479,9 +1487,7 @@ class AutoLamellaWindow(QMainWindow):
                 # like the agent level; it starts at the preference's default
                 self.session.serve_microscope = preference.microscope
             self.session.start_app_server(
-                lambda buffer: AutoLamellaAppContext(
-                    self.session, window=self, event_buffer=buffer
-                )
+                lambda buffer: AutoLamellaAppContext(self.session, event_buffer=buffer)
             )
 
     def sync_app_server_with_preference(self) -> None:
@@ -1695,109 +1701,50 @@ class AutoLamellaWindow(QMainWindow):
         # This window's border switch and agent purple, not its own.
         self.run_border.mirror_to(self._coincidence_viewer_window.run_border)
 
-    def after_agent_edit(self, select_latest: bool = False) -> None:
-        """GUI thread. Redraw after an agent's edit to the experiment (adding a
-        lamella, setting a pose), as after the Lamella tab's own buttons,
-        selecting the newest lamella when ``select_latest``."""
-        try:
-            experiment_tab = self.panel.experiment_tab
-            experiment_tab.update_lamella_combobox(latest=select_latest)
-            self.panel.refresh()
-            lamella = experiment_tab.get_selected_lamella()
-            if lamella is not None:
-                experiment_tab.selected_lamella_widget.set_lamella(lamella)
-            if self.experiment is not None:
-                # The FM overview draws positions itself; it hears of a moved pose
-                # only by being told.
-                self.experiment.positions.events.changed.emit()
-        except Exception:
-            logging.exception("redraw after an agent's experiment edit failed")
-
     def flush_editors(self) -> None:
         """Record and write the edits the Protocol and Lamella editors still
         hold (FIB-683): before anything else writes the experiment."""
         self.task_widget.flush_pending_save()
         self.lamella_tab.editor.flush_pending_save()
 
-    def before_config_edit(self) -> None:
-        """GUI thread. Before an agent's config edit: flush any edit still
-        sitting in the editors (the FIB-683 one-writer rule), so an operator
-        edit that changes the same config makes the agent's version stale."""
-        try:
-            self.flush_editors()
-        except Exception:
-            logging.exception("flush before agent config edit failed; continuing")
-
-    def after_config_edit(
+    def _show_config_edit(
         self, level: str, item_name: str, task_name: str, result: dict
     ) -> None:
-        """GUI thread. After an agent's config edit applied: rebuild the
-        editor showing it and toast the change."""
-        if level == "apply_protocol":
-            self._show_agent_protocol_apply(item_name, result.get("task_names") or [])
-            return
-        changes = [(c["path"], c["old"], c["new"]) for c in result.get("changes") or []]
-        if changes:
-            self._show_agent_config_patch(level, item_name, task_name, changes)
+        """An agent's config edit applied: toast it and rebuild the editor
+        showing it.
 
-    def _show_agent_protocol_apply(self, item_name: str, names) -> None:
-        try:
-            notification_service.show(
-                f"Agent applied protocol to {item_name} — {', '.join(names)}",
-                "info",
-            )
-        except Exception:
-            logging.exception("toast after protocol apply failed")
-        try:
-            self.lamella_tab.editor.refresh_if_showing(item_name)
-        except Exception:
-            logging.exception("editor refresh after protocol apply failed")
-
-    def _show_agent_config_patch(
-        self, level: str, item_name: str, task_name: str, changes
-    ) -> None:
-        """Rebuild the editor showing this config and toast the change.
-
-        GUI thread, after a successful apply. The rebuild is what stops a
-        stale open form writing old values back on the operator's next edit;
-        the toast is what stops the form appearing to change by itself.
-        Chrome only — a failure here must never fail the applied patch.
+        The rebuild is what stops a stale open form writing old values back on
+        the operator's next edit; the toast is what stops the form appearing to
+        change by itself. show(), not show_toast(): agent changes are workflow
+        events -- they persist in the notification bell, not just flash for 3 s
+        while the operator is looking at the canvas.
         """
-        try:
-            leaf = changes[0][0].rsplit(".", 1)[-1]
-            summary = f"{leaf}: {changes[0][1]!r} → {changes[0][2]!r}"
-            if len(changes) > 1:
-                summary += f" (+{len(changes) - 1} more)"
-            if level == "item":
-                target = f"{task_name} for {item_name}"
-            elif level == "item_fields":
-                target = item_name
-            else:
-                target = task_name
-            # show(), not show_toast(): agent changes are workflow events —
-            # they persist in the notification bell, not just flash for 3 s
-            # while the operator is looking at the canvas (found live: the
-            # toasts fired and left no trace).
-            notification_service.show(f"Agent edited {target} — {summary}", "info")
-        except Exception:
-            logging.exception("toast after agent config patch failed")
-        try:
-            if level in ("item", "item_fields"):
-                self.lamella_tab.editor.refresh_if_showing(item_name)
-            else:
-                self.task_widget.refresh_if_showing_task(task_name)
-        except Exception:
-            logging.exception("editor refresh after agent config patch failed")
-
-    def stop_task_workflow(self, actor=None, via: str = "") -> None:
-        """Stop the run; ``actor`` and ``via`` say who stopped it and from
-        where, for the record (``runner.stop``)."""
-        self.run_view.stop(actor=actor, via=via)
-
-    def stop_current_task(self, actor=None, via: str = "", **details) -> None:
-        """Abandon the task now running and carry on with the rest of the
-        queue (``runner.stop_task``)."""
-        self.session.runner.stop_task(actor=actor, via=via, **details)
+        if level == "apply_protocol":
+            names = ", ".join(result.get("task_names") or [])
+            notification_service.show(
+                f"Agent applied protocol to {item_name} — {names}", "info"
+            )
+            self.lamella_tab.editor.refresh_if_showing(item_name)
+            return
+        changes = result.get("changes") or []
+        if not changes:
+            return
+        first = changes[0]
+        leaf = first["path"].rsplit(".", 1)[-1]
+        summary = f"{leaf}: {first['old']!r} → {first['new']!r}"
+        if len(changes) > 1:
+            summary += f" (+{len(changes) - 1} more)"
+        if level == "item":
+            target = f"{task_name} for {item_name}"
+        elif level == "item_fields":
+            target = item_name
+        else:
+            target = task_name
+        notification_service.show(f"Agent edited {target} — {summary}", "info")
+        if level in ("item", "item_fields"):
+            self.lamella_tab.editor.refresh_if_showing(item_name)
+        else:
+            self.task_widget.refresh_if_showing_task(task_name)
 
     def _on_workflow_config_changed(self, wcfg: AutoLamellaWorkflowConfig):
         if self.experiment is None or self.experiment.task_protocol is None:
@@ -1830,20 +1777,11 @@ class AutoLamellaWindow(QMainWindow):
             notification_service.show_toast("Protocol loading cancelled.", "info")
             return
 
-        self.adopt_protocol(protocol)
+        adopt_protocol(self.session, protocol)
         notification_service.show_toast(
             f"Protocol '{protocol.name}' loaded successfully with {len(protocol.task_config)} tasks.",
             "info",
         )
-
-    def adopt_protocol(self, protocol) -> None:
-        """Make *protocol* the open experiment's, save it beside the experiment
-        and redraw: the Load Protocol dialog's OK, and an agent's load. GUI
-        thread."""
-        self.experiment.task_protocol = protocol
-        self.experiment.save_protocol()
-        self.panel.refresh()
-        self.experiment_update_signal.emit()
 
     def export_protocol_ui(self):
         """Export the current protocol to file."""

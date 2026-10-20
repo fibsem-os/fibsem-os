@@ -7,9 +7,9 @@ lamellae and global edit of the reference imaging are here too, beside the
 agent's, and the save a config edit makes (:func:`save_edits`). Each agent
 edit runs where the experiment is edited (``session.run_edit``), checks the
 version it was written against beside the apply, saves, and is recorded as the agent's edit (FIB-1034, FIB-1062). A
-window, when one is attached, only flushes its editors first and redraws
-after (``AppWindow`` in ``server/context.py``). The versions an edit is
-checked against are here too, for the server's reads to serve.
+window writes its editors' pending edits before any edit runs (its executor)
+and redraws when ``session.changed`` says the edit applied. The versions an
+edit is checked against are here too, for the server's reads to serve.
 
 Each returns a plain dict: the applied changes, or a structured refusal.
 """
