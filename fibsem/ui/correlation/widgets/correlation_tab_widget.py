@@ -119,6 +119,7 @@ from fibsem.correlation.session import (
     PendingRun,
     RunOutcome,
     ensure_dir_for,
+    load_fm_stack,
 )
 from fibsem.correlation.structures import (
     Coordinate,
@@ -726,7 +727,7 @@ class _ImagesTab(QWidget):
             self._fm_picker.show_path(self._fm_loaded_path)  # undo the selection
             return
         try:
-            image = FluorescenceImage.load(path)
+            image = load_fm_stack(path)
         except Exception as exc:
             QMessageBox.warning(self, "Load error", str(exc))
             self._fm_picker.reject_path(path, self._fm_loaded_path)

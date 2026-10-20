@@ -66,9 +66,8 @@ class Correlation(Service):
         from fibsem.correlation.export import save_overlay
         from fibsem.correlation.history import CORRELATION_FILENAME, new_run_dir
         from fibsem.correlation.prior import experiment_runs
-        from fibsem.correlation.session import CorrelationSession
+        from fibsem.correlation.session import CorrelationSession, load_fm_stack
         from fibsem.correlation.structures import Coordinate, PointType, PointXYZ
-        from fibsem.fm.structures import FluorescenceImage
         from fibsem.structures import FibsemImage
 
         def coordinates(points, kind, dims):
@@ -84,7 +83,7 @@ class Correlation(Service):
 
         session = CorrelationSession()
         session.fib_image = FibsemImage.load(fib_image_path)
-        session.fm_image = FluorescenceImage.load(fm_image_path)
+        session.fm_image = load_fm_stack(fm_image_path)
         session.points.add_many(
             coordinates(fib_points, PointType.FIB, 2)
             + coordinates(fm_points, PointType.FM, 3)

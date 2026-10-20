@@ -37,7 +37,12 @@ from fibsem.correlation.structures import (
     load_correlation_file,
 )
 from fibsem.fm.structures import FluorescenceImage
-from fibsem.structures import CameraImageTransform, FibsemImage
+from fibsem.structures import (
+    BeamType,
+    CameraImageTransform,
+    FibsemImage,
+    FibsemImageMetadata,
+)
 
 RUNNING = "Running…"
 
@@ -764,6 +769,20 @@ class CorrelationSession:
             return False
         self.save_error = None
         return True
+
+
+def load_fm_stack(path: str) -> FluorescenceImage:
+    """The FM stack at *path*, for the tab and the correlation service alike.
+    A saved SEM or FIB image is refused: it would load and fit, but with no FM
+    pixel sizes nothing seeds the fit, so it is never judged."""
+    metadata = FibsemImageMetadata.read(path)
+    if metadata is not None:
+        beam = "an SEM" if metadata.beam_type is BeamType.ELECTRON else "a FIB"
+        raise ValueError(
+            f"{os.path.basename(path)} is {beam} image, not an FM stack: "
+            "give the fluorescence z-stack the FM points are in."
+        )
+    return FluorescenceImage.load(path)
 
 
 def ensure_dir_for(path: str) -> str:
