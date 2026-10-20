@@ -90,7 +90,7 @@ def agent_setup_text(
         "3. Tell me to start a new session, or reconnect fibsem in /mcp, so the "
         "tools load.\n"
         "4. Then call server_get_capabilities and tell me your agent level. I set it "
-        "from the Agent chip in AutoLamella.\n"
+        "from the Agent chip, or the chat page with no window.\n"
         "5. If you ask me before each tool, tell me which fibsem tools I can allow "
         "for good: the ones that only read (marked read-only), and "
         "experiment_add_note, which only adds a note.\n"
