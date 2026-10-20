@@ -1150,7 +1150,7 @@ class AutoLamellaWindow(QMainWindow):
         self._on_lamella_card_selected(self.lamella_tab.selected)
 
     def _on_app_server_dialog(self) -> None:
-        """Open Tools → App Server: status, services, clients, the dashboard."""
+        """Open Tools → App Server: status, services, clients, the event log."""
         from fibsem.ui.agent.app_server_dialog import (
             AppServerDialog,
         )
