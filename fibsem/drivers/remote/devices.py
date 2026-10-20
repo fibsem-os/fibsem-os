@@ -32,7 +32,8 @@ retry loop binds them when the server first answers, then fires ``reconnected``.
 Until then each device's ``online`` is False and its parameters are absent.
 
 A command that returns an array (a camera frame, an FM channel) comes back as
-``np.save`` bytes rather than JSON, and arrives as the same array.
+``np.save`` bytes rather than JSON, and arrives as the same array. A beam's image
+comes back as a TIFF with its metadata, and arrives as the same ``FibsemImage``.
 
 ``RemoteFM``, ``RemoteCamera``, ``RemoteLightSource``, ``RemoteFilterSet`` and
 ``RemoteObjective`` are the FM's parts from ``fibsem.devices.fm``; ``connect_remote_fm``
@@ -50,15 +51,12 @@ its facts. A plugin driver's device is made with the class its ``DriverEntry`` n
 for the type (``remote_devices``) when that driver is installed here too, so its own
 parameters cross the wire; otherwise with the type's class above (`remote_class`).
 
-Not yet: the one-commander lease, and a beam's ``acquire`` (a
-``FibsemImage`` with its metadata).
+Not yet: the one-commander lease.
 """
 
 from __future__ import annotations
 
 import importlib
-import io
-import json
 import logging
 import math
 import threading
@@ -76,11 +74,12 @@ from typing import (
     Tuple,
 )
 
+import httpx
 import numpy as np
-import requests
 from psygnal import Signal
 
 from fibsem.client.events import HEARTBEAT, EventStream
+from fibsem.client.transport import ServerError, ServerUnreachable, Transport
 from fibsem.codec import decode
 from fibsem.devices.beam import Beam
 from fibsem.devices.chamber import Chamber
@@ -91,25 +90,22 @@ from fibsem.devices.core import (
     command,
 )
 from fibsem.devices.entries import REMOTE_DRIVER
-from fibsem.devices.errors import error_from
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
 from fibsem.devices.manipulator import Manipulator
 from fibsem.devices.scanner import Scanner
 from fibsem.devices.stage import Stage
 from fibsem.devices.wire import (
-    FRAME_METADATA_HEADER,
-    FRAMES_MEDIA_TYPE,
-    NPY_MEDIA_TYPE,
     Frame,
-    frames_from_bytes,
     to_wire,
 )
 from fibsem.drivers.registry import DeviceBuilder, get_driver
 from fibsem.structures import (
     BeamType,
+    FibsemImage,
     FibsemManipulatorPosition,
     FibsemRectangle,
     FibsemStagePosition,
+    ImageSettings,
     Point,
     RangeLimit,
 )
@@ -126,6 +122,14 @@ WRITE_TIMEOUT = 60.0  # a plasma gas change takes a while
 UNTIL_DONE = (READ_TIMEOUT, None)
 """For a move, a pump or a vent: it takes as long as it takes, and ends by answering
 or by the connection dropping, so no read timeout."""
+
+
+def _timeout(timeout: Any) -> Any:
+    """A (connect, read) pair as httpx takes it."""
+    if isinstance(timeout, tuple):
+        connect, read = timeout
+        return httpx.Timeout(read, connect=connect)
+    return timeout
 
 
 class RemoteDeviceError(RuntimeError):
@@ -198,9 +202,7 @@ class DeviceClient:
         """
         self.base_url = f"http://{host}:{port}{root}"
         self.events = events
-        self._session = requests.Session()
-        if token is not None:
-            self._session.headers["Authorization"] = f"Bearer {token}"
+        self._transport = Transport(self.base_url, token, discover=False)
         self._devices: Dict[str, Device] = {}
         self._events = EventStream(
             f"ws://{host}:{port}{root}/events",
@@ -223,41 +225,23 @@ class DeviceClient:
 
     # -- requests -------------------------------------------------------------------
 
-    def request(self, method: str, path: str, timeout: float, **kwargs: Any) -> Any:
+    def request(self, method: str, path: str, timeout: Any, json: Any = None) -> Any:
+        """The answer as data (`Transport.fetch`). *timeout* is seconds, or
+        (connect, read) with None for no read limit."""
         try:
-            response = self._session.request(
-                method, f"{self.base_url}/{path}", timeout=timeout, **kwargs
+            return self._transport.fetch(
+                method, f"/{path}", json, timeout=_timeout(timeout)
             )
-        except requests.RequestException as error:
-            # One line saying what is unreachable and why; the urllib3 chain under a
-            # refused connection is five tracebacks deep and says nothing more.
-            reason = type(error).__name__
-            if isinstance(error, requests.Timeout):
+        except ServerUnreachable as error:
+            # One line saying what is unreachable and why.
+            reason = "connection refused or dropped"
+            if error.timed_out:
                 reason = f"no answer within {timeout} s"
-            elif isinstance(error, requests.ConnectionError):
-                reason = "connection refused or dropped"
             raise RemoteDeviceUnreachable(
                 f"{method} {self.base_url}/{path}: {reason}"
             ) from None
-        if response.ok:
-            if response.headers.get("content-type", "").startswith(FRAMES_MEDIA_TYPE):
-                return frames_from_bytes(response.content)
-            if response.headers.get("content-type", "").startswith(NPY_MEDIA_TYPE):
-                data = np.load(io.BytesIO(response.content), allow_pickle=False)
-                metadata = response.headers.get(FRAME_METADATA_HEADER)
-                if metadata is not None:
-                    return Frame(data, json.loads(metadata))
-                return data
-            return response.json()
-        try:
-            detail = response.json().get("detail")
-        except ValueError:  # not JSON: an unhandled server error
-            detail = response.text
-        if isinstance(detail, dict):
-            error = error_from(detail, response.status_code)
-            if error is not None:
-                raise error
-        raise RemoteDeviceError(f"{method} {path}: {response.status_code} {detail}")
+        except ServerError as error:
+            raise RemoteDeviceError(str(error)) from None
 
     def health(self) -> Dict[str, Any]:
         """The server's own report: is it up, and can each device reach its hardware.
@@ -355,7 +339,7 @@ class DeviceClient:
 
     def close(self) -> None:
         self._events.close()
-        self._session.close()
+        self._transport.close()
 
 
 class RemoteDevice(Device):
@@ -436,7 +420,7 @@ class RemoteDevice(Device):
             # The App Server records why with every stop; a device server ignores it.
             body["reason"] = f"{self.name} {command} from a remote microscope"
         answer = self.client.request("POST", path, timeout, json=body)
-        if isinstance(answer, (np.ndarray, Frame, list)):
+        if isinstance(answer, (np.ndarray, Frame, FibsemImage, list)):
             return answer
         return answer["result"]
 
@@ -507,10 +491,17 @@ class RemoteBeam(RemoteDevice, Beam):
     def installed_plasma_gas(self) -> Optional[str]:
         return self._installed_gas
 
-    @command(available=lambda beam: False)
-    def acquire(self, image_settings: Any = None) -> Any:
-        """Not yet: a FibsemImage needs its metadata sent too."""
-        raise NotImplementedError("remote beam acquisition is not supported yet")
+    @command
+    def acquire(self, image_settings: Optional[ImageSettings] = None) -> FibsemImage:
+        """Acquire on the server. The image comes back whole, as a TIFF with its
+        metadata, stamped and saved as the server does it."""
+        image = self.call_command(
+            "acquire", timeout=UNTIL_DONE, image_settings=image_settings
+        )
+        if image_settings is not None:
+            self._last_image_settings = image_settings
+        self.image_acquired.emit(image)
+        return image
 
 
 def connect_remote_beams(
@@ -787,11 +778,14 @@ def connect_remote_fm(
     If the server can't be reached this raises ``RemoteDeviceUnreachable``, unless
     ``offline``: then every part is built unbound, and binds when the server answers.
     """
+    owned = client is None
     client = client if client is not None else DeviceClient(host, port)
     try:
         descriptions = client.describe()
     except RemoteDeviceUnreachable as error:
         if not offline:
+            if owned:
+                client.close()
             raise
         logging.warning(
             f"The fluorescence microscope is not reachable ({error}). It will connect "
@@ -802,6 +796,8 @@ def connect_remote_fm(
     devices = _remote_fm_devices(
         [name for name in descriptions if name in REMOTE_FM_PARTS], client
     )
+    if not devices and owned:  # no FM there, and nothing to close the client later
+        client.close()
     return {
         name: device.connect(descriptions[name]) for name, device in devices.items()
     }

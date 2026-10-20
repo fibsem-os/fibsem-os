@@ -221,8 +221,11 @@ def test_a_remote_stage_entry_is_named_stage(served):
         }
     )
     resolved = resolve_device_entries([], {"stage2": entry}, "Demo")
+    cleanups = []
     with pytest.raises(DeviceBuildError, match="'stage2' was not built"):
-        build_device_entries(resolved, None)
+        build_device_entries(resolved, None, cleanups=cleanups)
+    for cleanup in cleanups:
+        cleanup()
 
 
 def test_the_demo_takes_its_stage_chamber_and_needle_from_a_server(tmp_path):

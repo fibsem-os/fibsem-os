@@ -24,6 +24,15 @@ from fibsem.server.devices import DeviceServer, demo_fm_devices  # noqa: E402
 from fibsem.structures import InsertableDeviceState  # noqa: E402
 
 
+def _unreachable(client):
+    """Point *client* at a port nothing listens on: its computer is gone."""
+    from fibsem.client.transport import Transport
+
+    client._transport.close()
+    client.base_url = "http://127.0.0.1:1"
+    client._transport = Transport(client.base_url, discover=False)
+
+
 def wait_for(condition, timeout=2.0):
     end = time.monotonic() + timeout
     while time.monotonic() < end:
@@ -104,7 +113,6 @@ def test_a_guard_read_fails_closed_when_the_fm_computer_is_gone(served):
     from fibsem.drivers.remote.devices import RemoteDeviceUnreachable
 
     _, remote = served
-    remote["fm"].client._session.close()
-    remote["fm"].client.base_url = "http://127.0.0.1:1"  # nothing listens there
+    _unreachable(remote["fm"].client)
     with pytest.raises(RemoteDeviceUnreachable):
         remote["objective"].state.get_value()
