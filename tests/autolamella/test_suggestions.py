@@ -216,6 +216,7 @@ def test_suggesting_declining_and_approving_are_on_the_record(experiment):
 def test_a_suggestion_to_keep_a_position_reads_in_words(experiment):
     """Round 10 (FIB-1492): "Continue with stage position name none, x −35.5 µm,
     ..., coordinate system RAW", under the task's prompt to the operator."""
+    pytest.importorskip("PyQt5")
     from fibsem.ai.agent.recent import RecentActions
     from fibsem.structures import FibsemStagePosition
     from fibsem.ui.agent.suggestions import suggestion_card
