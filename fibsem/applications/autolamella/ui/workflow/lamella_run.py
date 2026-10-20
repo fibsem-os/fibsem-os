@@ -2,12 +2,11 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from PyQt5.QtCore import QPoint, Qt, pyqtSignal
+from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QCheckBox,
     QDialog,
     QDialogButtonBox,
-    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -31,20 +30,18 @@ from fibsem.applications.autolamella.ui.workflow.task_list import WorkflowTaskLi
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
     ACCENT_COLOR,
-    BORDER_COLOR,
     GRAY_ICON_COLOR,
     NEUTRAL_500,
     PANEL_COLOR,
     PRIMARY_COLOR,
     SURFACE_COLOR,
     TEXT_COLOR,
-    TEXT_STRONG_COLOR,
 )
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     ValueComboBox,
 )
-from fibsem.ui.widgets.lists import help_button
+from fibsem.ui.widgets.lists import OptionsPopup, help_button
 from fibsem.workflows.task_config import TaskPlan
 
 # What the panel's ? says: how to work the task list. It was a line of text under
@@ -53,38 +50,6 @@ TASK_LIST_HINTS = (
     "Drag to reorder  \u2022  click the chip to change when you are involved"
     "  \u2022  use \u270e to edit task details"
 )
-
-
-class _WorkflowSettingsPopup(QFrame):
-    """The workflow's name, description and run options, behind the ⚙ on the task
-    list's header: set once per run if at all, they took a quarter of the panel
-    on every view."""
-
-    def __init__(self, info: WorkflowInfoWidget, parent: QWidget) -> None:
-        super().__init__(parent, Qt.Popup)
-        self.setObjectName("workflowSettings")
-        self.setStyleSheet(
-            f"#workflowSettings {{ background: {PANEL_COLOR}; "
-            f"border: 1px solid {BORDER_COLOR}; border-radius: 4px; }}"
-        )
-        self.setFixedWidth(340)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 6)
-        layout.setSpacing(4)
-        title = QLabel("Workflow settings")
-        title.setStyleSheet(
-            f"color: {TEXT_STRONG_COLOR}; font-size: 13px; font-weight: 600; "
-            "background: transparent;"
-        )
-        layout.addWidget(title)
-        layout.addWidget(info)
-
-    def show_under(self, button: QWidget) -> None:
-        """Open below *button*, its right edge on the button's."""
-        self.adjustSize()
-        corner = button.mapToGlobal(QPoint(button.width(), button.height()))
-        self.move(corner.x() - self.width(), corner.y() + 2)
-        self.show()
 
 
 class PickTaskDialog(QDialog):
@@ -268,7 +233,10 @@ class LamellaWorkflowWidget(QWidget):
         # list's header; how to work the list, behind ?. No footer: the "select
         # a lamella and a task" line is the status line's to say.
         self.info = WorkflowInfoWidget()
-        self._settings_popup = _WorkflowSettingsPopup(self.info, self)
+        self._settings_popup = OptionsPopup(
+            "Workflow settings", self, margins=(8, 8, 8, 6), spacing=4
+        )
+        self._settings_popup.body.addWidget(self.info)
         self.btn_settings = IconToolButton(
             icon="mdi:cog-outline", tooltip="Workflow settings", size=24
         )

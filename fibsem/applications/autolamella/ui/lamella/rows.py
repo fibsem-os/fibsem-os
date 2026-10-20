@@ -581,16 +581,7 @@ class LamellaListWidget(QWidget):
         if count == 0:
             return
         n_checked = sum(row.checkbox.isChecked() for row in rows)
-        cb = self._header.checkbox_all
-        cb.blockSignals(True)
-        if n_checked == 0:
-            cb.setCheckState(Qt.Unchecked)
-        elif n_checked == count:
-            cb.setCheckState(Qt.Checked)
-        else:
-            cb.setTristate(True)
-            cb.setCheckState(Qt.PartiallyChecked)
-        cb.blockSignals(False)
+        self._header.sync(n_checked, count)
 
 
 _LAMELLA_NAME_MIN_WIDTH = 160

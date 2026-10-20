@@ -15,14 +15,12 @@ from typing import List, Mapping, Optional, Tuple, Union
 from PyQt5.QtCore import QEvent, QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor, QIcon, QPixmap
 from PyQt5.QtWidgets import (
-    QAbstractItemView,
     QAction,
     QCheckBox,
     QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QListWidget,
     QListWidgetItem,
     QMenu,
     QToolButton,
@@ -64,6 +62,7 @@ from fibsem.ui.tokens import (
     ORANGE_COLOR,
 )
 from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueComboBox
+from fibsem.ui.widgets.lists import ReorderableListWidget
 
 _NAME_MIN_WIDTH = 130
 _EXCITATION_FIXED_WIDTH = 90
@@ -97,16 +96,13 @@ def _unique_name(name: str, existing: set) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Draggable list
+# Channel list
 # ---------------------------------------------------------------------------
 
 
-class _DraggableChannelList(QListWidget):
-    """QListWidget with InternalMove drag-and-drop that emits the new channel
-    order after each drop.  Qt clears itemWidget on move, so the parent must
-    listen to ``reordered`` and rebuild row widgets."""
-
-    reordered = pyqtSignal(list)  # List[ChannelSettings]
+class _ChannelList(ReorderableListWidget):
+    """The channel list: reorderable, its rows as wide as the viewport, and
+    still while the microscope streams."""
 
     def __init__(self, fm, parent=None) -> None:
         super().__init__(parent)
@@ -138,15 +134,6 @@ class _DraggableChannelList(QListWidget):
         if self._fm is not None and self._fm.is_streaming:
             return  # swallow — prevent highlight change during live acquisition
         super().mousePressEvent(event)
-
-    def dropEvent(self, event) -> None:
-        super().dropEvent(event)
-        channels = [
-            self.item(i).data(Qt.ItemDataRole.UserRole)
-            for i in range(self.count())
-            if self.item(i).data(Qt.ItemDataRole.UserRole) is not None
-        ]
-        self.reordered.emit(channels)
 
 
 # ---------------------------------------------------------------------------
@@ -672,9 +659,7 @@ class ChannelListWidget(QWidget):
         sep.setStyleSheet("color: #3a3d42;")
         layout.addWidget(sep)
 
-        self._list = _DraggableChannelList(fm=self.fm)
-        self._list.setDragDropMode(QAbstractItemView.InternalMove)
-        self._list.setDefaultDropAction(Qt.MoveAction)
+        self._list = _ChannelList(fm=self.fm)
         self._list.setSpacing(0)
         self._list.setMinimumHeight(3 * _ROW_HEIGHT)
         self._list.setStyleSheet(stylesheets.LIST_WIDGET_STYLESHEET)
