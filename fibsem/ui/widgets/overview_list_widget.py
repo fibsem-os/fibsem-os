@@ -3,12 +3,13 @@
 The canvas can hold several overviews at once, and until this existed nothing said
 which ones — you could see them but not name, hide or drop one (FIB-543).
 
-Shaped after `LamellaRowWidget`: a name, its details, and icon buttons that appear
+Shaped after `LamellaRow`: a name, its details, and icon buttons that appear
 when the row is under the cursor or selected. The difference is where the reveal
 lives — the lamella list shows and hides its buttons for every row at once through
 `_btn_visible`, because there the choice is which *columns* the table has. Here it is
 per row and follows the pointer, so a resting list stays quiet.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, List, Optional
@@ -91,7 +92,9 @@ class OverviewRowWidget(QWidget):
         self.btn_visible.toggled.connect(
             lambda hidden: self.visibility_toggled.emit(self.record_id, not hidden)
         )
-        self.btn_remove.clicked.connect(lambda: self.remove_clicked.emit(self.record_id))
+        self.btn_remove.clicked.connect(
+            lambda: self.remove_clicked.emit(self.record_id)
+        )
 
         self._selected = False
         # Through `refresh` rather than setting the resting state by hand, so a row

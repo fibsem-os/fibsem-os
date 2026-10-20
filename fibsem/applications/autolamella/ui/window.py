@@ -1112,7 +1112,7 @@ class AutoLamellaWindow(QMainWindow):
             lamella = experiment.get_lamella_by_name(lamella_name)
 
         # The name list is refreshed from here rather than subscribing per row.
-        # `_LamellaRow` used to connect to `task_state.events.name`/`.status`, which
+        # `LamellaRow` used to connect to `task_state.events.name`/`.status`, which
         # the workflow writes from its worker thread; the marshalled refresh then
         # arrived after the row had been replaced and its widgets destroyed
         # (`RuntimeError: wrapped C/C++ object of type QLabel has been deleted`).
