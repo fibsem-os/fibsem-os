@@ -645,7 +645,7 @@ def build_server(
     if serve_microscope:
         app.include_router(whole)
         # Every device's parameters and commands, as the device server serves
-        # them: reads at Watch, writes and commands at Drive with control of the
+        # them: the listing for the operator's page too, other reads at Watch, writes and commands at Drive with control of the
         # microscope. The chamber's state and pressure are read here; pumping
         # and venting are the operator's, so the blocklist refuses them.
         app.include_router(
@@ -655,6 +655,7 @@ def build_server(
                 write=[Depends(_drive), Depends(take_control)],
                 command=[Depends(_device_command_gate), Depends(_stop_reason)],
                 prefix=MICROSCOPE + "/devices",
+                listing=[Depends(require_monitoring())],
                 refuse=refuse,
                 paths=paths,
                 on_image=lambda image: _show_in_app(microscope, image),
@@ -670,6 +671,7 @@ def build_server(
                 write=[Depends(_drive), Depends(take_control)],
                 command=[Depends(_device_command_gate), Depends(_stop_reason)],
                 prefix=MICROSCOPE + "/services",
+                listing=[Depends(require_monitoring())],
                 refuse=refuse,
                 paths=paths,
                 noun="service",

@@ -60,6 +60,7 @@ MONITORING = [
     "/app/workflow/status",
     "/app/workflow/queue",
     "/app/events",
+    "/microscope/devices",  # what it has, not a device's values
 ]
 
 
@@ -76,7 +77,6 @@ def test_the_dashboard_token_reads_the_monitoring_routes(client, path):
         ("POST", "/app/workflow/decide"),  # control
         ("POST", "/app/workflow/schedule"),  # configure
         ("GET", "/microscope/devices/stage/position"),  # the microscope
-        ("GET", "/microscope/devices"),
     ],
 )
 def test_the_dashboard_token_reaches_nothing_else(client, method, path):
