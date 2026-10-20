@@ -112,9 +112,6 @@ from fibsem.ui.widgets.stored_overview_canvas import (
 )
 from fibsem.util.timestamps import format_time, from_posix
 from fibsem.workflows.grid.manager import LOAD_ENTRY_NAME
-from fibsem.workflows.grid.manager import (
-    LOAD_ENTRY_NAME as _LOAD_ENTRY_NAME,
-)
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskStatus
 
@@ -126,14 +123,102 @@ logger = logging.getLogger(__name__)
 _SIDE_WIDTH = 260
 
 
-def _load_overview(path: str):
+def _is_fluorescence(path: str) -> bool:
+    return path.endswith((".ome.tiff", ".ome.tif"))
+
+
+def load_overview(path: str):
     """The image at *path*, as the type that can place itself."""
-    if path.endswith((".ome.tiff", ".ome.tif")):
+    if _is_fluorescence(path):
         return FluorescenceImage.load(path)
     return FibsemImage.load(path)
 
 
-class GridPositionsWidget(QWidget):
+def grid_overviews(experiment: Experiment, grid: GridRecord):
+    """(task state, image path) for each overview *grid*'s history recorded:
+    its completed tasks, the loads aside."""
+    for state in grid.task_history:
+        if state.name == LOAD_ENTRY_NAME or state.status is not TaskStatus.Completed:
+            continue
+        path = image_for(experiment, grid, state)
+        if path is not None:
+            yield state, path
+
+
+class GridOverviewView(QWidget):
+    """A grid's stored overviews on a canvas, one view at a time, chosen with
+    chips, with lamellae marked where the shown view puts them. The Grids
+    tab's Positions and the quad view's overview page are built on it."""
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.canvas = StoredOverviewCanvas()
+        self.chips_row = QWidget()
+        self.chips_row.setStyleSheet("background: transparent;")
+        self._chips_layout = QHBoxLayout(self.chips_row)
+        self._chips_layout.setContentsMargins(0, 0, 0, 0)
+        self._chips_layout.setSpacing(VIEW_CHIP_SPACING)
+        self._chips: Dict[str, QPushButton] = {}
+
+    def _set_chips(self, chips: List[Tuple[str, str]]) -> None:
+        """A chip per (label, view), the shown view checked."""
+        self._clear_chips()
+        for label, view in chips:
+            chip = QPushButton(label)
+            chip.setToolTip(view)
+            chip.setCheckable(True)
+            chip.setChecked(view == self.canvas.view)
+            chip.setCursor(Qt.PointingHandCursor)
+            chip.setStyleSheet(VIEW_CHIP_STYLE)
+            chip.clicked.connect(partial(self._on_chip_clicked, view))
+            self._chips_layout.addWidget(chip)
+            self._chips[view] = chip
+
+    def _clear_chips(self) -> None:
+        """Take the chips down now, not when the deletion runs: a chip out of the
+        layout but not yet deleted is still a visible child of the header, drawn at
+        whatever size it last had -- over what sits beside it."""
+        for chip in self._chips.values():
+            self._chips_layout.removeWidget(chip)
+            chip.hide()
+            chip.setParent(None)
+            chip.deleteLater()
+        self._chips = {}
+
+    def _check_chips(self) -> None:
+        for name, chip in self._chips.items():
+            chip.setChecked(name == self.canvas.view)
+
+    def _on_chip_clicked(self, view: str) -> None:
+        self.canvas.show_view(view)
+        self._check_chips()
+        self._view_shown()
+
+    def _view_shown(self) -> None:
+        """Another view is on show: redraw what depends on it."""
+
+    def _mark_lamellae_on_view(
+        self, lamellae: List[Lamella], movable: bool = True
+    ) -> None:
+        """Each lamella where the shown view puts it: the fluorescence pose on
+        the FM view, the milling pose on a beam view."""
+        on_fm = self.canvas.view == VIEW_FM
+        positions = []
+        for lamella in lamellae:
+            if on_fm:
+                pose = lamella.fluorescence_pose
+                place = pose.stage_position if pose is not None else None
+            else:
+                place = lamella.stage_position
+            if place is None:
+                continue
+            position = deepcopy(place)
+            position.name = lamella.name
+            positions.append(position)
+        self.canvas.set_positions(positions, movable=movable)
+
+
+class GridPositionsWidget(GridOverviewView):
     """One grid's stored overviews, with its lamellae marked on them.
 
     Signals:
@@ -165,7 +250,6 @@ class GridPositionsWidget(QWidget):
         # record id -> the image path it came from, so a results row can ask for
         # its own overview to be shown.
         self._paths: Dict[str, str] = {}
-        self._chips: Dict[str, QPushButton] = {}
         # Replaceable so a test can answer the "move it?" question.
         self._confirm: Callable[[str, str], bool] = lambda title, text: message_box_ui(
             title=title, text=text, parent=self
@@ -197,18 +281,12 @@ class GridPositionsWidget(QWidget):
             f"font-size: 11px; color: {NEUTRAL_550}; background: transparent;"
         )
         banner_layout.addWidget(self.state_label, 1)
-        self.chips_row = QWidget()
-        self.chips_row.setStyleSheet("background: transparent;")
-        self._chips_layout = QHBoxLayout(self.chips_row)
-        self._chips_layout.setContentsMargins(0, 0, 0, 0)
-        self._chips_layout.setSpacing(VIEW_CHIP_SPACING)
         banner_layout.addWidget(self.chips_row)
         outer.addWidget(banner)
 
         body = QHBoxLayout()
         body.setContentsMargins(0, 0, 0, 0)
         body.setSpacing(0)
-        self.canvas = StoredOverviewCanvas()
         self.canvas.position_add_requested.connect(self._on_add_requested)
         self.canvas.position_move_requested.connect(self._on_move_requested)
         self.canvas.position_selected.connect(self._on_marker_clicked)
@@ -307,17 +385,11 @@ class GridPositionsWidget(QWidget):
         # `set_image` switches the canvas to the image's view; an overview
         # landing mid-session must not pull the user off the view they are on.
         current = self.canvas.view
-        for state in grid.task_history:
-            if (
-                state.name == _LOAD_ENTRY_NAME
-                or state.status is not TaskStatus.Completed
-            ):
-                continue
-            path = image_for(experiment, grid, state)
-            if path is None or os.path.normpath(path) in placed:
+        for state, path in grid_overviews(experiment, grid):
+            if os.path.normpath(path) in placed:
                 continue
             try:
-                image = _load_overview(path)
+                image = load_overview(path)
             except Exception as e:  # noqa: BLE001 - one bad file, said, not fatal
                 logger.warning(f"Could not read {path}: {e}")
                 continue
@@ -387,54 +459,28 @@ class GridPositionsWidget(QWidget):
         lamellae = experiment.get_lamellae_for_grid(grid)
         self.count_label.setText(f"Positions on {grid.name} · {len(lamellae)}")
         self.lamella_list.set_lamella(lamellae)
-        self._mark(lamellae)
+        self._mark_lamellae_on_view(lamellae)
 
     def _refresh_chips(self) -> None:
-        for chip in self._chips.values():
-            self._chips_layout.removeWidget(chip)
-            chip.deleteLater()
-        self._chips = {}
-        for view in self.canvas.views:
-            first = next(r for r in self.canvas.overviews if r.view == view)
-            chip = QPushButton(first.label.split(" · ")[0])
-            chip.setToolTip(view)
-            chip.setCheckable(True)
-            chip.setChecked(view == self.canvas.view)
-            chip.setCursor(Qt.PointingHandCursor)
-            chip.setStyleSheet(VIEW_CHIP_STYLE)
-            chip.clicked.connect(partial(self._on_chip_clicked, view))
-            self._chips_layout.addWidget(chip)
-            self._chips[view] = chip
-
-    def _on_chip_clicked(self, view: str) -> None:
-        self.canvas.show_view(view)
-        for name, chip in self._chips.items():
-            chip.setChecked(name == self.canvas.view)
+        """A chip per view, named for the task that took its first overview."""
+        self._set_chips(
+            [
+                (
+                    next(
+                        r for r in self.canvas.overviews if r.view == view
+                    ).label.split(" · ")[0],
+                    view,
+                )
+                for view in self.canvas.views
+            ]
+        )
 
     def _on_view_changed(self, _view: str) -> None:
-        for name, chip in self._chips.items():
-            chip.setChecked(name == self.canvas.view)
+        self._check_chips()
         if self._grid is not None and self._experiment is not None:
-            self._mark(self._experiment.get_lamellae_for_grid(self._grid))
-
-    def _pose_of(self, lamella: Lamella) -> Optional[FibsemStagePosition]:
-        """Where the shown view puts *lamella*: the fluorescence pose on the FM
-        view, the milling pose on a beam view."""
-        if self.canvas.view == VIEW_FM:
-            pose = lamella.fluorescence_pose
-            return pose.stage_position if pose is not None else None
-        return lamella.stage_position
-
-    def _mark(self, lamellae: List[Lamella]) -> None:
-        positions = []
-        for lamella in lamellae:
-            place = self._pose_of(lamella)
-            if place is None:
-                continue
-            position = deepcopy(place)
-            position.name = lamella.name
-            positions.append(position)
-        self.canvas.set_positions(positions)
+            self._mark_lamellae_on_view(
+                self._experiment.get_lamellae_for_grid(self._grid)
+            )
 
     # -- selection -------------------------------------------------------------
 
@@ -557,10 +603,6 @@ class _Overview:
     label: str
 
 
-def _is_fluorescence(path: str) -> bool:
-    return path.endswith((".ome.tiff", ".ome.tif"))
-
-
 def _read_metadata(path: str) -> Optional[FibsemImageMetadata]:
     """A beam image's metadata, without reading its pixels."""
     try:
@@ -583,14 +625,6 @@ def _beam_view(metadata: FibsemImageMetadata) -> Optional[str]:
 def _view_group(view: str) -> str:
     """ "SEM @ r=0° t=35°" -> "SEM": what a chip is labelled, and ordered, by."""
     return view.split(" @ ")[0]
-
-
-def _load_image(path: str):
-    return (
-        FluorescenceImage.load(path)
-        if _is_fluorescence(path)
-        else FibsemImage.load(path)
-    )
 
 
 def grid_of_root_overview(
@@ -624,7 +658,7 @@ def grid_of_root_overview(
     return next((g for g in experiment.grids if g.name == grid.name), None)
 
 
-class QuadOverviewPage(QWidget):
+class QuadOverviewPage(GridOverviewView):
     """The newest overviews of one grid, with its lamellae and the stage marked.
 
     Signals:
@@ -660,16 +694,12 @@ class QuadOverviewPage(QWidget):
         # "Current grid (none; showing Grid-A)" is longer than a grid's own name.
         self.grid_selector.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self.grid_selector.activated.connect(self._on_grid_chosen)
-        self._chips: Dict[str, QPushButton] = {}
-        self._chips_layout = QHBoxLayout()
-        self._chips_layout.setSpacing(VIEW_CHIP_SPACING)
         header = QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
         header.addWidget(self.grid_selector)
         header.addStretch(1)
-        header.addLayout(self._chips_layout)
+        header.addWidget(self.chips_row)
 
-        self.canvas = StoredOverviewCanvas()
         self.canvas.set_placing_enabled(False)
         # A glance at where things are, not a place to measure them: the Overview
         # tab has the ruler.
@@ -814,15 +844,7 @@ class QuadOverviewPage(QWidget):
         index: Dict[str, List[_Overview]] = {}
         has_grids = self._has_grids()
         for grid in experiment.grids:
-            for state in grid.task_history:
-                if (
-                    state.name == LOAD_ENTRY_NAME
-                    or state.status is not TaskStatus.Completed
-                ):
-                    continue
-                path = image_for(experiment, grid, state)
-                if path is None:
-                    continue
+            for state, path in grid_overviews(experiment, grid):
                 read = self._read(path)
                 if read is None:
                     continue
@@ -968,7 +990,7 @@ class QuadOverviewPage(QWidget):
         if path in self._images:
             return self._images[path]
         try:
-            image = _load_image(path)
+            image = load_overview(path)
         except Exception:
             logger.warning(f"Could not read the overview {path}", exc_info=True)
             image = None
@@ -986,36 +1008,10 @@ class QuadOverviewPage(QWidget):
         self.caption.hide()
         self._clear_chips()
 
-    def _clear_chips(self) -> None:
-        """Take the chips down now, not when the deletion runs: a chip out of the
-        layout but not yet deleted is still a visible child of the header, drawn at
-        whatever size it last had -- over the grid selector."""
-        for chip in self._chips.values():
-            self._chips_layout.removeWidget(chip)
-            chip.hide()
-            chip.setParent(None)
-            chip.deleteLater()
-        self._chips = {}
-
     def _refresh_chips(self) -> None:
-        self._clear_chips()
-        groups = list(self._view_by_group)
-        for group in groups:
-            view = self._view_by_group[group]
-            chip = QPushButton(group)
-            chip.setToolTip(view)
-            chip.setCheckable(True)
-            chip.setChecked(view == self.canvas.view)
-            chip.setCursor(Qt.PointingHandCursor)
-            chip.setStyleSheet(VIEW_CHIP_STYLE)
-            chip.clicked.connect(partial(self._on_chip_clicked, view))
-            self._chips_layout.addWidget(chip)
-            self._chips[view] = chip
+        self._set_chips([(group, view) for group, view in self._view_by_group.items()])
 
-    def _on_chip_clicked(self, view: str) -> None:
-        self.canvas.show_view(view)
-        for name, chip in self._chips.items():
-            chip.setChecked(name == self.canvas.view)
+    def _view_shown(self) -> None:
         self._mark_boundary()
         self._mark_lamellae()
         self._mark_stage()
@@ -1051,22 +1047,8 @@ class QuadOverviewPage(QWidget):
         return self._experiment.get_lamellae_for_grid(record) if record else []
 
     def _mark_lamellae(self) -> None:
-        """The lamellae of the grid on show, each where the shown view puts it: the
-        fluorescence pose on the FM view, the milling pose on a beam view."""
-        on_fm = self.canvas.view == VIEW_FM
-        positions = []
-        for lamella in self._lamellae():
-            if on_fm:
-                pose = lamella.fluorescence_pose
-                place = pose.stage_position if pose is not None else None
-            else:
-                place = lamella.stage_position
-            if place is None:
-                continue
-            position = deepcopy(place)
-            position.name = lamella.name
-            positions.append(position)
-        self.canvas.set_positions(positions, movable=False)
+        """The lamellae of the grid on show."""
+        self._mark_lamellae_on_view(self._lamellae(), movable=False)
         self.canvas.set_selected_position(self._selected)
 
     def _mark_stage(self) -> None:
