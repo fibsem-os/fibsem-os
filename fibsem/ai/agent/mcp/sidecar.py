@@ -934,14 +934,14 @@ def build_sidecar(client, capabilities):
 
     def item_measure_thickness(
         item_name: str,
-        filename: str,
+        path: str,
         width_um: Optional[float] = None,
         height_um: Optional[float] = None,
     ):
         return _routed(
             "item_measure_thickness",
             item_name=item_name,
-            filename=filename,
+            path=path,
             **_given(width_um=width_um, height_um=height_um),
         )
 

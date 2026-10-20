@@ -38,6 +38,12 @@ MIN_CONTRAST_FRACTION = 0.5
 # its own half-maximum (on the 2026-10-15 final image, single columns ranged
 # 43-368 nm around a 233 nm mean). A hole narrower than this is smeared.
 DEFAULT_AVERAGE_ALONG = 100e-9
+# A band this close in brightness to its trenches gave misleading numbers on a
+# real run (2026-10-19: ratios of 1.5 on two lamellae).
+LOW_CONTRAST_RATIO = 2.0
+# Another bright line in the window (trench residue, a stepped wall) at this
+# fraction of the band's contrast or more may be the lamella instead.
+OTHER_BAND_FRACTION = 0.5
 
 Region = Union[FibsemRectangle, Point, None]
 
@@ -66,6 +72,9 @@ class LamellaThicknessResult:
     # The searched region of the image, as it was measured (before averaging):
     # what the plot draws the edges on, and what save writes as window.tif.
     window: Optional[np.ndarray] = None
+    # Other bright lines across the window: (centre y at the reference x, in
+    # image pixels; contrast as a fraction of the band's).
+    other_bands: Tuple[Tuple[float, float], ...] = ()
 
     @property
     def measured(self) -> np.ndarray:
@@ -121,6 +130,9 @@ class LamellaThicknessResult:
         }
         if not len(thick):
             answer["thickness_nm"] = None
+            answer["warnings"] = [
+                {"code": "no_band", "message": "No band was found in the window."}
+            ]
             return answer
 
         x = self.columns[measured]
@@ -167,13 +179,16 @@ class LamellaThicknessResult:
         band_y = slope * ref_x + intercept
         answer["centre_offset_nm"] = _nm((ref_y - band_y) * nm)
 
+        ratio = self.band_level / self.trench_level if self.trench_level > 0 else None
         answer["contrast"] = {
             "band": round(self.band_level, 2),
             "trench": round(self.trench_level, 2),
-            "ratio": round(self.band_level / self.trench_level, 3)
-            if self.trench_level > 0
-            else None,
+            "ratio": round(ratio, 3) if ratio is not None else None,
         }
+        answer["other_bands"] = [
+            {"centre_offset_nm": _nm((ref_y - y) * nm), "contrast": round(f, 2)}
+            for y, f in self.other_bands
+        ]
 
         band_px = float(np.median(self.width_px))
         resolution: Dict[str, Any] = {
@@ -187,6 +202,36 @@ class LamellaThicknessResult:
                 float(target_pixel * self.image_width * 1e6), 2
             )
         answer["resolution"] = resolution
+
+        warnings = []
+        if ratio is not None and ratio < LOW_CONTRAST_RATIO:
+            warnings.append(
+                {
+                    "code": "low_contrast",
+                    "message": f"The band is only {ratio:.2f}x as bright as its "
+                    f"trenches (under {LOW_CONTRAST_RATIO}): the edges are "
+                    "uncertain. Take a cleaner image (integration, contrast) first.",
+                }
+            )
+        if self.other_bands:
+            warnings.append(
+                {
+                    "code": "several_bands",
+                    "message": f"{len(self.other_bands)} other bright line(s) in "
+                    "the window (other_bands): the band measured may not be the "
+                    "lamella, and centre_offset_nm is to the band measured. Check "
+                    "on the image.",
+                }
+            )
+        if band_px < MIN_BAND_PX:
+            warnings.append(
+                {
+                    "code": "under_resolved",
+                    "message": f"The band is {band_px:.0f} px across: image it at "
+                    "the suggested field width before trusting the number.",
+                }
+            )
+        answer["warnings"] = warnings
         return answer
 
     def plot(self, save_path: Optional[str] = None):
@@ -236,6 +281,7 @@ class LamellaThicknessResult:
                 "bottom": [None if math.isnan(v) else float(v) for v in self.bottom],
                 "band_level": self.band_level,
                 "trench_level": self.trench_level,
+                "other_bands": [list(band) for band in self.other_bands],
             },
         }
         with open(folder / "data.json", "w") as f:
@@ -269,6 +315,7 @@ class LamellaThicknessResult:
             band_level=data["band_level"],
             trench_level=data["trench_level"],
             window=load_tiff(window) if window.exists() else None,
+            other_bands=tuple(tuple(band) for band in data.get("other_bands", [])),
         )
 
 
@@ -296,6 +343,12 @@ def _plot_thickness(result: LamellaThicknessResult, theme):
     bottom_edge = np.where(measured, result.bottom - y0, np.nan) * um
     top_ax.plot(along, top_edge, color=theme.series[0], lw=1)
     top_ax.plot(along, bottom_edge, color=theme.series[1], lw=1)
+    if result.other_bands:
+        slope, _ = result.centre_line()
+        ref_x = result.reference[0]
+        for y, _ in result.other_bands:
+            line = (y + slope * (result.columns - ref_x) - y0) * um
+            top_ax.plot(along, line, color=theme.bad, lw=1, ls="--")
     for first, last in result.gaps():
         for ax in (top_ax, profile_ax):
             ax.axvspan(
@@ -329,8 +382,10 @@ def _plot_thickness(result: LamellaThicknessResult, theme):
             f"angle {answer['angle_deg']:.2f}°, "
             f"dropped {answer['continuity']['dropped']}/{answer['continuity']['columns']}"
         )
-        if answer["resolution"]["under_resolved"]:
-            title += f"; band {answer['resolution']['band_px']:.0f} px: under-resolved"
+        if answer["warnings"]:
+            title += "\n" + ", ".join(
+                w["code"].replace("_", " ") for w in answer["warnings"]
+            )
         profile_ax.set_title(title, fontsize=9)
         # At least two pixels either side of the mean, so pixel-level noise on
         # an even band does not fill the axis.
@@ -510,6 +565,14 @@ def measure_lamella_band(
     ]
     band_level = float(np.concatenate(band).mean()) if band else math.nan
     trench_level = float(np.nanmean(trench[ok])) if ok.any() else math.nan
+    other_bands = ()
+    if ok.sum() >= 2:
+        x = np.arange(n)[ok]
+        slope, intercept = np.polyfit(x, ((top + bottom) / 2)[ok], 1)
+        width = float(np.median((bottom - top)[ok]))
+        found = _other_bands(crop, slope, intercept, width)
+        ref_x = reference[0] - x0
+        other_bands = tuple((y + slope * ref_x + y0, fraction) for y, fraction in found)
     return LamellaThicknessResult(
         pixel_size=pixel_size,
         image_width=data.shape[1],
@@ -521,4 +584,43 @@ def measure_lamella_band(
         band_level=band_level,
         trench_level=trench_level,
         window=np.asarray(image.data)[y0:y1, x0:x1].copy(),
+        other_bands=other_bands,
     )
+
+
+def _other_bands(crop: np.ndarray, slope: float, intercept: float, width: float):
+    """Bright lines across *crop* other than the band on ``y = slope*x +
+    intercept``: (centre y at x = 0, contrast as a fraction of the band's).
+
+    Each column is shifted onto the band's line and the columns averaged, so a
+    line parallel to the band stands out of the noise; a peak there counts when
+    it is enclosed by darker rows on both sides and at least
+    OTHER_BAND_FRACTION of the band's own rise above the trenches.
+    """
+    from scipy.ndimage import shift as shift_rows
+    from scipy.signal import find_peaks
+
+    rows, n = crop.shape
+    aligned = np.stack(
+        [shift_rows(crop[:, i], -slope * i, order=1, mode="nearest") for i in range(n)],
+        axis=1,
+    )
+    profile = _smooth(_smooth(aligned.mean(axis=1)))
+    centre = int(round(intercept))
+    if not 0 <= centre < rows:
+        return []
+    near = slice(max(0, centre - int(width)), min(rows, centre + int(width) + 1))
+    peak = float(profile[near].max())
+    floor = float(profile.min())
+    rise = peak - floor
+    if rise <= 0:
+        return []
+    found, props = find_peaks(profile, prominence=OTHER_BAND_FRACTION * rise / 2)
+    bands = []
+    for y in found:
+        if abs(y - intercept) <= max(1.5 * width, 3.0):
+            continue  # the band itself
+        fraction = (float(profile[y]) - floor) / rise
+        if fraction >= OTHER_BAND_FRACTION:
+            bands.append((float(y), round(fraction, 3)))
+    return bands

@@ -259,23 +259,25 @@ class AutoLamellaAppContext(AppContext):
     def measure_thickness(
         self,
         item_name: str,
-        filename: str,
+        path: str,
         width_um: Optional[float] = None,
         height_um: Optional[float] = None,
     ) -> Dict[str, Any]:
-        """The lamella's thickness, read off one of the item's saved FIB images.
+        """The lamella's thickness, read off a saved FIB image of the item.
 
-        The bright band between the trenches, measured column by column at half
-        its peak brightness (:func:`fibsem.imaging.thickness.measure_lamella_band`)
-        in a window around the item's POI: ``width_um`` along the lamella,
-        ``height_um`` across it, each by default from the item's own trench
-        patterns (``Lamella.trench_window``). Nothing moves; the result is saved
-        in a ``thickness`` folder beside the image. The answer carries the
-        result's diagnostic plot.
+        ``path`` is any FIB image inside the experiment: a task's reference or
+        one the agent took. The bright band between the trenches, measured
+        column by column at half its peak brightness
+        (:func:`fibsem.imaging.thickness.measure_lamella_band`) in a window
+        around the item's POI: ``width_um`` along the lamella, ``height_um``
+        across it, each by default from the item's own trench patterns
+        (``Lamella.trench_window``). Nothing moves; the result is saved in a
+        ``thickness`` folder beside the image. The answer carries the result's
+        diagnostic plot.
         """
         import base64
-        import os
 
+        from fibsem.fm.preview import is_fluorescence_image
         from fibsem.imaging.thickness import DEFAULT_WINDOW, measure_lamella_band
         from fibsem.structures import BeamType, FibsemImage, Point
 
@@ -285,18 +287,23 @@ class AutoLamellaAppContext(AppContext):
         lamella, refusal = find_item(experiment, item_name)
         if refusal:
             return {"error_type": "not_found", **refusal}
-        path, refusal = _recorded_item_file(lamella, filename)
+        target, refusal = self._experiment_image(path)
         if refusal:
-            return {"error_type": "not_found", **refusal}
+            return refusal
+        if is_fluorescence_image(target):
+            return {
+                "error_type": "invalid",
+                "error": f"{path!r} is a fluorescence image; the band is read off a FIB image.",
+            }
         try:
-            image = FibsemImage.load(path)
+            image = FibsemImage.load(target)
         except Exception as exc:  # noqa: BLE001 - an unreadable file is a data fact
-            return {"error_type": "invalid", "error": f"{filename!r}: {exc}"}
+            return {"error_type": "invalid", "error": f"{path!r}: {exc}"}
         settings = getattr(image.metadata, "image_settings", None)
         if getattr(settings, "beam_type", None) is BeamType.ELECTRON:
             return {
                 "error_type": "invalid",
-                "error": f"{filename!r} is an SEM image; the band is read off a FIB image.",
+                "error": f"{path!r} is an SEM image; the band is read off a FIB image.",
             }
         default, source = lamella.trench_window(), "patterns"
         if default is None:
@@ -314,17 +321,17 @@ class AutoLamellaAppContext(AppContext):
             return {"error_type": "invalid", "error": str(exc)}
         # Kept beside the image, as an autofocus run keeps its own: one folder
         # per image, replaced when the same image is measured again.
-        stem = os.path.splitext(os.path.basename(path))[0]
+        stem = os.path.splitext(os.path.basename(target))[0]
         try:
             saved_to = str(
-                result.save(os.path.join(os.path.dirname(path), "thickness"), stem)
+                result.save(os.path.join(os.path.dirname(target), "thickness"), stem)
             )
         except OSError:
-            logging.exception(f"Could not save the thickness result for {filename!r}")
+            logging.exception(f"Could not save the thickness result for {path!r}")
             saved_to = None
         return {
             "item_name": item_name,
-            "filename": filename,
+            "image": path,
             "poi": {"x": poi.x, "y": poi.y},
             "window_um": [round(window[0] * 1e6, 3), round(window[1] * 1e6, 3)],
             "window_from": source,
