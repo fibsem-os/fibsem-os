@@ -22,6 +22,7 @@ from fibsem.devices.fm import Objective
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.structures import InsertableDeviceState
 from fibsem.ui import notification_service
+from fibsem.ui.control import control_of
 from fibsem.ui.qt.threading import FunctionWorker, thread_worker
 from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
@@ -434,7 +435,7 @@ class ObjectiveControlWidget(QWidget):
         self._action_worker = worker = self._insert_objective_worker(target_stage_pos)
         worker.returned.connect(self._on_objective_action_finished)
         worker.errored.connect(self._on_objective_action_error)
-        worker.start()
+        worker.start(control=control_of(self.microscope), action="insert objective")
 
     @thread_worker
     def _insert_objective_worker(self, target_stage_pos) -> None:
@@ -476,7 +477,7 @@ class ObjectiveControlWidget(QWidget):
         self._action_worker = worker = self._retract_objective_worker()
         worker.returned.connect(self._on_objective_action_finished)
         worker.errored.connect(self._on_objective_action_error)
-        worker.start()
+        worker.start(control=control_of(self.microscope), action="retract objective")
 
     @thread_worker
     def _retract_objective_worker(self) -> None:
@@ -903,7 +904,7 @@ class ObjectiveControlWidget(QWidget):
         worker.returned.connect(self._on_wheel_move_finished)
         worker.errored.connect(self._on_wheel_move_error)
         self._wheel_worker = worker
-        worker.start()
+        worker.start(control=control_of(self.microscope), action="move objective")
 
     @thread_worker
     def _wheel_move_worker(self, position_m: float) -> float:

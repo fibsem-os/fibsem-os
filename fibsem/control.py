@@ -34,11 +34,18 @@ from psygnal import Signal
 from fibsem.acting import OPERATOR, ActorKind
 
 __all__ = [
+    "STOP_COMMANDS",
     "Control",
     "InControl",
     "MicroscopeBusy",
     "lending",
 ]
+
+
+# Device and service commands that stop something (an FM z-stack stops through
+# `imaging.stop`; milling's `end` ends the stage keeping what it milled). They
+# take no control, so the running move or mill never refuses them.
+STOP_COMMANDS = frozenset(("stop", "stop_live", "end"))
 
 
 @dataclass(frozen=True)
@@ -89,6 +96,9 @@ class Control:
         # action beside it.
         self._open: Optional[InControl] = None
         self._beside: Optional[InControl] = None
+        # The holder others may join (``take(join=True)``), and how many have.
+        self._joinable: List[InControl] = []
+        self._joined = 0
         # The last take, owner or borrower, kept after release: an action that
         # starts something and returns (start_milling) has let go of control
         # while what it started runs on (FIB-1267's Stop agent).
@@ -109,20 +119,27 @@ class Control:
             return self._last
 
     @contextmanager
-    def take(self, by: "ActorKind | str", action: str) -> Iterator[InControl]:
+    def take(
+        self, by: "ActorKind | str", action: str, join: bool = False
+    ) -> Iterator[InControl]:
         """Be in control for the block, or raise :class:`MicroscopeBusy` at once.
 
         While the one in control has lent it (a question is standing), the take
         borrows instead: it succeeds if nobody else has borrowed it. While the
         holder is open to its own actor (`let_act_beside`), that actor's take
-        acts beside it.
+        acts beside it. Takes that *join* never refuse each other: one joins
+        another that joins, for the operator's clicks in the window, and the
+        holder's release waits for those that joined it.
         """
         by = ActorKind(by)
         entry = InControl(by=by, action=action, since=time.time())
         with self._cond:
             holder = self._borrower or self._owner
-            beside = borrowed = False
-            if self._owner is None:
+            beside = borrowed = joined = False
+            if join and any(holder is e for e in self._joinable):
+                joined = True
+                self._joined += 1
+            elif self._owner is None:
                 self._owner = entry
                 self._owner_thread = threading.get_ident()
             elif self._lent and self._borrower is None:
@@ -133,8 +150,19 @@ class Control:
                 self._beside = entry
             else:
                 raise MicroscopeBusy(self._beside or holder)
+            if join and not joined:
+                self._joinable.append(entry)
             self._note_operator(by)
             self._last = entry
+        if joined:
+            try:
+                yield holder
+            finally:
+                with self._cond:
+                    self._joined -= 1
+                    self._note_operator(by)
+                    self._cond.notify_all()
+            return
         if not (borrowed or beside):
             _remember(self._owner_thread, self)
         self.changed.emit(entry)
@@ -142,6 +170,11 @@ class Control:
             yield entry
         finally:
             with self._cond:
+                if any(entry is e for e in self._joinable):
+                    self._joinable = [e for e in self._joinable if e is not entry]
+                    # Those that joined it end first, as with acting beside.
+                    while self._joined:
+                        self._cond.wait()
                 if self._open is entry:
                     self._open = None
                     # What acts beside it ends first: nobody takes over mid-action.

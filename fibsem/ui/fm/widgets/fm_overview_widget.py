@@ -63,6 +63,7 @@ from fibsem.structures import (
 )
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui import utils as ui_utils
+from fibsem.ui.control import control_of
 from fibsem.ui.fm.widgets.fm_multi_channel_widget import FluorescenceMultiChannelWidget
 from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
     FMOverviewConfirmationDialog,
@@ -1876,7 +1877,7 @@ class FMOverviewWidget(QWidget):
 
         self.status.setText("Moving to the FM…")
         worker = FunctionWorker(self._move_to_device_worker, "FM")
-        worker.start()
+        worker.start(control=control_of(self.microscope), action="move stage to FM")
 
     def _move_to_device_worker(self, device: str) -> None:
         """Runs off the GUI thread. Only signals may cross back."""
@@ -2170,7 +2171,7 @@ class FMOverviewWidget(QWidget):
         worker = FunctionWorker(self.session.move_to, position)
         worker.errored.connect(self._on_move_errored)
         worker.finished.connect(self._on_move_finished)
-        worker.start()
+        worker.start(control=control_of(self.microscope), action="move stage")
 
     def _on_canvas_right_clicked(self, x: float, y: float, modifiers=None) -> None:
         """Offer to put a position at the right-clicked point."""
@@ -2581,7 +2582,9 @@ class FMOverviewWidget(QWidget):
             name=self.settings_widget.basename,
         )
         self._worker = FunctionWorker(self._acquire_worker)
-        self._worker.start()
+        self._worker.start(
+            control=control_of(self.microscope), action="acquire FM overview"
+        )
 
     def _unreachable(
         self,

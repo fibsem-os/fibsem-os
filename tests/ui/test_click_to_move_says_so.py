@@ -59,7 +59,7 @@ class SynchronousWorker(QObject):
         super().__init__()
         self.fn, self.args, self.kwargs = fn, args, kwargs
 
-    def start(self):
+    def start(self, **_):
         self.started.emit()
         try:
             result = self.fn(*self.args, **self.kwargs)
@@ -69,6 +69,7 @@ class SynchronousWorker(QObject):
             self.returned.emit(result)
         finally:
             self.finished.emit()
+        return True
 
     def is_alive(self):
         return False

@@ -85,9 +85,15 @@ import contextvars
 import functools
 import logging
 import threading
-from typing import Callable, Optional, Set
+from typing import TYPE_CHECKING, Callable, Optional, Set
 
 from PyQt5.QtCore import QObject, pyqtSignal
+
+from fibsem.acting import OPERATOR
+from fibsem.control import MicroscopeBusy
+
+if TYPE_CHECKING:
+    from fibsem.control import Control
 
 __all__ = ["FunctionWorker", "thread_worker"]
 
@@ -132,15 +138,30 @@ class FunctionWorker(QObject):
         self._kwargs = kwargs
         self._thread: Optional[threading.Thread] = None
         self._context: Optional[contextvars.Context] = None
+        self._release: Optional[Callable[[], None]] = None
 
-    def start(self) -> None:
-        """Launch the worker on a daemon thread."""
+    def start(
+        self,
+        control: Optional["Control"] = None,
+        action: str = "",
+    ) -> bool:
+        """Launch the worker on a daemon thread. False when it was refused.
+
+        With ``control``, the body is the operator's action on the microscope and
+        holds control while it runs (FIB-1488). It is taken here, so a refusal
+        starts nothing: the worker reports ``errored`` (the ``MicroscopeBusy``) and
+        ``finished``, as for a failed body. The operator's own clicks never refuse
+        each other: an image during their mill goes ahead.
+        """
+        if control is not None and not self._take(control, action):
+            return False
         self._context = contextvars.copy_context()
         _ACTIVE_WORKERS.add(self)
         # Released on the GUI thread once the worker is done (self lives there).
         self.finished.connect(lambda: _ACTIVE_WORKERS.discard(self))
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
+        return True
 
     def is_alive(self) -> bool:
         """Whether the worker thread has been started and has not yet finished.
@@ -161,10 +182,30 @@ class FunctionWorker(QObject):
         if self._thread is not None:
             self._thread.join(timeout)
 
+    def _take(self, control: "Control", action: str) -> bool:
+        taking = control.take(OPERATOR, action, join=True)
+        try:
+            taking.__enter__()
+        except MicroscopeBusy as busy:
+            from fibsem.ui.control import refused
+
+            if not self.receivers(self.errored):
+                refused(busy)
+            self.errored.emit(busy)
+            self.finished.emit()
+            return False
+        self._release = lambda: taking.__exit__(None, None, None)
+        return True
+
     def _run(self) -> None:
         self.started.emit()
         try:
-            result = self._context.run(self._func, *self._args, **self._kwargs)
+            try:
+                result = self._context.run(self._func, *self._args, **self._kwargs)
+            finally:
+                # Given up before any slot runs, so a slot that acts finds it free.
+                if self._release is not None:
+                    self._release()
         except Exception as exc:  # noqa: BLE001 - report every failure, never swallow it
             logging.exception(
                 "worker %r failed", getattr(self._func, "__name__", self._func)

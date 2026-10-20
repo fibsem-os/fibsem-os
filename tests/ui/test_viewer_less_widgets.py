@@ -375,8 +375,8 @@ class _NoopWorker:
     def connect(self, *a, **k):
         pass
 
-    def start(self):
-        pass
+    def start(self, **_):
+        return True
 
 
 # --- teardown: the process-abort guard ---------------------------------------

@@ -35,6 +35,7 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.session_state import session_state_for
 from fibsem.structures import DeviceImagingState, Point
 from fibsem.ui import notification_service
+from fibsem.ui.control import control_of, operator_acts
 from fibsem.ui.fm.widgets import (
     CameraWidget,
     HistogramWidget,
@@ -442,7 +443,13 @@ class FMControlWidget(QWidget):
             pixelsize=pixelsize,
         )
         logging.info(f"FM relative move: {point_clicked}")
-        self.microscope.fm_stable_move(dx=point_clicked[0], dy=point_clicked[1])
+        operator_acts(
+            control_of(self.microscope),
+            "move stage",
+            self.microscope.fm_stable_move,
+            dx=point_clicked[0],
+            dy=point_clicked[1],
+        )
 
     def _on_canvas_fm_double_click(self, x, y, modifiers):
         """Quad-view FM canvas double-click -> relative stage move that recentres the
@@ -474,7 +481,9 @@ class FMControlWidget(QWidget):
         if not self._fm_move_lock.acquire(blocking=False):
             logging.info("FM stage move already in progress; ignoring click")
             return
-        FunctionWorker(self._canvas_fm_move_worker, x, y, shape, pixelsize).start()
+        worker = FunctionWorker(self._canvas_fm_move_worker, x, y, shape, pixelsize)
+        if not worker.start(control=control_of(self.microscope), action="move stage"):
+            self._fm_move_lock.release()
 
     def _canvas_fm_move_worker(self, x, y, shape, pixelsize):
         try:
@@ -862,7 +871,10 @@ class FMControlWidget(QWidget):
         self._acquisition_thread = FunctionWorker(
             self._image_acquistion_worker, channel_settings, z_parameters, path, name
         )
-        self._acquisition_thread.start()
+        if not self._acquisition_thread.start(
+            control=control_of(self.microscope), action="acquire FM images"
+        ):
+            self.acquisition_finished_signal.emit()
 
     def _image_acquistion_worker(
         self,
@@ -988,7 +1000,10 @@ class FMControlWidget(QWidget):
         self._acquisition_thread = FunctionWorker(
             self._autofocus_worker, channel_settings, autofocus_settings
         )
-        self._acquisition_thread.start()
+        if not self._acquisition_thread.start(
+            control=control_of(self.microscope), action="FM autofocus"
+        ):
+            self.acquisition_finished_signal.emit()
 
     def _autofocus_worker(
         self, channel_settings: ChannelSettings, autofocus_settings: AutoFocusSettings

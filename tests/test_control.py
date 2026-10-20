@@ -250,3 +250,42 @@ def test_a_run_lending_control_waits_for_the_agent_s_mill():
         assert control.current.by == WORKFLOW
     assert released.wait(5)
     assert order == ["mill ended", "run carries on"]
+
+
+def test_takes_that_join_share_control_and_the_holder_waits_for_them():
+    control = Control()
+    with control.take(OPERATOR, "mill", join=True) as mill:
+        with control.take(OPERATOR, "acquire", join=True) as joined:
+            assert joined is mill and control.current is mill
+        with pytest.raises(MicroscopeBusy):
+            with control.take(AGENT, "move"):
+                pass
+    assert control.current is None
+
+
+def test_a_take_that_joins_never_joins_one_that_did_not():
+    control = Control()
+    # The remote operator's lease, or a script: not the window's clicks.
+    with control.take(OPERATOR, "remote run"):
+        with pytest.raises(MicroscopeBusy):
+            with control.take(OPERATOR, "acquire", join=True):
+                pass
+
+
+def test_the_holder_ends_after_what_joined_it():
+    control = Control()
+    holder = control.take(OPERATOR, "mill", join=True)
+    holder.__enter__()
+    joined = control.take(OPERATOR, "acquire", join=True)
+    joined.__enter__()
+    released = threading.Event()
+
+    def release():
+        holder.__exit__(None, None, None)
+        released.set()
+
+    threading.Thread(target=release, daemon=True).start()
+    assert not released.wait(0.2)
+    joined.__exit__(None, None, None)
+    assert released.wait(5)
+    assert control.current is None

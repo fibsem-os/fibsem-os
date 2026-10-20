@@ -838,8 +838,8 @@ class TestTheRunOwnsItsSettings:
             captured["settings"] = args[0]
 
             class _W:
-                def start(self_inner):
-                    pass
+                def start(self_inner, **_):
+                    return True
 
                 def is_alive(self_inner):
                     return True  # a run is under way
@@ -879,8 +879,8 @@ class TestTheRunOwnsItsSettings:
             captured["settings"] = args[0] if args else None
 
             class _W:
-                def start(self_inner):
-                    pass
+                def start(self_inner, **_):
+                    return True
 
                 def is_alive(self_inner):
                     return False
@@ -928,8 +928,8 @@ class TestTheRunOwnsItsSettings:
             captured["settings"] = args[0]
 
             class _W:
-                def start(self_inner):
-                    pass
+                def start(self_inner, **_):
+                    return True
 
                 def is_alive(self_inner):
                     return False
@@ -960,8 +960,8 @@ class TestTheRunOwnsItsSettings:
             captured["settings"] = args[0]
 
             class _W:
-                def start(self_inner):
-                    pass
+                def start(self_inner, **_):
+                    return True
 
                 def is_alive(self_inner):
                     return False
@@ -995,8 +995,8 @@ class TestTheRunOwnsItsSettings:
             captured["settings"] = args[0]
 
             class _W:
-                def start(self_inner):
-                    pass
+                def start(self_inner, **_):
+                    return True
 
                 def is_alive(self_inner):
                     return False
@@ -1996,8 +1996,8 @@ class TestThePlannedTileset:
             captured["args"] = args
 
             class _W:
-                def start(self_inner):
-                    pass
+                def start(self_inner, **_):
+                    return True
 
                 def is_alive(self_inner):
                     return False
@@ -2041,8 +2041,8 @@ class TestThePlannedTileset:
             captured["args"] = args
 
             class _W:
-                def start(self_inner):
-                    pass
+                def start(self_inner, **_):
+                    return True
 
                 def is_alive(self_inner):
                     return False
@@ -2151,8 +2151,8 @@ class TestADraggedGridIsLiftedToTheStage:
             captured["args"] = args
 
             class _W:
-                def start(self_inner):
-                    pass
+                def start(self_inner, **_):
+                    return True
 
                 def is_alive(self_inner):
                     return False
@@ -2750,8 +2750,8 @@ class TestThePlanHoldsStillWhileTheRunWalksTheGrid:
 
         def fake_worker(fn, *args):
             class _W:
-                def start(self_inner):
-                    pass
+                def start(self_inner, **_):
+                    return True
 
                 def is_alive(self_inner):
                     return False
@@ -2793,8 +2793,8 @@ class TestThePlanHoldsStillWhileTheRunWalksTheGrid:
             captured["centre"] = args[1]
 
             class _W:
-                def start(self_inner):
-                    pass
+                def start(self_inner, **_):
+                    return True
 
                 def is_alive(self_inner):
                     return False
@@ -2832,8 +2832,8 @@ class TestThePlanHoldsStillWhileTheRunWalksTheGrid:
             captured["centre"] = args[1]
 
             class _W:
-                def start(self_inner):
-                    pass
+                def start(self_inner, **_):
+                    return True
 
                 def is_alive(self_inner):
                     return False
@@ -3558,8 +3558,8 @@ class TestARunIsConfirmedFirst:
             captured["args"] = args
 
             class _W:
-                def start(self_inner):
-                    pass
+                def start(self_inner, **_):
+                    return True
 
                 def is_alive(self_inner):
                     return False
@@ -3730,8 +3730,8 @@ class TestAGridTheStageCannotReach:
             captured["args"] = args
 
             class _W:
-                def start(self_inner):
-                    pass
+                def start(self_inner, **_):
+                    return True
 
                 def is_alive(self_inner):
                     return False
@@ -4218,9 +4218,10 @@ class TestTwoRunsCannotLandOnEachOther:
             captured["base"] = args[0].image_settings.filename
 
             class _W:
-                def start(self_inner):
+                def start(self_inner, **_):
                     if run:
                         fn(*args)
+                    return True
 
                 def is_alive(self_inner):
                     return False
