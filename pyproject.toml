@@ -119,6 +119,7 @@ fibsem-correlation-ui = "fibsem.ui.correlation.widgets.correlation_tab_widget:ma
 fibsem-cli = "fibsem.cli:main"
 fibsem-mcp = "fibsem.ai.agent.mcp.sidecar:main"
 fibsem-volume = "fibsem.applications.volume.launch:main"
+fibsem-autolamella-server = "fibsem.applications.autolamella.launch:main"
 
 # Recursive by design. A bare `packages = ["fibsem"]` is NOT recursive: it ships
 # only the top-level fibsem/*.py and none of fibsem/ui, fibsem/milling, etc. That
