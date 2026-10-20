@@ -1385,7 +1385,7 @@ def test_the_thickness_window_comes_from_the_trench_patterns():
     gap (the rough slab) and half a micron into each trench."""
     from types import SimpleNamespace
 
-    from fibsem.applications.autolamella.server.context import _trench_window
+    from fibsem.applications.autolamella.structures import Lamella
     from fibsem.milling.patterning.patterns.trench import TrenchPattern
 
     def task(sync, *patterns):
@@ -1403,7 +1403,7 @@ def test_the_thickness_window_comes_from_the_trench_patterns():
             "Elsewhere": task(False, TrenchPattern(width=1e-6, spacing=9e-6)),
         }
     )
-    width, height = _trench_window(lamella)
+    width, height = Lamella.trench_window(lamella)
     assert width == pytest.approx(9e-6)
     assert height == pytest.approx(3e-6)
-    assert _trench_window(SimpleNamespace(task_config={})) is None
+    assert Lamella.trench_window(SimpleNamespace(task_config={})) is None

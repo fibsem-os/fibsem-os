@@ -36,6 +36,25 @@ def fluorescence_images(lamella: Lamella, *tasks: TaskState) -> List[str]:
     return recorded_outputs(lamella.path, tasks, "fluorescence")
 
 
+def recorded_files(lamella: Lamella) -> List[str]:
+    """Every file a lamella's runs recorded, then its final reference and
+    fluorescence images: what its outputs list, as paths."""
+    history = list(lamella.task_history)
+    paths = [
+        os.path.join(lamella.path, rp)
+        for state in history
+        for relpaths in dict(state.outputs).values()
+        for rp in relpaths
+        if os.path.isfile(os.path.join(lamella.path, rp))
+    ]
+    for path in final_reference_images(lamella, *history) + fluorescence_images(
+        lamella, *history
+    ):
+        if str(path) not in paths:
+            paths.append(str(path))
+    return paths
+
+
 def final_reference_images(
     lamella: Lamella, *tasks: TaskState, fallback: bool = True
 ) -> List[str]:
@@ -205,16 +224,14 @@ class PreviewSources:
     def overview_image(self, grid_name: str, filename: str) -> Optional["FibsemImage"]:
         """A grid's recorded overview, for a waiting item_add's preview; None
         when it is not a beam image."""
-        from fibsem.applications.autolamella.server.context import (
-            AutoLamellaAppContext,
-        )
         from fibsem.structures import FibsemImage
+        from fibsem.workflows.outputs import item_output_named
 
         experiment = self._experiment()
         grid = experiment.get_grid_by_name(grid_name) if experiment else None
         if grid is None:
             return None
-        path = AutoLamellaAppContext.recorded_grid_file(experiment, grid, filename)
+        path = item_output_named(experiment, grid, filename)
         try:
             return FibsemImage.load(path) if path else None
         except Exception:  # noqa: BLE001 - a fluorescence or broken file

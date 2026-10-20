@@ -951,6 +951,26 @@ class Lamella(ExperimentItem):
         """
         return self.defect.verdict is Verdict.FAILED
 
+    def trench_window(self) -> Optional[Tuple[float, float]]:
+        """The window to measure the lamella's band in, from its own trench
+        patterns (those that follow its POI): along the lamella, nine tenths of
+        the narrowest pattern, so the trench ends stay out; across it, the
+        widest gap between trenches (the rough slab) and half a micron into
+        each trench. None when it has no trench pattern."""
+        widths, gaps = [], []
+        for config in self.task_config.values():
+            if not getattr(config, "sync_to_poi", False):
+                continue
+            for milling in (getattr(config, "milling", None) or {}).values():
+                for stage in milling.stages:
+                    pattern = stage.pattern
+                    if hasattr(pattern, "spacing") and hasattr(pattern, "width"):
+                        widths.append(pattern.width)
+                        gaps.append(pattern.spacing)
+        if not widths:
+            return None
+        return 0.9 * min(widths), max(gaps) + 1e-6
+
     @property
     def quality(self) -> QualityRecord:
         """The same record as ``defect`` under the name ``GridRecord`` uses, so
