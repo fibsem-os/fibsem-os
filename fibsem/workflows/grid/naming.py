@@ -3,14 +3,23 @@ record together (FIB-1137).
 
 A grid is named on its slot, where the hardware keeps it, and on its record in
 the experiment, which links to the slot by that name. Once a task has run on
-it, the name is fixed: its folder and images carry it.
+it, the name is fixed: its folder and images carry it. The window and the
+agent add records for what the inventory lists, and rename them, through
+:func:`record_inventoried_grids` and :func:`rename_and_save_grid`.
 """
 
 from __future__ import annotations
 
+from typing import Any, Callable, Dict, List
+
 from fibsem.structures import SampleGrid
 from fibsem.workflows.grid.manager import EXCHANGE_ENTRY_NAMES
 from fibsem.workflows.grids import GridRecord
+
+# What a change to the experiment's grid records goes on the record as.
+GRIDS_CHANGED = "grids_changed"
+
+Record = Callable[[str, Dict[str, Any]], None]
 
 
 def grid_has_run(grid: GridRecord) -> bool:
@@ -72,3 +81,22 @@ def rename_grid(experiment, stage, old: str, new: str) -> None:
     record = experiment.get_grid_by_name(old)
     if record is not None:
         record.name = new
+
+
+def rename_and_save_grid(experiment, stage, old: str, new: str, record: Record) -> None:
+    """:func:`rename_grid`, then save the experiment and put the rename on the
+    record. Check :func:`grid_rename_refusal` first."""
+    rename_grid(experiment, stage, old, new)
+    experiment.save()
+    record(GRIDS_CHANGED, {"renamed": old, "grid_name": new})
+
+
+def record_inventoried_grids(experiment, stage, record: Record) -> List[GridRecord]:
+    """A record for every present grid the stage's last inventory read lists
+    and the experiment has none of; saved and put on the record when any was
+    added. Reads no hardware. The records added."""
+    added = experiment.sync_grids_from_inventory(stage)
+    if added:
+        experiment.save()
+        record(GRIDS_CHANGED, {"added": [grid.name for grid in added]})
+    return added

@@ -1153,12 +1153,13 @@ class AutoLamellaAppContext:
         stage = getattr(microscope, "sample_handling", None)
         if stage is None:
             return {"error_type": "not_found", "error": "No sample handling here."}
+        from fibsem.workflows.grid.naming import record_inventoried_grids
+
         stage.get_inventory()
 
         def add():
-            added = experiment.sync_grids_from_inventory(stage)
+            added = record_inventoried_grids(experiment, stage, self.record_event)
             if added:
-                experiment.save()
                 self._grids_changed()
             return [grid.name for grid in added]
 
@@ -1173,7 +1174,10 @@ class AutoLamellaAppContext:
         """Rename a grid as the Grids tab's Rename does: the slot that holds it
         first, then its record. Refused for a grid that has run, a name another
         grid has, and while a workflow runs (its queue holds grids by name)."""
-        from fibsem.workflows.grid.naming import grid_rename_refusal, rename_grid
+        from fibsem.workflows.grid.naming import (
+            grid_rename_refusal,
+            rename_and_save_grid,
+        )
 
         name = name.strip()
         if not name:
@@ -1203,10 +1207,11 @@ class AutoLamellaAppContext:
 
         def rename() -> Optional[str]:
             try:
-                rename_grid(experiment, stage, grid_name, name)
+                rename_and_save_grid(
+                    experiment, stage, grid_name, name, self.record_event
+                )
             except Exception as exc:  # noqa: BLE001 - the hardware's refusal, said
                 return str(exc)
-            experiment.save()
             self._grids_changed()
             return None
 

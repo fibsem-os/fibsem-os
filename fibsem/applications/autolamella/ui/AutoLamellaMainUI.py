@@ -102,7 +102,11 @@ from fibsem.ui.widgets.workflow_summary_dialog import (
 )
 from fibsem.versioning import get_version_string
 from fibsem.workflows.attention import Attention
-from fibsem.workflows.grid.naming import grid_rename_refusal, rename_grid
+from fibsem.workflows.grid.naming import (
+    grid_rename_refusal,
+    record_inventoried_grids,
+    rename_and_save_grid,
+)
 from fibsem.workflows.runner import GRIDS, RunRequest
 from fibsem.workflows.session import EXPERIMENT, MICROSCOPE, AppSession
 from fibsem.workflows.status import (
@@ -866,17 +870,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if self.experiment is None or stage is None:
             return
         try:
-            added = self.experiment.sync_grids_from_inventory(stage)
+            added = record_inventoried_grids(
+                self.experiment, stage, self.session.record_event
+            )
         except Exception as e:  # noqa: BLE001 - the inventory still shows
             logging.warning(f"Could not record the inventoried grids: {e}")
             return
-        if not added:
-            return
-        logging.info(f"Recorded {len(added)} grid(s) from the inventory.")
-        try:
-            self.experiment.save()
-        except Exception as e:  # noqa: BLE001 - recorded; saved next time
-            logging.warning(f"Could not save the experiment: {e}")
+        if added:
+            logging.info(f"Recorded {len(added)} grid(s) from the inventory.")
 
     def _refresh_grids_tab_microscope(self):
         if getattr(self, "grids_tab", None) is None:
@@ -935,9 +936,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # The Grids tab's and the App Server's rename. The slot already has the
         # new name, so only the record changes here.
         stage = getattr(self.microscope, "sample_handling", None)
-        rename_grid(experiment, stage, old, new)
         try:
-            experiment.save()
+            rename_and_save_grid(experiment, stage, old, new, self.session.record_event)
         except Exception as e:  # noqa: BLE001 - renamed in memory; saved next time
             logging.warning(f"Could not save the experiment after a rename: {e}")
         self.grids_tab.refresh()
