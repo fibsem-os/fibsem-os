@@ -10,7 +10,7 @@ The display half is pinned on the model rather than on any host. `Lamella` is
 the change -- that is the property worth protecting, because wiring N widgets to each
 other is what produced the bug.
 
-Driven through `LamellaNameListWidget` rather than a bare `_LamellaRow`: the defect
+Driven through `LamellaNameListWidget` rather than a bare `LamellaRow`: the defect
 button is hidden until `enable_defect_button(True)`, and `refresh` skips a hidden
 button, so a bare row silently asserts nothing.
 """
@@ -27,10 +27,7 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.applications.autolamella.structures import DefectState, DefectType
-from fibsem.applications.autolamella.ui.lamella.rows import (
-    LamellaNameListWidget,
-    _LamellaRow,
-)
+from fibsem.applications.autolamella.ui.lamella.rows import LamellaNameListWidget
 
 
 @pytest.fixture(scope="module")
@@ -189,11 +186,7 @@ def _connect_chains(source: str):
 @pytest.mark.parametrize(
     "module, widget",
     [
-        (
-            "fibsem.applications.autolamella.ui.lamella.rows",
-            "_LamellaRow",
-        ),
-        ("fibsem.applications.autolamella.ui.lamella.rows", "LamellaRowWidget"),
+        ("fibsem.applications.autolamella.ui.lamella.rows", "LamellaRow"),
         (
             "fibsem.applications.autolamella.ui.lamella.cards",
             "LamellaCardWidget",
@@ -201,7 +194,7 @@ def _connect_chains(source: str):
     ],
 )
 def test_no_widget_holds_a_live_task_state_subscription(module, widget):
-    """None of the three may subscribe to task_state. Inverted from FIB-565.
+    """Neither may subscribe to task_state. Inverted from FIB-565.
 
     FIB-565 required the opposite -- subscribe, but marshal. That was the wrong
     conclusion, and it took a day to show it. Marshalling fixes *which thread* touches
@@ -214,7 +207,7 @@ def test_no_widget_holds_a_live_task_state_subscription(module, widget):
     2026-08-12 that killed a run mid-workflow and, because the abort landed inside a
     thumbnail write, left a 0-byte file that aborted every subsequent load (FIB-602).
 
-    `_LamellaRow`'s connections are deleted (FIB-603); the other two are commented out
+    `LamellaRow`'s connections are deleted (FIB-603); the card's are commented out
     pending FIB-604, which has to give the refresh a trigger that fires after the write
     before they can go for good. Either way there is nothing live for the parser to
     find, which is what this asserts.
@@ -239,11 +232,7 @@ def test_no_widget_holds_a_live_task_state_subscription(module, widget):
 @pytest.mark.parametrize(
     "module, widget",
     [
-        (
-            "fibsem.applications.autolamella.ui.lamella.rows",
-            "_LamellaRow",
-        ),
-        ("fibsem.applications.autolamella.ui.lamella.rows", "LamellaRowWidget"),
+        ("fibsem.applications.autolamella.ui.lamella.rows", "LamellaRow"),
         (
             "fibsem.applications.autolamella.ui.lamella.cards",
             "LamellaCardWidget",
@@ -251,7 +240,7 @@ def test_no_widget_holds_a_live_task_state_subscription(module, widget):
     ],
 )
 def test_every_refresh_stays_marshalled(module, widget):
-    """@ensure_main_thread stays on all three, even with the subscriptions gone.
+    """@ensure_main_thread stays on both, even with the subscriptions gone.
 
     Not redundant. It is what makes re-enabling a connection -- or any future
     cross-thread caller -- land on the GUI thread rather than corrupting Qt state from
