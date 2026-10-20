@@ -37,7 +37,9 @@ curl -s "http://127.0.0.1:8001/capabilities" -H "Authorization: Bearer $TOKEN"
 On the curl path your own harness may gate commands that change state: a
 permission prompt for the operator in an interactive session, a hard denial
 when running on your own. Treat a harness denial exactly like a server 403:
-stop and ask, and never repackage the call to get past it.
+stop and ask, and never repackage the call to get past it. Under
+`fibsem-agent` there is no shell, so there is no curl path: the MCP tools are
+the way in.
 
 Read `server_get_capabilities` (`/capabilities`) before anything else:
 
@@ -125,6 +127,10 @@ the last line you read (`tail -n +43 -f watch.log` when you have read 42), so
 a line written in between still reaches you. The watcher keeps running. Other
 harnesses need the same thing: a line from the watcher has to start your
 turn.
+
+Under `fibsem-agent` that is done for you: it runs the watcher, and each
+batch of its lines arrives as your next turn (`The watcher printed: …`).
+Don't start one of your own.
 
 If your harness can't keep a background process alive while you are idle
 (spawned subagents usually can't: the watcher dies with your turn), don't go
@@ -626,7 +632,7 @@ At the start of a session:
 1. Connect and read `/capabilities`. Tell the operator the level and what it
    means, and whether the microscope is served.
 2. Start the watcher before anything else, so nothing that happens while you
-   read is missed.
+   read is missed. Under `fibsem-agent` it is already running.
 3. Read where things stand: `app_get_status`, `workflow_get_queue`,
    `proposal_list`. A pending proposal comes first.
 4. Before the first microscope action, get your bearings (above).
