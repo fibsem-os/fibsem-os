@@ -22,7 +22,7 @@ Vocabulary: the surface speaks ``item_name`` throughout.
 The facade reads the session (``fibsem.workflows.session.AppSession``): the
 experiment, the microscope, the runner, the responder and the latest images,
 and starts and stops runs through its runner, so it serves with no window.
-A window (:class:`AppWindow`, ``AutoLamellaSingleWindowUI`` in production) adds what only
+A window (:class:`AppWindow`, ``AutoLamellaWindow`` in production) adds what only
 it has: its redraws after an agent's edit, its adoption of an experiment or
 protocol, its hardware stops, and the config edits it still applies.
 """

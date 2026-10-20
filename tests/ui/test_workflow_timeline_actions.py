@@ -19,9 +19,7 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
-    WorkflowProgressWidget,
-)
+from fibsem.ui.widgets.workflow.timeline import WorkflowProgressWidget
 from fibsem.workflows.queue import QueueOp, TaskQueue
 from fibsem.workflows.status import TaskStatus as Status
 
@@ -247,7 +245,7 @@ def test_run_again_queues_a_fresh_item_without_touching_the_original(queue):
 
 
 def describe(action: str, edit) -> str:
-    from fibsem.applications.autolamella.ui.workflow_tab import WorkflowTab
+    from fibsem.applications.autolamella.ui.workflow.tab import WorkflowTab
     from fibsem.workflows.queue import WorkItem
 
     return WorkflowTab._queue_action_message(
@@ -319,7 +317,7 @@ def _window(queue, experiment=None, microscope=None):
     is ``queue``'s."""
     from types import SimpleNamespace
 
-    from fibsem.applications.autolamella.ui.workflow_tab import WorkflowTab
+    from fibsem.applications.autolamella.ui.workflow.tab import WorkflowTab
     from fibsem.workflows.runner import ITEMS
     from tests.run_state import stub_session
 

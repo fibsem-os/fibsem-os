@@ -30,7 +30,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
+from fibsem.applications.autolamella.ui.protocol.lamella_editor import (
     AutoLamellaProtocolEditorWidget,
 )
 from fibsem.structures import BeamType, FibsemImage, MicroscopeState

@@ -4,7 +4,7 @@ Before an edit is applied, the code applying it *touches* what it is about to
 change: it hands over a reader of the value. The value is read then, as the
 edit's ``before``, the first time it is touched, and read again when the edits
 settle, as its ``after``, on :meth:`PendingEdits.flush`: at once for an
-agent's edit, after a pause in the editors (``ui/edit_recording.py``). So an
+agent's edit, after a pause in the editors (``ui/protocol/edit_recording.py``). So an
 edit made in a hundred drag steps is one ``edit`` event, and one that ends
 where it started is none.
 

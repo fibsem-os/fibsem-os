@@ -21,8 +21,8 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaWorkflowConfig,
     Experiment,
 )
-from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
-from fibsem.applications.autolamella.ui import workflow_tab
+from fibsem.applications.autolamella.ui import window as module
+from fibsem.applications.autolamella.ui.workflow import tab as workflow_tab
 from fibsem.applications.autolamella.workflows.tasks.reference_image import (
     AcquireReferenceImageConfig,
 )
@@ -33,7 +33,7 @@ from fibsem.structures import FibsemStagePosition
 def main_ui(qapp):
     """The default Demo configuration: not a compustage, no loader, a fixed
     holder with no slot calibrated. Nothing about grids is set up."""
-    window = module.AutoLamellaSingleWindowUI()
+    window = module.AutoLamellaWindow()
     ui = window
     ui.system_widget.connect_to_microscope()
     stage = ui.microscope.sample_handling

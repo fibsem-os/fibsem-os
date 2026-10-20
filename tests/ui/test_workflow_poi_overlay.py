@@ -22,7 +22,6 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.ui.poi_marker import PoiMarker
 from fibsem.structures import (
     BeamType,
     FibsemImage,
@@ -31,8 +30,9 @@ from fibsem.structures import (
     MicroscopeState,
     Point,
 )
+from fibsem.ui.widgets.canvas.overlays.poi_marker import PoiMarker
 
-# What the protocol editor asks for (autolamella_lamella_protocol_editor.py), and what
+# What the protocol editor asks for (protocol/lamella_editor.py), and what
 # the config preview's PointOverlay uses for its edge. Restated rather than imported:
 # both are inline literals at their call sites, so this is a statement of the intended
 # house style for a POI, not a live comparison.

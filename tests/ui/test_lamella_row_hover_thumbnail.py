@@ -14,7 +14,7 @@ from PyQt5.QtCore import QEvent
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.applications.autolamella.structures import Lamella
-from fibsem.applications.autolamella.ui.lamella_list_widget import LamellaRowWidget
+from fibsem.applications.autolamella.ui.lamella.rows import LamellaRowWidget
 
 
 @pytest.fixture

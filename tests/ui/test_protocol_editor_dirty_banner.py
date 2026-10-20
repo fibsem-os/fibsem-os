@@ -28,7 +28,7 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.ui.autolamella_task_config_editor import (  # noqa: E402
+from fibsem.applications.autolamella.ui.protocol.protocol_tab import (  # noqa: E402
     AutoLamellaProtocolTaskConfigEditor,
     _task_tooltips,
 )

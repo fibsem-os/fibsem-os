@@ -30,7 +30,7 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QApplication, QPushButton
 
-from fibsem.applications.autolamella.ui.fluorescence_coincidence_viewer_widget import (
+from fibsem.applications.autolamella.ui.coincidence.viewer import (
     _FibImageCanvas,
     _FmImageCanvas,
 )
@@ -94,7 +94,7 @@ def _coincidence_viewer():
     from fibsem import config as cfg
     from fibsem import utils
     from fibsem.applications.autolamella.structures import Experiment
-    from fibsem.applications.autolamella.ui.fluorescence_coincidence_viewer_widget import (
+    from fibsem.applications.autolamella.ui.coincidence.viewer import (
         FluorescenceCoincidenceViewerWidget,
     )
 

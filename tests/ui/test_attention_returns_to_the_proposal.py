@@ -21,9 +21,7 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QWidget
 
-from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
-    AutoLamellaSingleWindowUI,
-)
+from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
 from fibsem.detection.detection import DetectedFeatures, LamellaCentre
 from fibsem.workflows.proposals import DETECTION, Proposal
 from tests.fixtures.main_window import close_window
@@ -53,7 +51,7 @@ class _DetWidget(QWidget):
 
 @pytest.fixture
 def ui(qapp):
-    widget = AutoLamellaSingleWindowUI()
+    widget = AutoLamellaWindow()
     widget.system_widget.connect_to_microscope()
     det_widget = _DetWidget()
     widget.panel.det_widget = det_widget
@@ -160,9 +158,9 @@ def test_it_does_nothing_when_no_proposal_is_up(ui, qapp):
 
 @pytest.fixture
 def main_ui(qapp):
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import window as module
 
-    window = module.AutoLamellaSingleWindowUI()
+    window = module.AutoLamellaWindow()
     window.system_widget.connect_to_microscope()
     yield window
     if window.microscope is not None:

@@ -104,7 +104,7 @@ def test_the_agent_and_the_status_bar_chip_set_supervision_alike(
     assert calls == [("Rough", True)]
 
     window = (
-        Path(fibsem.__path__[0]) / "applications/autolamella/ui/AutoLamellaMainUI.py"
+        Path(fibsem.__path__[0]) / "applications/autolamella/ui/window.py"
     ).read_text(encoding="utf-8")
     start = window.index("    def _on_supervised_status_clicked(")
     body = window[start : window.index("\n    def ", start + 1)]

@@ -103,10 +103,10 @@ class TestTheQueueSnapshot:
 
         source = (
             pathlib.Path(fibsem.__file__).parent
-            / "applications"
-            / "autolamella"
             / "ui"
-            / "workflow_timeline_widget.py"
+            / "widgets"
+            / "workflow"
+            / "timeline.py"
         ).read_text()
         body = source[source.index("def update_from_status") :]
         body = body[: body.index("\n    def ", 1)]

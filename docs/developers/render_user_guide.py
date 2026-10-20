@@ -140,11 +140,9 @@ class Harness:
 
         self._gc = install_main_thread_gc(parent=self.app)
 
-        from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
-            AutoLamellaSingleWindowUI,
-        )
+        from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
 
-        self.window = AutoLamellaSingleWindowUI()
+        self.window = AutoLamellaWindow()
         self.window.resize(*WINDOW_SIZE)
         self.window.show()
         self.pump(500)
@@ -1543,7 +1541,7 @@ def render_fluorescence(h: Harness) -> None:
 @page("experiments")
 def render_experiments(h: Harness) -> None:
     """Create Experiment, and the window once an experiment is open."""
-    from fibsem.applications.autolamella.ui.autolamella_create_experiment_widget import (
+    from fibsem.applications.autolamella.ui.dialogs.create_experiment import (
         AutoLamellaCreateExperimentWidget,
     )
 
@@ -1600,7 +1598,7 @@ def render_experiments(h: Harness) -> None:
 @page("protocols")
 def render_protocols(h: Harness) -> None:
     """The Protocol tab: the task list, a task's parameters, Global Edit."""
-    from fibsem.applications.autolamella.ui.autolamella_global_task_editor_dialog import (
+    from fibsem.applications.autolamella.ui.protocol.dialogs import (
         AutoLamellaGlobalTaskEditDialog,
     )
 
@@ -1655,7 +1653,7 @@ def render_protocols(h: Harness) -> None:
 def render_overview(h: Harness) -> None:
     """The Overview tab: a tiled SEM overview, positions marked on it, FIB
     overviews at two orientations, and the FM overview tab."""
-    from fibsem.applications.autolamella.ui.overview_container_tab import (
+    from fibsem.applications.autolamella.ui.overview.container import (
         MODALITY_FLUORESCENCE as MODALITY_FM,
     )
     from fibsem.structures import BeamType
@@ -1796,7 +1794,7 @@ def render_lamella(h: Harness) -> None:
     )
 
     # one card's actions menu
-    from fibsem.applications.autolamella.ui.lamella_card_widget import LamellaCardWidget
+    from fibsem.applications.autolamella.ui.lamella.cards import LamellaCardWidget
 
     card = cards.findChildren(LamellaCardWidget)[0]
     menu = card._btn_actions.menu()
@@ -1829,9 +1827,7 @@ def render_lamella(h: Harness) -> None:
 @page("tasks")
 def render_tasks(h: Harness) -> None:
     """The task types on offer, and the shipped workflow's task list."""
-    from fibsem.applications.autolamella.ui.autolamella_task_config_editor import (
-        AddTaskDialog,
-    )
+    from fibsem.applications.autolamella.ui.protocol.dialogs import AddTaskDialog
 
     h.first_run(False)
     h.show_tab(0)
@@ -1880,7 +1876,7 @@ def _proposal_up(ui) -> Tuple[str, Optional[str]]:
 
 def render_workflows(h: Harness) -> None:
     """The Workflow tab, a supervised run with its prompts, and the Grids view."""
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as main_module
+    from fibsem.applications.autolamella.ui import window as main_module
 
     h.first_run(False)
     h.show_tab(0)
@@ -2058,15 +2054,13 @@ def render_grid_workflow(h: Harness) -> None:
     from PyQt5.QtWidgets import QDialog, QInputDialog, QMenu, QPlainTextEdit
 
     from fibsem.applications.autolamella.tools import grid_report_pdf
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as main_module
-    from fibsem.applications.autolamella.ui import grid_workflow_widget as gww
-    from fibsem.applications.autolamella.ui.lamella_list_widget import (
+    from fibsem.applications.autolamella.ui import window as main_module
+    from fibsem.applications.autolamella.ui.common.lamella_display import (
         add_verdict_actions,
         mark_current_verdict,
     )
-    from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
-        StepStatus,
-    )
+    from fibsem.applications.autolamella.ui.grids import run as gww
+    from fibsem.ui.widgets.workflow.timeline import StepStatus
     from fibsem.ui.widgets.workflow_summary_dialog import WorkflowSummaryDialog
     from fibsem.workflows.grid.imaging import (
         BeamOverviewGridTaskConfig,
@@ -2428,7 +2422,7 @@ def render_correlation(h: Harness) -> None:
     from scipy import ndimage as ndi
 
     from fibsem.applications.autolamella.structures import AutoLamellaTaskDescription
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as main_module
+    from fibsem.applications.autolamella.ui import window as main_module
     from fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence import (
         AcquireFluorescenceImageConfig,
     )

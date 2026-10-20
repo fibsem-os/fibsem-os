@@ -1,4 +1,4 @@
-"""Test script for WorkflowConfigWidget."""
+"""Test script for WorkflowTaskList."""
 
 import sys
 
@@ -16,12 +16,10 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaWorkflowConfig,
 )
-from fibsem.applications.autolamella.ui.workflow_config_widget import (
-    WorkflowConfigWidget,
-)
-from fibsem.applications.autolamella.ui.workflow_task_editor_widget import (
+from fibsem.applications.autolamella.ui.workflow.task_editor import (
     WorkflowTaskEditorWidget,
 )
+from fibsem.applications.autolamella.ui.workflow.task_list import WorkflowTaskList
 from fibsem.workflows.attention import Attention
 
 SAMPLE_CONFIG = AutoLamellaWorkflowConfig(
@@ -72,7 +70,7 @@ class TestWindow(QWidget):
         left = QVBoxLayout()
         left.setSpacing(6)
 
-        self.workflow_widget = WorkflowConfigWidget()
+        self.workflow_widget = WorkflowTaskList()
         self.workflow_widget.set_config(self._config)
         left.addWidget(self.workflow_widget)
 

@@ -15,14 +15,12 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
-    AutoLamellaSingleWindowUI,
-)
-from fibsem.applications.autolamella.ui.quad_overview_page import (
+from fibsem.applications.autolamella.ui.grids.overview import (
     CURRENT,
     NO_GRID,
     QuadOverviewPage,
 )
+from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
 from fibsem.config import AUTOLAMELLA_TASK_PROTOCOL_PATH
 from fibsem.structures import (
     BeamType,
@@ -252,7 +250,7 @@ def test_the_window_feeds_the_page_its_experiment(world):
         view_controller=None,
         experiment=world.experiment,
     )
-    AutoLamellaSingleWindowUI._refresh_overview_positions(window)
+    AutoLamellaWindow._refresh_overview_positions(window)
     assert page.experiment is world.experiment
     assert page._mode == CURRENT
 
@@ -422,7 +420,7 @@ def test_a_hidden_page_finds_new_overviews_when_shown(world):
 
 @pytest.fixture
 def window(qapp, tmp_path):
-    window = AutoLamellaSingleWindowUI()
+    window = AutoLamellaWindow()
     window.system_widget.connect_to_microscope()
     window.adopt_experiment(Experiment.create(path=tmp_path, name="refresh"))
     yield window

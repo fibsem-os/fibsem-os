@@ -34,7 +34,7 @@ def viewer(qapp, tmp_path):
     from fibsem import config as cfg
     from fibsem import utils
     from fibsem.applications.autolamella.structures import Experiment
-    from fibsem.applications.autolamella.ui.fluorescence_coincidence_viewer_widget import (
+    from fibsem.applications.autolamella.ui.coincidence.viewer import (
         FluorescenceCoincidenceViewerWidget,
     )
 

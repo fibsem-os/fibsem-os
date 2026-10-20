@@ -31,9 +31,9 @@ def _refuse_to_disconnect():
 
 
 def test_closing_autolamella_disconnects_the_microscope(no_quit):
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import window as module
 
-    window = module.AutoLamellaSingleWindowUI()
+    window = module.AutoLamellaWindow()
     window.system_widget.connect_to_microscope()
     microscope = window.microscope
     assert microscope._connection.connected
@@ -84,11 +84,11 @@ def running(no_quit, qapp, monkeypatch, tmp_path):
         AutoLamellaTaskProtocol,
         Experiment,
     )
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import window as module
     from fibsem.workflows.runner import ITEMS, RunRequest
     from tests.run_state import hold_runs
 
-    window = module.AutoLamellaSingleWindowUI()
+    window = module.AutoLamellaWindow()
     ui = window
     ui.system_widget.connect_to_microscope()
     microscope = ui.microscope

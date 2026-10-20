@@ -23,16 +23,14 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
-    AutoLamellaSingleWindowUI,
-)
+from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
 from fibsem.structures import MicroscopeState
 from tests.fixtures.main_window import close_window
 
 
 @pytest.fixture
 def ui(qapp):
-    window = AutoLamellaSingleWindowUI()
+    window = AutoLamellaWindow()
     try:
         yield window
     finally:
@@ -119,7 +117,7 @@ class _Dialog:
 
 @pytest.fixture
 def toasts(monkeypatch):
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as ui_module
+    from fibsem.applications.autolamella.ui import window as ui_module
 
     _Dialog.opened = []
     monkeypatch.setattr(ui_module, "WorkflowSummaryDialog", _Dialog)

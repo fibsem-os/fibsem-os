@@ -499,7 +499,7 @@ def test_item_removed_mid_run_never_executes(manager):
 
 
 def test_status_bar_text_is_derivable_for_added_items(manager):
-    """What AutoLamellaMainUI builds its status string from."""
+    """What AutoLamellaWindow builds its status string from."""
     added = []
 
     def on_task(task_name, lamella):

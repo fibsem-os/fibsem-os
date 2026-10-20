@@ -24,7 +24,7 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.applications.autolamella.structures import LamellaDefaultConfig
-from fibsem.applications.autolamella.ui.lamella_default_config_widget import (
+from fibsem.applications.autolamella.ui.protocol.lamella_template import (
     _POI_LIMIT_X_UM,
     _POI_LIMIT_Y_UM,
     _PREVIEW_H,

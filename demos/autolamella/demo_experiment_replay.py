@@ -13,9 +13,7 @@ from pathlib import Path
 
 from PyQt5.QtWidgets import QApplication, QFileDialog
 
-from fibsem.applications.autolamella.ui.experiment_replay_widget import (
-    open_replay_window,
-)
+from fibsem.applications.autolamella.tools.replay_viewer import open_replay_window
 
 
 def main() -> int:

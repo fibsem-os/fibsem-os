@@ -45,7 +45,7 @@ ALLOWED = {REPO_ROOT / "fibsem" / "ui" / "qt" / "threading.py"}
 MIGRATED_MODULES = [
     "fibsem/ui/widgets/milling_widget.py",
     "fibsem/ui/widgets/fluorescence_control_widget.py",
-    "fibsem/applications/autolamella/ui/fluorescence_coincidence_viewer_widget.py",
+    "fibsem/applications/autolamella/ui/coincidence/viewer.py",
 ]
 # AutoLamellaUI was one; its run thread is the session runner's now
 # (fibsem/workflows/runner.py), a Qt-free layer with a plain thread.

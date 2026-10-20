@@ -12,9 +12,7 @@ pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is delibe
 from PyQt5.QtCore import QRectF
 
 from fibsem import utils
-from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
-    AutoLamellaSingleWindowUI,
-)
+from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
 from fibsem.structures import FibsemStagePosition, SlotCalibration
 from fibsem.ui.widgets.canvas.chamber_view import MAP, SIDE
 from fibsem.ui.widgets.canvas.overlays.minimap_overlays import GRID_BOUNDARY_RADIUS_M
@@ -318,11 +316,11 @@ def test_the_window_hands_the_map_the_experiment_s_lamellae(controller, microsco
             positions=[SimpleNamespace(stage_position=p) for p in positions]
         ),
     )
-    AutoLamellaSingleWindowUI._refresh_overview_positions(window)
+    AutoLamellaWindow._refresh_overview_positions(window)
     assert controller.widget.chamber_view.map._positions == positions
 
     window.experiment = None
-    AutoLamellaSingleWindowUI._refresh_overview_positions(window)
+    AutoLamellaWindow._refresh_overview_positions(window)
     assert controller.widget.chamber_view.map._positions == []
 
 

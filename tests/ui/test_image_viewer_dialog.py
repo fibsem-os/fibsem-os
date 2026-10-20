@@ -283,7 +283,7 @@ def test_the_window_title_follows_the_image(items):
 
 
 def test_the_history_tab_hands_over_every_image_in_task_order(tmp_path, monkeypatch):
-    from fibsem.applications.autolamella.ui import lamella_task_image_widget as history
+    from fibsem.applications.autolamella.ui.lamella import history
 
     opened = []
     monkeypatch.setattr(

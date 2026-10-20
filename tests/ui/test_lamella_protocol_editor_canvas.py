@@ -37,7 +37,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
+from fibsem.applications.autolamella.ui.protocol.lamella_editor import (
     ALIGNMENT_OVERLAY_ID,
     POI_OVERLAY_ID,
     AutoLamellaProtocolEditorWidget,
@@ -106,7 +106,7 @@ def _editor(with_microscope: bool = True):
 
 
 def test_editor_builds_without_a_microscope():
-    """The controller is created eagerly so AutoLamellaMainUI can embed the canvas
+    """The controller is created eagerly so AutoLamellaWindow can embed the canvas
     into the splitter before anything connects. This is why phase 2 is the safe one."""
     editor, _ = _editor(with_microscope=False)
     assert isinstance(editor.view_controller, MicroscopeViewController)
@@ -115,7 +115,7 @@ def test_editor_builds_without_a_microscope():
 
 
 def test_editor_is_napari_free():
-    import fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor as mod
+    import fibsem.applications.autolamella.ui.protocol.lamella_editor as mod
 
     src = Path(mod.__file__).read_text()
     for pattern in ("import napari", "from napari", "self.viewer", "viewer.layers"):
@@ -422,8 +422,8 @@ def test_eye_toggle_routes_through_the_reducer_when_wired():
 
 
 def test_protocol_tab_embeds_the_canvas_not_a_napari_window():
-    import fibsem.applications.autolamella.ui.AutoLamellaMainUI as mod
-    import fibsem.applications.autolamella.ui.lamella_tab as tab
+    import fibsem.applications.autolamella.ui.lamella.tab as tab
+    import fibsem.applications.autolamella.ui.window as mod
 
     src = Path(mod.__file__).read_text()
     assert "self.lamella_viewer" not in src, "the lamella napari viewer is still built"
@@ -457,7 +457,7 @@ def test_view_toggles_are_overlay_controls_on_the_fib_canvas():
     """SEM image, related tasks, alignment area and its edit switch moved out of the
     editor header into the FIB canvas's overlay popover, the same control the
     overview canvases use. The editor's own flags follow the switches."""
-    from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
+    from fibsem.applications.autolamella.ui.protocol.lamella_editor import (
         OVERLAY_ALIGNMENT,
         OVERLAY_EDIT_ALIGNMENT,
         OVERLAY_RELATED,

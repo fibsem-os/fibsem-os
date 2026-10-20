@@ -14,7 +14,9 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
 )
-from fibsem.applications.autolamella.ui import workflow_tab as module  # noqa: E402
+from fibsem.applications.autolamella.ui.workflow import (
+    tab as module,  # noqa: E402  # noqa: E402
+)
 
 
 def _window(qapp, monkeypatch):

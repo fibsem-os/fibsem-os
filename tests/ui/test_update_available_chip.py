@@ -22,7 +22,9 @@ import pytest  # noqa: E402
 pytest.importorskip("PyQt5")
 
 from fibsem import update_check  # noqa: E402
-from fibsem.applications.autolamella.ui.launch import _start_update_check  # noqa: E402
+from fibsem.applications.autolamella.ui.launch import (
+    _start_update_check,  # noqa: E402  # noqa: E402
+)
 from tests.fixtures.experiment_header import HeaderHost  # noqa: E402
 
 

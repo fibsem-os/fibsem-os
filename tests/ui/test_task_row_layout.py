@@ -15,7 +15,7 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QApplication, QGridLayout
 
-from fibsem.applications.autolamella.ui.lamella_task_image_widget import (
+from fibsem.applications.autolamella.ui.lamella.history import (
     _IMAGES_PER_LINE,
     LamellaTaskImageWidget,
 )
@@ -78,9 +78,7 @@ def _render(tmp_path, resolution):
     """
     import numpy as np
 
-    from fibsem.applications.autolamella.ui.lamella_task_image_widget import (
-        _load_and_resize,
-    )
+    from fibsem.applications.autolamella.ui.common.thumbnails import load_and_resize
     from fibsem.structures import (
         FibsemImage,
         FibsemImageMetadata,
@@ -100,7 +98,7 @@ def _render(tmp_path, resolution):
     )
     path = image.save(str(tmp_path / f"ref_{width}x{height}.tif"))
 
-    arr, _, _ = _load_and_resize(path)
+    arr, _, _ = load_and_resize(path)
     h, w = arr.shape[:2]
     return w, h
 
@@ -116,39 +114,37 @@ def test_every_tile_fits_the_placeholder_box(app, tmp_path, resolution):
     as its neighbours and taller than its own placeholder, so the row jumps when it
     loads and everything below shifts.
     """
-    from fibsem.applications.autolamella.ui.lamella_task_image_widget import (
-        _PLACEHOLDER_HEIGHT,
-        _TARGET_WIDTH,
+    from fibsem.applications.autolamella.ui.common.thumbnails import (
+        PLACEHOLDER_HEIGHT,
+        TARGET_WIDTH,
     )
 
     w, h = _render(tmp_path, resolution)
 
-    assert w <= _TARGET_WIDTH
-    assert h <= _PLACEHOLDER_HEIGHT
+    assert w <= TARGET_WIDTH
+    assert h <= PLACEHOLDER_HEIGHT
 
 
 def test_a_three_by_two_image_still_fills_the_width(app, tmp_path):
     """The common beam-image case must be untouched — it was already width-limited,
     and shrinking it would be a visible regression on every existing experiment."""
-    from fibsem.applications.autolamella.ui.lamella_task_image_widget import (
-        _TARGET_WIDTH,
-    )
+    from fibsem.applications.autolamella.ui.common.thumbnails import TARGET_WIDTH
 
-    assert _render(tmp_path, (1536, 1024))[0] == _TARGET_WIDTH
+    assert _render(tmp_path, (1536, 1024))[0] == TARGET_WIDTH
 
 
 def test_a_square_image_is_limited_by_height_not_width(app, tmp_path):
     """A square stack fits the box by its height, leaving it narrower than a beam
     image rather than taller."""
-    from fibsem.applications.autolamella.ui.lamella_task_image_widget import (
-        _PLACEHOLDER_HEIGHT,
-        _TARGET_WIDTH,
+    from fibsem.applications.autolamella.ui.common.thumbnails import (
+        PLACEHOLDER_HEIGHT,
+        TARGET_WIDTH,
     )
 
     w, h = _render(tmp_path, (2048, 2048))
 
-    assert h == _PLACEHOLDER_HEIGHT
-    assert w < _TARGET_WIDTH
+    assert h == PLACEHOLDER_HEIGHT
+    assert w < TARGET_WIDTH
 
 
 # --- captions (FIB-1189) -----------------------------------------------------------
@@ -176,11 +172,9 @@ def test_a_loaded_tile_gets_a_caption_and_the_full_metadata_on_hover(app, tmp_pa
     caption = widget._caption_labels[path]
     assert caption.text() == "", "nothing to say until the file is read"
 
-    from fibsem.applications.autolamella.ui.lamella_task_image_widget import (
-        _load_and_resize,
-    )
+    from fibsem.applications.autolamella.ui.common.thumbnails import load_and_resize
 
-    widget._on_image_loaded(path, *_load_and_resize(path))
+    widget._on_image_loaded(path, *load_and_resize(path))
 
     assert caption.text().startswith("FIB · HFW ")
     tooltip = widget._placeholder_labels[path].toolTip()

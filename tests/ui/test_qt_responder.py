@@ -22,9 +22,7 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
-    AutoLamellaSingleWindowUI,
-)
+from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
 from fibsem.structures import BeamType
 from fibsem.workflows import status as workflow_status
 from fibsem.workflows.interaction import ask
@@ -50,7 +48,7 @@ def ui(qapp, monkeypatch):
         "config",
         "sim-arctis-configuration.yaml",
     )
-    widget = AutoLamellaSingleWindowUI()
+    widget = AutoLamellaWindow()
     monkeypatch.setattr(
         widget.system_widget,
         "load_configuration",

@@ -24,8 +24,8 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.ui.fluorescence_coincidence_viewer_widget import (  # noqa: E402
-    FluorescenceCoincidenceViewerWidget,
+from fibsem.applications.autolamella.ui.coincidence.viewer import (
+    FluorescenceCoincidenceViewerWidget,  # noqa: E402
 )
 from fibsem.milling.progress import (  # noqa: E402
     MillingMessageTracker,

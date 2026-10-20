@@ -17,9 +17,9 @@ from fibsem.structures import BeamType
 
 @pytest.fixture
 def main_ui(qapp):
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import window as module
 
-    window = module.AutoLamellaSingleWindowUI()
+    window = module.AutoLamellaWindow()
     window.system_widget.connect_to_microscope()
     yield window
     if window.microscope is not None:

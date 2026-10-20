@@ -15,9 +15,7 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
-    AutoLamellaSingleWindowUI,
-)
+from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
 from fibsem.workflows.status import Hold, HoldKind
 from tests.fixtures.main_window import close_window
 
@@ -30,7 +28,7 @@ def ui(qapp):
     ``milling_task_config_widget``, which ``update_microscope_ui()`` builds. The
     shipped default configuration is Demo, so this touches no hardware.
     """
-    widget = AutoLamellaSingleWindowUI()
+    widget = AutoLamellaWindow()
     widget.system_widget.connect_to_microscope()
     yield widget
     if widget.microscope is not None:

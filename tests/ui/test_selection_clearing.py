@@ -3,7 +3,7 @@
 Two bugs from the same shape: a widget that holds selection state in more places than
 the checkboxes the user can see, and a clear path that only reached some of them.
 
-* `LamellaListWidget` / `WorkflowConfigWidget` -- the header "Select All" box, and (in
+* `LamellaListWidget` / `WorkflowTaskList` -- the header "Select All" box, and (in
   the workflow one) a `_checked` cache that reorders rebuild rows from. Starting a run
   and adding to the queue both clear the selection, and both used to call the header's
   own slot, which updates neither.
@@ -30,11 +30,9 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     Lamella,
 )
-from fibsem.applications.autolamella.ui.lamella_card_widget import LamellaCardContainer
-from fibsem.applications.autolamella.ui.lamella_list_widget import LamellaListWidget
-from fibsem.applications.autolamella.ui.workflow_config_widget import (
-    WorkflowConfigWidget,
-)
+from fibsem.applications.autolamella.ui.lamella.cards import LamellaCardContainer
+from fibsem.applications.autolamella.ui.lamella.rows import LamellaListWidget
+from fibsem.applications.autolamella.ui.workflow.task_list import WorkflowTaskList
 
 
 @pytest.fixture(scope="module")
@@ -63,8 +61,8 @@ def _lamella_list(lamellae, checked: bool) -> LamellaListWidget:
     return widget
 
 
-def _workflow_list(tasks, checked: bool) -> WorkflowConfigWidget:
-    widget = WorkflowConfigWidget()
+def _workflow_list(tasks, checked: bool) -> WorkflowTaskList:
+    widget = WorkflowTaskList()
     for task in tasks:
         widget.add_task(task, checked=checked)
     return widget

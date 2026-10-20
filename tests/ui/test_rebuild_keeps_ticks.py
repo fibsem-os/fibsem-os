@@ -27,10 +27,8 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaWorkflowConfig,
     Lamella,
 )
-from fibsem.applications.autolamella.ui.lamella_list_widget import LamellaListWidget
-from fibsem.applications.autolamella.ui.workflow_config_widget import (
-    WorkflowConfigWidget,
-)
+from fibsem.applications.autolamella.ui.lamella.rows import LamellaListWidget
+from fibsem.applications.autolamella.ui.workflow.task_list import WorkflowTaskList
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -101,7 +99,7 @@ def test_set_lamellae_from_empty_starts_unticked():
 
 
 def test_set_config_keeps_the_ticks_across_a_field_edit():
-    widget = WorkflowConfigWidget()
+    widget = WorkflowTaskList()
     widget.set_config(AutoLamellaWorkflowConfig(tasks=_tasks(["a", "b", "c"])))
     _tick(widget, [0, 2])
 
@@ -113,7 +111,7 @@ def test_set_config_keeps_the_ticks_across_a_field_edit():
 
 
 def test_set_config_drops_the_tick_of_a_removed_task_only():
-    widget = WorkflowConfigWidget()
+    widget = WorkflowTaskList()
     widget.set_config(AutoLamellaWorkflowConfig(tasks=_tasks(["a", "b", "c"])))
     _tick(widget, [0, 1])
 
@@ -124,7 +122,7 @@ def test_set_config_drops_the_tick_of_a_removed_task_only():
 
 
 def test_set_config_from_empty_starts_unticked():
-    widget = WorkflowConfigWidget()
+    widget = WorkflowTaskList()
     widget.set_config(AutoLamellaWorkflowConfig(tasks=_tasks(["a", "b"])))
     assert widget.get_selected() == []
     widget.close()

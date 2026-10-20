@@ -58,7 +58,7 @@ def _spot_burn_outcome(report: SpotBurnProgress) -> ProgressUpdate:
     """How a finished burn reads once the bar is full.
 
     A cancel is deliberately not `failed`, which paints the bar red: it is someone
-    getting what they asked for. Mirrors `AutoLamellaSingleWindowUI._overview_outcome`,
+    getting what they asked for. Mirrors `AutoLamellaWindow._overview_outcome`,
     which makes the same distinction for a tiled acquisition.
     """
     if report.status is SpotBurnStatus.FAILED:

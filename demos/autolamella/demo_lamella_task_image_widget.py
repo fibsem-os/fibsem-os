@@ -25,9 +25,7 @@ from fibsem.applications.autolamella.task_outputs import (
     final_reference_images,
     fluorescence_images,
 )
-from fibsem.applications.autolamella.ui.lamella_task_image_widget import (
-    LamellaTaskImageWidget,
-)
+from fibsem.applications.autolamella.ui.lamella.history import LamellaTaskImageWidget
 from fibsem.config import AUTOLAMELLA_LOG_PATH
 from fibsem.ui.stylesheets import NAPARI_STYLE
 

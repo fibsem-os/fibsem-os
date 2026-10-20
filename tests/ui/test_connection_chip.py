@@ -22,10 +22,12 @@ pytest.importorskip("PyQt5")
 
 from fibsem import utils  # noqa: E402
 from fibsem.applications.autolamella.structures import Experiment  # noqa: E402
-from fibsem.applications.autolamella.ui.experiment_header import (  # noqa: E402
-    CONNECTION_CHIP_MAX_WIDTH,
+from fibsem.applications.autolamella.ui.header import (
+    CONNECTION_CHIP_MAX_WIDTH,  # noqa: E402
 )
-from fibsem.applications.autolamella.ui.main_menu_bar import MainMenuBar  # noqa: E402
+from fibsem.applications.autolamella.ui.menu_bar import (
+    MainMenuBar,  # noqa: E402  # noqa: E402
+)
 from tests.fixtures.experiment_header import HeaderHost  # noqa: E402
 
 

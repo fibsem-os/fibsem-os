@@ -272,12 +272,10 @@ def test_the_guard_finds_the_real_milling_widget_on_a_real_host(qapp):
     Deliberately asserts on the *resolved object*, not on an attribute name. Naming the
     attribute here would re-create the original bug the moment the widget moves again.
     """
-    from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
-        AutoLamellaSingleWindowUI,
-    )
+    from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
     from tests.fixtures.main_window import close_window
 
-    ui = AutoLamellaSingleWindowUI()
+    ui = AutoLamellaWindow()
     ui.system_widget.connect_to_microscope()
     qapp.processEvents()
     try:

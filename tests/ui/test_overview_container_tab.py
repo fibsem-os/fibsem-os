@@ -21,7 +21,7 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.ui.overview_container_tab import (  # noqa: E402
+from fibsem.applications.autolamella.ui.overview.container import (  # noqa: E402
     MODALITY_FIBSEM,
     MODALITY_FLUORESCENCE,
     AutoLamellaOverviewContainerTab,

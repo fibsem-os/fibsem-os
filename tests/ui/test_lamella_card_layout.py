@@ -37,7 +37,7 @@ from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.applications.autolamella.structures import Lamella
-from fibsem.applications.autolamella.ui.lamella_card_widget import (
+from fibsem.applications.autolamella.ui.lamella.cards import (
     LamellaCardContainer,
     LamellaCardWidget,
 )

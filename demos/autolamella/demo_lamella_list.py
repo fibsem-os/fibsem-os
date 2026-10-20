@@ -19,7 +19,7 @@ from fibsem.applications.autolamella.structures import (
     DefectType,
     Lamella,
 )
-from fibsem.applications.autolamella.ui.lamella_list_widget import LamellaListWidget
+from fibsem.applications.autolamella.ui.lamella.rows import LamellaListWidget
 from fibsem.workflows.status import TaskState, TaskStatus
 
 

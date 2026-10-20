@@ -23,9 +23,7 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (  # noqa: E402
-    AutoLamellaSingleWindowUI,
-)
+from fibsem.applications.autolamella.ui.window import AutoLamellaWindow  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.structures import MicroscopeState  # noqa: E402
 from fibsem.workflows.grid.imaging import (  # noqa: E402
@@ -52,7 +50,7 @@ def ui(qapp, monkeypatch, tmp_path):
         "config",
         "sim-arctis-configuration.yaml",
     )
-    widget = AutoLamellaSingleWindowUI()
+    widget = AutoLamellaWindow()
     monkeypatch.setattr(
         widget.system_widget,
         "load_configuration",

@@ -19,8 +19,8 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaWorkflowConfig,
     Experiment,
 )
-from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
-from fibsem.applications.autolamella.ui import workflow_tab
+from fibsem.applications.autolamella.ui import window as module
+from fibsem.applications.autolamella.ui.workflow import tab as workflow_tab
 from fibsem.applications.autolamella.workflows.tasks.reference_image import (
     AcquireReferenceImageConfig,
 )
@@ -33,7 +33,7 @@ from tests.run_state import hold_runs, started_with
 def main_ui(qapp, monkeypatch):
     import fibsem.config as fibsem_config
 
-    window = module.AutoLamellaSingleWindowUI()
+    window = module.AutoLamellaWindow()
     ui = window
     config = os.path.join(
         os.path.dirname(fibsem_config.__file__),

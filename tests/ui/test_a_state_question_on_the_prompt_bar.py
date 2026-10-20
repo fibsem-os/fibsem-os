@@ -42,9 +42,9 @@ REF = "Acquire Reference Image"
 
 @pytest.fixture
 def window(qapp, tmp_path):
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import window as module
 
-    win = module.AutoLamellaSingleWindowUI()
+    win = module.AutoLamellaWindow()
     win.system_widget.connect_to_microscope()
     ui = win
     experiment = Experiment(path=tmp_path, name="state-exp")

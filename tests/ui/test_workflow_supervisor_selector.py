@@ -16,7 +16,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaWorkflowConfig,
 )
-from fibsem.applications.autolamella.ui import workflow_config_widget as module
+from fibsem.applications.autolamella.ui.workflow import task_list as module
 from fibsem.workflows.attention import Attention
 
 
@@ -60,7 +60,7 @@ def test_a_requirement_reads_the_same_whatever_its_mode(qapp):
     rough = AutoLamellaTaskDescription(
         name="Rough", required=True, attention=Attention.supervised
     )
-    widget = module.WorkflowConfigWidget()
+    widget = module.WorkflowTaskList()
     widget.set_config(AutoLamellaWorkflowConfig(tasks=[setup, rough]))
     rows = [widget._row(i) for i in range(2)]
     assert rows[1].requires_label.text() == ""
@@ -103,7 +103,7 @@ def test_remove_lives_in_the_edit_dialog_not_on_the_row(qapp, monkeypatch):
     row and announces it on the same signal the hosts already listen to."""
     from PyQt5.QtWidgets import QMessageBox
 
-    from fibsem.applications.autolamella.ui.lamella_workflow_widget import (
+    from fibsem.applications.autolamella.ui.workflow.lamella_run import (
         LamellaWorkflowWidget,
     )
 
@@ -182,7 +182,7 @@ def test_the_chip_says_what_the_task_needs_from_you(qapp):
             "Rough": MillRoughTaskConfig(task_name="Rough"),
         }
     )
-    widget = module.WorkflowConfigWidget()
+    widget = module.WorkflowTaskList()
     widget.set_protocol(protocol)
     widget.set_config(protocol.workflow_config)
     rows = [widget._row(i) for i in range(2)]

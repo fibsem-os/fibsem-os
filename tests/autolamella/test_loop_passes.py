@@ -16,7 +16,6 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.ui.loop_proposal import loop_prompt
 from fibsem.applications.autolamella.workflows.tasks.rough import MillRoughTaskConfig
 from fibsem.imaging.spot import SpotBurnSettings
 from fibsem.milling.base import FibsemMillingStage
@@ -35,6 +34,7 @@ from fibsem.workflows.proposals import (
     DecisionOutcome,
     Proposal,
     ValueRefused,
+    loop_prompt,
     patch_values,
     prepare_values,
 )

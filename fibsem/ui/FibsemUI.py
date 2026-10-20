@@ -11,7 +11,7 @@ its own, and it is the last napari overview anyone had as a default (FIB-821). I
 hosted *bare*: `FibsemOverviewWidget` knows nothing about lamellae by design -- it says
 *where* a user pointed and leaves the meaning to whoever is listening -- and this
 application has no experiment to listen with. So there is no lamella list and there are
-no markers, which is the whole of what `AutoLamellaOverviewTab` adds on top of it.
+no markers, which is the whole of what `BeamOverviewTab` adds on top of it.
 
 Written by hand rather than loaded from `qtdesigner_files/FibsemUI.ui`. The generated
 window contributed a title label this file deleted on the next line, a Tools menu with
@@ -60,7 +60,7 @@ class FibsemUI(QMainWindow):
     def __init__(self, viewer=None):
         super().__init__()
 
-        # napari-style dark theme, matching AutoLamellaMainUI. The napari window used to
+        # napari-style dark theme, matching AutoLamellaWindow. The napari window used to
         # supply this; a standalone window has to set it itself.
         self.setStyleSheet(NAPARI_STYLE)
 

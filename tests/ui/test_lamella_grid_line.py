@@ -26,17 +26,15 @@ from fibsem.applications.autolamella.structures import (
     DefectType,
     Experiment,
 )
-from fibsem.applications.autolamella.ui.lamella_card_widget import (
-    LamellaCardContainer,
-)
-from fibsem.applications.autolamella.ui.lamella_list_widget import (
-    LamellaListWidget,
+from fibsem.applications.autolamella.ui.common.lamella_display import (
     grid_of,
     grids_named,
     not_on_stage_reason,
     short_status,
 )
-from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
+from fibsem.applications.autolamella.ui.lamella.cards import LamellaCardContainer
+from fibsem.applications.autolamella.ui.lamella.rows import (
+    LamellaListWidget,
     LamellaNameListWidget,
 )
 from fibsem.structures import FibsemStagePosition, MicroscopeState
@@ -240,9 +238,9 @@ class TestFromTheWindow:
     @pytest.fixture
     def main_ui(self, qapp, monkeypatch, tmp_path):
         import fibsem.config as fibsem_config
-        from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+        from fibsem.applications.autolamella.ui import window as module
 
-        window = module.AutoLamellaSingleWindowUI()
+        window = module.AutoLamellaWindow()
         ui = window
         config = os.path.join(
             os.path.dirname(fibsem_config.__file__),

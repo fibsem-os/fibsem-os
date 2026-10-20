@@ -20,14 +20,14 @@ from PyQt5.QtCore import QEvent, Qt  # noqa: E402
 from PyQt5.QtTest import QTest  # noqa: E402
 from PyQt5.QtWidgets import QApplication, QLabel, QPushButton  # noqa: E402
 
-import fibsem.applications.autolamella.ui.lamella_task_image_widget as history_tab  # noqa: E402
+import fibsem.applications.autolamella.ui.lamella.history as history_tab  # noqa: E402
 import fibsem.config as cfg  # noqa: E402
 from fibsem.applications.autolamella.history_rows import HistoryFilter  # noqa: E402
 from fibsem.applications.autolamella.structures import (
     # noqa: E402     TaskState,
     Lamella,
 )
-from fibsem.applications.autolamella.ui.lamella_task_image_widget import (  # noqa: E402
+from fibsem.applications.autolamella.ui.lamella.history import (  # noqa: E402
     LamellaTaskImageWidget,
     _ClickableRow,
 )

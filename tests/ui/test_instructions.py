@@ -8,7 +8,7 @@ and nothing failed when it drifted, because a string cannot be wrong on its own.
 
 So the menu paths are checked against the menus the window actually builds, and the
 table is checked against the states that actually render it. Both read the source:
-`AutoLamellaSingleWindowUI` builds a napari viewer and a vispy quad view and cannot
+`AutoLamellaWindow` builds a napari viewer and a vispy quad view and cannot
 be constructed under the offscreen platform.
 """
 
@@ -26,11 +26,13 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (  # noqa: E402
-    INSTRUCTIONS,  # noqa: E402
-    AutoLamellaSingleWindowUI,
+from fibsem.applications.autolamella.ui.menu_bar import (
+    MainMenuBar,  # noqa: E402  # noqa: E402
 )
-from fibsem.applications.autolamella.ui.main_menu_bar import MainMenuBar  # noqa: E402
+from fibsem.applications.autolamella.ui.window import (  # noqa: E402
+    INSTRUCTIONS,
+    AutoLamellaWindow,
+)
 
 # "(File -> Load Protocol)" / "(File → Load Protocol)" -- the menu, then the entry.
 MENU_PATH = re.compile(r"\(([A-Z][A-Za-z ]*?)\s*(?:->|→)\s*([^)]+)\)")
@@ -92,7 +94,7 @@ def test_no_instruction_goes_unused():
     """
     used = {
         node.slice.value
-        for node in ast.walk(_source(AutoLamellaSingleWindowUI._update_instructions))
+        for node in ast.walk(_source(AutoLamellaWindow._update_instructions))
         if isinstance(node, ast.Subscript)
         and isinstance(node.value, ast.Name)
         and node.value.id == "INSTRUCTIONS"

@@ -27,7 +27,7 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.applications.autolamella.structures import DefectState, DefectType
-from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
+from fibsem.applications.autolamella.ui.lamella.rows import (
     LamellaNameListWidget,
     _LamellaRow,
 )
@@ -113,13 +113,11 @@ def test_the_workflow_update_refreshes_the_name_list(row, lamella):
     """
     import inspect
 
-    from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
-        AutoLamellaSingleWindowUI,
-    )
+    from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
 
     # Lifecycle reports arrive on workflow_status_signal now; the refresh lives
     # in _apply_status_report, which _on_workflow_status runs for every report.
-    source = inspect.getsource(AutoLamellaSingleWindowUI._apply_status_report)
+    source = inspect.getsource(AutoLamellaWindow._apply_status_report)
 
     assert "self.panel.experiment_tab.lamella_list.refresh_lamella(" in source, (
         "`_apply_status_report` does not refresh the name list, and the row no longer "
@@ -131,12 +129,12 @@ def test_the_workflow_update_refreshes_the_name_list(row, lamella):
     "module, widget, handler",
     [
         (
-            "fibsem.applications.autolamella.ui.autolamella_overview_tab",
-            "AutoLamellaOverviewTab",
+            "fibsem.applications.autolamella.ui.overview.beam",
+            "BeamOverviewTab",
             "_on_defect_changed",
         ),
         (
-            "fibsem.applications.autolamella.ui.fluorescence_coincidence_viewer_widget",
+            "fibsem.applications.autolamella.ui.coincidence.viewer",
             "FluorescenceCoincidenceViewerWidget",
             "_on_lamella_defect_changed",
         ),
@@ -192,12 +190,12 @@ def _connect_chains(source: str):
     "module, widget",
     [
         (
-            "fibsem.applications.autolamella.ui.lamella_name_list_widget",
+            "fibsem.applications.autolamella.ui.lamella.rows",
             "_LamellaRow",
         ),
-        ("fibsem.applications.autolamella.ui.lamella_list_widget", "LamellaRowWidget"),
+        ("fibsem.applications.autolamella.ui.lamella.rows", "LamellaRowWidget"),
         (
-            "fibsem.applications.autolamella.ui.lamella_card_widget",
+            "fibsem.applications.autolamella.ui.lamella.cards",
             "LamellaCardWidget",
         ),
     ],
@@ -242,12 +240,12 @@ def test_no_widget_holds_a_live_task_state_subscription(module, widget):
     "module, widget",
     [
         (
-            "fibsem.applications.autolamella.ui.lamella_name_list_widget",
+            "fibsem.applications.autolamella.ui.lamella.rows",
             "_LamellaRow",
         ),
-        ("fibsem.applications.autolamella.ui.lamella_list_widget", "LamellaRowWidget"),
+        ("fibsem.applications.autolamella.ui.lamella.rows", "LamellaRowWidget"),
         (
-            "fibsem.applications.autolamella.ui.lamella_card_widget",
+            "fibsem.applications.autolamella.ui.lamella.cards",
             "LamellaCardWidget",
         ),
     ],

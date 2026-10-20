@@ -16,7 +16,7 @@ Split across two mechanisms because the two halves live in different places:
 
 * the Experiment tab can be built on its own, so what it does on the signal is
   checked by driving it;
-* the window cannot -- `AutoLamellaSingleWindowUI` builds a vispy quad view and a
+* the window cannot -- `AutoLamellaWindow` builds a vispy quad view and a
   napari viewer, neither of which survives `QT_QPA_PLATFORM=offscreen` -- so its half is
   read off the source, the same way `test_lamella_defect_sync.py` handles the minimap
   and the coincidence viewer.
@@ -62,7 +62,7 @@ class TestTheWidgetNoLongerSavesItself:
         putting it back. Without an experiment the test asserts nothing at all.
         """
         from fibsem.applications.autolamella.structures import Experiment
-        from fibsem.applications.autolamella.ui.experiment_tab import ExperimentTab
+        from fibsem.applications.autolamella.ui.panel.experiment import ExperimentTab
         from fibsem.workflows.session import AppSession
 
         experiment = Experiment(path=str(tmp_path), name="defect-save-count")
@@ -87,7 +87,7 @@ class TestTheWidgetNoLongerSavesItself:
 
     def test_the_handler_is_gone_rather_than_merely_disconnected(self):
         """A method left behind reads as a live path to anyone grepping for one."""
-        from fibsem.applications.autolamella.ui.experiment_tab import ExperimentTab
+        from fibsem.applications.autolamella.ui.panel.experiment import ExperimentTab
 
         assert not hasattr(ExperimentTab, "_on_lamella_defect_changed")
 
@@ -96,14 +96,10 @@ class TestTheWindowStillSaves:
     """The FIB-564 half. Removing a save must not remove *the* save."""
 
     def test_the_window_wires_defect_changed_to_a_handler_that_saves(self):
-        from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
-            AutoLamellaSingleWindowUI,
-        )
+        from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
 
-        window = inspect.getsource(AutoLamellaSingleWindowUI)
-        handler = inspect.getsource(
-            AutoLamellaSingleWindowUI._on_lamella_defect_changed
-        )
+        window = inspect.getsource(AutoLamellaWindow)
+        handler = inspect.getsource(AutoLamellaWindow._on_lamella_defect_changed)
 
         assert "lamella_list.defect_changed.connect(" in window, (
             "the window no longer wires defect_changed -- a defect set on the "
@@ -124,13 +120,16 @@ class TestTheWindowStillSaves:
         """
         from pathlib import Path
 
-        from fibsem.applications.autolamella.ui import AutoLamellaMainUI, experiment_tab
+        from fibsem.applications.autolamella.ui import window as window_module
+        from fibsem.applications.autolamella.ui.panel import (
+            experiment as experiment_tab,
+        )
 
         wired = []
         for module, prefix in (
             (experiment_tab, ["self", "lamella_list", "defect_changed"]),
             (
-                AutoLamellaMainUI,
+                window_module,
                 [
                     "self",
                     "panel",
@@ -157,7 +156,7 @@ class TestTheWindowStillSaves:
                 if list(reversed(parts)) == prefix:
                     wired.append(module.__name__)
 
-        assert wired == ["fibsem.applications.autolamella.ui.AutoLamellaMainUI"], (
+        assert wired == ["fibsem.applications.autolamella.ui.window"], (
             f"the Experiment-tab list's defect_changed is wired in {wired}; it must be "
             "wired exactly once, in the window (FIB-682/FIB-564)"
         )

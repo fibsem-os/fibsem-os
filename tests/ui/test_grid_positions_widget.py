@@ -23,17 +23,13 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
-    AutoLamellaSingleWindowUI,
-)
-from fibsem.applications.autolamella.ui.grid_positions_widget import (
-    GridPositionsWidget,
-)
-from fibsem.applications.autolamella.ui.grids_tab_widget import (
+from fibsem.applications.autolamella.ui.grids.overview import GridPositionsWidget
+from fibsem.applications.autolamella.ui.grids.tab import (
     VIEW_POSITIONS,
     VIEW_RESULTS,
     GridsTabWidget,
 )
+from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
 from fibsem.fm.structures import (
     FluorescenceChannelMetadata,
     FluorescenceImage,
@@ -54,7 +50,7 @@ _ARCTIS = os.path.join(
 
 @pytest.fixture
 def ui(qapp, monkeypatch, tmp_path):
-    widget = AutoLamellaSingleWindowUI()
+    widget = AutoLamellaWindow()
     monkeypatch.setattr(
         widget.system_widget,
         "load_configuration",

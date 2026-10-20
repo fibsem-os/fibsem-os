@@ -61,7 +61,7 @@ AGAIN_HINT = "Press Burn Again to burn again, or Accept to go on."
 def window(qapp, tmp_path_factory):
     """A real main window (Demo): entering spot burn mode arms the point
     overlay on the quad view's controller, which lives there."""
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import window as module
 
     burns, failures, supervision = [], [], {"supervised": True}
 
@@ -86,7 +86,7 @@ def window(qapp, tmp_path_factory):
     for (module_, name), value in patches.items():
         setattr(module_, name, value)
 
-    window = module.AutoLamellaSingleWindowUI()
+    window = module.AutoLamellaWindow()
     ui = window
     ui.system_widget.connect_to_microscope()
     # Read unconditionally by the main window's workflow update; the window

@@ -52,9 +52,9 @@ class _AsksForADetection(MillRoughTask):
 
 @pytest.fixture
 def window(qapp, tmp_path):
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import window as module
 
-    win = module.AutoLamellaSingleWindowUI()
+    win = module.AutoLamellaWindow()
     win.system_widget.connect_to_microscope()
     ui = win
     experiment = Experiment(path=tmp_path, name="ask-exp")
@@ -328,10 +328,9 @@ def test_stop_withdraws_the_question_and_cancels_the_task(window, qapp):
 def test_every_declared_question_has_a_widget_to_answer_it_on():
     """A task says what it asks; the window has to be able to put it up: on
     the widget its value is edited on, or the prompt bar for a state."""
-    from fibsem.applications.autolamella.ui.attention import WIDGET_KINDS
-    from fibsem.applications.autolamella.ui.loop_proposal import LOOP_KINDS
+    from fibsem.applications.autolamella.ui.run.attention import WIDGET_KINDS
     from fibsem.applications.autolamella.workflows.tasks import get_tasks
-    from fibsem.workflows.proposals import STATE
+    from fibsem.workflows.proposals import LOOP_KINDS, STATE
 
     shown = set(WIDGET_KINDS) | set(LOOP_KINDS) | {STATE}
     for name, cls in get_tasks().items():

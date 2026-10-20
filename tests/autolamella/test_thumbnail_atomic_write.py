@@ -3,7 +3,7 @@
 Reported from the microscope, 2026-08-11:
 
     OSError: image file is truncated
-      ... lamella_card_widget.py:344 in refresh -> lamella.get_thumbnail()
+      ... lamella/cards.py:344 in refresh -> lamella.get_thumbnail()
       ... structures.py:950 -> Image.open(thumb_path).convert("RGB")
 
 `save_thumbnail` wrote straight to `thumbnail.png`, and `get_thumbnail` reads that same

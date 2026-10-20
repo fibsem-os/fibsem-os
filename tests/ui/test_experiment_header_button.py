@@ -28,7 +28,7 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
     Experiment,
     Lamella,
 )
-from fibsem.applications.autolamella.ui.experiment_header import (  # noqa: E402
+from fibsem.applications.autolamella.ui.header import (  # noqa: E402
     BUTTON_ICON_SIZE,
     EXPERIMENT_MENU_MAX_WIDTH,
     experiment_tooltip,

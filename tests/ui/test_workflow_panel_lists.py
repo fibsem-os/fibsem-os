@@ -19,14 +19,16 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskDescription,
     Lamella,
 )
-from fibsem.applications.autolamella.ui import list_chrome  # noqa: E402
-from fibsem.applications.autolamella.ui.lamella_list_widget import (  # noqa: E402
-    LamellaListWidget,
-    completed_text,
+from fibsem.applications.autolamella.ui.common.lamella_display import (
+    completed_text,  # noqa: E402
 )
-from fibsem.applications.autolamella.ui.workflow_config_widget import (  # noqa: E402
-    WorkflowConfigWidget,
+from fibsem.applications.autolamella.ui.lamella.rows import (
+    LamellaListWidget,  # noqa: E402
 )
+from fibsem.applications.autolamella.ui.workflow.task_list import (
+    WorkflowTaskList,  # noqa: E402
+)
+from fibsem.ui.widgets import lists as list_chrome  # noqa: E402  # noqa: E402
 from fibsem.workflows.status import TaskState  # noqa: E402
 
 
@@ -37,7 +39,7 @@ def lists(qapp, tmp_path):
         lamellae.add_lamella(
             Lamella(petname=name, path=str(tmp_path / name), number=n), checked=True
         )
-    tasks = WorkflowConfigWidget()
+    tasks = WorkflowTaskList()
     for name, requires in [
         ("Setup Lamella Position", []),
         ("Acquire Fluorescence Image", []),
@@ -95,7 +97,7 @@ def test_the_chip_is_the_tinted_one(lists):
 
 @pytest.fixture
 def panel(qapp):
-    from fibsem.applications.autolamella.ui.lamella_workflow_widget import (
+    from fibsem.applications.autolamella.ui.workflow.lamella_run import (
         LamellaWorkflowWidget,
     )
 
@@ -126,9 +128,7 @@ def test_the_gear_says_when_something_in_it_is_set(panel):
 def test_the_hints_are_the_question_marks_tooltip(panel):
     from PyQt5.QtWidgets import QLabel
 
-    from fibsem.applications.autolamella.ui.lamella_workflow_widget import (
-        TASK_LIST_HINTS,
-    )
+    from fibsem.applications.autolamella.ui.workflow.lamella_run import TASK_LIST_HINTS
 
     assert panel.btn_help.toolTip() == TASK_LIST_HINTS
     texts = [label.text() for label in panel.findChildren(QLabel)]
@@ -153,9 +153,9 @@ def test_the_status_line_says_what_the_selection_allows(no_quit, qapp, tmp_path)
         AutoLamellaTaskProtocol,
         Experiment,
     )
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import window as module
 
-    window = module.AutoLamellaSingleWindowUI()
+    window = module.AutoLamellaWindow()
     ui = window
     ui.system_widget.connect_to_microscope()
     experiment = Experiment(path=str(tmp_path), name="panel")

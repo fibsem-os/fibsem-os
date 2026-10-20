@@ -25,10 +25,8 @@ from datetime import datetime, timedelta
 
 from PyQt5.QtWidgets import QLabel
 
-from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
-    WorkflowProgressWidget,
-)
 from fibsem.ui.stylesheets import NAPARI_STYLE
+from fibsem.ui.widgets.workflow.timeline import WorkflowProgressWidget
 from fibsem.workflows.queue import TaskQueue
 from fibsem.workflows.status import TaskStatus as Status
 
@@ -79,7 +77,7 @@ def start_next(widget, queue):
 def tick(widget, monkeypatch, seconds: float) -> None:
     """Advance the widget's clock to `seconds` after the active task started."""
     monkeypatch.setattr(
-        "fibsem.applications.autolamella.ui.workflow_timeline_widget.time.time",
+        "fibsem.ui.widgets.workflow.timeline.time.time",
         lambda: START + seconds,
     )
     widget._update_elapsed()
@@ -180,7 +178,7 @@ def test_a_wait_for_a_human_pauses_the_countdown_rather_than_spending_it(
     start_next(widget, queue)
     tick(widget, monkeypatch, 40.0)
     monkeypatch.setattr(
-        "fibsem.applications.autolamella.ui.workflow_timeline_widget.time.time",
+        "fibsem.ui.widgets.workflow.timeline.time.time",
         lambda: START + 40.0,
     )
     widget.set_waiting_for_user(True)
@@ -188,7 +186,7 @@ def test_a_wait_for_a_human_pauses_the_countdown_rather_than_spending_it(
     assert column(widget)[0] == "waiting"
 
     monkeypatch.setattr(
-        "fibsem.applications.autolamella.ui.workflow_timeline_widget.time.time",
+        "fibsem.ui.widgets.workflow.timeline.time.time",
         lambda: START + 340.0,
     )
     widget.set_waiting_for_user(False)
@@ -202,7 +200,7 @@ def test_the_elapsed_keeps_running_through_a_wait(widget, queue, monkeypatch):
     with the experiment record."""
     start_next(widget, queue)
     monkeypatch.setattr(
-        "fibsem.applications.autolamella.ui.workflow_timeline_widget.time.time",
+        "fibsem.ui.widgets.workflow.timeline.time.time",
         lambda: START,
     )
     widget.set_waiting_for_user(True)
@@ -432,7 +430,7 @@ def live(app, tmp_path):
     names = [p.name for p in experiment.positions]
     manager.queue.build_from_matrix(list(TASKS), names)
 
-    # What AutoLamellaMainUI does at workflow start.
+    # What AutoLamellaWindow does at workflow start.
     widget.set_actions_enabled(True)
     widget.set_estimates(
         {
