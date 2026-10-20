@@ -299,9 +299,9 @@ class TestRequiresOnTheTaskList:
 def test_a_grid_proposals_image_loads_from_the_grid_directory(experiment):
     """A grid's recorded outputs are relative to its grid_path, which the record
     does not store; the loader resolves it through the experiment."""
-    from fibsem.applications.autolamella.reference_images import load_reference_image
     from fibsem.structures import FibsemImage
     from fibsem.workflows.proposals import STATE, Proposal
+    from fibsem.workflows.reference_images import load_reference_image
 
     grid = experiment.add_grid(GridRecord(name="grid-oak"))
     directory = experiment.grid_path(grid) / "overview_sem"

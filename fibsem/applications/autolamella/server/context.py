@@ -30,7 +30,7 @@ protocol, its hardware stops, and the config edits it still applies.
 import logging
 import os
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Protocol
+from typing import Any, Dict, List, Optional, Protocol
 
 import fibsem.config as fibsem_cfg
 from fibsem.acting import Actor
@@ -38,27 +38,24 @@ from fibsem.applications.autolamella import task_outputs as _task_outputs
 from fibsem.applications.autolamella.config_edits import (
     ITEM_PATCH_FIELDS,
     config_version,
-    find_item,
     item_fields_version,
     item_patch_refusal,
-    item_pose_positions,
     workflow_field_refusal,
 )
 from fibsem.geometry.saved_images import image_point_to_stage_position, stage_projector
-from fibsem.server.app_context import AppContext
+from fibsem.server.app_context import AppContext, find_item, item_pose_positions
 from fibsem.server.files import jpeg_preview
 from fibsem.structures import BeamType
 from fibsem.util.records import dataframe_records
-from fibsem.workflows.actions import NOTE, note_record
+from fibsem.workflows.actions import NOTE
 from fibsem.workflows.attention import Attention
-from fibsem.workflows.evidence import EVIDENCE, frame_path
 from fibsem.workflows.outputs import (
     all_item_outputs,
     files_by_run,
     item_output_named,
     latest_item_output,
 )
-from fibsem.workflows.runner import GRIDS, ITEMS, RunRequest
+from fibsem.workflows.runner import GRIDS, RunRequest
 from fibsem.workflows.status import TaskStatus
 
 __all__ = [
@@ -621,29 +618,6 @@ class AutoLamellaAppContext(AppContext):
             "protocols": experiment_setup.list_protocols(),
         }
 
-    def _not_while_running(self, what: str) -> Optional[Dict[str, Any]]:
-        """The refusal while a workflow runs (*what* to do when it has
-        stopped), or None."""
-        if self._running:
-            return {
-                "error_type": "task_running",
-                "error": f"A workflow is running; {what} when it has stopped.",
-            }
-        return None
-
-    def _busy(self, why: str) -> Optional[Dict[str, Any]]:
-        """A run_edits refusal as the routes answer it, or None."""
-        return {"error_type": "task_running", "error": why} if why else None
-
-    def _no_microscope(self) -> Optional[Dict[str, Any]]:
-        if self._microscope is None:
-            return {"error_type": "not_found", "error": "No microscope is connected."}
-        return None
-
-    def _session_refusal(self) -> Optional[Dict[str, Any]]:
-        """Why the open experiment cannot be replaced now, or None."""
-        return self._not_while_running("change experiments") or self._no_microscope()
-
     def _protocol_or_refusal(self, name: Optional[str]):
         from fibsem.applications.autolamella import experiment_setup
         from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
@@ -764,19 +738,6 @@ class AutoLamellaAppContext(AppContext):
         return {"applied": True, "protocol": self.protocol()}
 
     # --- lamella positions: the Lamella tab's buttons, for an agent at Drive ------
-
-    def _agent_call(self, call, select_latest: bool = False, timeout: float = 30.0):
-        """``call()`` where the session edits the experiment, then the window's
-        redraw when one is attached."""
-        window = self._window
-
-        def edit():
-            result = call()
-            if window is not None:
-                window.after_agent_edit(select_latest)
-            return result
-
-        return self._session.run_edit(edit).result(timeout=timeout)
 
     def _config_edit(
         self, level, item_name, task_name, patch, version, timeout: float, shown=None
@@ -1585,278 +1546,6 @@ class AutoLamellaAppContext(AppContext):
 
     # --- proposals and decisions (FIB-950) ------------------------------------
 
-    def proposals(self) -> Dict[str, Any]:
-        """Every pending proposal, derived from the experiment, with the
-        reference image its values sit on as an agent-sized preview."""
-        experiment = self._experiment
-        if experiment is None:
-            return {"available": False, "proposals": []}
-        from fibsem.applications.autolamella.reference_images import (
-            load_reference_image,
-            preview_of,
-        )
-        from fibsem.server.image_payloads import image_payload
-        from fibsem.workflows.events import to_plain
-
-        def describe(item, task_name, proposal):
-            doc = to_plain(proposal.to_dict())
-            doc.update(
-                {
-                    "item_id": item.id,
-                    "item_name": item.name,
-                    "task_name": task_name,
-                    # what this is; proposal_decide passes it back. The run
-                    # is here as a fact about it, and still names it for a
-                    # caller that has not learned the id.
-                    "proposal_id": proposal.id,
-                    "task_id": proposal.task_id,
-                }
-            )
-            image = load_reference_image(experiment, item, proposal)
-            # a fluorescence result is shown as its channel composite
-            preview = preview_of(image) if image is not None else None
-            doc["reference_image"] = (
-                image_payload(preview) if preview is not None else None
-            )
-            return doc
-
-        proposals = [describe(*entry) for entry in experiment.pending_proposals()]
-        return {"available": True, "proposals": proposals}
-
-    def decide(
-        self,
-        item_id: str,
-        task_name: str,
-        outcome: str,
-        values: Optional[Dict[str, Any]] = None,
-        reason: str = "",
-        actor: str = "",
-        task_id: str = "",
-        proposal_id: str = "",
-        action: str = "",
-        patch: Optional[Dict[str, Any]] = None,
-        evidence: str = "",
-    ) -> Dict[str, Any]:
-        """Decide a pending proposal, exactly as the operator's answer is: the same
-        Experiment.decide, on the main thread, blocking until applied. The
-        actor is recorded as the agent (``actor`` names its model), never as
-        the operator.
-
-        ``action`` is what a loop's pass is decided as (run, edit, skip,
-        accept). ``patch`` sets fields of its value by dotted path, on the
-        value given or else the one proposed: a milling config's
-        ``stages.Polish 1.pattern.depth``.
-
-        ``proposal_id`` is the proposal the agent was shown (from
-        proposal_list), and what the decision is checked against: a task
-        may ask several proposals in one run, and only the id tells the one
-        that was shown from the one that replaced it. ``task_id``, the run, is
-        accepted in its place from a caller that has not learned the id, and
-        is checked the way it always was. One of them is needed; a stale one
-        is refused."""
-        experiment = self._experiment
-        if experiment is None:
-            return {"available": False, "applied": False, "reason": "No experiment."}
-        from fibsem.workflows.proposals import (
-            Decision,
-            DecisionOutcome,
-            ValueRefused,
-            _decode_values,
-            patch_values,
-        )
-
-        try:
-            decided = DecisionOutcome[outcome]
-        except KeyError:
-            return {
-                "available": True,
-                "applied": False,
-                "invalid_value": f"outcome must be Confirmed or Rejected, not {outcome!r}",
-            }
-        try:
-            decoded = _decode_values(values or {})
-        except Exception as exc:  # noqa: BLE001 - any bad document is refused
-            return {
-                "available": True,
-                "applied": False,
-                "invalid_value": f"values could not be read: {exc}",
-            }
-        if patch:
-            item = experiment.get_item_by_id(item_id)
-            shown = next(
-                (
-                    p
-                    for p in (item.current_proposals(task_name) if item else [])
-                    if p.id == proposal_id or (not proposal_id and p.pending)
-                ),
-                None,
-            )
-            if shown is None:
-                return {
-                    "available": True,
-                    "applied": False,
-                    "invalid_value": "patch needs the proposal_id of a current proposal.",
-                }
-            try:
-                decoded = patch_values(shown.kind, decoded or dict(shown.values), patch)
-            except ValueRefused as exc:
-                return {"available": True, "applied": False, "invalid_value": str(exc)}
-        decision = Decision(
-            outcome=decided,
-            actor=Actor.agent(actor or "remote"),
-            values=decoded,
-            reason=reason,
-            via="server",
-            task_id=str(task_id or ""),
-            proposal_id=str(proposal_id or ""),
-            action=str(action or ""),
-            evidence=evidence,
-        )
-        result = experiment.decide(item_id, task_name, decision)
-        doc = result.to_dict()
-        doc["available"] = True
-        return doc
-
-    def suggest(
-        self,
-        item_id: str,
-        task_name: str,
-        proposal_id: str,
-        reason: str,
-        outcome: str = "Confirmed",
-        values: Optional[Dict[str, Any]] = None,
-        patch: Optional[Dict[str, Any]] = None,
-        action: str = "",
-        evidence: Optional[Dict[str, Any]] = None,
-        actor: str = "",
-    ) -> Dict[str, Any]:
-        """Suggest a decision on a pending proposal, for the operator to
-        approve or decline in the window. Nothing is decided. Checked as the
-        decision would be, so one that could not be approved is refused now."""
-        experiment = self._experiment
-        if experiment is None:
-            return {"available": False, "applied": False, "reason": "No experiment."}
-        from fibsem.workflows.proposals import (
-            DecisionOutcome,
-            Suggestion,
-            _decode_values,
-        )
-
-        if outcome not in ("Confirmed", "Rejected"):
-            return {
-                "available": True,
-                "applied": False,
-                "error_type": "invalid_value",
-                "reason": f"outcome is Confirmed or Rejected, not {outcome!r}",
-            }
-        try:
-            decoded = _decode_values(values or {})
-        except Exception as exc:  # noqa: BLE001 - any bad document is refused
-            return {
-                "available": True,
-                "applied": False,
-                "error_type": "invalid_value",
-                "reason": f"values could not be read: {exc}",
-            }
-        # The beam image of the cited evidence, to draw the value on.
-        image = frame_path(evidence)
-        if image:
-            root = self.experiment_path
-            image = os.path.relpath(image, root) if root else image
-        suggestion = Suggestion(
-            actor=Actor.agent(actor or "remote"),
-            reason=reason,
-            outcome=DecisionOutcome[outcome],
-            values=decoded,
-            patch=dict(patch or {}),
-            action=action,
-            image=image or "",
-            evidence=(evidence or {}).get("evidence_id", ""),
-        )
-        result = experiment.suggest(item_id, task_name, proposal_id, suggestion)
-        if not result.applied:
-            return {**result.to_dict(), "available": True}
-        # Nothing was decided, so nothing ran or synced.
-        doc = {"applied": True, "available": True, "suggestion_id": suggestion.id}
-        if result.save_error:
-            doc["save_error"] = result.save_error
-        return doc
-
-    def add_note(
-        self,
-        text: str,
-        item_name: Optional[str] = None,
-        reply_to: Optional[str] = None,
-        evidence: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """Put an agent observation on the record, or its answer to the
-        operator's message (``reply_to``, the message's id, FIB-1423), citing
-        the *evidence* (its id) it rests on.
-
-        The agent's judgments otherwise live only in its chat: this writes
-        them where the run's story is told — the event stream (live consumers:
-        timeline, dashboard, other agents) and the experiment log (durable).
-        Notes are observations, not actions: nothing changes state.
-        """
-        text = str(text).strip()
-        if not text:
-            return {"available": True, "recorded": False, "error": "empty note"}
-        item_id = None
-        if item_name is not None:
-            item, refusal = find_item(self._experiment, item_name)
-            if refusal:
-                return {"available": True, "recorded": False, **refusal}
-            item_id = item.id
-        logging.info(
-            "agent note%s: %s",
-            f" [{item_name}]" if item_name else "",
-            text,
-        )
-        # With the item's id, so the record files the note under the item
-        # it is about, not whichever one is running (FIB-1328).
-        self.record_event(
-            NOTE,
-            note_record(
-                text,
-                item_id=item_id,
-                item_name=item_name,
-                reply_to=reply_to,
-                evidence=evidence,
-            ),
-        )
-        return {"available": True, "recorded": True}
-
-    def add_evidence(
-        self, item_name: Optional[str], save: Callable[[], Dict[str, Any]]
-    ) -> Dict[str, Any]:
-        """Keep the agent's evidence (*save* keeps it in the experiment and
-        answers its record) and put it on the record under the item it names.
-        What cites it names its id."""
-        item_id = None
-        if item_name is not None:
-            item, refusal = find_item(self._experiment, item_name)
-            if refusal:
-                return {"available": True, "recorded": False, **refusal}
-            item_id = item.id
-        record = save()
-        logging.info(
-            "agent evidence %s%s: %s",
-            record["evidence_id"],
-            f" [{item_name}]" if item_name else "",
-            record["image"],
-        )
-        self.record_event(EVIDENCE, {**record, "item_id": item_id})
-        return {"available": True, "recorded": True, **record}
-
-    def record_event(
-        self, kind: str, payload: Dict[str, Any], actor: Optional[str] = None
-    ) -> None:
-        """Put an event on the experiment's record: everything the server's
-        side writes, the agent's requests and their outcomes (FIB-1283)
-        among them. *actor* as for ``EventBuffer.append``."""
-        if self._event_buffer is not None:
-            self._event_buffer.append(kind, payload, actor=actor)
-
     def reorder_milling_stages(
         self,
         level: str,
@@ -2026,97 +1715,6 @@ class AutoLamellaAppContext(AppContext):
         )
 
     # --- workflow control -------------------------------------------------------
-
-    def stop_workflow(self) -> Dict[str, Any]:
-        """Stop the running workflow — the same path as the GUI's Stop button.
-
-        Everything on that path is thread-safe from here: the manager's stop is
-        an event plus the milling service's stop, the call the core server's
-        ``stop_milling`` route already issues from this thread. Stopping is the
-        safety action, so like ``stop_milling`` it never waits on the command
-        lock.
-        """
-        if not self._running:
-            return {
-                "available": True,
-                "stopped": False,
-                "reason": "no workflow is running",
-            }
-        if self._window is not None:
-            self._window.stop_task_workflow()
-        else:
-            self._runner.stop()
-        return {"available": True, "stopped": True}
-
-    def stop_task(self, item_name: str, task_name: str) -> Dict[str, Any]:
-        """Stop the task now running and carry on with the rest of the queue,
-        as the timeline's Stop Task does. *item_name* and *task_name* name the
-        task meant: a stop that lands after it finished is refused rather than
-        stopping the next one."""
-        manager = self._manager
-        if manager is None:
-            return {"stopped": False, "reason": "no workflow is running"}
-        active = manager.queue.active
-        if active is None or (active.item_name, active.task_name) != (
-            item_name,
-            task_name,
-        ):
-            return {
-                "stopped": False,
-                "reason": f"{task_name} for {item_name} is not the task running",
-                "running": (
-                    {"item_name": active.item_name, "task_name": active.task_name}
-                    if active is not None
-                    else None
-                ),
-            }
-        if self._window is not None:
-            self._window.stop_current_task()
-        else:
-            self._runner.stop_task()
-        return {"stopped": True, "item_name": item_name, "task_name": task_name}
-
-    def _start_run(self, request: RunRequest, timeout: float) -> Dict[str, Any]:
-        """Start ``request`` through the session's runner, where the
-        experiment is edited, as every start goes."""
-        runner = self._runner
-        outcome = self._session.run_edit(
-            lambda: runner.start(self._experiment, request).as_dict()
-        )
-        result = outcome.result(timeout=timeout)
-        result["available"] = True
-        return result
-
-    def start_workflow(
-        self,
-        task_names: List[str],
-        item_names: Optional[List[str]] = None,
-        timeout: float = 15.0,
-    ) -> Dict[str, Any]:
-        """Start a workflow as the Run button would — the batch-review opener.
-
-        Started where the experiment is edited (the GUI thread, with a window,
-        which draws its run chrome there); validation refusals come back
-        structured with the valid names. ``item_names`` of None means every item in the experiment.
-        The agent at Drive is the consent that stands in for the Run click's
-        confirm dialog.
-        """
-        result = self._start_run(
-            RunRequest(
-                kind=ITEMS,
-                task_names=tuple(task_names),
-                names=tuple(item_names) if item_names is not None else None,
-            ),
-            timeout,
-        )
-        if result.get("started"):
-            # Who started it: the run's own workflow_started fires on its
-            # worker thread, which carries no one's mark (FIB-1414).
-            self.record_event(
-                "workflow_start",
-                {"task_names": list(task_names), "item_names": item_names},
-            )
-        return result
 
     def grid_workflow_plan(
         self,
@@ -2730,43 +2328,6 @@ class AutoLamellaAppContext(AppContext):
             "requires": list(config.requires),
         }
 
-    def requeue_task(
-        self, item_name: str, task_name: str, front: bool = False
-    ) -> Dict[str, Any]:
-        """Queue ``task_name`` for ``item_name`` (again) — the batch-review verb.
-
-        The queue exists only while a workflow runs, so a re-run is queued into
-        the live run: "run 03 again" while the batch continues. Adding a
-        duplicate of a completed pair is the queue's own re-run mechanism; the
-        item lands at the back (or the front with ``front=True``). A pair
-        already waiting is refused (``already_queued``): it runs once. The
-        timeline's Run again queues the same way (``session.runner.requeue``).
-        """
-        edit = self._agent_call(
-            lambda: self._session.runner.requeue(
-                item_name, task_name, front=bool(front)
-            )
-        )
-        if not edit.applied:
-            out: Dict[str, Any] = {
-                "available": True,
-                "queued": False,
-                "reason": edit.reason,
-                **edit.details,
-            }
-            if edit.error_type in ("already_queued", "fixed"):
-                out["error_type"] = edit.error_type
-            return out
-        (item,) = edit.items
-        return {
-            "available": True,
-            "queued": True,
-            "item_id": item.id,
-            "item_name": item_name,
-            "task_name": task_name,
-            "queue_version": edit.version,
-        }
-
     def queue_grid_tasks(
         self, task_names: List[str], grid_names: List[str]
     ) -> Dict[str, Any]:
@@ -2785,39 +2346,5 @@ class AutoLamellaAppContext(AppContext):
                 {"item_id": i.id, "grid_name": i.item_name, "step": i.task_name}
                 for i in edit.items
             ],
-            "queue_version": edit.version,
-        }
-
-    def edit_queue(self, item_name: str, task_name: str, action: str) -> Dict[str, Any]:
-        """Remove or move a waiting (item, task) pair in the running workflow's
-        queue, as the timeline's menu does (FIB-1419).
-
-        ``action`` is one of :data:`QUEUE_ACTIONS`: ``remove`` (it will not run;
-        kept in the run record as Removed), ``move_up``, ``move_down`` or
-        ``run_next``. Only a pair still waiting can be edited: the running one
-        is refused (``not_pending``) -- stopping it is ``stop_workflow`` -- and
-        so is one that already ran.
-        """
-        edit = self._session.runner.edit(item_name, task_name, action)
-        if not edit.applied:
-            if edit.error_type == "not_running":
-                return {"available": True, "applied": False, "reason": edit.reason}
-            return {
-                "available": True,
-                "applied": False,
-                "error_type": edit.error_type,
-                "error": edit.reason,
-                **edit.details,
-            }
-        (item,) = edit.items
-        return {
-            "available": True,
-            "applied": True,
-            # Already first or last: nothing moved.
-            "changed": edit.changed,
-            "item_id": item.id,
-            "item_name": item_name,
-            "task_name": task_name,
-            "action": action,
             "queue_version": edit.version,
         }

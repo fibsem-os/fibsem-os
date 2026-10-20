@@ -300,9 +300,7 @@ class ProposalPresenter:
 
     def _reference_image(self, item_id: str, proposal):
         """The image the proposal's values sit on, for a view showing none."""
-        from fibsem.applications.autolamella.reference_images import (
-            load_reference_image,
-        )
+        from fibsem.workflows.reference_images import load_reference_image
 
         item = self.experiment.get_item_by_id(item_id)
         return load_reference_image(self.experiment, item, proposal)
