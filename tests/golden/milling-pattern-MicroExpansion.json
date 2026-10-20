@@ -1,0 +1,12 @@
+{
+  "depth": 1e-06,
+  "distance": 1e-05,
+  "height": 1.5e-05,
+  "name": "MicroExpansion",
+  "point": {
+    "name": null,
+    "x": 0.0,
+    "y": 0.0
+  },
+  "width": 5e-07
+}

@@ -101,10 +101,12 @@ from fibsem.devices.wire import (
     FRAMES_MEDIA_TYPE,
     NPY_MEDIA_TYPE,
     Frame,
+    decode_argument,
     decode_kwargs,
     frames_to_bytes,
-    from_wire,
     to_wire,
+    type_hints,
+    type_path,
 )
 from fibsem.schema import arguments_schema
 from fibsem.server.images import (
@@ -240,6 +242,7 @@ def describe_device(device: Device, refuse: Optional[Refuse] = None) -> Dict[str
             name: {
                 "signature": info.signature,
                 "arguments": _arguments(device, name),
+                "returns": _returns(device, name),
                 "available": info.available,
                 **agent("command", name),
                 # Answered at once with a run id on the App Server.
@@ -251,6 +254,7 @@ def describe_device(device: Device, refuse: Optional[Refuse] = None) -> Dict[str
             name: {
                 "signature": info.signature,
                 "arguments": _arguments(device, name),
+                "returns": _returns(device, name),
                 "available": info.available,
             }
             for name, info in getattr(device, "queries", {}).items()
@@ -267,6 +271,17 @@ def _arguments(device: Device, name: str) -> Dict[str, Any]:
     except Exception as error:  # a schema is a help, never a reason to fail a listing
         logging.warning(f"{device.name}.{name}: no argument schema: {error!r}")
         return {}
+
+
+def _returns(device: Device, name: str) -> Optional[str]:
+    """What a command or query returns, as its type's path (`type_path`), so a
+    client reads its result as that type. None when it declares nothing."""
+    hint = type_hints(getattr(type(device), name)).get("return")
+    try:
+        return None if hint is None else type_path(hint)
+    except Exception as error:  # a type is a help, never a reason to fail a listing
+        logging.warning(f"{device.name}.{name}: no return type: {error!r}")
+        return None
 
 
 def metadata_payload(metadata: ParameterMetadata) -> Dict[str, Any]:
@@ -501,7 +516,7 @@ def build_device_router(
         what = f"{noun} {device}.{parameter}"
         param = run(lambda: parameter_of(device, parameter), what)
         check(lookup(device), "write", parameter, {})
-        value = run(lambda: from_wire(param.type, body["value"]), what)
+        value = run(lambda: decode_argument(parameter, param.type, body["value"]), what)
         return {"value": to_wire(run(lambda: param.set_value(value), what))}
 
     @router.get(prefix + "/{device}/{parameter}/metadata", dependencies=list(read))

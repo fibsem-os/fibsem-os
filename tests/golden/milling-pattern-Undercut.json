@@ -1,0 +1,15 @@
+{
+  "cross_section": "Rectangle",
+  "depth": 1e-05,
+  "h_offset": 5e-06,
+  "height": 1e-05,
+  "name": "Undercut",
+  "point": {
+    "name": null,
+    "x": 0.0,
+    "y": 0.0
+  },
+  "rhs_height": 1e-05,
+  "trench_width": 2e-06,
+  "width": 5e-06
+}

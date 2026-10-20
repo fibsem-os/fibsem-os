@@ -1,0 +1,18 @@
+{
+  "depth": 1e-05,
+  "interpolation": null,
+  "lower_trench_height": 5e-06,
+  "name": "TrenchBitmap",
+  "passes": 0,
+  "path": "",
+  "path_lower": "",
+  "point": {
+    "name": null,
+    "x": 0.0,
+    "y": 0.0
+  },
+  "spacing": 1e-06,
+  "time": 0.0,
+  "upper_trench_height": 5e-06,
+  "width": 1e-05
+}

@@ -1,0 +1,18 @@
+{
+  "cross_section": "Rectangle",
+  "depth": 1e-06,
+  "major_every": 5,
+  "major_length": 4e-06,
+  "n_ticks": 20,
+  "name": "Ruler",
+  "passes": 0,
+  "pitch": 2e-06,
+  "point": {
+    "name": null,
+    "x": 0.0,
+    "y": 0.0
+  },
+  "scan_direction": "TopToBottom",
+  "tick_length": 2e-06,
+  "tick_thickness": 5e-07
+}

@@ -1,0 +1,17 @@
+{
+  "cross_section": "Rectangle",
+  "depth": 1e-06,
+  "fillet": 0.0,
+  "lower_trench_height": 5e-06,
+  "name": "Trench",
+  "passes": 0,
+  "point": {
+    "name": null,
+    "x": 0.0,
+    "y": 0.0
+  },
+  "spacing": 5e-06,
+  "time": 0.0,
+  "upper_trench_height": 5e-06,
+  "width": 1e-05
+}

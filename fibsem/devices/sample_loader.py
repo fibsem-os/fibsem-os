@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Iterator, Optional, Tuple
 
+from fibsem.codec import decode, encode
 from fibsem.devices.core import Device, DeviceParameter, command
 from fibsem.devices.stage import STAGE_RESOURCE
 
@@ -74,19 +75,11 @@ class MagazineSlot:
     description: str = ""
 
     def to_dict(self) -> dict:
-        return {
-            "number": self.number,
-            "state": self.state.value,
-            "description": self.description,
-        }
+        return encode(self)
 
-    @staticmethod
-    def from_dict(data: dict) -> "MagazineSlot":
-        return MagazineSlot(
-            number=int(data["number"]),
-            state=MagazineSlotState(data.get("state", "unknown")),
-            description=str(data.get("description") or ""),
-        )
+    @classmethod
+    def from_dict(cls, data: dict) -> "MagazineSlot":
+        return decode(cls, data)
 
 
 @dataclass(frozen=True)
@@ -103,13 +96,11 @@ class Magazine:
         return None
 
     def to_dict(self) -> dict:
-        return {"slots": [slot.to_dict() for slot in self.slots]}
+        return encode(self)
 
-    @staticmethod
-    def from_dict(data: dict) -> "Magazine":
-        return Magazine(
-            tuple(MagazineSlot.from_dict(s) for s in (data or {}).get("slots", ()))
-        )
+    @classmethod
+    def from_dict(cls, data: dict) -> "Magazine":
+        return decode(cls, data)
 
 
 @dataclass(frozen=True)
@@ -121,15 +112,11 @@ class StageSample:
     description: str = ""
 
     def to_dict(self) -> dict:
-        return {"present": self.present, "description": self.description}
+        return encode(self)
 
-    @staticmethod
-    def from_dict(data: dict) -> "StageSample":
-        data = data or {}
-        return StageSample(
-            present=data.get("present"),
-            description=str(data.get("description") or ""),
-        )
+    @classmethod
+    def from_dict(cls, data: dict) -> "StageSample":
+        return decode(cls, data)
 
 
 class SampleLoader(Device):

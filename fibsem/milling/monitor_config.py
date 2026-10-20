@@ -6,9 +6,11 @@ stage without importing them.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, ClassVar, Dict, Type, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, Dict, Optional, Type, TypeVar
 
+from fibsem.codec import Tagged, decode, encode
 from fibsem.structures import Configurable, param
 
 if TYPE_CHECKING:
@@ -18,12 +20,13 @@ TMillingMonitorConfig = TypeVar("TMillingMonitorConfig", bound="MillingMonitorCo
 
 
 @dataclass
-class MillingMonitorConfig(Configurable):
+class MillingMonitorConfig(Tagged, Configurable):
     """What a monitor is configured by, held on the stage. Which monitor is the
     one whose ``config_class`` this is."""
 
     # Saved as `{name, config}`, like a strategy's: a patch names the fields
     # `stages.0.monitors.0.config.<field>`.
+    TYPE_KEY: ClassVar[str] = "name"
     SAVED_UNDER: ClassVar[str] = "config"
 
     max_pause: float = param(
@@ -49,15 +52,29 @@ class MillingMonitorConfig(Configurable):
     def monitor_name(self) -> str:
         return self.monitor_class.name
 
-    def to_dict(self) -> Dict[str, Any]:
-        from fibsem.codec import encode
+    def tagged_name(self) -> str:
+        return self.monitor_name
 
+    @classmethod
+    def read_tagged(cls, name: Optional[str], data: Any, strict: bool) -> Any:
+        """The config of the monitor called ``name``; None, with a warning, for a
+        monitor not installed here (the stage mills without it)."""
+        from fibsem.milling.monitors import get_monitors
+
+        monitor = get_monitors().get(name)
+        if monitor is None:
+            logging.warning(
+                f"No milling monitor is called {name!r} (a plugin not installed "
+                "here?); the stage mills without it."
+            )
+            return None
+        return decode(monitor.config_class, data, strict=strict).made_for(monitor)
+
+    def to_dict(self) -> Dict[str, Any]:
         return encode(self)
 
     @classmethod
     def from_dict(
         cls: Type[TMillingMonitorConfig], d: Dict[str, Any]
     ) -> TMillingMonitorConfig:
-        from fibsem.codec import decode
-
         return decode(cls, d)

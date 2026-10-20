@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, List, Optional
 
+from fibsem.codec import decode, encode
 from fibsem.structures import (
     BeamType,
     Configurable,
@@ -52,19 +53,11 @@ class SpotBurnSettings(Configurable):
     )
 
     def to_dict(self) -> dict:
-        return {
-            "coordinates": [pt.to_dict() for pt in self.coordinates],
-            "milling_current": self.milling_current,
-            "exposure_time": self.exposure_time,
-        }
+        return encode(self)
 
     @classmethod
     def from_dict(cls, ddict: dict) -> "SpotBurnSettings":
-        return cls(
-            coordinates=[Point.from_dict(pt) for pt in ddict.get("coordinates", [])],
-            milling_current=ddict.get("milling_current", 100e-12),
-            exposure_time=ddict.get("exposure_time", 10.0),
-        )
+        return decode(cls, ddict)
 
 
 class SpotBurnStatus(str, Enum):

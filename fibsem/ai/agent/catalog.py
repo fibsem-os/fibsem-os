@@ -917,9 +917,9 @@ CATALOG: Tuple[ToolSpec, ...] = (
         description=(
             "Ask a service query listed by service_list: it takes arguments, "
             "answers, and moves nothing, e.g. service=stage_movement "
-            "query=project_stable_move kwargs={'dx': 1e-6, 'dy': 0, 'beam_type': 1, "
-            "'base_position': {...}} for where a stable move from base_position "
-            "would end (beam_type 1 is the electron beam, 2 the ion beam)."
+            "query=project_stable_move kwargs={'dx': 1e-6, 'dy': 0, "
+            "'beam_type': 'ELECTRON', 'base_position': {...}} for where a stable "
+            "move from base_position would end."
         ),
         method="POST",
         path="/microscope/services/{service}/queries/{query}",

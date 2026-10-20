@@ -69,6 +69,9 @@ def test_lists_every_service_with_its_commands(read_client, microscope):
     assert body["milling"]["commands"]["run"]["available"] is True
     assert "move_to_orientation" in body["stage_movement"]["commands"]
     assert body["milling"]["facts"] == {}
+    # What each returns, by its type's path, for a client to read it as.
+    project = body["stage_movement"]["queries"]["project_stable_move"]
+    assert project["returns"] == "fibsem.structures.FibsemStagePosition"
 
 
 def test_service_routes_need_the_token(microscope):
@@ -351,35 +354,37 @@ def test_hints_resolve_one_at_a_time():
 def test_sequences_decode_each_element():
     from typing import List, Sequence, Tuple
 
-    from fibsem.devices.wire import from_wire
+    from fibsem.devices.wire import decode_argument
     from fibsem.structures import Point
 
     points = [{"x": 1.0, "y": 2.0}, {"x": 3.0, "y": 4.0}]
-    assert from_wire(Sequence[Point], points) == [Point(1.0, 2.0), Point(3.0, 4.0)]
-    assert from_wire(List[Point], points) == [Point(1.0, 2.0), Point(3.0, 4.0)]
-    assert from_wire(Tuple[Point, ...], points) == (Point(1.0, 2.0), Point(3.0, 4.0))
-    assert from_wire(Tuple[BeamType, float], [1, 2.0]) == (BeamType.ELECTRON, 2.0)
+    expected = [Point(1.0, 2.0), Point(3.0, 4.0)]
+    assert decode_argument("p", Sequence[Point], points) == expected
+    assert decode_argument("p", List[Point], points) == expected
+    assert decode_argument("p", Tuple[Point, ...], points) == tuple(expected)
+    pair = decode_argument("p", Tuple[BeamType, float], [1, 2.0])
+    assert pair == (BeamType.ELECTRON, 2.0)
 
 
 def test_numbers_sent_as_text_decode_as_the_declared_type():
     """An agent's MCP client sends a value whose schema names no type as text."""
-    from fibsem.devices.wire import from_wire
+    from fibsem.devices.wire import ArgumentError, decode_argument
 
-    assert from_wire(float, "4.0") == 4.0 and isinstance(from_wire(float, "4"), float)
-    assert from_wire(float, " 1.2e-6 ") == pytest.approx(1.2e-6)
-    assert from_wire(int, "4.0") == 4 and isinstance(from_wire(int, "4.0"), int)
-    assert from_wire(int, 4.0) == 4 and isinstance(from_wire(int, 4.0), int)
-    assert from_wire(bool, "true") is True and from_wire(bool, "False") is False
-    # Not a number of that type: left for the parameter's own check to refuse.
-    assert from_wire(int, "4.5") == "4.5"
-    assert from_wire(int, 4.5) == 4.5
-    assert from_wire(float, "fast") == "fast"
-    assert from_wire(float, True) is True
-    assert from_wire(str, "4.0") == "4.0"
-    assert from_wire(BeamType, "1") is BeamType.ELECTRON
-    assert from_wire(BeamType, "ION") is BeamType.ION
-    with pytest.raises(ValueError):
-        from_wire(BeamType, "9")
+    def read(hint, value):
+        return decode_argument("value", hint, value)
+
+    assert read(float, "4.0") == 4.0 and isinstance(read(float, "4"), float)
+    assert read(float, " 1.2e-6 ") == pytest.approx(1.2e-6)
+    assert read(int, "4.0") == 4 and isinstance(read(int, "4.0"), int)
+    assert read(int, 4.0) == 4 and isinstance(read(int, 4.0), int)
+    assert read(bool, "true") is True and read(bool, "False") is False
+    assert read(str, "4.0") == "4.0"
+    assert read(BeamType, "1") is BeamType.ELECTRON
+    assert read(BeamType, "ION") is BeamType.ION
+    # Not a value of that type: refused, naming what was sent.
+    for hint, value in [(int, "4.5"), (int, 4.5), (float, "fast"), (BeamType, "9")]:
+        with pytest.raises(ArgumentError, match="value"):
+            read(hint, value)
 
 
 def test_a_pattern_dict_names_its_shape():

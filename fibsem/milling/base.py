@@ -7,10 +7,11 @@ import threading
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from copy import deepcopy
-from dataclasses import asdict, dataclass, field, fields
+from dataclasses import dataclass, field, fields
 from functools import cached_property
 from typing import (
     TYPE_CHECKING,
+    Annotated,
     Any,
     Callable,
     ClassVar,
@@ -25,9 +26,12 @@ from typing import (
     Union,
 )
 
+from pydantic import AfterValidator
+
+from fibsem.codec import NotSaved, Tagged, decode, encode, saved
 from fibsem.milling.config import MILLING_SPUTTER_RATE
 from fibsem.milling.monitor_config import MillingMonitorConfig
-from fibsem.milling.patterning import DEFAULT_MILLING_PATTERN, get_pattern
+from fibsem.milling.patterning import DEFAULT_MILLING_PATTERN
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.structures import (
     Configurable,
@@ -63,7 +67,7 @@ TMillingStrategy = TypeVar("TMillingStrategy", bound="MillingStrategy")
 
 
 @dataclass
-class MillingStrategyConfig(Configurable, ABC):
+class MillingStrategyConfig(Tagged, Configurable, ABC):
     """What a milling strategy is configured by, held on the stage it mills.
 
     The stage keeps this, not the strategy: the strategy is made from it when the
@@ -74,6 +78,7 @@ class MillingStrategyConfig(Configurable, ABC):
     # A stage saves its strategy as `{name, config}`, these fields under `config`.
     # A patch walks the saved shape (`stages.0.strategy.config.supervised`), so
     # `fibsem.server.config_patch` reads this segment as the config itself.
+    TYPE_KEY: ClassVar[str] = "name"
     SAVED_UNDER: ClassVar[str] = "config"
 
     @property
@@ -87,14 +92,27 @@ class MillingStrategyConfig(Configurable, ABC):
         """The name of the strategy this configures, as a stage saves it."""
         return self.strategy_class.name
 
+    def tagged_name(self) -> str:
+        return self.strategy_name
+
+    @classmethod
+    def read_tagged(cls, name: Optional[str], data: Any, strict: bool) -> Any:
+        """The config of the strategy called ``name`` (Standard when absent).
+
+        A name no strategy has reads as Standard, with a warning, and drops the
+        saved settings, which are another strategy's (`_strategy_named`)."""
+        strategy = _strategy_named(name or "Standard")
+        config = data if strategy.name == (name or "Standard") else {}
+        return _made_for(strategy, decode(strategy.config_class, config, strict=strict))
+
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        return encode(self)
 
     @classmethod
     def from_dict(
         cls: Type[TMillingStrategyConfig], d: Dict[str, Any]
     ) -> TMillingStrategyConfig:
-        return cls(**d)
+        return decode(cls, d)
 
     @cached_property
     def required_attributes(self) -> Tuple[str, ...]:
@@ -235,10 +253,7 @@ def get_strategy_config(
 ) -> MillingStrategyConfig:
     """The config of the strategy called *name*, read from a saved `{name, config}`
     document."""
-    strategy = _strategy_named(name)
-    # Another strategy's settings are not this one's: an unknown name starts afresh.
-    saved = (config or {}).get("config", {}) if strategy.name == name else {}
-    return _made_for(strategy, strategy.config_class.from_dict(saved))
+    return decode(MillingStrategyConfig, {**(config or {}), "name": name})
 
 
 def strategy_class_for(
@@ -265,12 +280,11 @@ def _made_for(
     return config
 
 
-def _monitor_configs(saved: List[Dict[str, Any]]) -> List[MillingMonitorConfig]:
-    """A stage's saved ``monitors``, without those not installed here."""
-    from fibsem.milling.monitors import get_monitor_config
-
-    configs = [get_monitor_config(monitor) for monitor in saved]
-    return [config for config in configs if config is not None]
+def _installed(
+    monitors: List[Optional[MillingMonitorConfig]],
+) -> List[MillingMonitorConfig]:
+    """A stage's saved monitors, without those not installed here (read as None)."""
+    return [monitor for monitor in monitors if monitor is not None]
 
 
 def _default_strategy_config() -> MillingStrategyConfig:
@@ -283,6 +297,9 @@ def _same_strategy(a: MillingStrategyConfig, b: MillingStrategyConfig) -> bool:
     return a.strategy_name == b.strategy_name and a == b
 
 
+# A stage saved without its alignment block reads it as a saved alignment would
+# without its keys: off (`MillingAlignment`), not a new stage's default.
+@saved(absent={"alignment": {}})
 @dataclass
 class FibsemMillingStage(Configurable):
     name: str = "Milling Stage"
@@ -290,7 +307,7 @@ class FibsemMillingStage(Configurable):
     enabled: bool = True
     milling: FibsemMillingSettings = field(default_factory=FibsemMillingSettings)
     pattern: BasePattern = field(default_factory=DEFAULT_MILLING_PATTERN)
-    patterns: Optional[List[BasePattern]] = param(
+    patterns: Annotated[Optional[List[BasePattern]], NotSaved] = param(
         None, not_used="a stage mills its one pattern; nothing reads patterns"
     )
     # What the strategy is configured by; the strategy itself is made from it when the
@@ -302,18 +319,20 @@ class FibsemMillingStage(Configurable):
     )  # settings for post-milling acquisition
     # What runs during each mill step of this stage (FIB-1481); each step makes
     # its monitors afresh from these.
-    monitors: List[MillingMonitorConfig] = field(default_factory=list)
-    reference_image: Optional[FibsemImage] = None
+    monitors: Annotated[List[MillingMonitorConfig], AfterValidator(_installed)] = field(
+        default_factory=list
+    )
+    reference_image: Annotated[Optional[FibsemImage], NotSaved] = None
     # The whole-frame reference, for a stage that aligns full frame at a low
     # current (``alignment.full_frame_below``). Set with reference_image, never
     # saved with the stage.
-    reference_image_full_frame: Optional[FibsemImage] = None
+    reference_image_full_frame: Annotated[Optional[FibsemImage], NotSaved] = None
     # Where this stage's run writes: its alignment reference, the drift
     # correction, anything a strategy saves. Set by FibsemMillingTask before the
     # strategy runs, like reference_image, and never saved with the stage -- it
     # belongs to one run, not to the protocol. ``imaging.path`` is an imaging
     # setting; read this to know where to save.
-    output_dir: Optional[str] = None
+    output_dir: Annotated[Optional[str], NotSaved] = None
 
     def __setattr__(self, name: str, value: Any) -> None:
         if name == "strategy" and isinstance(value, MillingStrategy):
@@ -349,23 +368,9 @@ class FibsemMillingStage(Configurable):
             self.imaging.save = False
 
     def to_dict(self, short: bool = False) -> Dict[str, Any]:
-        ddict = {
-            "name": self.name,
-            "num": self.num,
-            "enabled": self.enabled,
-            "milling": self.milling.to_dict(),
-            "pattern": self.pattern.to_dict(),
-            "strategy": {
-                "name": self.strategy.strategy_name,
-                "config": self.strategy.to_dict(),
-            },
-            "alignment": self.alignment.to_dict(),
-            "imaging": self.imaging.to_dict(),
-            "monitors": [
-                {"name": monitor.monitor_name, "config": monitor.to_dict()}
-                for monitor in self.monitors
-            ],
-        }
+        """As a protocol saves it. ``short`` leaves out what a milling task sets on
+        the stage itself (`TASK_SETS_ON_STAGE`)."""
+        ddict = encode(self)
         if short:
             ddict.pop("alignment")
             ddict.pop("imaging")
@@ -375,24 +380,7 @@ class FibsemMillingStage(Configurable):
 
     @classmethod
     def from_dict(cls, data: dict):
-        strategy_config = data.get("strategy", {})
-        strategy_name = strategy_config.get("name", "Standard")
-        pattern_name = data["pattern"]["name"]
-        alignment = data.get("alignment", {})
-        imaging: dict = data.get("imaging", {})
-        if imaging == {} or imaging.get("path", None) is None:
-            imaging["path"] = None  # set to None if not explicitly set
-        return cls(
-            name=data["name"],
-            num=data.get("num", 0),
-            enabled=data.get("enabled", True),
-            milling=FibsemMillingSettings.from_dict(data["milling"]),
-            pattern=get_pattern(pattern_name, data["pattern"]),
-            strategy=get_strategy_config(strategy_name, config=strategy_config),
-            alignment=MillingAlignment.from_dict(alignment),
-            imaging=ImageSettings.from_dict(imaging),
-            monitors=_monitor_configs(data.get("monitors") or []),
-        )
+        return decode(cls, data)
 
     @property
     def estimated_time(self) -> float:

@@ -130,29 +130,11 @@ def get_pattern(name: str, config: Optional[Dict[str, Any]] = None) -> BasePatte
     Raises:
         NameError: If pattern name is not found
     """
-    if config is None:
-        config = {}
-
-    patterns = get_patterns()
-
-    # Try exact match first
-    if name in patterns:
-        pattern_cls = patterns[name]
-        pattern = pattern_cls.from_dict(config)
-        return pattern
-
-    # Try case-insensitive match for backwards compatibility
-    name_lower = name.lower()
-    for pattern_name, pattern_cls in patterns.items():
-        if pattern_name.lower() == name_lower:
-            pattern = pattern_cls.from_dict(config)
-            return pattern
-
-    # Pattern not found
-    available = ", ".join(patterns.keys())
-    raise NameError(
-        f"No milling pattern named '{name}'. Available patterns: {available}"
-    )
+    try:
+        pattern_cls = BasePattern.subclass_named(name)
+    except ValueError as error:
+        raise NameError(str(error)) from None
+    return pattern_cls.from_dict(config or {})
 
 
 # Legacy support - maintain backward compatibility
