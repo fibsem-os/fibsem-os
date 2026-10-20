@@ -4164,6 +4164,18 @@ class FibsemImageMetadata:
 
         return decode(FibsemImageMetadata, upgrade(settings))
 
+    @staticmethod
+    def read(path: str) -> Optional["FibsemImageMetadata"]:
+        """A saved beam image's metadata, without reading its pixels; None for
+        a file that records none (an FM stack's OME, a plain TIFF)."""
+        try:
+            with tff.TiffFile(path) as tiff:
+                raw = tiff.pages[0].tags["ImageDescription"].value
+            return FibsemImageMetadata.from_dict(json.loads(raw))
+        except Exception:
+            logging.debug(f"Could not read the metadata of {path}", exc_info=True)
+            return None
+
 
 @dataclass
 class ImageStats:

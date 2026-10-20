@@ -100,13 +100,13 @@ def test_the_agent_and_the_status_bar_chip_set_supervision_alike(
     assert AutoLamellaAppContext(session).set_supervision("Rough", True)["applied"]
     assert calls == [("Rough", True)]
 
-    window = (
-        Path(fibsem.__path__[0]) / "applications/autolamella/ui/window.py"
+    view = (
+        Path(fibsem.__path__[0]) / "applications/autolamella/ui/run/view.py"
     ).read_text(encoding="utf-8")
-    start = window.index("    def _on_supervised_status_clicked(")
-    body = window[start : window.index("\n    def ", start + 1)]
+    start = view.index("    def _on_supervised_status_clicked(")
+    body = view[start : view.index("\n    def ", start + 1)]
     assert "set_supervision(" in body
-    assert "self.session.record_event" in body
+    assert "self._session.record_event" in body
 
 
 def test_the_agent_schedule_is_refused_past_the_window(experiment):

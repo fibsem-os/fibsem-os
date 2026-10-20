@@ -130,19 +130,6 @@ TOOLS: Tuple[ToolSpec, ...] = (
         },
     ),
     ToolSpec(
-        name="grid_render_markers",
-        description="One recorded SEM or FIB overview of a grid with the experiment's items drawn on it, as the overview plot dialog draws them: each item's number, green, red for a failed one, and a scale bar. Saved beside the overview at path (replaced when drawn again): cite it as evidence ({image: path}) when you report on the items, so the operator sees it in your note. Answers the path, the grid's items and a preview. Fluorescence overviews are refused.",
-        method="POST",
-        path="/app/experiment/grids/{grid_name}/outputs/{filename}/markers/image",
-        level="watch",
-        router="app",
-        part=GRIDS,
-        params={
-            "grid_name": "the grid name",
-            "filename": "a beam overview basename from grid_list / grid_get",
-        },
-    ),
-    ToolSpec(
         name="grid_add",
         description=(
             "Record every grid in the inventory that the experiment has no record "

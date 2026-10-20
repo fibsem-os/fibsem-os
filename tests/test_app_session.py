@@ -459,6 +459,21 @@ def test_a_message_is_heard_only_while_something_records(session, microscope):
 # ── the run controller, heard with no window ──────────────────────────────────
 
 
+def test_a_stop_is_said_whoever_asks(session):
+    """The window draws a stop from the runner, the agent's as the operator's."""
+    from tests.run_state import StubRunner
+
+    session.runner = StubRunner(session)
+    heard = []
+    session.runner.stopping.connect(lambda: heard.append("stopping"))
+
+    session.runner.stop()
+    assert heard == [], "nothing was running"
+    session.runner.is_running = True
+    session.runner.stop()  # unnamed: the agent's
+    assert heard == ["stopping"]
+
+
 def test_an_operator_stop_is_recorded_by_the_runner(session, microscope):
     from tests.run_state import StubRunner
 

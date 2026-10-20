@@ -284,3 +284,13 @@ def test_a_reference_image_is_cited_as_proposal_list_gives_it(client, context):
     missing = _keep(client, image="nowhere.png")
     assert missing.status_code == 422
     assert "nowhere.png" in missing.json()["detail"]["message"]
+
+
+def test_only_a_beam_image_is_a_frame_to_draw_on():
+    """A picture the agent rendered (PNG) is shown as it is, like an upload."""
+    from fibsem.workflows.evidence import frame_path
+
+    assert frame_path({"image": "/exp/overview.tif"}) == "/exp/overview.tif"
+    assert frame_path({"image": "/exp/markers/overview.png"}) is None
+    assert frame_path({"image": "/exp/a.png", "uploaded": True}) is None
+    assert frame_path(None) is None

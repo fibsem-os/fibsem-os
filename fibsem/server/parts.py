@@ -110,8 +110,6 @@ class Grids(Protocol):
 
     def grid_markers(self, grid_name: str, filename: str) -> Dict[str, Any]: ...
 
-    def grid_render_markers(self, grid_name: str, filename: str) -> Dict[str, Any]: ...
-
     def overview_stage_position(
         self, grid_name: str, filename: str, px=None, fraction=None
     ) -> Dict[str, Any]: ...
@@ -197,6 +195,10 @@ class Lamellae(Protocol):
     ) -> Dict[str, Any]: ...
 
     def set_lamella_defaults(self, defaults: Dict[str, Any]) -> Dict[str, Any]: ...
+
+    def render_markers(
+        self, path: str, grid_name: Optional[str] = None
+    ) -> Dict[str, Any]: ...
 
 
 PARTS = {

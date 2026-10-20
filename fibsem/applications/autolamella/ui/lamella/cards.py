@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import os
-from collections import OrderedDict
 from typing import Dict, Optional
 
 from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QImage, QPixmap
+from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -34,6 +33,7 @@ from fibsem.applications.autolamella.ui.common.lamella_display import (
     short_status,
     status_look,
 )
+from fibsem.applications.autolamella.ui.common.thumbnails import cached_thumbnail
 from fibsem.config import CARD_MODES, MODE_COMPACT, MODE_COZY, MODE_STANDARD
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION, fibsem_icon
@@ -50,7 +50,7 @@ from fibsem.ui.widgets.custom_widgets import ElidedLabel
 _CARD_WIDTH = 300
 _THUMB_PADDING = 6  # inset from card edges so rounded corners stay visible
 # 3:2, matching the 1536x1024 frames the microscope acquires, so the thumbnail
-# scales rather than crops -- _thumbnail_image expands to fill. Kept small: at this
+# scales rather than crops -- cached_thumbnail expands to fill. Kept small: at this
 # size it is a scanning cue ("which of these looks milled"), and every pixel of
 # width it takes comes off the status line, which is the part carrying detail.
 _THUMB_W = 66
@@ -87,64 +87,6 @@ QToolButton {
 QToolButton:hover { background: rgba(255, 255, 255, 30); }
 QToolButton:pressed { background: rgba(255, 255, 255, 15); }
 """
-
-
-_THUMBNAIL_CACHE: "OrderedDict[tuple, QImage]" = OrderedDict()
-# Enough for one arrangement of a large experiment, with room for the other to linger
-# after a mode switch. The bound is what stops a long run growing this without limit:
-# every thumbnail a workflow rewrites lands under a new key. Cozy entries are the big
-# ones at ~200 KB, so the ceiling is ~40 MB.
-_THUMBNAIL_CACHE_MAX = 200
-
-
-def _thumbnail_stamp(path: str) -> Optional[tuple]:
-    """What identifies this file's *contents*, for the cache key.
-
-    Size as well as mtime: a filesystem with one-second mtime granularity would
-    otherwise go on serving the pre-run thumbnail for the rest of the second in which
-    a workflow rewrote it. None means there is no file, which is its own cache key --
-    `get_thumbnail` answers that with the shared placeholder.
-    """
-    try:
-        stat = os.stat(path)
-    except OSError:
-        return None
-    return (stat.st_mtime_ns, stat.st_size)
-
-
-def _thumbnail_image(lamella: Lamella, w: int, h: int) -> QImage:
-    """The lamella's thumbnail scaled for a `w` x `h` label, decoded at most once.
-
-    `_rebuild_lamella_list` clears and re-adds every card whenever a lamella is added
-    or removed, so without this a 100-lamella experiment re-opened and re-scaled 100
-    PNGs on the GUI thread every time -- 2.8 s of frozen UI per added lamella
-    (FIB-681).
-
-    Cached as a QImage rather than a QPixmap on purpose. It is just as quick to hand
-    to a label, because `QPixmap.fromImage` on an already-scaled image costs nothing,
-    and a QImage holds no platform resources -- so this dict outliving the
-    QApplication at shutdown is inert rather than a teardown crash.
-
-    A torn or unreadable file caches the placeholder against that file's stamp, so a
-    failing decode is attempted once rather than on every refresh.
-    """
-    path = os.path.join(lamella.path, "thumbnail.png")
-    key = (path, _thumbnail_stamp(path), w, h)
-    image = _THUMBNAIL_CACHE.get(key)
-    if image is not None:
-        _THUMBNAIL_CACHE.move_to_end(key)
-        return image
-
-    image = arr_to_qimage(lamella.get_thumbnail()).scaled(
-        w,
-        h,
-        Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-        Qt.TransformationMode.SmoothTransformation,
-    )
-    _THUMBNAIL_CACHE[key] = image
-    if len(_THUMBNAIL_CACHE) > _THUMBNAIL_CACHE_MAX:
-        _THUMBNAIL_CACHE.popitem(last=False)
-    return image
 
 
 class LamellaCardWidget(QWidget):
@@ -494,15 +436,15 @@ class LamellaCardWidget(QWidget):
         # none, and reading a lamella's thumbnail off disk to scale it for a hidden
         # label is the one thing worth skipping.
         if self._mode != MODE_COMPACT:
-            self._thumb_label.setPixmap(
-                QPixmap.fromImage(
-                    _thumbnail_image(
-                        self.lamella,
-                        self._thumb_label.width(),
-                        self._thumb_label.height(),
-                    )
-                )
+            # Never None: a missing or torn file decodes to the placeholder, which is
+            # cached against that file's stamp, so a failing decode runs once.
+            image = cached_thumbnail(
+                os.path.join(self.lamella.path, "thumbnail.png"),
+                self._thumb_label.width(),
+                self._thumb_label.height(),
+                lambda: arr_to_qimage(self.lamella.get_thumbnail()),
             )
+            self._thumb_label.setPixmap(QPixmap.fromImage(image))
 
     def mousePressEvent(self, event) -> None:
         self.clicked.emit(self.lamella)

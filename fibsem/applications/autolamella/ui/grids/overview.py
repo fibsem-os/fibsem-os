@@ -50,7 +50,6 @@ A stage update that stays on the same grid moves the stage marker and nothing el
 from __future__ import annotations
 
 import glob
-import json
 import logging
 import os
 from copy import deepcopy
@@ -60,7 +59,6 @@ from functools import partial
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
 
-import tifffile as tff
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QComboBox,
@@ -603,17 +601,6 @@ class _Overview:
     label: str
 
 
-def _read_metadata(path: str) -> Optional[FibsemImageMetadata]:
-    """A beam image's metadata, without reading its pixels."""
-    try:
-        with tff.TiffFile(path) as tiff:
-            raw = tiff.pages[0].tags["ImageDescription"].value
-        return FibsemImageMetadata.from_dict(json.loads(raw))
-    except Exception:
-        logger.debug(f"Could not read the metadata of {path}", exc_info=True)
-        return None
-
-
 def _beam_view(metadata: FibsemImageMetadata) -> Optional[str]:
     """The canvas's view name for a beam image: the beam at its pose."""
     position = getattr(metadata, "stage_position", None)
@@ -878,7 +865,7 @@ class QuadOverviewPage(GridOverviewView):
         if _is_fluorescence(path):
             result = (None, VIEW_FM)
         else:
-            metadata = _read_metadata(path)
+            metadata = FibsemImageMetadata.read(path)
             view = _beam_view(metadata) if metadata is not None else None
             if view is not None:
                 grid = (

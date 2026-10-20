@@ -72,16 +72,29 @@ def kind(path: str) -> str:
     return "other"
 
 
+def _images_under(folder: str) -> int:
+    """How many images *folder* holds, at any depth (links not followed)."""
+    return sum(
+        name.lower().endswith(IMAGE_SUFFIXES)
+        for _, _, names in os.walk(folder)
+        for name in names
+    )
+
+
 def _entry(root: str, path: str) -> Dict[str, Any]:
     stat = os.stat(path)
     entry_kind = kind(path)
-    return {
+    entry = {
         "name": os.path.basename(path),
         "path": os.path.relpath(path, root).replace(os.sep, "/"),
         "kind": entry_kind,
         "size": None if entry_kind == "folder" else stat.st_size,
         "modified": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
     }
+    if entry_kind == "folder":
+        # where the images are, so a reader goes down the right folders
+        entry["images"] = _images_under(path)
+    return entry
 
 
 def list_folder(root: Optional[str], path: str = "") -> Dict[str, Any]:

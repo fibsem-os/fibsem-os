@@ -4,7 +4,7 @@ import os
 import re
 from typing import Any, Dict, Optional, Tuple
 
-from fibsem.ai.agent.catalog.spec import RETRACT_FIRST, ToolSpec
+from fibsem.ai.agent.catalog.spec import RETRACT_FIRST_SAFE_MOVE, ToolSpec
 from fibsem.server.parts import ITEMS, LAMELLAE, MILLING_STAGES, POSES
 from fibsem.util import wording
 
@@ -348,7 +348,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="item_move_to_pose",
         description="Move the stage to one of a lamella's poses (MILLING, FLUORESCENCE, ... as item_get lists), through the safe move that goes flat before a large rotation. Answers with the stage position after."
-        + RETRACT_FIRST,
+        + RETRACT_FIRST_SAFE_MOVE,
         method="POST",
         path="/app/experiment/items/{item_name}/move_to",
         level="drive",

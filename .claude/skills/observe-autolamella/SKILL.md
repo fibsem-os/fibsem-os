@@ -75,7 +75,9 @@ the run died: read `app_get_log` with the run's `task_id` and
 
 ## Offline
 
-Read the folder with the bundled reader. It reads `experiment.yaml`,
+Read the folder with the bundled reader. It needs a shell, which
+`fibsem-agent` doesn't give you: there, read the session through the MCP
+tools, and leave a folder to Claude Code. It reads `experiment.yaml`,
 `protocol.yaml`, `events.jsonl` and `logfile.log`, and writes nothing into
 the folder. Run it with the Python AutoLamella is installed in:
 

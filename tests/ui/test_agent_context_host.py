@@ -40,7 +40,7 @@ def ui(qapp):
 
 
 def test_a_fresh_window_satisfies_the_host_contract(ui):
-    ctx = AutoLamellaAppContext(ui.session, window=ui)
+    ctx = AutoLamellaAppContext(ui.session)
     status = ctx.status()
     json.dumps(status)
     assert status["microscope_connected"] is False
@@ -62,7 +62,7 @@ def test_display_images_are_the_sessions_latest_images(ui):
     sem = FibsemImage.generate_blank_image(resolution=[128, 128], hfw=1e-6)
     sem.data[:] = np.random.randint(0, 255, sem.data.shape, dtype=np.uint8)
     ui.session.images.set(sem, BeamType.ELECTRON)
-    ctx = AutoLamellaAppContext(ui.session, window=ui)
+    ctx = AutoLamellaAppContext(ui.session)
     # A stand-in microscope: the window must not hear of it and build for it.
     with ui.session.changed.blocked():
         ui.session.microscope = object()
@@ -88,7 +88,7 @@ def test_an_adopted_experiment_is_visible_through_the_facade(ui, tmp_path):
     exp.add_new_lamella(MicroscopeState(), EventedDict())
 
     # built BEFORE the experiment exists — call-time wins
-    ctx = AutoLamellaAppContext(ui.session, window=ui)
+    ctx = AutoLamellaAppContext(ui.session)
     ui.experiment = exp
 
     status = ctx.status()
@@ -117,7 +117,7 @@ class _Dialog:
 
 @pytest.fixture
 def toasts(monkeypatch):
-    from fibsem.applications.autolamella.ui import window as ui_module
+    from fibsem.applications.autolamella.ui.run import view as ui_module
 
     _Dialog.opened = []
     monkeypatch.setattr(ui_module, "WorkflowSummaryDialog", _Dialog)
@@ -133,7 +133,7 @@ def toasts(monkeypatch):
 
 
 def test_run_summary_survives_the_run_end_toast(ui, toasts):
-    # The live-run regression: _show_workflow_summary used to consume
+    # The live-run regression: the run-end summary used to consume
     # the last run summary to make the dialog once-only, so a remote read after
     # the run always found nothing. The run's end is shown once; the record
     # stays readable.
@@ -149,8 +149,8 @@ def test_run_summary_survives_the_run_end_toast(ui, toasts):
         ]
     )
 
-    ui._show_workflow_summary()
-    ui._show_workflow_summary()  # a second finished-signal must not re-show
+    ui.run_view.show_summary()
+    ui.run_view.show_summary()  # a second finished-signal must not re-show
     assert len(toasts) == 1
     message, notification_type, action = toasts[0]
     assert message == "Run ended: 1 completed"
@@ -160,14 +160,14 @@ def test_run_summary_survives_the_run_end_toast(ui, toasts):
     # but without blocking the window.
     assert _Dialog.opened == [(ui.session.runner.last_summary, ""), "show"]
 
-    payload = AutoLamellaAppContext(ui.session, window=ui).run_summary()
+    payload = AutoLamellaAppContext(ui.session).run_summary()
     assert payload["available"] is True
     assert payload["items"][0]["task_name"] == "Rough Milling"
     json.dumps(payload)
 
     # The next run's capture is a new object: it shows again.
     ui.session.runner.last_summary = pd.DataFrame([{"task_name": "Polishing"}])
-    ui._show_workflow_summary()
+    ui.run_view.show_summary()
     assert len(toasts) == 2
 
 
@@ -186,7 +186,7 @@ def test_with_the_summary_off_only_the_toast_shows(ui, toasts, tmp_path):
     ui.session.runner.last_summary = summary
     ui.session.runner.last_note = ""
 
-    ui._show_workflow_summary()
+    ui.run_view.show_summary()
     assert _Dialog.opened == []
     _message, notification_type, (_text, callback) = toasts[0]
     assert notification_type == "warning"  # a failure is not a plain finish

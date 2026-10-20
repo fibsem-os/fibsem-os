@@ -26,7 +26,7 @@ PATH = "/app/workflow/proposals/suggest"
 def _client(ui, level):
     app = build_server(
         ui.microscope,
-        app_context=AutoLamellaAppContext(ui.session, window=ui),
+        app_context=AutoLamellaAppContext(ui.session),
         auth=AuthConfig.generate(level=level, token=TOKEN),
     )
     return TestClient(app, raise_server_exceptions=False)

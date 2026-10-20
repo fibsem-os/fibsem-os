@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from PyQt5.QtCore import QEvent, QSize, Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QCursor, QImage, QPixmap
+from PyQt5.QtGui import QCursor, QPixmap
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QAction,
@@ -26,11 +26,9 @@ from superqt import ensure_main_thread
 
 from fibsem.applications.autolamella.structures import Lamella
 from fibsem.applications.autolamella.ui.common.lamella_display import (
-    VERDICT_LOOK,
     GridContext,
     add_defect_menu,
     apply_grid_label,
-    completed_text,
     defect_icon,
     grid_of,
     grids_named,
@@ -45,6 +43,7 @@ from fibsem.ui.tokens import (
     CANVAS_BG,
     NEUTRAL_550,
 )
+from fibsem.ui.utils import arr_to_qimage
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, IconToolButton
 from fibsem.ui.widgets.lists import (
     DETAIL_PX,
@@ -53,14 +52,11 @@ from fibsem.ui.widgets.lists import (
     ListHeader,
     column_label,
 )
-from fibsem.workflows.quality import Verdict
-from fibsem.workflows.status import TaskStatus
 
 _NAME_MIN_WIDTH = 160
 
 
 _BTN_SIZE = QSize(24, 24)
-_ROW_HEIGHT = ROW_HEIGHT
 
 
 class _LamellaTooltip(QWidget):
@@ -79,13 +75,8 @@ class _LamellaTooltip(QWidget):
         layout.addWidget(self._img_label)
 
     def set_image(self, arr: np.ndarray) -> None:
-        if arr.ndim == 2:
-            arr = np.stack([arr, arr, arr], axis=2)
-        arr = np.ascontiguousarray(arr, dtype=np.uint8)
-        h, w, c = arr.shape
-        qimg = QImage(arr.data, w, h, w * c, QImage.Format_RGB888)
         self._img_label.setPixmap(
-            QPixmap.fromImage(qimg).scaled(
+            QPixmap.fromImage(arr_to_qimage(arr)).scaled(
                 256,
                 170,
                 Qt.AspectRatioMode.KeepAspectRatio,
@@ -111,12 +102,18 @@ class _LamellaTooltip(QWidget):
         self.raise_()
 
 
-class LamellaRowWidget(QWidget):
-    """One lamella for the run selection: tick box, name, the grid it is on
-    (when the experiment has more than one), a short status, a defect icon
-    only once there is a defect, and one actions menu."""
+class LamellaRow(QWidget):
+    """One lamella in a list: name, the grid it is on (when the experiment has
+    more than one), a short status, a defect icon only once there is a defect,
+    and one actions menu.
 
+    *checkable* adds the tick box the run selection uses; *stage_actions* adds
+    Move to and Update Position, withheld while the lamella's grid is off the
+    stage; *thumbnail* shows the lamella's thumbnail on hovering its name."""
+
+    move_to_clicked = pyqtSignal(object)  # Lamella
     edit_clicked = pyqtSignal(object)  # Lamella
+    update_clicked = pyqtSignal(object)  # Lamella
     remove_clicked = pyqtSignal(object)  # Lamella
     defect_changed = pyqtSignal(object)  # Lamella
     selection_changed = pyqtSignal(object, bool)  # Lamella, checked
@@ -124,7 +121,10 @@ class LamellaRowWidget(QWidget):
     def __init__(
         self,
         lamella: Lamella,
-        checked: bool = True,
+        checkable: bool = False,
+        checked: bool = False,
+        stage_actions: bool = False,
+        thumbnail: bool = False,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
@@ -132,19 +132,19 @@ class LamellaRowWidget(QWidget):
         self._grid_context: Optional[GridContext] = None
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
-        self._popup: Optional[_LamellaTooltip] = None
-        self._hover_timer = QTimer(self)
-        self._hover_timer.setSingleShot(True)
-        self._hover_timer.timeout.connect(self._show_popup)
-
         layout = QHBoxLayout(self)
         layout.setContentsMargins(6, 3, 6, 3)
         layout.setSpacing(8)
 
-        self.checkbox = QCheckBox()
-        self.checkbox.setChecked(checked)
-        self.checkbox.setStyleSheet("background: transparent;")
-        layout.addWidget(self.checkbox)
+        self.checkbox: Optional[QCheckBox] = None
+        if checkable:
+            self.checkbox = QCheckBox()
+            self.checkbox.setChecked(checked)
+            self.checkbox.setStyleSheet("background: transparent;")
+            self.checkbox.stateChanged.connect(
+                lambda s: self.selection_changed.emit(self.lamella, bool(s))
+            )
+            layout.addWidget(self.checkbox)
 
         self.name_label = QLabel()
         self.name_label.setMinimumWidth(_NAME_MIN_WIDTH)
@@ -188,6 +188,23 @@ class LamellaRowWidget(QWidget):
         self.btn_actions.setToolTip("Actions")
         self.btn_actions.setPopupMode(QToolButton.InstantPopup)
         menu = QMenu(self)
+        self.action_move_to: Optional[QAction] = None
+        self.action_update: Optional[QAction] = None
+        if stage_actions:
+            self.action_move_to = menu.addAction(
+                fibsem_icon(ICON_MOVE_TO_POSITION, color=stylesheets.GRAY_ICON_COLOR),
+                "Move to Position",
+            )
+            self.action_update = menu.addAction(
+                fibsem_icon(ICON_UPDATE_POSITION, color=stylesheets.GRAY_ICON_COLOR),
+                "Update Position",
+            )
+            self.action_move_to.triggered.connect(
+                lambda: self.move_to_clicked.emit(self.lamella)
+            )
+            self.action_update.triggered.connect(
+                lambda: self.update_clicked.emit(self.lamella)
+            )
         self.action_edit = menu.addAction(
             fibsem_icon("mdi:pencil", color=stylesheets.GRAY_ICON_COLOR), "Edit"
         )
@@ -199,15 +216,18 @@ class LamellaRowWidget(QWidget):
         self.btn_actions.setMenu(menu)
         layout.addWidget(self.btn_actions)
 
-        self.checkbox.stateChanged.connect(
-            lambda s: self.selection_changed.emit(self.lamella, bool(s))
-        )
-        # Hovering the name shows the thumbnail; the defect icon is drawn only
-        # once there is a verdict, so it can't be the only way in.
-        self.name_label.installEventFilter(self)
-        self.btn_defect.installEventFilter(self)
         self.action_edit.triggered.connect(lambda: self.edit_clicked.emit(self.lamella))
         self.action_remove.triggered.connect(self._on_remove_clicked)
+
+        self._popup: Optional[_LamellaTooltip] = None
+        if thumbnail:
+            self._hover_timer = QTimer(self)
+            self._hover_timer.setSingleShot(True)
+            self._hover_timer.timeout.connect(self._show_popup)
+            # Hovering the name shows the thumbnail; the defect icon is drawn only
+            # once there is a verdict, so it can't be the only way in.
+            self.name_label.installEventFilter(self)
+            self.btn_defect.installEventFilter(self)
 
         # `defect` and `description` are written by GUI widgets, on the GUI
         # thread. `task_state.name`/`.status` are deliberately not subscribed:
@@ -265,7 +285,9 @@ class LamellaRowWidget(QWidget):
         icon_name, icon_color, tooltip = defect_icon(self.lamella)
         self.btn_defect.setIcon(fibsem_icon(icon_name, color=icon_color))
         self.btn_defect.setToolTip(tooltip)
-        self.btn_defect.setVisible(has_verdict(self.lamella))
+        self.btn_defect.setVisible(
+            self.defect_menu.menuAction().isVisible() and has_verdict(self.lamella)
+        )
 
         grid = grid_of(self.lamella, self._grid_context)
         status_text, status_style = status_look(self.lamella)
@@ -281,6 +303,18 @@ class LamellaRowWidget(QWidget):
             f"font-size: {DETAIL_PX}px; "
             + (status_style or f"color: {NEUTRAL_550}; background: transparent;")
         )
+
+        if self.action_move_to is None or self.action_update is None:
+            return
+        # Moving to or re-recording a lamella whose grid is in the magazine would
+        # act on whatever grid *is* on the stage: withheld, with the reason.
+        reason = not_on_stage_reason(grid)
+        for action, label in (
+            (self.action_move_to, "Move to Position"),
+            (self.action_update, "Update Position"),
+        ):
+            action.setEnabled(not reason)
+            action.setText(f"{label} ({reason})" if reason else label)
 
 
 # The filter's two fixed choices; a grid's own key is its record id.
@@ -450,7 +484,7 @@ class LamellaListWidget(QWidget):
         self.grid_filter.set_choices(grids, unlinked)
         self._apply_grid_filter(self.grid_filter.selected)
 
-    def _row_passes(self, row: "LamellaRowWidget", key: str) -> bool:
+    def _row_passes(self, row: "LamellaRow", key: str) -> bool:
         if key == FILTER_ALL:
             return True
         grid_id = getattr(row.lamella, "grid_id", None)
@@ -474,18 +508,18 @@ class LamellaListWidget(QWidget):
         self._sync_select_all()
         self.selection_changed.emit(self.get_selected())
 
-    def _visible_rows(self) -> List["LamellaRowWidget"]:
+    def _visible_rows(self) -> List["LamellaRow"]:
         return [
             self._row(i)
             for i in range(self._list.count())
             if not self._list.item(i).isHidden()
         ]
 
-    def add_lamella(self, lamella: Lamella, checked: bool = False) -> LamellaRowWidget:
-        row = LamellaRowWidget(lamella, checked)
+    def add_lamella(self, lamella: Lamella, checked: bool = False) -> LamellaRow:
+        row = LamellaRow(lamella, checkable=True, checked=checked, thumbnail=True)
         row.set_grid_context(getattr(self, "_grid_context", None))
         item = QListWidgetItem()
-        item.setSizeHint(QSize(0, _ROW_HEIGHT))
+        item.setSizeHint(QSize(0, ROW_HEIGHT))
         self._list.addItem(item)
         self._list.setItemWidget(item, row)
         item.setHidden(not self._row_passes(row, self.grid_filter.selected))
@@ -563,7 +597,7 @@ class LamellaListWidget(QWidget):
     # Internal
     # ------------------------------------------------------------------
 
-    def _row(self, i: int) -> LamellaRowWidget:
+    def _row(self, i: int) -> LamellaRow:
         return self._list.itemWidget(self._list.item(i))  # type: ignore[return-value]
 
     def _on_remove_clicked(self, lamella: Lamella) -> None:
@@ -581,208 +615,7 @@ class LamellaListWidget(QWidget):
         if count == 0:
             return
         n_checked = sum(row.checkbox.isChecked() for row in rows)
-        cb = self._header.checkbox_all
-        cb.blockSignals(True)
-        if n_checked == 0:
-            cb.setCheckState(Qt.Unchecked)
-        elif n_checked == count:
-            cb.setCheckState(Qt.Checked)
-        else:
-            cb.setTristate(True)
-            cb.setCheckState(Qt.PartiallyChecked)
-        cb.blockSignals(False)
-
-
-_LAMELLA_NAME_MIN_WIDTH = 160
-_LAMELLA_ROW_HEIGHT = 30
-_LAMELLA_BTN_SIZE = QSize(24, 24)
-_ROW_FONT_PX = 11
-_DETAIL_FONT_PX = 10
-
-
-def _lamella_status_text(lamella) -> tuple[str, str]:
-    """Return (text, stylesheet) for the status column.
-
-    Gracefully handles objects without task_state (e.g. plain positions).
-    """
-    ts = getattr(lamella, "task_state", None)
-    if ts and getattr(ts, "status", None) is not None:
-        if ts.status == TaskStatus.InProgress:
-            return f"{ts.name}", "color: #6aabdf; background: transparent;"
-    last = getattr(lamella, "last_completed_task", None)
-    if last:
-        return completed_text(last), f"color: {NEUTRAL_550}; background: transparent;"
-    return "", "background: transparent;"
-
-
-def _lamella_defect_icon(lamella) -> tuple[str, str, str]:
-    """Return (icon_name, icon_color, tooltip) for the verdict indicator.
-
-    Gracefully handles objects without defect field.
-    """
-    defect = getattr(lamella, "defect", None)
-    if defect is None:
-        return VERDICT_LOOK[Verdict.UNASSESSED]
-    icon, colour, text = VERDICT_LOOK[defect.verdict]
-    return icon, colour, f"{text}{': ' + defect.reason if defect.reason else ''}"
-
-
-class _LamellaRow(QWidget):
-    """One row: name, the grid it is on (when there is more than one), a short
-    status, a defect icon only once there is a defect, and one actions menu."""
-
-    move_to_clicked = pyqtSignal(object)
-    edit_clicked = pyqtSignal(object)
-    update_clicked = pyqtSignal(object)
-    remove_clicked = pyqtSignal(object)
-    defect_changed = pyqtSignal(object)
-
-    def __init__(self, lamella, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.lamella = lamella
-        # (grid name, on the stage, named at all), from the host; see
-        # `lamella_list_widget.GridContext`.
-        self._grid: Optional[Tuple[str, bool]] = None
-        self._grid_named = False
-        self.setAttribute(Qt.WA_TranslucentBackground)
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 3, 6, 3)
-        layout.setSpacing(8)
-
-        self.name_label = QLabel(lamella.name)
-        self.name_label.setMinimumWidth(_LAMELLA_NAME_MIN_WIDTH)
-        self.name_label.setStyleSheet(
-            f"font-size: {_ROW_FONT_PX}px; background: transparent;"
-        )
-        layout.addWidget(self.name_label)
-
-        self.grid_label = QLabel()
-        self.grid_label.setVisible(False)
-        layout.addWidget(self.grid_label)
-
-        self.status_label = ElidedLabel()
-        layout.addWidget(self.status_label, stretch=1)
-
-        # Only drawn once someone has judged the lamella. Clicking it opens the
-        # verdict menu.
-        self.btn_defect = QToolButton()
-        self.btn_defect.setFixedSize(_LAMELLA_BTN_SIZE)
-        self.btn_defect.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
-        self._defect_icon_menu = QMenu(self)
-        add_defect_menu(self._defect_icon_menu, lamella, self._on_defect_written)
-        self.btn_defect.clicked.connect(
-            lambda: self._defect_icon_menu.popup(
-                self.btn_defect.mapToGlobal(self.btn_defect.rect().bottomLeft())
-            )
-        )
-        self.btn_defect.setVisible(False)
-        layout.addWidget(self.btn_defect)
-
-        # One actions menu in place of four inline buttons.
-        self.btn_actions = QToolButton()
-        self.btn_actions.setFixedSize(_LAMELLA_BTN_SIZE)
-        self.btn_actions.setStyleSheet(
-            stylesheets.TOOLBUTTON_ICON_STYLESHEET
-            + " QToolButton::menu-indicator { image: none; }"
-        )
-        self.btn_actions.setIcon(
-            fibsem_icon("mdi:dots-horizontal", color=stylesheets.GRAY_ICON_COLOR)
-        )
-        self.btn_actions.setToolTip("Actions")
-        self.btn_actions.setPopupMode(QToolButton.InstantPopup)
-        menu = QMenu(self)
-        self.action_move_to = menu.addAction(
-            fibsem_icon(ICON_MOVE_TO_POSITION, color=stylesheets.GRAY_ICON_COLOR),
-            "Move to Position",
-        )
-        self.action_update = menu.addAction(
-            fibsem_icon(ICON_UPDATE_POSITION, color=stylesheets.GRAY_ICON_COLOR),
-            "Update Position",
-        )
-        self.action_edit = menu.addAction(
-            fibsem_icon("mdi:pencil", color=stylesheets.GRAY_ICON_COLOR), "Edit"
-        )
-        self.action_remove = menu.addAction(
-            fibsem_icon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR),
-            "Remove",
-        )
-        self.defect_menu = add_defect_menu(menu, lamella, self._on_defect_written)
-        self.btn_actions.setMenu(menu)
-        self.btn_actions.setVisible(False)
-        layout.addWidget(self.btn_actions)
-
-        self.action_move_to.triggered.connect(
-            lambda: self.move_to_clicked.emit(self.lamella)
-        )
-        self.action_update.triggered.connect(
-            lambda: self.update_clicked.emit(self.lamella)
-        )
-        self.action_edit.triggered.connect(lambda: self.edit_clicked.emit(self.lamella))
-        self.action_remove.triggered.connect(self._on_remove_clicked)
-
-        # `defect` and `description` only: both are written by GUI widgets, on
-        # the GUI thread. Not `task_state.name`/`.status`: those are written
-        # from the workflow's worker thread, the marshalled refresh could land
-        # on a row Qt has already destroyed, and an exception escaping a slot
-        # aborts the process (FIB-565, FIB-329). `_on_workflow_update` drives
-        # this list by name instead.
-        self.lamella.events.description.connect(self.refresh)  # type: ignore[union-attr]
-        self.lamella.events.defect.connect(self.refresh)  # type: ignore[union-attr]
-
-        self.refresh()
-
-    def _on_defect_written(self) -> None:
-        self.refresh()
-        self.defect_changed.emit(self.lamella)
-
-    def _on_remove_clicked(self) -> None:
-        reply = QMessageBox.question(
-            self,
-            "Remove Lamella",
-            f"Remove <b>{self.lamella.name}</b>?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if reply == QMessageBox.Yes:
-            self.remove_clicked.emit(self.lamella)
-
-    def set_grid(self, grid: Optional[Tuple[str, bool]], named: bool) -> None:
-        """(grid name, on the stage), or None for a lamella on no known grid;
-        *named* says whether rows name their grid at all (more than one grid)."""
-        self._grid = grid
-        self._grid_named = named
-        self.refresh()
-
-    @ensure_main_thread
-    def refresh(self) -> None:
-        self.name_label.setText(self.lamella.name)
-        self.setToolTip(self.lamella.description or "")
-        text, style = _lamella_status_text(self.lamella)
-        apply_grid_label(self.grid_label, self._grid, self._grid_named, bool(text))
-        self.status_label.setText(text)
-        self.status_label.setStyleSheet(
-            f"font-size: {_DETAIL_FONT_PX}px; "
-            + (style or f"color: {NEUTRAL_550}; background: transparent;")
-        )
-        icon_name, icon_color, tooltip = _lamella_defect_icon(self.lamella)
-        self.btn_defect.setIcon(fibsem_icon(icon_name, color=icon_color))
-        self.btn_defect.setToolTip(tooltip)
-        defect = getattr(self.lamella, "defect", None)
-        self.btn_defect.setVisible(
-            self.defect_menu.menuAction().isVisible()
-            and defect is not None
-            and defect.verdict is not Verdict.UNASSESSED
-        )
-        # Moving to or re-recording a lamella whose grid is in the magazine would
-        # act on whatever grid *is* on the stage: withheld, with the reason.
-        reason = not_on_stage_reason(self._grid)
-        for action, label in (
-            (self.action_move_to, "Move to Position"),
-            (self.action_update, "Update Position"),
-        ):
-            action.setEnabled(not reason)
-            action.setText(f"{label} ({reason})" if reason else label)
+        self._header.sync(n_checked, count)
 
 
 class LamellaNameListWidget(QWidget):
@@ -820,7 +653,7 @@ class LamellaNameListWidget(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
-        # Header
+        # Not `ListHeader`: that carries a tick box, and this list picks one.
         header = QWidget()
         header.setStyleSheet(f"background: {CANVAS_BG};")
         header_layout = QHBoxLayout(header)
@@ -828,17 +661,17 @@ class LamellaNameListWidget(QWidget):
         header_layout.setSpacing(8)
         lbl_name = QLabel("Lamella")
         lbl_name.setStyleSheet(
-            f"font-weight: bold; font-size: {_ROW_FONT_PX}px; background: transparent;"
+            f"font-weight: bold; font-size: {NAME_PX}px; background: transparent;"
         )
-        lbl_name.setMinimumWidth(_LAMELLA_NAME_MIN_WIDTH)
+        lbl_name.setMinimumWidth(_NAME_MIN_WIDTH)
         header_layout.addWidget(lbl_name)
         lbl_status = QLabel("Status")
         lbl_status.setStyleSheet(
-            f"font-weight: bold; font-size: {_ROW_FONT_PX}px; background: transparent;"
+            f"font-weight: bold; font-size: {NAME_PX}px; background: transparent;"
         )
         header_layout.addWidget(lbl_status, stretch=1)
         self.btn_add = IconToolButton(
-            icon="mdi:plus", tooltip="Add", size=_LAMELLA_BTN_SIZE.width()
+            icon="mdi:plus", tooltip="Add", size=_BTN_SIZE.width()
         )
         self.btn_add.setVisible(False)
         self.btn_add.clicked.connect(self.add_requested.emit)
@@ -879,18 +712,7 @@ class LamellaNameListWidget(QWidget):
         stage actions for a grid off the stage. Kept for rows added later."""
         self._grid_context = context
         for row in self._rows():
-            row.set_grid(self._grid_of(row.lamella), self._grids_named())
-
-    def _grids_named(self) -> bool:
-        context = getattr(self, "_grid_context", None)
-        return bool(context) and len(context) > 1
-
-    def _grid_of(self, lamella) -> Optional[Tuple[str, bool]]:
-        context = getattr(self, "_grid_context", None)
-        grid_id = getattr(lamella, "grid_id", None)
-        if not context or not grid_id:
-            return None
-        return context.get(grid_id)
+            row.set_grid_context(context)
 
     def set_lamella(self, positions, preferred_name: str = "") -> None:
         """Populate the list from *positions*, restoring selection by name.
@@ -902,8 +724,8 @@ class LamellaNameListWidget(QWidget):
         self._list.blockSignals(True)
         self._list.clear()
         for pos in positions:
-            row = _LamellaRow(pos)
-            row.set_grid(self._grid_of(pos), self._grids_named())
+            row = LamellaRow(pos, stage_actions=True)
+            row.set_grid_context(getattr(self, "_grid_context", None))
             row.move_to_clicked.connect(self.move_to_requested)
             row.edit_clicked.connect(self.edit_requested)
             row.update_clicked.connect(self.update_requested)
@@ -912,7 +734,7 @@ class LamellaNameListWidget(QWidget):
             self._apply_btn_visibility(row)
             item = QListWidgetItem()
             item.setData(Qt.UserRole, pos)  # type: ignore
-            item.setSizeHint(QSize(0, _LAMELLA_ROW_HEIGHT))
+            item.setSizeHint(QSize(0, ROW_HEIGHT))
             self._list.addItem(item)
             self._list.setItemWidget(item, row)
         self._restore_selection(current)
@@ -968,13 +790,13 @@ class LamellaNameListWidget(QWidget):
             self._apply_btn_visibility(row)
 
     def _rows(self):
-        """Yield all _LamellaRow widgets."""
+        """Yield all LamellaRow widgets."""
         for i in range(self._list.count()):
             row = self._list.itemWidget(self._list.item(i))
-            if isinstance(row, _LamellaRow):
+            if isinstance(row, LamellaRow):
                 yield row
 
-    def _apply_btn_visibility(self, row: _LamellaRow) -> None:
+    def _apply_btn_visibility(self, row: LamellaRow) -> None:
         v = self._btn_visible
         row.defect_menu.menuAction().setVisible(v["defect"])
         row.action_move_to.setVisible(v["move_to"])

@@ -143,7 +143,7 @@ _WRITES_AT_WATCH = frozenset(
         "request_withdraw",
         "item_measure_thickness",  # saves its result beside the image
         "correlation_correlate",  # saves a run in the lamella's Correlation folder
-        "grid_render_markers",  # saves its picture beside the overview
+        "experiment_render_markers",  # saves its picture beside the image
     }
 )
 
@@ -164,7 +164,12 @@ OVERVIEW_CENTRE = (
 )
 
 # For a move that changes the pose (FIB-1497).
-RETRACT_FIRST = " Retract the FM objective first: nothing retracts it for you."
+RETRACT_FIRST = " Retract the FM objective first."
+# For the safe move, which crosses to the other device by itself (#2096).
+RETRACT_FIRST_SAFE_MOVE = (
+    " Retract the FM objective first, except for a position at the other "
+    "device on an offset FM mount: that move crosses with the objective out."
+)
 
 # For an FM image: inserted is not in focus (FIB-1497).
 NEAR_FOCUS = (

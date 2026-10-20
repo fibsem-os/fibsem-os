@@ -347,6 +347,19 @@ def require_level(needed: AgentLevel):
                 },
             )
         if not (auth.reaches(needed) or lent):
+            # What the agent may never do says so at every level, not "ask
+            # first" for a request that is then refused (server._blocked_route).
+            blocked = getattr(request.app.state, "blocked_route", None)
+            why = (
+                blocked(request.scope.get("method"), request.url.path)
+                if blocked
+                else None
+            )
+            if why is not None:
+                raise HTTPException(
+                    status_code=403,
+                    detail={"error_type": "not_allowed", "message": why},
+                )
             raise HTTPException(
                 status_code=403,
                 detail=_level_detail(

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Tuple
+import os
+from collections import OrderedDict
+from typing import Callable, Optional, Tuple
 
 import numpy as np
 from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtGui import QImage
 from PyQt5.QtWidgets import QLabel
 from skimage.transform import resize
 
@@ -78,6 +81,65 @@ def load_and_resize(
         )
     resized = resize(data, (new_h, new_w), preserve_range=True).astype(np.uint8)
     return resized, pixel_size_x * covered / w / scale, info
+
+
+def file_stamp(path: str) -> Optional[Tuple[int, int]]:
+    """What identifies this file's *contents*: its mtime and size.
+
+    Size as well as mtime: a filesystem with one-second mtime granularity would
+    otherwise go on serving the old picture for the rest of the second in which a
+    workflow rewrote it. None when there is no file to read.
+    """
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return None
+    return (stat.st_mtime_ns, stat.st_size)
+
+
+_THUMBNAIL_CACHE: "OrderedDict[tuple, QImage]" = OrderedDict()
+# Enough for one arrangement of a large experiment's cards, with room for the other to
+# linger after a mode switch. The bound is what stops a long run growing this without
+# limit: every thumbnail a workflow rewrites lands under a new key. Cozy entries are
+# the big ones at ~200 KB, so the ceiling is ~40 MB.
+_THUMBNAIL_CACHE_MAX = 200
+
+
+def cached_thumbnail(
+    path: str, w: int, h: int, decode: Callable[[], QImage]
+) -> Optional[QImage]:
+    """The image `decode` reads for `path`, scaled to fill a `w` x `h` label, decoded
+    at most once per version of the file.
+
+    A strip of cards is rebuilt on every refresh, so without this a 100-lamella
+    experiment re-opened and re-scaled 100 PNGs on the GUI thread each time -- 2.8 s
+    of frozen UI per added lamella (FIB-681).
+
+    Cached as a QImage rather than a QPixmap on purpose. It is just as quick to hand
+    to a label, because `QPixmap.fromImage` on an already-scaled image costs nothing,
+    and a QImage holds no platform resources -- so the cache outliving the
+    QApplication at shutdown is inert rather than a teardown crash.
+
+    None, uncached, when `decode` gives a null image.
+    """
+    key = (path, file_stamp(path), w, h)
+    image = _THUMBNAIL_CACHE.get(key)
+    if image is not None:
+        _THUMBNAIL_CACHE.move_to_end(key)
+        return image
+    image = decode()
+    if image.isNull():
+        return None
+    image = image.scaled(
+        w,
+        h,
+        Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+        Qt.TransformationMode.SmoothTransformation,
+    )
+    _THUMBNAIL_CACHE[key] = image
+    if len(_THUMBNAIL_CACHE) > _THUMBNAIL_CACHE_MAX:
+        _THUMBNAIL_CACHE.popitem(last=False)
+    return image
 
 
 class ClickableLabel(QLabel):

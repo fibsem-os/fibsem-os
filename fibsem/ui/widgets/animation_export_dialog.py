@@ -52,9 +52,9 @@ from fibsem.ui.tokens import (
     SURFACE_COLOR,
     TEXT_COLOR,
 )
+from fibsem.ui.utils import arr_to_qimage
 from fibsem.ui.widgets.image_export_dialog import (
     _caption,
-    _rgb_to_qimage,
     _row,
     _Segmented,
     _tab,
@@ -101,7 +101,7 @@ class _FrameTile(QWidget):
         if rgb is None:
             self.thumb.clear()
             return
-        pixmap = QPixmap.fromImage(_rgb_to_qimage(rgb))
+        pixmap = QPixmap.fromImage(arr_to_qimage(rgb))
         self.thumb.setPixmap(
             pixmap.scaled(
                 _THUMB_W,
@@ -417,7 +417,7 @@ class AnimationExportDialog(QDialog):
         finally:
             QApplication.restoreOverrideCursor()
         self._indices = included(self.frames, self.options)
-        self._pixmaps = [QPixmap.fromImage(_rgb_to_qimage(r)) for r in self._rendered]
+        self._pixmaps = [QPixmap.fromImage(arr_to_qimage(r)) for r in self._rendered]
         if self.options.beam == "FM":
             self._ensure_channel_checkboxes()
         self._refresh_tiles()

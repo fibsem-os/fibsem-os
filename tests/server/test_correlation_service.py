@@ -200,6 +200,13 @@ def test_points_the_gate_refuses_are_refused_in_the_querys_terms(
     assert said in resp.text
 
 
+def test_a_beam_image_is_refused_as_the_fm_stack(client, images):
+    """It would fit, unseeded and never judged (round 11 F6)."""
+    resp = _correlate(client, images, fm_image_path=images.fib)
+    assert resp.status_code == 422, resp.text
+    assert "ref_fib.tif is a FIB image, not an FM stack" in resp.text
+
+
 def test_paths_outside_the_experiment_are_refused(client, images, tmp_path):
     resp = _correlate(client, images, lamella_path=str(tmp_path))
     assert resp.status_code == 403, resp.text
