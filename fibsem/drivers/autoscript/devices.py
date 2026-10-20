@@ -1669,14 +1669,11 @@ class AutoscriptArctisSputterCoater(_AutoscriptSputterCoater):
     position and back, and sputters whatever is on the stage, so ``coats_grids`` is
     False. ``prepare()`` and ``recover()`` aren't supported there.
 
-    Following the AutoScript 4.8 reference's Arctis example, ``compustage.home()``
-    before the run; the current reference no longer shows an Arctis example. Whether
-    the home is needed is a bench question; AutoScript known issue AST-2132 reads
-    "Arctis - MicroSputter - Sputtering from AS fails under certain conditions".
+    The compustage isn't homed first: the run returns it to where it started, so a
+    home before the run would leave it at home. AutoScript known issue AST-2132 reads
+    "Arctis - MicroSputter - Sputtering from AS fails under certain conditions"; if
+    the bench finds a home is one of them, it goes back here.
     """
-
-    def _before_run(self) -> None:
-        self.connection.sdk.specimen.compustage.home()
 
     def _vendor_run(self, seconds: int, grids: Optional[Tuple[int, ...]]) -> None:
         self._coater.run(seconds)

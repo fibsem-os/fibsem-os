@@ -3,9 +3,8 @@
 The fake follows the AutoScript reference: ``specimen.sputter_coater`` has
 ``is_installed``, ``current`` (``value``, preset ``available_values``; ``limits``
 raises on an Arctis and a Hydra Bio, as ``is_inserted`` does) and ``run(time)``, which on an
-Arctis moves the compustage itself; the reference's Arctis example turns the ion beam
-on and homes the compustage first. Nothing here has run on hardware -- that is the
-Arctis bench check.
+Arctis moves the compustage to the sputter position and back itself. Nothing here has
+run on hardware -- that is the Arctis bench check.
 """
 
 from types import SimpleNamespace
@@ -136,14 +135,14 @@ class TestCoater:
         coater.current.set_value(1.2e-7)
         assert sdk.specimen.sputter_coater.current.value == 1.2e-7
 
-    def test_run_turns_the_beams_on_and_homes_first(self):
+    def test_run_turns_the_beams_on_and_leaves_the_stage_to_the_coater(self):
+        """No compustage home: the run moves the stage and returns it itself."""
         sdk = FakeSdk()
         coater = _build(_microscope(sdk))
         assert coater.run(10) is False
         assert sdk.calls == [
             ("turn_on", "electron"),
             ("turn_on", "ion"),
-            ("home",),
             ("run", 10),
         ]
 
