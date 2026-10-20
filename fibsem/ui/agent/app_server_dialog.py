@@ -23,6 +23,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
 )
 
+from fibsem.server.hosting import event_log_url
 from fibsem.ui import stylesheets
 from fibsem.ui.agent.level_chip import last_heard_text
 from fibsem.ui.tokens import OK_COLOR, TEXT_MUTED_COLOR, TEXT_STRONG_COLOR
@@ -305,32 +306,18 @@ class AppServerDialog(QDialog):
             self._apply_switches()
         super().hideEvent(event)
 
-    @staticmethod
-    def event_log_url(host) -> str:
-        """The event log address with its own read-only token (FIB-1035), never
-        the agent's, in the URL *fragment* — the one part of a URL a browser
-        never sends anywhere, so it reaches the page's own script and nothing
-        else (no server log, no referrer)."""
-        return f"{host.url}/dashboard/log#token={host.auth.dashboard_token}"
-
-    @staticmethod
-    def chat_url(host) -> str:
-        """The chat page, with the operator token in the fragment as the
-        event log has its own."""
-        return f"{host.url}/chat#token={host.auth.operator_token}"
-
     def _on_event_log_clicked(self) -> None:
         host = self._host()
         if host is None:
             return
-        open_in_browser(self.event_log_url(host))
+        open_in_browser(event_log_url(host))
 
     def _on_copy_link_clicked(self) -> None:
         host = self._host()
         clipboard = QApplication.clipboard()
         if host is None or clipboard is None:
             return
-        clipboard.setText(self.event_log_url(host))
+        clipboard.setText(event_log_url(host))
         self._btn_copy_link.setText("Copied")
         QTimer.singleShot(1500, self._restore_copy_link)
 
