@@ -29,8 +29,9 @@ from fibsem.structures import FibsemImage
 
 TIMEOUT = httpx.Timeout(120.0, connect=5.0)  # moves and acquisitions are slow
 
-# httpx logs every request at INFO: a remote device's reads would fill the log
-logging.getLogger("httpx").setLevel(logging.WARNING)
+# httpx logs every request: a remote device's reads would fill the log
+for _logger in ("httpx", "httpcore"):
+    logging.getLogger(_logger).setLevel(logging.WARNING)
 
 NO_SERVER = (
     "No App Server found. Pass url and token, set FIBSEM_SERVER_URL and "

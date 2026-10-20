@@ -449,6 +449,8 @@ def described_action(request: Request) -> str:
 
 def take_control(request: Request):
     """Take control of the microscope for this request (FIB-1270), or 409.
+    Declared with ``scope="function"``, so control is given up before the answer
+    is sent: a caller's next request never finds its own last one in control.
 
     The control a run, a script and the operator take too, so a server command
     never interleaves with them or with another request: concurrent requests on

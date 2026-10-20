@@ -624,7 +624,10 @@ def build_server(
 
     # Restores beams and stage in their set order: Drive, and control of the
     # microscope, like any command.
-    @whole.put("/state", dependencies=[Depends(_drive), Depends(take_control)])
+    @whole.put(
+        "/state",
+        dependencies=[Depends(_drive), Depends(take_control, scope="function")],
+    )
     def set_microscope_state(body: MicroscopeStateRequest):
         microscope.set_microscope_state(
             MicroscopeState.from_dict(body.microscope_state)
@@ -659,8 +662,11 @@ def build_server(
             build_device_router(
                 lambda: microscope.devices,
                 read=[Depends(_watch)],
-                write=[Depends(_drive), Depends(take_control)],
-                command=[Depends(_device_command_gate), Depends(_stop_reason)],
+                write=[Depends(_drive), Depends(take_control, scope="function")],
+                command=[
+                    Depends(_device_command_gate, scope="function"),
+                    Depends(_stop_reason),
+                ],
                 prefix=MICROSCOPE + "/devices",
                 listing=[Depends(require_monitoring())],
                 refuse=refuse,
@@ -675,8 +681,11 @@ def build_server(
             build_device_router(
                 lambda: microscope.services,
                 read=[Depends(_watch)],
-                write=[Depends(_drive), Depends(take_control)],
-                command=[Depends(_device_command_gate), Depends(_stop_reason)],
+                write=[Depends(_drive), Depends(take_control, scope="function")],
+                command=[
+                    Depends(_device_command_gate, scope="function"),
+                    Depends(_stop_reason),
+                ],
                 prefix=MICROSCOPE + "/services",
                 listing=[Depends(require_monitoring())],
                 refuse=refuse,
