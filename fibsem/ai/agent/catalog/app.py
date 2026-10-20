@@ -240,12 +240,41 @@ def _workflow_start_grids(
         )
         if a.get(key)
     ]
-    return {
-        "what": "Grids",
-        "change": f"Run {wording.names_text(a.get('task_names'), 'no tasks')} on "
+    change = (
+        f"Run {wording.names_text(a.get('task_names'), 'no tasks')} on "
         f"{wording.names_text(a.get('grid_names'), 'every grid')}"
-        + (f", then {' and '.join(ends)}" if ends else ""),
-    }
+        + (f", then {' and '.join(ends)}" if ends else "")
+    )
+    plan = ctx.get(
+        "/app/workflow/grids/plan",
+        {
+            key: a[key]
+            for key in ("task_names", "grid_names", "screen_all")
+            if a.get(key) is not None
+        },
+    )
+    estimate = plan.get("estimate") if isinstance(plan, dict) else None
+    if isinstance(estimate, dict):
+        change += wording.about(estimate.get("seconds"))
+        for task in estimate.get("tasks") or []:
+            overview = task.get("overview")
+            if isinstance(overview, dict):
+                change += f"\n{task.get('task_name')}: {_grid_overview_text(overview)}"
+    return {"what": "Grids", "change": change}
+
+
+def _grid_overview_text(overview: Dict[str, Any]) -> str:
+    """A grid overview task's tiles and size: "3 × 3 tiles of 500 µm, about
+    1.4 × 0.93 mm"."""
+    text = f"{overview.get('nrows')} × {overview.get('ncols')} tiles"
+    if overview.get("tile_hfw"):
+        text += f" of {wording.distance(overview['tile_hfw'])}"
+    if overview.get("width") and overview.get("height"):
+        text += (
+            f", about {wording.distance(overview['width'])} × "
+            f"{wording.distance(overview['height'])}"
+        )
+    return text
 
 
 def _workflow_queue_grids(

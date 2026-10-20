@@ -104,7 +104,7 @@ fibsem-mcp watch
 ```
 
 It comes with fibsem and finds the app the way the MCP tools do. Where
-`fibsem-mcp` is not on your PATH, run `python -m fibsem.mcp.sidecar watch` with
+`fibsem-mcp` is not on your PATH, run `python -m fibsem.ai.agent.mcp.sidecar watch` with
 the Python fibsem is installed in, from a folder that holds no other fibsem
 checkout (the current folder is searched first). Check it is the fibsem the
 app runs: a watcher from before Assist prints no `REQUEST` lines and has no
@@ -360,8 +360,10 @@ The other moves, by when to use them:
 
 Retract the FM objective before any move that changes the pose
 (`item_move_to_pose`, `stage_move_to_orientation`,
-`stage_move_to_milling_angle`, `stage_move_absolute`): nothing retracts it
-for you. In a request, put the retract first.
+`stage_move_to_milling_angle`, `stage_move_absolute`). In a request, put the
+retract first. The one exception: on an offset FM mount, `item_move_to_pose`
+or `stage_move_absolute` to a position at the other device crosses the
+chamber with the objective out by itself.
 
 After every move, read the position back and compare it with what you asked
 for, then take a fresh image and check where the feature landed before the
@@ -531,7 +533,11 @@ it doesn't list to one it does, so a square 2048 × 2048 came back as
   estimate (`beam_estimate_overview`, `fm_estimate_overview`): it judges reach
   from where the stage is, and an acquire with any tile it lists as
   unreachable is refused, so turn those off in `tile_mask` and acquire the
-  rest. Say in your note which part of the grid the overview could not cover.
+  rest. Reach is judged by each tile's centre, so use an odd number of rows
+  and columns: a tile then sits on the grid's centre line. An even count can
+  lose a row the stage half reaches (on the Arctis, 4 rows at 500 µm keep 2,
+  5 rows keep 3). Say in your note which part of the grid the overview could
+  not cover.
 - "Take a tile set" (a 3 × 3 at 500 µm, say) means where the stage is now, at
   the size and field of view the operator gave.
 - Any other image, yours or the operator's ("image the lamella", a look
@@ -564,6 +570,8 @@ on the feature itself before acting, as an operator would.
 - Show the operator what you picked: `grid_render_markers` draws the items on
   the overview, and its `path` is the evidence of the note that reports them
   (`experiment_add_note` with `evidence: {image: path}`), shown in the card.
+  It draws only on an overview on the grid's record, one the grid's overview
+  task took (`workflow_start_grids`), not one from `beam_acquire_overview`.
 
 **Grids by hand.** `grid_list` is the experiment's records; `grid_get_inventory`
 is the hardware now. `grid_load` brings a grid onto the stage by name. With an
