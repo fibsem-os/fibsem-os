@@ -225,7 +225,7 @@ Every read works at Watch.
 | One lamella | `item_get`, `item_list_outputs`, `item_get_output_image` |
 | How thick is it? | `item_measure_thickness` on a FIB image from `item_list_outputs` |
 | The plan | `protocol_get`, `item_get_task_config`, `protocol_get_task_config` |
-| Grids | `grid_list`, `grid_get`, `grid_get_markers` |
+| Grids | `grid_list`, `grid_get`, `grid_get_markers`, `grid_render_markers` |
 | Grids on the hardware now | `grid_get_inventory` (which grid is loaded), `grid_get_current` |
 | Any other file | `experiment_list_files`, `experiment_read_file`, `experiment_crop_image` |
 
@@ -561,6 +561,9 @@ on the feature itself before acting, as an operator would.
   cell or a rank; ask which the operator means.
 - Record each site as *Write down why* says: `item_add` without `name`, and
   how to find it again in its description.
+- Show the operator what you picked: `grid_render_markers` draws the items on
+  the overview, and its `path` is the evidence of the note that reports them
+  (`experiment_add_note` with `evidence: {image: path}`), shown in the card.
 
 **Grids by hand.** `grid_list` is the experiment's records; `grid_get_inventory`
 is the hardware now. `grid_load` brings a grid onto the stage by name. With an

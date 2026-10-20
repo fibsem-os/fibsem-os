@@ -32,6 +32,7 @@ click does is the window's.
 
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from PyQt5.QtCore import QSize, Qt, QTimer, pyqtSignal
@@ -618,6 +619,8 @@ class AgentCard(QFrame):
         self.evidence_label: Optional[QLabel] = None
         self.evidence_window: Optional[QDialog] = None
         self.recent_evidence: List[QPushButton] = []
+        # The pictures in the conversation, following the card's width.
+        self.recent_pictures: List[_Picture] = []
 
         layout = QVBoxLayout(self)
         # The wide layout's minimum must not stop the card narrowing to stack:
@@ -956,6 +959,8 @@ class AgentCard(QFrame):
             if self._picture_holder is not None:
                 self._picture_holder.setFixedWidth(self._picture_width())
             self.image_label.set_width(self._picture_width())
+        for picture in self.recent_pictures:
+            picture.set_width(self._message_width())
 
     def _place_about(self) -> None:
         about = (self.heard_label, self.connect_link)
@@ -1353,6 +1358,7 @@ class AgentCard(QFrame):
         self.recent_buttons = []
         self.recent_messages = []
         self.recent_evidence = []
+        self.recent_pictures = []
         self._place_recent()
         if not shown:
             self.updateGeometry()
@@ -1409,7 +1415,9 @@ class AgentCard(QFrame):
         head.addWidget(_label(who, TEXT_STRONG_COLOR, small=True, bold=True))
         head.addWidget(_label(row.when, TEXT_MUTED_COLOR, small=True))
         head.addStretch(1)
-        link = self._evidence_link(row)
+        evidence = getattr(row, "evidence", None)
+        image = self._evidence_image(evidence) if evidence else None
+        link = self._evidence_link(row) if image is None else None
         if link is not None:
             head.addWidget(link)
         column.addLayout(head)
@@ -1430,7 +1438,21 @@ class AgentCard(QFrame):
             more = _link("less" if unfolded else "more")
             more.clicked.connect(lambda _=False, k=key: self._unfold(k))
             column.addWidget(more, 0, Qt.AlignLeft)  # type: ignore
+        if image is not None:
+            # What it shows: the image it was drawn from, else its own file.
+            name = os.path.basename(
+                str(evidence.get("source") or evidence.get("image") or "")
+            )
+            picture = _Picture(image, self._message_width(), name)
+            column.addWidget(picture)
+            self.recent_pictures.append(picture)
+            if name:
+                column.addWidget(_label(name, TEXT_MUTED_COLOR, small=True))
         return block
+
+    def _message_width(self) -> int:
+        """A message block's text width: the timeline's, less its margins."""
+        return max(self.recent_scroll.viewport().width() - 20, 120)
 
     def _action_line(self, row: Any, quiet: bool) -> QWidget:
         """One action: when, what (a click opens the event log), how it ended

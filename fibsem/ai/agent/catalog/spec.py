@@ -143,6 +143,7 @@ _WRITES_AT_WATCH = frozenset(
         "request_withdraw",
         "item_measure_thickness",  # saves its result beside the image
         "correlation_correlate",  # saves a run in the lamella's Correlation folder
+        "grid_render_markers",  # saves its picture beside the overview
     }
 )
 
