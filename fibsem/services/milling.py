@@ -115,6 +115,7 @@ from fibsem.structures import (
     MillingState,
     field_specs,
 )
+from fibsem.util import wording
 from fibsem.util.timestamps import now_iso
 
 # The beam conditions milling changes and `restore` puts back, in the order they are
@@ -167,6 +168,213 @@ class MixedMonitorViews(ValueError):
 class MillingStepFailed(RuntimeError):
     """A monitor failed the mill step: a required monitor's error, or a pause
     longer than its ``max_pause``."""
+
+
+# --- A command as the operator reads it, in an agent's request (wording) ---
+
+
+def parse_patterns(values: Any) -> List[Any]:
+    """Pattern dicts as the milling service takes them, as pattern settings;
+    one that does not parse is left out."""
+    patterns = []
+    for value in values or []:
+        try:
+            patterns.append(FibsemPatternSettings.from_dict(dict(value)))
+        except Exception:  # noqa: BLE001 - the route refuses it; describe the rest
+            continue
+    return patterns
+
+
+def _pattern_kind(pattern: Any) -> str:
+    return type(pattern).__name__.replace("Fibsem", "").replace("Settings", "").lower()
+
+
+def _size(pattern: Any) -> str:
+    width, height = getattr(pattern, "width", None), getattr(pattern, "height", None)
+    if width is not None and height is not None:
+        return f"{wording.number(width * 1e6)} × {wording.number(height * 1e6)} µm"
+    radius = getattr(pattern, "radius", None)
+    if radius is not None:
+        return f"radius {wording.distance(radius)}"
+    return ""
+
+
+def _centre(pattern: Any) -> str:
+    x, y = getattr(pattern, "centre_x", None), getattr(pattern, "centre_y", None)
+    if x is None or y is None:
+        return ""
+    return f"({x * 1e6:+.1f}, {y * 1e6:+.1f}) µm"
+
+
+def _patterns_time(patterns: List[Any], current: Optional[float]) -> Optional[float]:
+    """Seconds to mill ``patterns`` at ``current``, from the sputter-rate table."""
+    if not patterns or not current:
+        return None
+    try:
+        return sum(estimate_milling_time(p, current) for p in patterns)
+    except Exception:  # noqa: BLE001 - no estimate, nothing more
+        return None
+
+
+def _past_field(patterns: List[Any], settings: Any) -> str:
+    """ "1 of them past the 150 µm field": the patterns a real instrument would
+    refuse, on the step's line and not only in the picture's legend. The field
+    is an image's 2:3, as the picture checks it."""
+    from fibsem.milling.patterning.utils import outside_field
+
+    try:
+        hfw = float(settings["hfw"])
+    except (KeyError, TypeError, ValueError):
+        return ""
+    past = [p for p in patterns if outside_field(p, hfw, hfw * 2 / 3)]
+    if not past:
+        return ""
+    which = "past" if len(patterns) == 1 else f"{len(past)} of them past"
+    return f"{which} the {wording.distance(hfw)} field"
+
+
+def _prepare_line(kwargs: Dict[str, Any], ctx: wording.ActionContext) -> Dict[str, Any]:
+    patterns = parse_patterns(kwargs.get("patterns"))
+    settings = kwargs.get("settings") or {}
+    current = settings.get("milling_current") if isinstance(settings, dict) else None
+    voltage = settings.get("milling_voltage") if isinstance(settings, dict) else None
+    kinds = {_pattern_kind(p) for p in patterns}
+    if len(kinds) == 1:
+        parts = [wording.plural(len(patterns), kinds.pop())]
+    else:
+        parts = [wording.plural(len(patterns), "pattern")]
+    sizes = {_size(p) for p in patterns}
+    if len(sizes) == 1 and "" not in sizes:
+        parts.append(sizes.pop())
+    depths = {getattr(p, "depth", None) for p in patterns}
+    if len(depths) == 1 and None not in depths:
+        parts.append(f"{wording.distance(depths.pop())} deep")
+    if current is not None:
+        beam = wording.current(current)
+        if voltage:
+            beam += f" at {wording.number(float(voltage) / 1e3)} kV"
+        parts.append(beam)
+    past = _past_field(patterns, settings)
+    if past:
+        parts.append(past)
+    name = kwargs.get("name")
+    change = (f"Prepare '{name}'" if name else "Prepare") + ": " + ", ".join(parts)
+    rows = [
+        (
+            f"{_pattern_kind(p).capitalize()} {i + 1}",
+            _size(p),
+            wording.distance(getattr(p, "depth", None)) if hasattr(p, "depth") else "",
+            _centre(p),
+        )
+        for i, p in enumerate(patterns)
+    ]
+    return {
+        "what": "Milling",
+        "change": change,
+        "details": wording.table(("Pattern", "Size", "Depth", "Centre"), rows),
+        "_estimate": (_patterns_time(patterns, current), current),
+    }
+
+
+# Whose estimate a mill's time is: the sputter-rate table's, at the mill's
+# current, not the instrument's (FIB-1412).
+_ESTIMATED = "estimated from the sputter rate"
+
+
+def _parsed_stages(values: Any) -> List[Any]:
+    """Milling stage dicts as stages; one that does not parse is left out."""
+    stages = []
+    for value in values or []:
+        try:
+            stages.append(FibsemMillingStage.from_dict(dict(value)))
+        except Exception:  # noqa: BLE001 - the route refuses it; describe the rest
+            continue
+    return stages
+
+
+def _stage_rows(stages: List[Any]) -> Dict[str, Any]:
+    rows = []
+    for stage in stages:
+        pattern = stage.pattern
+        point = getattr(pattern, "point", None)
+        depth = getattr(pattern, "depth", None)
+        rows.append(
+            (
+                stage.name,
+                str(getattr(pattern, "name", "") or type(pattern).__name__),
+                wording.current(stage.milling.milling_current),
+                wording.distance(depth) if depth is not None else "",
+                (
+                    f"({point.x * 1e6:+.1f}, {point.y * 1e6:+.1f}) µm"
+                    if point is not None
+                    else ""
+                ),
+            )
+        )
+    return wording.table(("Stage", "Pattern", "Current", "Depth", "Position"), rows)
+
+
+def _stages_estimate(stages: List[Any]) -> Optional[float]:
+    try:
+        return sum(stage.estimated_time for stage in stages)
+    except Exception:  # noqa: BLE001 - no estimate, nothing more
+        return None
+
+
+def _run_task_line(
+    kwargs: Dict[str, Any], ctx: wording.ActionContext
+) -> Dict[str, Any]:
+    """A milling task, by its stages: what each mills, at what current, where."""
+    config = kwargs.get("config")
+    config = config if isinstance(config, dict) else {}
+    name = config.get("name") or "milling task"
+    stages = [s for s in _parsed_stages(config.get("stages")) if s.enabled]
+    if not stages:
+        raw = [s.get("name") for s in config.get("stages") or [] if isinstance(s, dict)]
+        listed = f": {wording.plural(len(raw), 'stage')}" if raw else ""
+        return {"what": "Milling", "change": f"Run task '{name}'{listed}"}
+    names = [stage.name for stage in stages]
+    change = f"Run task '{name}': {wording.plural(len(stages), 'stage')} ({wording.names_cut(names)})"
+    estimate = _stages_estimate(stages)
+    if estimate:
+        change += f", about {wording.seconds(estimate)} ({_ESTIMATED})"
+    return {"what": "Milling", "change": change, "details": _stage_rows(stages)}
+
+
+def _run_stage_line(
+    kwargs: Dict[str, Any], ctx: wording.ActionContext
+) -> Dict[str, Any]:
+    stages = _parsed_stages([kwargs.get("stage")])
+    if not stages:
+        stage = kwargs.get("stage")
+        name = stage.get("name") if isinstance(stage, dict) else None
+        return {"what": "Milling", "change": f"Run stage '{name or 'milling stage'}'"}
+    stage = stages[0]
+    pattern = stage.pattern
+    change = (
+        f"Run stage '{stage.name}': "
+        f"{str(getattr(pattern, 'name', '') or 'pattern').lower()}, "
+        f"{wording.current(stage.milling.milling_current)}"
+    )
+    estimate = _stages_estimate(stages)
+    if estimate:
+        change += f", about {wording.seconds(estimate)} ({_ESTIMATED})"
+    return {"what": "Milling", "change": change, "details": _stage_rows(stages)}
+
+
+def _run_line(kwargs: Dict[str, Any], ctx: wording.ActionContext) -> Dict[str, Any]:
+    """A run of what an earlier action of the request prepared, with its time."""
+    seconds, current = ctx.estimate or (None, None)
+    about = ""
+    if seconds:
+        at = f" at {wording.current(current)}" if current else ""
+        about = f", about {wording.seconds(seconds)} ({_ESTIMATED}{at})"
+    return {"what": "Milling", "change": f"Run{about}"}
+
+
+def _said(change: str) -> wording.Line:
+    """The line of a command that takes nothing: always the same words."""
+    return lambda kwargs, ctx: {"what": "Milling", "change": change}
 
 
 class Milling(Service):
@@ -462,7 +670,7 @@ class Milling(Service):
         parent = self.parent
         return type(parent).__name__ if parent is not None else type(self).__name__
 
-    @command
+    @command(line=_prepare_line)
     def prepare(
         self,
         settings: FibsemMillingSettings,
@@ -501,13 +709,13 @@ class Milling(Service):
         )
         return {"milling_current": used, "warning": _unlisted(asked, used, parameter)}
 
-    @command
+    @command(line=_said("Start milling what is drawn"))
     def start(self) -> None:
         """Start milling what is drawn, and return at once. Nothing follows it:
         no ``progress`` and no ``milling`` event, so an agent mills with ``run``."""
         self._start()
 
-    @command
+    @command(line=_said("Stop the mill now running"))
     def stop(self) -> None:
         """Stop milling: the pattern now, and the milling task it is part of, which
         starts no later stage. A ``run`` in progress ends and answers ``cancelled``.
@@ -521,7 +729,7 @@ class Milling(Service):
             task_stop.set()
         self._end_step(MillingStepEnd(STOPPED, reason="Milling stopped."))
 
-    @command
+    @command(line=_said("End the milling stage now running, keeping what it milled"))
     def end(self, reason: str, by: Optional[str] = None) -> None:
         """End this stage, completed: the mill step now stops, and its stage run
         starts no further step. A run in progress answers ``completed``; the
@@ -587,7 +795,7 @@ class Milling(Service):
         except Exception:  # noqa: BLE001 - unsure counts as milling: stop it
             return True
 
-    @command
+    @command(line=_said("Pause the mill"))
     def pause(self) -> None:
         """Pause milling. While a monitor has the pattern paused (an SEM
         peek), it stays paused when the monitor is done."""
@@ -597,7 +805,7 @@ class Milling(Service):
         else:
             step.hold(self._pause)
 
-    @command
+    @command(line=_said("Resume the paused mill"))
     def resume(self) -> None:
         """Resume paused milling. While a monitor has the pattern paused, it
         resumes when the monitor is done."""
@@ -614,7 +822,7 @@ class Milling(Service):
         Pass the answer's ``seq`` as the next *since* to follow along."""
         return self._readings.follow(since, timeout)
 
-    @command(long=True)
+    @command(long=True, line=_run_line)
     def run(
         self, stop_event: Optional[Union[threading.Event, AnyStopEvent]] = None
     ) -> str:
@@ -634,7 +842,7 @@ class Milling(Service):
             return self._run(stop_event)
         return self._run_on_the_record(stop_event)
 
-    @command(long=True)
+    @command(long=True, line=_run_task_line)
     def run_task(self, config: Any, path: Optional[str] = None) -> Dict[str, Any]:
         """Run a milling task, as the app runs a protocol's: each enabled stage
         in turn with its strategy, aligning to the task's reference image
@@ -690,7 +898,7 @@ class Milling(Service):
                 ended["path"] = None
         return ended
 
-    @command(long=True)
+    @command(long=True, line=_run_stage_line)
     def run_stage(
         self, stage: FibsemMillingStage, path: Optional[str] = None
     ) -> Dict[str, Any]:
@@ -964,14 +1172,14 @@ class Milling(Service):
         """
         return estimate_milling_time(stage.pattern, stage.milling.milling_current)
 
-    @command
+    @command(line=_said("Clear the drawn patterns"))
     def clear(self) -> None:
         """Remove every drawn pattern."""
         with self._milling_channel():
             self._clear()
         self._set_drawn([])
 
-    @command
+    @command(line=_said("Put the beam back as it was before milling"))
     def restore(self) -> None:
         """Put the milling beam back as the first ``setup`` found it.
 
@@ -986,7 +1194,7 @@ class Milling(Service):
                     self._write_back(beam, name, saved[name])
         self._restore()
 
-    @command
+    @command(line=_said("Finish milling: clear the patterns and put the beam back"))
     def finish(self) -> None:
         """Clear the patterns and put the milling beam back as ``setup`` found it."""
         self.clear()

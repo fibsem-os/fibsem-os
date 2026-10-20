@@ -698,7 +698,7 @@ def test_the_legend_is_drawn_on_the_picture_at_its_own_size(qapp):
 def test_patterns_to_mill_are_filled_and_an_area_is_only_outlined(qapp):
     # FIB-1424 (decided): patterns as see-through solid areas, one colour;
     # dashed outlines only for what is not milled.
-    from fibsem.ai.agent.request_text import parse_patterns
+    from fibsem.services.milling import parse_patterns
     from fibsem.ui.agent.previews import (
         _Layer,
         draw_picture,
