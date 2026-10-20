@@ -101,14 +101,12 @@ def test_only_the_operator_reaches_the_operator_routes(server, who, status):
     assert server.config.level is AgentLevel.WATCH
 
 
-def test_the_operator_reads_but_does_not_reach_the_agents_routes(server):
+def test_the_operator_reaches_the_agents_routes_whatever_its_level(server):
     assert server.get("/capabilities", headers=server.operator).status_code == 200
     assert server.get("/app/events", headers=server.operator).status_code == 200
-    answer = server.post(
-        "/app/workflow/stop", headers=server.operator, json={"reason": "test"}
-    )
-    assert answer.status_code == 403
-    assert answer.json()["detail"]["error_type"] == "operator_reach"
+    # Drive's route at Watch, with no reason: the operator's own stop.
+    answer = server.post("/app/workflow/stop", headers=server.operator, json={})
+    assert answer.status_code == 200, answer.text
     # Not served here: the page reads why.
     answer = server.get("/microscope", headers=server.operator)
     assert answer.json()["detail"]["error_type"] == "microscope_off"
@@ -135,16 +133,11 @@ def test_the_operator_reads_what_the_microscope_is(microscope, tmp_path):  # noq
             assert client.get("/microscope", headers=operator).json()["manufacturer"]
             state = client.get("/microscope/state", headers=operator).json()
             assert "stage_position" in state["microscope_state"]
-            # What it has; a device's values, and every write and command,
-            # stay the agent's.
+            # What it has, and a device's values.
             assert client.get("/microscope/devices", headers=operator).json()
             assert client.get("/microscope/services", headers=operator).json()
-            for method, path in (
-                ("GET", "/microscope/devices/stage/values"),
-                ("PUT", "/microscope/state"),
-            ):
-                answer = client.request(method, path, headers=operator, json={})
-                assert answer.status_code == 403, path
+            values = client.get("/microscope/devices/stage/values", headers=operator)
+            assert values.status_code == 200, values.text
             assert session.agent_auth.seconds_since_seen() is None
     finally:
         host.stop()

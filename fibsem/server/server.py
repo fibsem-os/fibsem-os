@@ -26,7 +26,7 @@ from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from fibsem import __version__
-from fibsem.acting import AGENT, OPERATOR, acting
+from fibsem.acting import AGENT, OPERATOR, acting, current_actor
 from fibsem.ai.agent import blocklist
 from fibsem.ai.agent.calls import calling, current_call, from_headers
 from fibsem.microscope import FibsemMicroscope
@@ -203,7 +203,8 @@ _APP_STOPS = {"/app/workflow/stop": "workflow", "/app/workflow/stop_task": "task
 async def _stop_reason(request: Request):
     """Every agent stop carries a reason: refused without one, and recorded as
     ``agent_stop`` (what was stopped, why, whether it was the agent's own) once
-    it has stopped, for the operator to read."""
+    it has stopped, for the operator to read. The operator's stop needs none and
+    is recorded as theirs."""
     command = request.path_params.get("command")
     if command is not None and command not in STOP_COMMANDS:
         yield
@@ -213,7 +214,10 @@ async def _stop_reason(request: Request):
     except ValueError:
         body = None
     reason = body.get("reason") if isinstance(body, dict) else None
-    if not isinstance(reason, str) or not reason.strip():
+    operator = current_actor() is OPERATOR
+    if operator and not isinstance(reason, str):
+        reason = ""
+    if not operator and (not isinstance(reason, str) or not reason.strip()):
         kwargs = body.get("kwargs") if isinstance(body, dict) else None
         misplaced = isinstance(kwargs, dict) and "reason" in kwargs
         raise HTTPException(
@@ -244,9 +248,12 @@ async def _stop_reason(request: Request):
     verb = "Stop"
     if command == "end":
         target, verb = "the milling stage", "End"
-    request.app.state.microscope.record_event(
-        ACTION,
-        action_record(
+    if operator:
+        record = action_record(
+            f"{verb} {target}", reason=reason.strip(), stops=action, via="remote"
+        )
+    else:
+        record = action_record(
             f"{verb} {target}",
             reason=reason.strip(),
             stops=action,
@@ -254,8 +261,8 @@ async def _stop_reason(request: Request):
             own=own,
             level=request.app.state.auth.level.value,
             evidence=call.evidence if call is not None else None,
-        ),
-    )
+        )
+    request.app.state.microscope.record_event(ACTION, record)
 
 
 # What a stop stops, as the operator says it: "Stopped the mill: <why>".
