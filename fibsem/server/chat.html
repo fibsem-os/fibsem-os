@@ -26,8 +26,6 @@
   header { display:flex; align-items:center; gap:10px; flex-wrap:wrap;
     padding:10px 16px; border-bottom:1px solid var(--border); }
   header .exp { font-weight:600; color:var(--strong); }
-  header .who { font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; }
-  header .who b { color:var(--agent); font-weight:600; }
   header .controls { margin-left:auto; display:flex; gap:8px; align-items:center; }
   select { background:var(--panel); border:1px solid var(--border); border-radius:3px;
     padding:3px 6px; font-size:12px; }
@@ -58,12 +56,12 @@
   .evidence.big img { max-height:92vh; max-width:96vw; }
   .frame { position:relative; }
 
-  .actions { font-size:12px; color:var(--muted); }
-  .actions summary { cursor:pointer; list-style:none; }
-  .actions summary::-webkit-details-marker { display:none; }
-  .actions summary:hover { color:var(--text); }
-  .actions .act { display:grid; grid-template-columns:44px 1fr auto; gap:8px; padding:1px 0; }
-  .actions .act .why { grid-column:2 / 4; font-size:11.5px; }
+  .act { display:grid; grid-template-columns:44px 1fr auto; gap:8px; font-size:12px; color:var(--text); }
+  .act .when { font-size:11px; color:var(--muted); padding-top:1px; font-variant-numeric:tabular-nums; }
+  .act .why { grid-column:2 / 4; font-size:11.5px; color:var(--muted); }
+  .halves { display:flex; gap:14px; padding:6px 16px 0; font-size:11.5px; }
+  .halves button { background:none; border:0; padding:0; cursor:pointer; color:var(--muted); }
+  .halves button.on { color:var(--strong); font-weight:600; }
   .tone-ok { color:var(--ok); } .tone-error { color:var(--err); }
   .tone-waiting, .tone-running { color:var(--warn); } .tone-muted { color:var(--muted); }
 
@@ -82,6 +80,8 @@
     border-radius:3px; padding:8px 10px; min-height:38px; max-height:150px; line-height:1.4; }
   .composer .foot { display:flex; align-items:center; gap:10px; margin-top:6px; font-size:11.5px; color:var(--muted); }
   .composer .foot .btn { margin-left:auto; }
+  .composer .who { font-variant-numeric:tabular-nums; }
+  .composer .who b { color:var(--agent); font-weight:600; }
   .error { color:var(--err); }
 
   .gate { max-width:420px; margin:18vh auto 0; padding:16px; }
@@ -113,8 +113,8 @@ const LIMIT = 2000;
 let TOKEN = null;
 let since = 0;
 let state = { agent: null, rows: [] };
-// The action runs the operator opened, by their first row, kept across redraws.
-const opened = new Set();
+// Which halves of the timeline show, as the card's toggles: both at first.
+const halves = { conversation: true, actions: true };
 let draft = "";
 const evidenceCache = new Map();
 // Kept at the newest row while the operator hasn't scrolled up from it.
@@ -183,22 +183,26 @@ function gate(note) {
 }
 
 function lastHeard(seconds) {
-  if (seconds == null) return "not connected";
+  if (seconds == null) return "not heard from yet";
   if (seconds < 60) return `last heard ${Math.round(seconds)} s ago`;
   if (seconds < 3600) return `last heard ${Math.round(seconds / 60)} min ago`;
   return `last heard ${Math.round(seconds / 3600)} h ago`;
 }
 
-function headerHtml() {
+function whoHtml() {
   const a = state.agent || {};
   const name = a.client ? esc(a.client.split("/")[0]) : "Agent";
+  const stopped = a.stopped ? " · stopped by you" : "";
+  return `<span class="who"><b>${name}</b> · ${lastHeard(a.last_heard_s)}${stopped}</span>`;
+}
+
+function headerHtml() {
+  const a = state.agent || {};
   const level = a.level || "watch";
   const options = LEVELS.map(l =>
     `<option value="${l}"${l === level ? " selected" : ""}>${l[0].toUpperCase() + l.slice(1)}</option>`).join("");
-  const stopped = a.stopped ? " · stopped by you" : "";
   return `<header>
     <span class="exp">${esc(a.experiment || "Agent chat")}</span>
-    <span class="who"><b>${name}</b> · ${lastHeard(a.last_heard_s)}${stopped}</span>
     <span class="controls">
       <select id="level" aria-label="Agent level"${a.level == null ? " disabled" : ""}>${options}</select>
       <button class="btn stop" id="stop"${a.level == null ? " disabled" : ""}>Stop agent</button>
@@ -216,15 +220,15 @@ function messageHtml(row) {
     <div><div class="who">${who}</div><div class="body">${markdown(row.text)}</div>${evidenceHtml(row)}</div></div>`;
 }
 
-function actionsHtml(actions) {
-  const lines = actions.map(row => `<div class="act">
-      <span>${esc(row.when)}</span><span>${esc(row.text)}</span>
-      <span class="tone-${esc(row.tone)}">${esc(row.outcome)}</span>
-      ${row.why ? `<span class="why">${esc(row.why)}</span>` : ""}</div>`).join("");
-  const n = actions.length;
-  const key = `${actions[0].when} ${actions[0].text}`;
-  const open = opened.has(key) || actions.some(r => r.tone === "running");
-  return `<details class="actions" data-key="${esc(key)}"${open ? " open" : ""}><summary>Show ${n} action${n === 1 ? "" : "s"}</summary>${lines}</details>`;
+function actionHtml(row) {
+  return `<div class="act"><span class="when">${esc(row.when)}</span><span>${esc(row.text)}</span>
+    <span class="tone-${esc(row.tone)}">${esc(row.outcome)}</span>
+    ${row.why ? `<span class="why">${esc(row.why)}</span>` : ""}</div>`;
+}
+
+function halvesHtml() {
+  const b = (key, word) => `<button data-half="${key}" class="${halves[key] ? "on" : ""}">${word}</button>`;
+  return `<div class="halves">${b("conversation", "Conversation")}${b("actions", "Actions")}</div>`;
 }
 
 function requestHtml(request) {
@@ -241,13 +245,10 @@ function requestHtml(request) {
 
 function rowsHtml() {
   const out = [];
-  let actions = [];
   for (const row of state.rows) {
-    if (row.kind === "action") { actions.push(row); continue; }
-    if (actions.length) { out.push(actionsHtml(actions)); actions = []; }
-    out.push(messageHtml(row));
+    if (row.kind === "action") { if (halves.actions) out.push(actionHtml(row)); }
+    else if (halves.conversation) out.push(messageHtml(row));
   }
-  if (actions.length) out.push(actionsHtml(actions));
   out.push(requestHtml(state.agent && state.agent.request));
   if (!out.join("").trim()) {
     return `<div class="empty">No messages yet. What you write here waits for the agent: it reads it on its next turn, or when one connects.</div>`;
@@ -262,9 +263,9 @@ function render() {
   const reason = $app.querySelector("#reject-reason");
   const rejectDraft = reason ? reason.value : "";
   $app.innerHTML = `<div class="page">${headerHtml()}
-    <div class="rows">${rowsHtml()}</div>
+    ${halvesHtml()}<div class="rows">${rowsHtml()}</div>
     <div class="composer"><textarea id="msg" rows="1" maxlength="${LIMIT}" placeholder="Message the agent"></textarea>
-      <div class="foot"><span id="foot">Enter sends · Shift+Enter for a new line</span>
+      <div class="foot">${whoHtml()}<span id="foot">Enter sends · Shift+Enter for a new line</span>
       <button class="btn primary" id="send">Send</button></div></div></div>`;
   const msg = $app.querySelector("#msg");
   msg.value = draft;
@@ -300,8 +301,14 @@ function wire() {
   $app.querySelector("#level").onchange = e => act(
     api("/app/agent/level", { method: "PUT", body: JSON.stringify({ level: e.target.value }) }));
   $app.querySelector("#stop").onclick = () => act(api("/app/agent/stop", { method: "POST" }));
-  for (const el of $app.querySelectorAll("details[data-key]")) {
-    el.ontoggle = () => el.open ? opened.add(el.dataset.key) : opened.delete(el.dataset.key);
+  for (const el of $app.querySelectorAll("[data-half]")) {
+    el.onclick = () => {
+      const key = el.dataset.half, other = key === "actions" ? "conversation" : "actions";
+      // The last half shown stays, as on the card.
+      if (halves[key] && !halves[other]) return;
+      halves[key] = !halves[key];
+      render();
+    };
   }
   const request = $app.querySelector("[data-request]");
   if (request) {
