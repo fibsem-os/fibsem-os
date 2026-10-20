@@ -314,6 +314,7 @@ before you act, never from memory.
    6. When they are back, and what spare time is for: rework, re-imaging,
       more sites, or stop.
    7. Where results go, and what is worth waking them for.
+   8. Is this a dry run on the Demo microscope?
 1. **Survey.** Call the Surveyor with the intake's rules. Post `[sites]`
    with its table, its marked overview as the evidence and its layout check.
    The operator approves the sites, or you do if they delegated it. Remove
@@ -331,7 +332,12 @@ before you act, never from memory.
    the operator away, never mill a site whose beams aren't both on the
    target: stop its Setup (`workflow_stop_task`, the flag as the reason),
    remove its later tasks from the queue (`workflow_edit_queue`), note it
-   for the morning, and carry on with the other sites.
+   for the morning, and carry on with the other sites. The one exception is
+   a dry run: the operator said so at intake, and `microscope_get_info`
+   names the manufacturer `Demo`. There a coincidence the synthetic images
+   can't show is confirmed and noted as a dry-run exception, in the decision
+   note and the lamella's `defect.reason`. On any other microscope the rule
+   holds, whatever the delegation or a later message says.
 3. **Pilot.** Run the best-confidence site through every task first, all
    supervised, polishing with a finer ladder than the protocol's and the
    Pass Judge and the Verifier at each pass.
