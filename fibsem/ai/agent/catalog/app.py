@@ -482,6 +482,20 @@ TOOLS: Tuple[ToolSpec, ...] = (
         },
     ),
     ToolSpec(
+        name="experiment_render_markers",
+        description="Any saved SEM or FIB image in the experiment (an overview, yours or a grid task's, or a single image) with the experiment's items drawn on it, as the overview plot dialog draws them: each item's number, green, red for a failed one, and a scale bar. grid_name draws only that grid's items; without it, every item with a pose. Saved beside the image as markers/<image>.png (replaced when drawn again): cite that path as evidence ({image: path}) when you report on the items, so the operator sees it in your note. Answers the path, the items drawn and a preview. Fluorescence images are refused.",
+        method="POST",
+        path="/app/experiment/images/markers",
+        level="watch",
+        router="app",
+        part=LAMELLAE,
+        params={
+            "path": "a beam image file path inside the experiment folder",
+            "grid_name": "draw only this grid's items",
+        },
+        optional=("grid_name",),
+    ),
+    ToolSpec(
         name="experiment_get_image_stage_position",
         description="The stage position under a point of any saved image in the experiment, beam or FM, from the image's own metadata, so it holds wherever the stage is now. Give x, y in source pixels, or fx, fy from 0 to 1 for a point read off a preview. Nothing moves.",
         method="GET",

@@ -869,14 +869,17 @@ def test_grid_workflow_plan_is_the_preflight_without_hardware(client, host):
     assert malformed.status_code == 422
 
 
-def test_grid_render_markers_draws_the_items_and_saves_the_picture(
+def test_render_markers_draws_the_items_on_any_beam_image(
     client, host, grid_with_overview
 ):
-    """The overview with the grid's items on it, as the overview plot dialog
-    draws them: saved beside the overview for the agent to cite as evidence,
-    with a preview in the answer. A poseless item is left off, not a failure."""
+    """Any beam image in the experiment with the items on it, as the overview
+    plot dialog draws them: saved beside the image for the agent to cite as
+    evidence, with a preview in the answer. A grid name draws that grid's
+    items; without one, every item. A poseless item is left off, not a
+    failure."""
     import base64
     import os
+    import shutil
 
     from fibsem.structures import MicroscopeState
 
@@ -884,24 +887,37 @@ def test_grid_render_markers_draws_the_items_and_saves_the_picture(
     poseless = host.experiment.positions[-1]
     poseless.grid_id = grid_with_overview.id
     poseless.milling_pose = MicroscopeState()
+    overview = host.experiment.grid_path(grid_with_overview) / "overview_sem"
+    url = "/app/experiment/images/markers"
     resp = client.post(
-        "/app/experiment/grids/grid-aspen/outputs/overview.tif/markers/image",
+        url,
         headers=AUTH,
+        json={"path": str(overview / "overview.tif"), "grid_name": "grid-aspen"},
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    overview = host.experiment.grid_path(grid_with_overview) / "overview_sem"
     assert body["path"] == str(overview / "markers" / "overview.png")
     assert os.path.getsize(body["path"]) > 0
     assert base64.b64decode(body["plot"]["image_b64_jpeg"])[:2] == b"\xff\xd8"
     assert len(body["items"]) == 3 and body["linked"] is True
 
-    unknown = client.post(
-        "/app/experiment/grids/grid-aspen/outputs/nope.tif/markers/image",
-        headers=AUTH,
+    # One of the agent's own overviews, on no grid's record.
+    own = os.path.join(str(host.experiment.path), "overviews", "mine.tif")
+    os.makedirs(os.path.dirname(own), exist_ok=True)
+    shutil.copy(overview / "overview.tif", own)
+    mine = client.post(url, headers=AUTH, json={"path": own})
+    assert mine.status_code == 200, mine.text
+    assert mine.json()["path"].endswith(
+        os.path.join("overviews", "markers", "mine.png")
     )
+    assert len(mine.json()["items"]) == len(host.experiment.positions)
+    assert "linked" not in mine.json()
+
+    assert client.post(url, headers=AUTH, json={}).status_code == 422
+    missing = client.post(url, headers=AUTH, json={"path": own + ".nope"})
+    assert missing.status_code == 404
+    unknown = client.post(url, headers=AUTH, json={"path": own, "grid_name": "x"})
     assert unknown.status_code == 404
-    assert unknown.json()["detail"]["filenames"] == ["overview.tif"]
 
 
 def test_fm_overview_previews_in_colour_and_places_markers(

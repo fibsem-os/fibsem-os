@@ -961,6 +961,11 @@ def build_sidecar(client, capabilities):
             + urlencode({k: v for k, v in query.items() if v is not None})
         )
 
+    def experiment_render_markers(path: str, grid_name: Optional[str] = None):
+        return _routed(
+            "experiment_render_markers", path=path, **_given(grid_name=grid_name)
+        )
+
     def experiment_get_image_pixels(path: str, stage_positions: list):
         return _app_post(
             "/app/experiment/images/pixels",
@@ -1068,9 +1073,6 @@ def build_sidecar(client, capabilities):
 
     def grid_get_markers(grid_name: str, filename: str):
         return _routed("grid_get_markers", grid_name=grid_name, filename=filename)
-
-    def grid_render_markers(grid_name: str, filename: str):
-        return _routed("grid_render_markers", grid_name=grid_name, filename=filename)
 
     def protocol_get_task_config(task_name: str):
         return _routed("protocol_get_task_config", task_name=task_name)
@@ -1496,6 +1498,7 @@ def build_sidecar(client, capabilities):
             device_call_query,
             microscope_set_state,
             experiment_get_image_stage_position,
+            experiment_render_markers,
             experiment_get_image_pixels,
             grid_set_quality,
             grid_set_note,
@@ -1566,7 +1569,6 @@ def build_sidecar(client, capabilities):
             grid_get,
             grid_get_output_image,
             grid_get_markers,
-            grid_render_markers,
             grid_get_stage_position,
             grid_add,
             grid_rename,

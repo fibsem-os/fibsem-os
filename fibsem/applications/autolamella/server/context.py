@@ -517,12 +517,15 @@ class AutoLamellaAppContext(AppContext):
             )
         return payload
 
-    def grid_render_markers(self, grid_name: str, filename: str) -> Dict[str, Any]:
-        """One recorded beam overview with the grid's items drawn on it, as the
+    def render_markers(
+        self, path: str, grid_name: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Any beam image in the experiment with the items drawn on it, as the
         overview plot dialog draws them (`overview_figure`): numbers for names,
-        green, red for a failed item. Saved as ``markers/<overview>.png`` beside
-        the overview (replaced when drawn again), a path the agent can cite as
-        evidence; the answer carries a preview."""
+        green, red for a failed item. *grid_name* draws that grid's items only;
+        without it, every item with a pose. Saved as ``markers/<image>.png``
+        beside the image (replaced when drawn again), a path the agent can cite
+        as evidence; the answer carries a preview."""
         import base64
 
         from fibsem.applications.autolamella.overview_figure import (
@@ -534,39 +537,37 @@ class AutoLamellaAppContext(AppContext):
         experiment = self._experiment
         if experiment is None:
             return {"error_type": "not_found", "error": "No experiment is open."}
-        grid = experiment.get_grid_by_name(grid_name)
-        if grid is None:
-            return dict(
-                self._no_such_grid(experiment, grid_name), error_type="not_found"
-            )
-        match = item_output_named(experiment, grid, filename)
-        if match is None:
-            return {
-                "error_type": "not_found",
-                "error": f"No output named {filename!r} for grid {grid_name!r}.",
-                "filenames": _basenames(all_item_outputs(experiment, grid)),
-            }
-        if is_fluorescence_image(match):
+        target, refusal = self._experiment_image(path)
+        if refusal:
+            return refusal
+        lamellae, linked, reason = list(experiment.positions), None, ""
+        if grid_name is not None:
+            grid = experiment.get_grid_by_name(grid_name)
+            if grid is None:
+                return dict(
+                    self._no_such_grid(experiment, grid_name), error_type="not_found"
+                )
+            lamellae, linked, reason = _grid_items(experiment, grid)
+        if is_fluorescence_image(target):
             return {
                 "error_type": "invalid",
-                "error": f"{filename!r} is a fluorescence overview; the items are drawn on a beam overview.",
+                "error": f"{path!r} is a fluorescence image; the items are drawn on a beam image.",
             }
         try:
-            image = FibsemImage.load(match)
+            image = FibsemImage.load(target)
         except Exception as exc:  # noqa: BLE001 - an unreadable file is a data fact
-            return {"error_type": "invalid", "error": f"{filename!r}: {exc}"}
-        lamellae, linked, reason = _grid_items(experiment, grid)
-        stem = os.path.splitext(os.path.basename(match))[0]
-        path = os.path.join(os.path.dirname(match), "markers", f"{stem}.png")
-        jpeg = save_markers_picture(image, lamellae, path)
+            return {"error_type": "invalid", "error": f"{path!r}: {exc}"}
+        stem = os.path.splitext(os.path.basename(target))[0]
+        saved = os.path.join(os.path.dirname(target), "markers", f"{stem}.png")
+        jpeg = save_markers_picture(image, lamellae, saved)
         answer = {
-            "grid_name": grid_name,
-            "filename": filename,
-            "path": path,
+            "image": path,
+            "path": saved,
             "items": [lam.name for lam in lamellae],
-            "linked": linked,
             "plot": {"image_b64_jpeg": base64.b64encode(jpeg).decode()},
         }
+        if grid_name is not None:
+            answer.update(grid_name=grid_name, linked=linked)
         if reason:
             answer["reason"] = reason
         return answer
