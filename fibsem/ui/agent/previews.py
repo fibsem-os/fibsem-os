@@ -528,26 +528,37 @@ def evidence_picture(evidence: Optional[Dict[str, Any]]):
 def draw_evidence_marks(image, marks: Optional[Dict[str, Any]], scale: float) -> None:
     """The agent's *marks* (its image's pixels, times *scale*) on the QImage
     *image*, in the agent's purple: a cross per point, a box per area, each
-    with its label."""
-    from PyQt5.QtCore import QPointF, QRectF
-    from PyQt5.QtGui import QColor, QFont, QPainter, QPen
+    with its label. Each has a dark halo so it reads on a grey overview, and
+    is sized for the picture shown a third as wide (FIB-1503)."""
+    from PyQt5.QtCore import QPointF, QRectF, Qt
+    from PyQt5.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPen
 
     if not marks:
         return
-    painter = QPainter(image)
-    painter.setRenderHint(QPainter.Antialiasing)
-    line = max(2.0, image.width() / 150)
-    painter.setPen(QPen(QColor(PURPLE_COLOR), line))
+    line = max(3.0, image.width() / 110)
     font = QFont()
-    font.setPixelSize(max(14, int(image.width() / 32)))
-    painter.setFont(font)
+    font.setBold(True)
+    font.setPixelSize(max(18, int(image.width() / 20)))
+    metrics = QFontMetricsF(font)
     size = line * 5
+    shapes, labels = QPainterPath(), QPainterPath()
     for point in marks.get("points") or []:
         x, y = point["x"] * scale, point["y"] * scale
-        painter.drawLine(QPointF(x - size, y), QPointF(x + size, y))
-        painter.drawLine(QPointF(x, y - size), QPointF(x, y + size))
+        shapes.moveTo(x - size, y)
+        shapes.lineTo(x + size, y)
+        shapes.moveTo(x, y - size)
+        shapes.lineTo(x, y + size)
         if point.get("label"):
-            painter.drawText(QPointF(x + size + line, y - line), point["label"])
+            # Where it would run off the picture's right edge, under the mark
+            # and ending at the edge.
+            text = point["label"]
+            at = QPointF(x + size + line, y - line)
+            if at.x() + metrics.horizontalAdvance(text) > image.width():
+                at = QPointF(
+                    max(0.0, image.width() - metrics.horizontalAdvance(text) - line),
+                    y + size + metrics.ascent(),
+                )
+            labels.addText(at, font, text)
     for area in marks.get("areas") or []:
         rect = QRectF(
             area["x"] * scale,
@@ -555,9 +566,19 @@ def draw_evidence_marks(image, marks: Optional[Dict[str, Any]], scale: float) ->
             area["width"] * scale,
             area["height"] * scale,
         )
-        painter.drawRect(rect)
+        shapes.addRect(rect)
         if area.get("label"):
-            painter.drawText(rect.topLeft() + QPointF(0, -line), area["label"])
+            labels.addText(rect.topLeft() + QPointF(0, -line), font, area["label"])
+    painter = QPainter(image)
+    painter.setRenderHint(QPainter.Antialiasing)
+    painter.setBrush(Qt.NoBrush)  # type: ignore
+    halo = QColor(0, 0, 0, 200)
+    painter.strokePath(shapes, QPen(halo, line * 2.2, Qt.SolidLine, Qt.RoundCap))  # type: ignore
+    painter.strokePath(shapes, QPen(QColor(PURPLE_COLOR), line))
+    painter.strokePath(
+        labels, QPen(halo, line * 1.2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+    )  # type: ignore
+    painter.fillPath(labels, QColor(PURPLE_COLOR))
     painter.end()
 
 

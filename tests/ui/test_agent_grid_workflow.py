@@ -233,6 +233,15 @@ def test_grid_start_requires_control_and_a_valid_body(ui, qapp):
         )
         assert plan.status_code == 200
         assert plan.json()["valid"] is True
+        # The confirmation's time, and the overview's tiles and size.
+        estimate = plan.json()["estimate"]
+        assert estimate["seconds"] > 0
+        (task,) = estimate["tasks"]
+        assert task["task_name"] == "overview_sem" and task["count"] == 2
+        assert (
+            task["overview"]["tiles"]
+            == task["overview"]["nrows"] * task["overview"]["ncols"]
+        )
     with _client(ui, arm_control=True) as client:
         for body in (
             {},

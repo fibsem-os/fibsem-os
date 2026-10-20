@@ -661,12 +661,15 @@ function fillEvidence(el, answer) {
   const p = answer.preview;
   const w = p.full_width || p.width, h = p.full_height || p.height;
   const marks = answer.marks || {};
+  // Sized for the picture shown a few hundred pixels wide, with a dark halo
+  // so the marks read on a grey overview (FIB-1503).
   const label = (x, y, text) => text
-    ? `<text x="${x}" y="${y}" fill="#ffd34d" font-size="${Math.max(w / 26, 10)}" stroke="#000" stroke-width="${w / 400}" paint-order="stroke">${esc(text)}</text>` : "";
-  const r = Math.max(w / 80, 4), sw = Math.max(w / 300, 1.5);
+    ? `<text x="${x}" y="${y}" fill="#ffd34d" font-weight="bold" font-size="${Math.max(w / 18, 12)}" stroke="#000" stroke-opacity=".8" stroke-width="${w / 120}" stroke-linejoin="round" paint-order="stroke">${esc(text)}</text>` : "";
+  const r = Math.max(w / 50, 5), sw = Math.max(w / 150, 2);
+  const haloed = shape => `${shape(`stroke="#000" stroke-opacity=".8" stroke-width="${sw * 2.2}"`)}${shape(`stroke="#ffd34d" stroke-width="${sw}"`)}`;
   const shapes = [
-    ...(marks.points || []).map(m => `<circle cx="${m.x}" cy="${m.y}" r="${r}" fill="none" stroke="#ffd34d" stroke-width="${sw}"/>${label(m.x + r * 1.4, m.y, m.label)}`),
-    ...(marks.areas || []).map(m => `<rect x="${m.x}" y="${m.y}" width="${m.width}" height="${m.height}" fill="none" stroke="#ffd34d" stroke-width="${sw}"/>${label(m.x, m.y - sw * 2, m.label)}`),
+    ...(marks.points || []).map(m => `${haloed(s => `<circle cx="${m.x}" cy="${m.y}" r="${r}" fill="none" ${s}/>`)}${label(m.x + r * 1.4, m.y, m.label)}`),
+    ...(marks.areas || []).map(m => `${haloed(s => `<rect x="${m.x}" y="${m.y}" width="${m.width}" height="${m.height}" fill="none" ${s}/>`)}${label(m.x, m.y - sw * 2, m.label)}`),
   ].join("");
   frame.innerHTML = `<img alt="Agent's evidence" src="data:image/jpeg;base64,${p.image_b64_jpeg}">
     <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${shapes}</svg>`;

@@ -14,7 +14,8 @@ from fibsem.util import wording
 # What an overview covers, for both overview tools.
 _OVERVIEW_RULE = (
     " An overview the operator asks for is the whole grid, from its centre "
-    "(grid_move_to first) with the tiles the stage can't reach turned off; a "
+    "(grid_move_to first) with the tiles the stage can't reach turned off "
+    "(odd rows and columns lose the fewest: reach is judged by tile centre); a "
     "tile set (e.g. 3 x 3 at 500 um) is where the stage is, at the size given. "
     "One image is beam_acquire_image or fm_acquire_image, never a 1 x 1 overview."
 )
@@ -430,7 +431,10 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "tile and comes back after."
             + _OVERVIEW_RULE
             + " path must be a folder inside the open "
-            "experiment. beam_estimate_overview first: a big grid at a long dwell runs "
+            "experiment. The overview is saved there, not on a grid's record: to "
+            "draw the items on a grid's overview (grid_render_markers), take it with "
+            "the grid's overview task (workflow_start_grids) instead. "
+            "beam_estimate_overview first: a big grid at a long dwell runs "
             "for hours. A long command: it answers with its run at once; "
             "service_wait_for_run imaging gives the stitched image (summary, path, "
             "preview), the tiles' paths and the overview: the resolution used, tiles "

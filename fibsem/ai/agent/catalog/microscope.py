@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple
 
 from fibsem.ai.agent.catalog.spec import (
     RETRACT_FIRST,
+    RETRACT_FIRST_SAFE_MOVE,
     ToolSpec,
     absolute_position,
     kwargs_body,
@@ -598,7 +599,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "Move the stage to an absolute position (metres and radians) safely: "
             "for a large rotation it tilts flat first, and it rotates before "
             "moving the other axes, so a tilted sample isn't swung round. Use "
-            "it to return to a saved position." + RETRACT_FIRST
+            "it to return to a saved position." + RETRACT_FIRST_SAFE_MOVE
         ),
         method="POST",
         path="/microscope/services/stage_movement/commands/safe_absolute_stage_movement",

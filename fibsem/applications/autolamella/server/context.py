@@ -1745,7 +1745,9 @@ class AutoLamellaAppContext(AppContext):
         ``screen_all`` the grids are whatever the inventory finds at run time,
         so the plan names the known grids and says so rather than guessing.
         Exchanges are deliberately not counted: whether a grid is loaded
-        is a live stage fact this facade does not read.
+        is a live stage fact this facade does not read. ``estimate`` is the
+        preflight dialog's (`grid_run_estimate`) without them, with each beam
+        overview's tiles and size.
         """
         from fibsem.workflows.grid.manager import (
             plan_grid_run,
@@ -1787,6 +1789,7 @@ class AutoLamellaAppContext(AppContext):
                     {"grid": grid, "step": step}
                     for grid, step in plan_grid_run(list(task_names), known_grids)
                 ],
+                "estimate": _grid_plan_estimate(experiment, task_names, known_grids),
             }
         if grid_names is None:
             grid_names = known_grids
@@ -1808,6 +1811,7 @@ class AutoLamellaAppContext(AppContext):
                 {"grid": grid, "step": step}
                 for grid, step in plan_grid_run(list(task_names), list(grid_names))
             ],
+            "estimate": _grid_plan_estimate(experiment, task_names, grid_names),
         }
 
     def start_grid_workflow(
@@ -2363,3 +2367,41 @@ class AutoLamellaAppContext(AppContext):
             ],
             "queue_version": edit.version,
         }
+
+
+def _grid_plan_estimate(experiment, task_names, grid_names) -> Optional[Dict[str, Any]]:
+    """A grid run's time, exchanges not counted, and each beam overview's
+    tiles and size: what its confirmation says. None when it can't say."""
+    from fibsem.applications.autolamella.workflows.estimate import grid_run_estimate
+    from fibsem.workflows.grid.imaging import BeamOverviewGridTaskConfig
+
+    estimate = grid_run_estimate(
+        experiment, None, list(task_names), list(grid_names), exchanges=0
+    )
+    if estimate is None:
+        return None
+    configs = experiment.grid_protocol.task_config
+    tasks = []
+    for row in estimate.tasks:
+        task: Dict[str, Any] = {
+            "task_name": row.name,
+            "count": row.count,
+            "seconds": row.seconds,
+        }
+        config = configs.get(row.name)
+        if isinstance(config, BeamOverviewGridTaskConfig):
+            settings = config.settings
+            task["overview"] = {
+                "nrows": settings.nrows,
+                "ncols": settings.ncols,
+                "tiles": settings.n_enabled_tiles,
+                "tile_hfw": settings.image_settings.hfw,
+                "width": float(settings.total_fov_x),
+                "height": float(settings.total_fov_y),
+            }
+        tasks.append(task)
+    return {
+        "seconds": estimate.work_seconds,
+        "exchanges_counted": False,
+        "tasks": tasks,
+    }
