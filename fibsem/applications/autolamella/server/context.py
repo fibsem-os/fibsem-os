@@ -75,6 +75,23 @@ __all__ = [
 GRID_OVERVIEW_ROLES = ("overview_sem", "overview_fib", "overview_fm")
 
 
+def _grid_items(experiment, grid):
+    """The items drawn on a grid's overviews, whether they are linked to it,
+    and why there are none: the linked lamellae; with none linked, every
+    lamella of an experiment that records one grid; else none."""
+    linked = experiment.get_lamellae_for_grid(grid)
+    if linked:
+        return linked, True, ""
+    if len(experiment.grids) <= 1:
+        return list(experiment.positions), False, ""
+    return (
+        [],
+        False,
+        "no items are linked to this grid, and with several grids "
+        "recorded the experiment's items are not assumed to be on it",
+    )
+
+
 def _basenames(paths: List[str]) -> List[str]:
     return [os.path.basename(p) for p in paths]
 
@@ -732,18 +749,10 @@ class AutoLamellaAppContext:
             "markers": [],
             "unplaced": [],
         }
-        linked = experiment.get_lamellae_for_grid(grid)
-        payload["linked"] = bool(linked)
-        if linked:
-            lamellae = linked
-        elif len(experiment.grids) <= 1:
-            lamellae = list(experiment.positions)
-        else:
-            lamellae = []
-            payload["reason"] = (
-                "no items are linked to this grid, and with several grids "
-                "recorded the experiment's items are not assumed to be on it"
-            )
+        lamellae, linked, reason = _grid_items(experiment, grid)
+        payload["linked"] = linked
+        if reason:
+            payload["reason"] = reason
         width, height = image_block["width"], image_block["height"]
         workflow = experiment.task_protocol.workflow_config
         for lamella in lamellae:
@@ -774,6 +783,60 @@ class AutoLamellaAppContext:
                 }
             )
         return payload
+
+    def grid_render_markers(self, grid_name: str, filename: str) -> Dict[str, Any]:
+        """One recorded beam overview with the grid's items drawn on it, as the
+        overview plot dialog draws them (`overview_figure`): numbers for names,
+        green, red for a failed item. Saved as ``markers/<overview>.png`` beside
+        the overview (replaced when drawn again), a path the agent can cite as
+        evidence; the answer carries a preview."""
+        import base64
+
+        from fibsem.applications.autolamella.overview_figure import (
+            save_markers_picture,
+        )
+        from fibsem.fm.preview import is_fluorescence_image
+        from fibsem.structures import FibsemImage
+
+        experiment = self._experiment
+        if experiment is None:
+            return {"error_type": "not_found", "error": "No experiment is open."}
+        grid = experiment.get_grid_by_name(grid_name)
+        if grid is None:
+            return dict(
+                self._no_such_grid(experiment, grid_name), error_type="not_found"
+            )
+        match = item_output_named(experiment, grid, filename)
+        if match is None:
+            return {
+                "error_type": "not_found",
+                "error": f"No output named {filename!r} for grid {grid_name!r}.",
+                "filenames": _basenames(all_item_outputs(experiment, grid)),
+            }
+        if is_fluorescence_image(match):
+            return {
+                "error_type": "invalid",
+                "error": f"{filename!r} is a fluorescence overview; the items are drawn on a beam overview.",
+            }
+        try:
+            image = FibsemImage.load(match)
+        except Exception as exc:  # noqa: BLE001 - an unreadable file is a data fact
+            return {"error_type": "invalid", "error": f"{filename!r}: {exc}"}
+        lamellae, linked, reason = _grid_items(experiment, grid)
+        stem = os.path.splitext(os.path.basename(match))[0]
+        path = os.path.join(os.path.dirname(match), "markers", f"{stem}.png")
+        jpeg = save_markers_picture(image, lamellae, path)
+        answer = {
+            "grid_name": grid_name,
+            "filename": filename,
+            "path": path,
+            "items": [lam.name for lam in lamellae],
+            "linked": linked,
+            "plot": {"image_b64_jpeg": base64.b64encode(jpeg).decode()},
+        }
+        if reason:
+            answer["reason"] = reason
+        return answer
 
     @staticmethod
     def _grid_summary(experiment, grid) -> Dict[str, Any]:

@@ -319,6 +319,14 @@ def build_app_router(context: Any) -> APIRouter:
     def grid_markers(grid_name: str, filename: str):
         return context.grid_markers(grid_name, filename)
 
+    @router.post(
+        "/experiment/grids/{grid_name}/outputs/{filename}/markers/image", tags=[GRIDS]
+    )
+    def grid_render_markers(grid_name: str, filename: str):
+        # A POST because the picture is saved beside the overview, as a
+        # thickness result is.
+        return _answer_or_refusal(context.grid_render_markers(grid_name, filename))
+
     @router.get("/experiment/grid_protocol/task_config/{task_name}", tags=[GRIDS])
     def grid_task_config(task_name: str):
         return _answer_or_refusal(context.grid_task_config(task_name))

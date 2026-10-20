@@ -1573,6 +1573,40 @@ def test_a_recent_row_with_evidence_opens_it(qapp, tmp_path):
     card.deleteLater()
 
 
+def test_a_message_s_evidence_is_a_picture_in_the_conversation(qapp, tmp_path):
+    """Agent UI notes 2026-10-20: the agent's picture was a link to a dialog.
+    In a message it is drawn in place, at the timeline's width, and a click
+    enlarges it; an action keeps its link."""
+    card = AgentCard()
+    card.set_level(AgentLevel.DRIVE)
+    card.resize(560, 900)
+    evidence = _uploaded(tmp_path)
+    card.set_recent(
+        [
+            RecentRow(
+                "06:24",
+                "Five cells look worth a lamella.",
+                "",
+                "muted",
+                "drive",
+                evidence,
+                kind="reply",
+            ),
+            RecentRow(
+                "06:25", "Stage · Move 2 µm in x", "done", "ok", "drive", evidence
+            ),
+        ]
+    )
+    (picture,) = card.recent_pictures
+    (link,) = card.recent_evidence  # the action's, not the message's
+    assert picture.pixmap().width() == 80  # never wider than the image itself
+    assert "ab12cd34.png" in _labels(card)
+    picture.enlarge()
+    assert picture.window_ is not None
+    picture.window_.close()
+    card.deleteLater()
+
+
 def test_the_chip_names_the_step_it_is_running():
     """Round 10 (FIB-1492): "applying" read as writing a config, whatever the
     step was."""

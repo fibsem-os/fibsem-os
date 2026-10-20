@@ -859,6 +859,41 @@ def test_grid_workflow_plan_is_the_preflight_without_hardware(client, host):
     assert malformed.status_code == 422
 
 
+def test_grid_render_markers_draws_the_items_and_saves_the_picture(
+    client, host, grid_with_overview
+):
+    """The overview with the grid's items on it, as the overview plot dialog
+    draws them: saved beside the overview for the agent to cite as evidence,
+    with a preview in the answer. A poseless item is left off, not a failure."""
+    import base64
+    import os
+
+    from fibsem.structures import MicroscopeState
+
+    host.experiment.add_new_lamella(MicroscopeState(), EventedDict())
+    poseless = host.experiment.positions[-1]
+    poseless.grid_id = grid_with_overview.id
+    poseless.milling_pose = MicroscopeState()
+    resp = client.post(
+        "/app/experiment/grids/grid-aspen/outputs/overview.tif/markers/image",
+        headers=AUTH,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    overview = host.experiment.grid_path(grid_with_overview) / "overview_sem"
+    assert body["path"] == str(overview / "markers" / "overview.png")
+    assert os.path.getsize(body["path"]) > 0
+    assert base64.b64decode(body["plot"]["image_b64_jpeg"])[:2] == b"\xff\xd8"
+    assert len(body["items"]) == 3 and body["linked"] is True
+
+    unknown = client.post(
+        "/app/experiment/grids/grid-aspen/outputs/nope.tif/markers/image",
+        headers=AUTH,
+    )
+    assert unknown.status_code == 404
+    assert unknown.json()["detail"]["filenames"] == ["overview.tif"]
+
+
 def test_fm_overview_previews_in_colour_and_places_markers(
     client, host, grid_with_overview
 ):

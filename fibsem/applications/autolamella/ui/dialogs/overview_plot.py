@@ -25,8 +25,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.applications.autolamella.overview_figure import overview_figure
 from fibsem.applications.autolamella.structures import Experiment, find_overviews
-from fibsem.imaging.tiled import plot_minimap
 from fibsem.structures import FibsemImage
 from fibsem.theme.plots import LIGHT
 from fibsem.ui.tokens import (
@@ -581,21 +581,15 @@ class OverviewImageWidget(QWidget):
         apart in anything but the title's colour, which is the only thing that
         legitimately differs between the dark preview and a white page.
         """
-        # lamella name -> free-text description, for the optional subtitle
-        descriptions = {lam.name: lam.description for lam in self.experiment.positions}
-
-        fig = plot_minimap(
+        fig = overview_figure(
             self.overview_image,
-            self.stage_positions,
-            current_position=None,
-            grid_positions=None,
+            self.experiment.positions,
             color=self.marker_color.name(),
             fontsize=self.text_size_spinbox.value(),
             markersize=self.markersize_spinbox.value(),
             show_scalebar=self.show_scalebar_checkbox.isChecked(),
             show_names=self.show_names_checkbox.isChecked(),
             show_descriptions=self.show_descriptions_checkbox.isChecked(),
-            descriptions=descriptions,
             # None sizes the figure to the overview's aspect. The preview's figure is
             # resized to the canvas widget as soon as it is shown, so for the preview
             # this is only a starting point; for the export it decides the page.

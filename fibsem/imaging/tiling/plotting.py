@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib import patheffects
 from matplotlib.figure import Figure
 
 from fibsem import constants
@@ -365,6 +366,7 @@ def plot_minimap(
     markersize: int = 20,
     figsize: Optional[Tuple[float, float]] = None,
     ax: Optional[plt.Axes] = None,
+    outline: bool = False,
 ) -> Figure:
     """Plot stage positions reprojected on an image as matplotlib figure. Assumes image is flat to beam.
     Args:
@@ -380,6 +382,8 @@ def plot_minimap(
         show_names: Whether to show position names as labels
         fontsize: Font size for position name labels (default: 14)
         figsize: Figure size in inches. None sizes it to the image's aspect.
+        outline: Bold names and heavier markers, names outlined in black, to
+            read on a small picture over a busy image.
     Returns:
         The matplotlib figure."""
     if image.metadata is None or image.metadata.microscope_state is None:
@@ -459,7 +463,7 @@ def plot_minimap(
             c=scatter_colors,
             marker="+",
             s=markersize**2,
-            linewidths=2,
+            linewidths=4 if outline else 2,
         )
 
         if show_names:
@@ -481,7 +485,7 @@ def plot_minimap(
                         name_dy = dy + line_gap
                     else:
                         sub_dy = dy - line_gap
-                ax.annotate(
+                name = ax.annotate(
                     entry["label"],
                     xy=(x, y),
                     xytext=(dx, name_dy),
@@ -490,8 +494,13 @@ def plot_minimap(
                     va=va,
                     fontsize=fontsize,
                     color=entry["color"],
-                    alpha=0.75,
+                    alpha=1.0 if outline else 0.75,
                 )
+                if outline:
+                    name.set_fontweight("bold")
+                    name.set_path_effects(
+                        [patheffects.withStroke(linewidth=4, foreground="black")]
+                    )
                 # description as a smaller subtitle with the name
                 if description:
                     ax.annotate(
