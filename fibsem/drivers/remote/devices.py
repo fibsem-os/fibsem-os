@@ -34,6 +34,7 @@ Until then each device's ``online`` is False and its parameters are absent.
 A command that returns an array (a camera frame, an FM channel) comes back as
 ``np.save`` bytes rather than JSON, and arrives as the same array. A beam's image
 comes back as a TIFF with its metadata, and arrives as the same ``FibsemImage``.
+Its live view runs on the server, its frames on the beam's live socket.
 
 ``RemoteFM``, ``RemoteCamera``, ``RemoteLightSource``, ``RemoteFilterSet`` and
 ``RemoteObjective`` are the FM's parts from ``fibsem.devices.fm``; ``connect_remote_fm``
@@ -96,12 +97,14 @@ from fibsem.devices.scanner import Scanner
 from fibsem.devices.stage import Stage
 from fibsem.devices.wire import (
     Frame,
+    frames_from_bytes,
     to_wire,
 )
 from fibsem.drivers.registry import DeviceBuilder, get_driver
 from fibsem.structures import (
     BeamType,
     FibsemImage,
+    FibsemImageMetadata,
     FibsemManipulatorPosition,
     FibsemRectangle,
     FibsemStagePosition,
@@ -119,6 +122,7 @@ READ_TIMEOUT = 5.0
 # Commands that stop something, which carry a reason (fibsem.server.server).
 _STOPS = frozenset(("stop", "stop_live", "cancel"))
 WRITE_TIMEOUT = 60.0  # a plasma gas change takes a while
+LIVE_POLL_S = 0.2  # how often live view looks at its stop while no frame comes
 UNTIL_DONE = (READ_TIMEOUT, None)
 """For a move, a pump or a vent: it takes as long as it takes, and ends by answering
 or by the connection dropping, so no read timeout."""
@@ -211,8 +215,10 @@ class DeviceClient:
         self._transport = Transport(f"http://{host}:{port}", token, discover=False)
         # Each remote device and service it serves, by its noun and name.
         self._remotes: Dict[Tuple[str, str], Any] = {}
+        self._sockets = f"ws://{host}:{port}{root}"
+        self._token = token
         self._events = EventStream(
-            f"ws://{host}:{port}{root}/events",
+            f"{self._sockets}/events",
             self._dispatch,
             on_open=self._opened,
             on_lost=self.disconnected.emit,
@@ -261,6 +267,20 @@ class DeviceClient:
 
     def describe(self) -> Dict[str, Any]:
         return self.request("GET", "devices", READ_TIMEOUT)
+
+    def open_live(self, device: str) -> Any:
+        """The socket of *device*'s live frames (``WS /devices/{device}/live``)."""
+        from websockets.sync.client import connect
+
+        headers = (
+            None if self._token is None else {"Authorization": f"Bearer {self._token}"}
+        )
+        return connect(
+            f"{self._sockets}/devices/{device}/live",
+            additional_headers=headers,
+            open_timeout=READ_TIMEOUT,
+            max_size=None,  # a frame is as big as its image
+        )
 
     # -- events ---------------------------------------------------------------------
 
@@ -527,6 +547,26 @@ class RemoteBeam(RemoteDevice, Beam):
     def installed_plasma_gas(self) -> Optional[str]:
         return self._installed_gas
 
+    def _live(self, stop: threading.Event) -> None:
+        """Live view on the server, each frame from its live socket on
+        ``live_frame``. A live view already running there (the operator's) is
+        followed, and left running at the end."""
+        with self.client.open_live(self.name) as socket:
+            started = not self.live.get_value()
+            if started:
+                self.call_command("start_live")
+            try:
+                while not stop.is_set():
+                    try:
+                        message = socket.recv(timeout=LIVE_POLL_S)
+                    except TimeoutError:
+                        continue
+                    if not stop.is_set():
+                        self.live_frame.emit(_live_image(message))
+            finally:
+                if started:
+                    self.call_command("stop_live")
+
     @command
     def acquire(self, image_settings: Optional[ImageSettings] = None) -> FibsemImage:
         """Acquire on the server. The image comes back whole, as a TIFF with its
@@ -538,6 +578,14 @@ class RemoteBeam(RemoteDevice, Beam):
             self._last_image_settings = image_settings
         self.image_acquired.emit(image)
         return image
+
+
+def _live_image(message: bytes) -> FibsemImage:
+    """A frame from a live socket (`fibsem.server.devices.live_frame_bytes`)."""
+    ((data, metadata),) = frames_from_bytes(message)
+    return FibsemImage(
+        data, FibsemImageMetadata.from_dict(metadata) if metadata else None
+    )
 
 
 def connect_remote_beams(
