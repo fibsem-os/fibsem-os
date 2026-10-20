@@ -175,6 +175,31 @@ def _item_set_objective_position(
     }
 
 
+def _item_set_position(a: Dict[str, Any], ctx: wording.ActionContext) -> Dict[str, Any]:
+    item = a.get("item_name")
+    overview = a.get("overview")
+    if isinstance(overview, dict):
+        to = f"a point on {_overview_name(overview)}"
+    else:
+        to = wording.position_text(a.get("stage_position") or {})
+    change = f"Move it to {to}"
+    old = _pose_of(ctx.get(_item_route(item)), "MILLING")
+    if old:
+        change += f"\nwas {wording.position_text(old)}"
+    change += "\nIts milling angle and fluorescence pose follow; the stage stays"
+    return {"what": str(item), "change": change}
+
+
+def _item_set_objective_position_on_all(
+    a: Dict[str, Any], ctx: wording.ActionContext
+) -> Dict[str, Any]:
+    item = a.get("item_name")
+    return {
+        "what": "Every lamella",
+        "change": f"Store {item}'s objective position on every fluorescence pose",
+    }
+
+
 def _item_move_to_objective_position(
     a: Dict[str, Any], ctx: wording.ActionContext
 ) -> Dict[str, Any]:
@@ -368,6 +393,33 @@ TOOLS: Tuple[ToolSpec, ...] = (
         part=POSES,
         params={"item_name": "the item (lamella) name"},
         line=_item_set_objective_position,
+    ),
+    ToolSpec(
+        name="item_set_objective_position_on_all",
+        description="Store a lamella's stored objective position on every lamella with a fluorescence pose, as its Apply to All Lamella does. Refused when it has none stored. Saved; answers with how many it was stored on.",
+        method="POST",
+        path="/app/experiment/items/{item_name}/objective_position/apply_to_all",
+        level="drive",
+        router="app",
+        part=POSES,
+        params={"item_name": "the item (lamella) whose position to copy"},
+        line=_item_set_objective_position_on_all,
+    ),
+    ToolSpec(
+        name="item_set_position",
+        description="Move a lamella to a point, as moving it on an overview does: to stage_position, or under a point of a recorded grid overview (overview = {grid_name, filename, px: [x, y] source pixels or fraction: [x, y] 0-1}). A point on the fluorescence side moves its fluorescence pose and the milling pose follows; otherwise its milling pose moves, with its milling angle, and the fluorescence pose follows. The stage does not move. Refused while a workflow runs. Saved; answers with the item.",
+        method="POST",
+        path="/app/experiment/items/{item_name}/position",
+        level="drive",
+        router="app",
+        part=POSES,
+        params={
+            "item_name": "the item (lamella) name",
+            "stage_position": "optional {x, y, z, r, t} (metres, radians) to move it to",
+            "overview": "optional {grid_name, filename, px | fraction}: a point on a grid overview",
+        },
+        optional=("stage_position", "overview"),
+        line=_item_set_position,
     ),
     ToolSpec(
         name="item_move_to_objective_position",

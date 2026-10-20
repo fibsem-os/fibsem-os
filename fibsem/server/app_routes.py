@@ -1094,6 +1094,24 @@ def build_app_config_router(context: Any) -> APIRouter:
         # From the FM objective now: the tab's Use current.
         return _answer_or_refusal(context.set_item_objective_position(item_name))
 
+    @router.post(
+        "/experiment/items/{item_name}/objective_position/apply_to_all", tags=[POSES]
+    )
+    def set_objective_position_on_all(item_name: str):
+        # The item's stored position on every lamella: Apply to All Lamella.
+        return _answer_or_refusal(context.set_objective_position_on_all(item_name))
+
+    @router.post("/experiment/items/{item_name}/position", tags=[POSES])
+    def move_item(item_name: str, body: Dict[str, Any]):
+        # The lamella moved to a point, as on an overview; the stage stays.
+        return _answer_or_refusal(
+            context.move_item(
+                item_name,
+                stage_position=body.get("stage_position"),
+                overview=body.get("overview"),
+            )
+        )
+
     @router.post("/experiment/items/{item_name}", tags=[ITEMS])
     def patch_item(item_name: str, body: Dict[str, Any]):
         # The item's own document (geometry, verdict, notes) — the write-side

@@ -1201,6 +1201,21 @@ def build_sidecar(client, capabilities):
     def item_set_objective_position(item_name: str):
         return _routed("item_set_objective_position", item_name=item_name)
 
+    def item_set_objective_position_on_all(item_name: str):
+        return _routed("item_set_objective_position_on_all", item_name=item_name)
+
+    def item_set_position(
+        item_name: str,
+        stage_position: Optional[dict] = None,
+        overview: Optional[dict] = None,
+    ):
+        return _routed(
+            "item_set_position",
+            item_name=item_name,
+            stage_position=stage_position,
+            overview=overview,
+        )
+
     def item_apply_protocol(item_name: str, task_names: Optional[List[str]] = None):
         return _routed(
             "item_apply_protocol",
@@ -1644,6 +1659,8 @@ def build_sidecar(client, capabilities):
             item_set_pose,
             item_apply_correlation,
             item_set_objective_position,
+            item_set_objective_position_on_all,
+            item_set_position,
             experiment_add_note,
             request_create,
             request_withdraw,
