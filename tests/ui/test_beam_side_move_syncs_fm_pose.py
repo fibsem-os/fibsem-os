@@ -88,21 +88,6 @@ class _SelectedList:
         pass
 
 
-class _SelectedLamellaPanel:
-    """The Selected Lamella panel, which refreshes its pose rows in place.
-
-    Recorded rather than ignored: a synced pose whose row is not redrawn leaves the
-    panel displaying a position that pose no longer has, which is the same wrong answer
-    the sync exists to remove -- just on screen instead of on disk.
-    """
-
-    def __init__(self):
-        self.refreshed = {}
-
-    def refresh_pose(self, pose_name, pretty):
-        self.refreshed[pose_name] = pretty
-
-
 def test_dragging_a_lamella_on_the_overview_moves_its_fluorescence_pose(tmp_path):
     """`BeamOverviewTab._on_move_requested` -- drag a marker on the FIB/SEM
     overview canvas.
@@ -266,29 +251,36 @@ def test_declining_the_confirmation_moves_neither_pose(tmp_path, monkeypatch):
     ) == before
 
 
-def _pose_row_ui(module, microscope, lamella):
-    """A stub carrying `ExperimentTab._set_current_position_as_pose` and nothing else."""
+def _pose_rows(microscope, lamella):
+    """The Selected Lamella panel's controller over *lamella*, its pose rows'
+    refreshes recorded on ``widget.refreshed``."""
+    from fibsem.applications.autolamella.ui.lamella.selected import (
+        SelectedLamellaController,
+        SelectedLamellaWidget,
+    )
 
-    class _UI:
-        _set_current_position_as_pose = (
-            module.ExperimentTab._set_current_position_as_pose
-        )
-
-        def __init__(self):
-            self.microscope = microscope
-            self.experiment = _Experiment([lamella])
-            self.lamella_list = _SelectedList()
-            self.selected_lamella_widget = _SelectedLamellaPanel()
-
-    return _UI()
+    widget = SelectedLamellaWidget()
+    widget.refreshed = {}
+    widget.refresh_pose = widget.refreshed.__setitem__
+    experiment = _Experiment([lamella])
+    controller = SelectedLamellaController(
+        widget,
+        experiment=lambda: experiment,
+        microscope=lambda: microscope,
+        lamella=lambda: lamella,
+        move_stage=lambda position: None,
+    )
+    controller.experiment = experiment
+    return controller
 
 
 def test_setting_the_milling_pose_from_the_pose_rows_moves_the_fluorescence_pose(
     tmp_path, monkeypatch
 ):
-    """`ExperimentTab._set_current_position_as_pose` -- the Selected Lamella panel's
-    per-pose Update Position button, a third door onto the same move."""
-    module = sys.modules["fibsem.applications.autolamella.ui.panel.experiment"]
+    """`SelectedLamellaController.set_pose` -- the Selected Lamella panel's per-pose
+    Update Position button, in the main window and the coincidence viewer, a third
+    door onto the same move."""
+    from fibsem.applications.autolamella.ui.lamella import selected as module
 
     microscope = _microscope()
     lamella = _lamella(microscope, tmp_path)
@@ -300,8 +292,9 @@ def test_setting_the_milling_pose_from_the_pose_rows_moves_the_fluorescence_pose
         module.QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes)
     )
 
-    ui = _pose_row_ui(module, microscope, lamella)
-    ui._set_current_position_as_pose("MILLING")
+    lamella.milling_angle = None
+    ui = _pose_rows(microscope, lamella)
+    ui.set_pose("MILLING")
 
     assert lamella.milling_pose.stage_position.x == pytest.approx(400e-6)
     assert lamella.fluorescence_pose.stage_position.x == pytest.approx(400e-6)
@@ -310,8 +303,9 @@ def test_setting_the_milling_pose_from_the_pose_rows_moves_the_fluorescence_pose
         microscope.get_stage_orientation(lamella.fluorescence_pose.stage_position)
         == FLUORESCENCE_ORIENTATION
     )
-    assert "FLUORESCENCE" in ui.selected_lamella_widget.refreshed
+    assert "FLUORESCENCE" in ui.widget.refreshed
     assert ui.experiment.saves == 1
+    assert lamella.milling_angle is not None
 
 
 def test_setting_the_fluorescence_pose_from_the_pose_rows_is_not_undone(
@@ -322,7 +316,7 @@ def test_setting_the_fluorescence_pose_from_the_pose_rows_is_not_undone(
     Re-deriving the fluorescence pose after a user has just set it by hand would
     overwrite the one thing they came to that button to change.
     """
-    module = sys.modules["fibsem.applications.autolamella.ui.panel.experiment"]
+    from fibsem.applications.autolamella.ui.lamella import selected as module
 
     microscope = _microscope()
     lamella = _lamella(microscope, tmp_path)
@@ -333,8 +327,7 @@ def test_setting_the_fluorescence_pose_from_the_pose_rows_is_not_undone(
         module.QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes)
     )
 
-    ui = _pose_row_ui(module, microscope, lamella)
-    ui._set_current_position_as_pose("FLUORESCENCE")
+    _pose_rows(microscope, lamella).set_pose("FLUORESCENCE")
 
     assert lamella.fluorescence_pose.stage_position.x == pytest.approx(400e-6)
     assert lamella.milling_pose.stage_position.x == pytest.approx(milling_before)
@@ -342,7 +335,7 @@ def test_setting_the_fluorescence_pose_from_the_pose_rows_is_not_undone(
 
 def test_declining_the_pose_row_confirmation_moves_neither_pose(tmp_path, monkeypatch):
     """The sync sits after this confirmation too."""
-    module = sys.modules["fibsem.applications.autolamella.ui.panel.experiment"]
+    from fibsem.applications.autolamella.ui.lamella import selected as module
 
     microscope = _microscope()
     lamella = _lamella(microscope, tmp_path)
@@ -357,55 +350,9 @@ def test_declining_the_pose_row_confirmation_moves_neither_pose(tmp_path, monkey
         module.QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.No)
     )
 
-    _pose_row_ui(module, microscope, lamella)._set_current_position_as_pose("MILLING")
+    _pose_rows(microscope, lamella).set_pose("MILLING")
 
     assert (
         lamella.milling_pose.stage_position.x,
         lamella.fluorescence_pose.stage_position.x,
     ) == before
-
-
-def test_setting_the_milling_pose_in_the_coincidence_viewer_moves_it_too(
-    tmp_path, monkeypatch
-):
-    """`FluorescenceCoincidenceViewerWidget._on_slw_pose_update` -- the same panel, in
-    the other window, through the same `poses.set_lamella_pose`."""
-    from fibsem.applications.autolamella.ui.coincidence import viewer as module
-
-    microscope = _microscope()
-    lamella = _lamella(microscope, tmp_path)
-    before = lamella.fluorescence_pose.stage_position.x
-    lamella.milling_angle = None
-    microscope.move_stage_absolute(
-        _at(microscope, MILLING_ORIENTATION, 400e-6, -200e-6)
-    )
-    monkeypatch.setattr(
-        module.QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes)
-    )
-
-    class _Viewer:
-        _on_slw_pose_update = (
-            module.FluorescenceCoincidenceViewerWidget._on_slw_pose_update
-        )
-
-        def __init__(self):
-            self.microscope = microscope
-            self._selected_lamella = lamella
-            self.experiment = _Experiment([lamella])
-            self.selected_lamella_widget = _SelectedLamellaPanel()
-
-    viewer = _Viewer()
-    viewer._on_slw_pose_update("MILLING")
-
-    assert lamella.milling_pose.stage_position.x == pytest.approx(400e-6)
-    assert lamella.fluorescence_pose.stage_position.x == pytest.approx(400e-6)
-    assert lamella.fluorescence_pose.stage_position.x != pytest.approx(before)
-    assert (
-        microscope.get_stage_orientation(lamella.fluorescence_pose.stage_position)
-        == FLUORESCENCE_ORIENTATION
-    )
-    assert "FLUORESCENCE" in viewer.selected_lamella_widget.refreshed
-    assert viewer.experiment.saves == 1
-    # this copy never recomputed the milling angle either, so the lamella went on
-    # reporting the angle it was marked at rather than the one it now sits at
-    assert lamella.milling_angle is not None
