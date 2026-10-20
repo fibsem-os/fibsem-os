@@ -1,5 +1,6 @@
-"""While a run is on, the window edits every lamella but the one it is on, as
-the App Server does (run_edits); the stage and objective stay the run's."""
+"""While a run is on, the window edits every lamella, the one it is on included
+(only the running task's config waits, FIB-1505), as the App Server does; the
+stage and objective stay the run's, and the lamella it is on is not removed."""
 
 from __future__ import annotations
 
@@ -46,16 +47,14 @@ def _select(window, name):
     return tab
 
 
-def test_the_selected_lamella_is_editable_unless_the_run_is_on_it(window):
+def test_the_selected_lamella_is_editable_while_the_run_is_on_it(window):
     with run_working_on(window.session.runner, "01-busy"):
-        tab = _select(window, "01-busy")
-        assert not tab.selected_lamella_widget.isEnabled()
-
-        tab = _select(window, "02-free")
-        assert tab.selected_lamella_widget.isEnabled()
-        widget = tab.selected_lamella_widget
-        assert not widget._action_use_current_obj_pos.isEnabled()
-        assert not widget._action_move_to_obj_pos.isEnabled()
+        for name in ("01-busy", "02-free"):
+            tab = _select(window, name)
+            widget = tab.selected_lamella_widget
+            assert widget.isEnabled()
+            assert not widget._action_use_current_obj_pos.isEnabled()
+            assert not widget._action_move_to_obj_pos.isEnabled()
 
     tab.refresh()
     assert tab.selected_lamella_widget.isEnabled()

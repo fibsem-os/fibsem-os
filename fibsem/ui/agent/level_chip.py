@@ -11,8 +11,9 @@ At Assist the agent acts by asking (FIB-1283). While its request waits, the chip
 turns amber, "Agent asks", and the card shows the request. Only one request waits
 at a time, so the chip carries no count. A suggestion on the pending proposal
 says "Agent suggests" in its level's look, not amber (the run's Attention
-Required already is), and the card shows it with Approve. Either one opens
-the card on its own, floating, so it is seen without a click (`show_card`).
+Required already is), and the card shows it with Approve. Either one asks the
+system for the operator's attention (a dock bounce or taskbar flash) and opens
+nothing: the window never comes forward on its own (FIB-1501).
 
 While the agent acts on the microscope (the card's Now line), the chip pulses.
 
@@ -33,7 +34,7 @@ import math
 from typing import Any, Callable, Dict, Optional
 
 from PyQt5.QtCore import QPoint, QRect, Qt, QTimer, pyqtSignal
-from PyQt5.QtWidgets import QFrame, QPushButton, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QApplication, QFrame, QPushButton, QVBoxLayout, QWidget
 
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.ui.agent.card import (
@@ -302,7 +303,7 @@ class AgentLevelChip(QPushButton):
         self._paint()
         self._fit_popup()
         if arrived:
-            self.show_card()
+            self._ask_for_attention()
 
     @property
     def suggestion(self) -> Optional[Dict[str, str]]:
@@ -317,7 +318,7 @@ class AgentLevelChip(QPushButton):
         self._paint()
         self._fit_popup()
         if arrived:
-            self.show_card()
+            self._ask_for_attention()
 
     def set_now(self, action: Optional[str]) -> None:
         """What the agent is doing on the microscope, for the card; the chip
@@ -366,7 +367,7 @@ class AgentLevelChip(QPushButton):
             tooltip = "The agent is asking: click to see what, and decide"
         elif self._suggestion is not None:
             # Not amber: the run's Attention Required already is, for the same
-            # proposal, and the card opens itself with the suggestion.
+            # proposal; the card shows the suggestion when opened.
             text = "Agent suggests"
             tooltip = "The agent suggests a decision on the proposal: click to see it"
         elif self._pulse.isActive():
@@ -396,15 +397,12 @@ class AgentLevelChip(QPushButton):
         self.popup.show()
         self._fit_popup()
 
-    def show_card(self) -> None:
-        """The card, floating, for something new waiting for the operator: a
-        request or a suggestion. Its own window rather than the popup, which
-        takes the mouse and closes on the next click elsewhere; closed, it
-        stays closed until the next one. Already open, it stays where it is."""
-        if not self.isVisible() or self.popup.isVisible():
-            return
-        self.float_card()
-        self.panel.raise_()
+    def _ask_for_attention(self) -> None:
+        """Something new waits for the operator: the system's attention
+        request, which neither raises nor activates the window. Opening the
+        card here took focus from the operator's browser (FIB-1501)."""
+        if self.isVisible():
+            QApplication.alert(self.window())
 
     def _on_float_clicked(self) -> None:
         if self.floating:
