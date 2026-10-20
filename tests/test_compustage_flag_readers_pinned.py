@@ -102,14 +102,16 @@ def test_the_fm_objective_faces_up_from_under_a_compustage(scope):
 # --- autolamella/poses.py -----------------------------------------------------------
 
 
-def test_a_lamella_is_marked_from_fluorescence_only_on_a_compustage(scope):
+def test_a_flipped_position_at_the_beams_is_a_fluorescence_pose_only_on_a_compustage(
+    scope,
+):
     compustage = _compustage(scope)
     fm_position = FibsemStagePosition(x=0, y=0, z=0, r=0.0, t=np.radians(-180))
     if compustage:
         milling = _to_milling(scope[1], fm_position)
         assert np.isclose(np.degrees(milling.t), np.degrees(-0.4014257279586957))
     else:
-        with pytest.raises(ValueError, match="offset mount"):
+        with pytest.raises(ValueError, match="fluorescence position"):
             _to_milling(scope[1], fm_position)
 
 

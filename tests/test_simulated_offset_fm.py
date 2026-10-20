@@ -21,7 +21,7 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.poses import _to_fluorescence, _to_milling
-from fibsem.structures import InsertableDeviceState
+from fibsem.structures import FibsemStagePosition, InsertableDeviceState
 
 ARCTIS_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
 IFLM_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
@@ -107,27 +107,34 @@ def test_there_is_no_fm_orientation_on_an_offset_mount():
     assert microscope.get_stage_orientation(fib_pose) == "FIB"
 
 
-def test_marking_from_the_fluorescence_view_is_refused():
-    """`_to_milling` declines rather than returning a plausible wrong pose.
+# ── fixed by FIB-831: the lamella poses convert across the traverse ───
 
-    The alternative would be a milling pose 48 mm off the beam axis that nothing
-    rejects until something tries to mill it.
-    """
+
+def test_marking_from_the_fluorescence_view_derives_a_milling_pose():
+    """Refused until FIB-831: a target found at the FM now gets a milling pose under
+    the beams, the traverse undone."""
     microscope = _microscope(IFLM_CONFIG)
+    at_the_fm = microscope.to_device(_at(microscope, "FIB"), "FM")
 
-    with pytest.raises(ValueError, match="offset mount"):
-        _to_milling(microscope, microscope.get_orientation("FIB"))
+    milling = _to_milling(microscope, at_the_fm)
+
+    assert microscope.is_at_device("FIBSEM", milling)
+    assert microscope.get_stage_orientation(milling) == "MILLING"
 
 
-def test_marking_from_the_beam_side_yields_no_fluorescence_pose():
-    """The quieter half: the lamella is created, with only one of its two poses.
-
-    `_to_fluorescence` catches the transform's refusal and returns `None`, so a
-    lamella marked on the beam overview simply has nowhere to go under the FM.
-    """
+def test_marking_from_the_beam_side_yields_a_fluorescence_pose():
+    """The lamella marked on the beam overview gets somewhere to go under the FM."""
     microscope = _microscope(IFLM_CONFIG)
+    fluorescence = _to_fluorescence(microscope, _at(microscope, "MILLING"))
 
-    assert _to_fluorescence(microscope, microscope.get_orientation("MILLING")) is None
+    assert fluorescence is not None
+    assert microscope.is_at_device("FM", fluorescence)
+
+
+def _at(microscope, orientation):
+    """A position in a named orientation, off centre and with every axis set."""
+    pose = microscope.get_orientation(orientation)
+    return FibsemStagePosition(x=100e-6, y=50e-6, z=0.0, r=pose.r, t=pose.t)
 
 
 def test_the_acquisition_guard_can_answer_now():

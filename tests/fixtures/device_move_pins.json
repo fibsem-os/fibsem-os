@@ -84,11 +84,7 @@
    "z": 0.0
   },
   "lamella_to_milling": {
-   "r": 0.0,
-   "t": -0.4014257279586957,
-   "x": 0.0001,
-   "y": 5e-05,
-   "z": 0.0
+   "raises": "ValueError"
   },
   "orientation": "FIB",
   "to_device(FIBSEM,FIB)": {
@@ -475,11 +471,7 @@
    "z": 0.0
   },
   "lamella_to_milling": {
-   "r": 0.0,
-   "t": -0.4014257279586957,
-   "x": 0.0001,
-   "y": 5e-05,
-   "z": 0.0
+   "raises": "ValueError"
   },
   "orientation": "FIB",
   "to_device(FIBSEM,FIB)": {
@@ -1175,14 +1167,14 @@
   "is_at_device(FM)": true,
   "lamella_to_fluorescence": {
    "r": 0.0,
-   "t": -3.141592653589793,
+   "t": -0.38397243543875237,
    "x": 0.0001,
    "y": 5e-05,
    "z": 0.0
   },
   "lamella_to_milling": {
    "r": 0.0,
-   "t": -0.38397243543875237,
+   "t": -0.4014257279586957,
    "x": 0.0001,
    "y": 5e-05,
    "z": 0.0
@@ -1553,7 +1545,7 @@
   "is_at_device(FM)": true,
   "lamella_to_fluorescence": {
    "r": 0.0,
-   "t": -3.141592653589793,
+   "t": -0.4014257279586957,
    "x": 0.0001,
    "y": 5e-05,
    "z": 0.0
@@ -1703,7 +1695,7 @@
   "is_at_device(FM)": true,
   "lamella_to_fluorescence": {
    "r": 0.0,
-   "t": -3.141592653589793,
+   "t": 0.017453292519943295,
    "x": 0.0001,
    "y": 5e-05,
    "z": 0.0
@@ -2081,7 +2073,7 @@
   "is_at_device(FM)": true,
   "lamella_to_fluorescence": {
    "r": 0.0,
-   "t": -3.141592653589793,
+   "t": 0.0,
    "x": 0.0001,
    "y": 5e-05,
    "z": 0.0
@@ -2250,11 +2242,7 @@
    "z": 0.0
   },
   "lamella_to_milling": {
-   "r": 0.0,
-   "t": -0.4014257279586957,
-   "x": 0.0001,
-   "y": 5e-05,
-   "z": 0.0
+   "raises": "ValueError"
   },
   "orientation": "FIB",
   "to_device(FIBSEM,FIB)": {
@@ -2641,11 +2629,7 @@
    "z": 0.0
   },
   "lamella_to_milling": {
-   "r": 0.0,
-   "t": -0.4014257279586957,
-   "x": 0.0001,
-   "y": 5e-05,
-   "z": 0.0
+   "raises": "ValueError"
   },
   "orientation": "FIB",
   "to_device(FIBSEM,FIB)": {
@@ -3360,11 +3344,7 @@
    "z": 0.0
   },
   "lamella_to_milling": {
-   "r": 0.0,
-   "t": -0.38397243543875237,
-   "x": 0.0001,
-   "y": 5e-05,
-   "z": 0.0
+   "raises": "ValueError"
   },
   "orientation": "MILLING",
   "to_device(FIBSEM,FIB)": {
@@ -3751,11 +3731,7 @@
    "z": 0.0
   },
   "lamella_to_milling": {
-   "r": 0.0,
-   "t": -0.4014257279586957,
-   "x": 0.0001,
-   "y": 5e-05,
-   "z": 0.0
+   "raises": "ValueError"
   },
   "orientation": "MILLING",
   "to_device(FIBSEM,FIB)": {
@@ -3914,11 +3890,7 @@
    "z": 0.0
   },
   "lamella_to_milling": {
-   "r": 0.0,
-   "t": -0.4014257279586957,
-   "x": 0.0001,
-   "y": 5e-05,
-   "z": 0.0
+   "raises": "ValueError"
   },
   "orientation": "SEM",
   "to_device(FIBSEM,FIB)": {
@@ -4305,11 +4277,7 @@
    "z": 0.0
   },
   "lamella_to_milling": {
-   "r": 0.0,
-   "t": -0.4014257279586957,
-   "x": 0.0001,
-   "y": 5e-05,
-   "z": 0.0
+   "raises": "ValueError"
   },
   "orientation": "SEM",
   "to_device(FIBSEM,FIB)": {
@@ -4456,7 +4424,13 @@
   "imaging_state(FM)": "NEEDS_TRAVEL",
   "is_at_device(FIBSEM)": true,
   "is_at_device(FM)": false,
-  "lamella_to_fluorescence": null,
+  "lamella_to_fluorescence": {
+   "r": 3.141592653589793,
+   "t": 0.31415926535897937,
+   "x": 0.048900000000000006,
+   "y": 5e-05,
+   "z": 0.0
+  },
   "lamella_to_milling": {
    "raises": "ValueError"
   },
@@ -4598,9 +4572,19 @@
   "imaging_state(FM)": "READY",
   "is_at_device(FIBSEM)": false,
   "is_at_device(FM)": true,
-  "lamella_to_fluorescence": null,
+  "lamella_to_fluorescence": {
+   "r": 3.141592653589793,
+   "t": 0.31415926535897937,
+   "x": 0.048900000000000006,
+   "y": 5e-05,
+   "z": 0.0
+  },
   "lamella_to_milling": {
-   "raises": "ValueError"
+   "r": 0.0,
+   "t": 0.20943951023931962,
+   "x": -0.00010000000000000286,
+   "y": -5e-05,
+   "z": 0.0
   },
   "orientation": "FIB",
   "to_device(FIBSEM,FIB)": {
@@ -5157,9 +5141,19 @@
   "imaging_state(FM)": "READY",
   "is_at_device(FIBSEM)": false,
   "is_at_device(FM)": true,
-  "lamella_to_fluorescence": null,
+  "lamella_to_fluorescence": {
+   "r": 3.141592653589793,
+   "t": 0.29670597283903605,
+   "x": 0.048900000000000006,
+   "y": 5e-05,
+   "z": 0.0
+  },
   "lamella_to_milling": {
-   "raises": "ValueError"
+   "r": 0.0,
+   "t": 0.20943951023931962,
+   "x": -0.00010000000000000286,
+   "y": -5e-05,
+   "z": 0.0
   },
   "orientation": "FIB",
   "to_device(FIBSEM,FIB)": {
@@ -5635,7 +5629,13 @@
   "imaging_state(FM)": "NEEDS_TRAVEL",
   "is_at_device(FIBSEM)": true,
   "is_at_device(FM)": false,
-  "lamella_to_fluorescence": null,
+  "lamella_to_fluorescence": {
+   "r": 3.141592653589793,
+   "t": 0.29670597283903605,
+   "x": 0.048900000000000006,
+   "y": 5e-05,
+   "z": 0.0
+  },
   "lamella_to_milling": {
    "raises": "ValueError"
   },
@@ -5806,7 +5806,13 @@
   "imaging_state(FM)": "NEEDS_REPOSE_THEN_TRAVEL",
   "is_at_device(FIBSEM)": true,
   "is_at_device(FM)": false,
-  "lamella_to_fluorescence": null,
+  "lamella_to_fluorescence": {
+   "r": 3.141592653589793,
+   "t": 0.29670597283903605,
+   "x": 0.0487,
+   "y": -5e-05,
+   "z": 0.0
+  },
   "lamella_to_milling": {
    "raises": "ValueError"
   },
@@ -6294,7 +6300,13 @@
   "imaging_state(FM)": "NEEDS_REPOSE_THEN_TRAVEL",
   "is_at_device(FIBSEM)": true,
   "is_at_device(FM)": false,
-  "lamella_to_fluorescence": null,
+  "lamella_to_fluorescence": {
+   "r": 3.141592653589793,
+   "t": 0.29670597283903605,
+   "x": 0.0487,
+   "y": -5e-05,
+   "z": 0.0
+  },
   "lamella_to_milling": {
    "raises": "ValueError"
   },
@@ -6465,7 +6477,13 @@
   "imaging_state(FM)": "NEEDS_REPOSE_THEN_TRAVEL",
   "is_at_device(FIBSEM)": true,
   "is_at_device(FM)": false,
-  "lamella_to_fluorescence": null,
+  "lamella_to_fluorescence": {
+   "r": 3.141592653589793,
+   "t": 0.29670597283903605,
+   "x": 0.0487,
+   "y": -5e-05,
+   "z": 0.0
+  },
   "lamella_to_milling": {
    "raises": "ValueError"
   },
@@ -6953,7 +6971,13 @@
   "imaging_state(FM)": "NEEDS_REPOSE_THEN_TRAVEL",
   "is_at_device(FIBSEM)": true,
   "is_at_device(FM)": false,
-  "lamella_to_fluorescence": null,
+  "lamella_to_fluorescence": {
+   "r": 3.141592653589793,
+   "t": 0.29670597283903605,
+   "x": 0.0487,
+   "y": -5e-05,
+   "z": 0.0
+  },
   "lamella_to_milling": {
    "raises": "ValueError"
   },
