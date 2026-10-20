@@ -1,7 +1,9 @@
 """The agent's pictures as PNGs, drawn with matplotlib off any GUI thread: a
 frame with what a request would do on it (`pictures`), or the agent's own
-image with its marks. Patterns are drawn as the milling plots draw them
-(``add_shape_mpl``), in the agent's colours."""
+image with its marks. Drawn in the app's own styles: patterns as the milling
+view draws them (``add_shape_mpl``, a colour per stage), points as the editors
+do, with a legend, a chip saying whose it is, and the export's scalebar and
+metadata bar (``fibsem.imaging.export``)."""
 
 from __future__ import annotations
 
@@ -14,19 +16,22 @@ import numpy as np
 from fibsem.ai.agent.pictures import (
     AREA,
     CROSS,
+    DASHED,
     DOT,
     FILL,
-    FILL_ALPHA,
     PICTURE_WIDTH,
     TARGET,
     _Layer,
     legend_entries,
+    stage_colour,
 )
 from fibsem.theme.tokens import PURPLE_COLOR
 
 _DPI = 100
 # Points per pixel of the PNG.
 _PT = 72 / _DPI
+# How see-through a pattern to mill is: the milling view's.
+_FILL = 0.3
 # The evidence marks' dark halo, so they read on a grey overview.
 _HALO = (0, 0, 0, 200 / 255)
 
@@ -58,10 +63,32 @@ def _canvas(data: np.ndarray):
     return figure, axes, scale, out_width
 
 
-def _png(figure) -> bytes:
+def _rgb(figure) -> np.ndarray:
+    figure.canvas.draw()
+    return np.asarray(figure.canvas.buffer_rgba())[..., :3].copy()
+
+
+def _png(rgb: np.ndarray) -> bytes:
+    from PIL import Image
+
     buffer = io.BytesIO()
-    figure.savefig(buffer, format="png", dpi=_DPI)
+    Image.fromarray(rgb).save(buffer, format="PNG")
     return buffer.getvalue()
+
+
+def _with_bar(rgb: np.ndarray, frame) -> np.ndarray:
+    """*rgb* (*frame* drawn on, maybe scaled down) with the export's scalebar
+    and metadata bar, as the export dialog draws them by default."""
+    from fibsem.imaging.export import default_options, from_fibsem_image, render_export
+
+    try:
+        image = from_fibsem_image(frame)
+    except Exception:  # noqa: BLE001 - metadata it cannot read: no bar
+        return rgb
+    if image.pixel_size:
+        image.pixel_size *= frame.data.shape[1] / rgb.shape[1]
+    image.rgb, image.gray = rgb, None
+    return render_export(image, default_options(image))
 
 
 def _mark(axes, shape: str, x: float, y: float, arm: float, colour, width) -> None:
@@ -70,7 +97,7 @@ def _mark(axes, shape: str, x: float, y: float, arm: float, colour, width) -> No
     from matplotlib.patches import Circle
 
     if shape == DOT:
-        axes.add_patch(Circle((x, y), arm * 0.35, color=colour, linewidth=0))
+        axes.add_patch(Circle((x, y), arm * 0.3, color=colour, linewidth=0))
         return
     if shape == TARGET:
         axes.add_patch(Circle((x, y), arm * 0.6, fill=False, ec=colour, lw=width))
@@ -97,30 +124,27 @@ def _legend(axes, entries: List[Tuple[str, str, str]], out_width: int) -> None:
 
     if not entries:
         return
-    size = max(10.0, out_width / 38) * _PT
+    size = max(10.0, out_width / 42) * _PT
     handles = []
     for colour, shape, text in entries:
         if shape not in (CROSS, TARGET, DOT):
             handles.append(
                 Patch(
-                    facecolor=to_rgba(colour, FILL_ALPHA / 255)
-                    if shape == FILL
-                    else "none",
+                    facecolor=to_rgba(colour, _FILL) if shape == FILL else "none",
                     edgecolor=colour,
-                    linestyle="--" if shape == AREA else "-",
+                    linestyle="--" if shape in (AREA, DASHED) else "-",
                     linewidth=1.5,
                     label=text,
                 )
             )
             continue
-        marker = {CROSS: "+", TARGET: "o", DOT: "o"}[shape]
         handles.append(
             Line2D(
                 [],
                 [],
                 linestyle="",
-                marker=marker,
-                markersize=size,
+                marker={CROSS: "+", TARGET: "o", DOT: "o"}[shape],
+                markersize=size * (0.6 if shape == DOT else 1.0),
                 markeredgewidth=1.5,
                 color=colour,
                 markerfacecolor=colour if shape == DOT else "none",
@@ -138,6 +162,24 @@ def _legend(axes, entries: List[Tuple[str, str, str]], out_width: int) -> None:
         handlelength=1.4,
     )
     legend.get_frame().set_boxstyle("round", pad=0.2)
+
+
+def _chip(axes, text: str, out_width: int) -> None:
+    """Whose the picture is, in the agent's purple at the top right."""
+    if not text:
+        return
+    axes.text(
+        0.985,
+        0.975,
+        text,
+        transform=axes.transAxes,
+        ha="right",
+        va="top",
+        fontsize=max(11.0, out_width / 40) * _PT,
+        fontweight="bold",
+        color="white",
+        bbox=dict(boxstyle="round,pad=0.45", facecolor=PURPLE_COLOR, edgecolor="none"),
+    )
 
 
 def _evidence_marks(axes, marks: Optional[Dict[str, Any]], scale, out_width) -> None:
@@ -214,33 +256,48 @@ def _evidence_marks(axes, marks: Optional[Dict[str, Any]], scale, out_width) -> 
             )
 
 
+def _patterns(axes, frame, layer: _Layer, line: float) -> None:
+    """*layer*'s patterns: to mill, each stage in the milling view's colour;
+    else outlined in the layer's colour, dashed when it is."""
+    from fibsem.milling.patterning.plotting import PatternStyle, add_shape_mpl
+
+    order = {name: i for i, name in enumerate(layer.stage_names())}
+    style = PatternStyle(
+        line_width=line * _PT,
+        fill=_FILL if layer.fill else 0.0,
+        edge=1.0,
+        line_style="--" if layer.dashed else "-",
+    )
+    for index, pattern in enumerate(layer.patterns):
+        colour = layer.colour
+        if layer.fill and index < len(layer.names):
+            colour = stage_colour(order[layer.names[index]])
+        try:
+            add_shape_mpl(pattern, frame, colour, axes, style=style)
+        except Exception:  # noqa: BLE001 - one shape that cannot be drawn
+            continue
+
+
 def picture_png(
-    frame, layers: List[_Layer], marks: Optional[Dict[str, Any]] = None
+    frame,
+    layers: List[_Layer],
+    marks: Optional[Dict[str, Any]] = None,
+    chip: str = "",
 ) -> bytes:
-    """*frame* with *layers* drawn on it, their legend at the top left, and
-    the agent's evidence *marks* (its pixels) when given: a PNG at most
+    """*frame* with *layers* drawn on it, their legend at the top left, *chip*
+    at the top right, and the agent's evidence *marks* (its pixels) when
+    given; the scalebar and metadata bar under it. A PNG at most
     `PICTURE_WIDTH` wide (FIB-1411). Patterns are drawn against this frame's
     field."""
     from matplotlib.patches import Rectangle
 
     from fibsem.imaging.export import _to_uint8
-    from fibsem.milling.patterning.plotting import PatternStyle, add_shape_mpl
 
     figure, axes, scale, out_width = _canvas(_to_uint8(frame.data))
-    # Seen at the card's width, a third of this or less.
-    line = max(2.0, out_width / 150)  # PNG pixels
-    arm = 6 * line / scale
+    line = max(1.5, out_width / 340)  # PNG pixels
+    arm = 8 * line / scale
     for layer in layers:
-        style = PatternStyle(
-            line_width=line * _PT,
-            fill=FILL_ALPHA / 255 if layer.fill else 0.0,
-            edge=1.0,
-        )
-        for pattern in layer.patterns:
-            try:
-                add_shape_mpl(pattern, frame, layer.colour, axes, style=style)
-            except Exception:  # noqa: BLE001 - one shape that cannot be drawn
-                continue
+        _patterns(axes, frame, layer, line)
         for (x0, y0), (x1, y1) in layer.areas:
             axes.add_patch(
                 Rectangle(
@@ -249,45 +306,51 @@ def picture_png(
                     abs(y1 - y0),
                     fill=False,
                     edgecolor=layer.colour,
-                    linewidth=line * _PT,
+                    linewidth=line * 1.3 * _PT,
                     linestyle="--",
                 )
             )
         for shape in (CROSS, TARGET, DOT):
             for x, y in layer.points(shape):
-                _mark(axes, shape, x, y, arm, layer.colour, line * 1.5 * _PT)
+                _mark(axes, shape, x, y, arm, layer.colour, line * 1.3 * _PT)
     _evidence_marks(axes, marks, scale, out_width)
     _legend(axes, legend_entries(layers), out_width)
-    return _png(figure)
+    _chip(axes, chip, out_width)
+    return _png(_with_bar(_rgb(figure), frame))
 
 
-def _evidence_data(path: str) -> Optional[np.ndarray]:
-    """The evidence image's pixels as uint8: a beam image (TIFF) as the
-    pictures draw a frame, anything else as RGB; None when it does not read."""
+def _evidence_image(path: str):
+    """``(pixels, frame)``: the evidence image's pixels as uint8, with its beam
+    frame when it is one (a TIFF), else RGB and None; ``(None, None)`` when it
+    does not read."""
     if os.path.splitext(path)[1].lower() in (".tif", ".tiff"):
         from fibsem.imaging.export import _to_uint8
         from fibsem.structures import FibsemImage
 
         try:
-            return _to_uint8(FibsemImage.load(path).data)
+            frame = FibsemImage.load(path)
+            return _to_uint8(frame.data), frame
         except Exception:  # noqa: BLE001 - try it as a plain image
             pass
     from PIL import Image
 
     try:
         with Image.open(path) as image:
-            return np.asarray(image.convert("RGB"))
+            return np.asarray(image.convert("RGB")), None
     except Exception:  # noqa: BLE001 - shown without it
-        return None
+        return None, None
 
 
-def evidence_png(evidence: Optional[Dict[str, Any]]) -> Optional[bytes]:
-    """The image of the agent's *evidence*, its marks drawn on it, at most
-    `PICTURE_WIDTH` wide: a PNG, or None when there is no image to show."""
+def evidence_png(evidence: Optional[Dict[str, Any]], chip: str = "") -> Optional[bytes]:
+    """The image of the agent's *evidence*, its marks drawn on it and *chip*
+    at the top right, at most `PICTURE_WIDTH` wide (a beam image with its
+    scalebar and metadata bar): a PNG, or None when there is no image."""
     path = (evidence or {}).get("image")
-    data = _evidence_data(str(path)) if path else None
+    data, frame = _evidence_image(str(path)) if path else (None, None)
     if data is None:
         return None
     figure, axes, scale, out_width = _canvas(data)
     _evidence_marks(axes, (evidence or {}).get("marks"), scale, out_width)
-    return _png(figure)
+    _chip(axes, chip, out_width)
+    rgb = _rgb(figure)
+    return _png(_with_bar(rgb, frame) if frame is not None else rgb)

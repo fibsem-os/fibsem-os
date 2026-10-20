@@ -9,6 +9,7 @@ import pytest
 from PIL import Image
 
 from fibsem.ai.agent.pictures import (
+    CURRENT_COLOUR,
     AgentPictures,
     request_patterns,
     request_targets,
@@ -144,10 +145,23 @@ class _Card:
         self.notes = caption if image is None else ""
 
 
-def _layer(picture, colour=PURPLE_COLOR):
+def _layer(picture, colour=None):
+    """The layer of *colour*; or, by default, everything the request would do
+    (its patterns and marks), as one layer."""
+    from fibsem.ai.agent.pictures import CURRENT_COLOUR, PAST_FIELD_COLOUR, _Layer
+
     frame, layers = picture
-    (layer,) = [layer for layer in layers if layer.colour == colour]
-    return frame, layer
+    if colour is not None:
+        (layer,) = [layer for layer in layers if layer.colour == colour]
+        return frame, layer
+    merged = _Layer("")
+    for layer in layers:
+        if layer.colour in (CURRENT_COLOUR, PAST_FIELD_COLOUR):
+            continue
+        merged.fill = merged.fill or layer.fill
+        for name in ("crosses", "targets", "dots", "areas", "patterns", "keys"):
+            getattr(merged, name).extend(getattr(layer, name))
+    return frame, merged
 
 
 def test_a_move_target_on_another_frame_is_re_projected_onto_it():
@@ -220,10 +234,10 @@ def test_patterns_past_the_edge_of_the_field_are_drawn_again_in_red():
     # FIB-1411: patterns at (-30, +30) µm in a 100 µm field (y spans ±33 µm)
     # reached y ≈ 36-39 µm. The Demo milled them; a real instrument refuses.
     from fibsem.ai.agent.pictures import (
+        PAST_FIELD_COLOUR,
         request_outside_field,
     )
     from fibsem.structures import FibsemMillingSettings
-    from fibsem.theme.tokens import RED_COLOR
 
     inside = dict(_RECTANGLE)
     outside = dict(_RECTANGLE, centre_x=-30e-6, centre_y=30e-6, height=8e-6)
@@ -250,7 +264,7 @@ def test_patterns_past_the_edge_of_the_field_are_drawn_again_in_red():
     controller = _Controller()
     previews = AgentPictures(controller.image)
     previews.show_request(request)
-    _, red = _layer(previews.request_picture, RED_COLOR)
+    _, red = _layer(previews.request_picture, PAST_FIELD_COLOUR)
     assert len(red.patterns) == 1
     # Both are drawn in purple too: the red is on top of what would mill.
     _, purple = _layer(previews.request_picture)
@@ -620,7 +634,8 @@ def test_the_card_s_picture_is_the_image_with_its_marks_drawn():
     layer = _Layer(PURPLE_COLOR)
     layer.crosses.append((100.0, 50.0))
     pixels = _pixels(picture_png(frame, [layer]))
-    assert pixels.shape == (100, 200, 3)
+    # The image, then the metadata bar under it, as the export draws it.
+    assert pixels.shape[1] == 200 and pixels.shape[0] > 100
     assert np.abs(pixels[50, 100] - _PURPLE).max() < 40
     assert np.abs(pixels[95, 10] - _PURPLE).max() > 40
 
@@ -661,15 +676,20 @@ def test_a_task_config_edit_draws_the_milling_as_it_would_be_and_as_it_is():
     }
     previews.show_request(request)
     assert asked == [("01-full-magpie", "Basic Milling")]
-    _, grey = _layer(previews.request_picture, "#ffffff")
+    _, grey = _layer(previews.request_picture, CURRENT_COLOUR)
     _, purple = _layer(previews.request_picture)
     assert purple.patterns[0].width == pytest.approx(width * 2)
     assert grey.patterns[0].width == pytest.approx(width)
-    # As it is now: solid white, seen on a grey image; the legend says which
-    # is which.
-    assert not grey.fill and purple.fill
-    assert grey.keys == [("outline", "as now")]
-    assert purple.keys == [("fill", "after the edit")]
+    # The current ones dashed grey; the legend names the edited stages.
+    assert grey.dashed and not grey.fill and purple.fill
+    assert grey.keys == [("dashed", "current")]
+    assert purple.keys == [("fill", "patterns")]
+    from fibsem.ai.agent.pictures import legend_entries, stage_colour
+
+    stage = config.milling["milling"].stages[0].name
+    assert (stage_colour(0), "fill", stage) in legend_entries(
+        previews.request_picture[1]
+    )
     # The item's own config is untouched: the edit was drawn on a copy.
     assert config.milling["milling"].stages[0].pattern.width == pytest.approx(width)
 
@@ -777,7 +797,7 @@ def test_a_pose_move_and_a_pose_set_are_marked_through_the_stage(monkeypatch):
     # Set: the new pose where the stage is, the pose as it is now in white.
     previews.show_request(_one("item_set_pose", {"item_name": "01", "pose": "MILLING"}))
     _, purple = _layer(previews.request_picture)
-    _, white = _layer(previews.request_picture, "#ffffff")
+    _, white = _layer(previews.request_picture, CURRENT_COLOUR)
     assert purple.targets == [pytest.approx((100.0, 50.0))]
     assert white.targets == [(30.0, 20.0)]
     assert white.keys == [("target", "MILLING pose now")]
@@ -794,7 +814,7 @@ def test_a_mark_off_the_picture_is_not_drawn_and_its_key_says_so(monkeypatch):
         controller.image, item_pose=lambda item, name: FibsemStagePosition(x=0.0)
     )
     previews.show_request(_one("item_set_pose", {"item_name": "01", "pose": "MILLING"}))
-    _, white = _layer(previews.request_picture, "#ffffff")
+    _, white = _layer(previews.request_picture, CURRENT_COLOUR)
     assert white.targets == []
     assert white.keys == [("target", "MILLING pose now, off the picture")]
 

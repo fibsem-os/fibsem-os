@@ -2,11 +2,12 @@
 operator decides: the window's card and the chat page (FIB-1404, FIB-1411).
 The session draws them, window or none (FIB-1500).
 
-Under Why: the image the values were measured on, every value drawn on it in the
-agent's purple. A decision's or an item's point of interest on that item's image;
+Under Why: the image the values were measured on, every value drawn on it in
+the app's own styles, with a legend, an agent chip, a scalebar and the image's
+metadata bar. A decision's or an item's point of interest on that item's image;
 an item edit's alignment area; the patterns a mill would draw, a config edit's as
-it would leave them (as they are now in grey) and any reaching past the edge of
-the field in red, on the FIB image; where a move would go. A suggestion on a
+it would leave them (the current ones dashed grey) and any reaching past the edge
+of the field in red, on the FIB image; where a move would go. A suggestion on a
 pending proposal is drawn as the decision it would make.
 
 Nothing is drawn on the live views: they show what the microscope does, and the
@@ -25,7 +26,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from fibsem.services.milling import parse_patterns
 from fibsem.structures import BeamType, Point
-from fibsem.theme.tokens import PURPLE_COLOR, RED_COLOR, WHITE_ICON_COLOR
+from fibsem.theme.tokens import ERROR_COLOR, ORANGE_COLOR, WHITE_ICON_COLOR
 from fibsem.workflows.evidence import frame_path
 
 # What a request places on the sample, by kind.
@@ -345,12 +346,10 @@ def _fraction_pixel(frame, fraction: Tuple[float, float]) -> Tuple[float, float]
 # How a mark draws its places: a point of interest or a feature "+", a move
 # target a crosshair, a spot burn point a dot.
 CROSS, TARGET, DOT = "cross", "target", "dot"
-# How the legend shows the rest: patterns to mill, filled; patterns outlined (a
-# config edit's as they are now, those past the field); an area, dashed.
-FILL, OUTLINE, AREA = "fill", "outline", "area"
-# The patterns to mill: see-through, so where they overlap shows darker
-# (FIB-1424; Patrick: "solid rectangles", not bounding boxes).
-FILL_ALPHA = 70
+# How the legend shows the rest: patterns to mill, filled; patterns outlined
+# (those past the field), or dashed (a config edit's as they are now); an area,
+# dashed.
+FILL, OUTLINE, DASHED, AREA = "fill", "outline", "dashed", "area"
 
 
 class _Mark:
@@ -370,8 +369,11 @@ class _Mark:
         title: str = "",
         item: str = "",
         stage: Optional[object] = None,
+        kind: str = "",
     ):
         self.beam = beam
+        # What it is (`POI_MARK`, ...), for its colour.
+        self.kind = kind
         self.legend = legend
         self.places: List[Tuple[Optional[object], Any]] = list(places)
         self.area = area
@@ -401,21 +403,41 @@ class _Mark:
         return [reproject_pixel(on, frame, *value) for on, value in measured]
 
 
-# The picture on the card: its width at most, and how its marks are drawn.
+# The picture on the card: its width at most.
 PICTURE_WIDTH = 1024
-# A config edit's patterns as they are now: solid white, seen on any image.
-_BEFORE = WHITE_ICON_COLOR
+# The app's colours for what a request places, as its editors draw them: the
+# point of interest as the lamella editor, the alignment area as its overlay,
+# spot burn points as their editor. A move target has no style of its own.
+MARK_COLOURS = {
+    TARGET_MARK: WHITE_ICON_COLOR,
+    POI_MARK: "magenta",
+    AREA_MARK: "limegreen",
+    ITEM_MARK: ORANGE_COLOR,
+    POSE_MARK: WHITE_ICON_COLOR,
+    SPOT_MARK: "cyan",
+    FEATURE_MARK: "yellow",
+}
+# What is there now (a config edit's patterns, a pose): grey, dashed.
+CURRENT_COLOUR = "#bfbfbf"
+# Patterns past the field: the app's error red.
+PAST_FIELD_COLOUR = ERROR_COLOR
+# A pass decided without running: outlined, nothing milled.
+UNMILLED_COLOUR = CURRENT_COLOUR
 
 
 class _Layer:
     """What one colour draws on the card's picture: crosses, crosshairs, dots
     and areas (pixels of the picture's frame), and patterns (metres from the
-    field's centre), filled (*fill*, what would be milled) or outlined.
+    field's centre), filled (*fill*, what would be milled: each stage in the
+    milling view's colour, `names` its stage) or outlined, solid or *dashed*.
     Areas, which are never milled, are dashed."""
 
-    def __init__(self, colour: str, fill: bool = False) -> None:
+    def __init__(self, colour: str, fill: bool = False, dashed: bool = False) -> None:
         self.colour = colour
         self.fill = fill
+        self.dashed = dashed
+        # Each pattern's stage name, for its colour and the legend.
+        self.names: List[str] = []
         self.crosses: List[Tuple[float, float]] = []
         self.targets: List[Tuple[float, float]] = []
         self.dots: List[Tuple[float, float]] = []
@@ -428,7 +450,19 @@ class _Layer:
     @property
     def pattern_shape(self) -> str:
         """How the legend shows this layer's patterns."""
-        return FILL if self.fill else OUTLINE
+        return FILL if self.fill else DASHED if self.dashed else OUTLINE
+
+    def add_stages(self, stages, name: str = "") -> None:
+        """*stages*' patterns, each named for its stage; or, *name* given,
+        bare patterns under that name."""
+        for stage in stages:
+            patterns = _stage_patterns([stage]) if not name else [stage]
+            self.patterns.extend(patterns)
+            self.names.extend([name or stage.name] * len(patterns))
+
+    def stage_names(self) -> List[str]:
+        """The stages it draws, in order, each once."""
+        return list(dict.fromkeys(self.names))
 
     def key(self, shape: str, text: str, drawn=True) -> None:
         """Name what this colour draws in the picture's legend, when it draws it."""
@@ -498,12 +532,32 @@ def _key_past_field(frame, layer: "_Layer") -> None:
         layer.key(OUTLINE, "past the field", layer.patterns)
 
 
+def _chip(suggestion: bool) -> str:
+    """Whose the picture is, on it."""
+    return "Agent's suggestion" if suggestion else "Agent's request"
+
+
+def stage_colour(index: int) -> str:
+    """The milling view's colour for its *index*-th stage."""
+    from fibsem.milling.patterning.plotting import COLOURS
+
+    return COLOURS[index % len(COLOURS)]
+
+
 def legend_entries(layers: List[_Layer]) -> List[Tuple[str, str, str]]:
     """What each layer draws, for the picture's legend: ``(colour, shape,
-    words)``."""
-    return [
-        (layer.colour, shape, text) for layer in layers for shape, text in layer.keys
-    ]
+    words)``. Patterns to mill are named by their stages."""
+    entries = []
+    for layer in layers:
+        for shape, text in layer.keys:
+            if shape == FILL and layer.names:
+                entries.extend(
+                    (stage_colour(i), FILL, name)
+                    for i, name in enumerate(layer.stage_names())
+                )
+            else:
+                entries.append((layer.colour, shape, text))
+    return entries
 
 
 def _stage_patterns(stages) -> List:
@@ -637,30 +691,30 @@ class AgentPictures:
                     suggestion=suggestion,
                 )
             return
-        layers = [
-            _Layer(_BEFORE),
-            _Layer(PURPLE_COLOR, fill=True),
-            _Layer(RED_COLOR),
-        ]
-        grey, purple, red = layers
+        current = _Layer(CURRENT_COLOUR, dashed=True)
+        milling = _Layer(stage_colour(0), fill=True)
+        past = _Layer(PAST_FIELD_COLOUR)
+        layers = [current, milling, past]
         if beam is BeamType.ION:
-            grey.patterns = _stage_patterns(before)
-            # Past the field, outlined in red over purple.
-            purple.patterns = patterns + _stage_patterns(milled)
-            red.patterns = outside
-            grey.key(OUTLINE, "as now", grey.patterns)
+            current.patterns = _stage_patterns(before)
+            # Past the field, outlined in red over the stage's colour.
+            milling.add_stages(patterns, name="patterns")
+            milling.add_stages(milled)
+            past.patterns = outside
+            current.key(DASHED, "current", current.patterns)
             if kept:
                 # A pass decided without running: nothing is milled.
-                unmilled = _Layer(PURPLE_COLOR)
+                unmilled = _Layer(UNMILLED_COLOUR)
                 unmilled.patterns = _stage_patterns(kept)
                 unmilled.key(OUTLINE, "not milled", unmilled.patterns)
                 layers.append(unmilled)
-            purple.key(
-                FILL, "after the edit" if before else "patterns", purple.patterns
-            )
-            _key_past_field(frame, red)
-        self._add_marks(frame, [m for m in marks.values() if not m.before], purple)
-        self._add_marks(frame, [m for m in marks.values() if m.before], grey)
+            milling.key(FILL, "patterns", milling.patterns)
+            _key_past_field(frame, past)
+        layers.extend(
+            self._add_marks(frame, [m for m in marks.values() if not m.before])
+        )
+        for mark in (m for m in marks.values() if m.before):
+            self._add_mark(frame, mark, current)
         title = next(
             (m.title for m in marks.values() if m.title and m.places), pass_title
         )
@@ -677,7 +731,7 @@ class AgentPictures:
     def _evidence_only(self, evidence: Dict[str, Any], suggestion: bool) -> None:
         from fibsem.ai.agent.drawing import evidence_png
 
-        png = evidence_png(evidence)
+        png = evidence_png(evidence, _chip(suggestion))
         drawn = (evidence, []) if png is not None else None
         if suggestion:
             self.suggestion_picture = drawn
@@ -750,7 +804,7 @@ class AgentPictures:
 
         def add(overlay_id, beam, legend, places, area=False, shape=CROSS, **kw):
             mark = marks.setdefault(
-                overlay_id, _Mark(beam, legend, [], area, shape, **kw)
+                overlay_id, _Mark(beam, legend, [], area, shape, kind=overlay_id, **kw)
             )
             mark.places.extend(places)
 
@@ -934,25 +988,31 @@ class AgentPictures:
 
     # --- drawing ----------------------------------------------------------------
 
-    @staticmethod
-    def _add_marks(frame, marks, layer: _Layer) -> None:
-        """*marks* re-projected onto *frame*, into *layer*. A mark that falls
-        off the picture is not drawn, and its key says so."""
+    @classmethod
+    def _add_marks(cls, frame, marks) -> List[_Layer]:
+        """*marks* re-projected onto *frame*, each in its colour's layer."""
+        layers: Dict[str, _Layer] = {}
         for mark in marks:
-            pixels = mark.pixels(frame)
-            if mark.area:
-                shown = len(pixels) >= 2 and _on_frame(frame, pixels[:2])
-                if shown:
-                    layer.areas.append(pixels[:2])
-                shape = AREA
-            else:
-                inside = [p for p in pixels if _on_frame(frame, [p, p])]
-                layer.points(mark.shape).extend(inside)
-                shown = bool(inside) or not pixels
-                shape = mark.shape
-            layer.key(
-                shape, mark.legend if shown else f"{mark.legend}, off the picture"
-            )
+            colour = MARK_COLOURS.get(mark.kind, WHITE_ICON_COLOR)
+            cls._add_mark(frame, mark, layers.setdefault(colour, _Layer(colour)))
+        return list(layers.values())
+
+    @staticmethod
+    def _add_mark(frame, mark: "_Mark", layer: _Layer) -> None:
+        """*mark* re-projected onto *frame*, into *layer*. A mark that falls
+        off the picture is not drawn, and its key says so."""
+        pixels = mark.pixels(frame)
+        if mark.area:
+            shown = len(pixels) >= 2 and _on_frame(frame, pixels[:2])
+            if shown:
+                layer.areas.append(pixels[:2])
+            shape = AREA
+        else:
+            inside = [p for p in pixels if _on_frame(frame, [p, p])]
+            layer.points(mark.shape).extend(inside)
+            shown = bool(inside) or not pixels
+            shape = mark.shape
+        layer.key(shape, mark.legend if shown else f"{mark.legend}, off the picture")
 
     def _picture(
         self,
@@ -981,7 +1041,7 @@ class AgentPictures:
         from fibsem.ai.agent.drawing import picture_png
 
         self._show_picture(
-            picture_png(frame, layers, marks),
+            picture_png(frame, layers, marks, chip=_chip(suggestion)),
             f"The agent's image · {caption}" if agent_image else caption,
             suggestion=suggestion,
         )

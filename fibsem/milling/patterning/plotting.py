@@ -66,6 +66,7 @@ class PatternStyle:
     line_width: float = PROPERTIES["line_width"]
     fill: float = PROPERTIES["opacity"]
     edge: float = PROPERTIES["opacity"]
+    line_style: str = "-"
 
 
 DEFAULT_STYLE = PatternStyle()
@@ -225,6 +226,7 @@ def _add_rectangle_mpl(
         angle=math.degrees(-shape.rotation),
         rotation_point=PROPERTIES["rotation_point"],
         linewidth=style.line_width,
+        linestyle=style.line_style,
         edgecolor=to_rgba(colour, style.edge),
         facecolor=to_rgba(colour, style.fill),
         zorder=zorder,
@@ -268,6 +270,7 @@ def _add_circle_mpl(
             width=radius_px - inner_radius_px,
             angle=math.degrees(-shape.rotation),
             linewidth=style.line_width,
+            linestyle=style.line_style,
             edgecolor=to_rgba(colour, style.edge),
             facecolor=to_rgba(colour, style.fill),
             zorder=zorder,
@@ -280,6 +283,7 @@ def _add_circle_mpl(
             theta1=start_angle,
             theta2=end_angle,
             linewidth=style.line_width,
+            linestyle=style.line_style,
             edgecolor=to_rgba(colour, style.edge),
             facecolor=to_rgba(colour, style.fill),
             zorder=zorder,
@@ -290,6 +294,7 @@ def _add_circle_mpl(
             (px, py),
             radius=radius_px,
             linewidth=style.line_width,
+            linestyle=style.line_style,
             edgecolor=to_rgba(colour, style.edge),
             facecolor=to_rgba(colour, style.fill),
             zorder=zorder,
@@ -323,6 +328,7 @@ def _add_line_mpl(
         (start_pixel_x, start_pixel_y),
         (end_pixel_x, end_pixel_y),
         linewidth=style.line_width * 2,
+        linestyle=style.line_style,
         edgecolor=to_rgba(colour, min(1.0, style.edge + 0.2)),
         facecolor=to_rgba(colour, min(1.0, style.edge + 0.2)),
         arrowstyle="-",
@@ -450,6 +456,7 @@ def _add_bitmap_mpl(
         angle=math.degrees(-shape.rotation),
         rotation_point=PROPERTIES["rotation_point"],
         linewidth=style.line_width,
+        linestyle=style.line_style,
         edgecolor=to_rgba(colour, style.edge),
         facecolor="none",
         zorder=zorder,
@@ -494,6 +501,7 @@ def _add_polygon_mpl(
         pixel_vertices,
         closed=True,
         linewidth=style.line_width,
+        linestyle=style.line_style,
         edgecolor=to_rgba(colour, style.edge),
         facecolor=to_rgba(colour, style.fill),
         zorder=zorder,
