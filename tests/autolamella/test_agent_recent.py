@@ -1,11 +1,13 @@
 """The agent card's Recent list (FIB-1414): what the agent did lately, one line
-each with how it ended, read from the session's record."""
+each with how it ended, read from the session's record, oldest first."""
 
 from fibsem.acting import AGENT, OPERATOR, TASK
 from fibsem.ai.agent.recent import (
     ERROR,
     MUTED,
     OK,
+    RUNNING,
+    SIZE,
     WAITING,
     RecentActions,
 )
@@ -27,6 +29,12 @@ def _rows(recent):
     return [(row.text, row.outcome, row.tone) for row in recent.rows]
 
 
+def _ended(recent):
+    """How the newest row ended: its word, why, and its tone."""
+    row = recent.rows[-1]
+    return row.outcome, row.why, row.tone
+
+
 def _called(action, status=200, level="drive", **extra):
     """The server's record of a direct call (FIB-1426)."""
     return _record(
@@ -45,8 +53,8 @@ def test_at_drive_a_move_and_a_mill_each_make_a_row():
         )
     )
     assert _rows(recent) == [
-        ("Milled 'agent test mill'", "done", OK),
         ("Stage · Move 2 µm in x", "done", OK),
+        ("Milled 'agent test mill'", "done", OK),
     ]
     assert recent.rows[0].when == "16:08"
     # Each at the level it was done at: the mill's is the agent's last seen.
@@ -78,16 +86,14 @@ def test_a_request_is_one_row_that_follows_it_to_its_end():
             "request_decided", {"request_id": "r1", "outcome": "approved"}, OPERATOR
         )
     )
-    assert _rows(recent)[0][1:] == ("approved", WAITING)
+    assert _ended(recent) == ("approved", "", RUNNING)
     # What the approved request does is the request's row, not rows of its own.
     assert not recent.add(_called("Stage · Move 5 µm in x", level="assist"))
     recent.add(_record("request_applied", {"request_id": "r1", "index": 0, "ok": True}))
-    assert _rows(recent)[0][1:] == ("applying 2 of 2", WAITING)
+    assert _ended(recent) == ("2 of 2", "", RUNNING)
     recent.add(_record("request_applied", {"request_id": "r1", "index": 1, "ok": True}))
     recent.add(_record("request_finished", {"request_id": "r1", "status": "applied"}))
-    assert _rows(recent) == [
-        ("Asked: Stage · Move 5 µm in x, and 1 more", "applied", OK)
-    ]
+    assert _rows(recent) == [("Asked: Stage · Move 5 µm in x, and 1 more", "done", OK)]
     assert recent.rows[0].level == "assist"
     recent.add(_record("request_raised", {"request_id": "r2", "actions": actions}))
     recent.add(
@@ -97,7 +103,7 @@ def test_a_request_is_one_row_that_follows_it_to_its_end():
             OPERATOR,
         )
     )
-    assert _rows(recent)[0][1:] == ("rejected: bad", MUTED)
+    assert _ended(recent) == ("rejected", "bad", MUTED)
 
 
 def test_a_long_command_is_one_row_and_a_refusal_says_why():
@@ -110,7 +116,7 @@ def test_a_long_command_is_one_row_and_a_refusal_says_why():
         "level": "drive",
     }
     recent.add(_record("command_started", dict(overview, state="running")))
-    assert _rows(recent) == [("FIB · Overview, 3 × 3 tiles", "running", WAITING)]
+    assert _rows(recent) == [("FIB · Overview, 3 × 3 tiles", "running", RUNNING)]
     recent.add(_record("command_ended", dict(overview, state="done")))
     recent.add(
         _record(
@@ -119,10 +125,11 @@ def test_a_long_command_is_one_row_and_a_refusal_says_why():
         )
     )
     assert _rows(recent) == [
-        ("Tried to workflow stop", "refused: needs your approval", ERROR),
         ("FIB · Overview, 3 × 3 tiles", "done", OK),
+        ("Tried to workflow stop", "refused", ERROR),
     ]
-    assert [row.level for row in recent.rows] == ["assist", "drive"]
+    assert recent.rows[-1].why == "needs your approval"
+    assert [row.level for row in recent.rows] == ["drive", "assist"]
 
 
 def test_a_direct_call_says_how_it_ended():
@@ -142,18 +149,63 @@ def test_a_direct_call_says_how_it_ended():
         )
     )
     assert _rows(recent) == [
-        ("Stopped the mill: through", "done", OK),
+        ("Stage · Move 2 µm in x", "refused", ERROR),
         ("FIB · Take an image", "failed", ERROR),
-        ("Stage · Move 2 µm in x", "refused: busy", ERROR),
+        ("Stopped the mill: through", "done", OK),
     ]
+    assert recent.rows[0].why == "busy"
 
 
-def test_it_keeps_the_last_ten():
+def test_it_keeps_the_last_rows_oldest_first():
     recent = RecentActions()
-    for index in range(12):
+    for index in range(SIZE + 2):
         recent.add(_record("agent_note", {"text": f"note {index}"}))
-    assert len(recent.rows) == 10
-    assert recent.rows[0].text == "Note: note 11"
+    assert len(recent.rows) == SIZE
+    assert recent.rows[0].text == "note 2"
+    assert recent.rows[-1].text == f"note {SIZE + 1}"
+
+
+def test_a_message_is_kept_whole_and_an_action_on_one_line():
+    """Agent UI notes 2026-10-20: long replies were cut at 300 characters and
+    their lists run together on one line."""
+    recent = RecentActions()
+    reply = "Five cells look worth a lamella:\n\n- 01\n- 02\n\n" + "x" * 400
+    recent.add(_record("agent_note", {"text": reply}))
+    recent.add(_called("Stage ·\n Move 2 µm in x"))
+    note, call = recent.rows
+    assert note.text == reply and note.kind == "note" and note.conversation
+    assert call.text == "Stage · Move 2 µm in x" and not call.conversation
+
+
+def test_the_agent_s_own_decision_reads_as_done():
+    """Agent UI notes 2026-10-20: a decision the agent made itself at Drive
+    read "Confirm the proposal", an order to the operator."""
+    recent = RecentActions()
+    for outcome, extra in (
+        ("Confirmed", {}),
+        ("Rejected", {"reason": "drift above 0.5 µm"}),
+    ):
+        recent.add(
+            _called(
+                "02-alive-skunk · Mill Rough · Confirm the proposal",
+                tool="proposal_decide",
+                arguments={"item_id": "a1", "outcome": outcome, **extra},
+            )
+        )
+    assert [row.text for row in recent.rows] == [
+        "Confirmed Mill Rough on 02-alive-skunk",
+        "Rejected Mill Rough on 02-alive-skunk: drift above 0.5 µm",
+    ]
+    # Refused, it was never done: it keeps the words it was asked in.
+    recent.add(
+        _called(
+            "02-alive-skunk · Mill Rough · Confirm the proposal",
+            403,
+            tool="proposal_decide",
+            arguments={"item_id": "a1", "outcome": "Confirmed"},
+        )
+    )
+    assert recent.rows[-1].text.endswith("Confirm the proposal")
 
 
 def test_a_request_row_reads_as_its_card_did():
@@ -203,10 +255,10 @@ def test_a_refusal_gives_its_reason_not_an_exception_s_name():
             {"action": "stage move", "error_type": "level", "level": "watch"},
         )
     )
-    assert [row[1] for row in _rows(recent)] == [
-        "refused: Watch is read-only",
-        "refused: at Drive the agent acts itself",
-        "refused: x 500 mm is outside the stage limits",
+    assert [(row.outcome, row.why) for row in recent.rows] == [
+        ("refused", "x 500 mm is outside the stage limits"),
+        ("refused", "at Drive the agent acts itself"),
+        ("refused", "Watch is read-only"),
     ]
 
 
@@ -222,9 +274,9 @@ def test_a_request_the_agent_took_back_reads_withdrawn():
             payload["withdrawn"] = True
         recent.add(_record("request_cancelled", payload))
     # A cancel says who ended it (sim session 2026-10-19).
-    assert [row[1] for row in _rows(recent)] == [
-        "cancelled: the operator stopped the agent",
-        "withdrawn",
+    assert [(row.outcome, row.why) for row in recent.rows] == [
+        ("withdrawn", ""),
+        ("cancelled", "the operator stopped the agent"),
     ]
 
 
@@ -240,7 +292,7 @@ def test_a_failed_request_says_why():
         )
     )
     recent.add(_record("request_finished", {"request_id": "r1", "status": "failed"}))
-    assert _rows(recent)[0][1:] == ("failed: target outside the stage limits", ERROR)
+    assert _ended(recent) == ("failed", "target outside the stage limits", ERROR)
 
 
 def test_the_operator_s_message_and_the_agent_s_reply_are_rows():
@@ -251,12 +303,10 @@ def test_the_operator_s_message_and_the_agent_s_reply_are_rows():
         _record("operator_message", {"id": "ab12", "text": "skip 03"}, actor=OPERATOR)
     )
     recent.add(_record("agent_note", {"text": "skipping 03", "reply_to": "ab12"}))
-    assert _rows(recent) == [
-        ("Reply: skipping 03", "", MUTED),
-        ("You: skip 03", "", MUTED),
-    ]
+    assert _rows(recent) == [("skip 03", "", MUTED), ("skipping 03", "", MUTED)]
+    assert [row.kind for row in recent.rows] == ["you", "reply"]
     # The operator's line is at no level; the agent's reply at its own.
-    assert [row.level for row in recent.rows] == ["drive", ""]
+    assert [row.level for row in recent.rows] == ["", "drive"]
 
 
 def test_a_request_on_the_record_as_a_proposal_is_one_row():
@@ -276,16 +326,16 @@ def test_a_request_on_the_record_as_a_proposal_is_one_row():
     recent.add(asked("r1"))
     assert _rows(recent) == [("Asked: Stage · Move 5 µm in x", "waiting", WAITING)]
     recent.add(decided("r1", "Confirmed"))
-    assert _rows(recent)[0][1:] == ("approved", WAITING)
+    assert _ended(recent) == ("approved", "", RUNNING)
     recent.add(asked("r2"))
     recent.add(decided("r2", "Rejected", "not now"))
-    assert _rows(recent)[0][1:] == ("rejected: not now", MUTED)
+    assert _ended(recent) == ("rejected", "not now", MUTED)
     recent.add(asked("r3"))
     recent.add(decided("r3", "Withdrawn", "withdrawn by the agent: moved", "agent:c"))
-    assert _rows(recent)[0][1:] == ("withdrawn", MUTED)
+    assert _ended(recent) == ("withdrawn", "", MUTED)
     recent.add(asked("r4"))
     recent.add(decided("r4", "Withdrawn", "the operator stopped the agent", "task:x"))
-    assert _rows(recent)[0][1:] == ("cancelled: the operator stopped the agent", MUTED)
+    assert _ended(recent) == ("cancelled", "the operator stopped the agent", MUTED)
 
 
 def test_actions_and_notes_on_the_record_make_the_same_rows():
@@ -333,11 +383,11 @@ def test_actions_and_notes_on_the_record_make_the_same_rows():
     )
 
     assert [text for text, _, _ in _rows(recent)] == [
-        "Reply: skipping 03",
-        "You: skip 03",
-        "Tried to move relative",
-        "Stopped the mill: off target",
         "Stage · Move 2 µm in x",
+        "Stopped the mill: off target",
+        "Tried to move relative",
+        "skip 03",
+        "skipping 03",
     ]
 
 
@@ -358,6 +408,6 @@ def test_a_row_carries_the_evidence_its_call_cites():
         )
     )
     recent.add(_record("action", dict(what="Stage · Move 1 µm in y", ok=True)))
-    uncited, cited = recent.rows
+    cited, uncited = recent.rows
     assert cited.evidence["text"] == "trench off centre"
     assert uncited.evidence is None

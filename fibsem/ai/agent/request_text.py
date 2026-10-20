@@ -1459,6 +1459,29 @@ def describe_action(
     return line
 
 
+def describe_done(tool: Any, arguments: Any, what: str) -> Optional[str]:
+    """A done call, said as done: "Confirmed Mill Rough on 02-alive-skunk".
+    ``what`` is the call's recorded line, ``item · task · change``. None for a
+    tool said the same way before and after."""
+    if tool != "proposal_decide":
+        return None
+    a = arguments if isinstance(arguments, dict) else {}
+    parts = [p.strip() for p in str(what or "").split(" · ")]
+    item = parts[0] if len(parts) >= 3 else a.get("item_id")
+    task = parts[1] if len(parts) >= 3 else a.get("task_name")
+    on = f"{task} on {item}" if task else str(item or "the proposal")
+    if str(a.get("outcome", "")).lower().startswith("reject"):
+        return f"Rejected {on}: {a.get('reason', '')}".rstrip(": ")
+    if a.get("action"):
+        return f"Decided {on}: {a.get('action')}"
+    line = f"Confirmed {on}"
+    if a.get("values"):
+        line += f" with {_values_text(a.get('values'))}"
+    if a.get("patch"):
+        line += f", setting {_values_text(a.get('patch'))}"
+    return line
+
+
 def _describe(
     tool: str,
     arguments: Dict[str, Any],

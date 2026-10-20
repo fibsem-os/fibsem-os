@@ -1,12 +1,18 @@
 """What the agent did lately, one line each with how it ended (FIB-1414).
 
 The agent card's Recent list: the agent's requests (asked, then approved,
-applying, then applied or failed, or rejected with the operator's why), its
-suggestions on proposals (approved, declined with the why, or decided otherwise),
-and what it does itself at Drive or was refused. The operator's messages to it are rows too, "You: ...",
-and its answers "Reply: ..." (FIB-1423). Read from the session's record, the event stream the event
-log shows, so the list and the log never disagree; only the agent's own entries
-make a row. Each row says the level it was done at (FIB-1426).
+applying, then done or failed, or rejected with the operator's why), its
+suggestions on proposals (approved, declined with the why, or overruled),
+and what it does itself at Drive or was refused. The operator's messages to it
+are rows too, and its replies and notes (FIB-1423). Read from the session's
+record, the event stream the event log shows, so the list and the log never
+disagree; only the agent's own entries make a row. Each row says the level it
+was done at (FIB-1426).
+
+The conversation (the operator's messages, the agent's replies and notes) is
+kept whole, newlines and all, for the card to draw as Markdown; an action is one
+line, how it ended one word, and why it failed or was refused, declined or
+rejected beside it. The rows run oldest first, like a chat.
 
 A direct call is the server's ``agent_called``, in the words a request's card
 uses for the same tool; a long command is its run, running until it ends. What
@@ -24,13 +30,21 @@ from dataclasses import dataclass, replace
 from typing import Any, Dict, List, Optional
 
 from fibsem.acting import AGENT, OPERATOR
-from fibsem.ai.agent.request_text import _stage_place, _values_text, describe_action
+from fibsem.ai.agent.request_text import (
+    _stage_place,
+    _values_text,
+    describe_action,
+    describe_done,
+)
 
-# Rows kept: the card shows them all.
-SIZE = 10
+# Rows kept: the card scrolls through them all.
+SIZE = 50
 
 # How a row ended, as the card colours it.
-WAITING, OK, ERROR, MUTED = "waiting", "ok", "error", "muted"
+WAITING, RUNNING, OK, ERROR, MUTED = "waiting", "running", "ok", "error", "muted"
+
+# What a row is: the operator's message, the agent's reply or note, or an action.
+YOU, REPLY, NOTE, ACTION = "you", "reply", "note", "action"
 
 # The levels the agent acts at, as rows name them.
 ASSIST, DRIVE = "assist", "drive"
@@ -87,6 +101,14 @@ class RecentRow:
     level: str = ""
     # The evidence it cites (its record), or None.
     evidence: Optional[Dict[str, Any]] = None
+    # Why it failed, or was refused, declined or rejected; "" otherwise.
+    why: str = ""
+    # YOU, REPLY or NOTE for the conversation, else ACTION.
+    kind: str = ACTION
+
+    @property
+    def conversation(self) -> bool:
+        return self.kind != ACTION
 
 
 def _when(record: Dict[str, Any]) -> str:
@@ -155,7 +177,7 @@ def _command_text(p: Dict[str, Any]) -> str:
 
 
 class RecentActions:
-    """The agent's last `SIZE` actions, newest first."""
+    """The agent's last `SIZE` rows, oldest first."""
 
     def __init__(self, size: int = SIZE) -> None:
         self._size = size
@@ -163,7 +185,7 @@ class RecentActions:
         # What the agent's own rows stand for while it runs: an approved
         # request, a long command.
         self._applying: set = set()
-        # A request's number of actions, for "applying 2 of 3".
+        # A request's number of actions, for "2 of 3".
         self._sizes: Dict[Any, int] = {}
         # Why a request's step failed, for its "failed: ..." row.
         self._failures: Dict[Any, str] = {}
@@ -175,7 +197,7 @@ class RecentActions:
 
     @property
     def rows(self) -> List[RecentRow]:
-        return list(reversed(self._rows.values()))
+        return list(self._rows.values())
 
     def clear(self) -> None:
         self._rows.clear()
@@ -210,23 +232,35 @@ class RecentActions:
         outcome: str,
         tone: str,
         level: Any = None,
+        why: str = "",
+        kind: str = ACTION,
     ):
         level = str(self._level if level is None else level)
+        text = str(text).strip() if kind != ACTION else _cut(text)
         self._rows.pop(key, None)
         self._rows[key] = RecentRow(
-            _when(record), _cut(text), outcome, tone, level, self._citing
+            _when(record),
+            text,
+            outcome,
+            tone,
+            level,
+            self._citing,
+            _cut(why, 120),
+            kind,
         )
         while len(self._rows) > self._size:
             self._rows.popitem(last=False)
         return True
 
-    def _end(self, key: Any, outcome: str, tone: str) -> bool:
+    def _end(self, key: Any, outcome: str, tone: str, why: Any = "") -> bool:
         row = self._rows.get(key)
         if row is None:
             return False
         # A new row, not the old one changed: the card compares the rows it
         # has with the ones it is given, and the same object never differs.
-        self._rows[key] = replace(row, outcome=outcome, tone=tone)
+        self._rows[key] = replace(
+            row, outcome=outcome, tone=tone, why=_cut(str(why or "").strip(), 120)
+        )
         return True
 
     # --- requests --------------------------------------------------------------
@@ -268,11 +302,11 @@ class RecentActions:
     def _on_request_decided(self, record, p, agent):
         request_id = p.get("request_id")
         if p.get("outcome") == "rejected":
-            reason = str(p.get("reason") or "").strip()
-            outcome = f"rejected: {reason}" if reason else "rejected"
-            return self._end(("request", request_id), outcome, MUTED)
+            return self._end(
+                ("request", request_id), "rejected", MUTED, p.get("reason")
+            )
         self._applying.add(request_id)
-        return self._end(("request", request_id), "approved", WAITING)
+        return self._end(("request", request_id), "approved", RUNNING)
 
     def _on_request_applied(self, record, p, agent):
         """One action of an approved request done: the next one runs."""
@@ -283,9 +317,7 @@ class RecentActions:
             self._failures[request_id] = _why_failed(p.get("error"))
         if not p.get("ok") or done >= of:
             return False  # request_finished says how it ended
-        return self._end(
-            ("request", request_id), f"applying {done + 1} of {of}", WAITING
-        )
+        return self._end(("request", request_id), f"{done + 1} of {of}", RUNNING)
 
     def _on_request_finished(self, record, p, agent):
         request_id = p.get("request_id")
@@ -294,19 +326,19 @@ class RecentActions:
         why = self._failures.pop(request_id, "")
         status = p.get("status")
         if status == "applied":
-            return self._end(("request", request_id), "applied", OK)
+            return self._end(("request", request_id), "done", OK)
         if status == "failed":
-            outcome = f"failed: {why}" if why else "failed"
-            return self._end(("request", request_id), outcome, ERROR)
+            return self._end(("request", request_id), "failed", ERROR, why)
         return self._end(("request", request_id), _words(status), MUTED)
 
     def _on_request_cancelled(self, record, p, agent):
         self._applying.discard(p.get("request_id"))
         # The agent taking it back says who ended it (sim session 2026-10-16).
-        outcome = "withdrawn" if p.get("withdrawn") else "cancelled"
-        if not p.get("withdrawn") and p.get("why"):
-            outcome = f"cancelled: {_cut(p['why'], 120)}"
-        return self._end(("request", p.get("request_id")), outcome, MUTED)
+        if p.get("withdrawn"):
+            return self._end(("request", p.get("request_id")), "withdrawn", MUTED)
+        return self._end(
+            ("request", p.get("request_id")), "cancelled", MUTED, p.get("why")
+        )
 
     # --- its suggestions on proposals ---------------------------------------------
 
@@ -328,9 +360,7 @@ class RecentActions:
     def _on_suggestion_declined(self, record, p, agent):
         reason = str(p.get("reason") or "").strip()
         return self._end(
-            ("suggestion", p.get("proposal_id")),
-            f"declined: {reason}" if reason else "declined",
-            MUTED,
+            ("suggestion", p.get("proposal_id")), "declined", MUTED, reason
         )
 
     def _on_proposal_decided(self, record, p, agent):
@@ -341,7 +371,7 @@ class RecentActions:
             return self._end(key, "approved", OK)
         row = self._rows.get(key)
         if row is not None and row.tone == WAITING:
-            return self._end(key, "decided otherwise", MUTED)
+            return self._end(key, "overruled", MUTED)
         return False
 
     # --- what it does itself -----------------------------------------------------
@@ -354,8 +384,11 @@ class RecentActions:
         if str(p.get("route", "")).endswith(_MILL_START):
             return False  # the mill's own row says it, when it ends
         status = p.get("status")
+        text = str(p.get("action") or "").strip() or "Acted"
+        why = ""
         if p.get("ok"):
             outcome, tone = "done", OK
+            text = describe_done(p.get("tool"), p.get("arguments"), text) or text
         elif isinstance(status, int) and status >= 500:
             outcome, tone = "failed", ERROR
         else:
@@ -366,10 +399,15 @@ class RecentActions:
                 or _words(error)
                 or f"error {status}"
             )
-            outcome, tone = f"refused: {why}", ERROR
-        text = str(p.get("action") or "").strip() or "Acted"
+            outcome, tone = "refused", ERROR
         return self._put(
-            ("call", record.get("seq")), record, text, outcome, tone, p.get("level")
+            ("call", record.get("seq")),
+            record,
+            text,
+            outcome,
+            tone,
+            p.get("level"),
+            why,
         )
 
     def _on_command_started(self, record, p, agent):
@@ -385,7 +423,7 @@ class RecentActions:
             record,
             _command_text(p),
             "running",
-            WAITING,
+            RUNNING,
             p.get("level"),
         )
 
@@ -438,13 +476,13 @@ class RecentActions:
 
     def _on_agent_note(self, record, p, agent):
         # Its answer to the operator's message (FIB-1423), or an observation.
-        head = "Reply" if p.get("reply_to") else "Note"
         return self._put(
             ("note", record.get("seq")),
             record,
-            f"{head}: {p.get('text', '')}",
+            p.get("text", ""),
             "",
             MUTED,
+            kind=REPLY if p.get("reply_to") else NOTE,
         )
 
     def _on_operator_message(self, record, p, agent):
@@ -452,10 +490,11 @@ class RecentActions:
         return self._put(
             ("message", record.get("seq")),
             record,
-            f"You: {p.get('text', '')}",
+            p.get("text", ""),
             "",
             MUTED,
             level="",
+            kind=YOU,
         )
 
     def _on_agent_stop(self, record, p, agent):
@@ -479,7 +518,8 @@ class RecentActions:
             ("refused", record.get("seq")),
             record,
             text,
-            f"refused: {why}",
+            "refused",
             ERROR,
             p.get("level"),
+            why,
         )
