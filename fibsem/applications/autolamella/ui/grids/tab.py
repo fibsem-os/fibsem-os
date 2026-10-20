@@ -37,6 +37,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.acting import OPERATOR, acting
+from fibsem.applications.autolamella.run_edits import grid_edit_refusal
 from fibsem.applications.autolamella.structures import Experiment, Lamella
 from fibsem.applications.autolamella.tools.grid_report_pdf import (
     generate_grid_report,
@@ -338,6 +339,7 @@ class GridsTabWidget(QWidget):
                     self.cards.add_grid(grid, self._experiment)
         for card in self.cards.cards:
             card.set_inventory(self._inventory.get(card.grid.name), has_loader)
+            card.set_edits_enabled(not self._busy)
             card.set_controls_enabled(self._controls_enabled and not self._busy)
         self.results_widget.refresh()
         if self.view == VIEW_POSITIONS and self.cards.selected_grid is not None:
@@ -381,7 +383,8 @@ class GridsTabWidget(QWidget):
             return
         # The card greys Rename out for a grid that has run; this is the rule
         # itself, for any other way in.
-        why = grid_rename_refusal(experiment, grid.name, name)
+        why = self._run_refusal(grid.name, "rename it", renaming=True)
+        why = why or grid_rename_refusal(experiment, grid.name, name)
         if why:
             self._say(why, error=True)
             return
@@ -415,11 +418,23 @@ class GridsTabWidget(QWidget):
         deleted (Experiment.remove_grid)."""
         if self._experiment is None:
             return
+        why = self._run_refusal(grid.name, "remove it")
+        if why:
+            self._say(why, error=True)
+            return
         self._experiment.remove_grid(grid.name)
         self.cards.remove_grid(grid)
         self._save()
         self.refresh()
         self.experiment_changed.emit()
+
+    def _run_refusal(self, grid_name: str, what: str, renaming: bool = False) -> str:
+        """Why *what* on the grid must wait for the run, or "" (run_edits)."""
+        if self._session is None or self._experiment is None:
+            return ""
+        return grid_edit_refusal(
+            self._session.runner, self._experiment, grid_name, what, renaming
+        )
 
     def _save(self) -> None:
         if self._experiment is None:

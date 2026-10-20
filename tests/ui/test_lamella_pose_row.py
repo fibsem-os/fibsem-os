@@ -225,3 +225,37 @@ def test_refreshing_an_unknown_pose_is_a_no_op(qapp):
 
     row = widget._list.itemWidget(widget._list.item(0))
     assert "99.00 µm" not in row.position_button.text()
+
+
+def test_a_run_turns_off_only_what_moves_or_reads_the_instrument(qapp):
+    """While a run is on, the stage and objective are the run's: Move to,
+    Update and the objective's Move and Use current go off; the value and
+    Apply to All stay."""
+    from fibsem.applications.autolamella.ui.lamella.selected import (
+        LamellaPoseRowWidget,
+        SelectedLamellaWidget,
+    )
+
+    lamella = _lamella()
+    lamella.fluorescence_pose = _state()
+    lamella.fluorescence_pose.objective_position = 1e-3
+    widget = SelectedLamellaWidget()
+    widget.set_lamella(lamella)
+    widget.set_instrument_actions_enabled(False)
+    rows = [
+        widget.pose_list._list.itemWidget(widget.pose_list._list.item(i))
+        for i in range(widget.pose_list._list.count())
+    ]
+    assert rows and all(isinstance(r, LamellaPoseRowWidget) for r in rows)
+    assert not any(r.btn_move_to.isEnabled() or r.btn_update.isEnabled() for r in rows)
+    assert not widget._action_move_to_obj_pos.isEnabled()
+    assert not widget._action_use_current_obj_pos.isEnabled()
+    assert widget._action_apply_obj_to_all.isEnabled()
+
+    widget.set_lamella(lamella)  # a new selection keeps the run's setting
+    row = widget.pose_list._list.itemWidget(widget.pose_list._list.item(0))
+    assert not row.btn_update.isEnabled()
+
+    widget.set_instrument_actions_enabled(True)
+    assert row.btn_update.isEnabled() and widget._action_use_current_obj_pos.isEnabled()
+    widget.deleteLater()

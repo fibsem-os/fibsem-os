@@ -249,7 +249,22 @@ class TestCards:
         tab.set_controls_enabled(False)
         assert not tab.btn_inventory.isEnabled()
         assert not tab.cards.cards[0]._action_load.isEnabled()
-        assert not tab.cards.cards[0]._action_rename.isEnabled()
+        # Rename is not the loader's: only the grid a run is on keeps its name.
+        assert tab.cards.cards[0]._action_rename.isEnabled()
+
+    def test_a_run_keeps_only_its_own_grid(self, qapp, arctis, experiment):
+        from tests.run_state import run_working_on, stub_session
+
+        session = stub_session()
+        tab = GridsTabWidget(synchronous=True, session=session)
+        tab.set_microscope(arctis)
+        tab.set_experiment(experiment)
+        tab.btn_inventory.click()
+        with run_working_on(session.runner, "Grid-01"):
+            tab.cards.remove_requested.emit(experiment.get_grid_by_name("Grid-01"))
+            assert "working on Grid-01" in tab.status_label.text()
+            tab.cards.remove_requested.emit(experiment.get_grid_by_name("Grid-02"))
+        assert [g.name for g in experiment.grids] == ["Grid-01", "Grid-03"]
 
     def test_remove_stops_tracking_the_grid(self, tab, experiment):
         tab.btn_inventory.click()
@@ -555,18 +570,21 @@ class TestNamingOnTheSampleView:
             == "Grid-01"
         )
 
-    def test_nothing_is_renamed_while_a_workflow_runs(self, main_ui, tmp_path):
+    def test_the_grid_a_run_is_on_is_not_renamed(self, main_ui, tmp_path):
         """The run's queue holds grids by name."""
+        from tests.run_state import run_working_on
+
         ui, microscope, exp = _window_with_magazine(main_ui, tmp_path)
 
         runner = ui.session.runner
-        ui.session.runner = StubRunner(ui.session, is_running=True)
+        ui.session.runner = StubRunner(ui.session)
         try:
-            _name_on_the_sample_view(ui, 1, "grid-birch")
+            with run_working_on(ui.session.runner, "Grid-02"):
+                _name_on_the_sample_view(ui, 1, "grid-birch")
         finally:
             ui.session.runner = runner
         assert [g.name for g in exp.grids] == ["Grid-01", "Grid-02", "Grid-03"]
-        assert "while a workflow is running" in (
+        assert "working on Grid-02" in (
             ui.panel.sample_widget.loader_widget.status_label.text()
         )
 

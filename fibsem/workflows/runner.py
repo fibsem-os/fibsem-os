@@ -217,6 +217,22 @@ class WorkflowRunner:
         return self._thread is not None
 
     @property
+    def working_on(self) -> Optional[str]:
+        """The item the run's task is on now, by name; None with no run."""
+        manager = self.manager
+        active = manager.queue.active if manager is not None else None
+        return active.item_name if active is not None else None
+
+    def busy_refusal(self, names: Sequence[str], what: str) -> str:
+        """Why *what* must wait, or "": the run is working on one of *names*.
+        Everything else may be edited while it runs, by the window and the
+        agent alike."""
+        name = self.working_on
+        if name is None or name not in names:
+            return ""
+        return f"The run is working on {name}; {what} when it has moved on."
+
+    @property
     def should_abort(self) -> bool:
         """Whether the task now running should unwind (see
         ``BaseTaskManager.should_abort``); False with no run."""

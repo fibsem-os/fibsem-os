@@ -890,15 +890,19 @@ class AutoLamellaWindow(QMainWindow):
 
         The experiment's record follows a slot's name, so the Grids tab's rules
         apply: a grid that has run keeps its name, and two grids cannot share
-        one. Nothing is renamed while a workflow runs, since its queue holds
-        grids by name. With no experiment open there is no record to protect.
+        one. A grid a run is on, or has queued, keeps its name until the run
+        is done with it (run_edits). With no experiment open there is no record
+        to protect.
         """
+        from fibsem.applications.autolamella.run_edits import grid_edit_refusal
+
         experiment = self.experiment
         if experiment is None:
             return ""
-        if self.session.runner.is_running:
-            return "Grids cannot be renamed while a workflow is running."
-        return grid_rename_refusal(experiment, old, new)
+        why = grid_edit_refusal(
+            self.session.runner, experiment, old, "rename it", renaming=True
+        )
+        return why or grid_rename_refusal(experiment, old, new)
 
     def _on_slot_grid_renamed(self, old: str, new: str) -> None:
         """A grid renamed on the Sample view: its record takes the new name, with
@@ -1099,6 +1103,7 @@ class AutoLamellaWindow(QMainWindow):
             self.lamella_tab.editor.set_active_lamella_name(lamella_name, task_name)
         else:
             self.lamella_tab.editor.set_active_lamella_name(None)
+        self.panel.experiment_tab.refresh_run_edits()
 
         # Refresh only the affected lamella if we can identify it
         lamella = None
@@ -1282,7 +1287,16 @@ class AutoLamellaWindow(QMainWindow):
 
     def _on_lamella_remove_requested(self, lamella: "Lamella"):
         """Remove the given lamella from the experiment after the list widget has already removed its row."""
+        from fibsem.applications.autolamella.run_edits import lamella_edit_refusal
+
         if self.experiment is None:
+            return
+        why = lamella_edit_refusal(
+            self.session.runner, self.experiment, lamella, "remove it"
+        )
+        if why:
+            self._rebuild_lamella_list()  # its row has gone already
+            notification_service.show_toast(why, "warning")
             return
         if not remove_lamella(self.experiment, lamella):
             return

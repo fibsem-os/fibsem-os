@@ -2,11 +2,14 @@
 are read through ``session.runner`` without starting a real run."""
 
 import threading
+from contextlib import contextmanager
 from dataclasses import replace
+from types import SimpleNamespace
 from typing import Any, Callable, List, Optional
 
 from psygnal import Signal
 
+from fibsem.workflows.queue import TaskQueue
 from fibsem.workflows.runner import (
     APP_RUNS,
     GRIDS,
@@ -46,6 +49,24 @@ def stub_session(manager: Optional[Any] = None, is_running: bool = False) -> App
     session = AppSession()
     session.runner = StubRunner(session, manager, is_running)
     return session
+
+
+@contextmanager
+def run_working_on(
+    runner: StubRunner, item_name: str, queued: tuple = (), kind: str = ITEMS
+):
+    """A *kind* run on *item_name* now, with *queued* waiting: what the edit
+    refusals (run_edits) read."""
+    queue = TaskQueue()
+    queue.build_from_pairs([(item_name, "Task")] + [(n, "Task") for n in queued])
+    queue.next()
+    before = runner.manager, runner.is_running
+    manager = SimpleNamespace(queue=queue, RUN_KIND=kind)
+    runner.manager, runner.is_running = manager, True
+    try:
+        yield
+    finally:
+        runner.manager, runner.is_running = before
 
 
 class Stopped:

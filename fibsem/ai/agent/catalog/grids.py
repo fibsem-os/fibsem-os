@@ -151,7 +151,8 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "first (the loader's slot description, or the holder's record), then "
             "the experiment's record, with its history and lamellae. Refused for "
             "a grid that has run (its folder and images carry the name), a name "
-            "another grid has, and while a workflow runs."
+            "another grid has, and while a run is on it or one of its lamellae "
+            "or has it queued."
         ),
         method="POST",
         path="/app/experiment/grids/{grid_name}/rename",
@@ -196,7 +197,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="grid_remove",
-        description="Stop tracking a grid, as the Grids tab's Remove does: its files stay on disk, and its lamellae stay with no grid (answered as items_without_grid). Refused while a workflow runs.",
+        description="Stop tracking a grid, as the Grids tab's Remove does: its files stay on disk, and its lamellae stay with no grid (answered as items_without_grid). Refused while a run is on it or one of its lamellae.",
         method="DELETE",
         path="/app/experiment/grids/{grid_name}",
         level="drive",

@@ -217,6 +217,7 @@ class GridCardWidget(QWidget):
         self._entry: Optional[GridInventoryEntry] = None
         self._has_loader = False
         self._controls_enabled = True
+        self._edits_enabled = True
         self.setFixedWidth(_CARD_WIDTH)
 
         outer = QVBoxLayout(self)
@@ -399,6 +400,12 @@ class GridCardWidget(QWidget):
         self._controls_enabled = enabled
         self.refresh()
 
+    def set_edits_enabled(self, enabled: bool) -> None:
+        """Whether Rename is on. A run doesn't turn it off: the host refuses
+        only the grid the run is on (run_edits)."""
+        self._edits_enabled = enabled
+        self._action_rename.setEnabled(enabled and not grid_has_run(self.grid))
+
     # -- drawing ---------------------------------------------------------------
 
     def refresh(self) -> None:
@@ -463,7 +470,7 @@ class GridCardWidget(QWidget):
         self._action_unload.setVisible(self._has_loader and self.loaded)
         self._action_unload.setEnabled(can)
         fixed = grid_has_run(grid)
-        self._action_rename.setEnabled(can and not fixed)
+        self._action_rename.setEnabled(self._edits_enabled and not fixed)
         self._action_rename.setToolTip(NAME_FIXED_REASON if fixed else "")
 
     @property
