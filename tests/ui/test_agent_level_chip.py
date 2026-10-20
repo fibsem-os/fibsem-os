@@ -388,7 +388,7 @@ def test_an_approved_request_shows_its_progress(qapp):
     chip = AgentLevelChip()
     chip.set_level(AgentLevel.ASSIST)
     chip.set_request(_request("applying", results=[{"index": 0, "ok": True}]))
-    assert chip.text() == "Agent: applying 2/3"
+    assert chip.text() == "Agent: running 2/3"  # the step, in a word (FIB-1492)
     card = chip.card
     shown = _labels(card)
     assert "✓" in shown and "…" in shown and "○" in shown
@@ -672,7 +672,7 @@ def test_the_window_shows_the_request_and_passes_on_the_decision(main_ui, host):
 
     chip.approve_clicked.emit("ab12")
     assert host.requests.decided == [("approve", "ab12")]
-    assert chip.text() == "Agent: applying 1/3"
+    assert chip.text() == "Agent: running 1/3"
 
     host.requests.requests = [_request("pending", request_id="cd34")]
     main_ui.agent_host.refresh()
@@ -1437,3 +1437,19 @@ def test_a_recent_row_with_evidence_opens_it(qapp, tmp_path):
     assert window is not None and "Stage · Move 2 µm in x" in _labels(window)
     window.close()
     card.deleteLater()
+
+
+def test_the_chip_names_the_step_it_is_running():
+    """Round 10 (FIB-1492): "applying" read as writing a config, whatever the
+    step was."""
+    from fibsem.ui.agent.level_chip import chip_request_text
+
+    def running(tool):
+        return chip_request_text(
+            {"status": "applying", "actions": [{"tool": tool}], "results": []}
+        )
+
+    assert running("milling_run_task") == "Agent: milling 1/1"
+    assert running("stage_move_relative") == "Agent: moving 1/1"
+    assert running("beam_acquire_image") == "Agent: imaging 1/1"
+    assert running("item_update") == "Agent: running 1/1"

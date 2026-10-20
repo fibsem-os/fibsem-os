@@ -803,12 +803,14 @@ class RequestStore:
         )
         return join_line(line.get("what"), line.get("change"))
 
-    def _read(self, path: str) -> Optional[Dict[str, Any]]:
+    def _read(
+        self, path: str, kwargs: Optional[Dict[str, Any]] = None
+    ) -> Optional[Dict[str, Any]]:
         """Read a route in this process: the document a config edit patches, or
-        a service query's answer (a query moves nothing), such as which grid an
-        exchange unloads."""
+        a service query's answer with *kwargs* (a query moves nothing), such as
+        which grid an exchange unloads or how long an overview takes."""
         method, body = (
-            ("POST", {"kwargs": {}}) if "/queries/" in path else ("GET", None)
+            ("POST", {"kwargs": kwargs or {}}) if "/queries/" in path else ("GET", None)
         )
         code, answer = asyncio.run(
             _asgi_call(self._app, method, path, body, self._auth.token)

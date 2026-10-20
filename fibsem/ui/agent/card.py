@@ -995,7 +995,9 @@ class AgentCard(QFrame):
         left.addWidget(box)
         left.addSpacing(4)
         self._add_reason(left, suggestion.get("reason", ""))
-        self._add_evidence(left, suggestion.get("evidence"))
+        self._add_evidence(
+            left, suggestion.get("evidence"), suggestion.get("no_evidence")
+        )
         left.addStretch(1)
 
         right = QVBoxLayout()
@@ -1119,14 +1121,19 @@ class AgentCard(QFrame):
         column.addWidget(self.why_link, 0, Qt.AlignLeft)  # type: ignore
 
     def _add_evidence(
-        self, column: QVBoxLayout, evidence: Optional[Dict[str, Any]]
+        self,
+        column: QVBoxLayout,
+        evidence: Optional[Dict[str, Any]],
+        none: Optional[str] = None,
     ) -> None:
-        """ "No evidence" under Why when the agent gave none; its image, when it
-        gave one, is the card's picture."""
+        """ "No evidence" (or *none*) under Why when the agent gave none; its
+        image, when it gave one, is the card's picture."""
         self.evidence_label = None
         if evidence:
             return
-        self.evidence_label = _label("No evidence", TEXT_MUTED_COLOR, small=True)
+        self.evidence_label = _label(
+            none or "No evidence", TEXT_MUTED_COLOR, small=True
+        )
         column.addWidget(self.evidence_label)
 
     def _evidence_image(self, evidence: Dict[str, Any]) -> Optional[QImage]:

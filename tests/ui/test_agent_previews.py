@@ -578,14 +578,33 @@ def test_an_item_edit_s_nested_alignment_area_is_drawn_too():
     assert layer.areas == [[pytest.approx((50.0, 50.0)), pytest.approx((150.0, 75.0))]]
 
 
-def test_an_item_edit_without_an_image_of_the_item_says_so():
+def test_an_item_s_area_without_an_image_of_the_item_says_so():
     # Never the live view instead: it may be at another lamella.
     controller = _Controller()
     card = _Card()
     previews = AgentPreviews(lambda: controller, show_picture=card)
-    previews.show_request(_item_edit("mn56"))
+    request = _item_edit("mn56")
+    patch = request["actions"][0]["arguments"]["patch"]
+    del patch["poi.x"], patch["poi.y"]
+    previews.show_request(request)
     assert previews.request_picture is None
     assert card.notes == "No FIB image of 01-full-magpie yet to draw on"
+
+
+def test_a_new_lamella_s_point_without_an_image_is_drawn_on_the_live_view():
+    """Round 10 (FIB-1492): a new lamella, before Setup, has no image of its
+    own; it was added on the live view."""
+    controller = _Controller()
+    card = _Card()
+    previews = AgentPreviews(lambda: controller, show_picture=card)
+    request = _item_edit("op78")
+    request["actions"][0]["arguments"]["patch"] = {"poi.x": -10e-6, "poi.y": 0.0}
+    previews.show_request(request)
+    frame, layer = _layer(previews.request_picture)
+    assert frame is controller.image(BeamType.ION)  # 0.5 µm/px
+    assert layer.crosses == [pytest.approx((80.0, 50.0))]
+    _, caption = card.shown
+    assert caption.startswith("01-full-magpie, on the live view")
 
 
 def test_the_card_s_picture_is_the_image_with_its_marks_drawn():
