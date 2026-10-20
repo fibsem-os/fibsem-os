@@ -15,7 +15,8 @@ from fibsem.util import wording
 _OVERVIEW_RULE = (
     " An overview the operator asks for is the whole grid, from its centre "
     "(grid_move_to first) with the tiles the stage can't reach turned off; a "
-    "tile set (e.g. 3 x 3 at 500 um) is where the stage is, at the size given."
+    "tile set (e.g. 3 x 3 at 500 um) is where the stage is, at the size given. "
+    "One image is beam_acquire_image or fm_acquire_image, never a 1 x 1 overview."
 )
 
 # A fresh image's settings when the agent leaves one out: the tool's defaults,
