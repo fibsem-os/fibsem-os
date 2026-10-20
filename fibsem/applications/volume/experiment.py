@@ -11,10 +11,11 @@ import yaml
 
 from fibsem.applications.volume.position import MILL_POSE, VolumePosition
 from fibsem.applications.volume.protocol import VolumeProtocol
-from fibsem.structures import MicroscopeState, Point
+from fibsem.structures import FibsemRectangle, MicroscopeState, Point
 from fibsem.workflows.deciding import ProposalDecisions
 from fibsem.workflows.experiment import EXPERIMENT_FILENAME, BaseExperiment
 from fibsem.workflows.saved_format import check_app
+from fibsem.workflows.status import TaskStatus
 
 PROTOCOL_FILENAME = "protocol.yaml"
 
@@ -74,7 +75,96 @@ class VolumeExperiment(ProposalDecisions, BaseExperiment):
             iterations=iterations,
         )
         self.positions.append(position)
+        self.save()
         return position
+
+    # -- edits ---------------------------------------------------------------------
+    # What a route or a widget calls. Each returns why it refused, with nothing
+    # changed, or "" once it is made and saved.
+
+    def rename_position(self, name: str, new_name: str) -> str:
+        """Rename ``name``, and its folder. A position that has run keeps its
+        name: its record and files are under it."""
+        position = self.get_position_by_name(name)
+        new_name = new_name.strip()
+        if position is None:
+            return f"No position named {name!r}."
+        if not new_name:
+            return "A position needs a name."
+        if new_name == name:
+            return ""
+        if self.get_position_by_name(new_name) is not None:
+            return f"There is already a position named {new_name!r}."
+        if position.task_history:
+            return f"{name} has run, so it keeps its name."
+        old_path = self.position_path(position)
+        position.name = new_name
+        new_path = self.position_path(position)
+        if new_path.exists():
+            position.name = name
+            return f"{new_path} already exists."
+        if old_path.exists():
+            os.rename(old_path, new_path)
+        self.save()
+        return ""
+
+    def remove_position(self, name: str) -> str:
+        """Take ``name`` out of the experiment. Its folder stays on disk."""
+        position = self.get_position_by_name(name)
+        if position is None:
+            return f"No position named {name!r}."
+        self.positions.remove(position)
+        self.save()
+        return ""
+
+    def set_iterations(self, name: str, iterations: int) -> str:
+        """Cut ``name`` into ``iterations`` slices; never fewer than it has cut."""
+        position = self.get_position_by_name(name)
+        if position is None:
+            return f"No position named {name!r}."
+        if iterations < 1:
+            return "A position needs at least one slice."
+        cut = self._slices_cut(position)
+        if iterations < cut:
+            return f"{name} has already cut {cut} slices."
+        position.iterations = int(iterations)
+        self.save()
+        return ""
+
+    def set_poi(self, name: str, poi: Point) -> str:
+        """Move ``name``'s point of interest, before its first slice: the
+        slices step down from it."""
+        position = self.get_position_by_name(name)
+        if position is None:
+            return f"No position named {name!r}."
+        if not isinstance(poi, Point):
+            return f"The point of interest must be a point, not {type(poi).__name__}."
+        if self._slices_cut(position):
+            return f"{name} has cut slices from its point of interest."
+        position.poi = Point(poi.x, poi.y)
+        self.save()
+        return ""
+
+    def set_alignment_area(self, name: str, area: FibsemRectangle) -> str:
+        """Set where ``name``'s alignment references are taken; inside the frame."""
+        position = self.get_position_by_name(name)
+        if position is None:
+            return f"No position named {name!r}."
+        if not isinstance(area, FibsemRectangle) or not area.is_valid_reduced_area:
+            return "The alignment area must be a rectangle inside the frame."
+        position.alignment_area = area
+        self.save()
+        return ""
+
+    def _slices_cut(self, position: VolumePosition) -> int:
+        """How many slices ``position`` has cut: a per-slice task completed."""
+        return len(
+            {
+                state.iteration
+                for state in position.task_history
+                if state.iteration is not None and state.status is TaskStatus.Completed
+            }
+        )
 
     # -- saved form --------------------------------------------------------------
 

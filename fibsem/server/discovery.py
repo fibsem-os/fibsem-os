@@ -13,6 +13,7 @@ one owns the file.
 
 import json
 import os
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
@@ -110,10 +111,45 @@ def remove_discovery_file(path: Optional[Path] = None) -> None:
 
 
 def _pid_alive(pid) -> bool:
-    if not isinstance(pid, int):
+    if not isinstance(pid, int) or not 0 < pid < 2**32:
         return False
+    if sys.platform == "win32":
+        return _windows_pid_alive(pid)
     try:
         os.kill(pid, 0)
     except OSError:
         return False
     return True
+
+
+def _windows_pid_alive(pid: int) -> bool:
+    """Whether a Windows process is still running, from its exit code.
+
+    Never ``os.kill(pid, 0)`` here: on Windows signal 0 is ``CTRL_C_EVENT``,
+    so it sends a Ctrl-C to the console process group ``pid`` instead of
+    asking whether it exists.
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    process_query_limited_information = 0x1000
+    still_active = 259
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.GetExitCodeProcess.argtypes = (
+        wintypes.HANDLE,
+        ctypes.POINTER(wintypes.DWORD),
+    )
+    kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    handle = kernel32.OpenProcess(process_query_limited_information, False, pid)
+    if not handle:
+        return False
+    try:
+        code = wintypes.DWORD()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return False
+        return code.value == still_active
+    finally:
+        kernel32.CloseHandle(handle)
