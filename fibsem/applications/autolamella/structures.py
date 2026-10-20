@@ -6,7 +6,7 @@ import uuid
 from abc import ABC
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field, fields
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
 from typing import (
@@ -298,6 +298,10 @@ class AutoLamellaTaskDescription:
         return cls(**data)
 
 
+# A task may be scheduled to start up to this many days ahead.
+SCHEDULE_DAYS_AHEAD = 2
+
+
 @evented
 @dataclass
 class AutoLamellaWorkflowConfig:
@@ -424,6 +428,34 @@ class AutoLamellaWorkflowConfig:
             task.requires = list(requires)
         if required is not None:
             task.required = bool(required)
+        return ""
+
+    def set_attention(self, task_name: str, attention: Attention) -> str:
+        """Set who decides *task_name*'s record. Why not, with nothing
+        changed, or "". The status bar's and the task row's chips, and the App
+        Server's supervision."""
+        task = next((t for t in self.tasks if t.name == task_name), None)
+        if task is None:
+            return f"No task named {task_name!r} in the workflow."
+        task.attention = Attention(attention)
+        return ""
+
+    def set_schedule(self, task_name: str, scheduled_at: Optional[datetime]) -> str:
+        """Set when *task_name* may start, no more than SCHEDULE_DAYS_AHEAD
+        days from now; None clears it, and a time already past starts it at
+        once. A naive time is local. Why not, with nothing changed, or "". The
+        Workflow tab's Edit Task and the App Server's schedule."""
+        task = next((t for t in self.tasks if t.name == task_name), None)
+        if task is None:
+            return f"No task named {task_name!r} in the workflow."
+        if scheduled_at is not None and scheduled_at.astimezone() - now() > timedelta(
+            days=SCHEDULE_DAYS_AHEAD
+        ):
+            return (
+                f"{task_name} can be scheduled up to {SCHEDULE_DAYS_AHEAD} days "
+                "from now."
+            )
+        task.scheduled_at = scheduled_at
         return ""
 
     def add_task(self, task: AutoLamellaTaskConfig) -> None:

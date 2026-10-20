@@ -77,6 +77,7 @@ from fibsem.applications.autolamella.ui.workflow_controls import (
     WorkflowControls,
 )
 from fibsem.applications.autolamella.ui.workflow_tab import WorkflowTab
+from fibsem.applications.autolamella.workflow_edits import set_supervision
 from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import MicroscopeSettings
@@ -429,20 +430,23 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         return supervised
 
     def _on_supervised_status_clicked(self):
-        """Toggle supervision for the current task in the protocol."""
+        """Toggle supervision for the current task, as the agent's
+        ``set_supervision`` does: saved and on the record."""
         if self._current_task_name is None:
             return
         protocol = self.protocol
         if protocol is None:
             return
-        for task in protocol.workflow_config.tasks:
-            if task.name == self._current_task_name:
-                task.attention = (
-                    Attention.automated
-                    if task.attention is Attention.supervised
-                    else Attention.supervised
-                )
-                break
+        supervised = (
+            protocol.workflow_config.get_attention(self._current_task_name)
+            is Attention.supervised
+        )
+        set_supervision(
+            self.experiment,
+            self._current_task_name,
+            not supervised,
+            self.session.record_event,
+        )
         self._update_supervised_status()
         if self.session.runner.is_running:
             self.run_border.set_state(

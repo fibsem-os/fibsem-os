@@ -26,7 +26,10 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.acting import OPERATOR
-from fibsem.applications.autolamella.structures import Experiment
+from fibsem.applications.autolamella.structures import (
+    AutoLamellaTaskDescription,
+    Experiment,
+)
 from fibsem.applications.autolamella.ui.grid_workflow_widget import (
     GridRunPreflightDialog,
     GridWorkflowWidget,
@@ -292,7 +295,6 @@ class WorkflowTab(QWidget):
         # Each task or workflow change is saved to the experiment's protocol.
         for signal in (
             self.lamella_workflow_widget.task_attention_changed,
-            self.lamella_workflow_widget.task_edited,
             self.lamella_workflow_widget.task_remove_requested,
             self.lamella_workflow_widget.task_added,
             self.lamella_workflow_widget.workflow_name_changed,
@@ -300,6 +302,7 @@ class WorkflowTab(QWidget):
             self.lamella_workflow_widget.workflow_options_changed,
         ):
             signal.connect(self._save_workflow_config)
+        self.lamella_workflow_widget.task_edited.connect(self._on_task_edited)
         self.lamella_workflow_widget.task_order_changed.connect(
             self._on_workflow_task_order_changed
         )
@@ -637,6 +640,27 @@ class WorkflowTab(QWidget):
             return
         protocol.workflow_config.tasks[:] = self.lamella_workflow_widget.get_tasks()
         self._on_config_changed(protocol.workflow_config)
+
+    def _on_task_edited(self, edited: AutoLamellaTaskDescription) -> None:
+        """Edit Task's Apply: into the protocol through the workflow config's
+        rules, as the App Server's requirements and schedule are. A refused
+        part is said, and the rest is kept."""
+        experiment = self._session.experiment
+        if experiment is None or experiment.task_protocol is None:
+            return
+        config = experiment.task_protocol.workflow_config
+        refusals = [
+            why
+            for why in (
+                config.set_requirements(edited.name, edited.requires, edited.required),
+                config.set_schedule(edited.name, edited.scheduled_at),
+            )
+            if why
+        ]
+        if refusals:
+            notification_service.show_toast(" ".join(refusals), "warning")
+        self.lamella_workflow_widget.workflow.refresh_all()
+        self._on_config_changed(config)
 
     def _on_workflow_task_order_changed(self, tasks) -> None:
         """A drag put the workflow's tasks in a new order: into the protocol

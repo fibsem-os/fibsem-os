@@ -250,7 +250,7 @@ class WorkflowRunner:
         if actor is None or not self.is_running:
             return
         logging.info("%s stopped by the %s (%s)", stopped.capitalize(), actor, via)
-        buffer = self._event_buffer()
+        buffer = self._session.event_buffer
         if buffer is not None:
             buffer.append(
                 ACTION,
@@ -562,7 +562,7 @@ class WorkflowRunner:
         if not items:
             return
         manager.notify_queue_changed()
-        buffer = self._event_buffer()
+        buffer = self._session.event_buffer
         if buffer is None:
             return
         for item in items:
@@ -576,15 +576,6 @@ class WorkflowRunner:
                 },
                 actor=actor,
             )
-
-    def _event_buffer(self) -> Optional[Any]:
-        """The session's event stream: the App Server's when one is hosted
-        (the recorder's, or its own without one), else the recorder's."""
-        host = self._session.app_server
-        if host is not None and getattr(host, "event_buffer", None) is not None:
-            return host.event_buffer
-        recorder = self._session.recorder
-        return recorder.buffer if recorder is not None else None
 
     def join(self, timeout: Optional[float] = None) -> bool:
         """Wait for the run to end; whether it has."""

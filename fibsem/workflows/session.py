@@ -237,6 +237,23 @@ class AppSession:
                 )
         return self.plain_experiment
 
+    @property
+    def event_buffer(self) -> Optional[Any]:
+        """The session's event stream: the App Server's when one is hosted
+        (the recorder's, or its own without one), else the recorder's."""
+        host = self.app_server
+        if host is not None and getattr(host, "event_buffer", None) is not None:
+            return host.event_buffer
+        recorder = self.recorder
+        return recorder.buffer if recorder is not None else None
+
+    def record_event(self, kind: str, payload: Dict[str, Any]) -> None:
+        """Put an event on the session's record, as whoever marked this
+        thread; nothing without a stream."""
+        buffer = self.event_buffer
+        if buffer is not None:
+            buffer.append(kind, payload)
+
     def start_recording(self) -> None:
         """Record events for the connected microscope.
 

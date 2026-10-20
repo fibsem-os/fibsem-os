@@ -142,3 +142,18 @@ def test_the_schedule_controls_are_on_screen(qapp):
 
     assert not editor._schedule_container.isHidden()
     editor.deleteLater()
+
+
+def test_apply_emits_a_copy_and_leaves_the_task_alone(qapp):
+    """The host changes the task, through the workflow config's rules."""
+    task = _task()
+    editor = WorkflowTaskEditorWidget(task)
+    editor._optional_cb.setChecked(True)
+    editor._schedule_cb.setChecked(True)
+
+    applied = _applied(editor)
+
+    assert applied is not task
+    assert applied.required is False and applied.scheduled_at is not None
+    assert task.required is True and task.scheduled_at is None
+    editor.deleteLater()

@@ -230,7 +230,7 @@ class LamellaWorkflowWidget(QWidget):
 
     # ── workflow signals ─────────────────────────────────────────────────
     task_attention_changed = pyqtSignal(object)  # AutoLamellaTaskDescription
-    task_edited = pyqtSignal(object)  # AutoLamellaTaskDescription (after apply)
+    task_edited = pyqtSignal(object)  # AutoLamellaTaskDescription: the edited copy
     task_remove_requested = pyqtSignal(object)  # AutoLamellaTaskDescription
     task_added = pyqtSignal(object)  # AutoLamellaTaskDescription
     task_selection_changed = pyqtSignal(list)  # List[AutoLamellaTaskDescription]
@@ -247,7 +247,7 @@ class LamellaWorkflowWidget(QWidget):
         self.experiment: Optional[Experiment] = None
 
         self._editor_dialog = _TaskEditorDialog(self)
-        self._editor_dialog.editor.apply_clicked.connect(self._on_task_applied)
+        self._editor_dialog.editor.apply_clicked.connect(self.task_edited)
         self._editor_dialog.remove_requested.connect(self._on_task_remove_confirmed)
 
         root = QVBoxLayout(self)
@@ -388,10 +388,6 @@ class LamellaWorkflowWidget(QWidget):
         # the list drops the row and re-emits remove_requested, which is wired
         # to task_remove_requested above
         self.workflow.request_remove(task)
-
-    def _on_task_applied(self, task: AutoLamellaTaskDescription) -> None:
-        self.workflow.refresh_task(task)
-        self.task_edited.emit(task)
 
     def _on_add_task_clicked(self) -> None:
         # Import here to avoid circular imports at module level

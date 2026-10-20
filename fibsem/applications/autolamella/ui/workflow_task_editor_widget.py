@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import List, Optional
 
 from PyQt5.QtCore import QDateTime, QSize, Qt, pyqtSignal
@@ -17,7 +18,10 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskDescription
+from fibsem.applications.autolamella.structures import (
+    SCHEDULE_DAYS_AHEAD,
+    AutoLamellaTaskDescription,
+)
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
@@ -31,8 +35,6 @@ from fibsem.ui.widgets.custom_widgets import TitledPanel
 _ROW_HEIGHT = 40
 # Requirements list shows up to this many rows before it starts to scroll.
 _MAX_VISIBLE_REQS = 5
-# A task may be scheduled from now up to this many days in advance.
-_MAX_SCHEDULE_DAYS_AHEAD = 2
 _NAME_PILL_STYLE = (
     f"font-size: 12px; font-weight: bold; color: {TEXT_COLOR}; background: #2d3340;"
     f" border: 1px solid {BORDER_COLOR}; border-radius: 10px; padding: 2px 10px;"
@@ -89,7 +91,9 @@ class WorkflowTaskEditorWidget(QWidget):
 
     Signals
     -------
-    apply_clicked  : emits a *copy* of the task with the edited values applied.
+    apply_clicked  : emits a *copy* of the task with the edited values; the
+                     task itself is left for the host to change through the
+                     workflow config's rules.
     cancel_clicked : emits when the user clicks Cancel.
     """
 
@@ -279,21 +283,21 @@ class WorkflowTaskEditorWidget(QWidget):
         return QDateTime(sa.year, sa.month, sa.day, sa.hour, sa.minute)
 
     def _apply_schedule_bounds(self) -> None:
-        """Restrict the picker to [now, now + _MAX_SCHEDULE_DAYS_AHEAD days].
+        """Restrict the picker to [now, now + SCHEDULE_DAYS_AHEAD days].
 
         Refreshed whenever a task loads so the window tracks the current time.
         Qt clamps both stepping and typed input to these bounds.
         """
         now = QDateTime.currentDateTime()
         self._dt_edit.setMinimumDateTime(now)
-        self._dt_edit.setMaximumDateTime(now.addDays(_MAX_SCHEDULE_DAYS_AHEAD))
+        self._dt_edit.setMaximumDateTime(now.addDays(SCHEDULE_DAYS_AHEAD))
 
     def _on_bound_exceeded(self, which: str) -> None:
         """Show a warning hint when the user steps past the allowed window."""
         if which == "max":
             self._sched_hint.setText(
                 f"That's as far ahead as you can schedule — up to "
-                f"{_MAX_SCHEDULE_DAYS_AHEAD} days from now."
+                f"{SCHEDULE_DAYS_AHEAD} days from now."
             )
         else:
             self._sched_hint.setText(
@@ -306,10 +310,10 @@ class WorkflowTaskEditorWidget(QWidget):
         if self._schedule_cb.isChecked():
             text = (
                 f"Starts {self._offset_from_now()} from now · up to "
-                f"{_MAX_SCHEDULE_DAYS_AHEAD} days ahead."
+                f"{SCHEDULE_DAYS_AHEAD} days ahead."
             )
         else:
-            text = f"Up to {_MAX_SCHEDULE_DAYS_AHEAD} days ahead."
+            text = f"Up to {SCHEDULE_DAYS_AHEAD} days ahead."
         self._sched_hint.setText(text)
         self._sched_hint.setStyleSheet(_HINT_STYLE)
 
@@ -383,14 +387,20 @@ class WorkflowTaskEditorWidget(QWidget):
         )
 
     def _on_apply(self) -> None:
-        self._task.required = not self._optional_cb.isChecked()
-        self._task.requires = [
-            row.name_label.text() for row in self._req_rows if row.checkbox.isChecked()
-        ]
+        scheduled_at = None
         if self._schedule_cb.isChecked():
-            self._task.scheduled_at = (
+            scheduled_at = (
                 self._dt_edit.dateTime().toPyDateTime().replace(second=0, microsecond=0)
             )
-        else:
-            self._task.scheduled_at = None
-        self.apply_clicked.emit(self._task)
+        self.apply_clicked.emit(
+            replace(
+                self._task,
+                required=not self._optional_cb.isChecked(),
+                requires=[
+                    row.name_label.text()
+                    for row in self._req_rows
+                    if row.checkbox.isChecked()
+                ],
+                scheduled_at=scheduled_at,
+            )
+        )

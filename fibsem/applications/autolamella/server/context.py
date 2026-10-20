@@ -2342,74 +2342,37 @@ class AutoLamellaAppContext:
         return result
 
     def set_supervision(self, task_name: str, supervise: bool) -> Dict[str, Any]:
-        """Set whether ``task_name`` asks for supervision, in the live protocol.
+        """Set whether ``task_name`` asks for supervision, as the status bar's
+        and the task row's chips do (``workflow_edits.set_supervision``). The
+        GUI's indicators refresh on the next task transition."""
+        from fibsem.applications.autolamella.workflow_edits import set_supervision
 
-        The workflow reads this at every decision point (never a snapshot), so
-        a change takes effect at the next prompt-or-proceed choice — exactly
-        the mid-run behaviour the GUI's supervised/automated toggle has. The
-        GUI's own indicators refresh on the next task transition rather than
-        instantly.
-
-        A supervised proposal goes to the operator and the agent alike, and the
-        first decision wins (FIB-1035).
-        """
         experiment = self._experiment
-        protocol = getattr(experiment, "task_protocol", None) if experiment else None
-        config = getattr(protocol, "workflow_config", None) if protocol else None
-        if config is None:
+        if experiment is None or experiment.task_protocol is None:
             return {"available": False, "applied": False}
-        for task in config.tasks:
-            if task.name == task_name:
-                task.attention = (
-                    Attention.supervised if supervise else Attention.automated
-                )
-                # Saved with the protocol, as the Workflow tab's chip saves it and
-                # as the schedule is: an agent's change survives a reload too.
-                saved = True
-                try:
-                    experiment.save(save_protocol=True)
-                except Exception:
-                    saved = False
-                    logging.exception(
-                        "save after supervision change failed; the change is "
-                        "applied in memory but not yet on disk"
-                    )
-                self.record_event(
-                    "workflow_changed",
-                    {
-                        "field": "attention",
-                        "task_name": task_name,
-                        "supervise": bool(supervise),
-                    },
-                )
-                return {
-                    "available": True,
-                    "applied": True,
-                    "saved": saved,
-                    "task_name": task_name,
-                    "supervise": bool(supervise),
-                }
         return {
             "available": True,
-            "applied": False,
-            "error": f"No task named {task_name!r} in the protocol.",
-            "task_names": [t.name for t in config.tasks],
+            **set_supervision(experiment, task_name, supervise, self.record_event),
         }
 
     def set_task_schedule(
         self, task_name: str, scheduled_at: Optional[str]
     ) -> Dict[str, Any]:
-        """Set (or clear) when ``task_name`` may start, in the live workflow.
+        """Set (or clear) when ``task_name`` may start, in the live workflow,
+        as the Workflow tab's Edit Task does
+        (``AutoLamellaWorkflowConfig.set_schedule``): up to two days ahead.
 
         The workflow reads the schedule at each task start (never a snapshot),
-        so a change takes effect at the next start — the ``set_supervision``
-        semantics, and like it this mutates the live config directly (an
-        atomic field rebind; no GUI marshal needed), and like it the change is
-        persisted immediately.
+        so a change takes effect at the next start, and like ``set_supervision``
+        it is saved at once.
 
         ``scheduled_at`` is ISO-8601 (naive = local time; an offset is
         normalized by the workflow) or ``None`` to clear.
         """
+        from fibsem.applications.autolamella.workflow_edits import (
+            save_workflow_change,
+        )
+
         parsed = None
         if scheduled_at is not None:
             try:
@@ -2423,42 +2386,29 @@ class AutoLamellaAppContext:
                     "the schedule.",
                 }
         experiment = self._experiment
-        protocol = getattr(experiment, "task_protocol", None) if experiment else None
-        config = getattr(protocol, "workflow_config", None) if protocol else None
-        if config is None:
+        if experiment is None or experiment.task_protocol is None:
             return {"available": False, "applied": False}
-        for task in config.tasks:
-            if task.name == task_name:
-                task.scheduled_at = parsed
-                saved = True
-                try:
-                    experiment.save(save_protocol=True)
-                except Exception:
-                    saved = False
-                    logging.exception(
-                        "save after schedule change failed; the change is "
-                        "applied in memory but not yet on disk"
-                    )
-                self.record_event(
-                    "workflow_changed",
-                    {
-                        "field": "scheduled_at",
-                        "task_name": task_name,
-                        "scheduled_at": parsed.isoformat() if parsed else None,
-                    },
-                )
-                return {
-                    "available": True,
-                    "applied": True,
-                    "saved": saved,
-                    "task_name": task_name,
-                    "scheduled_at": parsed.isoformat() if parsed else None,
-                }
+        config = experiment.task_protocol.workflow_config
+        why = config.set_schedule(task_name, parsed)
+        if why:
+            return {
+                "available": True,
+                "applied": False,
+                "error": why,
+                "task_names": config.workflow,
+            }
+        iso = parsed.isoformat() if parsed else None
+        saved = save_workflow_change(
+            experiment,
+            {"field": "scheduled_at", "task_name": task_name, "scheduled_at": iso},
+            self.record_event,
+        )
         return {
             "available": True,
-            "applied": False,
-            "error": f"No task named {task_name!r} in the protocol.",
-            "task_names": [t.name for t in config.tasks],
+            "applied": True,
+            "saved": saved,
+            "task_name": task_name,
+            "scheduled_at": iso,
         }
 
     def set_workflow_options(self, **options: Any) -> Dict[str, Any]:
