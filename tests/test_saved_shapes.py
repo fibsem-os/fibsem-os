@@ -89,6 +89,11 @@ def _plain(data):
     return json.loads(json.dumps(data))
 
 
+def _posix(data):
+    """``data`` with its paths written with forward slashes, as on any OS."""
+    return json.loads(json.dumps(data).replace("\\\\", "/"))
+
+
 def _check(case: str, data) -> None:
     path = GOLDEN / f"{case}.json"
     if UPDATE:
@@ -712,9 +717,9 @@ def test_an_experiment_with_lamellae_saves_as_pinned_and_reads_back():
     from fibsem.applications.autolamella.structures import Experiment
 
     saved = _experiment().to_dict()
-    _check("experiment-with-lamellae", saved)
+    _check("experiment-with-lamellae", _posix(saved))
     again = Experiment.from_dict(_plain(saved)).to_dict()
-    assert _plain(again) == _plain(saved)
+    assert _posix(again) == _posix(saved)
 
 
 def _grid_protocol():
@@ -745,6 +750,12 @@ def test_an_engine_protocol_saves_as_pinned_and_reads_back(case, build):
     assert _plain(type(protocol).from_dict(_plain(saved)).to_dict()) == _plain(saved)
 
 
+def _unversioned(document):
+    document = dict(document)
+    assert len(document.pop("version")) == 16
+    return document
+
+
 def test_the_app_servers_protocol_documents_are_as_pinned():
     from fibsem.applications.autolamella.server import AutoLamellaAppContext
     from tests.run_state import stub_session
@@ -752,13 +763,17 @@ def test_the_app_servers_protocol_documents_are_as_pinned():
     session = stub_session()
     session.experiment = _experiment()
     context = AutoLamellaAppContext(session)
-    _check("app-protocol", context.protocol())
-    _check("app-protocol-task-config", context.protocol_task_config("Mill Fiducial"))
+    _check("app-protocol", _posix(context.protocol()))
+    # These versions hash the configs' paths, which differ by OS.
+    _check(
+        "app-protocol-task-config",
+        _posix(_unversioned(context.protocol_task_config("Mill Fiducial"))),
+    )
     _check(
         "app-item-task-config",
-        context.item_task_config("Lamella-01", "Mill Fiducial"),
+        _posix(_unversioned(context.item_task_config("Lamella-01", "Mill Fiducial"))),
     )
-    _check("app-grid-task-config", context.grid_task_config("SEM Overview"))
+    _check("app-grid-task-config", _posix(context.grid_task_config("SEM Overview")))
 
 
 # ---- the shapes FORMAT_VERSION 2 wrote -----------------------------------------
@@ -785,7 +800,7 @@ def test_a_v2_experiment_reads_as_the_current_one():
     from fibsem.applications.autolamella.structures import Experiment
 
     loaded = Experiment.from_dict(_v2("experiment-with-lamellae"))
-    assert _plain(loaded.to_dict()) == _plain(_experiment().to_dict())
+    assert _posix(loaded.to_dict()) == _posix(_experiment().to_dict())
 
 
 @pytest.mark.parametrize(

@@ -139,6 +139,5 @@
     "task_type": "MILL_FIDUCIAL"
   },
   "level": "protocol",
-  "task_name": "Mill Fiducial",
-  "version": "8e33fd4c89305c1c"
+  "task_name": "Mill Fiducial"
 }
