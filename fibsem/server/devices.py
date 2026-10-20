@@ -452,6 +452,7 @@ def build_device_router(
     long_commands: bool = False,
     adopt_control: Optional[Callable[[Request], Optional[Callable[[], None]]]] = None,
     paths: Optional[Callable[[Mapping[str, Any]], Dict[str, Any]]] = None,
+    listing: Optional[Sequence[Any]] = None,
 ) -> APIRouter:
     """The ``/devices`` routes over whatever *devices* returns, by name.
 
@@ -467,7 +468,8 @@ def build_device_router(
     or a command is never allowed here (403 ``not_allowed``), and the listings
     mark those (``agent: false``): the App Server's blocklist. *paths* reads a
     command's or query's relative paths where they belong (the App Server: in the
-    open experiment), before *refuse* checks them.
+    open experiment), before *refuse* checks them. *listing*, when given,
+    gates the listing of every device in place of *read*.
 
     With *long_commands*, a command marked ``long`` answers at once with its run
     and runs on, and ``GET {prefix}/{name}/run`` reads the service's latest run
@@ -517,7 +519,7 @@ def build_device_router(
         except Exception as error:
             raise answer_for_error(error, what) from None
 
-    @router.get(prefix, dependencies=list(read))
+    @router.get(prefix, dependencies=list(read if listing is None else listing))
     def list_devices() -> Dict[str, Any]:
         return {name: describe_device(d, refuse) for name, d in devices().items()}
 

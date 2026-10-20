@@ -131,13 +131,15 @@ def test_the_operator_reads_what_the_microscope_is(microscope, tmp_path):  # noq
     operator = _bearer(session.agent_auth.operator_token)
     try:
         with httpx.Client(base_url=host.url, timeout=30) as client:
-            # What it is and its state: the page's Microscope panel.
+            # What it is, its state and what it has: the page's Microscope panel.
             assert client.get("/microscope", headers=operator).json()["manufacturer"]
             state = client.get("/microscope/state", headers=operator).json()
             assert "stage_position" in state["microscope_state"]
-            # Its devices, and every write and command, stay the agent's.
+            # What it has; a device's values, and every write and command,
+            # stay the agent's.
+            assert client.get("/microscope/devices", headers=operator).json()
+            assert client.get("/microscope/services", headers=operator).json()
             for method, path in (
-                ("GET", "/microscope/devices"),
                 ("GET", "/microscope/devices/stage/values"),
                 ("PUT", "/microscope/state"),
             ):
