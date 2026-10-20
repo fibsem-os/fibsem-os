@@ -320,10 +320,15 @@ def device_health(device: Device) -> Dict[str, Any]:
     return {"ok": problem is None, "detail": problem}
 
 
+# How many events may wait for one client before its stream is closed.
+STREAM_BACKLOG = 1000
+
+
 async def stream_events(
     websocket: WebSocket,
     sources: Mapping[str, Mapping[str, Any]],
     allowed: Callable[[], bool] = lambda: True,
+    backlog: int = STREAM_BACKLOG,
 ) -> None:
     """Send *websocket* the signals of every device and service in *sources* until
     it closes, each as ``{noun: name, "parameter", "kind", "value"}``.
@@ -332,11 +337,19 @@ async def stream_events(
     the stream opens. Kinds ``changed`` and ``metadata`` are a parameter's;
     ``signal`` is one of the source's ``remote_signals``, named in ``parameter``,
     its value the signal's argument (a list when it has several). Signals are
-    emitted on any thread. The stream closes once *allowed* answers False.
+    emitted on any thread. The stream closes once *allowed* answers False, or
+    once more than *backlog* events wait for a client that isn't reading.
     """
     loop = asyncio.get_running_loop()
-    queue: asyncio.Queue = asyncio.Queue()
+    queue: asyncio.Queue = asyncio.Queue(maxsize=backlog)
+    behind = asyncio.Event()
     connected: List[Tuple[Any, Callable[..., None]]] = []
+
+    def offer(event: Dict[str, Any]) -> None:
+        if queue.full():
+            behind.set()
+        else:
+            queue.put_nowait(event)
 
     def follow(noun, source, signal, kind, encode, name=None) -> None:
         def publish(parameter: str, *args: Any) -> None:
@@ -347,7 +360,7 @@ async def stream_events(
                     "kind": kind,
                     "value": jsonable_encoder(encode(*args)),
                 }
-                loop.call_soon_threadsafe(queue.put_nowait, event)
+                loop.call_soon_threadsafe(offer, event)
             except Exception:  # noqa: BLE001 - the emitter must not pay for it
                 logging.debug(
                     f"could not send {source.name}.{parameter}", exc_info=True
@@ -368,11 +381,14 @@ async def stream_events(
                 )
     await websocket.accept()
     closed = asyncio.ensure_future(_until_closed(websocket))
+    # A send to a client that isn't reading never finishes, so falling behind
+    # interrupts it.
+    stop = {closed, asyncio.ensure_future(behind.wait())}
     try:
-        while allowed():
+        while allowed() and not behind.is_set():
             event = asyncio.ensure_future(queue.get())
             await asyncio.wait(
-                {event, closed}, timeout=1.0, return_when=asyncio.FIRST_COMPLETED
+                {event, *stop}, timeout=1.0, return_when=asyncio.FIRST_COMPLETED
             )
             if closed.done():
                 event.cancel()
@@ -380,12 +396,25 @@ async def stream_events(
             if not event.done():
                 event.cancel()
                 continue
-            await websocket.send_text(json.dumps(event.result()))
-        await websocket.close(code=1008)  # policy violation: refused from now on
+            sending = asyncio.ensure_future(
+                websocket.send_text(json.dumps(event.result()))
+            )
+            await asyncio.wait({sending, *stop}, return_when=asyncio.FIRST_COMPLETED)
+            if closed.done():
+                sending.cancel()
+                return
+            if sending.done():
+                sending.result()  # a disconnect raises here
+            else:
+                sending.cancel()
+        # Too far behind: try again later, and read again on reopening. Otherwise
+        # a policy violation: refused from now on.
+        await websocket.close(code=1013 if behind.is_set() else 1008)
     except WebSocketDisconnect:
         pass
     finally:
-        closed.cancel()
+        for task in stop:
+            task.cancel()
         for signal, callback in connected:
             signal.disconnect(callback)
 

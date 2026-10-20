@@ -163,3 +163,43 @@ def test_the_stream_closes_when_the_agent_is_turned_off(port, auth):
         with pytest.raises(ConnectionClosed) as closed:
             socket.recv(timeout=5)
     assert closed.value.rcvd.code == 1008
+
+
+def test_a_client_too_far_behind_is_closed(microscope):
+    """Events wait for a client that isn't reading only up to the backlog."""
+    import asyncio
+
+    from fibsem.server.devices import stream_events
+
+    class Stuck:
+        """A websocket whose client never reads: a send never finishes."""
+
+        def __init__(self):
+            self.code = None
+
+        async def accept(self):
+            pass
+
+        async def receive_text(self):
+            await asyncio.Event().wait()
+
+        async def send_text(self, text):
+            await asyncio.Event().wait()
+
+        async def close(self, code):
+            self.code = code
+
+    stuck = Stuck()
+    electron = microscope.devices["electron"]
+
+    async def run():
+        streaming = asyncio.ensure_future(
+            stream_events(stuck, {"device": {"electron": electron}}, backlog=2)
+        )
+        await asyncio.sleep(0.05)
+        for hfw in (150e-6, 160e-6, 170e-6, 180e-6, 190e-6):
+            electron.hfw.set_value(hfw)
+        await asyncio.wait_for(streaming, timeout=5)
+
+    asyncio.run(run())
+    assert stuck.code == 1013
