@@ -4,21 +4,16 @@ Server both call (FIB-1446)."""
 from dataclasses import dataclass
 from typing import ClassVar
 
-from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
-    AutoLamellaWorkflowConfig,
-)
 from fibsem.workflows.grid.base import GridTaskConfig
 from fibsem.workflows.grid.protocol import GridTaskProtocol
+from tests.protocols import planned, task_protocol
 
 
 def _workflow():
-    return AutoLamellaWorkflowConfig(
-        tasks=[
-            AutoLamellaTaskDescription(name="Trench"),
-            AutoLamellaTaskDescription(name="Undercut", requires=["Trench"]),
-            AutoLamellaTaskDescription(name="Polish"),
-        ]
+    return task_protocol(
+        planned(name="Trench"),
+        planned(name="Undercut", requires=["Trench"]),
+        planned(name="Polish"),
     )
 
 
@@ -28,15 +23,15 @@ def test_a_reorder_keeps_requirements_first():
     why = config.reorder(["Undercut", "Trench", "Polish"])
 
     assert "Undercut" in why and "Trench" in why
-    assert config.workflow == ["Trench", "Undercut", "Polish"]
+    assert config.workflow_config.workflow == ["Trench", "Undercut", "Polish"]
     assert config.reorder(["Trench", "Polish", "Undercut"]) == ""
-    assert config.workflow == ["Trench", "Polish", "Undercut"]
+    assert config.workflow_config.workflow == ["Trench", "Polish", "Undercut"]
 
 
 def test_a_reorder_names_every_task_once():
     config = _workflow()
     assert config.reorder(["Trench", "Undercut"]) != ""
-    assert config.workflow == ["Trench", "Undercut", "Polish"]
+    assert config.workflow_config.workflow == ["Trench", "Undercut", "Polish"]
 
 
 def test_a_task_can_only_require_earlier_tasks():
@@ -46,7 +41,7 @@ def test_a_task_can_only_require_earlier_tasks():
     assert config.requirements("Undercut") == ["Trench"]
     assert config.set_requirements("Polish", ["Trench"], required=False) == ""
     assert config.requirements("Polish") == ["Trench"]
-    assert config.tasks[2].required is False
+    assert config.workflow_config.tasks[2].required is False
     assert config.set_requirements("Nope", []) != ""
 
 

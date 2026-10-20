@@ -111,7 +111,7 @@ class TestAttentionOnTheConfig:
             )
         )
         data = yaml.safe_load(yaml.safe_dump(protocol.to_dict()))
-        assert data["tasks"][OVERVIEW]["attention"] == "supervised"
+        assert data["task_config"][OVERVIEW]["attention"] == "supervised"
         again = GridTaskProtocol.from_dict(data)
         assert again.task_config[OVERVIEW].attention is Attention.supervised
 
@@ -125,7 +125,7 @@ class TestAttentionOnTheConfig:
             )
         )
         data = yaml.safe_load(yaml.safe_dump(protocol.to_dict()))
-        data["tasks"][OVERVIEW]["attention"] = "review"
+        data["task_config"][OVERVIEW]["attention"] = "review"
         again = GridTaskProtocol.from_dict(data)
         assert again.task_config[OVERVIEW].attention is Attention.supervised
 

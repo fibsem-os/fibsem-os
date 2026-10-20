@@ -13,8 +13,9 @@ from typing import Any, Mapping
 # The application every file written before the tag was.
 DEFAULT_APP = "autolamella"
 # The experiment.yaml format this build writes. 2: an item's proposals are one
-# list, each saying who asked it, not keyed by the task that asked.
-FORMAT_VERSION = 2
+# list, each saying who asked it, not keyed by the task that asked. 3: task
+# configs are flat, and a protocol says id, task_config and workflow_config.
+FORMAT_VERSION = 3
 
 
 class WrongApplication(ValueError):

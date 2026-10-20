@@ -25,13 +25,11 @@ from psygnal.containers import EventedDict
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
-    AutoLamellaTaskProtocol,
-    AutoLamellaWorkflowConfig,
     Experiment,
 )
 from fibsem.applications.autolamella.workflows.tasks import get_tasks
 from fibsem.workflows.status import TaskStatus
+from tests.protocols import planned, task_protocol
 from tests.run_state import run_lamellae
 
 CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
@@ -99,11 +97,7 @@ def _experiment(microscope, path: Path, task_type: str) -> Experiment:
 
     exp = Experiment(path=path, name=task_type)
     os.makedirs(exp.path, exist_ok=True)
-    exp.task_protocol = AutoLamellaTaskProtocol(
-        workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[AutoLamellaTaskDescription(name=name, required=True)]
-        )
-    )
+    exp.task_protocol = task_protocol(planned(name=name, required=True))
     exp.add_new_lamella(microscope.get_microscope_state(), EventedDict({name: config}))
     lamella = exp.positions[0]
     lamella.path.mkdir(parents=True, exist_ok=True)

@@ -20,6 +20,7 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.structures import MicroscopeState
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.status import TaskStatus
+from tests.protocols import add_planned, planned
 from tests.run_state import stub_session
 
 
@@ -280,13 +281,7 @@ def test_stop_workflow_with_no_window_stops_the_run():
 
 
 def test_set_supervision_flips_the_live_protocol(experiment):
-    from fibsem.applications.autolamella.structures import (
-        AutoLamellaTaskDescription,
-    )
-
-    experiment.task_protocol.workflow_config.tasks.append(
-        AutoLamellaTaskDescription(name="Rough Milling", required=True)
-    )
+    add_planned(experiment.task_protocol, planned(name="Rough Milling", required=True))
     host = stub_session()
     host.experiment = experiment
     ctx = AutoLamellaAppContext(host)
@@ -337,14 +332,9 @@ def test_set_workflow_options_turns_the_run_summary_off_and_saves(experiment):
 def test_supervision_sets_attention_and_names_no_supervisor(experiment):
     # A supervised question goes to the operator and the agent alike, and the
     # first answer wins (FIB-1035): no task says whose its questions are.
-    from fibsem.applications.autolamella.structures import (
-        AutoLamellaTaskDescription,
-    )
-
-    experiment.task_protocol.workflow_config.tasks.append(
-        AutoLamellaTaskDescription(
-            name="Rough Milling", attention=Attention.automated, required=True
-        )
+    add_planned(
+        experiment.task_protocol,
+        planned(name="Rough Milling", attention=Attention.automated, required=True),
     )
     host = stub_session()
     host.experiment = experiment
@@ -359,20 +349,15 @@ def test_supervision_sets_attention_and_names_no_supervisor(experiment):
         "task_name": "Rough Milling",
         "supervise": True,
     }
-    task = experiment.task_protocol.workflow_config.tasks[-1]
-    assert task.attention is Attention.supervised
+    protocol = experiment.task_protocol
+    assert protocol.get_attention("Rough Milling") is Attention.supervised
 
 
 def test_supervision_is_saved_with_the_protocol(experiment):
     # As the Workflow tab's chip saves it: a reload keeps the agent's change.
-    from fibsem.applications.autolamella.structures import (
-        AutoLamellaTaskDescription,
-    )
-
-    experiment.task_protocol.workflow_config.tasks.append(
-        AutoLamellaTaskDescription(
-            name="Rough Milling", attention=Attention.automated, required=True
-        )
+    add_planned(
+        experiment.task_protocol,
+        planned(name="Rough Milling", attention=Attention.automated, required=True),
     )
     host = stub_session()
     host.experiment = experiment
@@ -386,14 +371,9 @@ def test_supervision_is_saved_with_the_protocol(experiment):
 
 
 def test_requeue_task_reruns_a_completed_pair(experiment, microscope):
-    from fibsem.applications.autolamella.structures import (
-        AutoLamellaTaskDescription,
-    )
     from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 
-    experiment.task_protocol.workflow_config.tasks.append(
-        AutoLamellaTaskDescription(name="Rough Milling", required=True)
-    )
+    add_planned(experiment.task_protocol, planned(name="Rough Milling", required=True))
     host = stub_session()
     host.experiment = experiment
     ctx = AutoLamellaAppContext(host)

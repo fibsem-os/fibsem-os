@@ -1,0 +1,527 @@
+{
+  "id": "pinned-volume-protocol-id",
+  "name": "Volume Protocol",
+  "task_config": {
+    "Setup FIB Milling Position": {
+      "attention": "supervised",
+      "face": {
+        "acquisition": {
+          "acquire_fib": false,
+          "acquire_final_image": true,
+          "acquire_sem": false,
+          "imaging": {
+            "autocontrast": false,
+            "beam_type": "ELECTRON",
+            "drift_correction": false,
+            "dwell_time": 1e-06,
+            "filename": "default_image",
+            "frame_integration": null,
+            "hfw": 0.00015,
+            "line_integration": null,
+            "path": null,
+            "reduced_area": null,
+            "resolution": [
+              1536,
+              1024
+            ],
+            "save": false,
+            "scan_interlacing": null
+          }
+        },
+        "alignment": {
+          "enabled": true,
+          "full_frame_below": 0.0,
+          "imaging": {
+            "autocontrast": false,
+            "beam_type": "ELECTRON",
+            "drift_correction": false,
+            "dwell_time": 1e-06,
+            "filename": "default_image",
+            "frame_integration": null,
+            "hfw": 0.00015,
+            "line_integration": null,
+            "path": null,
+            "reduced_area": null,
+            "resolution": [
+              1536,
+              1024
+            ],
+            "save": false,
+            "scan_interlacing": null
+          },
+          "interval": 30,
+          "interval_enabled": false,
+          "rect": {
+            "height": 0.4,
+            "left": 0.7,
+            "top": 0.3,
+            "width": 0.25
+          },
+          "steps": 3,
+          "use_autocontrast": true,
+          "use_autofocus": false
+        },
+        "channel": "ION",
+        "field_of_view": 5e-05,
+        "name": "Face",
+        "stages": [
+          {
+            "enabled": true,
+            "milling": {
+              "application_file": "Si",
+              "dwell_time": 1e-06,
+              "hfw": 0.00015,
+              "milling_channel": "ION",
+              "milling_current": 6e-11,
+              "milling_voltage": 30000.0,
+              "patterning_mode": "Serial",
+              "preset": "30 keV; 2nA",
+              "rate": 1.3e-08,
+              "spacing": 0.005,
+              "spot_size": 1e-06
+            },
+            "monitors": [],
+            "name": "Face",
+            "pattern": {
+              "cross_section": "CleaningCrossSection",
+              "depth": 1e-06,
+              "height": 2e-06,
+              "name": "Rectangle",
+              "passes": 0,
+              "point": {
+                "name": null,
+                "x": 0.0,
+                "y": 0.0
+              },
+              "rotation": 0.0,
+              "scan_direction": "TopToBottom",
+              "time": 0.0,
+              "width": 1e-05
+            },
+            "strategy": {
+              "config": {},
+              "name": "Standard"
+            }
+          }
+        ]
+      },
+      "fiducial": {
+        "acquisition": {
+          "acquire_fib": false,
+          "acquire_final_image": true,
+          "acquire_sem": false,
+          "imaging": {
+            "autocontrast": false,
+            "beam_type": "ELECTRON",
+            "drift_correction": false,
+            "dwell_time": 1e-06,
+            "filename": "default_image",
+            "frame_integration": null,
+            "hfw": 0.00015,
+            "line_integration": null,
+            "path": null,
+            "reduced_area": null,
+            "resolution": [
+              1536,
+              1024
+            ],
+            "save": false,
+            "scan_interlacing": null
+          }
+        },
+        "alignment": {
+          "enabled": true,
+          "full_frame_below": 0.0,
+          "imaging": {
+            "autocontrast": false,
+            "beam_type": "ELECTRON",
+            "drift_correction": false,
+            "dwell_time": 1e-06,
+            "filename": "default_image",
+            "frame_integration": null,
+            "hfw": 0.00015,
+            "line_integration": null,
+            "path": null,
+            "reduced_area": null,
+            "resolution": [
+              1536,
+              1024
+            ],
+            "save": false,
+            "scan_interlacing": null
+          },
+          "interval": 30,
+          "interval_enabled": false,
+          "rect": {
+            "height": 0.4,
+            "left": 0.7,
+            "top": 0.3,
+            "width": 0.25
+          },
+          "steps": 3,
+          "use_autocontrast": true,
+          "use_autofocus": false
+        },
+        "channel": "ION",
+        "field_of_view": 5e-05,
+        "name": "Fiducial",
+        "stages": [
+          {
+            "enabled": true,
+            "milling": {
+              "application_file": "Si",
+              "dwell_time": 1e-06,
+              "hfw": 0.00015,
+              "milling_channel": "ION",
+              "milling_current": 1e-09,
+              "milling_voltage": 30000.0,
+              "patterning_mode": "Serial",
+              "preset": "30 keV; 2nA",
+              "rate": 1.3e-08,
+              "spacing": 0.005,
+              "spot_size": 1e-06
+            },
+            "monitors": [],
+            "name": "Fiducial",
+            "pattern": {
+              "asymmetric": false,
+              "cross_section": "Rectangle",
+              "depth": 1e-06,
+              "height": 1e-05,
+              "name": "Fiducial",
+              "point": {
+                "name": null,
+                "x": 1.5e-05,
+                "y": 0
+              },
+              "rotation": 45.0,
+              "width": 5e-07
+            },
+            "strategy": {
+              "config": {},
+              "name": "Standard"
+            }
+          }
+        ]
+      },
+      "field_of_view": 5e-05,
+      "mill_fiducial": true,
+      "mill_trench": true,
+      "requires": [],
+      "task_name": "Setup FIB Milling Position",
+      "task_type": "VOLUME_SETUP_FIB_MILLING",
+      "trench": {
+        "acquisition": {
+          "acquire_fib": false,
+          "acquire_final_image": true,
+          "acquire_sem": false,
+          "imaging": {
+            "autocontrast": false,
+            "beam_type": "ELECTRON",
+            "drift_correction": false,
+            "dwell_time": 1e-06,
+            "filename": "default_image",
+            "frame_integration": null,
+            "hfw": 0.00015,
+            "line_integration": null,
+            "path": null,
+            "reduced_area": null,
+            "resolution": [
+              1536,
+              1024
+            ],
+            "save": false,
+            "scan_interlacing": null
+          }
+        },
+        "alignment": {
+          "enabled": true,
+          "full_frame_below": 0.0,
+          "imaging": {
+            "autocontrast": false,
+            "beam_type": "ELECTRON",
+            "drift_correction": false,
+            "dwell_time": 1e-06,
+            "filename": "default_image",
+            "frame_integration": null,
+            "hfw": 0.00015,
+            "line_integration": null,
+            "path": null,
+            "reduced_area": null,
+            "resolution": [
+              1536,
+              1024
+            ],
+            "save": false,
+            "scan_interlacing": null
+          },
+          "interval": 30,
+          "interval_enabled": false,
+          "rect": {
+            "height": 0.4,
+            "left": 0.7,
+            "top": 0.3,
+            "width": 0.25
+          },
+          "steps": 3,
+          "use_autocontrast": true,
+          "use_autofocus": false
+        },
+        "channel": "ION",
+        "field_of_view": 5e-05,
+        "name": "Trench",
+        "stages": [
+          {
+            "enabled": true,
+            "milling": {
+              "application_file": "Si",
+              "dwell_time": 1e-06,
+              "hfw": 0.00015,
+              "milling_channel": "ION",
+              "milling_current": 1e-09,
+              "milling_voltage": 30000.0,
+              "patterning_mode": "Serial",
+              "preset": "30 keV; 2nA",
+              "rate": 1.3e-08,
+              "spacing": 0.005,
+              "spot_size": 1e-06
+            },
+            "monitors": [],
+            "name": "Front Trench",
+            "pattern": {
+              "cross_section": "Rectangle",
+              "depth": 5e-06,
+              "height": 1e-05,
+              "name": "Rectangle",
+              "passes": 0,
+              "point": {
+                "name": null,
+                "x": 0.0,
+                "y": 0.0
+              },
+              "rotation": 0.0,
+              "scan_direction": "TopToBottom",
+              "time": 0.0,
+              "width": 2e-05
+            },
+            "strategy": {
+              "config": {},
+              "name": "Standard"
+            }
+          },
+          {
+            "enabled": true,
+            "milling": {
+              "application_file": "Si",
+              "dwell_time": 1e-06,
+              "hfw": 0.00015,
+              "milling_channel": "ION",
+              "milling_current": 1e-09,
+              "milling_voltage": 30000.0,
+              "patterning_mode": "Serial",
+              "preset": "30 keV; 2nA",
+              "rate": 1.3e-08,
+              "spacing": 0.005,
+              "spot_size": 1e-06
+            },
+            "monitors": [],
+            "name": "Side Trench",
+            "pattern": {
+              "cross_section": "Rectangle",
+              "depth": 5e-06,
+              "height": 1e-05,
+              "name": "Rectangle",
+              "passes": 0,
+              "point": {
+                "name": null,
+                "x": -1e-05,
+                "y": 5e-06
+              },
+              "rotation": 0.0,
+              "scan_direction": "TopToBottom",
+              "time": 0.0,
+              "width": 5e-06
+            },
+            "strategy": {
+              "config": {},
+              "name": "Standard"
+            }
+          }
+        ]
+      }
+    },
+    "Setup SEM Acquisition": {
+      "attention": "supervised",
+      "field_of_view": 5e-05,
+      "requires": [],
+      "task_name": "Setup SEM Acquisition",
+      "task_type": "VOLUME_SETUP_SEM_ACQUISITION"
+    },
+    "Volume FIB Milling": {
+      "attention": "automated",
+      "milling": {
+        "acquisition": {
+          "acquire_fib": false,
+          "acquire_final_image": true,
+          "acquire_sem": false,
+          "imaging": {
+            "autocontrast": false,
+            "beam_type": "ELECTRON",
+            "drift_correction": false,
+            "dwell_time": 1e-06,
+            "filename": "default_image",
+            "frame_integration": null,
+            "hfw": 0.00015,
+            "line_integration": null,
+            "path": null,
+            "reduced_area": null,
+            "resolution": [
+              1536,
+              1024
+            ],
+            "save": false,
+            "scan_interlacing": null
+          }
+        },
+        "alignment": {
+          "enabled": true,
+          "full_frame_below": 0.0,
+          "imaging": {
+            "autocontrast": false,
+            "beam_type": "ELECTRON",
+            "drift_correction": false,
+            "dwell_time": 1e-06,
+            "filename": "default_image",
+            "frame_integration": null,
+            "hfw": 0.00015,
+            "line_integration": null,
+            "path": null,
+            "reduced_area": null,
+            "resolution": [
+              1536,
+              1024
+            ],
+            "save": false,
+            "scan_interlacing": null
+          },
+          "interval": 30,
+          "interval_enabled": false,
+          "rect": {
+            "height": 0.4,
+            "left": 0.7,
+            "top": 0.3,
+            "width": 0.25
+          },
+          "steps": 3,
+          "use_autocontrast": true,
+          "use_autofocus": false
+        },
+        "channel": "ION",
+        "field_of_view": 5e-05,
+        "name": "Slice",
+        "stages": [
+          {
+            "enabled": true,
+            "milling": {
+              "application_file": "Si",
+              "dwell_time": 1e-06,
+              "hfw": 0.00015,
+              "milling_channel": "ION",
+              "milling_current": 2e-11,
+              "milling_voltage": 30000.0,
+              "patterning_mode": "Serial",
+              "preset": "30 keV; 2nA",
+              "rate": 1.3e-08,
+              "spacing": 0.005,
+              "spot_size": 1e-06
+            },
+            "monitors": [],
+            "name": "Slice",
+            "pattern": {
+              "cross_section": "CleaningCrossSection",
+              "depth": 1e-06,
+              "height": 2e-07,
+              "name": "Rectangle",
+              "passes": 0,
+              "point": {
+                "name": null,
+                "x": 0.0,
+                "y": 0.0
+              },
+              "rotation": 0.0,
+              "scan_direction": "TopToBottom",
+              "time": 0.0,
+              "width": 1e-05
+            },
+            "strategy": {
+              "config": {},
+              "name": "Standard"
+            }
+          }
+        ]
+      },
+      "requires": [],
+      "slice_thickness": 2e-07,
+      "task_name": "Volume FIB Milling",
+      "task_type": "VOLUME_FIB_MILLING"
+    },
+    "Volume SEM Acquisition": {
+      "attention": "automated",
+      "auto_area": {
+        "height": 0.5,
+        "left": 0.25,
+        "top": 0.25,
+        "width": 0.5
+      },
+      "autocontrast_every": 0,
+      "autofocus_every": 0,
+      "imaging": {
+        "autocontrast": false,
+        "beam_type": "ELECTRON",
+        "drift_correction": false,
+        "dwell_time": 1e-07,
+        "filename": "default_image",
+        "frame_integration": null,
+        "hfw": 5e-05,
+        "line_integration": 16,
+        "path": null,
+        "reduced_area": null,
+        "resolution": [
+          3072,
+          2048
+        ],
+        "save": false,
+        "scan_interlacing": null
+      },
+      "requires": [
+        "Volume FIB Milling"
+      ],
+      "task_name": "Volume SEM Acquisition",
+      "task_type": "VOLUME_SEM_ACQUISITION"
+    }
+  },
+  "workflow_config": {
+    "tasks": [
+      {
+        "name": "Setup FIB Milling Position",
+        "required": true,
+        "scheduled_at": null
+      },
+      {
+        "name": "Setup SEM Acquisition",
+        "required": true,
+        "scheduled_at": null
+      },
+      {
+        "name": "Volume FIB Milling",
+        "required": true,
+        "scheduled_at": null
+      },
+      {
+        "name": "Volume SEM Acquisition",
+        "required": true,
+        "scheduled_at": null
+      }
+    ]
+  }
+}

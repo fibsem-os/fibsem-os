@@ -7,10 +7,7 @@ import pytest
 
 from fibsem.applications.autolamella.server.context import AutoLamellaAppContext
 from fibsem.applications.autolamella.structures import (
-    SCHEDULE_DAYS_AHEAD,
-    AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-    AutoLamellaWorkflowConfig,
     Experiment,
 )
 from fibsem.applications.autolamella.workflow_edits import (
@@ -19,31 +16,33 @@ from fibsem.applications.autolamella.workflow_edits import (
 )
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.session import AppSession
+from fibsem.workflows.task_config import SCHEDULE_DAYS_AHEAD
+from tests.protocols import planned, task_protocol
 
 
-def _config() -> AutoLamellaWorkflowConfig:
-    return AutoLamellaWorkflowConfig(
-        tasks=[AutoLamellaTaskDescription(name=n) for n in ("Rough", "Polish")]
-    )
+def _protocol() -> AutoLamellaTaskProtocol:
+    return task_protocol(*(planned(name=n) for n in ("Rough", "Polish")))
 
 
 @pytest.fixture
 def experiment(tmp_path) -> Experiment:
     experiment = Experiment(path=tmp_path, name="edits")
     (tmp_path / "edits").mkdir()
-    experiment.task_protocol = AutoLamellaTaskProtocol(workflow_config=_config())
+    experiment.task_protocol = _protocol()
     return experiment
 
 
 def test_set_attention_refuses_an_unknown_task():
-    config = _config()
-    assert "No task named 'Mill'" in config.set_attention("Mill", Attention.supervised)
-    assert config.set_attention("Polish", Attention.supervised) == ""
-    assert config.get_attention("Polish") is Attention.supervised
+    protocol = _protocol()
+    assert "No task named 'Mill'" in protocol.set_attention(
+        "Mill", Attention.supervised
+    )
+    assert protocol.set_attention("Polish", Attention.supervised) == ""
+    assert protocol.get_attention("Polish") is Attention.supervised
 
 
 def test_a_schedule_past_the_window_is_refused_and_changes_nothing():
-    config = _config()
+    config = _protocol().workflow_config
     late = datetime.now() + timedelta(days=SCHEDULE_DAYS_AHEAD, hours=1)
     why = config.set_schedule("Polish", late)
     assert f"up to {SCHEDULE_DAYS_AHEAD} days" in why
@@ -61,7 +60,7 @@ def test_a_schedule_past_the_window_is_refused_and_changes_nothing():
     ids=["naive", "aware", "past", "cleared"],
 )
 def test_a_schedule_inside_the_window_is_set(when):
-    config = _config()
+    config = _protocol().workflow_config
     assert config.set_schedule("Polish", when) == ""
     assert config.get_scheduled_at("Polish") == when
 
@@ -74,9 +73,7 @@ def test_set_supervision_saves_and_records(experiment):
     )
 
     assert result["applied"] and result["saved"]
-    assert experiment.task_protocol.workflow_config.get_attention("Polish") is (
-        Attention.supervised
-    )
+    assert experiment.task_protocol.get_attention("Polish") is Attention.supervised
     assert recorded == [WORKFLOW_CHANGED]
     reloaded = AutoLamellaTaskProtocol.load(f"{experiment.path}/protocol.yaml")
     assert reloaded.get_attention("Polish") is Attention.supervised

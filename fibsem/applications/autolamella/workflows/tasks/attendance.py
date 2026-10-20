@@ -110,7 +110,7 @@ def attendance_for(
     return attendance(
         task_cls,
         config,
-        protocol.workflow_config.get_attention(task_name),
+        protocol.get_attention(task_name),
         task_name=task_name,
     )
 
@@ -138,7 +138,6 @@ def run_attendance(
     protocol: "AutoLamellaTaskProtocol", task_names: Sequence[str]
 ) -> RunAttendance:
     """What a run of ``task_names`` needs from a person."""
-    workflow = protocol.workflow_config
     lines = {}
     present = []
     for name in task_names:
@@ -161,7 +160,7 @@ def run_attendance(
         supervised=tuple(
             name
             for name in task_names
-            if workflow.get_attention(name) is Attention.supervised
+            if protocol.get_attention(name) is Attention.supervised
         ),
         lines=lines,
         summary=summary,

@@ -11,6 +11,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
+from tests.protocols import add_planned, planned
+
 pytest.importorskip("PyQt5")
 
 
@@ -80,7 +82,6 @@ def running(no_quit, qapp, monkeypatch, tmp_path):
     """AutoLamella on Demo with a workflow running: a run started through the
     runner that holds until Stop Workflow, as a run between steps does."""
     from fibsem.applications.autolamella.structures import (
-        AutoLamellaTaskDescription,
         AutoLamellaTaskProtocol,
         Experiment,
     )
@@ -94,9 +95,7 @@ def running(no_quit, qapp, monkeypatch, tmp_path):
     microscope = ui.microscope
     experiment = Experiment(path=tmp_path, name="closing")
     experiment.task_protocol = AutoLamellaTaskProtocol()
-    experiment.task_protocol.workflow_config.tasks.append(
-        AutoLamellaTaskDescription(name="Trench", required=True)
-    )
+    add_planned(experiment.task_protocol, planned(name="Trench", required=True))
     window.held = hold_runs(monkeypatch, ITEMS)
     started = ui.session.runner.start(
         experiment, RunRequest(kind=ITEMS, task_names=("Trench",))

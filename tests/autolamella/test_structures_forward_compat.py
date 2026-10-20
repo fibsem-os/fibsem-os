@@ -2,35 +2,48 @@
 
 Live incident (2026-09-01): a protocol.yaml carrying a field this build did
 not know ('supervisor') made the whole protocol refuse to load — the
-experiment quickloaded without it. Task descriptions now keep known fields
-only, the same rule TaskState already follows."""
+experiment quickloaded without it. A workflow entry and a task config keep
+known fields only, the same rule TaskState already follows."""
 
 import logging
 
 import pytest
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskDescription
+from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
 from fibsem.workflows.attention import Attention, attention_from
+
+FIDUCIAL = "Mill Fiducial"
+
+
+def _protocol(entry, config=None) -> AutoLamellaTaskProtocol:
+    return AutoLamellaTaskProtocol.from_dict(
+        {
+            "name": "p",
+            "tasks": {FIDUCIAL: {"task_type": "MILL_FIDUCIAL", **(config or {})}},
+            "workflow": {"tasks": [entry]},
+        }
+    )
 
 
 def test_unknown_fields_from_the_future_are_ignored():
-    task = AutoLamellaTaskDescription.from_dict(
+    protocol = _protocol(
         {
-            "name": "Mill Fiducial",
+            "name": FIDUCIAL,
             "supervise": True,
             "required": True,
             "requires": [],
             "from_a_newer_build": "value",
             "entirely_new_thing": {"nested": 1},
-        }
+        },
+        config={"from_a_newer_build": "value"},
     )
-    assert task.name == "Mill Fiducial"
-    assert task.attention is Attention.supervised
+    assert protocol.workflow_config.workflow == [FIDUCIAL]
+    assert protocol.get_attention(FIDUCIAL) is Attention.supervised
 
 
-def test_none_still_produces_a_blank_description():
-    task = AutoLamellaTaskDescription.from_dict(None)
-    assert task.name == ""
+def test_a_null_entry_still_produces_a_blank_task():
+    protocol = _protocol(None)
+    assert [t.name for t in protocol.workflow_config.tasks] == [""]
 
 
 def test_one_reader_takes_every_form_a_stored_attention_has_had():

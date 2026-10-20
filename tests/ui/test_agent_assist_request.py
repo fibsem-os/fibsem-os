@@ -22,7 +22,6 @@ from psygnal.containers import EventedDict  # noqa: E402
 from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     Experiment,
 )
@@ -32,6 +31,7 @@ from fibsem.structures import MicroscopeState  # noqa: E402
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.runner import ITEMS
 from tests.fixtures.main_window import close_window  # noqa: E402
+from tests.protocols import add_planned, planned
 from tests.run_state import hold_runs, started_with
 
 TOKEN = "test-token"
@@ -58,10 +58,9 @@ def ui(qapp, monkeypatch, tmp_path):
 
     experiment = Experiment(path=tmp_path, name="assist-start")
     experiment.task_protocol = AutoLamellaTaskProtocol()
-    experiment.task_protocol.workflow_config.tasks.append(
-        AutoLamellaTaskDescription(
-            name="Mill Fiducial", attention=Attention.supervised, required=True
-        )
+    add_planned(
+        experiment.task_protocol,
+        planned(name="Mill Fiducial", attention=Attention.supervised, required=True),
     )
     experiment.add_new_lamella(MicroscopeState(), EventedDict())
     widget.experiment = experiment

@@ -18,9 +18,6 @@ from pathlib import Path
 import pytest
 
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
-    AutoLamellaTaskProtocol,
-    AutoLamellaWorkflowConfig,
     Experiment,
     Lamella,
 )
@@ -32,6 +29,7 @@ from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.hooks import FunctionHook, HookContext, HookEvent, HookManager
 from fibsem.util.timestamps import iso_from_posix
 from fibsem.workflows.status import TaskState, TaskStatus
+from tests.protocols import planned, task_protocol
 
 REQUIRED_TASKS = ["MillTrench", "MillUndercut"]
 
@@ -39,13 +37,8 @@ REQUIRED_TASKS = ["MillTrench", "MillUndercut"]
 @pytest.fixture
 def experiment(tmp_path: Path) -> Experiment:
     exp = Experiment(path=tmp_path, name="test-exp")
-    exp.task_protocol = AutoLamellaTaskProtocol(
-        workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[
-                AutoLamellaTaskDescription(name=name, required=True)
-                for name in REQUIRED_TASKS
-            ]
-        )
+    exp.task_protocol = task_protocol(
+        *[planned(name=name, required=True) for name in REQUIRED_TASKS]
     )
     # Constructing an Experiment deliberately does not create its directory (FIB-420).
     os.makedirs(exp.path, exist_ok=True)

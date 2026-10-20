@@ -5,7 +5,6 @@ This module provides a plugin architecture for AutoLamellaTask implementations,
 similar to the BasePattern plugin system in fibsem.milling.patterning.
 """
 
-import logging
 import typing
 from typing import TYPE_CHECKING, Any, Dict, Tuple, Type
 
@@ -154,20 +153,13 @@ def get_task_names() -> typing.List[str]:
 def load_task_config(
     ddict: Dict[str, Any],
 ) -> "EventedDict[str, AutoLamellaTaskConfig]":
-    """Load task configurations from a dictionary."""
+    """name -> typed config, skipping (with a warning) any type this build
+    does not know."""
     from psygnal.containers import EventedDict
 
-    task_registry = get_tasks()
-    task_config = EventedDict()
-    for name, v in ddict.items():
-        task_type = v.get("task_type")
-        if task_type not in task_registry:
-            logging.warning(f"Task '{name}' is not registered. Skipping.")
-            continue
-        config_class = task_registry[task_type].config_cls
-        task_config[name] = config_class.from_dict(v)
-        task_config[name].task_name = name
-    return task_config
+    from fibsem.workflows.task_config import load_task_configs
+
+    return EventedDict(load_task_configs(TASK_PLUGINS, ddict))
 
 
 def load_config(task_type: str, ddict: Dict[str, Any]) -> "AutoLamellaTaskConfig":

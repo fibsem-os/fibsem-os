@@ -24,9 +24,6 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.alignment import AlignmentResult
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
-    AutoLamellaTaskProtocol,
-    AutoLamellaWorkflowConfig,
     Experiment,
 )
 from fibsem.applications.autolamella.workflows.tasks.base import (
@@ -43,6 +40,7 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
 from fibsem.autofunctions.autofocus import AutoFocusResult
 from fibsem.structures import BeamType
 from fibsem.workflows.status import TaskStatus
+from tests.protocols import planned, task_protocol
 from tests.run_state import run_lamellae
 
 CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
@@ -67,13 +65,8 @@ def experiment(microscope, tmp_path):
         milling.alignment.enabled = True
     exp = Experiment(path=tmp_path / "experiment", name="output-dir")
     os.makedirs(exp.path, exist_ok=True)
-    exp.task_protocol = AutoLamellaTaskProtocol(
-        workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[
-                AutoLamellaTaskDescription(name=SETUP, required=True),
-                AutoLamellaTaskDescription(name=ROUGH, required=True),
-            ]
-        )
+    exp.task_protocol = task_protocol(
+        planned(name=SETUP, required=True), planned(name=ROUGH, required=True)
     )
     exp.add_new_lamella(
         microscope.get_microscope_state(),

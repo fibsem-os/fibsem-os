@@ -15,6 +15,7 @@ from fibsem.ai.agent.levels import AgentLevel
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.workflows.event_recording import EVENTS_FILENAME, read_events, recorder_for
 from fibsem.workflows.session import EXPERIMENT, MICROSCOPE, AppSession
+from tests.protocols import add_planned, planned
 
 
 @pytest.fixture(scope="module")
@@ -494,7 +495,6 @@ def test_queue_changes_reach_the_runner_with_no_window(
     session, microscope, experiment, monkeypatch
 ):
     from fibsem.applications.autolamella.structures import (
-        AutoLamellaTaskDescription,
         AutoLamellaTaskProtocol,
     )
     from fibsem.workflows.runner import ITEMS, RunRequest
@@ -502,9 +502,7 @@ def test_queue_changes_reach_the_runner_with_no_window(
 
     held = hold_runs(monkeypatch, ITEMS)
     experiment.task_protocol = AutoLamellaTaskProtocol()
-    experiment.task_protocol.workflow_config.tasks.append(
-        AutoLamellaTaskDescription(name="Trench", required=True)
-    )
+    add_planned(experiment.task_protocol, planned(name="Trench", required=True))
     session.microscope = microscope
     session.experiment = experiment
     heard = []

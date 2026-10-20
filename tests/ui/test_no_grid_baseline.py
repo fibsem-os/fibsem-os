@@ -16,9 +16,6 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
-    AutoLamellaTaskProtocol,
-    AutoLamellaWorkflowConfig,
     Experiment,
 )
 from fibsem.applications.autolamella.ui import window as module
@@ -27,6 +24,7 @@ from fibsem.applications.autolamella.workflows.tasks.reference_image import (
     AcquireReferenceImageConfig,
 )
 from fibsem.structures import FibsemStagePosition
+from tests.protocols import planned, task_protocol
 
 
 @pytest.fixture
@@ -52,10 +50,8 @@ def test_nothing_grid_aware_gets_in_the_way(main_ui, tmp_path, monkeypatch):
     ui = main_ui
     exp = Experiment(path=tmp_path, name="exp")
     (tmp_path / "exp").mkdir()
-    exp.task_protocol = AutoLamellaTaskProtocol(
-        workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[AutoLamellaTaskDescription(name="Trench", required=False)]
-        ),
+    exp.task_protocol = task_protocol(
+        planned(name="Trench", required=False),
         task_config={"Trench": AcquireReferenceImageConfig(task_name="Trench")},
     )
     ui.experiment = exp

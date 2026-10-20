@@ -81,34 +81,6 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
         )
         return total
 
-    def to_dict(self) -> dict:
-        ddict = {}
-        ddict["task_type"] = self.task_type
-        ddict["parameters"] = {
-            "milling_current": self.milling_current,
-            "exposure_time": self.exposure_time,
-            "autofocus": self.autofocus,
-        }
-        ddict["milling"] = {k: v.to_dict() for k, v in self.milling.items()}
-        if self.reference_imaging is not None:
-            ddict["reference_imaging"] = self.reference_imaging.to_dict()
-        ddict["coordinates"] = [pt.to_dict() for pt in self.coordinates]
-        return ddict
-
-    @classmethod
-    def from_dict(cls, ddict: dict) -> "SpotBurnFiducialTaskConfig":
-        params = ddict.get("parameters") or {}
-        cls._warn_unknown_parameters(params)
-        coordinates = [Point.from_dict(pt) for pt in ddict.get("coordinates", [])]
-        return cls(
-            **cls._load_core(ddict),
-            # coerce numeric params: older protocols may have stored these as strings
-            milling_current=float(params.get("milling_current", 100.0e-12)),
-            exposure_time=int(float(params.get("exposure_time", 10))),
-            autofocus=bool(params.get("autofocus", False)),
-            coordinates=coordinates,
-        )
-
     def to_settings(self) -> SpotBurnSettings:
         """The run payload (coordinates + current + exposure) for this task."""
         return SpotBurnSettings(

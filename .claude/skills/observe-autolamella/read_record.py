@@ -91,7 +91,8 @@ def _find_item(items: list, wanted: str) -> dict:
 
 
 def _required_tasks(protocol: dict) -> list:
-    workflow = protocol.get("workflow") or {}
+    # protocols written before the plan was workflow_config call it workflow
+    workflow = protocol.get("workflow_config") or protocol.get("workflow") or {}
     return [t.get("name") for t in workflow.get("tasks") or [] if t.get("required")]
 
 

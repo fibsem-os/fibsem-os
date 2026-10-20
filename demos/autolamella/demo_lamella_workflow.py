@@ -1,7 +1,6 @@
 """Test script for LamellaWorkflowWidget."""
 
 import sys
-import time
 from pathlib import Path
 
 from PyQt5.QtWidgets import (
@@ -14,40 +13,44 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
+    AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
     DefectState,
     DefectType,
+    Experiment,
     Lamella,
 )
 from fibsem.applications.autolamella.ui.workflow.lamella_run import (
     LamellaWorkflowWidget,
 )
+from fibsem.applications.autolamella.workflows.tasks.reference_image import (
+    AcquireReferenceImageConfig,
+)
 from fibsem.ui.stylesheets import NAPARI_STYLE
+from fibsem.util.timestamps import now
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.status import TaskState, TaskStatus
 
 # ── sample data ──────────────────────────────────────────────────────────────
 
-SAMPLE_CONFIG = AutoLamellaWorkflowConfig(
-    name="Standard Cryo-Lamella",
-    description="Standard workflow for cryo-lamella preparation",
-    tasks=[
-        AutoLamellaTaskDescription(
-            name="Acquire Reference Image",
-            attention=Attention.supervised,
-            required=True,
-        ),
-        AutoLamellaTaskDescription(name="Mill Rough", required=True),
-        AutoLamellaTaskDescription(
-            name="Mill Polishing",
-            attention=Attention.supervised,
-            required=True,
-            requires=["Mill Rough"],
-        ),
-        AutoLamellaTaskDescription(name="Acquire Final Image", required=False),
-    ],
+SAMPLE_PROTOCOL = AutoLamellaTaskProtocol(
+    workflow_config=AutoLamellaWorkflowConfig(
+        name="Standard Cryo-Lamella",
+        description="Standard workflow for cryo-lamella preparation",
+    )
 )
+for name, attention, required, requires in (
+    ("Acquire Reference Image", Attention.supervised, True, []),
+    ("Mill Rough", Attention.automated, True, []),
+    ("Mill Polishing", Attention.supervised, True, ["Mill Rough"]),
+    ("Acquire Final Image", Attention.automated, False, []),
+):
+    SAMPLE_PROTOCOL.add(
+        AcquireReferenceImageConfig(
+            task_name=name, attention=attention, requires=requires
+        )
+    )
+    SAMPLE_PROTOCOL.workflow_config.get(name).required = required
 
 
 def _make_lamella(
@@ -56,7 +59,7 @@ def _make_lamella(
     lam = Lamella(path=Path(f"/tmp/test/{petname}"), number=number, petname=petname)
     if last_task:
         state = TaskState(name=last_task, status=TaskStatus.Completed)
-        state.end_timestamp = time.time()
+        state.end_timestamp = now()
         lam.task_history.append(state)
     if in_progress:
         lam.task_state.name = in_progress
@@ -89,7 +92,10 @@ class TestWindow(QWidget):
         self.setStyleSheet(NAPARI_STYLE)
         self.resize(700, 640)
 
-        self._config = SAMPLE_CONFIG
+        self._protocol = SAMPLE_PROTOCOL
+        self._config = SAMPLE_PROTOCOL.workflow_config
+        experiment = Experiment(path=Path("/tmp/test"), name="demo")
+        experiment.task_protocol = self._protocol
         self._lamella_counter = len(SAMPLE_LAMELLA) + 1
         self._task_counter = len(self._config.tasks) + 1
 
@@ -101,6 +107,7 @@ class TestWindow(QWidget):
         root.addWidget(title)
 
         self.widget = LamellaWorkflowWidget()
+        self.widget.set_experiment(experiment)
         for lam in SAMPLE_LAMELLA:
             self.widget.add_lamella(lam)
         self.widget.set_workflow_config(self._config)
@@ -139,14 +146,10 @@ class TestWindow(QWidget):
                 f"Lamella selected ({len(sel)}): {[l.name for l in sel]}"
             )
         )
-        self.widget.task_attention_changed.connect(
-            lambda t: self._log(
-                f"Task supervised toggled: {t.name} → {t.attention.value}"
-            )
-        )
+        self.widget.task_attention_toggled.connect(self._on_attention_toggled)
         self.widget.task_edited.connect(
-            lambda t: self._log(
-                f"Task edited: {t.name} | required={t.required} | requires={t.requires}"
+            lambda t, requires: self._log(
+                f"Task edited: {t.name} | required={t.required} | requires={requires}"
             )
         )
         self.widget.task_remove_requested.connect(
@@ -156,6 +159,16 @@ class TestWindow(QWidget):
 
     def _log(self, msg: str) -> None:
         self.log_label.setText(msg)
+
+    def _on_attention_toggled(self, task) -> None:
+        supervised = self._protocol.get_attention(task.name) is Attention.supervised
+        self._protocol.set_attention(
+            task.name, Attention.automated if supervised else Attention.supervised
+        )
+        self.widget.workflow.refresh_task(task)
+        self._log(
+            f"Attention: {task.name} → {self._protocol.get_attention(task.name).value}"
+        )
 
     def _on_task_order_changed(self, tasks: list) -> None:
         self._config.tasks[:] = tasks
@@ -178,13 +191,13 @@ class TestWindow(QWidget):
         verbs = ["Acquire", "Mill", "Align", "Inspect", "Record"]
         nouns = ["Fiducial", "Undercut", "Notch", "Overview", "Tilt Series"]
         name = f"{random.choice(verbs)} {random.choice(nouns)}"
-        task = AutoLamellaTaskDescription(
-            name=name,
-            attention=random.choice([Attention.automated, Attention.supervised]),
-            required=True,
+        self._protocol.add(
+            AcquireReferenceImageConfig(
+                task_name=name,
+                attention=random.choice([Attention.automated, Attention.supervised]),
+            )
         )
-        self._config.tasks.append(task)
-        self.widget.add_task(task)
+        self.widget.add_task(self._config.get(name))
         self._task_counter += 1
         self._log(f"Added task: {name}")
 
@@ -192,8 +205,8 @@ class TestWindow(QWidget):
         tasks = self.widget.get_tasks()
         print("\n── Workflow ──────────────────────────")
         for i, t in enumerate(tasks):
-            mode = t.attention.value
-            req = ", ".join(t.requires) if t.requires else "—"
+            mode = self._protocol.get_attention(t.name).value
+            req = ", ".join(self._protocol.requirements(t.name)) or "—"
             opt = "" if t.required else " [optional]"
             print(f"  {i + 1}. {t.name}{opt}  |  {mode}  |  requires: {req}")
         print("─────────────────────────────────────\n")

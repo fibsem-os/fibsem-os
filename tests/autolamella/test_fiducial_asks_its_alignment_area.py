@@ -12,9 +12,7 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.protocol.constants import FIDUCIAL_KEY
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-    AutoLamellaWorkflowConfig,
     Experiment,
 )
 from fibsem.applications.autolamella.workflows.tasks.fiducial import (
@@ -23,6 +21,7 @@ from fibsem.applications.autolamella.workflows.tasks.fiducial import (
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.workflows.proposals import ALIGNMENT_AREA, MILLING
+from tests.protocols import planned, task_protocol
 
 FIDUCIAL = "Mill Fiducial"
 CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
@@ -101,11 +100,7 @@ def test_with_no_finished_image_the_task_takes_one_frame_to_ask_on(
     saved as the task's post-mill image, and the question sits on it. Nobody
     is there headless, so the area goes on the record as proposed."""
     exp = Experiment(path=tmp_path, name="fid-exp")
-    exp.task_protocol = AutoLamellaTaskProtocol(
-        workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[AutoLamellaTaskDescription(name=FIDUCIAL, required=True)]
-        )
-    )
+    exp.task_protocol = task_protocol(planned(name=FIDUCIAL, required=True))
     os.makedirs(exp.path, exist_ok=True)
     config = MillFiducialTaskConfig(task_name=FIDUCIAL, align_to_reference=False)
     exp.add_new_lamella(

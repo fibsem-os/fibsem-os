@@ -50,7 +50,6 @@ from PyQt5.QtGui import QPixmap  # noqa: E402
 from PyQt5.QtWidgets import QLabel  # noqa: E402
 
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
     AutoLamellaWorkflowConfig,
 )
 from fibsem.applications.autolamella.ui.workflow.lamella_run import (
@@ -79,6 +78,8 @@ from fibsem.ui.widgets.milling_stage_list_widget import (  # noqa: E402
     MillingStageRowWidget,
 )
 from fibsem.workflows.attention import Attention
+from fibsem.workflows.task_config import TaskPlan  # noqa: E402
+from tests.protocols import planned  # noqa: E402
 
 NULL_PIXMAP_WARNING = "null pixmap"
 
@@ -107,9 +108,7 @@ def _coordinate_row():
 
 def _workflow_row():
     return WorkflowTaskRowWidget(
-        AutoLamellaTaskDescription(
-            name="Mill Rough", attention=Attention.supervised, required=True
-        )
+        *planned(name="Mill Rough", attention=Attention.supervised, required=True)
     )
 
 
@@ -140,7 +139,7 @@ def captured_qt_messages():
 
 def _workflow_config() -> AutoLamellaWorkflowConfig:
     return AutoLamellaWorkflowConfig(
-        tasks=[AutoLamellaTaskDescription(name=name, required=False) for name in TASKS]
+        tasks=[TaskPlan(name=name, required=False) for name in TASKS]
     )
 
 

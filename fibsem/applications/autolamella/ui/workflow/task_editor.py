@@ -18,10 +18,6 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.structures import (
-    SCHEDULE_DAYS_AHEAD,
-    AutoLamellaTaskDescription,
-)
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
@@ -31,6 +27,7 @@ from fibsem.ui.tokens import (
     TEXT_COLOR,
 )
 from fibsem.ui.widgets.custom_widgets import TitledPanel
+from fibsem.workflows.task_config import SCHEDULE_DAYS_AHEAD, TaskPlan
 
 _ROW_HEIGHT = 40
 # Requirements list shows up to this many rows before it starts to scroll.
@@ -84,20 +81,21 @@ class _RequirementRowWidget(QWidget):
 
 class WorkflowTaskEditorWidget(QWidget):
     """
-    Inline editor for a single AutoLamellaTaskDescription.
+    Inline editor for one task of a run plan: whether it is required, when it
+    may start, and the tasks it requires.
 
-    Pass ``available_tasks`` as the names of all other tasks in the workflow
-    so the user can select which ones this task depends on.
+    Pass ``available_tasks`` as the names of the tasks it may require, and
+    ``requires`` as those it requires now.
 
     Signals
     -------
-    apply_clicked  : emits a *copy* of the task with the edited values; the
-                     task itself is left for the host to change through the
-                     workflow config's rules.
+    apply_clicked  : emits a *copy* of the task with the edited values and the
+                     tasks it is to require; the task itself is left for the
+                     host to change through the protocol's rules.
     cancel_clicked : emits when the user clicks Cancel.
     """
 
-    apply_clicked = pyqtSignal(object)  # AutoLamellaTaskDescription
+    apply_clicked = pyqtSignal(object, list)  # TaskPlan, requires
     cancel_clicked = pyqtSignal()
     # The user wants this task out of the workflow. The editor only asks; the
     # dialog that owns the task confirms and removes, so the editor can be
@@ -106,12 +104,14 @@ class WorkflowTaskEditorWidget(QWidget):
 
     def __init__(
         self,
-        task: AutoLamellaTaskDescription,
+        task: TaskPlan,
+        requires: Optional[List[str]] = None,
         available_tasks: Optional[List[str]] = None,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self._task = task
+        self._requires = list(requires or [])
         self._available = [t for t in (available_tasks or []) if t != task.name]
 
         root = QVBoxLayout(self)
@@ -224,7 +224,7 @@ class WorkflowTaskEditorWidget(QWidget):
         rc.addWidget(self._req_list)
 
         self._req_rows: List[_RequirementRowWidget] = []
-        self._populate_requirements(task)
+        self._populate_requirements()
 
         self._req_panel = TitledPanel(
             "Requirements", content=req_content, collapsible=False
@@ -275,7 +275,7 @@ class WorkflowTaskEditorWidget(QWidget):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _qdatetime_for(task: AutoLamellaTaskDescription) -> QDateTime:
+    def _qdatetime_for(task: TaskPlan) -> QDateTime:
         """Return a QDateTime seeded from task.scheduled_at, or 'now' if unset."""
         if task.scheduled_at is None:
             return QDateTime.currentDateTime()
@@ -332,11 +332,13 @@ class WorkflowTaskEditorWidget(QWidget):
 
     def load_task(
         self,
-        task: AutoLamellaTaskDescription,
+        task: TaskPlan,
+        requires: Optional[List[str]] = None,
         available_tasks: Optional[List[str]] = None,
     ) -> None:
         """Reload the editor with a different task."""
         self._task = task
+        self._requires = list(requires or [])
         self._available = [t for t in (available_tasks or []) if t != task.name]
         self._name_label.setText(task.name)
         self._optional_cb.setChecked(not task.required)
@@ -349,20 +351,20 @@ class WorkflowTaskEditorWidget(QWidget):
         self._dt_edit.setEnabled(task.scheduled_at is not None)
         self._refresh_schedule_hint()
 
-        self._populate_requirements(task)
+        self._populate_requirements()
 
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
 
-    def _populate_requirements(self, task: AutoLamellaTaskDescription) -> None:
+    def _populate_requirements(self) -> None:
         """Rebuild the requirements list from the available task names."""
         self._req_list.clear()
         self._req_rows.clear()
 
         if self._available:
             for name in self._available:
-                row = _RequirementRowWidget(name, checked=(name in task.requires))
+                row = _RequirementRowWidget(name, checked=(name in self._requires))
                 item = QListWidgetItem()
                 item.setSizeHint(QSize(0, _ROW_HEIGHT))
                 self._req_list.addItem(item)
@@ -396,11 +398,11 @@ class WorkflowTaskEditorWidget(QWidget):
             replace(
                 self._task,
                 required=not self._optional_cb.isChecked(),
-                requires=[
-                    row.name_label.text()
-                    for row in self._req_rows
-                    if row.checkbox.isChecked()
-                ],
                 scheduled_at=scheduled_at,
-            )
+            ),
+            [
+                row.name_label.text()
+                for row in self._req_rows
+                if row.checkbox.isChecked()
+            ],
         )

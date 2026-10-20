@@ -19,9 +19,6 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.acting import ActorKind
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
-    AutoLamellaTaskProtocol,
-    AutoLamellaWorkflowConfig,
     Experiment,
 )
 from fibsem.applications.autolamella.workflows.tasks import get_tasks
@@ -39,6 +36,7 @@ from fibsem.workflows.proposals import (
     Decision,
     DecisionOutcome,
 )
+from tests.protocols import planned, task_protocol
 
 ROUGH = "Rough Milling"
 CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
@@ -65,14 +63,8 @@ def microscope():
 
 def _experiment(tmp_path: Path, microscope, attention=Attention.automated):
     exp = Experiment(path=tmp_path, name="ask-exp")
-    exp.task_protocol = AutoLamellaTaskProtocol(
-        workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[
-                AutoLamellaTaskDescription(
-                    name=ROUGH, required=True, attention=attention
-                )
-            ]
-        )
+    exp.task_protocol = task_protocol(
+        planned(name=ROUGH, required=True, attention=attention)
     )
     os.makedirs(exp.path, exist_ok=True)
     exp.add_new_lamella(

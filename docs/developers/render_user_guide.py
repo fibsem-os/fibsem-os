@@ -2421,7 +2421,6 @@ def render_correlation(h: Harness) -> None:
     import numpy as np
     from scipy import ndimage as ndi
 
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskDescription
     from fibsem.applications.autolamella.ui import window as main_module
     from fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence import (
         AcquireFluorescenceImageConfig,
@@ -2439,6 +2438,7 @@ def render_correlation(h: Harness) -> None:
     from fibsem.structures import BeamType, ImageSettings, Point
     from fibsem.ui.correlation.widgets import correlation_tab_widget as ctw
     from fibsem.workflows.attention import Attention
+    from fibsem.workflows.task_config import TaskPlan
 
     h.first_run(False)
     h.show_tab(0)
@@ -2473,11 +2473,19 @@ def render_correlation(h: Harness) -> None:
     # rotated or mirrored against the FIB view
     points = [Point(0.3, 0.35), Point(0.7, 0.3), Point(0.65, 0.7), Point(0.35, 0.62)]
     if SPOT not in protocol.task_config:
-        burn = SpotBurnFiducialTaskConfig(task_name=SPOT, coordinates=points)
+        tasks = protocol.workflow_config.tasks
+        setup, fiducial = tasks[0].name, tasks[1].name
+        burn = SpotBurnFiducialTaskConfig(
+            task_name=SPOT,
+            coordinates=points,
+            attention=Attention.supervised,
+            requires=[setup],
+        )
         burn.reference_imaging.field_of_view1 = 50e-6
         burn.reference_imaging.field_of_view2 = 100e-6
         acquire = AcquireFluorescenceImageConfig(
             task_name=FMTASK,
+            requires=[fiducial],
             channel_settings=channels,
             zparams=ZParameters(zmin=-2e-6, zmax=2e-6, zstep=1e-6),
         )
@@ -2489,33 +2497,14 @@ def render_correlation(h: Harness) -> None:
                 lamella.task_config[config.task_name] = copy.deepcopy(config)
         # the setup task moves the site; the stack should be taken where it
         # ends up, so the fluorescence pose follows (off by default)
-        setup_name = protocol.workflow_config.tasks[0].name
-        for holder in [protocol.task_config] + [
+        for configs in [protocol.task_config] + [
             lamella.task_config for lamella in experiment.positions
         ]:
-            holder[setup_name].sync_fluorescence_pose = True
+            configs[setup].sync_fluorescence_pose = True
         # after the setup task, before the milling: burn, then image
-        tasks = protocol.workflow_config.tasks
-        setup, fiducial = tasks[0].name, tasks[1].name
-        tasks.insert(
-            1,
-            AutoLamellaTaskDescription(
-                name=SPOT,
-                attention=Attention.supervised,
-                required=False,
-                requires=[setup],
-            ),
-        )
+        tasks.insert(1, TaskPlan(name=SPOT, required=False))
         # the fluorescence stack after the fiducial, so both are in it
-        tasks.insert(
-            3,
-            AutoLamellaTaskDescription(
-                name=FMTASK,
-                attention=Attention.automated,
-                required=False,
-                requires=[fiducial],
-            ),
-        )
+        tasks.insert(3, TaskPlan(name=FMTASK, required=False))
         experiment.save()
         editor = h.window.task_widget
         editor._initialise_widgets()

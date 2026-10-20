@@ -42,6 +42,7 @@ from fibsem.applications.autolamella.config_edits import (
     item_fields_version,
     item_patch_refusal,
     item_pose_positions,
+    workflow_field_refusal,
 )
 from fibsem.geometry.saved_images import image_point_to_stage_position, stage_projector
 from fibsem.server.files import jpeg_preview
@@ -481,16 +482,17 @@ class AutoLamellaAppContext:
             "tasks": [
                 {
                     "name": task.name,
-                    "attention": task.attention.value,
+                    "attention": task_protocol.get_attention(task.name).value,
                     # what the task needs from a person under that attention:
                     # whether someone must be at the microscope while it
                     # runs, and what waits for a decision afterwards
                     "attendance": _attendance_line(task_protocol, task.name),
                     # the boolean the /supervision verb takes, for the agents
                     # that read it back
-                    "supervise": task.attention is Attention.supervised,
+                    "supervise": task_protocol.get_attention(task.name)
+                    is Attention.supervised,
                     "required": task.required,
-                    "requires": list(task.requires),
+                    "requires": task_protocol.requirements(task.name),
                     "scheduled_at": task.scheduled_at.isoformat()
                     if task.scheduled_at is not None
                     else None,
@@ -1765,6 +1767,10 @@ class AutoLamellaAppContext:
         config = self._edited_task_config(tool, arguments)
         if config is None:
             return None
+        if tool != "protocol_update_grid_task_config":
+            refused = workflow_field_refusal(patch)
+            if refused:
+                return refused["invalid_patch"]
         try:
             check_patch(config, patch)
         except PatchError as exc:
@@ -2233,18 +2239,22 @@ class AutoLamellaAppContext:
         """One config as a wire document with its version token.
 
         The full ``to_dict``, not a curated snapshot — the document is the
-        contract for editing (you cannot patch what you cannot read). The
-        ``version`` hashes the serialized content, so a write names exactly
-        the state it read: the config's version, refused as stale on mismatch.
+        contract for editing (you cannot patch what you cannot read). An
+        item's copy has no attention or requires: those are the protocol's.
+        The ``version`` hashes the serialized settings, so a write names
+        exactly the state it read: the config's version, refused as stale on
+        mismatch.
         """
+        from fibsem.applications.autolamella.structures import item_config_dict
         from fibsem.workflows.events import to_plain
 
+        saved = item_config_dict(config) if level == "item" else config.to_dict()
         return {
             "available": True,
             "task_name": task_name,
             "level": level,
-            "version": config_version(config),
-            "config": to_plain(config.to_dict()),
+            "version": config_version(config, workflow_fields=level == "grid_protocol"),
+            "config": to_plain(saved),
         }
 
     def apply_item_task_config_patch(
@@ -2547,7 +2557,7 @@ class AutoLamellaAppContext:
     ) -> Dict[str, Any]:
         """Set (or clear) when ``task_name`` may start, in the live workflow,
         as the Workflow tab's Edit Task does
-        (``AutoLamellaWorkflowConfig.set_schedule``): up to two days ahead.
+        (``RunPlan.set_schedule``): up to two days ahead.
 
         The workflow reads the schedule at each task start (never a snapshot),
         so a change takes effect at the next start, and like ``set_supervision``
@@ -2737,7 +2747,7 @@ class AutoLamellaAppContext:
             return refusal
 
         def reorder():
-            why = config.reorder(list(order))
+            why = experiment.task_protocol.reorder(list(order))
             if why:
                 return why
             return self._protocol_changed(
@@ -2766,8 +2776,9 @@ class AutoLamellaAppContext:
         experiment, config, refusal = self._workflow_edit("edit tasks")
         if refusal:
             return refusal
-        task = next((t for t in config.tasks if t.name == task_name), None)
-        if task is None:
+        protocol = experiment.task_protocol
+        task = config.get(task_name)
+        if task is None or task_name not in protocol.task_config:
             return {
                 "error_type": "not_found",
                 "error": f"No task named {task_name!r} in the workflow.",
@@ -2775,7 +2786,7 @@ class AutoLamellaAppContext:
             }
 
         def edit():
-            why = config.set_requirements(task_name, requires, required)
+            why = protocol.set_requirements(task_name, requires, required)
             if why:
                 return why
             return self._protocol_changed(
@@ -2783,7 +2794,7 @@ class AutoLamellaAppContext:
                 {
                     "field": "requirements",
                     "task_name": task_name,
-                    "requires": task.requires,
+                    "requires": protocol.requirements(task_name),
                     "required": task.required,
                 },
             )
@@ -2795,7 +2806,7 @@ class AutoLamellaAppContext:
             "applied": True,
             "saved": saved,
             "task_name": task_name,
-            "requires": list(task.requires),
+            "requires": protocol.requirements(task_name),
             "required": task.required,
         }
 
@@ -2928,7 +2939,7 @@ class AutoLamellaAppContext:
             return refusal
 
         def edit():
-            if config_version(config) != version:
+            if config_version(config, workflow_fields=True) != version:
                 return {"stale": True}
             try:
                 changes = apply_patch(config, patch)
@@ -2954,7 +2965,7 @@ class AutoLamellaAppContext:
         return {
             "applied": True,
             "task_name": task_name,
-            "version": config_version(config),
+            "version": config_version(config, workflow_fields=True),
             **result,
         }
 

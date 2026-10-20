@@ -16,7 +16,6 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.structures import (  # noqa: E402
-    AutoLamellaTaskDescription,
     Lamella,
 )
 from fibsem.applications.autolamella.ui.common.lamella_display import (
@@ -30,6 +29,8 @@ from fibsem.applications.autolamella.ui.workflow.task_list import (
 )
 from fibsem.ui.widgets import lists as list_chrome  # noqa: E402  # noqa: E402
 from fibsem.workflows.status import TaskState  # noqa: E402
+from fibsem.workflows.task_config import TaskPlan
+from tests.protocols import planned, task_protocol
 
 
 @pytest.fixture
@@ -39,13 +40,20 @@ def lists(qapp, tmp_path):
         lamellae.add_lamella(
             Lamella(petname=name, path=str(tmp_path / name), number=n), checked=True
         )
+    protocol = task_protocol(
+        *(
+            planned(name=name, requires=requires)
+            for name, requires in [
+                ("Setup Lamella Position", []),
+                ("Acquire Fluorescence Image", []),
+                ("Rough Milling", ["Mill Fiducial"]),
+            ]
+        )
+    )
     tasks = WorkflowTaskList()
-    for name, requires in [
-        ("Setup Lamella Position", []),
-        ("Acquire Fluorescence Image", []),
-        ("Rough Milling", ["Mill Fiducial"]),
-    ]:
-        tasks.add_task(AutoLamellaTaskDescription(name=name, requires=requires))
+    tasks.set_protocol(protocol)
+    for task in protocol.workflow_config.tasks:
+        tasks.add_task(task)
     yield lamellae, tasks
     lamellae.deleteLater()
     tasks.deleteLater()
@@ -167,7 +175,7 @@ def test_the_status_line_says_what_the_selection_allows(no_quit, qapp, tmp_path)
     window._update_instructions()
     workflow = window.workflow_tab.lamella_workflow_widget
     workflow.add_lamella(experiment.positions[0], checked=False)
-    workflow.add_task(AutoLamellaTaskDescription(name="Polishing"), checked=True)
+    workflow.add_task(TaskPlan(name="Polishing"), checked=True)
     window.workflow_tab.selection_changed()
     assert window.status_bar.text == "Select a lamella to run the workflow."
     workflow.lamella_list.set_all_selected(True)

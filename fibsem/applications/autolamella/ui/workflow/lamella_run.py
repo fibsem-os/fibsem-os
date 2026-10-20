@@ -18,7 +18,6 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
     AutoLamellaWorkflowConfig,
     AutoLamellaWorkflowOptions,
     Experiment,
@@ -46,7 +45,7 @@ from fibsem.ui.widgets.custom_widgets import (
     ValueComboBox,
 )
 from fibsem.ui.widgets.lists import help_button
-from fibsem.workflows.attention import Attention
+from fibsem.workflows.task_config import TaskPlan
 
 # What the panel's ? says: how to work the task list. It was a line of text under
 # the list on every view; it is for the first time, not every time.
@@ -161,7 +160,7 @@ class _TaskEditorDialog(QDialog):
     removed from the workflow: the editor's Remove asks here, this confirms,
     closes, and tells the host which task to drop."""
 
-    remove_requested = pyqtSignal(object)  # AutoLamellaTaskDescription
+    remove_requested = pyqtSignal(object)  # TaskPlan
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -175,24 +174,23 @@ class _TaskEditorDialog(QDialog):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self.editor = WorkflowTaskEditorWidget(
-            task=AutoLamellaTaskDescription(name="", required=True),
-        )
+        self.editor = WorkflowTaskEditorWidget(task=TaskPlan(name=""))
         # Use the editor's own styled Apply/Cancel buttons as the dialog actions.
         self.editor.apply_clicked.connect(self.accept)
         self.editor.cancel_clicked.connect(self.reject)
         self.editor.remove_clicked.connect(self._on_remove_clicked)
         layout.addWidget(self.editor, 1)
-        self._task: Optional[AutoLamellaTaskDescription] = None
+        self._task: Optional[TaskPlan] = None
 
     def open_for(
         self,
-        task: AutoLamellaTaskDescription,
+        task: TaskPlan,
+        requires: List[str],
         available_tasks: List[str],
         allow_remove: bool = True,
     ) -> None:
         self._task = task
-        self.editor.load_task(task, available_tasks=available_tasks)
+        self.editor.load_task(task, requires, available_tasks=available_tasks)
         self.editor.set_remove_allowed(allow_remove)
         self.open()
 
@@ -229,12 +227,12 @@ class LamellaWorkflowWidget(QWidget):
     lamella_selection_changed = pyqtSignal(list)  # List[Lamella]
 
     # ── workflow signals ─────────────────────────────────────────────────
-    task_attention_changed = pyqtSignal(object)  # AutoLamellaTaskDescription
-    task_edited = pyqtSignal(object)  # AutoLamellaTaskDescription: the edited copy
-    task_remove_requested = pyqtSignal(object)  # AutoLamellaTaskDescription
-    task_added = pyqtSignal(object)  # AutoLamellaTaskDescription
-    task_selection_changed = pyqtSignal(list)  # List[AutoLamellaTaskDescription]
-    task_order_changed = pyqtSignal(list)  # List[AutoLamellaTaskDescription]
+    task_attention_toggled = pyqtSignal(object)  # TaskPlan
+    task_edited = pyqtSignal(object, list)  # TaskPlan: the edited copy, requires
+    task_remove_requested = pyqtSignal(object)  # TaskPlan
+    task_added = pyqtSignal(object)  # TaskPlan
+    task_selection_changed = pyqtSignal(list)  # List[TaskPlan]
+    task_order_changed = pyqtSignal(list)  # List[TaskPlan]
 
     # ── workflow info signals ────────────────────────────────────────────
     workflow_name_changed = pyqtSignal(str)
@@ -287,7 +285,7 @@ class LamellaWorkflowWidget(QWidget):
         self.lamella_list.defect_changed.connect(self.lamella_defect_changed)
         self.lamella_list.selection_changed.connect(self.lamella_selection_changed)
 
-        self.workflow.attention_changed.connect(self.task_attention_changed)
+        self.workflow.attention_toggled.connect(self.task_attention_toggled)
         self.workflow.edit_requested.connect(self._on_task_edit_requested)
         self.workflow.remove_requested.connect(self.task_remove_requested)
         self.workflow.selection_changed.connect(self.task_selection_changed)
@@ -346,16 +344,16 @@ class LamellaWorkflowWidget(QWidget):
     def add_lamella(self, lamella: Lamella, checked: bool = False):
         return self.lamella_list.add_lamella(lamella, checked)
 
-    def add_task(self, task: AutoLamellaTaskDescription, checked: bool = False):
+    def add_task(self, task: TaskPlan, checked: bool = False):
         return self.workflow.add_task(task, checked)
 
     def get_selected_lamella(self) -> List[Lamella]:
         return self.lamella_list.get_selected()
 
-    def get_selected_tasks(self) -> List[AutoLamellaTaskDescription]:
+    def get_selected_tasks(self) -> List[TaskPlan]:
         return self.workflow.get_selected()
 
-    def get_tasks(self) -> List[AutoLamellaTaskDescription]:
+    def get_tasks(self) -> List[TaskPlan]:
         return self.workflow.get_tasks()
 
     def clear(self) -> None:
@@ -371,18 +369,20 @@ class LamellaWorkflowWidget(QWidget):
             return []
         return sorted(self.experiment.task_protocol.task_config.keys())
 
-    def _on_task_edit_requested(self, task: AutoLamellaTaskDescription) -> None:
+    def _on_task_edit_requested(self, task: TaskPlan) -> None:
         # Only the tasks before it: a task cannot require one that runs later
-        # (`AutoLamellaWorkflowConfig.set_requirements`, the App Server's rule).
+        # (`AutoLamellaTaskProtocol.set_requirements`, the App Server's rule).
         names = [t.name for t in self.workflow.get_tasks()]
         available = names[: names.index(task.name)] if task.name in names else names
+        protocol = getattr(self.experiment, "task_protocol", None)
         self._editor_dialog.open_for(
             task,
+            protocol.requirements(task.name) if protocol is not None else [],
             available_tasks=available,
             allow_remove=self.workflow.remove_allowed,
         )
 
-    def _on_task_remove_confirmed(self, task: AutoLamellaTaskDescription) -> None:
+    def _on_task_remove_confirmed(self, task: TaskPlan) -> None:
         # the list drops the row and re-emits remove_requested, which is wired
         # to task_remove_requested above
         self.workflow.request_remove(task)
@@ -398,9 +398,7 @@ class LamellaWorkflowWidget(QWidget):
             task_name = dialog.get_selected_task()
             if task_name is None:
                 return
-            task = AutoLamellaTaskDescription(
-                name=task_name, required=True, attention=Attention.supervised
-            )
+            task = TaskPlan(name=task_name)
             self.workflow.add_task(task)
             self.task_added.emit(task)
 

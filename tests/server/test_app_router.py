@@ -22,6 +22,7 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
 )
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.structures import MicroscopeState  # noqa: E402
+from tests.protocols import add_planned, planned  # noqa: E402
 from tests.run_state import run_working_on, stub_session
 
 TOKEN = "test-token"
@@ -405,7 +406,6 @@ def test_event_history_reads_the_record_before_the_live_buffer(
 
 
 def test_task_schedule_verb_sets_clears_and_refuses(microscope, host, event_buffer):
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskDescription
     from fibsem.applications.autolamella.workflows.tasks.rough import (
         MillRoughTaskConfig,
     )
@@ -416,10 +416,9 @@ def test_task_schedule_verb_sets_clears_and_refuses(microscope, host, event_buff
     protocol.task_config["Rough Milling"] = MillRoughTaskConfig(
         task_name="Rough Milling"
     )
-    protocol.workflow_config.tasks.append(
-        AutoLamellaTaskDescription(
-            name="Rough Milling", attention=Attention.supervised, required=True
-        )
+    add_planned(
+        protocol,
+        planned(name="Rough Milling", attention=Attention.supervised, required=True),
     )
 
     armed = build_server(

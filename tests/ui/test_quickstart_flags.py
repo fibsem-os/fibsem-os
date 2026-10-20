@@ -18,9 +18,6 @@ pytest.importorskip("PyQt5")
 
 from fibsem import config as cfg
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
-    AutoLamellaTaskProtocol,
-    AutoLamellaWorkflowConfig,
     Experiment,
 )
 from fibsem.applications.autolamella.ui.launch import _parse_args
@@ -29,6 +26,7 @@ from fibsem.applications.autolamella.workflows.tasks.reference_image import (
     AcquireReferenceImageConfig,
 )
 from tests.fixtures.main_window import close_window
+from tests.protocols import planned, task_protocol
 
 TASKS = ["Trench", "Polishing"]
 
@@ -49,12 +47,8 @@ def make_experiment(path: Path, name: str, with_protocol: bool = True) -> Experi
     """Write a real experiment (and, by default, its protocol) to disk."""
     experiment = Experiment.create(path=path, name=name)
     if with_protocol:
-        experiment.task_protocol = AutoLamellaTaskProtocol(
-            workflow_config=AutoLamellaWorkflowConfig(
-                tasks=[
-                    AutoLamellaTaskDescription(name=n, required=False) for n in TASKS
-                ]
-            ),
+        experiment.task_protocol = task_protocol(
+            *[planned(name=n, required=False) for n in TASKS],
             task_config={n: AcquireReferenceImageConfig(task_name=n) for n in TASKS},
         )
         experiment.task_protocol.save(os.path.join(experiment.path, "protocol.yaml"))
