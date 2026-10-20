@@ -18,6 +18,7 @@ in the rotation and tilt, which is how `get_target_position` works at all.
 from __future__ import annotations
 
 import logging
+import os
 from copy import deepcopy
 from typing import TYPE_CHECKING, Optional, Sequence
 
@@ -383,14 +384,31 @@ def move_lamella(
 
 
 def remove_lamella(experiment, lamella) -> bool:
-    """Remove *lamella* from *experiment* and save; its files stay on disk.
-    False when it was not there."""
+    """Remove *lamella* from *experiment* and save; its files stay on disk,
+    and its directory goes only when it holds no files. False when it was
+    not there."""
     try:
         experiment.positions.remove(lamella)
     except ValueError:
         return False
     experiment.save()
+    _remove_empty_dirs(lamella.path)
     return True
+
+
+def _remove_empty_dirs(path) -> None:
+    """Remove *path* when no file is under it at any depth, else leave it all.
+    rmdir refuses a directory with anything in it, so no file is ever deleted."""
+    if not path or not os.path.isdir(path):
+        return
+    walk = list(os.walk(path, topdown=False))
+    if any(files for _, _, files in walk):
+        return
+    for root, _, _ in walk:
+        try:
+            os.rmdir(root)
+        except OSError:
+            pass
 
 
 def set_objective_position(experiment, lamella, value: float) -> None:
