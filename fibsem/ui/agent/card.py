@@ -575,6 +575,7 @@ class AgentCard(QFrame):
     level_chosen = pyqtSignal(object)  # AgentLevel
     stop_clicked = pyqtSignal()
     event_log_clicked = pyqtSignal()
+    chat_clicked = pyqtSignal()
     connect_clicked = pyqtSignal()
     approve_clicked = pyqtSignal(str)  # request id
     reject_clicked = pyqtSignal(str, str)  # request id, the operator's reason
@@ -700,6 +701,10 @@ class AgentCard(QFrame):
             "What the agent, the operator and the run did, in your browser."
         )
         self.event_log_link.clicked.connect(self.event_log_clicked)
+        self.chat_link = _link("Chat")
+        self.chat_link.setToolTip("Talk to the agent in your browser.")
+        self.chat_link.clicked.connect(self.chat_clicked)
+        recent.addWidget(self.chat_link)
         recent.addWidget(self.event_log_link)
         layout.addLayout(recent)
         # The timeline: rebuilt whole on each change, at most `recent.SIZE` rows.

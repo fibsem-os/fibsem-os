@@ -325,6 +325,12 @@ class AppServerDialog(QDialog):
         """The event log page, with the dashboard's token as the dashboard has it."""
         return f"{host.url}/dashboard/log#token={host.auth.dashboard_token}"
 
+    @staticmethod
+    def chat_url(host) -> str:
+        """The chat page, with the operator token in the fragment as the
+        dashboard has its own."""
+        return f"{host.url}/chat#token={host.auth.operator_token}"
+
     def _on_dashboard_clicked(self) -> None:
         host = self._host()
         if host is None:

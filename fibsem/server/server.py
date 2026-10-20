@@ -547,6 +547,12 @@ def build_server(
         # The event stream as one filterable table; served like /dashboard.
         return _page("dashboard_log.html")
 
+    @app.get("/chat")
+    def chat():
+        # The operator's chat with the agent; served like /dashboard, and every
+        # call it makes needs the operator token.
+        return _page("chat.html")
+
     @base.get("/capabilities")
     def capabilities():
         return {

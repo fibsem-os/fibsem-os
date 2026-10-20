@@ -213,6 +213,7 @@ class AgentLevelChip(QPushButton):
     stop_clicked = pyqtSignal()
     connect_clicked = pyqtSignal()
     event_log_clicked = pyqtSignal()
+    chat_clicked = pyqtSignal()
     approve_clicked = pyqtSignal(str)  # request id
     reject_clicked = pyqtSignal(str, str)  # request id, the operator's reason
     suggestion_approved = pyqtSignal()  # the suggestion shown
@@ -242,6 +243,7 @@ class AgentLevelChip(QPushButton):
         self.card.level_chosen.connect(self._on_chosen)
         self.card.stop_clicked.connect(self._closing(self.stop_clicked))
         self.card.event_log_clicked.connect(self._closing(self.event_log_clicked))
+        self.card.chat_clicked.connect(self._closing(self.chat_clicked))
         self.card.connect_clicked.connect(self._closing(self.connect_clicked))
         self.card.approve_clicked.connect(self._on_approve)
         self.card.reject_clicked.connect(self._on_reject)
