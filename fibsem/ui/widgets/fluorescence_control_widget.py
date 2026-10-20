@@ -196,15 +196,13 @@ class FMControlWidget(QWidget):
         self.comboBox_default_orientation.setToolTip(
             "Stage orientation used when computing the fluorescence pose for new lamellas"
         )
-        # On an offset mount there is no FM orientation and the pose derivation cannot
-        # produce a fluorescence pose at all yet (it needs the device leg -- FIB-831),
-        # so a choice here would decide nothing. Disabled rather than hidden, with the
-        # reason where the user's pointer already is.
+        # On an offset mount there is no FM orientation: fluorescence poses take the
+        # pose the FM device declares, so a choice here would decide nothing.
         if not self.microscope._fm_is_a_pose():
             self.comboBox_default_orientation.setEnabled(False)
             self.comboBox_default_orientation.setToolTip(
-                "Fluorescence poses cannot yet be derived on an offset-mounted FM; "
-                "mark positions from the FM overview instead."
+                "On an offset-mounted FM, fluorescence poses use the orientation the "
+                "FM is configured to image from."
             )
 
         # Checkbox for lamella association
