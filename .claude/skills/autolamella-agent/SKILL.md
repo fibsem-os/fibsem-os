@@ -429,6 +429,9 @@ supply code. FM Intensity watches the fluorescence under the mill and triggers
 on a drop. It needs an Arctis whose software restrictions on running the FM
 while milling an operator has disabled: if they haven't, don't use it. SEM
 Peek pauses the mill every `interval` seconds of milled time for an SEM image.
+RTM, listed only where the instrument has it, reads what the ion beam reads
+back from the patterns as they mill; each reading carries every pattern's
+mean value, by its draw index. It only watches: it never ends a stage.
 A monitor's `on_trigger` decides what a trigger does: `end` ends the stage
 itself, `suggest` only says so and the mill goes on. A trigger prints a
 `MILL READING` line; for a suggestion, look (`milling_follow_readings` gives

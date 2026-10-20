@@ -85,6 +85,12 @@ class MillingMonitor(Generic[TMillingMonitorConfig]):
         self._held_reading: Optional[Dict[str, Any]] = None
         self._report_lock = threading.Lock()
 
+    @classmethod
+    def available(cls, milling: Any) -> bool:
+        """Whether this monitor can run on *milling*'s instrument; one that
+        can't is not offered."""
+        return True
+
     @property
     def by(self) -> str:
         """Who this monitor is, in a step's end or pause."""
