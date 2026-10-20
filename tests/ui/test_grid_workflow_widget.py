@@ -23,6 +23,10 @@ from fibsem.applications.autolamella.ui.grid_workflow_widget import (
     GridRunPreflightDialog,
     GridWorkflowWidget,
 )
+from fibsem.applications.autolamella.workflows.estimate import (
+    exchange_seconds,
+    exchanges_for,
+)
 from fibsem.services.sample_handling import bind_sample_handling
 from fibsem.structures import (
     BeamType,
@@ -132,7 +136,8 @@ class TestSelection:
         arctis.sample_handling.ensure_loaded("Grid-02")
         view.refresh()
         view.grid_header.checkbox_all.setChecked(True)
-        assert view.exchanges_for(view.get_selected_grids()) == 2
+        names = [g.name for g in view.get_selected_grids()]
+        assert exchanges_for(arctis.sample_handling, names) == 2
         row = view._grid_rows["Grid-02"]
         assert [c.text() for c in row._chip_widgets] == ["Loaded"]
         assert row.slot_label.text() == "slot 02"
@@ -838,16 +843,15 @@ def test_the_preflight_quotes_the_time_per_task_and_the_finish(
     view.grid_header.checkbox_all.setChecked(True)
     grids = view.get_selected_grids()
     names = [g.name for g in grids]
-    exchanges = view.exchanges_for(grids)
-    assert (
-        view.exchange_seconds() == arctis.sample_handling.magazine.exchange_seconds > 0
-    )
+    stage = arctis.sample_handling
+    exchanges = exchanges_for(stage, names)
+    assert exchange_seconds(stage) == stage.magazine.exchange_seconds > 0
     estimate = estimate_grid_run(
         experiment,
         ["overview_sem", "overview_fm"],
         names,
         exchanges,
-        view.exchange_seconds(),
+        exchange_seconds(stage),
         now=datetime(2026, 10, 5, 14, 0),
     )
     dialog = GridRunPreflightDialog(

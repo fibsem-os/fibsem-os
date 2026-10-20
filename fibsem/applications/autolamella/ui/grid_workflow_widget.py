@@ -61,6 +61,7 @@ from fibsem.applications.autolamella.ui.workflow_config_widget import (
 from fibsem.applications.autolamella.ui.workflow_preflight_dialog import (
     _task_block as task_block,
 )
+from fibsem.applications.autolamella.workflows.estimate import exchanges_for
 from fibsem.applications.autolamella.workflows.tasks.attendance import RunAttendance
 from fibsem.structures import BeamType, GridInventoryEntry, GridSlotState
 from fibsem.ui import stylesheets
@@ -877,30 +878,6 @@ class GridWorkflowWidget(QWidget):
                 row.checkbox.setChecked(checked)
         self._sync_headers()
 
-    def exchange_seconds(self) -> float:
-        """What the loader says one exchange costs; nothing on a fixed holder."""
-        stage = self.stage
-        if stage is None or stage.magazine is None:
-            return 0.0
-        return stage.magazine.exchange_seconds
-
-    def loaded_grid_names(self) -> List[str]:
-        """The grids on the stage now, which a load step does not exchange."""
-        return [name for name, row in self._grid_rows.items() if row.loaded]
-
-    def exchanges_for(self, grids: List[GridRecord]) -> int:
-        """How many of these grids are not loaded now: the exchanges a run
-        would make on a loader, zero on a fixed holder."""
-        stage = self.stage
-        if stage is None or stage.magazine is None:
-            return 0
-        count = 0
-        for g in grids:
-            row = self._grid_rows.get(g.name)
-            if row is not None and not row.loaded:
-                count += 1
-        return count
-
     def _on_selection(self) -> None:
         self._sync_headers()
         self._apply_controls()
@@ -917,7 +894,7 @@ class GridWorkflowWidget(QWidget):
         )
         stage = self.stage
         if grids and stage is not None and stage.magazine is not None:
-            exchanges = self.exchanges_for(grids)
+            exchanges = exchanges_for(stage, [g.name for g in grids])
             text += f" \u00b7 {exchanges} exchange{'s' if exchanges != 1 else ''}"
         return text
 

@@ -289,3 +289,32 @@ def test_the_shipped_grid_tasks_have_an_estimate():
     for name in grid_tasks.ordered_task_names:
         config = deepcopy(grid_tasks.task_config[name])
         assert config.estimated_duration > 60, name
+
+
+def test_the_exchanges_are_the_grids_not_on_the_stage():
+    """What the Grids view's summary and the run's confirmation count:
+    estimate.exchanges_for, from the stage's last inventory read."""
+    from fibsem.applications.autolamella.workflows.estimate import (
+        exchange_seconds,
+        exchanges_for,
+        loaded_grid_names,
+    )
+    from fibsem.structures import GridInventoryEntry, GridSlotState
+
+    def entry(name, state):
+        return GridInventoryEntry(
+            slot_name=name, index=0, source="magazine", name=name, state=state
+        )
+
+    inventory = [entry("G1", GridSlotState.LOADED), entry("G2", GridSlotState.OCCUPIED)]
+    loader = SimpleNamespace(
+        magazine=SimpleNamespace(exchange_seconds=30.0),
+        grid_inventory=lambda: inventory,
+    )
+    fixed = SimpleNamespace(magazine=None, grid_inventory=lambda: inventory)
+
+    assert loaded_grid_names(loader) == ["G1"]
+    assert exchanges_for(loader, ["G1", "G2", "G3"]) == 2
+    assert exchange_seconds(loader) == 30.0
+    assert exchanges_for(fixed, ["G2"]) == 0 and exchange_seconds(fixed) == 0.0
+    assert exchanges_for(None, ["G2"]) == 0
