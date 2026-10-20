@@ -51,8 +51,7 @@ its facts. A plugin driver's device is made with the class its ``DriverEntry`` n
 for the type (``remote_devices``) when that driver is installed here too, so its own
 parameters cross the wire; otherwise with the type's class above (`remote_class`).
 
-Not yet: the one-commander lease, and a beam's ``acquire`` (a
-``FibsemImage`` with its metadata).
+Not yet: the one-commander lease.
 """
 
 from __future__ import annotations
