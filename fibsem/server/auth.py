@@ -20,6 +20,13 @@ not the microscope, not a POST, whatever the level. It is carried in the
 dashboard link and never written to the discovery file, so the dashboard and
 the agent are told apart, and what governs the agent never cuts off the
 dashboard.
+
+An **operator token** is the operator from outside the window: the web page,
+or their own script. It reads what the dashboard reads and reaches the
+operator's routes (`fibsem.server.operator`): message the agent, set its
+level, Stop agent, approve or reject its request. The level never gates it,
+and the agent's token never reaches those routes. One per install, kept on
+disk (`fibsem.server.operator_token`), never in the discovery file.
 """
 
 import hmac
@@ -66,6 +73,9 @@ class AuthConfig:
     # None means no dashboard access, which is what a bare AuthConfig(token=...)
     # gets; generate() always makes one.
     dashboard_token: Optional[str] = None
+    # The operator's token: monitoring reads and the operator's routes
+    # (require_operator). None means no operator access from outside the window.
+    operator_token: Optional[str] = None
     # The agent level (FIB-1035): the only gate.
     level: AgentLevel = AgentLevel.WATCH
     # Set by stop_agent, cleared by the next set_level: the operator braked, so a
@@ -221,6 +231,27 @@ def _unauthorized() -> HTTPException:
     )
 
 
+def _operator_only() -> HTTPException:
+    return HTTPException(
+        status_code=403,
+        detail={
+            "error_type": "operator_only",
+            "message": "Only the operator does this: the agent's token can't.",
+        },
+    )
+
+
+def _operator_reach() -> HTTPException:
+    return HTTPException(
+        status_code=403,
+        detail={
+            "error_type": "operator_reach",
+            "message": "The operator token reads the session and reaches the "
+            "operator's routes under /app/agent; this route is the agent's.",
+        },
+    )
+
+
 def _dashboard_refused() -> HTTPException:
     return HTTPException(
         status_code=403,
@@ -288,6 +319,8 @@ def require_level(needed: AgentLevel):
         if not _matches(token, auth.token):
             if _matches(token, auth.dashboard_token):
                 raise _dashboard_refused()
+            if _matches(token, auth.operator_token):
+                raise _operator_reach()
             raise _unauthorized()
         lent = _lent.get()
         # A valid token is proof of life whatever happens next -- a level
@@ -315,13 +348,16 @@ def require_level(needed: AgentLevel):
 
 def require_monitoring():
     """The monitoring routes' dependency: the agent token at Watch, or the
-    dashboard token for a GET. The dashboard is not the agent, so it does not
-    count as the agent being heard from."""
+    dashboard or operator token for a GET. Neither is the agent, so neither
+    counts as the agent being heard from."""
     as_agent = require_level(AgentLevel.WATCH)
 
     def dependency(request: Request) -> None:
         auth: AuthConfig = request.app.state.auth
-        if _matches(_bearer_token(request), auth.dashboard_token):
+        token = _bearer_token(request)
+        if _matches(token, auth.dashboard_token) or _matches(
+            token, auth.operator_token
+        ):
             if request.method != "GET":
                 # The read router carries POSTs too (the workflow stop, the
                 # grid plan): the dashboard only looks.
@@ -330,6 +366,29 @@ def require_monitoring():
         as_agent(request)
 
     return dependency
+
+
+def require_operator():
+    """The operator's routes' dependency: the operator token, whatever the
+    agent's level. The agent's and the dashboard's tokens are refused (403)."""
+
+    def dependency(request: Request) -> None:
+        auth: AuthConfig = request.app.state.auth
+        token = _bearer_token(request)
+        if _matches(token, auth.operator_token):
+            return
+        if _matches(token, auth.token) or _matches(token, auth.dashboard_token):
+            raise _operator_only()
+        raise _unauthorized()
+
+    return dependency
+
+
+def is_operator_token(auth: AuthConfig, authorization: Optional[str]) -> bool:
+    """Whether an ``Authorization`` header carries the operator's token."""
+    if authorization is None or not authorization.startswith("Bearer "):
+        return False
+    return _matches(authorization[len("Bearer ") :], auth.operator_token)
 
 
 def action_name(request: Request) -> str:

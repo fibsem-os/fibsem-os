@@ -32,8 +32,13 @@ class _Host:
     def __init__(self, serve_microscope=False, age=None):
         self.auth = AuthConfig.generate(token="tok")
         self.auth.set_level(AgentLevel.WATCH)
+        self.auth.operator_token = "operator"
         self.serve_microscope = serve_microscope
         self._age = age
+
+    def new_operator_token(self):
+        self.auth.operator_token = "renewed"
+        return self.auth.operator_token
 
     def agent_seconds_since_seen(self):
         return self._age
@@ -54,6 +59,19 @@ def test_the_dialog_shows_status_services_and_the_agent(qapp):
     assert dialog._agent_label.text() == "Agent · last heard 5 s ago"
     assert dialog._btn_dashboard.isEnabled()
     assert dialog._btn_event_log.isEnabled()
+    dialog.deleteLater()
+
+
+def test_the_operator_token_is_copied_and_renewed(qapp, host):
+    from PyQt5.QtWidgets import QApplication
+
+    dialog = AppServerDialog(lambda: host)
+    dialog._btn_copy_operator.click()
+    assert QApplication.clipboard().text() == "operator"
+    dialog._btn_new_operator.click()
+    assert host.auth.operator_token == "renewed"
+    assert QApplication.clipboard().text() == "renewed"
+    assert dialog._btn_copy_operator.text() == "New token copied"
     dialog.deleteLater()
 
 

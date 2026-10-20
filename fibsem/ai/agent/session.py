@@ -21,6 +21,8 @@ if TYPE_CHECKING:
 
 # A request the operator still has to decide, or one being applied.
 OPEN = ("pending", "applying")
+# The longest message to the agent, in characters (FIB-1423).
+MESSAGE_LIMIT = 2000
 
 
 class AgentSession:

@@ -147,6 +147,30 @@ class AppServerDialog(QDialog):
 
         layout.addSpacing(6)
 
+        # --- operator ---------------------------------------------------------
+        layout.addWidget(section("Operator"))
+        layout.addWidget(
+            note(
+                "Your own token, for the web page and your own scripts: it "
+                "messages the agent, sets its level, stops it and decides its "
+                "requests, as you. Kept between launches; a new one replaces it."
+            )
+        )
+        operator_row = QHBoxLayout()
+        operator_row.addStretch(1)
+        self._btn_copy_operator = QPushButton("Copy operator token")
+        self._btn_copy_operator.clicked.connect(self._on_copy_operator_clicked)
+        self._btn_new_operator = QPushButton("New operator token")
+        self._btn_new_operator.setToolTip(
+            "Replace the operator token: the old one stops working at once."
+        )
+        self._btn_new_operator.clicked.connect(self._on_new_operator_clicked)
+        operator_row.addWidget(self._btn_new_operator)
+        operator_row.addWidget(self._btn_copy_operator)
+        layout.addLayout(operator_row)
+
+        layout.addSpacing(6)
+
         # --- dashboard --------------------------------------------------------
         layout.addWidget(section("Dashboard"))
         layout.addWidget(
@@ -232,6 +256,8 @@ class AppServerDialog(QDialog):
         self._btn_dashboard.setEnabled(running)
         self._btn_event_log.setEnabled(running)
         self._btn_copy_link.setEnabled(running)
+        self._btn_copy_operator.setEnabled(running)
+        self._btn_new_operator.setEnabled(running)
         # Nothing to serve while the server is off.
         self._chk_microscope.setEnabled(
             self._chk_enabled.isChecked() or self._set_enabled is None
@@ -322,3 +348,26 @@ class AppServerDialog(QDialog):
 
     def _restore_copy_link(self) -> None:
         self._btn_copy_link.setText("Copy link")
+
+    def _copy_operator_token(self, token: Optional[str], copied: str) -> None:
+        clipboard = QApplication.clipboard()
+        if not token or clipboard is None:
+            return
+        clipboard.setText(token)
+        self._btn_copy_operator.setText(copied)
+        QTimer.singleShot(1500, self._restore_copy_operator)
+
+    def _on_copy_operator_clicked(self) -> None:
+        host = self._host()
+        if host is None:
+            return
+        self._copy_operator_token(host.auth.operator_token, "Copied")
+
+    def _on_new_operator_clicked(self) -> None:
+        host = self._host()
+        if host is None:
+            return
+        self._copy_operator_token(host.new_operator_token(), "New token copied")
+
+    def _restore_copy_operator(self) -> None:
+        self._btn_copy_operator.setText("Copy operator token")
