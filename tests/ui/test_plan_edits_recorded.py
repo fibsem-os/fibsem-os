@@ -663,7 +663,7 @@ def test_the_replay_shows_a_correlation_before_the_point_it_moved(
 ):
     """From the file the app writes, through the reader, to the replay window."""
     from fibsem.applications.autolamella.tools.replay import EventKind, load_replay
-    from fibsem.applications.autolamella.tools.replay_viewer import (
+    from fibsem.applications.autolamella.ui.tools.replay_viewer import (
         ExperimentReplayWidget,
     )
 
@@ -845,7 +845,7 @@ def test_the_replay_shows_each_edit_on_the_lamella_edited(
 ):
     """From the file the app writes, through the reader, to the replay window."""
     from fibsem.applications.autolamella.tools.replay import EventKind, load_replay
-    from fibsem.applications.autolamella.tools.replay_viewer import (
+    from fibsem.applications.autolamella.ui.tools.replay_viewer import (
         ExperimentReplayWidget,
     )
 

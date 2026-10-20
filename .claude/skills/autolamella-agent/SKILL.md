@@ -518,10 +518,20 @@ Set an overview up as the app does. Give the tile size in `image_settings`
 (`hfw`, `resolution`, `dwell_time` belong there, not at the top level of the
 settings) and use 3:2 tiles (e.g. 1536 × 1024). The instrument snaps a size
 it doesn't list to one it does, so a square 2048 × 2048 came back as
-2048 × 1768 and the stitch failed. Keep at least 15 % overlap. A grid that
-runs past the stage's travel is refused only once it starts, so keep it near
-the middle of the travel, and keep it small: a 3 × 3 worked on the Arctis
-where a 6 × 6 failed twice.
+2048 × 1768 and the stitch failed. Keep at least 15 % overlap.
+
+**Overview or tile set.** The rule for every overview, beam or FM:
+
+- "Take an overview" means the whole grid, from the grid's centre. Go there
+  first (`grid_move_to`) and plan tiles that cover the whole grid: it is about
+  2 mm across (1 mm radius), but the stage can't always reach all of it (on
+  the Arctis only part of a grid is in travel from its centre). Ask the
+  estimate (`beam_estimate_overview`, `fm_estimate_overview`): it judges reach
+  from where the stage is, and an acquire with any tile it lists as
+  unreachable is refused, so turn those off in `tile_mask` and acquire the
+  rest. Say in your note which part of the grid the overview could not cover.
+- "Take a tile set" (a 3 × 3 at 500 µm, say) means where the stage is now, at
+  the size and field of view the operator gave.
 
 A point picked on an overview is only as good as the stitch. The tiles are
 placed where the stage was told to go, and a stage that overshoots puts

@@ -150,7 +150,7 @@ def test_command_needs_drive(read_client):
 
 
 def test_the_chamber_is_read_but_never_pumped_or_vented(read_client, armed_client):
-    # Pumping and venting are the operator's, at the microscope: the allowlist
+    # Pumping and venting are the operator's, at the microscope: the blocklist
     # refuses them whatever is armed. State and pressure are reads.
     chamber = read_client.get("/microscope/devices").json()["chamber"]
     assert {"state", "pressure"} <= set(chamber["parameters"])

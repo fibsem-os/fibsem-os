@@ -225,6 +225,38 @@ def test_the_estimate_is_the_runs_length(client):
     assert estimate["duration"] > estimate_fm_overview_time(CHANNELS, parameters)
 
 
+def test_the_estimate_names_the_tiles_out_of_reach(client, microscope):
+    """The Arctis stage travels well under a grid's width from its centre, so a
+    long row of camera fields runs off both ends; the middle stays in reach."""
+    start = microscope.get_stage_position()
+    resp = client.post(
+        f"{IMAGING}/queries/fm_estimate_overview",
+        json={
+            "kwargs": {
+                "channels": [c.to_dict() for c in CHANNELS],
+                "parameters": OverviewParameters(rows=1, cols=51).to_dict(),
+            }
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    unreachable = resp.json()["result"]["unreachable"]
+    assert [0, 0] in unreachable and [0, 50] in unreachable
+    assert [0, 25] not in unreachable
+    end = microscope.get_stage_position()
+    assert abs(end.x - start.x) < 1e-12 and abs(end.y - start.y) < 1e-12
+    # A small grid is all in reach.
+    resp = client.post(
+        f"{IMAGING}/queries/fm_estimate_overview",
+        json={
+            "kwargs": {
+                "channels": [c.to_dict() for c in CHANNELS],
+                "parameters": ONE_BY_TWO.to_dict(),
+            }
+        },
+    )
+    assert resp.json()["result"]["unreachable"] == []
+
+
 def test_an_overview_is_centred_where_asked_and_announces_its_mosaic(
     microscope, tmp_path, monkeypatch
 ):
