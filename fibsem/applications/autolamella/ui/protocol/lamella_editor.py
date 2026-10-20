@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import copy
 import datetime
 import logging
 import os
-from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional
+from typing import TYPE_CHECKING, Dict, Iterable, List, Optional
 
 import numpy as np
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QComboBox,
@@ -18,7 +17,6 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
-    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -45,9 +43,7 @@ from fibsem.applications.autolamella.task_outputs import (
     latest_task_image,
 )
 from fibsem.applications.autolamella.ui.protocol.edit_recording import PendingEdits
-from fibsem.applications.autolamella.ui.protocol.forms import (
-    AutoLamellaFluorescenceAcquisitionTaskConfigWidget,
-)
+from fibsem.applications.autolamella.ui.protocol.editor import TaskConfigEditor
 from fibsem.applications.autolamella.workflows.tasks.fiducial import (
     follow_alignment_area,
 )
@@ -57,14 +53,12 @@ from fibsem.applications.autolamella.workflows.tasks.tasks import (
 )
 from fibsem.correlation.history import correlation_record
 from fibsem.fm.structures import FluorescenceImage
-from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import (
     BeamType,
     FibsemImage,
     FibsemRectangle,
     FibsemStagePosition,
     Point,
-    ReferenceImageParameters,
 )
 from fibsem.ui import stylesheets
 from fibsem.ui.tokens import (
@@ -90,27 +84,15 @@ from fibsem.ui.widgets.custom_widgets import (
     TaskNameListWidget,
     ValueComboBox,
 )
-from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
-from fibsem.ui.widgets.reference_image_parameters_widget import (
-    ReferenceImageParametersWidget,
-)
 from fibsem.ui.widgets.spot_burn_coordinates_widget import (
     SpotBurnCoordinatesWidget,
 )
-from fibsem.ui.widgets.task_config_form import AutoLamellaTaskParametersConfigWidget
 from fibsem.utils import format_value
 
 if TYPE_CHECKING:
-    from fibsem.applications.autolamella.structures import Experiment
     from fibsem.correlation.structures import CorrelationResult
     from fibsem.imaging.spot import SpotBurnSettings
     from fibsem.workflows.session import AppSession
-
-# How long the editor waits for editing to settle before writing the experiment.
-# Long enough to swallow a run of field edits, short enough that the window a crash
-# could take an edit from stays small -- and every place where waiting longer would
-# actually risk one flushes explicitly instead (see `flush_pending_save`).
-_SAVE_DEBOUNCE_MS = 400
 
 # Reducer overlay ids on the FIB (ION) canvas
 POI_OVERLAY_ID = "poi"
@@ -259,15 +241,10 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self._switched_to: Optional[str] = None
         self._switched_for: Optional[str] = None
 
-        # Coalesces a burst of edits into one write -- see `_save_experiment`. Built
-        # before the microscope check below, because edits are not the only thing that
-        # reaches `flush_pending_save`: the window calls it on close, and an editor
-        # that never saw a microscope must still answer that rather than raise.
-        self._pending_save_experiment: Optional["Experiment"] = None
-        self._save_timer = QTimer(self)
-        self._save_timer.setSingleShot(True)
-        self._save_timer.timeout.connect(self.flush_pending_save)
-        # Each edit, for the experiment's record (FIB-1034).
+        # Each edit, for the experiment's record (FIB-1034), and the write a burst
+        # of them makes -- see `_save_experiment`. Built before the microscope
+        # check below: the window flushes on close, and an editor that never saw
+        # a microscope must still answer that rather than raise.
         self._edits = PendingEdits(
             lambda: self.session.microscope,
             via="lamella editor",
@@ -284,26 +261,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         if self.session.microscope is None:
             raise ValueError("No microscope connected, cannot proceed.")
         self.microscope = self.session.microscope
-        if hasattr(self, "milling_task_editor"):
-            # Reconnect: this editor is built once and survives disconnect, so every
-            # widget under it still holds the microscope it was built with, and each
-            # one has to be told. See FIB-525: updating only the milling editor left
-            # the fluorescence channel editor offering a disconnected microscope's
-            # filters -- or none at all, if the first connection had no FM.
-            #
-            # The milling subtree has the same fault and is deliberately not fixed
-            # here (FIB-530): the line below updates this widget but not the two
-            # children it handed the microscope to at construction.
-            self.milling_task_editor.microscope = self.microscope
-            # Asked for by name rather than assumed present: the condition above
-            # tests one widget, but _create_widgets assigns it before the others and
-            # is not guarded, so a constructor raising midway leaves this branch
-            # reachable with the rest missing.
-            fluorescence_widget = getattr(
-                self, "fluorescence_acquisition_task_config_widget", None
-            )
-            if fluorescence_widget is not None:
-                fluorescence_widget.set_microscope(self.microscope)
+        if hasattr(self, "task_editor"):
+            # Reconnect: built once, so the forms still hold the old microscope.
+            self.task_editor.set_microscope(self.microscope)
         else:
             # First connect: build the full UI
             self._create_widgets()
@@ -359,9 +319,8 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         )
 
     def _apply_editing_lock(self, locked: bool) -> None:
-        self.task_parameters_config_widget.setEnabled(not locked)
-        self.ref_image_params_widget.setEnabled(not locked)
-        self.milling_task_editor.setEnabled(not locked)
+        self.task_editor.set_editable(not locked)
+        self.spot_burn_coordinates_widget.setEnabled(not locked)
         if locked:
             self.label_lamella_warning.setText(
                 "This lamella is currently being processed and cannot be edited."
@@ -372,26 +331,12 @@ class AutoLamellaProtocolEditorWidget(QWidget):
     def _create_widgets(self):
         """Create the widgets for the protocol editor."""
 
-        self.milling_task_editor = MillingTaskViewerWidget(
-            microscope=self.microscope,
-            milling_enabled=False,
-            parent=self,
+        self.task_editor = TaskConfigEditor(
+            self.session, self.microscope, self._edits, "item", parent=self
         )
         # drive patterns/reposition on the FIB canvas (not napari)
-        self.milling_task_editor.set_controller(self.view_controller)
-        self.milling_task_editor.set_alignment_area_visible(False)
-
-        self.task_parameters_config_widget = AutoLamellaTaskParametersConfigWidget(
-            parent=self
-        )
-
-        self.ref_image_params_widget = ReferenceImageParametersWidget(parent=self)
-
-        self.fluorescence_acquisition_task_config_widget = (
-            AutoLamellaFluorescenceAcquisitionTaskConfigWidget(
-                microscope=self.microscope, config=None, parent=self
-            )
-        )
+        self.task_editor.milling.set_controller(self.view_controller)
+        self.task_editor.milling.set_alignment_area_visible(False)
 
         self.spot_burn_coordinates_widget = SpotBurnCoordinatesWidget(
             controller=self.view_controller,
@@ -522,12 +467,10 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         # main layout. No scroll area here: the window wraps this editor in one
         # already, and a second one nested inside it only ever added a second bar.
         self.main_layout = QVBoxLayout(self)
+        self.task_editor.add_form(self.spot_burn_coordinates_widget)
         self.main_layout.addLayout(self.grid_layout)
-        self.main_layout.addWidget(self.task_parameters_config_widget)
-        self.main_layout.addWidget(self.spot_burn_coordinates_widget)
-        self.main_layout.addWidget(self.ref_image_params_widget)  # type: ignore
-        self.main_layout.addWidget(self.milling_task_editor)  # type: ignore
-        self.main_layout.addWidget(self.fluorescence_acquisition_task_config_widget)  # type: ignore
+        self.main_layout.addWidget(self.task_editor)
+        self.main_layout.addWidget(self.task_editor.milling)
         self.main_layout.addStretch()
 
     def _initialise_widgets(self):
@@ -535,22 +478,11 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.listWidget_selected_task.task_selected.connect(
             lambda _: self._on_selected_task_changed()
         )
-        self.milling_task_editor.settings_changed.connect(
-            self._on_milling_task_config_updated
-        )
-        self.task_parameters_config_widget.parameter_changed.connect(
-            self._on_task_parameters_config_changed
-        )
-        self.ref_image_params_widget.settings_changed.connect(
-            self._on_ref_image_settings_changed
-        )
-        self.milling_task_editor.set_right_click_menu_actions(
+        self.task_editor.edited.connect(lambda _: self._refresh_milling_fov_warning())
+        self.task_editor.milling.set_right_click_menu_actions(
             self._add_poi_context_menu_action
         )
         self._correlation_open = False
-        self.fluorescence_acquisition_task_config_widget.settings_changed.connect(
-            self._on_fluorescence_acquisition_settings_changed
-        )
         self.spot_burn_coordinates_widget.settings_changed.connect(
             self._on_spot_burn_coordinates_changed
         )
@@ -749,11 +681,6 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         if selected_lamella.last_completed_task is None:
             lamella_warnings.append("No tasks have been completed for this lamella.")
         self.label_lamella_warning.setText("  ".join(lamella_warnings))
-
-        has_images = bool(fib_filenames)
-        self.task_parameters_config_widget.setEnabled(has_images)
-        self.ref_image_params_widget.setEnabled(has_images)
-        self.milling_task_editor.setEnabled(has_images)
 
         # Re-apply lock if this lamella/task is the one currently being processed
         self._apply_editing_lock(self._is_editing_locked())
@@ -998,8 +925,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         )
 
     def _on_selected_task_changed(self):
-        """Callback when the selected milling stage changes."""
-        self.flush_pending_save()
+        """Show the selected task's config, and what goes with it on the canvas."""
         selected_stage_name = self.listWidget_selected_task.selected_task
         if not selected_stage_name:
             return
@@ -1007,61 +933,33 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         if selected_lamella is None:
             return
 
-        task_config = selected_lamella.task_config[selected_stage_name]
-        self.task_parameters_config_widget.set_task_config(task_config)
-        self.ref_image_params_widget.update_from_settings(task_config.reference_imaging)
+        task_config = self.task_editor.show_task(selected_stage_name, selected_lamella)
 
         # display milling stages from other tasks as background in the milling task editor for context
-        milling_task_config = copy.deepcopy(task_config.milling)
-        background_milling_stages = []
-
-        if self.show_related_milling_tasks and (
-            related_configs := task_config.related_tasks
-        ):
-            for (
-                related_task_name,
-                related_task_config,
-            ) in selected_lamella.task_config.items():
-                if isinstance(related_task_config, tuple(related_configs)):
-                    cfg = selected_lamella.task_config.get(related_task_name, None)
-                    if cfg is not None and cfg.milling:
+        if task_config.milling:
+            background_milling_stages = []
+            if self.show_related_milling_tasks and (
+                related_configs := task_config.related_tasks
+            ):
+                for cfg in selected_lamella.task_config.values():
+                    if isinstance(cfg, tuple(related_configs)) and cfg.milling:
                         for mcfg in cfg.milling.values():
                             background_milling_stages.extend(mcfg.enabled_stages)
-
-        if milling_task_config:
-            self._current_milling_key = next(iter(milling_task_config))
-            self.milling_task_editor.set_fib_image(self.image)
-            self.milling_task_editor.set_config(
-                milling_task_config[self._current_milling_key]
-            )
-            self.milling_task_editor.set_background_milling_stages(
+            self.task_editor.milling.set_fib_image(self.image)
+            self.task_editor.milling.set_background_milling_stages(
                 background_milling_stages
             )
-            self._on_milling_fov_changed(milling_task_config)
-            self.milling_task_editor.setVisible(True)
-        else:
-            self._current_milling_key = None
-            self.milling_task_editor.clear()  # drops the milling overlay via the reducer
-            self.milling_task_editor.setVisible(False)
-        self.milling_task_editor.setEnabled(bool(task_config.milling))
+        self._refresh_milling_fov_warning()
 
         # Re-apply lock if this lamella/task is currently being processed
         self._apply_editing_lock(self._is_editing_locked())
 
         # special handling for fluorescence acquisition task
         is_fluorescence_task = isinstance(task_config, AcquireFluorescenceImageConfig)
-        self.fluorescence_acquisition_task_config_widget.setVisible(
-            is_fluorescence_task
-        )
-        self.task_parameters_config_widget.setVisible(not is_fluorescence_task)
-        self.ref_image_params_widget.setVisible(not is_fluorescence_task)
         show_fm_row = is_fluorescence_task and self.combobox_fm_filenames.count() > 0
         self.combobox_fm_filenames.setVisible(show_fm_row)
         self.combobox_fm_filenames_label.setVisible(show_fm_row)
         if is_fluorescence_task:
-            self.fluorescence_acquisition_task_config_widget.set_task_config(
-                task_config
-            )
             # drop the previous lamella/task's FM channels before compositing this one
             # (set_fm_image upserts by name and never removes stale channels)
             self.view_controller.clear_fm()
@@ -1084,137 +982,35 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         else:
             self.view_controller.widget.show_beams()
 
-    def _on_milling_fov_changed(self, config: Dict[str, FibsemMillingTaskConfig]):
-        """Display a warning if the milling FoV does not match the image FoV."""
-        try:
-            key = next(iter(config))
-            milling_fov = config[key].field_of_view
-            image_hfw = self.image.metadata.image_settings.hfw  # type: ignore
-            if not np.isclose(milling_fov, image_hfw):
-                milling_fov_um = format_value(milling_fov, unit="m", precision=0)
-                image_fov_um = format_value(image_hfw, unit="m", precision=0)
-                self.label_warning.setText(
-                    f"Milling Task FoV ({milling_fov_um}) does not match image FoV ({image_fov_um})."
-                )
-                self.label_warning.setVisible(True)
-                return
-        except Exception as e:
-            logging.warning(f"Could not compare milling FoV and image FoV: {e}")
+    def _refresh_milling_fov_warning(self) -> None:
+        """Warn when the shown task's milling FoV does not match the image FoV."""
+        lamella = self._selected_lamella
+        task_name = self.task_editor.task_name
+        config = lamella.task_config.get(task_name) if lamella and task_name else None
+        if config is not None and config.milling:
+            try:
+                milling_fov = next(iter(config.milling.values())).field_of_view
+                image_hfw = self.image.metadata.image_settings.hfw  # type: ignore
+                if not np.isclose(milling_fov, image_hfw):
+                    milling_fov_um = format_value(milling_fov, unit="m", precision=0)
+                    image_fov_um = format_value(image_hfw, unit="m", precision=0)
+                    self.label_warning.setText(
+                        f"Milling Task FoV ({milling_fov_um}) does not match image FoV ({image_fov_um})."
+                    )
+                    self.label_warning.setVisible(True)
+                    return
+            except Exception as e:
+                logging.warning(f"Could not compare milling FoV and image FoV: {e}")
 
         self.label_warning.setVisible(False)
 
-    def _on_milling_task_config_updated(self, config: FibsemMillingTaskConfig):
-        """Callback when the milling task config is updated."""
-
-        selected_task_name = self.listWidget_selected_task.selected_task
-        if not selected_task_name:
-            return
-        selected_lamella = self._selected_lamella
-        if selected_lamella is None:
-            return
-        key = getattr(self, "_current_milling_key", None)
-        if key:
-            milling = selected_lamella.task_config[selected_task_name].milling
-            self._edits.touch(
-                selected_lamella,
-                selected_task_name,
-                f"milling.{key}",
-                lambda: milling.get(key),
-            )
-            milling[key] = config
-            logging.debug(
-                f"Updated {selected_lamella.name}, {selected_task_name} Task, milling key '{key}'"
-            )
-
-        self._save_experiment()
-
-        self._on_milling_fov_changed(
-            selected_lamella.task_config[selected_task_name].milling
-        )
-
-    def _on_task_parameters_config_changed(self, field_name: str, new_value: Any):
-        """Callback when the task parameters config is updated."""
-        selected_task_name = self.listWidget_selected_task.selected_task
-        if not selected_task_name:
-            return
-        selected_lamella = self._selected_lamella
-        if selected_lamella is None:
-            return
-        logging.info(
-            f"Updated {selected_lamella.name}, {selected_task_name} Task Parameters: {field_name} = {new_value}"
-        )
-
-        # TODO: we should integrate both milling and parameter updates into a single config update method
-
-        # update parameters in the task config
-        task_config = selected_lamella.task_config[selected_task_name]
-        self._edits.touch(
-            selected_lamella,
-            selected_task_name,
-            field_name,
-            lambda: getattr(task_config, field_name, None),
-        )
-        setattr(task_config, field_name, new_value)
-
-        self._save_experiment()
-
-    def _on_ref_image_settings_changed(self, settings: ReferenceImageParameters):
-        """Callback when the image settings are changed."""
-
-        # Update the image settings in the task config
-        selected_task_name = self.listWidget_selected_task.selected_task
-        if not selected_task_name:
-            return
-
-        selected_lamella = self._selected_lamella
-        if selected_lamella is None:
-            return
-        selected_lamella.task_config[selected_task_name].reference_imaging = settings
-
-        # Save the experiment
-        self._save_experiment()
-
-    def _on_fluorescence_acquisition_settings_changed(
-        self, config: "AcquireFluorescenceImageConfig"
-    ):
-        """Callback when the fluorescence acquisition settings are changed."""
-
-        # Update the task config
-        selected_task_name = self.listWidget_selected_task.selected_task
-        selected_lamella = self._selected_lamella
-        if selected_lamella is None or selected_task_name is None:
-            return
-        selected_lamella.task_config[selected_task_name] = config
-        logging.info(
-            f"Updated {selected_lamella.name}, {selected_task_name} Fluorescence Acquisition Settings"
-        )
-
-        # Save the experiment
-        self._save_experiment()
-
     def _on_spot_burn_coordinates_changed(self, settings: SpotBurnSettings):
-        """Callback when the spot burn coordinates are edited on the canvas.
+        """The spot burn coordinates were edited on the canvas.
 
         Only the coordinates are taken from the editor's settings — milling current and
-        exposure stay owned by the generic task-parameters widget.
+        exposure stay owned by the task parameters form.
         """
-        selected_task_name = self.listWidget_selected_task.selected_task
-        selected_lamella = self._selected_lamella
-        if selected_lamella is None or selected_task_name is None:
-            return
-        task_config = selected_lamella.task_config.get(selected_task_name)
-        if isinstance(task_config, SpotBurnFiducialTaskConfig):
-            self._edits.touch(
-                selected_lamella,
-                selected_task_name,
-                "coordinates",
-                lambda: task_config.coordinates,
-            )
-            task_config.coordinates = list(settings.coordinates)
-        logging.debug(
-            f"Updated {selected_lamella.name}, {selected_task_name} Spot Burn Coordinates"
-        )
-        self._save_experiment()
+        self.task_editor.set_values({"coordinates": list(settings.coordinates)})
 
     def _on_point_of_interest_updated(self, point: Point, via: Optional[str] = None):
         """Callback when the point of interest is updated. *via* names where the
@@ -1629,26 +1425,16 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         on the GUI thread -- and every committed field in this editor called it. Editing
         a task means several fields in a row, and each paid the full price (FIB-683).
 
-        Only *when* the write happens moves; what is written does not. The handlers
-        above have already applied the edit to the lamella, so a flush at any later
-        point writes the complete current state -- there is no snapshot to get stale,
-        and no ordering between edits to preserve.
-
-        `save_protocol=True` is gone with it: a lamella's task config lives in
-        `experiment.yaml`, so that flag rewrote `protocol.yaml` on every parameter
-        change without it having changed. The protocol's own editors still save it
-        explicitly.
+        Only *when* the write happens moves; what is written does not. The edit is
+        already applied to the lamella, so a flush at any later point writes the
+        complete current state. The experiment is held with the pending write
+        (`PendingEdits.save_later`), so a write scheduled against one experiment
+        cannot land on whichever one is loaded when the timer fires.
         """
         experiment = self.session.experiment
         if experiment is None:
             return
-        # Held rather than re-read at flush time, so a write scheduled against one
-        # experiment cannot land on whichever one is loaded when the timer fires. That
-        # is not hypothetical: `set_experiment` runs *after* the parent has swapped
-        # `.experiment`, so a flush that looked it up again would save the new
-        # experiment and drop the old one's last edits on the floor.
-        self._pending_save_experiment = experiment
-        self._save_timer.start(_SAVE_DEBOUNCE_MS)
+        self._edits.save_later(experiment, "item")
 
     def hideEvent(self, event) -> None:
         """Flush when the panel goes away -- a tab switch, or the window closing."""
@@ -1656,15 +1442,12 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         super().hideEvent(event)
 
     def flush_pending_save(self) -> None:
-        """Write a coalesced edit now, if one is waiting. Safe to call at any time.
+        """Record and write a coalesced edit now, if one is waiting. Safe to call
+        at any time.
 
         Called wherever waiting any longer would risk the edit: the editor moving to
         another lamella or task, the experiment being swapped, a workflow starting, the
         panel being hidden, and the window closing. Cheap and idempotent when nothing
         is pending, so callers do not have to know whether there is.
         """
-        self._save_timer.stop()
         self._edits.flush()
-        experiment, self._pending_save_experiment = self._pending_save_experiment, None
-        if experiment is not None:
-            experiment.save()

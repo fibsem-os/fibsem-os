@@ -44,8 +44,8 @@ from PyQt5.QtWidgets import QApplication
 
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.ui.protocol import lamella_editor as editor_module
+from fibsem.applications.autolamella.ui.protocol.edit_recording import SETTLE_MS
 from fibsem.applications.autolamella.ui.protocol.lamella_editor import (
-    _SAVE_DEBOUNCE_MS,
     AutoLamellaProtocolEditorWidget,
 )
 
@@ -53,7 +53,7 @@ _app = QApplication.instance() or QApplication(sys.argv)
 
 # Enough for the timer to have fired and its slot to have run, without making the suite
 # wait on a fixed sleep any longer than it must.
-_PAST_DEBOUNCE_MS = _SAVE_DEBOUNCE_MS + 250
+_PAST_DEBOUNCE_MS = SETTLE_MS + 250
 
 
 @pytest.fixture(scope="module")
@@ -84,7 +84,7 @@ def editor(connected_ui, experiment):
     connected_ui.experiment = experiment
     widget = AutoLamellaProtocolEditorWidget(session=connected_ui.session)
     yield widget
-    widget._save_timer.stop()  # never let one fire into a later test
+    widget._edits._timer.stop()  # never let one fire into a later test
     widget.close()
 
 
@@ -116,9 +116,9 @@ class TestABurstBecomesOneWrite:
     def test_a_later_edit_restarts_the_wait(self, editor, saves):
         """Coalescing, not batching: the wait is from the *last* edit."""
         editor._save_experiment()
-        QTest.qWait(_SAVE_DEBOUNCE_MS // 2)
+        QTest.qWait(SETTLE_MS // 2)
         editor._save_experiment()
-        QTest.qWait(_SAVE_DEBOUNCE_MS // 2 + 50)
+        QTest.qWait(SETTLE_MS // 2 + 50)
 
         assert saves == [], "the second edit did not restart the timer"
         QTest.qWait(_PAST_DEBOUNCE_MS)
@@ -204,7 +204,7 @@ class TestTheWindowFlushesToo:
         # Every start, the agent's too: the window flushes on the runner's
         # starting signal, which goes out before the run's thread starts.
         chrome = inspect.getsource(AutoLamellaWindow._on_run_starting)
-        assert "lamella_tab.editor.flush_pending_save()" in chrome
+        assert "self.flush_editors()" in chrome
         source = inspect.getsource(WorkflowRunner.start)
         flush = source.index("self.starting.emit(")
         start = source.index("thread.start()")
@@ -219,10 +219,18 @@ class TestTheWindowFlushesToo:
 
         source = inspect.getsource(AutoLamellaWindow.closeEvent)
 
-        assert "lamella_tab.editor.flush_pending_save()" in source, (
+        assert "self.flush_editors()" in source, (
             "closing the window does not flush -- an edit made in the last "
-            f"{_SAVE_DEBOUNCE_MS} ms before quitting is lost"
+            f"{SETTLE_MS} ms before quitting is lost"
         )
+
+    def test_the_window_flushes_both_editors(self):
+        from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
+
+        source = inspect.getsource(AutoLamellaWindow.flush_editors)
+
+        assert "task_widget.flush_pending_save()" in source
+        assert "lamella_tab.editor.flush_pending_save()" in source
 
 
 class TestNothingBypassesIt:

@@ -226,7 +226,7 @@ def test_only_one_alignment_rectangle_is_ever_drawn():
     assert milling_spec is None or not milling_spec.display, (
         "milling widget is also displaying an alignment rect — two would be drawn"
     )
-    assert editor.milling_task_editor._show_alignment_area is False
+    assert editor.task_editor.milling._show_alignment_area is False
 
 
 def test_alignment_edit_toggle_arms_and_disarms():

@@ -428,8 +428,8 @@ def test_an_experiment_with_no_lamella_tasks_loads(main_ui, tmp_path):
     main_ui.minimap_widget = _NoMinimap()
     main_ui._on_experiment_update()
     editor = main_ui.task_widget
-    assert not editor.task_parameters_config_widget.isVisibleTo(editor)
-    assert not editor.milling_task_editor.isVisibleTo(editor)
+    assert not editor.task_editor.parameters.isVisibleTo(editor)
+    assert not editor.task_editor.milling.isVisibleTo(editor)
 
 
 def test_a_grid_task_added_on_the_protocol_tab_reaches_the_run_view(main_ui, tmp_path):

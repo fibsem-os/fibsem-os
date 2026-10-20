@@ -66,7 +66,7 @@ def test_closing_the_window_writes_the_last_edit_and_stops_the_writer(window, tm
     recorder = ui.session.recorder
     microscope = ui.microscope
     # an edit still settling when the window closes
-    editor._on_task_parameters_config_changed("reacquire_alignment_reference", True)
+    editor.task_editor.set_values({"reacquire_alignment_reference": True})
 
     window.close()
 

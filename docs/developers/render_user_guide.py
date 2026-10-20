@@ -1615,8 +1615,8 @@ def render_protocols(h: Harness) -> None:
         callouts=[
             Box(editor.protocol_header),
             Box(editor.task_list_widget),
-            Box(editor.task_parameters_config_widget),
-            Box(editor.milling_task_editor),
+            Box(editor.task_editor.parameters),
+            Box(editor.task_editor.milling),
             editor.pushButton_sync_to_lamella,
             editor.pushButton_open_global_editor,
             editor.pushButton_open_lamella_defaults,
@@ -1787,7 +1787,7 @@ def render_lamella(h: Harness) -> None:
         callouts=[
             Box(cards),
             Box(editor.listWidget_selected_task),
-            Box(editor.task_parameters_config_widget),
+            Box(editor.task_editor.parameters),
             editor.pushButton_apply_to_other,
         ],
         numbered=True,
@@ -1828,6 +1828,7 @@ def render_lamella(h: Harness) -> None:
 def render_tasks(h: Harness) -> None:
     """The task types on offer, and the shipped workflow's task list."""
     from fibsem.applications.autolamella.ui.protocol.dialogs import AddTaskDialog
+    from fibsem.applications.autolamella.workflows.tasks import get_tasks
 
     h.first_run(False)
     h.show_tab(0)
@@ -1835,20 +1836,24 @@ def render_tasks(h: Harness) -> None:
     h.ensure_lamellae(3)
 
     # the Add Task dialog, with its list of task types open
-    dialog = AddTaskDialog(h.ui.experiment.task_protocol.task_config, parent=h.window)
+    dialog = AddTaskDialog(
+        {task_type: cls.config_cls for task_type, cls in get_tasks().items()},
+        h.ui.experiment.task_protocol.task_config,
+        parent=h.window,
+    )
     # the example plugin installed for development is not part of the product
-    combo = dialog.comboBox_task_type
+    combo = dialog.type_combo
     for i in reversed(range(combo.count())):
         if "EXAMPLE" in str(combo.itemData(i)):
             combo.removeItem(i)
     dialog.show()
     h.pump(400)
     h.shot("add-task", target=dialog)
-    dialog.comboBox_task_type.showPopup()
+    dialog.type_combo.showPopup()
     h.pump(400)
-    popup = dialog.comboBox_task_type.view().window()
+    popup = dialog.type_combo.view().window()
     h.shot("task-types", target=popup)
-    dialog.comboBox_task_type.hidePopup()
+    dialog.type_combo.hidePopup()
     dialog.close()
     h.pump(200)
 
@@ -2521,7 +2526,7 @@ def render_correlation(h: Harness) -> None:
         "protocol-spot-burn",
         callouts=[
             Box(editor.task_list_widget),
-            Box(editor.task_parameters_config_widget),
+            Box(editor.task_editor.parameters),
             editor.pushButton_edit_spot_burn,
         ],
         numbered=True,
@@ -2532,7 +2537,7 @@ def render_correlation(h: Harness) -> None:
         "protocol-acquire-fm",
         callouts=[
             Box(editor.task_list_widget),
-            Box(editor.fluorescence_acquisition_task_config_widget),
+            Box(editor.task_editor.fluorescence),
         ],
         numbered=True,
     )

@@ -9,6 +9,8 @@ import yaml
 
 pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
 
+from PyQt5.QtWidgets import QDialog
+
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.structures import (
@@ -16,10 +18,10 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.applications.autolamella.ui.grids.protocol import (
-    AddGridTaskDialog,
     GridProtocolWidget,
 )
 from fibsem.applications.autolamella.ui.protocol.dialogs import (
+    AddTaskDialog,
     ProtocolDetailsDialog,
     ProtocolHeaderWidget,
 )
@@ -195,9 +197,15 @@ def test_remove_drops_the_task_and_saves(widget, experiment):
     ] == ["overview_fib"]
 
 
-def test_the_add_dialog_suggests_a_unique_name(widget, experiment):
+def test_the_add_dialog_suggests_a_unique_name(widget, experiment, monkeypatch):
     widget.add_task(BEAM, "overview_sem")
-    dialog = AddGridTaskDialog(experiment.grid_protocol)
+    shown = []
+    monkeypatch.setattr(
+        AddTaskDialog, "exec_", lambda d: shown.append(d) or QDialog.Rejected
+    )
+    widget._on_add()
+    (dialog,) = shown
+    assert dialog.windowTitle() == "Add grid task"
     dialog.type_combo.setCurrentIndex(
         next(
             i
@@ -306,8 +314,8 @@ def test_the_protocol_tab_hosts_it_under_the_selector(main_ui, tmp_path):
     tabs.setCurrentIndex(1)
     assert editor.grid_protocol_active
     assert editor.grid_protocol.editor_panel.isVisibleTo(editor)
-    assert not editor.task_parameters_config_widget.isVisibleTo(editor)
-    assert not editor.milling_task_editor.isVisibleTo(editor)
+    assert not editor.task_editor.parameters.isVisibleTo(editor)
+    assert not editor.task_editor.milling.isVisibleTo(editor)
     config = editor.grid_protocol.add_task(BEAM, "overview_sem")
     # after the shipped protocol's own grid tasks (FIB-1145)
     assert [
@@ -324,7 +332,7 @@ def test_the_protocol_tab_hosts_it_under_the_selector(main_ui, tmp_path):
 
     tabs.setCurrentIndex(0)
     assert not editor.grid_protocol.editor_panel.isVisibleTo(editor)
-    assert editor.task_parameters_config_widget.isVisibleTo(editor)
+    assert editor.task_editor.parameters.isVisibleTo(editor)
     # the Grids tab no longer carries a protocol view
     assert not hasattr(main_ui.grids_tab, "protocol_widget")
 

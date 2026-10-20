@@ -199,3 +199,63 @@ def test_the_version_does_not_change_with_attention_or_requires():
     before = config_version(config)
     config.requires = ["Setup"]
     assert config_version(config) == before
+
+
+def test_the_editors_values_are_copied_touched_and_saved_on_one_path(tmp_path):
+    """The editors' write: each value set whole and copied, touched for the
+    record before it changes, and saved by the same save the patches make."""
+    from fibsem.applications.autolamella.config_edits import (
+        save_edits,
+        set_task_config_values,
+    )
+    from fibsem.applications.autolamella.edit_recording import PendingEdits
+
+    _, experiment, scope = _context(tmp_path)
+    lamella = experiment.positions[0]
+    config = lamella.task_config[TASK]
+    imaging = config.reference_imaging.__class__(field_of_view1=250e-6)
+    edits = PendingEdits(lambda: scope, via="lamella editor")
+
+    result = set_task_config_values(
+        experiment,
+        "item",
+        lamella.name,
+        TASK,
+        {"reference_imaging": imaging, "sync_to_poi": config.sync_to_poi},
+        edits,
+    )
+
+    assert result["applied"], result
+    assert [c["path"] for c in result["changes"]] == ["reference_imaging"]
+    assert config.reference_imaging.field_of_view1 == 250e-6
+    assert config.reference_imaging is not imaging
+    assert save_edits(experiment, "item")
+    edits.flush()
+    ((kind, _actor, payload),) = scope.events
+    assert (kind, payload["target"], payload["via"]) == (
+        "edit",
+        "reference_imaging",
+        "lamella editor",
+    )
+    assert payload["before"]["field_of_view1"] != 250e-6
+    assert payload["after"]["field_of_view1"] == 250e-6
+    reloaded = Experiment.load(Path(experiment.path) / "experiment.yaml")
+    saved = reloaded.positions[0].task_config[TASK].reference_imaging
+    assert saved.field_of_view1 == 250e-6
+
+
+def test_the_editors_values_refuse_an_unknown_task(tmp_path):
+    from fibsem.applications.autolamella.config_edits import set_task_config_values
+    from fibsem.applications.autolamella.edit_recording import PendingEdits
+
+    _, experiment, scope = _context(tmp_path)
+    result = set_task_config_values(
+        experiment,
+        "protocol",
+        "",
+        "Nope",
+        {"sync_to_poi": False},
+        PendingEdits(lambda: scope, via="x"),
+    )
+    assert result["applied"] is False
+    assert result["task_names"] == [TASK]

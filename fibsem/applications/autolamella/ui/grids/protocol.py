@@ -15,13 +15,12 @@ both tabs.
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Optional, Tuple, Type
+from typing import Dict, List, Optional, Type
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QComboBox,
     QDialog,
-    QDialogButtonBox,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -35,6 +34,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.structures import Experiment
+from fibsem.applications.autolamella.ui.protocol.dialogs import AddTaskDialog
 from fibsem.ui.tokens import NEUTRAL_200, TEXT_MUTED_COLOR, WARN_COLOR
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
@@ -72,57 +72,6 @@ def _config_classes() -> Dict[str, Type[GridTaskConfig]]:
         task_type: task_cls.config_cls
         for task_type, task_cls in get_grid_tasks().items()
     }
-
-
-class AddGridTaskDialog(QDialog):
-    """Pick a task type and a name."""
-
-    def __init__(self, protocol: GridTaskProtocol, parent: Optional[QWidget] = None):
-        super().__init__(parent)
-        self.setWindowTitle("Add grid task")
-        self.setMinimumWidth(380)
-        self._protocol = protocol
-        self.result_: Optional[Tuple[str, str]] = None
-
-        layout = QVBoxLayout(self)
-        form = QFormLayout()
-        self.type_combo = QComboBox()
-        for task_type, config_cls in _config_classes().items():
-            self.type_combo.addItem(config_cls.display_name, task_type)
-        self.type_combo.currentIndexChanged.connect(self._suggest_name)
-        form.addRow("Task", self.type_combo)
-        self.name_edit = QLineEdit()
-        self.name_edit.setToolTip(
-            "Unique within the protocol; the task's outputs are filed under it"
-        )
-        form.addRow("Name", self.name_edit)
-        layout.addLayout(form)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(self._on_accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-        self._suggest_name()
-
-    def _suggest_name(self) -> None:
-        base = _DEFAULT_NAMES.get(self.type_combo.currentData(), "grid_task")
-        name, n = base, 2
-        while name in self._protocol.task_config:
-            name, n = f"{base}_{n}", n + 1
-        self.name_edit.setText(name)
-
-    def _on_accept(self) -> None:
-        name = self.name_edit.text().strip()
-        if not name:
-            QMessageBox.warning(self, "Add grid task", "Give the task a name.")
-            return
-        if name in self._protocol.task_config:
-            QMessageBox.warning(
-                self, "Add grid task", f"There is already a task named {name}."
-            )
-            return
-        self.result_ = (self.type_combo.currentData(), name)
-        self.accept()
 
 
 # ---------------------------------------------------------------------------
@@ -496,10 +445,16 @@ class GridProtocolWidget(QWidget):
         protocol = self.protocol
         if protocol is None:
             return
-        dialog = AddGridTaskDialog(protocol, parent=self)
-        if dialog.exec_() != QDialog.Accepted or dialog.result_ is None:
+        dialog = AddTaskDialog(
+            _config_classes(),
+            protocol.task_config,
+            title="Add grid task",
+            default_names=_DEFAULT_NAMES,
+            parent=self,
+        )
+        if dialog.exec_() != QDialog.Accepted or dialog.chosen is None:
             return
-        self.add_task(*dialog.result_)
+        self.add_task(*dialog.chosen)
 
     def add_task(self, task_type: str, name: str) -> GridTaskConfig:
         """Add a task of `task_type` named `name` with default settings, and save."""

@@ -352,8 +352,8 @@ class AutoLamellaWindow(QMainWindow):
         else:
             self.run_border.set_state(self._running_border_state(request.task_names[0]))
         # The run writes the experiment from its own thread. Land any edit still
-        # waiting in the editor first, so there is only ever one writer (FIB-683).
-        self.lamella_tab.editor.flush_pending_save()
+        # waiting in the editors first, so there is only ever one writer (FIB-683).
+        self.flush_editors()
         # Show the Stop button immediately so the run is cancellable even while
         # waiting for a scheduled first task (before any task status arrives).
         self.set_workflow_running()
@@ -965,7 +965,7 @@ class AutoLamellaWindow(QMainWindow):
         self.workflow_tab = WorkflowTab(
             self.session,
             controls=self.workflow_controls,
-            flush_edits=self.lamella_tab.editor.flush_pending_save,
+            flush_edits=self.flush_editors,
             on_config_changed=self._on_workflow_config_changed,
             stop_task=self.stop_current_task,
             after_naming=self._refresh_after_naming,
@@ -1942,12 +1942,18 @@ class AutoLamellaWindow(QMainWindow):
         except Exception:
             logging.exception("redraw after an agent's experiment edit failed")
 
+    def flush_editors(self) -> None:
+        """Record and write the edits the Protocol and Lamella editors still
+        hold (FIB-683): before anything else writes the experiment."""
+        self.task_widget.flush_pending_save()
+        self.lamella_tab.editor.flush_pending_save()
+
     def before_config_edit(self) -> None:
         """GUI thread. Before an agent's config edit: flush any edit still
         sitting in the editors (the FIB-683 one-writer rule), so an operator
         edit that changes the same config makes the agent's version stale."""
         try:
-            self.lamella_tab.editor.flush_pending_save()
+            self.flush_editors()
         except Exception:
             logging.exception("flush before agent config edit failed; continuing")
 
@@ -2234,7 +2240,7 @@ class AutoLamellaWindow(QMainWindow):
         # the last chance to get the final one onto disk.
         if getattr(self, "lamella_tab", None) is not None:
             try:
-                self.lamella_tab.editor.flush_pending_save()
+                self.flush_editors()
             except Exception as e:
                 logging.warning(
                     f"Could not flush a pending experiment save on close: {e}"

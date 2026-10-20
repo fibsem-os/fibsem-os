@@ -445,9 +445,8 @@ def _editor_stub(config):
             task_config={"T": config}, lamella_defaults=LamellaDefaultConfig()
         )
     )
-    host.dirty, host.saved = [], []
-    host._set_protocol_dirty = lambda v: host.dirty.append(v)
-    host._save_experiment = lambda: host.saved.append(1)
+    host.written = []
+    host.task_editor = types.SimpleNamespace(set_values=host.written.append)
     return host
 
 
@@ -502,9 +501,7 @@ def test_cancel_leaves_the_config_untouched():
 
     _open_dialog(host, on_exec=edit_then_cancel)
     assert [(p.x, p.y) for p in cfg.coordinates] == before
-    assert (
-        host.dirty == [] and host.saved == []
-    )  # nothing marked dirty, nothing written
+    assert host.written == []  # nothing written
 
 
 def test_dialog_survives_a_malformed_protocol():
