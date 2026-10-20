@@ -2037,23 +2037,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             logging.exception("editor refresh after agent config patch failed")
 
     def stop_task_workflow(self, actor=None, via: str = "") -> None:
-        """Stop the run and bring the hardware to a halt; ``actor`` and ``via``
-        say who stopped it and from where, for the record (``runner.stop``)."""
+        """Stop the run; ``actor`` and ``via`` say who stopped it and from
+        where, for the record (``runner.stop``)."""
         if not self.session.runner.is_running:
             return
         self.session.runner.stop(actor=actor, via=via)
-        self.panel.stop_current_operations()
         self.run_relay.stopping.emit()
 
     def stop_current_task(self, actor=None, via: str = "", **details) -> None:
-        """Abandon the task now running and carry on with the rest of the queue.
-
-        Stop Task's two halves, as Stop Workflow has them: tell the queue this
-        task is being abandoned, and bring the hardware to a halt. Without the
-        second, the task stops waiting for the mill but the mill keeps going.
-        """
+        """Abandon the task now running and carry on with the rest of the
+        queue (``runner.stop_task``)."""
         self.session.runner.stop_task(actor=actor, via=via, **details)
-        self.panel.stop_current_operations()
 
     def _refresh_panel(self):
         """Redraw the panel for the current state of the application."""

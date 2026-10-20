@@ -14,7 +14,12 @@ from typing import Any, Callable, Dict, List, Optional, Protocol, Set, Tuple
 from psygnal import Signal
 
 from fibsem.acting import AGENT, OPERATOR, WORKFLOW, ActorKind
-from fibsem.cancellation import AnyStopEvent, OperationCancelledError, StopEvent
+from fibsem.cancellation import (
+    AnyStopEvent,
+    NothingToStop,
+    OperationCancelledError,
+    StopEvent,
+)
 from fibsem.control import MicroscopeBusy
 from fibsem.hooks import HookEvent, HookManager, fire_event
 from fibsem.microscope import FibsemMicroscope
@@ -578,8 +583,9 @@ class BaseTaskManager:
             logging.exception("reporting the end of a run that never began failed")
 
     def stop(self) -> None:
-        """Signal the manager to stop after current task completes."""
+        """End the run once the task now running unwinds, and stop its mill."""
         self._stop_event.set()
+        self._stop_milling()
 
     def stop_task(self) -> None:
         """Abandon the task now running and carry on with the rest of the queue.
@@ -593,6 +599,20 @@ class BaseTaskManager:
         is discarded rather than killing the next one.
         """
         self._task_stop_event.set()
+        self._stop_milling()
+
+    def _stop_milling(self) -> None:
+        """Stop the beam of a mill now, through the milling service, rather
+        than at its next look at the task's stop."""
+        milling = self.microscope.milling
+        if milling is None:
+            return
+        try:
+            milling.stop()
+        except NothingToStop:
+            pass
+        except Exception:
+            logging.exception("Stopping the mill failed")
 
     def deciders(self) -> Tuple[ActorKind, ...]:
         """Who can decide this run's proposals now: the session's surfaces

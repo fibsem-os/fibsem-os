@@ -2138,10 +2138,10 @@ class AutoLamellaAppContext:
         """Stop the running workflow — the same path as the GUI's Stop button.
 
         Everything on that path is thread-safe from here: the manager's stop is
-        an event, and halting the mill/burn is an event plus the same hardware
-        stop call the core server's ``stop_milling`` route already issues from
-        this thread. Stopping is the safety action, so like ``stop_milling`` it
-        never waits on the command lock.
+        an event plus the milling service's stop, the call the core server's
+        ``stop_milling`` route already issues from this thread. Stopping is the
+        safety action, so like ``stop_milling`` it never waits on the command
+        lock.
         """
         if not self._running:
             return {

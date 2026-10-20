@@ -32,6 +32,7 @@ TASKS = ["Trench", "Undercut"]
 
 class NoMicroscope:
     fm = None
+    milling = None
 
 
 @pytest.fixture
@@ -199,44 +200,37 @@ def test_a_composite_cannot_be_set_directly():
 # ── Stopping the hardware, not just the queue ─────────────────────────────────
 
 
-def test_both_stop_paths_interrupt_the_hardware_the_same_way():
-    """Found on the microscope: cancelling mid-mill unwound the task but the mill
-    carried on.
+class Milling:
+    """The milling service's stop, counted."""
 
-    Milling runs on its own thread with its own stop event, owned by the milling
-    widget — the task only *waits* for it, so a task that raises stops the waiting
-    and nothing else. Stop Workflow always did the hardware half separately;
-    Stop Task has to do the same, and the only way they cannot drift is by being
-    the same call.
-    """
-    # Read the files rather than import them: both UI modules pull in napari, which
-    # is absent from the CI environment this module runs in.
-    import fibsem
+    def __init__(self):
+        self.stops = 0
 
-    ui_dir = Path(fibsem.__path__[0]) / "applications" / "autolamella" / "ui"
-    panel = (ui_dir / "microscope_panel.py").read_text(encoding="utf-8")
-    main_ui = (ui_dir / "AutoLamellaMainUI.py").read_text(encoding="utf-8")
-    workflow_tab = (ui_dir / "workflow_tab.py").read_text(encoding="utf-8")
+    def stop(self):
+        self.stops += 1
 
-    def body(source: str, name: str) -> str:
-        """The text of one method, up to the next def at the same indent."""
-        start = source.index(f"    def {name}(")
-        rest = source[start + 1 :]
-        end = rest.find("\n    def ")
-        return rest[: end if end != -1 else len(rest)]
 
-    halt = body(panel, "stop_current_operations")
-    assert "stop_milling()" in halt
-    assert "cancel_spot_burn()" in halt
+@pytest.mark.parametrize("stop", ["stop", "stop_task"])
+def test_both_stops_stop_the_mill_through_the_milling_service(manager, stop):
+    """A task mills on the run's thread under the abort token, which the
+    milling service polls; both stops also stop the beam now through the
+    service's stop, with or without a window."""
+    manager.microscope.milling = Milling()
 
-    # Stop Workflow routes through it rather than repeating it.
-    run_stop = body(main_ui, "stop_task_workflow")
-    assert "stop_current_operations()" in run_stop
-    assert "stop_milling()" not in run_stop
+    getattr(manager, stop)()
 
-    # ... and so does Stop Task, through the one call the agent's stop uses too.
-    task_stop = body(main_ui, "stop_current_task")
-    assert "runner.stop_task(" in task_stop
-    assert "stop_current_operations()" in task_stop
-    assert "self._stop_task(" in body(workflow_tab, "_on_queue_action")
-    assert "stop_task=self.stop_current_task" in main_ui
+    assert manager.should_abort
+    assert manager.microscope.milling.stops == 1
+
+
+def test_a_stop_with_nothing_milling_is_not_an_error(manager):
+    from fibsem.cancellation import NothingToStop
+
+    class Idle:
+        def stop(self):
+            raise NothingToStop("Nothing is milling.")
+
+    manager.microscope.milling = Idle()
+    manager.stop_task()
+    manager.stop()
+    assert manager.is_stopped
