@@ -50,6 +50,7 @@ from fibsem.server.auth import (
 from fibsem.server.devices import ERROR_STATUS, build_device_router, refusal
 from fibsem.server.discovery import fibsem_folder
 from fibsem.server.models import MicroscopeStateRequest
+from fibsem.server.parts import served_parts
 from fibsem.server.requests import RequestStore, build_request_router
 from fibsem.structures import BeamType, MicroscopeState
 from fibsem.workflows.actions import ACTION, action_record
@@ -540,6 +541,8 @@ def build_server(
                 "services": True,
                 "app": app_context is not None,
             },
+            # The optional /app parts this app serves (fibsem.server.parts).
+            "parts": served_parts(app_context),
             # The agent level (FIB-1035): what the agent may do right now.
             "level": auth.level.value,
             # The code the server runs, so a sidecar can tell it imports
@@ -664,8 +667,10 @@ def build_server(
         # The agent's requests (FIB-1283): actions the operator approves in the
         # app, run through the routes above. The app decides them through
         # app.state.requests.
-        mounted = {"base", "app", "services"} | (
-            {"microscope"} if serve_microscope else set()
+        mounted = (
+            {"base", "app", "services"}
+            | ({"microscope"} if serve_microscope else set())
+            | set(served_parts(app_context))
         )
         app.state.requests = RequestStore(
             app,

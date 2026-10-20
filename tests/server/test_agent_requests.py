@@ -237,6 +237,21 @@ def test_hardware_needs_the_devices_service(microscope, context, auth):
     assert _detail(refused)["error_type"] == "not_available"
 
 
+class _CoreOnly:
+    """An app context with no optional parts."""
+
+
+def test_a_part_the_app_lacks_is_refused_at_filing(microscope, auth):
+    app = build_server(microscope, app_context=_CoreOnly(), auth=auth)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        refused = _file(
+            client, {"tool": "grid_remove", "arguments": {"grid_name": "g1"}}
+        )
+    assert refused.status_code == 422
+    assert _detail(refused)["error_type"] == "not_available"
+    assert "this app has no grids" in _detail(refused)["message"]
+
+
 def test_approve_runs_each_action_through_its_route(
     client, app, auth, microscope, context
 ):

@@ -222,6 +222,12 @@ lists where each key went.
   connected agent carries one value (`AutoLamellaUI.hold`) in place of the flags
   that meant the same thing; the border, the attention button, the status bar and
   the timeline pause all read it.
+- **For agents: the `/app` routes come as a core plus optional parts.** An app
+  serves the core (status, queue, runs, proposals, events, log, notes, experiment
+  and protocol) and whichever parts its context implements: items, poses, grids,
+  milling stages and lamellae (`fibsem.server.parts`). `/capabilities` lists them
+  under `parts`, and the agent is offered only the tools of those parts. AutoLamella
+  serves all five, so its routes are unchanged.
 
 ### Fluorescence
 
