@@ -23,19 +23,15 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtCore import Qt  # noqa: E402
 
-from fibsem.applications.autolamella.structures import (  # noqa: E402
-    AutoLamellaTaskDescription,
-)
 from fibsem.applications.autolamella.ui.workflow.task_list import (  # noqa: E402
     REQUIRES_MAX_WIDTH,
     WorkflowTaskRowWidget,
 )
+from tests.protocols import planned  # noqa: E402
 
 
 def _row(name: str, requires: list[str]) -> WorkflowTaskRowWidget:
-    return WorkflowTaskRowWidget(
-        AutoLamellaTaskDescription(name=name, required=True, requires=requires)
-    )
+    return WorkflowTaskRowWidget(*planned(name=name, required=True, requires=requires))
 
 
 def test_a_task_with_no_requirements_leaves_the_column_empty(qapp):

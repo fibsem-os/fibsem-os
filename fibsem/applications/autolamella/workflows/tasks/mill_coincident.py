@@ -114,29 +114,8 @@ class MillCoincidentTaskConfig(AutoLamellaTaskConfig):
 
     @property
     def parameters(self) -> tuple[str, ...]:
-        # serialised under its own key below, as the fluorescence task does
+        # tuned in the setup step, not on the form
         return tuple(p for p in super().parameters if p != "monitoring_channel")
-
-    def to_dict(self) -> dict:
-        ddict = super().to_dict()
-        ddict["monitoring_channel"] = self.monitoring_channel.to_dict()
-        return ddict
-
-    @classmethod
-    def from_dict(cls, ddict: dict) -> "MillCoincidentTaskConfig":
-        params = ddict.get("parameters") or {}
-        cls._warn_unknown_parameters(params)
-        channel = ddict.get("monitoring_channel")
-        kwargs = dict(
-            **cls._load_core(ddict),
-            setup_task=str(params.get("setup_task", DEFAULT_SETUP_TASK_NAME)),
-            acquire_fluorescence_images=bool(
-                params.get("acquire_fluorescence_images", True)
-            ),
-        )
-        if channel is not None:
-            kwargs["monitoring_channel"] = ChannelSettings.from_dict(channel)
-        return cls(**kwargs)
 
     @property
     def opens_with_reference_alignment(self) -> bool:

@@ -22,6 +22,7 @@ from fibsem.applications.autolamella.workflows.tasks.setup_coincidence_milling i
 )
 from fibsem.fm.structures import ChannelSettings, EmissionFilter
 from fibsem.structures import FibsemRectangle, InsertableDeviceState, Point
+from tests.protocols import planned, task_protocol
 
 SIM_ARCTIS_CONFIG_PATH = os.path.join(
     fconfig.CONFIG_PATH, "sim-arctis-configuration.yaml"
@@ -99,9 +100,9 @@ def test_config_roundtrip_keeps_the_per_site_record():
     assert loaded.pattern_offset.y == pytest.approx(-0.4e-6)
     assert loaded.intensity_drop_fraction == pytest.approx(0.3)
     assert loaded.is_set_up
-    # the non-scalar fields are not in the generic parameters block
-    assert "fm_roi" not in data["parameters"]
-    assert "pattern_offset" not in data["parameters"]
+    # the non-scalar fields are saved, but are not on the form
+    assert "fm_roi" not in config.parameters
+    assert "pattern_offset" not in config.parameters
 
 
 def test_unset_config_roundtrip():
@@ -227,22 +228,15 @@ class _Manager:
 
 def _managed_task(microscope, lamella, tmp_path, attention, listed=True):
     from fibsem.applications.autolamella.structures import (
-        AutoLamellaTaskDescription,
-        AutoLamellaTaskProtocol,
-        AutoLamellaWorkflowConfig,
         Experiment,
     )
 
     experiment = Experiment(path=str(tmp_path), name="setup-attention")
     experiment.positions.append(lamella)
-    experiment.task_protocol = AutoLamellaTaskProtocol(
-        workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[
-                AutoLamellaTaskDescription(
-                    name="Setup Coincidence Milling" if listed else "Other Task",
-                    attention=attention,
-                )
-            ]
+    experiment.task_protocol = task_protocol(
+        planned(
+            name="Setup Coincidence Milling" if listed else "Other Task",
+            attention=attention,
         )
     )
     task = _task(microscope, lamella)

@@ -64,7 +64,7 @@ def test_a_beam_overview_can_be_taken_at_the_milling_pose(widget, experiment):
     editor.orientation.setCurrentText("MILLING")
     config = widget.apply_selected()
     assert config.orientation == "MILLING"
-    saved = saved_protocol(experiment)["grid_tasks"]["tasks"]["overview_milling"]
+    saved = saved_protocol(experiment)["grid_tasks"]["task_config"]["overview_milling"]
     assert saved["orientation"] == "MILLING"
 
 
@@ -90,7 +90,10 @@ def test_adding_a_beam_task_lists_it_selects_it_and_saves(widget, experiment):
     assert widget.task_names == ["overview_sem"]
     assert widget.selected_task_name == "overview_sem"
     assert widget.editor_panel.title.text() == "overview_sem · Beam overview"
-    assert saved_protocol(experiment)["grid_tasks"]["order"] == ["overview_sem"]
+    assert [
+        t["name"]
+        for t in saved_protocol(experiment)["grid_tasks"]["workflow_config"]["tasks"]
+    ] == ["overview_sem"]
 
 
 def test_the_form_edits_the_config_on_save(widget, experiment):
@@ -107,7 +110,7 @@ def test_the_form_edits_the_config_on_save(widget, experiment):
     assert config.orientation == "FIB" and config.filename == "survey"
     assert (config.settings.nrows, config.settings.ncols) == (4, 5)
     assert config.beam_type is BeamType.ION and config.role == "overview_fib"
-    saved = saved_protocol(experiment)["grid_tasks"]["tasks"]["overview_fib"]
+    saved = saved_protocol(experiment)["grid_tasks"]["task_config"]["overview_fib"]
     assert saved["orientation"] == "FIB" and saved["settings"]["nrows"] == 4
 
 
@@ -117,7 +120,9 @@ def test_an_edit_in_the_form_is_saved_as_it_is_made(widget, experiment):
     editor.orientation.setCurrentText("FIB")  # no Save anywhere
     assert experiment.grid_protocol.task_config["overview_sem"].orientation == "FIB"
     assert (
-        saved_protocol(experiment)["grid_tasks"]["tasks"]["overview_sem"]["orientation"]
+        saved_protocol(experiment)["grid_tasks"]["task_config"]["overview_sem"][
+            "orientation"
+        ]
         == "FIB"
     )
 
@@ -160,7 +165,9 @@ def test_removing_a_task_drops_it_from_what_requires_it(widget, experiment):
     widget.remove_task("overview_sem")
     assert experiment.grid_protocol.requirements("overview_fib") == []
     assert (
-        saved_protocol(experiment)["grid_tasks"]["tasks"]["overview_fib"]["requires"]
+        saved_protocol(experiment)["grid_tasks"]["task_config"]["overview_fib"][
+            "requires"
+        ]
         == []
     )
 
@@ -182,7 +189,10 @@ def test_remove_drops_the_task_and_saves(widget, experiment):
     widget.add_task(BEAM, "overview_fib")
     widget.remove_task("overview_sem")
     assert widget.task_names == ["overview_fib"]
-    assert saved_protocol(experiment)["grid_tasks"]["order"] == ["overview_fib"]
+    assert [
+        t["name"]
+        for t in saved_protocol(experiment)["grid_tasks"]["workflow_config"]["tasks"]
+    ] == ["overview_fib"]
 
 
 def test_the_add_dialog_suggests_a_unique_name(widget, experiment):
@@ -225,7 +235,7 @@ def test_the_fluorescence_editor_round_trips_channels_and_z(widget, experiment):
     assert [c.name for c in saved.channels] == ["GFP", "mCherry"]
     assert (saved.overview.rows, saved.overview.cols) == (2, 3)
     assert saved.zparams.zmax == pytest.approx(3e-6)
-    on_disk = saved_protocol(experiment)["grid_tasks"]["tasks"]["overview_fm"]
+    on_disk = saved_protocol(experiment)["grid_tasks"]["task_config"]["overview_fm"]
     assert [c["name"] for c in on_disk["channels"]] == ["GFP", "mCherry"]
 
 
@@ -300,7 +310,9 @@ def test_the_protocol_tab_hosts_it_under_the_selector(main_ui, tmp_path):
     assert not editor.milling_task_editor.isVisibleTo(editor)
     config = editor.grid_protocol.add_task(BEAM, "overview_sem")
     # after the shipped protocol's own grid tasks (FIB-1145)
-    assert saved_protocol(exp)["grid_tasks"]["order"] == [
+    assert [
+        t["name"] for t in saved_protocol(exp)["grid_tasks"]["workflow_config"]["tasks"]
+    ] == [
         "SEM Overview",
         "FIB Overview",
         "overview_sem",

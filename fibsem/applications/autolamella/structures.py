@@ -5,8 +5,8 @@ import os
 import uuid
 from abc import ABC
 from copy import deepcopy
-from dataclasses import asdict, dataclass, field, fields
-from datetime import datetime, timedelta
+from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import (
@@ -39,6 +39,7 @@ from fibsem.applications.autolamella.protocol.constants import (
     TRENCH_KEY,
     UNDERCUT_KEY,
 )
+from fibsem.codec.upgrades import protocol as upgrade
 from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
 from fibsem.correlation.config import CorrelationConfig
 from fibsem.milling.tasks import FibsemMillingTaskConfig
@@ -74,6 +75,7 @@ from fibsem.workflows.proposals import (
 from fibsem.workflows.quality import QualityRecord, Verdict
 from fibsem.workflows.saved_format import check_app
 from fibsem.workflows.status import TaskState, TaskStatus
+from fibsem.workflows.task_config import RunPlan, TaskConfig, TaskPlan, TaskProtocol
 
 if TYPE_CHECKING:
     import numpy as np
@@ -89,22 +91,12 @@ if TYPE_CHECKING:
 # user model now; see FIB-450 and the ownership rule on FibsemImageMetadata.
 
 
-@evented
 @dataclass
-class AutoLamellaTaskConfig(Configurable, ABC):
-    """Configuration for AutoLamella tasks."""
+class AutoLamellaTaskConfig(TaskConfig, ABC):
+    """Configuration for AutoLamella tasks: the engine's, with the task's milling
+    and the reference images it acquires when it finishes."""
 
-    task_type: ClassVar[str]
-    display_name: ClassVar[str]
     related_tasks: ClassVar[list[type["AutoLamellaTaskConfig"]]] = []
-    # Parameters this task type used to have. Saved protocols and experiments
-    # still carry them; they are dropped on load without the "Unknown parameter"
-    # warning, which is for keys nobody recognises.
-    retired_parameters: ClassVar[frozenset] = frozenset()
-    task_name: str = param(
-        "",
-        doc="The task's name, unique within the protocol: the key the workflow knows it by.",
-    )  # unique name for identifying in multi-task workflows
     milling: Dict[str, FibsemMillingTaskConfig] = param(
         doc="The task's milling, by key (trench, rough, polishing, ...): each one's patterns, strategy and alignment.",
         default_factory=dict,
@@ -116,71 +108,15 @@ class AutoLamellaTaskConfig(Configurable, ABC):
 
     @property
     def parameters(self) -> Tuple[str, ...]:
-        core_params = [f.name for f in fields(AutoLamellaTaskConfig)]
-        return tuple(f.name for f in fields(self) if f.name not in core_params)
-
-    def to_dict(self) -> dict:
-        """Convert configuration to a dictionary."""
-        ddict = {}
-        ddict["task_type"] = self.task_type
-        # TODO: explicitly not saving imaging until implemented
-        # extract all the .parameters into a "parameters subdict"
-        ddict["parameters"] = {}
-        for k in self.parameters:
-            ddict["parameters"][k] = getattr(self, k)
-        ddict["milling"] = {k: v.to_dict() for k, v in self.milling.items()}
-        if self.reference_imaging is not None:
-            ddict["reference_imaging"] = self.reference_imaging.to_dict()
-        return ddict
+        return tuple(
+            name
+            for name in super().parameters
+            if name not in ("milling", "reference_imaging")
+        )
 
     @classmethod
-    def from_dict(cls, ddict: Dict[str, Any]) -> "AutoLamellaTaskConfig":
-        kwargs = {}
-
-        for f in fields(cls):
-            if f.name in ddict:
-                kwargs[f.name] = ddict[f.name]
-
-        # unroll the parameters dictionary
-        params = ddict.get("parameters") or {}
-        cls._warn_unknown_parameters(params)
-        known = {f.name for f in fields(cls)}
-        kwargs.update({k: v for k, v in params.items() if k in known})
-
-        kwargs.update(cls._load_core(ddict))
-        return cls(**kwargs)
-
-    @classmethod
-    def _load_core(cls, ddict: Dict[str, Any]) -> Dict[str, Any]:
-        """The fields every task shares, as constructor kwargs; ``parameters`` is untouched.
-
-        For a subclass that reads its own parameters: calling the base ``from_dict``
-        instead would check them against the base's fields and warn for each one.
-        """
-        kwargs: Dict[str, Any] = {}
-        if "task_name" in ddict:
-            kwargs["task_name"] = ddict["task_name"]
-        if "milling" in ddict:
-            kwargs["milling"] = {
-                k: FibsemMillingTaskConfig.from_dict(v)
-                for k, v in ddict["milling"].items()
-            }
-        if "reference_imaging" in ddict:
-            kwargs["reference_imaging"] = ReferenceImageParameters.from_dict(
-                ddict["reference_imaging"]
-            )
-        return kwargs
-
-    @classmethod
-    def _warn_unknown_parameters(cls, params: Dict[str, Any]) -> None:
-        """Warn for each key in ``params`` that is not a field of this task config."""
-        known = {f.name for f in fields(cls)} | cls.retired_parameters
-        for key in params:
-            if key not in known:
-                logging.warning(
-                    f"Unknown parameter '{key}' in "
-                    f"{getattr(cls, 'task_type', cls.__name__)} task configuration."
-                )
+    def from_dict(cls, data: Dict[str, Any]) -> "AutoLamellaTaskConfig":
+        return super().from_dict(upgrade.task_config(data))
 
     @property
     def estimated_time(self) -> float:
@@ -249,242 +185,34 @@ class AutoLamellaTaskConfig(Configurable, ABC):
         self.reference_imaging.imaging = value
 
 
-@evented
+def item_config_dict(config: TaskConfig) -> Dict[str, Any]:
+    """A lamella's own copy of a task config, as it is saved and served: without
+    attention and requires, which only the protocol's config holds."""
+    data = config.to_dict()
+    data.pop("attention", None)
+    data.pop("requires", None)
+    return data
+
+
 @dataclass
-class AutoLamellaTaskDescription:
-    name: str  # unique_name
-    required: bool = True
-    # Whose decision this task's record carries, and when (see Attention).
-    # Whether a task records a proposal at all is a property of the task kind,
-    # in code; it records in every mode.
-    attention: Attention = Attention.automated
-    requires: List[str] = field(default_factory=list)
-    scheduled_at: Optional[datetime] = None
+class AutoLamellaWorkflowConfig(RunPlan):
+    """The plan a lamella run follows, with its name and description."""
 
-    def __post_init__(self) -> None:
-        self.attention = Attention(self.attention)
-
-    def to_dict(self) -> Dict[str, Any]:
-        d = asdict(self)
-        d["attention"] = self.attention.value
-        if d.get("scheduled_at") is not None:
-            d["scheduled_at"] = self.scheduled_at.isoformat()
-        return d
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "AutoLamellaTaskDescription":
-        if data is None:
-            return cls(name="", required=False)
-        data = dict(data)
-        if "attention" not in data:
-            # v0.5.2 and earlier wrote a supervise flag in place of attention,
-            # and every protocol and experiment saved by one of them still
-            # carries it. That form shipped, so this mapping stays; the review
-            # flag and the interim mode strings beside it never did.
-            data["attention"] = attention_from(bool(data.pop("supervise", False)))
-        else:
-            # Through the one reader, so a stored value this build spells
-            # differently -- or does not know -- loads instead of raising.
-            data["attention"] = attention_from(
-                data["attention"], f"task {data.get('name', '')!r}"
-            )
-        # Known fields only: a protocol written by a newer version (with fields
-        # this one does not know) must load, not crash on an unexpected kwarg.
-        known = {f.name for f in fields(cls)}
-        data = {k: v for k, v in data.items() if k in known}
-        sa = data.get("scheduled_at")
-        if isinstance(sa, str):
-            data["scheduled_at"] = datetime.fromisoformat(sa)
-        return cls(**data)
-
-
-# A task may be scheduled to start up to this many days ahead.
-SCHEDULE_DAYS_AHEAD = 2
-
-
-@evented
-@dataclass
-class AutoLamellaWorkflowConfig:
     name: str = ""
     description: str = ""
-    tasks: List[AutoLamellaTaskDescription] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
-        ddict = asdict(self)
-        ddict["tasks"] = [task.to_dict() for task in self.tasks]
-        return ddict
+        return {"name": self.name, "description": self.description, **super().to_dict()}
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "AutoLamellaWorkflowConfig":
-        data["tasks"] = [
-            AutoLamellaTaskDescription.from_dict(task) for task in data.get("tasks", [])
-        ]
-        return cls(**data)
-
-    @property
-    def workflow(self) -> List[str]:
-        return [task.name for task in self.tasks]
-
-    @property
-    def required_tasks(self) -> List[str]:
-        """Get the list of required tasks for this workflow."""
-        return [task.name for task in self.tasks if task.required]
-
-    def requirements(self, task_name: str) -> List[str]:
-        for task in self.tasks:
-            if task.name == task_name:
-                return task.requires
-        return []
-
-    def get_completed_tasks(
-        self, lamella: "Lamella", with_timestamps: bool = False
-    ) -> List[str]:
-        """Get the list of completed tasks for a given lamella.
-
-        Filtered on status for the same reason as Lamella.completed_tasks:
-        task_history holds every terminal outcome since FIB-490. Unfiltered, a
-        failed required task would make is_completed() true, which drives the
-        ITEM_COMPLETED / EXPERIMENT_COMPLETED events and the is_completed column
-        in the experiment summary.
-        """
-        completed_tasks = []
-        for task in lamella.task_history:
-            if task.status is not TaskStatus.Completed:
-                continue
-            if task.name in self.workflow:
-                txt = task.name
-                if with_timestamps:
-                    txt = task.completed
-                completed_tasks.append(txt)
-        return completed_tasks
-
-    def get_remaining_tasks(self, lamella: "Lamella") -> List[str]:
-        """Get the list of remaining tasks for a given lamella."""
-        remaining_tasks = []
-        completed_tasks = self.get_completed_tasks(lamella)
-        for task in self.required_tasks:
-            if task not in completed_tasks:
-                remaining_tasks.append(task)
-        return remaining_tasks
-
-    def is_completed(self, lamella: "Lamella") -> bool:
-        """Check if all required tasks for the workflow are completed."""
-        completed_tasks = self.get_completed_tasks(lamella)
-        for task in self.required_tasks:
-            if task not in completed_tasks:
-                return False
-        return True
-
-    def get_attention(self, task_name: str) -> Attention:
-        """Who decides the task's record, and when; automated for a task the
-        workflow does not list."""
-        for task in self.tasks:
-            if task.name == task_name:
-                return task.attention
-        return Attention.automated
-
-    def get_scheduled_at(self, task_name: str) -> Optional[datetime]:
-        """Get the scheduled start time for a task, or None if not scheduled."""
-        for task in self.tasks:
-            if task.name == task_name:
-                return task.scheduled_at
-        return None
-
-    def reorder(self, order: List[str]) -> str:
-        """Put the tasks in *order*: every task, each once, none before a task
-        it requires. Why not, with nothing changed, or "". The Workflow tab's
-        drag and the App Server's reorder."""
-        if sorted(order) != sorted(self.workflow):
-            return "Give every task in the workflow, each once."
-        by_name = {task.name: task for task in self.tasks}
-        reordered = [by_name[name] for name in order]
-        issues = type(self)(tasks=reordered).validate()
-        if issues:
-            return " ".join(issues)
-        self.tasks[:] = reordered
-        return ""
-
-    def set_requirements(
-        self,
-        task_name: str,
-        requires: Optional[List[str]] = None,
-        required: Optional[bool] = None,
-    ) -> str:
-        """Set the tasks *task_name* requires, which must come before it, and
-        whether it is required; None leaves either as it is. Why not, with
-        nothing changed, or "". The Workflow tab's Edit Task and the App
-        Server's."""
-        task = next((t for t in self.tasks if t.name == task_name), None)
-        if task is None:
-            return f"No task named {task_name!r} in the workflow."
-        if requires is not None:
-            earlier = self.workflow[: self.workflow.index(task_name)]
-            wrong = [name for name in requires if name not in earlier]
-            if wrong:
-                return (
-                    f"{task_name} can only require tasks before it: "
-                    f"{', '.join(earlier) or 'none'}; not {', '.join(wrong)}."
-                )
-            task.requires = list(requires)
-        if required is not None:
-            task.required = bool(required)
-        return ""
-
-    def set_attention(self, task_name: str, attention: Attention) -> str:
-        """Set who decides *task_name*'s record. Why not, with nothing
-        changed, or "". The status bar's and the task row's chips, and the App
-        Server's supervision."""
-        task = next((t for t in self.tasks if t.name == task_name), None)
-        if task is None:
-            return f"No task named {task_name!r} in the workflow."
-        task.attention = Attention(attention)
-        return ""
-
-    def set_schedule(self, task_name: str, scheduled_at: Optional[datetime]) -> str:
-        """Set when *task_name* may start, no more than SCHEDULE_DAYS_AHEAD
-        days from now; None clears it, and a time already past starts it at
-        once. A naive time is local. Why not, with nothing changed, or "". The
-        Workflow tab's Edit Task and the App Server's schedule."""
-        task = next((t for t in self.tasks if t.name == task_name), None)
-        if task is None:
-            return f"No task named {task_name!r} in the workflow."
-        if scheduled_at is not None and scheduled_at.astimezone() - now() > timedelta(
-            days=SCHEDULE_DAYS_AHEAD
-        ):
-            return (
-                f"{task_name} can be scheduled up to {SCHEDULE_DAYS_AHEAD} days "
-                "from now."
-            )
-        task.scheduled_at = scheduled_at
-        return ""
-
-    def add_task(self, task: AutoLamellaTaskConfig) -> None:
-        """Add a task to the workflow configuration."""
-        self.tasks.append(
-            AutoLamellaTaskDescription(
-                name=task.task_name, required=True, attention=Attention.supervised
-            )
+    def from_dict(cls, data: Optional[Dict[str, Any]]) -> "AutoLamellaWorkflowConfig":
+        data = data or {}
+        plan = RunPlan.from_dict(data)
+        return cls(
+            name=data.get("name", ""),
+            description=data.get("description", ""),
+            tasks=plan.tasks,
         )
-
-    @property
-    def is_valid(self) -> bool:
-        """Check if the workflow configuration is valid."""
-        issues = self.validate()
-        return not issues
-
-    def validate(self) -> List[str]:
-        """Validate the workflow configuration and return a list of issues."""
-        issues = []
-        task_names = [task.name for task in self.tasks]
-        for i, task in enumerate(self.tasks):
-            for req in task.requires:
-                if req not in task_names:
-                    issues.append(f"Task '{task.name}' requires unknown task '{req}'.")
-                elif req not in task_names[:i]:
-                    issues.append(
-                        f"Task '{task.name}' requires '{req}' which comes after it in the workflow."
-                    )
-        return issues
 
 
 @evented
@@ -566,17 +294,21 @@ class LamellaDefaultConfig(Configurable):
 
 @evented
 @dataclass
-class AutoLamellaTaskProtocol:
+class AutoLamellaTaskProtocol(TaskProtocol):
+    """The lamella tasks, their settings and the plan a lamella run follows,
+    with the run options, the lamella template, the correlation settings and
+    the grid tasks. The plan may list fewer tasks than ``task_config`` has: a
+    task it does not list is never asked about (``get_attention``)."""
+
     name: str = "AutoLamella Task Protocol"
-    description: str = "Protocol for AutoLamella"
-    version: str = "1.0"
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
     task_config: EventedDict[str, AutoLamellaTaskConfig] = field(
         default_factory=lambda: EventedDict()
-    )  # unique_name: AutoLamellaTaskConfig
+    )
     workflow_config: AutoLamellaWorkflowConfig = field(
         default_factory=AutoLamellaWorkflowConfig
     )
+    description: str = "Protocol for AutoLamella"
+    version: str = "1.0"
     options: AutoLamellaWorkflowOptions = field(
         default_factory=AutoLamellaWorkflowOptions
     )
@@ -588,14 +320,23 @@ class AutoLamellaTaskProtocol:
     # section, since they run on a GridRecord rather than a lamella.
     grid_tasks: GridTaskProtocol = field(default_factory=GridTaskProtocol)
 
+    @classmethod
+    def load_task_configs(
+        cls, ddict: Optional[Dict[str, Dict[str, Any]]]
+    ) -> EventedDict[str, AutoLamellaTaskConfig]:
+        from fibsem.applications.autolamella.workflows.tasks import load_task_config
+
+        return load_task_config(ddict or {})
+
     def to_dict(self) -> Dict[str, Any]:
+        saved = super().to_dict()
         return {
-            "_id": self.id,
-            "name": self.name,
+            "id": saved["id"],
+            "name": saved["name"],
             "description": self.description,
             "version": self.version,
-            "tasks": {k: v.to_dict() for k, v in self.task_config.items()},
-            "workflow": self.workflow_config.to_dict(),
+            "task_config": saved["task_config"],
+            "workflow_config": self.workflow_config.to_dict(),
             "options": self.options.to_dict(),
             "lamella_defaults": self.lamella_defaults.to_dict(),
             "correlation": self.correlation.to_dict(),
@@ -604,17 +345,15 @@ class AutoLamellaTaskProtocol:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AutoLamellaTaskProtocol":
-        from fibsem.applications.autolamella.workflows.tasks import load_task_config
-
-        task_config = load_task_config(data.get("tasks", {}))
-        workflow_config = AutoLamellaWorkflowConfig.from_dict(data.get("workflow", {}))
-
+        data = upgrade.autolamella_protocol(data)
         protocol = cls(
             name=data.get("name", "AutoLamella Task Protocol"),
             description=data.get("description", "Protocol for AutoLamella"),
             version=data.get("version", "1.0"),
-            task_config=task_config,
-            workflow_config=workflow_config,
+            task_config=cls.load_task_configs(data.get("task_config")),
+            workflow_config=AutoLamellaWorkflowConfig.from_dict(
+                data.get("workflow_config")
+            ),
             options=AutoLamellaWorkflowOptions.from_dict(data.get("options", {})),
             lamella_defaults=LamellaDefaultConfig.from_dict(
                 data.get("lamella_defaults", {})
@@ -624,9 +363,84 @@ class AutoLamellaTaskProtocol:
             # Likewise: a protocol written before grid tasks existed offers none.
             grid_tasks=GridTaskProtocol.from_dict(data.get("grid_tasks")),
         )
-        if "_id" in data:
-            protocol.id = data["_id"]
+        if data.get("id"):
+            protocol.id = data["id"]
         return protocol
+
+    def get_attention(self, task_name: str) -> Attention:
+        """Who decides the task's record, and when; automated for a task the
+        plan does not list."""
+        config = self.task_config.get(task_name)
+        if config is None or self.workflow_config.get(task_name) is None:
+            return Attention.automated
+        return config.attention
+
+    def set_attention(self, task_name: str, attention: Attention) -> str:
+        """Set who decides *task_name*'s record. Why not, with nothing
+        changed, or "". The status bar's and the task row's chips, and the App
+        Server's supervision."""
+        config = self.task_config.get(task_name)
+        if config is None or self.workflow_config.get(task_name) is None:
+            return f"No task named {task_name!r} in the workflow."
+        config.attention = Attention(attention)
+        return ""
+
+    def reorder(self, order: List[str]) -> str:
+        """Put the plan's tasks in *order*: every task, each once, none before
+        a task it requires. Why not, with nothing changed, or "". The Workflow
+        tab's drag and the App Server's reorder."""
+        if sorted(order) != sorted(self.workflow_config.workflow):
+            return "Give every task in the workflow, each once."
+        issues = self.validate(order)
+        if issues:
+            return " ".join(issues)
+        return self.workflow_config.reorder(list(order))
+
+    def set_requires(self, task_name: str, requires: List[str]) -> str:
+        return self.set_requirements(task_name, requires=requires)
+
+    def set_requirements(
+        self,
+        task_name: str,
+        requires: Optional[List[str]] = None,
+        required: Optional[bool] = None,
+    ) -> str:
+        """Set the tasks *task_name* requires, which must come before it in the
+        plan, and whether it is required; None leaves either as it is. Why
+        not, with nothing changed, or "". The Workflow tab's Edit Task and the
+        App Server's."""
+        plan = self.workflow_config.get(task_name)
+        config = self.task_config.get(task_name)
+        if plan is None or config is None:
+            return f"No task named {task_name!r} in the workflow."
+        if requires is not None:
+            workflow = self.workflow_config.workflow
+            earlier = workflow[: workflow.index(task_name)]
+            wrong = [name for name in requires if name not in earlier]
+            if wrong:
+                return (
+                    f"{task_name} can only require tasks before it: "
+                    f"{', '.join(earlier) or 'none'}; not {', '.join(wrong)}."
+                )
+            config.requires = list(requires)
+        if required is not None:
+            plan.required = bool(required)
+        return ""
+
+    def validate(self, order: Optional[List[str]] = None) -> List[str]:
+        """What is wrong with the plan in *order* (its own by default): a
+        task requiring one the plan does not have, or one after it."""
+        names = list(order) if order is not None else self.workflow_config.workflow
+        issues = []
+        for i, name in enumerate(names):
+            for req in self.requirements(name):
+                if req not in names:
+                    issues.append(f"Task '{name}' requires unknown task '{req}'.")
+                elif req not in names[:i]:
+                    issues.append(
+                        f"Task '{name}' requires '{req}' which comes after it in the workflow."
+                    )
+        return issues
 
     @classmethod
     def load(cls, filename: str) -> "AutoLamellaTaskProtocol":
@@ -644,9 +458,6 @@ class AutoLamellaTaskProtocol:
                 default_flow_style=False,
                 sort_keys=False,
             )
-
-    def get_attention(self, task_name: str) -> Attention:
-        return self.workflow_config.get_attention(task_name)
 
     @classmethod
     def load_from_old_protocol(cls, path: Path) -> "AutoLamellaTaskProtocol":
@@ -747,37 +558,28 @@ class AutoLamellaTaskProtocol:
             task_config[MILL_FIDUCIAL_TASK_NAME] = mill_fiducial_task
             task_config[SETUP_LAMELLA_POSITION_TASK_NAME] = setup_lamella_task
 
+            setup_lamella_task.attention = attention_from(
+                protocol.supervision[AutoLamellaStage.SetupLamella]
+            )
+            mill_fiducial_task.attention = attention_from(
+                protocol.supervision[AutoLamellaStage.SetupLamella]
+            )
+            rough_milling_task.attention = attention_from(
+                protocol.supervision[AutoLamellaStage.MillRough]
+            )
+            rough_milling_task.requires = [MILL_FIDUCIAL_TASK_NAME]
+            polishing_milling_task.attention = attention_from(
+                protocol.supervision[AutoLamellaStage.MillPolishing]
+            )
+            polishing_milling_task.requires = [ROUGH_MILLING_TASK_NAME]
             workflow_config.tasks = [
-                AutoLamellaTaskDescription(
-                    name=SETUP_LAMELLA_POSITION_TASK_NAME,
-                    attention=attention_from(
-                        protocol.supervision[AutoLamellaStage.SetupLamella]
-                    ),
-                    required=True,
-                ),
-                AutoLamellaTaskDescription(
-                    name=MILL_FIDUCIAL_TASK_NAME,
-                    attention=attention_from(
-                        protocol.supervision[AutoLamellaStage.SetupLamella]
-                    ),
-                    required=True,
-                ),
-                AutoLamellaTaskDescription(
-                    name=ROUGH_MILLING_TASK_NAME,
-                    attention=attention_from(
-                        protocol.supervision[AutoLamellaStage.MillRough]
-                    ),
-                    required=True,
-                    requires=[MILL_FIDUCIAL_TASK_NAME],
-                ),
-                AutoLamellaTaskDescription(
-                    name=POLISHING_TASK_NAME,
-                    attention=attention_from(
-                        protocol.supervision[AutoLamellaStage.MillPolishing]
-                    ),
-                    required=True,
-                    requires=[ROUGH_MILLING_TASK_NAME],
-                ),
+                TaskPlan(name=name)
+                for name in (
+                    SETUP_LAMELLA_POSITION_TASK_NAME,
+                    MILL_FIDUCIAL_TASK_NAME,
+                    ROUGH_MILLING_TASK_NAME,
+                    POLISHING_TASK_NAME,
+                )
             ]
 
         if protocol.method in [AutoLamellaMethod.TRENCH, AutoLamellaMethod.WAFFLE]:
@@ -789,18 +591,12 @@ class AutoLamellaTaskProtocol:
                     ),
                 },
                 orientation="FIB",
-            )
-            task_config[TRENCH_MILLING_TASK_NAME] = trench_milling_task
-            workflow_config.tasks.insert(
-                0,
-                AutoLamellaTaskDescription(
-                    name=TRENCH_MILLING_TASK_NAME,
-                    attention=attention_from(
-                        protocol.supervision[AutoLamellaStage.MillTrench]
-                    ),
-                    required=True,
+                attention=attention_from(
+                    protocol.supervision[AutoLamellaStage.MillTrench]
                 ),
             )
+            task_config[TRENCH_MILLING_TASK_NAME] = trench_milling_task
+            workflow_config.tasks.insert(0, TaskPlan(name=TRENCH_MILLING_TASK_NAME))
 
         if protocol.method is AutoLamellaMethod.WAFFLE:
             undercut_task = MillUndercutTaskConfig(
@@ -811,19 +607,13 @@ class AutoLamellaTaskProtocol:
                     )
                 },
                 orientation="SEM",
+                attention=attention_from(
+                    protocol.supervision[AutoLamellaStage.MillUndercut]
+                ),
+                requires=[TRENCH_MILLING_TASK_NAME],
             )
             task_config[UNDERCUT_TASK_NAME] = undercut_task
-            workflow_config.tasks.insert(
-                1,
-                AutoLamellaTaskDescription(
-                    name=UNDERCUT_TASK_NAME,
-                    attention=attention_from(
-                        protocol.supervision[AutoLamellaStage.MillUndercut]
-                    ),
-                    required=True,
-                    requires=[TRENCH_MILLING_TASK_NAME],
-                ),
-            )
+            workflow_config.tasks.insert(1, TaskPlan(name=UNDERCUT_TASK_NAME))
 
         options = AutoLamellaWorkflowOptions(
             turn_beams_off=protocol.options.turn_beams_off,
@@ -1122,7 +912,9 @@ class Lamella(ExperimentItem):
             "number": self.number,
             "id": str(self.id),
             "poses": {k: v.to_dict() for k, v in self.poses.items()},
-            "task_config": {k: v.to_dict() for k, v in self.task_config.items()},
+            "task_config": {
+                k: item_config_dict(v) for k, v in self.task_config.items()
+            },
             "task_state": self.task_state.to_dict(),
             "task_history": [task.to_dict() for task in self.task_history],
             "defect": self.defect.to_dict(),
@@ -1374,7 +1166,7 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
 
     @classmethod
     def from_dict(cls, ddict: dict) -> "Experiment":
-
+        ddict = upgrade.experiment(ddict)
         path = os.path.dirname(ddict["path"])
         name = ddict["name"]
         experiment = Experiment(path=path, name=name)
@@ -1619,12 +1411,20 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
         ):
             for task_name in task_names:
                 if task_name in source_task_config:
-                    self.task_protocol.task_config[task_name] = deepcopy(
-                        source_task_config[task_name]
-                    )
+                    self._set_protocol_config(source_task_config[task_name])
             logging.info(f"Updated base protocol tasks: {task_names}")
 
         return updated_count
+
+    def _set_protocol_config(self, config: AutoLamellaTaskConfig) -> None:
+        """*config*'s settings into the protocol, keeping the protocol's
+        attention and requirements: a lamella's copy has none of its own."""
+        current = self.task_protocol.task_config.get(config.task_name)
+        config = deepcopy(config)
+        if current is not None:
+            config.attention = current.attention
+            config.requires = list(current.requires)
+        self.task_protocol.task_config[config.task_name] = config
 
     def add_task(self, task_type: str, task_name: str) -> AutoLamellaTaskConfig:
         """Add a new task of a registered *task_type*, named *task_name*: its
@@ -1644,8 +1444,8 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
             raise ValueError(f"There is already a task named {task_name!r}.")
         config = registry[task_type].config_cls()  # type: ignore[attr-defined]
         config.task_name = task_name
-        self.task_protocol.task_config[task_name] = config
-        self.task_protocol.workflow_config.add_task(config)
+        config.attention = Attention.supervised
+        self.task_protocol.add(config)
         for lamella in self.positions:
             lamella.task_config[task_name] = deepcopy(config)
             lamella._sync_imaging_paths()
@@ -1661,14 +1461,7 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
         it as a requirement no longer does. Task history is left alone: it is
         the record of what ran.
         """
-        self.task_protocol.task_config.pop(task_name, None)
-
-        workflow = self.task_protocol.workflow_config
-        workflow.tasks = [t for t in workflow.tasks if t.name != task_name]
-        for task in workflow.tasks:
-            if task_name in task.requires:
-                task.requires = [r for r in task.requires if r != task_name]
-
+        self.task_protocol.remove(task_name)
         for lamella in self.positions:
             lamella.task_config.pop(task_name, None)
 
@@ -1859,12 +1652,13 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
     def workflow_dataframe(self) -> pd.DataFrame:
         """Create a dataframe with the workflow"""
         wlist: List[Dict] = []
-        for i, t in enumerate(self.task_protocol.workflow_config.tasks, 1):
+        protocol = self.task_protocol
+        for i, t in enumerate(protocol.workflow_config.tasks, 1):
             ddict = {
                 "order": i,
                 "task_name": t.name,
                 "required": t.required,
-                "attention": t.attention.value,
+                "attention": protocol.get_attention(t.name).value,
             }
             wlist.append(deepcopy(ddict))
 

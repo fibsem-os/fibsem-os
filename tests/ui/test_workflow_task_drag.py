@@ -10,21 +10,17 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.structures import (  # noqa: E402
-    AutoLamellaTaskDescription,
-    AutoLamellaTaskProtocol,
-)
 from fibsem.applications.autolamella.ui.workflow import (
     tab as module,  # noqa: E402  # noqa: E402
 )
+from tests.protocols import planned, task_protocol
 
 
 def _window(qapp, monkeypatch):
-    protocol = AutoLamellaTaskProtocol()
-    protocol.workflow_config.tasks[:] = [
-        AutoLamellaTaskDescription(name="Trench"),
-        AutoLamellaTaskDescription(name="Undercut", requires=["Trench"]),
-    ]
+    protocol = task_protocol(
+        planned(name="Trench"),
+        planned(name="Undercut", requires=["Trench"]),
+    )
     saved, shown, toasts = [], [], []
     monkeypatch.setattr(
         module.notification_service, "show_toast", lambda m, *a: toasts.append(m)
@@ -50,7 +46,7 @@ def test_a_drag_above_a_requirement_is_put_back(qapp, monkeypatch):
 
 def test_a_valid_drag_is_saved(qapp, monkeypatch):
     window, config, saved, shown, toasts = _window(qapp, monkeypatch)
-    config.tasks[1].requires = []
+    window._session.experiment.task_protocol.task_config["Undercut"].requires = []
     undercut, trench = config.tasks[1], config.tasks[0]
 
     module.WorkflowTab._on_workflow_task_order_changed(window, [undercut, trench])

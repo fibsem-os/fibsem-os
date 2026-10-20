@@ -167,7 +167,8 @@ def test_monitoring_channel_roundtrips_and_is_not_a_parameter():
         ),
     )
     data = yaml.safe_load(yaml.safe_dump(config.to_dict()))
-    assert "monitoring_channel" not in data["parameters"]
+    assert "monitoring_channel" not in config.parameters
+    assert data["monitoring_channel"]["name"] == "Green"
     loaded = MillCoincidentTaskConfig.from_dict(data)
     assert loaded.monitoring_channel.name == "Green"
     assert loaded.monitoring_channel.excitation_wavelength == 488

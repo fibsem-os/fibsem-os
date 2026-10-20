@@ -282,6 +282,14 @@ Two levels, one dance:
 - **Protocol** (`protocol_update_task_config`): the defaults new items
   copy. Never affects existing items — they hold their own copies.
 
+A config document is flat: the task's parameters at its top level, beside
+`milling` and `reference_imaging`, so a patch path starts with the field
+(`milling_angle`, `milling.mill_rough.stages.0.pattern.depth`). The
+protocol's document also carries the task's `attention` and `requires`;
+an item's copy has neither. A patch that names either is refused: change
+them with `protocol_set_supervision` and `protocol_set_task_requirements`,
+which don't make your version stale.
+
 The dance: **read, patch against that read's `version`, report**. A
 `409 stale_config` means the config changed since you read it (often: the
 operator edited) — that refusal is correct; re-read and decide again on

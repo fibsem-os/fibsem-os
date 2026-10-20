@@ -17,15 +17,13 @@ from typing import List
 import pytest
 
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
-    AutoLamellaTaskProtocol,
-    AutoLamellaWorkflowConfig,
     Experiment,
     Lamella,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.cancellation import AnyStopEvent, OperationCancelledError
 from fibsem.workflows.status import TaskStatus as Status
+from tests.protocols import planned, task_protocol
 
 TASKS = ["Trench", "Undercut"]
 
@@ -39,10 +37,8 @@ class NoMicroscope:
 @pytest.fixture
 def manager(tmp_path: Path) -> TaskManager:
     experiment = Experiment(path=tmp_path, name="test-exp")
-    experiment.task_protocol = AutoLamellaTaskProtocol(
-        workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[AutoLamellaTaskDescription(name=n, required=False) for n in TASKS]
-        )
+    experiment.task_protocol = task_protocol(
+        *[planned(name=n, required=False) for n in TASKS]
     )
     for i, name in enumerate(("L1", "L2"), start=1):
         experiment.positions.append(

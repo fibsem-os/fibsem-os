@@ -58,16 +58,11 @@ from PyQt5.QtWidgets import (
 from superqt import ensure_main_thread
 
 from fibsem import conversions
-from fibsem.applications.autolamella.poses import (
-    current_objective_position,
-    set_lamella_pose,
-    set_objective_position,
-    set_objective_position_on_all,
-    stored_objective_position,
-)
 from fibsem.applications.autolamella.ui.lamella.rows import LamellaNameListWidget
-from fibsem.applications.autolamella.ui.lamella.selected import SelectedLamellaWidget
-from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
+from fibsem.applications.autolamella.ui.lamella.selected import (
+    SelectedLamellaController,
+    SelectedLamellaWidget,
+)
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.milling.progress import (
     MillingMessageTracker,
@@ -719,23 +714,12 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 
         # per-lamella objective position + poses for the selected lamella
         self.selected_lamella_widget = SelectedLamellaWidget()
-        self.selected_lamella_widget.objective_position_changed.connect(
-            self._on_slw_objective_position_changed
-        )
-        self.selected_lamella_widget.use_current_objective_requested.connect(
-            self._on_slw_use_current_objective
-        )
-        self.selected_lamella_widget.apply_objective_to_all_requested.connect(
-            self._on_slw_apply_objective_to_all
-        )
-        self.selected_lamella_widget.move_objective_requested.connect(
-            self._on_slw_move_objective
-        )
-        self.selected_lamella_widget.pose_move_to_requested.connect(
-            self._on_slw_pose_move_to
-        )
-        self.selected_lamella_widget.pose_update_requested.connect(
-            self._on_slw_pose_update
+        self.selected_lamella = SelectedLamellaController(
+            self.selected_lamella_widget,
+            experiment=lambda: self.experiment,
+            microscope=lambda: self.microscope,
+            lamella=lambda: self._selected_lamella,
+            move_stage=self._move_stage_to,
         )
         layout.addWidget(self.selected_lamella_widget)
         layout.addStretch()
@@ -1346,154 +1330,12 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self._reset_timelapse()
         self.lamella_selected_signal.emit(lamella)
 
-    # ------------------------------------------------------------------
-    # Selected-lamella widget handlers (objective + poses), self-contained
-    # ------------------------------------------------------------------
-
-    def _on_slw_objective_position_changed(self, value_um: float):
-        """Store the edited objective position on the selected lamella."""
-        lamella = self._selected_lamella
-        if lamella is None or lamella.fluorescence_pose is None:
-            return
-        set_objective_position(self.experiment, lamella, value_um * MICRON_TO_METRE)
-
-    def _on_slw_use_current_objective(self):
-        """Read the current FM objective position and store it on the lamella."""
-        if self.microscope is None or self.microscope.fm is None:
-            notification_service.show_toast("No microscope connected.", "warning")
-            return
-        lamella = self._selected_lamella
-        if lamella is None or lamella.fluorescence_pose is None:
-            notification_service.show_toast("No lamella selected.", "warning")
-            return
-        value_m = current_objective_position(self.microscope.fm)
-        if value_m is None:
-            notification_service.show_toast(
-                "Objective position unavailable.", "warning"
-            )
-            return
-        set_objective_position(self.experiment, lamella, value_m)
-        self.selected_lamella_widget.set_lamella(lamella)
-        notification_service.show_toast(
-            f"Set objective position to {value_m * METRE_TO_MICRON:.1f} µm "
-            f"for {lamella.name}.",
-            "info",
+    def _move_stage_to(self, position) -> None:
+        """A pose's position, off the GUI thread."""
+        self._stage_worker = FunctionWorker(
+            self.microscope.safe_absolute_stage_movement, position
         )
-
-    def _on_slw_apply_objective_to_all(self):
-        """Copy the selected lamella's objective position to all lamella with an FM pose."""
-        if self.experiment is None:
-            return
-        value_um = self.selected_lamella_widget.objective_value_um()
-        count = set_objective_position_on_all(
-            self.experiment, value_um * MICRON_TO_METRE
-        )
-        if count:
-            notification_service.show_toast(
-                f"Applied objective position ({value_um:.1f} µm) to {count} lamella.",
-                "info",
-            )
-
-    def _on_slw_move_objective(self):
-        """Move the FM objective to the selected lamella's stored objective position."""
-        if self.microscope is None or self.microscope.fm is None:
-            notification_service.show_toast("No microscope connected.", "warning")
-            return
-        lamella = self._selected_lamella
-        if lamella is None or lamella.fluorescence_pose is None:
-            notification_service.show_toast("No lamella selected.", "warning")
-            return
-        try:
-            objective_position = stored_objective_position(self.microscope.fm, lamella)
-        except ValueError as e:
-            notification_service.show_toast(str(e), "warning")
-            return
-        obj = self.microscope.fm.objective
-
-        ret = QMessageBox.question(
-            self,
-            "Move Objective",
-            f"Move objective to {objective_position * METRE_TO_MICRON:.1f} µm "
-            f"for {lamella.name}?",
-            QMessageBox.Yes | QMessageBox.No,  # type: ignore[attr-defined]
-        )
-        if ret != QMessageBox.Yes:  # type: ignore[attr-defined]
-            return
-
-        def _move():
-            try:
-                obj.move_absolute(objective_position)
-            except Exception:
-                logging.exception("Error moving objective to stored position")
-
-        worker = FunctionWorker(_move)
-        worker.start()
-
-    def _on_slw_pose_move_to(self, pose_name: str):
-        """Move the stage to the given pose of the selected lamella."""
-        lamella = self._selected_lamella
-        if lamella is None or self.microscope is None:
-            return
-        pose = lamella.poses.get(pose_name)
-        if pose is None or pose.stage_position is None:
-            notification_service.show_toast(
-                f"Pose '{pose_name}' has no stage position.", "warning"
-            )
-            return
-
-        ret = QMessageBox.question(
-            self,
-            "Move to Pose",
-            f"Move to pose '{pose_name}' for {lamella.name}?\n{pose.stage_position.pretty}",
-            QMessageBox.Yes | QMessageBox.No,  # type: ignore[attr-defined]
-        )
-        if ret != QMessageBox.Yes:  # type: ignore[attr-defined]
-            return
-
-        stage_position = pose.stage_position
-
-        def _move():
-            try:
-                self.microscope.safe_absolute_stage_movement(stage_position)
-            except Exception:
-                logging.exception("Error moving to pose position")
-
-        worker = FunctionWorker(_move)
-        worker.start()
-
-    def _on_slw_pose_update(self, pose_name: str):
-        """Set the current stage position as the given pose of the selected lamella."""
-        if self.microscope is None:
-            notification_service.show_toast("No microscope connected.", "warning")
-            return
-        lamella = self._selected_lamella
-        if lamella is None or pose_name == "":
-            notification_service.show_toast("No lamella selected.", "warning")
-            return
-        state = self.microscope.get_microscope_state()
-        if state is None or state.stage_position is None:
-            notification_service.show_toast(
-                "Failed to get microscope state.", "warning"
-            )
-            return
-
-        ret = QMessageBox.question(
-            self,
-            "Set Pose",
-            f"Set current position as pose '{pose_name}' for {lamella.name}?\n"
-            f"{state.stage_position.pretty}",
-            QMessageBox.Yes | QMessageBox.No,  # type: ignore[attr-defined]
-        )
-        if ret != QMessageBox.Yes:  # type: ignore[attr-defined]
-            return
-
-        if set_lamella_pose(
-            self.experiment, self.microscope, lamella, pose_name, state
-        ):
-            self.selected_lamella_widget.refresh_pose(
-                "FLUORESCENCE", lamella.fluorescence_pose
-            )
-        self.selected_lamella_widget.refresh_pose(pose_name, state)
+        self._stage_worker.start()
 
     def _on_lamella_defect_changed(self, lamella: Optional["Lamella"]):
         """Persist a defect set from this list's row menu.

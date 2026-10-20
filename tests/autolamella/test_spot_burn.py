@@ -25,6 +25,7 @@ from fibsem.imaging.spot import (
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, Point
 from fibsem.workflows.attention import Attention
+from tests.protocols import planned, task_protocol
 
 # The widget-dispatch tests need the UI stack (PyQt5/superqt, the [ui] extra), which
 # isn't installed in the core CI env (`pip install .`). napari is not part of it: it
@@ -241,9 +242,6 @@ def test_update_spot_burn_ui_runs_stored_coordinates_headless(monkeypatch, tmp_p
     import fibsem.config as cfg
     from fibsem import utils
     from fibsem.applications.autolamella.structures import (
-        AutoLamellaTaskDescription,
-        AutoLamellaTaskProtocol,
-        AutoLamellaWorkflowConfig,
         Experiment,
     )
     from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
@@ -263,11 +261,7 @@ def test_update_spot_burn_ui_runs_stored_coordinates_headless(monkeypatch, tmp_p
     )
     try:
         exp = Experiment(path=tmp_path, name="spot-exp")
-        exp.task_protocol = AutoLamellaTaskProtocol(
-            workflow_config=AutoLamellaWorkflowConfig(
-                tasks=[AutoLamellaTaskDescription(name=name, required=True)]
-            )
-        )
+        exp.task_protocol = task_protocol(planned(name=name, required=True))
         os.makedirs(exp.path, exist_ok=True)
         config = SpotBurnFiducialTaskConfig(task_name=name, coordinates=coords)
         exp.add_new_lamella(
@@ -306,8 +300,8 @@ def test_from_dict_coerces_string_numeric_params():
     """Protocols saved with string-typed params (pre-fix) are repaired on load."""
     cfg = SpotBurnFiducialTaskConfig(task_name="Spot Burn Fiducial")
     d = cfg.to_dict()
-    d["parameters"]["milling_current"] = "3e-11"
-    d["parameters"]["exposure_time"] = "10"
+    d["milling_current"] = "3e-11"
+    d["exposure_time"] = "10"
 
     loaded = SpotBurnFiducialTaskConfig.from_dict(d)
 
@@ -315,6 +309,27 @@ def test_from_dict_coerces_string_numeric_params():
     assert loaded.milling_current == pytest.approx(3e-11)
     assert isinstance(loaded.exposure_time, int)
     assert loaded.exposure_time == 10
+
+
+def test_a_fractional_exposure_loads_as_whole_seconds():
+    """As the task's own loader did: an int field takes int(float(value))."""
+    for stored in (10.5, "10.5"):
+        d = SpotBurnFiducialTaskConfig(task_name="Spot Burn Fiducial").to_dict()
+        d["exposure_time"] = stored
+        assert SpotBurnFiducialTaskConfig.from_dict(d).exposure_time == 10
+
+
+def test_an_old_nested_config_loads_its_parameters():
+    """v2 and earlier kept them under ``parameters``."""
+    loaded = SpotBurnFiducialTaskConfig.from_dict(
+        {
+            "task_type": "SPOT_BURN_FIDUCIAL",
+            "task_name": "Spot Burn Fiducial",
+            "parameters": {"milling_current": "2e-11", "exposure_time": "7"},
+        }
+    )
+    assert loaded.milling_current == pytest.approx(2e-11)
+    assert loaded.exposure_time == 7
 
 
 def test_to_from_dict_preserves_coordinates_as_points():

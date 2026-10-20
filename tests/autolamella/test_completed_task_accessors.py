@@ -12,11 +12,11 @@ from pathlib import Path
 import pytest
 
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
-    AutoLamellaWorkflowConfig,
+    AutoLamellaTaskProtocol,
     Lamella,
 )
 from fibsem.workflows.status import TaskState, TaskStatus
+from tests.protocols import planned, task_protocol
 
 
 @pytest.fixture
@@ -25,15 +25,11 @@ def lamella(tmp_path: Path) -> Lamella:
 
 
 @pytest.fixture
-def workflow() -> AutoLamellaWorkflowConfig:
+def workflow() -> AutoLamellaTaskProtocol:
     """MillUndercut requires MillTrench."""
-    return AutoLamellaWorkflowConfig(
-        tasks=[
-            AutoLamellaTaskDescription(name="MillTrench", required=True),
-            AutoLamellaTaskDescription(
-                name="MillUndercut", required=True, requires=["MillTrench"]
-            ),
-        ]
+    return task_protocol(
+        planned(name="MillTrench", required=True),
+        planned(name="MillUndercut", required=True, requires=["MillTrench"]),
     )
 
 
@@ -62,7 +58,7 @@ def test_a_completed_task_still_counts(lamella: Lamella) -> None:
 
 
 def test_a_failed_prerequisite_does_not_satisfy_the_gate(
-    lamella: Lamella, workflow: AutoLamellaWorkflowConfig
+    lamella: Lamella, workflow: AutoLamellaTaskProtocol
 ) -> None:
     """The blocking case: TaskManager._should_skip gates on has_completed_task, and
     nothing else stops it -- is_failure reads defect.state, which only a human
@@ -75,15 +71,14 @@ def test_a_failed_prerequisite_does_not_satisfy_the_gate(
 
 
 def test_a_failed_required_task_leaves_the_workflow_incomplete(
-    lamella: Lamella, workflow: AutoLamellaWorkflowConfig
+    lamella: Lamella, workflow: AutoLamellaTaskProtocol
 ) -> None:
     """Feeds ITEM_COMPLETED / EXPERIMENT_COMPLETED and the is_completed report column."""
     lamella.task_history.append(_finished("MillTrench", TaskStatus.Failed))
     lamella.task_history.append(_finished("MillUndercut", TaskStatus.Completed))
 
-    assert not workflow.is_completed(lamella)
-    assert workflow.get_completed_tasks(lamella) == ["MillUndercut"]
-    assert "MillTrench" in workflow.get_remaining_tasks(lamella)
+    assert not workflow.workflow_config.is_completed(lamella)
+    assert lamella.completed_tasks == ["MillUndercut"]
 
 
 def test_last_completed_task_skips_a_failed_entry(lamella: Lamella) -> None:

@@ -141,15 +141,16 @@ def _isolate_plain_experiments(tmp_path_factory, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _restore_root_logger():
-    """Adopting an experiment points the root logger at its logfile; put the
-    handlers back after each test and close the ones it added."""
+    """Adopting an experiment points the root logger at its logfile; close the
+    handlers a test added and keep the ones it left. A handler the test replaced
+    was closed then, and put back it would reopen its file on the next record."""
     root = logging.getLogger()
     saved, level = list(root.handlers), root.level
     yield
     for handler in list(root.handlers):
         if handler not in saved:
             handler.close()
-    root.handlers = saved
+    root.handlers = [h for h in saved if h in root.handlers]
     root.setLevel(level)
 
 

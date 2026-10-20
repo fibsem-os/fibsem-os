@@ -17,9 +17,6 @@ from typing import Dict, List, Optional
 import pytest
 
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
-    AutoLamellaTaskProtocol,
-    AutoLamellaWorkflowConfig,
     DefectType,
     Experiment,
     Lamella,
@@ -28,6 +25,7 @@ from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.workflows.status import TaskState
 from fibsem.workflows.status import TaskStatus as Status
 from tests.proposal_records import set_proposals
+from tests.protocols import planned, task_protocol
 from tests.run_state import stub_session
 
 
@@ -105,16 +103,10 @@ def make_experiment(
     """
     reqs = requirements or {}
     experiment = Experiment(path=tmp_path, name="test-exp")
-    experiment.task_protocol = AutoLamellaTaskProtocol(
-        workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[
-                AutoLamellaTaskDescription(
-                    name=name,
-                    required=False,
-                    requires=reqs.get(name, []),
-                )
-                for name in ("Trench", "Undercut", "Polishing")
-            ]
+    experiment.task_protocol = task_protocol(
+        *(
+            planned(name=name, required=False, requires=reqs.get(name, []))
+            for name in ("Trench", "Undercut", "Polishing")
         )
     )
     for name in lamella_names:

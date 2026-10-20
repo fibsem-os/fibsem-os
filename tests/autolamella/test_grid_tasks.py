@@ -179,7 +179,7 @@ class TestProtocol:
         experiment.grid_protocol.task_config["echo"].repeats = 4
         experiment.save(save_protocol=True)
         data = yaml.safe_load((tmp_path / "exp" / "protocol.yaml").read_text())
-        assert data["grid_tasks"]["tasks"]["echo"]["repeats"] == 4
+        assert data["grid_tasks"]["task_config"]["echo"]["repeats"] == 4
         assert "grid_protocol" not in experiment.to_dict()  # not experiment state
 
         loaded = Experiment.load(tmp_path / "exp" / "experiment.yaml")

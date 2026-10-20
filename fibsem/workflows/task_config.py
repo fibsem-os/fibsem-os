@@ -1,9 +1,11 @@
-"""A task's settings, and the tasks a protocol offers: shared by every app.
+"""A task's settings, the tasks a protocol offers, and the plan a run follows:
+shared by every app.
 
 Flat on disk: every field at the top level, nested dataclasses through their own
 ``to_dict`` / ``from_dict``, enums by name. An app's config classes extend
 :class:`TaskConfig`; its protocol extends :class:`TaskProtocol` and says how a
-saved config becomes a typed one (its task registry).
+saved config becomes a typed one (its task registry). Older shapes are read
+through `fibsem.codec.upgrades.protocol`.
 """
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ import logging
 import uuid
 from abc import ABC
 from dataclasses import dataclass, field, fields
+from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
 from typing import (
@@ -19,13 +22,16 @@ from typing import (
     Any,
     ClassVar,
     Dict,
+    FrozenSet,
     List,
     Optional,
     Union,
     get_type_hints,
 )
 
+from fibsem.codec.upgrades import protocol as upgrade
 from fibsem.structures import Configurable, Display, param
+from fibsem.util.timestamps import now
 from fibsem.workflows.attention import Attention, attention_from
 
 if TYPE_CHECKING:
@@ -39,6 +45,10 @@ class TaskConfig(Configurable, ABC):
 
     task_type: ClassVar[str]
     display_name: ClassVar[str]
+    # Parameters this task type used to have. Saved protocols and experiments
+    # still carry them; they are dropped on load without the "Unknown field"
+    # warning, which is for keys nobody recognises.
+    retired_parameters: ClassVar[FrozenSet[str]] = frozenset()
     task_name: str = param(
         "",
         doc="The task's name, unique within the protocol: the key the workflow knows it by.",
@@ -81,7 +91,14 @@ class TaskConfig(Configurable, ABC):
             "attention": self.attention.value,
             "requires": list(self.requires),
         }
-        for name in self.parameters:
+        # the form's parameters first, then what is saved beside them
+        names = list(self.parameters)
+        names += [
+            f.name
+            for f in fields(self)
+            if f.name not in WORKFLOW_FIELDS and f.name not in names
+        ]
+        for name in names:
             data[name] = _serialise(getattr(self, name))
         return data
 
@@ -101,7 +118,12 @@ class TaskConfig(Configurable, ABC):
                 kwargs[f.name] = _requires(data[f.name], data.get("task_name", ""))
                 continue
             kwargs[f.name] = _deserialise(hints.get(f.name), data[f.name])
-        unknown = set(data) - {f.name for f in fields(cls)} - {"task_type"}
+        unknown = (
+            set(data)
+            - {f.name for f in fields(cls)}
+            - {"task_type"}
+            - cls.retired_parameters
+        )
         for key in sorted(unknown):
             logging.warning(f"Unknown field '{key}' in {cls.__name__}; ignored.")
         return cls(**kwargs)
@@ -149,12 +171,29 @@ def _deserialise(hint: Any, value: Any) -> Any:
     if origin in (list, List) and isinstance(value, list):  # List[X]
         (item_hint,) = getattr(hint, "__args__", (None,))
         return [_deserialise(item_hint, v) for v in value]
+    if origin in (dict, Dict) and isinstance(value, dict):  # Dict[str, X]
+        _, item_hint = getattr(hint, "__args__", (None, None))
+        return {k: _deserialise(item_hint, v) for k, v in value.items()}
     if isinstance(hint, type):
         if issubclass(hint, Enum) and isinstance(value, str):
             return hint[value]
         if hasattr(hint, "from_dict") and isinstance(value, dict):
             return hint.from_dict(value)
+        if hint in (int, float) and not isinstance(value, bool):
+            return _number(hint, value)
     return value
+
+
+def _number(hint: type, value: Any) -> Any:
+    """A number field's value as its type: older files hold some as strings,
+    and an int field written as 10.0. Left as it is, with a warning, when it
+    is not a number."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        logging.warning(f"{value!r} is not a number; kept as it is.")
+        return value
+    return int(number) if hint is int else number
 
 
 def load_task_config(
@@ -177,56 +216,166 @@ def load_task_configs(
     configs: Dict[str, TaskConfig] = {}
     for name, data in (ddict or {}).items():
         try:
-            config = load_task_config(registry, data, kind)
+            config = load_task_config(registry, {**data, "task_name": name}, kind)
         except KeyError as e:
             logging.warning(f"{kind.capitalize()} '{name}' skipped: {e}")
             continue
-        config.task_name = name
         configs[name] = config
     return configs
 
 
+# A task may be scheduled to start up to this many days ahead.
+SCHEDULE_DAYS_AHEAD = 2
+
+
+@dataclass
+class TaskPlan:
+    """One task in the plan a run follows: whether an item is done without it,
+    and when it may start."""
+
+    name: str
+    required: bool = True
+    scheduled_at: Optional[datetime] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "required": self.required,
+            "scheduled_at": self.scheduled_at.isoformat()
+            if self.scheduled_at is not None
+            else None,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "TaskPlan":
+        scheduled_at = data.get("scheduled_at")
+        return cls(
+            name=data.get("name", ""),
+            required=bool(data.get("required", True)),
+            scheduled_at=datetime.fromisoformat(scheduled_at)
+            if isinstance(scheduled_at, str)
+            else scheduled_at,
+        )
+
+
+@dataclass
+class RunPlan:
+    """The tasks a run offers, in order: the default a task list shows, and
+    which of them an item needs to be done."""
+
+    tasks: List[TaskPlan] = field(default_factory=list)
+
+    @property
+    def workflow(self) -> List[str]:
+        return [task.name for task in self.tasks]
+
+    @property
+    def required_tasks(self) -> List[str]:
+        return [task.name for task in self.tasks if task.required]
+
+    def get(self, task_name: str) -> Optional[TaskPlan]:
+        return next((task for task in self.tasks if task.name == task_name), None)
+
+    def add(self, task_name: str, required: bool = True) -> TaskPlan:
+        task = self.get(task_name)
+        if task is None:
+            task = TaskPlan(name=task_name, required=required)
+            self.tasks.append(task)
+        return task
+
+    def remove(self, task_name: str) -> None:
+        self.tasks[:] = [task for task in self.tasks if task.name != task_name]
+
+    def is_completed(self, item: Any) -> bool:
+        """Whether *item* has completed every required task."""
+        completed = item.completed_tasks
+        return all(name in completed for name in self.required_tasks)
+
+    def get_scheduled_at(self, task_name: str) -> Optional[datetime]:
+        task = self.get(task_name)
+        return task.scheduled_at if task is not None else None
+
+    def reorder(self, order: List[str]) -> str:
+        """Put the tasks in *order*: every task, each once. Why not, with
+        nothing changed, or ""."""
+        if sorted(order) != sorted(self.workflow):
+            return "Give every task in the workflow, each once."
+        by_name = {task.name: task for task in self.tasks}
+        self.tasks[:] = [by_name[name] for name in order]
+        return ""
+
+    def set_schedule(self, task_name: str, scheduled_at: Optional[datetime]) -> str:
+        """Set when *task_name* may start, no more than SCHEDULE_DAYS_AHEAD
+        days from now; None clears it, and a time already past starts it at
+        once. A naive time is local. Why not, with nothing changed, or ""."""
+        task = self.get(task_name)
+        if task is None:
+            return f"No task named {task_name!r} in the workflow."
+        if scheduled_at is not None and scheduled_at.astimezone() - now() > timedelta(
+            days=SCHEDULE_DAYS_AHEAD
+        ):
+            return (
+                f"{task_name} can be scheduled up to {SCHEDULE_DAYS_AHEAD} days "
+                "from now."
+            )
+        task.scheduled_at = scheduled_at
+        return ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"tasks": [task.to_dict() for task in self.tasks]}
+
+    @classmethod
+    def from_dict(cls, data: Optional[Dict[str, Any]]):
+        data = upgrade.run_plan(data or {})
+        return cls(tasks=[TaskPlan.from_dict(task) for task in data["tasks"]])
+
+
 @dataclass
 class TaskProtocol:
-    """The tasks a protocol offers, and their settings. Which tasks run in a
-    session, and in what order, is chosen at run time; ``order`` is the default a
-    task list shows. An app's protocol says how its saved configs load
-    (:meth:`load_task_configs`) and what its tasks are called (``NOUN``)."""
+    """The tasks a protocol offers, their settings, and the plan a run follows
+    (``workflow_config``): which tasks run in a session, and in what order, is
+    chosen at run time, and the plan is the default a task list shows. An
+    app's protocol says how its saved configs load (:meth:`load_task_configs`)
+    and what its tasks are called (``NOUN``)."""
 
     NOUN: ClassVar[str] = "task"
 
     name: str = "Task Protocol"
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     task_config: Dict[str, TaskConfig] = field(default_factory=dict)
-    order: List[str] = field(default_factory=list)
+    workflow_config: RunPlan = field(default_factory=RunPlan)
 
     @classmethod
     def load_task_configs(
         cls, ddict: Optional[Dict[str, Dict[str, Any]]]
     ) -> Dict[str, TaskConfig]:
-        """name -> typed config, from the saved ``tasks`` section."""
+        """name -> typed config, from the saved ``task_config`` section."""
         raise NotImplementedError
 
     def add(self, config: TaskConfig) -> TaskConfig:
         if not config.task_name:
             raise ValueError(f"A {self.NOUN} config needs a task_name.")
         self.task_config[config.task_name] = config
-        if config.task_name not in self.order:
-            self.order.append(config.task_name)
+        self.workflow_config.add(config.task_name)
         return config
 
     def remove(self, task_name: str) -> None:
+        """Remove *task_name*'s config and plan entry. A task that required
+        it no longer does."""
         self.task_config.pop(task_name, None)
-        if task_name in self.order:
-            self.order.remove(task_name)
+        self.workflow_config.remove(task_name)
+        for config in self.task_config.values():
+            if task_name in config.requires:
+                config.requires = [r for r in config.requires if r != task_name]
 
     def reorder(self, order: List[str]) -> str:
         """Put the tasks in *order*: every task, each once. Why not, with
         nothing changed, or ""."""
         if sorted(order) != sorted(self.ordered_task_names):
             return f"Give every {self.NOUN}, each once."
-        self.order = list(order)
-        return ""
+        for name in order:
+            self.workflow_config.add(name)
+        return self.workflow_config.reorder(list(order))
 
     def set_requires(self, task_name: str, requires: List[str]) -> str:
         """Set the tasks *task_name* requires on the same item, kept in run
@@ -252,27 +401,28 @@ class TaskProtocol:
 
     @property
     def ordered_task_names(self) -> List[str]:
-        """`order` first, then anything in `task_config` it forgot to mention."""
-        names = [n for n in self.order if n in self.task_config]
+        """The plan's tasks first, then anything in `task_config` it does not
+        list."""
+        names = [n for n in self.workflow_config.workflow if n in self.task_config]
         names += [n for n in self.task_config if n not in names]
         return names
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "_id": self.id,
+            "id": self.id,
             "name": self.name,
-            "tasks": {k: v.to_dict() for k, v in self.task_config.items()},
-            "order": list(self.ordered_task_names),
+            "task_config": {k: v.to_dict() for k, v in self.task_config.items()},
+            "workflow_config": self.workflow_config.to_dict(),
         }
 
     @classmethod
     def from_dict(cls, data: Optional[Dict[str, Any]]):
-        data = data or {}
+        data = upgrade.task_protocol(data or {})
         protocol = cls(
             name=data.get("name", cls.name),
-            task_config=cls.load_task_configs(data.get("tasks", {})),
-            order=list(data.get("order", [])),
+            task_config=cls.load_task_configs(data.get("task_config", {})),
+            workflow_config=RunPlan.from_dict(data.get("workflow_config")),
         )
-        if data.get("_id"):
-            protocol.id = data["_id"]
+        if data.get("id"):
+            protocol.id = data["id"]
         return protocol

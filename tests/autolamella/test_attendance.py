@@ -4,12 +4,8 @@ Derived from what the task type declares (``asks``) and the attention the
 protocol gives it; never stored.
 """
 
-from psygnal.containers import EventedDict
-
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-    AutoLamellaWorkflowConfig,
 )
 from fibsem.applications.autolamella.workflows.tasks import get_tasks
 from fibsem.applications.autolamella.workflows.tasks.attendance import (
@@ -35,6 +31,7 @@ from fibsem.applications.autolamella.workflows.tasks.undercut import (
     MillUndercutTaskConfig,
 )
 from fibsem.workflows.attention import Attention
+from tests.protocols import planned, task_protocol
 
 SETUP = "Setup Lamella Position"
 ROUGH = "Rough Milling"
@@ -110,30 +107,23 @@ def test_automated_nobody_is_asked():
 
 
 def _protocol() -> AutoLamellaTaskProtocol:
-    protocol = AutoLamellaTaskProtocol(
-        workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[
-                AutoLamellaTaskDescription(
-                    name=SETUP, required=True, attention=Attention.supervised
-                ),
-                AutoLamellaTaskDescription(
-                    name=ROUGH,
-                    required=True,
-                    attention=Attention.automated,
-                    requires=[SETUP],
-                ),
-                AutoLamellaTaskDescription(name="Ghost", required=True),
-            ]
-        )
-    )
-    protocol.task_config = EventedDict(
-        {
-            SETUP: SelectMillingPositionTaskConfig(
-                task_name=SETUP, auto_milling_alignment=False, select_poi=True
+    protocol = task_protocol(
+        planned(
+            name=SETUP,
+            attention=Attention.supervised,
+            config=SelectMillingPositionTaskConfig(
+                auto_milling_alignment=False, select_poi=True
             ),
-            ROUGH: MillRoughTaskConfig(task_name=ROUGH),
-        }
+        ),
+        planned(
+            name=ROUGH,
+            attention=Attention.automated,
+            requires=[SETUP],
+            config=MillRoughTaskConfig(),
+        ),
     )
+    # A task the plan lists with no config.
+    protocol.workflow_config.add("Ghost")
     return protocol
 
 
@@ -157,7 +147,7 @@ def test_the_run_summary_names_who_needs_you():
         f"This run needs you present for {SETUP}. Everything else runs on its own."
     )
     assert run_attendance(protocol, [ROUGH]).summary == "This run needs nobody present."
-    protocol.workflow_config.tasks[1].attention = Attention.supervised
+    protocol.task_config[ROUGH].attention = Attention.supervised
     assert run_attendance(protocol, [SETUP, ROUGH]).summary.startswith(
         "This run needs you present for every task:"
     )

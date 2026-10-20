@@ -12,7 +12,6 @@ pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
-    AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     Experiment,
 )
@@ -24,6 +23,7 @@ from fibsem.structures import MicroscopeState  # noqa: E402
 from fibsem.workflows.runner import ITEMS, RunRequest
 from fibsem.workflows.status import TaskStatus  # noqa: E402
 from tests.fixtures.main_window import close_window  # noqa: E402
+from tests.protocols import add_planned, planned
 from tests.run_state import hold_runs, started_with
 
 TASK_NAME = "Mill Fiducial"
@@ -49,9 +49,7 @@ def ui(qapp, monkeypatch, tmp_path):
     experiment = Experiment(path=tmp_path, name="agent-grid-gate")
     (tmp_path / "agent-grid-gate").mkdir()
     experiment.task_protocol = AutoLamellaTaskProtocol()
-    experiment.task_protocol.workflow_config.tasks.append(
-        AutoLamellaTaskDescription(name=TASK_NAME, required=True)
-    )
+    add_planned(experiment.task_protocol, planned(name=TASK_NAME, required=True))
     experiment.sync_grids_from_inventory(widget.microscope.sample_handling)
     grid = experiment.get_grid_by_name("Grid-02")
     experiment.add_new_lamella(

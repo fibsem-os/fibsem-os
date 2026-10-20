@@ -23,7 +23,6 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.acting import OPERATOR
-from fibsem.applications.autolamella.structures import AutoLamellaTaskDescription
 from fibsem.applications.autolamella.ui.grids.run import GridWorkflowWidget
 from fibsem.applications.autolamella.ui.grids.screen import (
     ScreenGridsDialog,
@@ -37,6 +36,7 @@ from fibsem.applications.autolamella.ui.workflow.preflight import (
     confirm_add_to_queue_dialog,
     confirm_run_workflow_dialog,
 )
+from fibsem.applications.autolamella.workflow_edits import set_supervision
 from fibsem.applications.autolamella.workflows.estimate import (
     estimate_queue_addition,
     exchanges_for,
@@ -51,6 +51,7 @@ from fibsem.structures import BeamType
 from fibsem.ui import notification_service
 from fibsem.ui.tokens import SURFACE_COLOR
 from fibsem.ui.widgets.workflow.timeline import WorkflowProgressWidget
+from fibsem.workflows.attention import Attention
 from fibsem.workflows.grid.manager import plan_grid_run
 from fibsem.workflows.grid.naming import grid_has_run
 from fibsem.workflows.queue import QUEUE_ACTIONS
@@ -94,14 +95,16 @@ class WorkflowTab(QWidget):
         self.lamella_workflow_widget = LamellaWorkflowWidget()
         # Each task or workflow change is saved to the experiment's protocol.
         for signal in (
-            self.lamella_workflow_widget.task_attention_changed,
             self.lamella_workflow_widget.task_remove_requested,
-            self.lamella_workflow_widget.task_added,
             self.lamella_workflow_widget.workflow_name_changed,
             self.lamella_workflow_widget.workflow_description_changed,
             self.lamella_workflow_widget.workflow_options_changed,
         ):
             signal.connect(self._save_workflow_config)
+        self.lamella_workflow_widget.task_added.connect(self._on_task_added)
+        self.lamella_workflow_widget.task_attention_toggled.connect(
+            self._on_task_attention_toggled
+        )
         self.lamella_workflow_widget.task_edited.connect(self._on_task_edited)
         self.lamella_workflow_widget.task_order_changed.connect(
             self._on_workflow_task_order_changed
@@ -439,18 +442,47 @@ class WorkflowTab(QWidget):
         protocol.workflow_config.tasks[:] = self.lamella_workflow_widget.get_tasks()
         self._on_config_changed(protocol.workflow_config)
 
-    def _on_task_edited(self, edited: AutoLamellaTaskDescription) -> None:
-        """Edit Task's Apply: into the protocol through the workflow config's
-        rules, as the App Server's requirements and schedule are. A refused
-        part is said, and the rest is kept."""
+    def _on_task_added(self, task) -> None:
+        """A task added to the plan from the protocol's tasks: supervised until
+        someone says otherwise."""
         experiment = self._session.experiment
         if experiment is None or experiment.task_protocol is None:
             return
-        config = experiment.task_protocol.workflow_config
+        protocol = experiment.task_protocol
+        protocol.workflow_config.tasks[:] = self.lamella_workflow_widget.get_tasks()
+        protocol.set_attention(task.name, Attention.supervised)
+        self.lamella_workflow_widget.workflow.refresh_all()
+        self._on_config_changed(protocol.workflow_config)
+
+    def _on_task_attention_toggled(self, task) -> None:
+        """A row's chip: Supervised <-> Automated, as the App Server's
+        supervision sets it (``workflow_edits.set_supervision``)."""
+        experiment = self._session.experiment
+        if experiment is None or experiment.task_protocol is None:
+            return
+        supervised = (
+            experiment.task_protocol.get_attention(task.name) is Attention.supervised
+        )
+        result = set_supervision(
+            experiment, task.name, not supervised, self._session.record_event
+        )
+        if not result["applied"]:
+            notification_service.show_toast(result["error"], "warning")
+        self.lamella_workflow_widget.workflow.refresh_all()
+
+    def _on_task_edited(self, edited, requires: list) -> None:
+        """Edit Task's Apply: into the protocol through its rules, as the App
+        Server's requirements and schedule are. A refused part is said, and the
+        rest is kept."""
+        experiment = self._session.experiment
+        if experiment is None or experiment.task_protocol is None:
+            return
+        protocol = experiment.task_protocol
+        config = protocol.workflow_config
         refusals = [
             why
             for why in (
-                config.set_requirements(edited.name, edited.requires, edited.required),
+                protocol.set_requirements(edited.name, requires, edited.required),
                 config.set_schedule(edited.name, edited.scheduled_at),
             )
             if why
@@ -462,13 +494,13 @@ class WorkflowTab(QWidget):
 
     def _on_workflow_task_order_changed(self, tasks) -> None:
         """A drag put the workflow's tasks in a new order: into the protocol
-        through `AutoLamellaWorkflowConfig.reorder`, as the App Server's reorder
+        through `AutoLamellaTaskProtocol.reorder`, as the App Server's reorder
         does. A task dragged above one it requires is put back, and says why."""
         experiment = self._session.experiment
         if experiment is None or experiment.task_protocol is None:
             return
         config = experiment.task_protocol.workflow_config
-        why = config.reorder([task.name for task in tasks])
+        why = experiment.task_protocol.reorder([task.name for task in tasks])
         if why:
             notification_service.show_toast(why, "warning")
             # After the drop has finished, not inside it.

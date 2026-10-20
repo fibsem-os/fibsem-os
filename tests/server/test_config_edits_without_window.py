@@ -162,3 +162,40 @@ def _in_progress():
     from fibsem.workflows.status import TaskStatus
 
     return TaskStatus.InProgress
+
+
+def test_a_patch_naming_attention_or_requires_is_refused(tmp_path):
+    """Both say how a task takes part in the workflow, and have their own
+    verbs; a config patch naming either changes nothing."""
+    from fibsem.workflows.attention import Attention
+
+    context, experiment, scope = _context(tmp_path)
+    protocol_config = experiment.task_protocol.task_config[TASK]
+    lamella = experiment.positions[0]
+    for field, verb, value in (
+        ("attention", "protocol_set_supervision", "supervised"),
+        ("requires", "protocol_set_task_requirements", ["Setup"]),
+    ):
+        refused = context.apply_protocol_task_config_patch(
+            TASK, {field: value}, config_version(protocol_config)
+        )
+        assert refused["applied"] is False and verb in refused["invalid_patch"]
+        assert refused["path"] == field
+        refused = context.apply_item_task_config_patch(
+            lamella.name,
+            TASK,
+            {field: value},
+            config_version(lamella.task_config[TASK]),
+        )
+        assert refused["applied"] is False and verb in refused["invalid_patch"]
+    assert protocol_config.attention is Attention.automated
+    assert protocol_config.requires == []
+    assert scope.events == []
+
+
+def test_the_version_does_not_change_with_attention_or_requires():
+    """An item's copy carries neither, so neither moves its version."""
+    config = MillRoughTaskConfig(task_name=TASK)
+    before = config_version(config)
+    config.requires = ["Setup"]
+    assert config_version(config) == before

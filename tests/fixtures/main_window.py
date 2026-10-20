@@ -8,10 +8,13 @@ bar. A test that decides a pass on the prompt bar needs that window.
 
 import os
 from contextlib import contextmanager
+from copy import deepcopy
 from typing import Dict, Iterator, Sequence
 
 from psygnal.containers import EventedDict
 from PyQt5.QtCore import QCoreApplication, QEvent
+
+from tests.protocols import planned, task_protocol
 
 
 @contextmanager
@@ -25,9 +28,6 @@ def main_window(
     """The window (Demo), its experiment holding one lamella with ``configs``
     as its tasks, those named in ``supervised`` supervised. Closed after."""
     from fibsem.applications.autolamella.structures import (
-        AutoLamellaTaskDescription,
-        AutoLamellaTaskProtocol,
-        AutoLamellaWorkflowConfig,
         Experiment,
     )
     from fibsem.applications.autolamella.ui import window as module
@@ -38,19 +38,18 @@ def main_window(
     ui.system_widget.connect_to_microscope()
     experiment = Experiment(path=tmp_path, name=name)
     os.makedirs(experiment.path, exist_ok=True)
-    experiment.task_protocol = AutoLamellaTaskProtocol(
-        workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[
-                AutoLamellaTaskDescription(
-                    name=task_name,
-                    required=True,
-                    attention=Attention.supervised
-                    if task_name in supervised
-                    else Attention.automated,
-                )
-                for task_name in configs
-            ]
-        )
+    experiment.task_protocol = task_protocol(
+        *[
+            planned(
+                name=task_name,
+                required=True,
+                attention=Attention.supervised
+                if task_name in supervised
+                else Attention.automated,
+                config=deepcopy(config),
+            )
+            for task_name, config in configs.items()
+        ]
     )
     experiment.add_new_lamella(
         ui.microscope.get_microscope_state(), EventedDict(dict(configs))

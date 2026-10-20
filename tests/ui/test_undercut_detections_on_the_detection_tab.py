@@ -32,9 +32,6 @@ import fibsem.config as fibsem_config
 from fibsem import conversions
 from fibsem.acting import ActorKind
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
-    AutoLamellaTaskProtocol,
-    AutoLamellaWorkflowConfig,
     Experiment,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
@@ -46,6 +43,7 @@ from fibsem.structures import FibsemImage, Point
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import DETECTION, Decision, DecisionOutcome
 from fibsem.workflows.status import HoldKind, TaskStatus
+from tests.protocols import planned, task_protocol
 
 UNDERCUT = "Mill Undercut"
 CHECKPOINT = "autolamella-waffle-20240107.pt"
@@ -79,14 +77,8 @@ def window(qapp, tmp_path, checkpoint):
     ui = win
     experiment = Experiment(path=tmp_path, name="undercut-exp")
     os.makedirs(experiment.path, exist_ok=True)
-    experiment.task_protocol = AutoLamellaTaskProtocol(
-        workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[
-                AutoLamellaTaskDescription(
-                    name=UNDERCUT, required=True, attention=Attention.supervised
-                )
-            ]
-        )
+    experiment.task_protocol = task_protocol(
+        planned(name=UNDERCUT, required=True, attention=Attention.supervised)
     )
     experiment.add_new_lamella(
         ui.microscope.get_microscope_state(),

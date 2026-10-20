@@ -61,7 +61,7 @@ def test_it_saves_as_app_volume_with_the_protocol_beside_it(experiment, tmp_path
     protocol = yaml.safe_load((tmp_path / "vol" / PROTOCOL_FILENAME).read_text())
 
     assert saved["app"] == "volume"
-    assert list(protocol["tasks"]) == SETUP + TASKS
+    assert list(protocol["task_config"]) == SETUP + TASKS
 
 
 def test_an_autolamella_file_is_refused_and_left_alone(tmp_path):

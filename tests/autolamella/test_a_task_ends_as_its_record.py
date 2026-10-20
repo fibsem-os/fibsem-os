@@ -16,9 +16,6 @@ from psygnal.containers import EventedDict
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
-    AutoLamellaTaskProtocol,
-    AutoLamellaWorkflowConfig,
     Experiment,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
@@ -38,6 +35,7 @@ from fibsem.workflows.proposals import (
     Proposal,
 )
 from fibsem.workflows.status import TaskStatus
+from tests.protocols import planned, task_protocol
 
 ROUGH = "Rough Milling"
 POLISH = "Polishing"
@@ -55,17 +53,9 @@ def _experiment(
     tmp_path: Path, microscope, attention: Attention = Attention.automated
 ) -> Experiment:
     exp = Experiment(path=tmp_path, name="test-exp")
-    exp.task_protocol = AutoLamellaTaskProtocol(
-        workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[
-                AutoLamellaTaskDescription(
-                    name=ROUGH, required=True, attention=attention
-                ),
-                AutoLamellaTaskDescription(
-                    name=POLISH, required=True, requires=[ROUGH]
-                ),
-            ]
-        )
+    exp.task_protocol = task_protocol(
+        planned(name=ROUGH, required=True, attention=attention),
+        planned(name=POLISH, required=True, requires=[ROUGH]),
     )
     os.makedirs(exp.path, exist_ok=True)
     exp.add_new_lamella(

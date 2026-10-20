@@ -444,7 +444,7 @@ def collect_grid_report(
     protocol: List[str] = []
     configs: Dict[str, Any] = {}
     if experiment.task_protocol is not None:
-        protocol = list(experiment.grid_protocol.order)
+        protocol = list(experiment.grid_protocol.workflow_config.workflow)
         configs = dict(experiment.grid_protocol.task_config)
 
     sections: List[GridSection] = []

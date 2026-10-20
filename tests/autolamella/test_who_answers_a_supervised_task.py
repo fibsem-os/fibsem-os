@@ -8,7 +8,6 @@ import pytest
 
 from fibsem.acting import AGENT, OPERATOR
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     Experiment,
 )
@@ -18,6 +17,7 @@ from fibsem.applications.autolamella.workflows.tasks.base import (
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.workflows.attention import Attention
+from tests.protocols import add_planned, planned
 
 TASK = "Rough Milling"
 
@@ -26,10 +26,9 @@ TASK = "Rough Milling"
 def experiment(tmp_path):
     experiment = Experiment(path=tmp_path, name="who-answers")
     experiment.task_protocol = AutoLamellaTaskProtocol()
-    experiment.task_protocol.workflow_config.tasks.append(
-        AutoLamellaTaskDescription(
-            name=TASK, required=True, attention=Attention.supervised
-        )
+    add_planned(
+        experiment.task_protocol,
+        planned(name=TASK, required=True, attention=Attention.supervised),
     )
     return experiment
 

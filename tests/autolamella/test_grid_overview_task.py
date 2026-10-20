@@ -106,7 +106,10 @@ class TestConfig:
         assert fib.beam_type is BeamType.ION
         assert fib.settings.nrows == 2 and fib.settings.image_settings.hfw == 200e-6
         data = yaml.safe_load((tmp_path / "exp" / "protocol.yaml").read_text())
-        assert data["grid_tasks"]["order"] == ["overview_sem", "overview_fib"]
+        assert [t["name"] for t in data["grid_tasks"]["workflow_config"]["tasks"]] == [
+            "overview_sem",
+            "overview_fib",
+        ]
 
 
 class TestReachability:

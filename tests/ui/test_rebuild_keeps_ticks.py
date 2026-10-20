@@ -23,12 +23,12 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
     AutoLamellaWorkflowConfig,
     Lamella,
 )
 from fibsem.applications.autolamella.ui.lamella.rows import LamellaListWidget
 from fibsem.applications.autolamella.ui.workflow.task_list import WorkflowTaskList
+from fibsem.workflows.task_config import TaskPlan
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -40,7 +40,7 @@ def _lamellae(n: int):
 
 
 def _tasks(names):
-    return [AutoLamellaTaskDescription(name=n, required=False) for n in names]
+    return [TaskPlan(name=n, required=False) for n in names]
 
 
 def _tick(widget, rows):

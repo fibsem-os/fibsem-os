@@ -17,6 +17,7 @@ from fibsem.hooks import FunctionHook, HookEvent, HookManager
 from fibsem.workflows.grid.manager import GridTaskManager
 from fibsem.workflows.runner import GRIDS, ITEMS, RunRequest
 from fibsem.workflows.session import AppSession
+from tests.protocols import add_planned, planned
 
 
 @pytest.fixture(scope="module")
@@ -75,13 +76,8 @@ def test_a_run_starts_and_ends_with_no_window(session, experiment, monkeypatch):
     """The runner runs the app's manager on its own thread, and keeps the
     summary after the manager is gone."""
     experiment.task_protocol.workflow_config.tasks.clear()
-    from fibsem.applications.autolamella.structures import (
-        AutoLamellaTaskDescription,
-    )
 
-    experiment.task_protocol.workflow_config.tasks.append(
-        AutoLamellaTaskDescription(name="Trench", required=True)
-    )
+    add_planned(experiment.task_protocol, planned(name="Trench", required=True))
     ran, ended = [], []
     monkeypatch.setattr(
         TaskManager, "run", lambda self, *args: ran.append((args, self.responder))

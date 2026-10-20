@@ -54,35 +54,6 @@ class AcquireFluorescenceImageConfig(AutoLamellaTaskConfig):
         display=Display("Retract Objective"),
     )
 
-    def to_dict(self) -> dict:
-        ddict = {}
-        ddict["task_type"] = self.task_type
-        ddict["channel_settings"] = [cs.to_dict() for cs in self.channel_settings]
-        ddict["autofocus_settings"] = self.autofocus_settings.to_dict()
-        ddict["zparams"] = self.zparams.to_dict()
-        ddict["orientation"] = self.orientation
-        ddict["retract_objective"] = self.retract_objective
-        return ddict
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "AcquireFluorescenceImageConfig":
-        channel_settings = [
-            ChannelSettings.from_dict(cs) for cs in data.get("channel_settings", [])
-        ]
-        autofocus_settings = AutoFocusSettings.from_dict(
-            data.get("autofocus_settings", {})
-        )
-        zparams = ZParameters.from_dict(data.get("zparams", {}))
-        return cls(
-            task_name=data.get("task_name", ""),
-            milling=data.get("milling", {}),
-            channel_settings=channel_settings,
-            autofocus_settings=autofocus_settings,
-            zparams=zparams,
-            orientation=data.get("orientation", None),
-            retract_objective=data.get("retract_objective", True),
-        )
-
     @property
     def estimated_duration(self) -> float:
         """The base estimate plus everything ``_run`` does, in the order it does it.

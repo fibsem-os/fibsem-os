@@ -12,18 +12,15 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
-    AutoLamellaWorkflowConfig,
-)
 from fibsem.applications.autolamella.ui.workflow import task_list as module
 from fibsem.workflows.attention import Attention
+from fibsem.workflows.task_config import RunPlan, TaskPlan
+from tests.protocols import planned, task_protocol
 
 
 @pytest.fixture
 def row(qapp):
-    task = AutoLamellaTaskDescription(name="Mill Fiducial", required=True)
-    widget = module.WorkflowTaskRowWidget(task)
+    widget = module.WorkflowTaskRowWidget(*planned(name="Mill Fiducial"))
     yield widget
     widget.deleteLater()
     qapp.processEvents()
@@ -32,43 +29,45 @@ def row(qapp):
 A = Attention
 
 
-def test_the_chip_is_two_state(row):
+def test_the_chip_shows_the_configs_attention(row):
     assert row.btn_attention.text() == "Automated"
-    row._on_attention_clicked()
-    assert row.task.attention is A.supervised
+    row.config.attention = A.supervised
+    row.refresh()
     assert row.btn_attention.text() == "Supervised"
     assert row.btn_attention.toolTip().startswith("Supervised")
-    row._on_attention_clicked()
-    assert row.task.attention is A.automated
+    row.config.attention = A.automated
+    row.refresh()
     assert row.btn_attention.text() == "Automated"
 
 
-def test_each_click_announces_what_changed(row):
+def test_each_click_asks_for_a_toggle_and_changes_nothing(row):
+    """The host sets supervision through the function the agent uses too."""
     seen = []
-    row.attention_changed.connect(lambda t: seen.append(t.attention))
+    row.attention_toggled.connect(seen.append)
     for _ in range(3):
-        row._on_attention_clicked()
-    assert seen == [A.supervised, A.automated, A.supervised]
+        row.btn_attention.click()
+    assert seen == [row.task] * 3
+    assert row.config.attention is A.automated
 
 
 def test_a_requirement_reads_the_same_whatever_its_mode(qapp):
     """Nothing waits on a decision once a task ends, so a requirement on a
     supervised task is said like any other."""
-    setup = AutoLamellaTaskDescription(
-        name="Setup", required=True, attention=Attention.supervised
-    )
-    rough = AutoLamellaTaskDescription(
-        name="Rough", required=True, attention=Attention.supervised
+    protocol = task_protocol(
+        planned(name="Setup", attention=Attention.supervised),
+        planned(name="Rough", attention=Attention.supervised),
     )
     widget = module.WorkflowTaskList()
-    widget.set_config(AutoLamellaWorkflowConfig(tasks=[setup, rough]))
+    widget.set_protocol(protocol)
+    widget.set_config(protocol.workflow_config)
     rows = [widget._row(i) for i in range(2)]
     assert rows[1].requires_label.text() == ""
-    rough.requires = ["Setup"]
+    protocol.task_config["Rough"].requires = ["Setup"]
     widget.refresh_all()
     assert rows[1].requires_label.text() == "after Setup"
     assert rows[1].toolTip().startswith("Requires: Setup")
-    rows[0]._on_attention_clicked()
+    protocol.task_config["Setup"].attention = Attention.automated
+    widget.refresh_all()
     assert rows[1].requires_label.text() == "after Setup"
     widget.deleteLater()
     qapp.processEvents()
@@ -80,17 +79,15 @@ def test_a_schedule_shares_the_dependency_column(qapp):
     row, and says nothing at all when there is no schedule."""
     from datetime import datetime
 
-    task = AutoLamellaTaskDescription(
-        name="Rough", required=True, requires=["Fiducial"]
-    )
-    row = module.WorkflowTaskRowWidget(task)
+    task, config = planned(name="Rough", requires=["Fiducial"])
+    row = module.WorkflowTaskRowWidget(task, config)
     assert row.requires_label.text() == "after Fiducial"
     assert not hasattr(row, "btn_schedule")
     task.scheduled_at = datetime(2026, 9, 15, 21, 30)
     row.refresh()
     assert row.requires_label.text() == "after Fiducial · at 15 Sep 21:30"
     assert "Scheduled:" in row.toolTip() and "Requires:" in row.toolTip()
-    task.requires = []
+    config.requires = []
     row.refresh()
     assert row.requires_label.text() == "at 15 Sep 21:30"
     row.deleteLater()
@@ -107,10 +104,10 @@ def test_remove_lives_in_the_edit_dialog_not_on_the_row(qapp, monkeypatch):
         LamellaWorkflowWidget,
     )
 
-    setup = AutoLamellaTaskDescription(name="Setup", required=True)
-    rough = AutoLamellaTaskDescription(name="Rough", required=True)
+    setup = TaskPlan(name="Setup")
+    rough = TaskPlan(name="Rough")
     widget = LamellaWorkflowWidget()
-    widget.workflow.set_config(AutoLamellaWorkflowConfig(tasks=[setup, rough]))
+    widget.workflow.set_config(RunPlan(tasks=[setup, rough]))
     row = widget.workflow._row(0)
     assert not hasattr(row, "btn_remove")
     removed = []
@@ -154,9 +151,6 @@ def test_the_chip_says_what_the_task_needs_from_you(qapp):
     """With the protocol known, the chip's tooltip and the row's say whether
     the operator must be there while the task runs and what waits afterwards,
     derived from the task's type."""
-    from psygnal.containers import EventedDict
-
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
     from fibsem.applications.autolamella.workflows.tasks.rough import (
         MillRoughTaskConfig,
     )
@@ -164,23 +158,18 @@ def test_the_chip_says_what_the_task_needs_from_you(qapp):
         MillUndercutTaskConfig,
     )
 
-    undercut = AutoLamellaTaskDescription(
-        name="Undercut", required=True, attention=Attention.supervised
-    )
-    rough = AutoLamellaTaskDescription(
-        name="Rough",
-        required=True,
-        attention=Attention.automated,
-        requires=["Undercut"],
-    )
-    protocol = AutoLamellaTaskProtocol(
-        workflow_config=AutoLamellaWorkflowConfig(tasks=[undercut, rough])
-    )
-    protocol.task_config = EventedDict(
-        {
-            "Undercut": MillUndercutTaskConfig(task_name="Undercut"),
-            "Rough": MillRoughTaskConfig(task_name="Rough"),
-        }
+    protocol = task_protocol(
+        planned(
+            name="Undercut",
+            attention=Attention.supervised,
+            config=MillUndercutTaskConfig(),
+        ),
+        planned(
+            name="Rough",
+            attention=Attention.automated,
+            requires=["Undercut"],
+            config=MillRoughTaskConfig(),
+        ),
     )
     widget = module.WorkflowTaskList()
     widget.set_protocol(protocol)

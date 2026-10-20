@@ -22,9 +22,6 @@ from psygnal.containers import EventedDict
 import fibsem.config as fconfig
 from fibsem import utils
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
-    AutoLamellaTaskProtocol,
-    AutoLamellaWorkflowConfig,
     Experiment,
 )
 from fibsem.applications.autolamella.workflows.tasks import acquire_fluorescence as AF
@@ -42,6 +39,7 @@ from fibsem.structures import FibsemStagePosition
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import STATE
 from tests.answering import ANSWERER, answering
+from tests.protocols import planned, task_protocol
 
 SELECT = "Select Fluorescence Position"
 ACQUIRE = "Acquire Fluorescence Image"
@@ -61,17 +59,9 @@ def microscope():
 
 def _experiment(tmp_path: Path, microscope, attention=Attention.automated):
     exp = Experiment(path=tmp_path, name="fm-exp")
-    exp.task_protocol = AutoLamellaTaskProtocol(
-        workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[
-                AutoLamellaTaskDescription(
-                    name=SELECT, required=True, attention=attention
-                ),
-                AutoLamellaTaskDescription(
-                    name=ACQUIRE, required=True, attention=attention
-                ),
-            ]
-        )
+    exp.task_protocol = task_protocol(
+        planned(name=SELECT, required=True, attention=attention),
+        planned(name=ACQUIRE, required=True, attention=attention),
     )
     os.makedirs(exp.path, exist_ok=True)
     exp.add_new_lamella(

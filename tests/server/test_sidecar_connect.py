@@ -20,12 +20,15 @@ class _FakeResponse:
 
 
 class _FakeClient:
+    """A transport's shape: ``request``, ``url``, ``user_agent``, ``close``."""
+
     def __init__(self, responses):
         self._responses = responses
-        self.base_url = "http://fake:1"
+        self.url = "http://fake:1"
+        self.user_agent = None
         self.closed = False
 
-    def request(self, method, path, json=None):
+    def request(self, method, path, json=None, timeout=None):
         result = self._responses.pop(0)
         if isinstance(result, Exception):
             raise result
@@ -35,45 +38,39 @@ class _FakeClient:
         self.closed = True
 
 
-def test_try_resolve_returns_none_without_exiting(monkeypatch, tmp_path):
-    monkeypatch.delenv("FIBSEM_SERVER_URL", raising=False)
-    monkeypatch.delenv("FIBSEM_SERVER_TOKEN", raising=False)
-    monkeypatch.setattr(
-        "fibsem.server.discovery.DISCOVERY_FILE", tmp_path / "absent.json"
-    )
-    assert sidecar._try_resolve(None, None) is None
-    assert sidecar._try_resolve("http://x", None) is None  # url without token
-    assert sidecar._try_resolve("http://x", "t") == ("http://x", "t")
+def _refused():
+    return sidecar.ServerUnreachable("refused")
 
 
 def test_retry_succeeds_after_server_appears():
     ok = _FakeResponse(200, {"level": "watch"})
     attempts = [
-        _FakeClient([ConnectionError("refused")]),
+        None,  # no server known yet
+        _FakeClient([_refused()]),
         _FakeClient([_FakeResponse(401, {"detail": "unauthorized"})]),
         _FakeClient([ok]),
     ]
     sleeps = []
     client, caps = sidecar._connect_with_retry(
-        lambda url, token: attempts.pop(0),
         "http://x",
         "t",
         wait_s=60,
         sleep_fn=sleeps.append,
+        connect=lambda url, token: attempts.pop(0),
     )
     assert caps == {"level": "watch"}
-    assert len(sleeps) == 2  # slept between the three attempts
+    assert len(sleeps) == 3  # slept between the four attempts
     assert not client.closed  # the successful client stays open
 
 
 def test_retry_times_out_with_guidance():
     with pytest.raises(sidecar.ServerUnreachable) as excinfo:
         sidecar._connect_with_retry(
-            lambda url, token: _FakeClient([ConnectionError("refused")]),
             "http://x",
             "t",
             wait_s=0,
             sleep_fn=lambda s: None,
+            connect=lambda url, token: _FakeClient([_refused()]),
         )
     assert "cannot reach the server" in str(excinfo.value)
 
@@ -84,60 +81,20 @@ def test_no_server_at_all_times_out_with_the_setup_message(monkeypatch, tmp_path
     monkeypatch.setattr(
         "fibsem.server.discovery.DISCOVERY_FILE", tmp_path / "absent.json"
     )
+    monkeypatch.setattr(
+        "fibsem.server.discovery.LEGACY_DISCOVERY_FILE", tmp_path / "absent.json"
+    )
     with pytest.raises(sidecar.ServerUnreachable) as excinfo:
-        sidecar._connect_with_retry(
-            lambda url, token: _FakeClient([]),
-            None,
-            None,
-            wait_s=0,
-            sleep_fn=lambda s: None,
-        )
+        sidecar._connect_with_retry(None, None, wait_s=0, sleep_fn=lambda s: None)
     assert "no server found" in str(excinfo.value)
 
 
-def test_a_401_re_reads_the_discovery_file_and_retries(monkeypatch):
-    """A restarted server's new token reaches a connected sidecar without a
-    reconnect (FIB-1035 app test #5)."""
-    resolutions = iter([("http://x:2", "new")])
-    monkeypatch.setattr(sidecar, "_try_resolve", lambda url, token: next(resolutions))
-    stale = _FakeClient([_FakeResponse(401, {"detail": "unauthorized"})])
-    fresh = _FakeClient([_FakeResponse(200, {"ok": True})])
-    made = []
-    client = sidecar._ReconnectingClient(
-        lambda url, token: made.append((url, token)) or fresh,
-        None,
-        None,
-        stale,
-        ("http://x:1", "old"),
-    )
-    resp = client.request("GET", "/app/workflow/status")
-    assert resp.status_code == 200
-    assert made == [("http://x:2", "new")]
-    assert stale.closed
-
-
-def test_a_401_with_nothing_new_to_find_is_returned_as_is(monkeypatch):
-    monkeypatch.setattr(sidecar, "_try_resolve", lambda url, token: ("http://x", "t"))
-    stale = _FakeClient([_FakeResponse(401, {"detail": "unauthorized"})])
-    client = sidecar._ReconnectingClient(
-        lambda url, token: pytest.fail("no new client"),
-        "http://x",
-        "t",
-        stale,
-        ("http://x", "t"),
-    )
-    assert client.request("GET", "/capabilities").status_code == 401
-
-
-def test_a_dropped_connection_follows_a_moved_server(monkeypatch):
-    monkeypatch.setattr(sidecar, "_try_resolve", lambda url, token: ("http://y", "t"))
-    gone = _FakeClient([ConnectionError("refused")])
-    moved = _FakeClient([_FakeResponse(200, {"ok": True})])
-    client = sidecar._ReconnectingClient(
-        lambda url, token: moved, None, None, gone, ("http://x", "t")
-    )
-    assert client.request("GET", "/app/workflow/status").status_code == 200
-    assert client.base_url == "http://fake:1"  # delegated to the live client
+def test_the_connection_names_the_sidecar():
+    transport = sidecar._connect("http://127.0.0.1:9", "t")
+    try:
+        assert transport.user_agent == sidecar._user_agent()
+    finally:
+        transport.close()
 
 
 def test_a_proposal_image_travels_as_mcp_image_content():
@@ -186,15 +143,8 @@ def test_the_client_is_named_once_initialize_says_who_it_is():
     import asyncio
     from types import SimpleNamespace
 
-    class _Named(_FakeClient):
-        headers = None
-
-        def __init__(self):
-            super().__init__([])
-            self.headers = {}
-
-    live = _Named()
-    client = sidecar._ReconnectingClient(None, None, None, live, ("http://x", "t"))
+    live = _FakeClient([])
+    client = sidecar._LazyClient(lambda: (live, {"level": "watch"}))
     mcp = sidecar.build_sidecar(client, {"routers": {}, "level": "watch"})
     name_client = mcp.middleware[-1]
     info = SimpleNamespace(name="claude-code", version="2.1.3")
@@ -206,42 +156,17 @@ def test_the_client_is_named_once_initialize_says_who_it_is():
         return "handled"
 
     assert asyncio.run(name_client(ctx, call_next)) == "handled"
-    assert live.headers["User-Agent"].endswith(" claude-code/2.1.3")
-
-
-def test_the_named_user_agent_survives_a_reconnect(monkeypatch):
-    class _Named(_FakeClient):
-        def __init__(self, responses):
-            super().__init__(responses)
-            self.headers = {}
-
-    monkeypatch.setattr(sidecar, "_try_resolve", lambda url, token: ("http://y", "t"))
-    gone = _Named([ConnectionError("refused")])
-    moved = _Named([_FakeResponse(200, {"ok": True})])
-    client = sidecar._ReconnectingClient(
-        lambda url, token: moved, None, None, gone, ("http://x", "t")
-    )
-    client.set_user_agent("fibsem-mcp/0.6 claude-code/2.1.3")
-    client.request("GET", "/app/workflow/status")
-    assert moved.headers["User-Agent"] == "fibsem-mcp/0.6 claude-code/2.1.3"
-
-
-class _Timed(_FakeClient):
-    """Takes the per-request timeout the start-up probe passes."""
-
-    def request(self, method, path, json=None, timeout=None):
-        return super().request(method, path, json=json)
+    client._connected()
+    assert live.user_agent.endswith(" claude-code/2.1.3")
 
 
 def test_start_up_does_not_wait_for_the_server(monkeypatch):
     """The MCP client's handshake is answered whether or not a server answers
     (FIB-1416): the probe gives up at once, every tool is offered, and the
     first call is where the wait and its guidance happen."""
-    monkeypatch.setattr(sidecar, "_try_resolve", lambda url, token: ("http://x", "t"))
-    assert (
-        sidecar._probe(lambda u, t: _Timed([ConnectionError("refused")]), None, None)
-        is None
-    )
+    refused = _FakeClient([_refused()])
+    assert sidecar._probe(None, None, connect=lambda u, t: refused) is None
+    assert refused.closed
     connects = []
 
     def connect():
@@ -262,26 +187,23 @@ def test_start_up_does_not_wait_for_the_server(monkeypatch):
 
 def test_the_first_call_connects_once_and_keeps_the_client(monkeypatch):
     live = _FakeClient([_FakeResponse(200, {"a": 1}), _FakeResponse(200, {"b": 2})])
-    live.headers = {}
     made = []
 
     def connect():
         made.append(True)
-        client = sidecar._ReconnectingClient(None, None, None, live, ("http://x", "t"))
-        return client, {"level": "watch"}
+        return live, {"level": "watch"}
 
     client = sidecar._LazyClient(connect)
     client.set_user_agent("fibsem-mcp/0.6 claude-code/2.1.3")
     assert sidecar._call(client, "GET", "/a") == ({"a": 1}, None)
     assert sidecar._call(client, "GET", "/b") == ({"b": 2}, None)
     assert made == [True]
-    assert live.headers["User-Agent"] == "fibsem-mcp/0.6 claude-code/2.1.3"
+    assert live.user_agent == "fibsem-mcp/0.6 claude-code/2.1.3"
 
 
 def test_a_server_that_answers_at_start_up_shapes_the_tools(monkeypatch):
-    monkeypatch.setattr(sidecar, "_try_resolve", lambda url, token: ("http://x", "t"))
-    probe = _Timed([_FakeResponse(200, {"routers": {}, "level": "watch"})])
-    capabilities = sidecar._probe(lambda u, t: probe, None, None)
+    probe = _FakeClient([_FakeResponse(200, {"routers": {}, "level": "watch"})])
+    capabilities = sidecar._probe(None, None, connect=lambda u, t: probe)
     assert capabilities == {"routers": {}, "level": "watch"}
     assert probe.closed
 

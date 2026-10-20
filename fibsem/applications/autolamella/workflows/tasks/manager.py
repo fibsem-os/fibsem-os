@@ -373,9 +373,7 @@ class TaskManager(BaseTaskManager):
         Nothing is logged per scan: a long stall would flood the log with one
         line per pass.
         """
-        for req in self.experiment.task_protocol.workflow_config.requirements(
-            task_name
-        ):
+        for req in self.experiment.task_protocol.requirements(task_name):
             # a rerun still queued is the attempt that counts, whatever an
             # earlier run of it did (FIB-1006)
             if self.queue.has_pending_pair(lamella.name, req):
@@ -411,9 +409,7 @@ class TaskManager(BaseTaskManager):
         """The tasks *task_name* requires whose latest run on *lamella* did not
         complete: the latest run, not any past success, as a rerun that failed or
         was rejected is the answer (FIB-1006)."""
-        requirements = self.experiment.task_protocol.workflow_config.requirements(
-            task_name
-        )
+        requirements = self.experiment.task_protocol.requirements(task_name)
         return [
             req for req in requirements or [] if not lamella.latest_run_completed(req)
         ]

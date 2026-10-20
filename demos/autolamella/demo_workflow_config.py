@@ -13,37 +13,38 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
+    AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
 )
 from fibsem.applications.autolamella.ui.workflow.task_editor import (
     WorkflowTaskEditorWidget,
 )
 from fibsem.applications.autolamella.ui.workflow.task_list import WorkflowTaskList
-from fibsem.workflows.attention import Attention
-
-SAMPLE_CONFIG = AutoLamellaWorkflowConfig(
-    name="Standard Cryo-Lamella",
-    description="Standard workflow for cryo-lamella preparation",
-    tasks=[
-        AutoLamellaTaskDescription(
-            name="Acquire Reference Image",
-            attention=Attention.supervised,
-            required=True,
-        ),
-        AutoLamellaTaskDescription(
-            name="Mill Trench", attention=Attention.supervised, required=True
-        ),
-        AutoLamellaTaskDescription(name="Mill Rough", required=True),
-        AutoLamellaTaskDescription(
-            name="Mill Polishing",
-            attention=Attention.supervised,
-            required=True,
-            requires=["Mill Rough"],
-        ),
-        AutoLamellaTaskDescription(name="Acquire Final Image", required=False),
-    ],
+from fibsem.applications.autolamella.workflows.tasks.reference_image import (
+    AcquireReferenceImageConfig,
 )
+from fibsem.workflows.attention import Attention
+from fibsem.workflows.task_config import TaskPlan
+
+SAMPLE_PROTOCOL = AutoLamellaTaskProtocol(
+    workflow_config=AutoLamellaWorkflowConfig(
+        name="Standard Cryo-Lamella",
+        description="Standard workflow for cryo-lamella preparation",
+    )
+)
+for name, attention, required, requires in (
+    ("Acquire Reference Image", Attention.supervised, True, []),
+    ("Mill Trench", Attention.supervised, True, []),
+    ("Mill Rough", Attention.automated, True, []),
+    ("Mill Polishing", Attention.supervised, True, ["Mill Rough"]),
+    ("Acquire Final Image", Attention.automated, False, []),
+):
+    SAMPLE_PROTOCOL.add(
+        AcquireReferenceImageConfig(
+            task_name=name, attention=attention, requires=requires
+        )
+    )
+    SAMPLE_PROTOCOL.workflow_config.get(name).required = required
 
 
 class TestWindow(QWidget):
@@ -53,7 +54,8 @@ class TestWindow(QWidget):
         self.setStyleSheet("background: #262930; color: #d6d6d6;")
         self.resize(900, 480)
 
-        self._config = SAMPLE_CONFIG
+        self._protocol = SAMPLE_PROTOCOL
+        self._config = SAMPLE_PROTOCOL.workflow_config
         self._counter = len(self._config.tasks) + 1
 
         root = QVBoxLayout(self)
@@ -71,6 +73,7 @@ class TestWindow(QWidget):
         left.setSpacing(6)
 
         self.workflow_widget = WorkflowTaskList()
+        self.workflow_widget.set_protocol(self._protocol)
         self.workflow_widget.set_config(self._config)
         left.addWidget(self.workflow_widget)
 
@@ -116,6 +119,7 @@ class TestWindow(QWidget):
             task=self._config.tasks[0],
             available_tasks=[t.name for t in self._config.tasks],
         )
+        self._editing = self._config.tasks[0]
         self.editor.hide()
         split.addWidget(self.editor)
 
@@ -125,9 +129,7 @@ class TestWindow(QWidget):
         self.log_label.setStyleSheet("color: #888; font-size: 11px; padding: 4px 6px;")
         root.addWidget(self.log_label)
 
-        self.workflow_widget.attention_changed.connect(
-            lambda t: self._log(f"Supervised toggled: {t.name} → {t.attention.value}")
-        )
+        self.workflow_widget.attention_toggled.connect(self._on_attention_toggled)
         self.workflow_widget.edit_requested.connect(self._on_edit_requested)
         self.workflow_widget.remove_requested.connect(
             lambda t: self._log(f"Removed: {t.name}")
@@ -139,17 +141,34 @@ class TestWindow(QWidget):
     def _log(self, msg: str) -> None:
         self.log_label.setText(msg)
 
-    def _on_edit_requested(self, task: AutoLamellaTaskDescription) -> None:
-        available = [t.name for t in self._config.tasks]
-        self.editor.load_task(task, available_tasks=available)
+    def _on_attention_toggled(self, task: TaskPlan) -> None:
+        supervised = self._protocol.get_attention(task.name) is Attention.supervised
+        self._protocol.set_attention(
+            task.name, Attention.automated if supervised else Attention.supervised
+        )
+        self.workflow_widget.refresh_task(task)
+        self._log(
+            f"Attention: {task.name} → {self._protocol.get_attention(task.name).value}"
+        )
+
+    def _on_edit_requested(self, task: TaskPlan) -> None:
+        names = self._config.workflow
+        self._editing = task
+        self.editor.load_task(
+            task,
+            self._protocol.requirements(task.name),
+            available_tasks=names[: names.index(task.name)],
+        )
         self.editor.show()
         self._log(f"Editing: {task.name}")
 
-    def _on_editor_apply(self, task: AutoLamellaTaskDescription) -> None:
-        self.workflow_widget.refresh_task(task)
+    def _on_editor_apply(self, edited: TaskPlan, requires: list) -> None:
+        why = self._protocol.set_requirements(edited.name, requires, edited.required)
+        self.workflow_widget.refresh_task(self._editing)
         self.editor.hide()
         self._log(
-            f"Applied: {task.name} | required={task.required} | requires={task.requires}"
+            why
+            or f"Applied: {edited.name} | required={edited.required} | requires={requires}"
         )
 
     def _on_editor_cancel(self) -> None:
@@ -164,8 +183,8 @@ class TestWindow(QWidget):
         tasks = self.workflow_widget.get_tasks()
         print("\n── Workflow ──────────────────────────")
         for i, t in enumerate(tasks):
-            mode = t.attention.value
-            req = ", ".join(t.requires) if t.requires else "—"
+            mode = self._protocol.get_attention(t.name).value
+            req = ", ".join(self._protocol.requirements(t.name)) or "—"
             opt = "" if t.required else " [optional]"
             print(f"  {i + 1}. {t.name}{opt}  |  {mode}  |  requires: {req}")
         print("─────────────────────────────────────\n")
@@ -188,14 +207,14 @@ class TestWindow(QWidget):
         requires = random.sample(
             [t.name for t in self._config.tasks], k=random.randint(0, 2)
         )
-        task = AutoLamellaTaskDescription(
-            name=name,
-            attention=random.choice([Attention.automated, Attention.supervised]),
-            required=True,
-            requires=requires,
+        self._protocol.add(
+            AcquireReferenceImageConfig(
+                task_name=name,
+                attention=random.choice([Attention.automated, Attention.supervised]),
+                requires=requires,
+            )
         )
-        self._config.tasks.append(task)
-        self.workflow_widget.add_task(task)
+        self.workflow_widget.add_task(self._config.get(name))
         self._counter += 1
         self._log(f"Added: {name}")
 

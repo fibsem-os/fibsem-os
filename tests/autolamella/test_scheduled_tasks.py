@@ -21,14 +21,14 @@ from typing import List
 import pytest
 
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
-    AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
     Experiment,
     Lamella,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.workflows.status import TaskStatus as Status
+from fibsem.workflows.task_config import TaskPlan
+from tests.protocols import planned, task_protocol
 
 TASKS = ["Trench", "Undercut"]
 
@@ -42,10 +42,8 @@ class NoMicroscope:
 @pytest.fixture
 def manager(tmp_path: Path) -> TaskManager:
     experiment = Experiment(path=tmp_path, name="test-exp")
-    experiment.task_protocol = AutoLamellaTaskProtocol(
-        workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[AutoLamellaTaskDescription(name=n, required=False) for n in TASKS]
-        )
+    experiment.task_protocol = task_protocol(
+        *[planned(name=n, required=False) for n in TASKS]
     )
     experiment.positions.append(
         Lamella(path=Path(experiment.path) / "L1", number=1, petname="L1")
@@ -203,9 +201,9 @@ def test_a_schedule_round_trips_through_the_protocol():
     """It is stored in the task protocol yaml, so it has to serialise. `asdict` would
     otherwise hand yaml a datetime, which is why `to_dict` writes an isoformat."""
     when = datetime(2026, 8, 13, 9, 30)
-    task = AutoLamellaTaskDescription(name="Trench", required=True, scheduled_at=when)
+    task = TaskPlan(name="Trench", required=True, scheduled_at=when)
 
-    restored = AutoLamellaTaskDescription.from_dict(task.to_dict())
+    restored = TaskPlan.from_dict(task.to_dict())
 
     assert task.to_dict()["scheduled_at"] == "2026-08-13T09:30:00"
     assert restored.scheduled_at == when
@@ -214,10 +212,10 @@ def test_a_schedule_round_trips_through_the_protocol():
 def test_no_schedule_round_trips_as_none():
     """The default has to survive too — `from_dict` only parses strings, so a None
     must not become the string "None" on the way out."""
-    task = AutoLamellaTaskDescription(name="Trench", required=True)
+    task = TaskPlan(name="Trench", required=True)
 
     assert task.to_dict()["scheduled_at"] is None
-    assert AutoLamellaTaskDescription.from_dict(task.to_dict()).scheduled_at is None
+    assert TaskPlan.from_dict(task.to_dict()).scheduled_at is None
 
 
 def test_the_workflow_config_finds_a_task_schedule():
@@ -225,8 +223,8 @@ def test_the_workflow_config_finds_a_task_schedule():
     when = datetime(2026, 8, 13, 9, 30)
     config = AutoLamellaWorkflowConfig(
         tasks=[
-            AutoLamellaTaskDescription(name="Trench", required=True, scheduled_at=when),
-            AutoLamellaTaskDescription(name="Undercut", required=True),
+            TaskPlan(name="Trench", required=True, scheduled_at=when),
+            TaskPlan(name="Undercut", required=True),
         ]
     )
 

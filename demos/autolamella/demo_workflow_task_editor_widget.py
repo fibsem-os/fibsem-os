@@ -2,7 +2,7 @@
 
 Exercises the task editor's PROPERTIES (optional/required), SCHEDULING
 (enable checkbox + datetime) and REQUIREMENTS sections, and prints the
-edited AutoLamellaTaskDescription whenever Apply is clicked.
+edited TaskPlan and its requirements whenever Apply is clicked.
 
 Run directly:
     python demos/autolamella/demo_workflow_task_editor_widget.py
@@ -20,47 +20,41 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskDescription
 from fibsem.applications.autolamella.ui.workflow.task_editor import (
     WorkflowTaskEditorWidget,
 )
-from fibsem.workflows.attention import Attention
+from fibsem.workflows.task_config import TaskPlan
 
 # The other tasks in the workflow — offered as selectable requirements.
 AVAILABLE_TASKS = ["Setup", "MillRough", "MillPolishing", "Sharpen"]
 
 
-def _scheduled_task() -> AutoLamellaTaskDescription:
+def _scheduled_task() -> tuple:
     """A required task scheduled ~2 minutes out, depending on Setup."""
-    return AutoLamellaTaskDescription(
-        name="MillRough",
-        attention=Attention.supervised,
-        required=True,
-        requires=["Setup"],
-        scheduled_at=(datetime.now() + timedelta(minutes=2)).replace(
-            second=0, microsecond=0
+    return (
+        TaskPlan(
+            name="MillRough",
+            required=True,
+            scheduled_at=(datetime.now() + timedelta(minutes=2)).replace(
+                second=0, microsecond=0
+            ),
         ),
+        ["Setup"],
     )
 
 
-def _unscheduled_task() -> AutoLamellaTaskDescription:
+def _unscheduled_task() -> tuple:
     """An optional, unscheduled task with no requirements."""
-    return AutoLamellaTaskDescription(
-        name="Sharpen",
-        required=False,
-        requires=[],
-        scheduled_at=None,
-    )
+    return TaskPlan(name="Sharpen", required=False), []
 
 
-def _describe(task: AutoLamellaTaskDescription) -> str:
+def _describe(task: TaskPlan, requires: list) -> str:
     sched = (
         task.scheduled_at.strftime("%Y-%m-%d %H:%M") if task.scheduled_at else "None"
     )
-    requires = ", ".join(task.requires) if task.requires else "—"
     return (
-        f"name={task.name}  required={task.required}  "
-        f"attention={task.attention.value}\nrequires=[{requires}]  scheduled_at={sched}"
+        f"name={task.name}  required={task.required}\n"
+        f"requires=[{', '.join(requires) or '—'}]  scheduled_at={sched}"
     )
 
 
@@ -77,8 +71,8 @@ def main() -> None:
     outer.setContentsMargins(12, 12, 12, 12)
     outer.setSpacing(8)
 
-    task = _scheduled_task()
-    widget = WorkflowTaskEditorWidget(task, available_tasks=AVAILABLE_TASKS)
+    task, requires = _scheduled_task()
+    widget = WorkflowTaskEditorWidget(task, requires, available_tasks=AVAILABLE_TASKS)
     outer.addWidget(widget, 1)
 
     status = QLabel("Click Apply to write the edits back and print the task.")
@@ -97,8 +91,8 @@ def main() -> None:
     btn_layout.addWidget(btn_print)
     outer.addWidget(btn_row)
 
-    def on_apply(t: AutoLamellaTaskDescription) -> None:
-        text = _describe(t)
+    def on_apply(t: TaskPlan, requires: list) -> None:
+        text = _describe(t, requires)
         status.setText(f"apply_clicked →\n{text}")
         print("apply_clicked ->")
         print(text)
@@ -106,16 +100,16 @@ def main() -> None:
         print("-" * 60)
 
     def load(factory) -> None:
-        new_task = factory()
-        widget.load_task(new_task, available_tasks=AVAILABLE_TASKS)
+        new_task, new_requires = factory()
+        widget.load_task(new_task, new_requires, available_tasks=AVAILABLE_TASKS)
         # keep apply_clicked operating on the freshly-loaded task
-        status.setText(f"Loaded:\n{_describe(new_task)}")
+        status.setText(f"Loaded:\n{_describe(new_task, new_requires)}")
 
     widget.apply_clicked.connect(on_apply)
     widget.cancel_clicked.connect(lambda: status.setText("cancel_clicked"))
     btn_scheduled.clicked.connect(lambda: load(_scheduled_task))
     btn_unscheduled.clicked.connect(lambda: load(_unscheduled_task))
-    btn_print.clicked.connect(lambda: print(_describe(task)))
+    btn_print.clicked.connect(lambda: print(_describe(task, requires)))
 
     win.show()
     sys.exit(app.exec_())

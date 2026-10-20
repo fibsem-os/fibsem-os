@@ -11,9 +11,6 @@ import pytest
 from psygnal.containers import EventedDict
 
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
-    AutoLamellaTaskProtocol,
-    AutoLamellaWorkflowConfig,
     Experiment,
 )
 from fibsem.applications.autolamella.workflows.tasks.rough import (
@@ -21,6 +18,7 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
 )
 from fibsem.structures import MicroscopeState
 from fibsem.workflows.status import TaskState, TaskStatus
+from tests.protocols import planned, task_protocol
 
 SETUP = "Setup"
 FIDUCIAL = "Fiducial"
@@ -31,19 +29,15 @@ ROUGH = "Rough"
 def experiment(tmp_path: Path) -> Experiment:
     """Setup -> Fiducial -> Rough, two lamellae; the first has done Fiducial."""
     exp = Experiment(path=tmp_path, name="remove-task")
-    exp.task_protocol = AutoLamellaTaskProtocol(
+    exp.task_protocol = task_protocol(
+        planned(name=SETUP),
+        planned(name=FIDUCIAL, requires=[SETUP]),
+        planned(name=ROUGH, requires=[SETUP, FIDUCIAL]),
         task_config=EventedDict(
             {
                 name: MillRoughTaskConfig(task_name=name)
                 for name in (SETUP, FIDUCIAL, ROUGH)
             }
-        ),
-        workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[
-                AutoLamellaTaskDescription(name=SETUP),
-                AutoLamellaTaskDescription(name=FIDUCIAL, requires=[SETUP]),
-                AutoLamellaTaskDescription(name=ROUGH, requires=[SETUP, FIDUCIAL]),
-            ]
         ),
     )
     for _ in range(2):
@@ -66,9 +60,9 @@ def test_the_task_leaves_the_protocol_the_workflow_and_every_lamella(experiment)
 def test_a_task_that_required_it_no_longer_does(experiment):
     experiment.remove_task(FIDUCIAL)
 
-    workflow = experiment.task_protocol.workflow_config
-    assert workflow.requirements(ROUGH) == [SETUP]
-    assert workflow.validate() == []
+    protocol = experiment.task_protocol
+    assert protocol.requirements(ROUGH) == [SETUP]
+    assert protocol.validate() == []
 
 
 def test_task_history_is_kept(experiment):

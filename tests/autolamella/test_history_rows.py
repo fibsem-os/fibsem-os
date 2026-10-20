@@ -26,9 +26,6 @@ from fibsem.applications.autolamella.history_rows import (
     operations_summary,
 )
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
-    AutoLamellaTaskProtocol,
-    AutoLamellaWorkflowConfig,
     Experiment,
     Lamella,
 )
@@ -38,6 +35,7 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
 )
 from fibsem.workflows.event_recording import EVENTS_FILENAME, read_events
 from fibsem.workflows.status import TaskState, TaskStatus
+from tests.protocols import planned, task_protocol
 from tests.run_state import run_lamellae
 
 SETUP, ROUGH = "Setup Lamella Position", "Rough Milling"
@@ -57,13 +55,8 @@ def test_a_real_run_reads_back_as_one_row_per_run_with_its_alignment(tmp_path):
     try:
         exp = Experiment(path=tmp_path, name="history")
         os.makedirs(exp.path, exist_ok=True)
-        exp.task_protocol = AutoLamellaTaskProtocol(
-            workflow_config=AutoLamellaWorkflowConfig(
-                tasks=[
-                    AutoLamellaTaskDescription(name=SETUP, required=True),
-                    AutoLamellaTaskDescription(name=ROUGH, required=True),
-                ]
-            )
+        exp.task_protocol = task_protocol(
+            planned(name=SETUP, required=True), planned(name=ROUGH, required=True)
         )
         exp.add_new_lamella(
             microscope.get_microscope_state(),
@@ -126,11 +119,7 @@ def test_a_task_run_twice_keeps_both_runs_images_in_their_own_folders(tmp_path):
     try:
         exp = Experiment(path=tmp_path, name="rerun")
         os.makedirs(exp.path, exist_ok=True)
-        exp.task_protocol = AutoLamellaTaskProtocol(
-            workflow_config=AutoLamellaWorkflowConfig(
-                tasks=[AutoLamellaTaskDescription(name=SETUP, required=True)]
-            )
-        )
+        exp.task_protocol = task_protocol(planned(name=SETUP, required=True))
         exp.add_new_lamella(
             microscope.get_microscope_state(),
             EventedDict(
