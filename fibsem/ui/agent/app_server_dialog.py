@@ -1,6 +1,6 @@
-"""Tools → App Server: the server itself -- status, services, the dashboard.
+"""Tools → App Server: the server itself -- status, services, the event log.
 
-The App Server is the API inside AutoLamella that the agent, the dashboard and
+The App Server is the API inside AutoLamella that the agent, the event log and
 ``FibsemClient`` reach. This dialog is about the server, not the agent
 (FIB-1035): what the agent may do is its level, on the chip in the status bar,
 and connecting one is the chip's "Connect an agent…" (``connect_agent_dialog``).
@@ -38,7 +38,7 @@ ENABLED_LABEL = "Run the App Server"
 ENABLED_TIP = (
     "Run the App Server while a microscope is connected: a local, token-protected "
     "API over this session that an AI agent (through the fibsem-mcp sidecar) and "
-    "the dashboard can reach. Kept for the next launch. What the agent may do "
+    "the event log can reach. Kept for the next launch. What the agent may do "
     "is its level, set from the Agent chip in the status bar, which resets to "
     "Watch at every launch."
 )
@@ -171,34 +171,28 @@ class AppServerDialog(QDialog):
 
         layout.addSpacing(6)
 
-        # --- dashboard --------------------------------------------------------
-        layout.addWidget(section("Dashboard"))
+        # --- event log --------------------------------------------------------
+        layout.addWidget(section("Event log"))
         layout.addWidget(
             note(
-                "A read-only monitor page in your browser, with a token of its "
-                "own: it watches the session and can't act on it. The agent's "
-                "level doesn't affect it."
+                "A read-only page in your browser, with a token of its own: it "
+                "reads the session and can't act on it. The agent's level "
+                "doesn't affect it."
             )
         )
-        dashboard_row = QHBoxLayout()
-        dashboard_row.addStretch(1)
+        log_row = QHBoxLayout()
+        log_row.addStretch(1)
         self._btn_copy_link = QPushButton("Copy link")
-        self._btn_copy_link.setToolTip("Copy the dashboard's address and token.")
+        self._btn_copy_link.setToolTip("Copy the event log's address and token.")
         self._btn_copy_link.clicked.connect(self._on_copy_link_clicked)
-        self._btn_dashboard = QPushButton("Open Dashboard")
-        self._btn_dashboard.setToolTip(
-            "Item progress, the workflow, and the live event feed."
-        )
-        self._btn_dashboard.clicked.connect(self._on_dashboard_clicked)
         self._btn_event_log = QPushButton("Open Event Log")
         self._btn_event_log.setToolTip(
             "What the agent, the operator and the run did, filterable."
         )
         self._btn_event_log.clicked.connect(self._on_event_log_clicked)
-        dashboard_row.addWidget(self._btn_copy_link)
-        dashboard_row.addWidget(self._btn_event_log)
-        dashboard_row.addWidget(self._btn_dashboard)
-        layout.addLayout(dashboard_row)
+        log_row.addWidget(self._btn_copy_link)
+        log_row.addWidget(self._btn_event_log)
+        layout.addLayout(log_row)
 
         layout.addSpacing(6)
 
@@ -253,7 +247,6 @@ class AppServerDialog(QDialog):
         """Re-read the session's server into the dialog."""
         host = self._host()
         running = host is not None
-        self._btn_dashboard.setEnabled(running)
         self._btn_event_log.setEnabled(running)
         self._btn_copy_link.setEnabled(running)
         self._btn_copy_operator.setEnabled(running)
@@ -313,29 +306,18 @@ class AppServerDialog(QDialog):
         super().hideEvent(event)
 
     @staticmethod
-    def dashboard_url(host) -> str:
-        """The dashboard address with the dashboard's own read-only token
-        (FIB-1035), never the agent's, in the URL *fragment* — the one part of
-        a URL a browser never sends anywhere, so it reaches the page's own
-        script and nothing else (no server log, no referrer)."""
-        return f"{host.url}/dashboard#token={host.auth.dashboard_token}"
-
-    @staticmethod
     def event_log_url(host) -> str:
-        """The event log page, with the dashboard's token as the dashboard has it."""
+        """The event log address with its own read-only token (FIB-1035), never
+        the agent's, in the URL *fragment* — the one part of a URL a browser
+        never sends anywhere, so it reaches the page's own script and nothing
+        else (no server log, no referrer)."""
         return f"{host.url}/dashboard/log#token={host.auth.dashboard_token}"
 
     @staticmethod
     def chat_url(host) -> str:
         """The chat page, with the operator token in the fragment as the
-        dashboard has its own."""
+        event log has its own."""
         return f"{host.url}/chat#token={host.auth.operator_token}"
-
-    def _on_dashboard_clicked(self) -> None:
-        host = self._host()
-        if host is None:
-            return
-        open_in_browser(self.dashboard_url(host))
 
     def _on_event_log_clicked(self) -> None:
         host = self._host()
@@ -348,7 +330,7 @@ class AppServerDialog(QDialog):
         clipboard = QApplication.clipboard()
         if host is None or clipboard is None:
             return
-        clipboard.setText(self.dashboard_url(host))
+        clipboard.setText(self.event_log_url(host))
         self._btn_copy_link.setText("Copied")
         QTimer.singleShot(1500, self._restore_copy_link)
 

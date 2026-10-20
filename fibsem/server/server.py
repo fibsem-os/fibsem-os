@@ -490,6 +490,8 @@ def build_server(
     app.add_middleware(_AgentActs)
     app.state.auth = auth
     app.state.microscope = microscope
+    # The app the operator works in, as the agent's refusals name it.
+    app.state.app_name = getattr(app_context, "app_name", None) or "fibsemOS"
     if services is None:
         from fibsem.services.analysis import analysis_services
 
@@ -511,7 +513,7 @@ def build_server(
         )
 
     # /capabilities, which every client reads first, whatever is mounted, the
-    # dashboard included.
+    # event log page included.
     base = APIRouter(dependencies=[Depends(require_monitoring())])
     # The whole instrument: who it is, and its state across stage and beams.
     whole = APIRouter(prefix=MICROSCOPE, route_class=_RefusingRoute)
@@ -533,18 +535,12 @@ def build_server(
             raise HTTPException(status_code=404, detail=f"{filename} not packaged")
         return HTMLResponse(page.decode("utf-8"))
 
-    @app.get("/dashboard")
-    def dashboard():
-        # The monitor page. Served unauthenticated like /health — the file is
-        # static and carries no session data; every API call the page makes
-        # needs the bearer token, which reaches it via the URL fragment (never
-        # sent to the server) or a paste. Renders app panels only when
-        # /capabilities says an application is hosted.
-        return _page("dashboard.html")
-
     @app.get("/dashboard/log")
     def dashboard_log():
-        # The event stream as one filterable table; served like /dashboard.
+        # The event stream as one filterable table. Served unauthenticated like
+        # /health: the file is static and carries no session data; every API
+        # call the page makes needs the bearer token, which reaches it via the
+        # URL fragment (never sent to the server) or a paste.
         return _page("dashboard_log.html")
 
     @app.get("/chat")
@@ -562,6 +558,9 @@ def build_server(
                 "services": True,
                 "app": app_context is not None,
             },
+            # The app the operator works in: where they set the level and
+            # decide requests.
+            "app_name": app.state.app_name,
             # The optional /app parts this app serves (fibsem.server.parts).
             "parts": served_parts(app_context),
             # The agent level (FIB-1035): what the agent may do right now.

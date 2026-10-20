@@ -86,6 +86,15 @@ class Poses(Protocol):
 
     def move_objective_to_item(self, item_name: str) -> Dict[str, Any]: ...
 
+    def move_item(
+        self,
+        item_name: str,
+        stage_position: Optional[Dict[str, Any]] = None,
+        overview: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]: ...
+
+    def set_objective_position_on_all(self, item_name: str) -> Dict[str, Any]: ...
+
 
 @runtime_checkable
 class Grids(Protocol):

@@ -248,7 +248,7 @@ def test_missing_evidence_is_not_found(server):
 
 
 def test_the_chat_page_is_served(server):
-    # Static, like the dashboard: every call it makes needs the operator token.
+    # Static, like the event log: every call it makes needs the operator token.
     answer = server.get("/chat")
     assert answer.status_code == 200
     assert "/app/agent/recent" in answer.text

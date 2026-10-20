@@ -134,7 +134,7 @@ namespaces = true
 
 [tool.setuptools.package-data]
 "*" = ["*.yaml"]
-"fibsem.server" = ["chat.html", "dashboard.html", "dashboard_log.html"]
+"fibsem.server" = ["chat.html", "dashboard_log.html"]
 "fibsem.correlation" = ["data/zeta_lut.npz"]
 
 [tool.pytest.ini_options]

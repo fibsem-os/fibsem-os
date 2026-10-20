@@ -71,20 +71,12 @@ def test_health_is_open(read_client):
     assert resp.json() == {"status": "ok"}
 
 
-def test_dashboard_page_is_served_open_like_health(read_client):
-    # The page is static and holds no session data; its API calls carry the
-    # bearer token, so serving the HTML itself is as safe as /health.
-    resp = read_client.get("/dashboard")
-    assert resp.status_code == 200
-    assert resp.headers["content-type"].startswith("text/html")
-    assert "AutoLamella Dashboard" in resp.text
-
-
-def test_event_log_page_is_served_open_like_the_dashboard(read_client):
+def test_event_log_page_is_served_open_like_health(read_client):
+    # Static page holding no session data; its API calls carry the bearer token.
     resp = read_client.get("/dashboard/log")
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/html")
-    assert "AutoLamella Event Log" in resp.text
+    assert "App Server Event Log" in resp.text
 
 
 def test_missing_token_is_401(read_client):
@@ -104,6 +96,7 @@ def test_capabilities_reports_the_level_and_routers(read_client):
     body = resp.json()
     assert body["routers"] == {"microscope": True, "services": True, "app": False}
     assert body["level"] == "watch"
+    assert body["app_name"] == "fibsemOS"  # no app hosted: the operator's window
     assert "manufacturer" not in body  # the microscope's own: GET /microscope
     # the code it runs, for a sidecar to compare its own with (FIB-1429)
     import fibsem

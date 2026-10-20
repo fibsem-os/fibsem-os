@@ -225,3 +225,31 @@ def test_discovery_finds_the_current_name_then_the_legacy_one(tmp_path, monkeypa
     write_discovery_file("127.0.0.1", 8003, AuthConfig(token="again"))
     assert current.exists()
     assert discovery.read_discovery_file()["token"] == "again"
+
+
+def test_every_tool_an_agent_asks_for_says_its_action():
+    """An approval shows what each action does, written by the server (FIB-1283):
+    a tool above Watch says its own line, or calls a service command that says
+    one. device_call_command and service_call_command say the command's."""
+    from fibsem.services.core import command_line
+
+    commands = re.compile(r"/microscope/services/(\w+)/commands/(\w+)")
+    by_name = ("device_call_command", "service_call_command")
+    silent = []
+    for spec in CATALOG:
+        if spec.level == "watch" or spec.line is not None or spec.name in by_name:
+            continue
+        found = commands.fullmatch(spec.path)
+        if found is None or command_line(*found.groups()) is None:
+            silent.append(spec.name)
+    assert silent == []
+
+
+def test_each_service_s_command_lines_are_found_by_its_name():
+    from fibsem.microscope import FibsemMicroscope
+    from fibsem.services import core
+
+    assert set(core._CLASSES) == set(FibsemMicroscope._SERVICE_ATTRIBUTES)
+    assert core.command_line("milling", "prepare") is not None
+    assert core.command_line("milling", "draw") is None
+    assert core.command_line("no_such_service", "run") is None
