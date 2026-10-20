@@ -249,6 +249,26 @@ def test_the_agent_s_state_names_the_experiment(server):
     ]
 
 
+def test_evidence_names_its_image_for_the_files_panel(server):
+    import io
+
+    from PIL import Image
+
+    from fibsem.workflows import evidence
+
+    root = str(server.session.experiment.path)
+    buffer = io.BytesIO()
+    Image.new("L", (32, 16)).save(buffer, "PNG")
+    record = evidence.save(
+        lambda: root, upload=base64.b64encode(buffer.getvalue()).decode()
+    )
+    answer = server.get(
+        f"/app/agent/evidence/{record['evidence_id']}", headers=server.operator
+    ).json()
+    assert answer["path"] == f"evidence/{record['evidence_id']}.png"
+    assert answer["preview"]["full_width"] == 32
+
+
 def test_missing_evidence_is_not_found(server):
     answer = server.get("/app/agent/evidence/0123abcd", headers=server.operator)
     assert answer.status_code == 404

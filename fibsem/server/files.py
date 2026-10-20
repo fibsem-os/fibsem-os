@@ -22,6 +22,8 @@ IMAGE_SUFFIXES = (".tif", ".tiff", ".png", ".jpg", ".jpeg")
 # A text answer's cap: a session log runs to megabytes, and app_get_log reads it
 # by window.
 TEXT_LIMIT = 512 * 1024
+# The widest preview served: an image enlarged to fill a screen.
+MAX_PREVIEW_WIDTH = 3072
 
 
 class FileRefusal(Exception):
@@ -249,6 +251,14 @@ def _image_answer(
         if pixel_size is not None:
             preview["hfw"] = pixel_size * region["width"]
     return {"summary": summary, "path": target, "preview": preview}
+
+
+def preview_width(width: Optional[int]) -> int:
+    """A preview's widest, as a client asks for it: 768 when it doesn't say,
+    else between 64 (a thumbnail) and `MAX_PREVIEW_WIDTH`."""
+    if width is None:
+        return 768
+    return max(64, min(int(width), MAX_PREVIEW_WIDTH))
 
 
 def read(
