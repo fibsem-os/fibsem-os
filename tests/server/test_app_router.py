@@ -1464,8 +1464,9 @@ def test_sidecar_reads_experiment_files_as_tools_and_resources(
 
 
 def test_thickness_reads_a_saved_fib_image_over_http_and_mcp(client, host):
-    """FIB-1434: the band measured off an item's saved FIB image, around its
-    POI, by the route and by the Watch tool, with the result's plot."""
+    """FIB-1434: the band measured off a saved FIB image in the experiment,
+    around the item's POI, by the route and by the Watch tool, with the
+    result's plot."""
     pytest.importorskip("mcp")
     from fibsem.ai.agent.mcp.sidecar import build_sidecar
     from fibsem.structures import BeamType
@@ -1485,9 +1486,10 @@ def test_thickness_reads_a_saved_fib_image_over_http_and_mcp(client, host):
     lamella.task_history.append(
         TaskState(name="Polishing", outputs={"final_fib": [fname], "final_sem": [sem]})
     )
-    route = f"/app/experiment/items/{lamella.name}/outputs/{fname}/thickness"
+    route = f"/app/experiment/items/{lamella.name}/thickness"
+    image_path = os.path.join(lamella.name, fname)
 
-    answer = client.post(route, headers=AUTH).json()
+    answer = client.post(route, json={"path": image_path}, headers=AUTH).json()
     assert answer["thickness_nm"]["mean"] == pytest.approx(235, abs=10)
     assert answer["angle_deg"] == pytest.approx(0.6, abs=0.05)
     # This item has no trench patterns, so the window is the default.
@@ -1499,28 +1501,44 @@ def test_thickness_reads_a_saved_fib_image_over_http_and_mcp(client, host):
     assert saved == os.path.join(lamella.path, "thickness", fname[: -len(".tif")])
     assert sorted(os.listdir(saved)) == ["data.json", "plot.png", "window.tif"]
 
-    narrow = client.post(route, json={"width_um": "5"}, headers=AUTH).json()
+    assert answer["warnings"] == []
+    narrow = client.post(
+        route, json={"path": image_path, "width_um": "5"}, headers=AUTH
+    ).json()
     assert narrow["continuity"]["columns"] == 512
     assert narrow["window_from"] == "given"
 
-    unknown = client.post(
-        f"/app/experiment/items/{lamella.name}/outputs/nope.tif/thickness",
-        headers=AUTH,
+    # Any FIB image in the experiment, not only a recorded output: the
+    # agent's own check image (2026-10-19 run: refused mid-task).
+    own = os.path.join(lamella.path, "polish-checks", "check_01_ib.tif")
+    os.makedirs(os.path.dirname(own))
+    image.metadata.image_settings.beam_type = BeamType.ION
+    image.save(own)
+    checked = client.post(route, json={"path": own}, headers=AUTH).json()
+    assert checked["thickness_nm"]["mean"] == pytest.approx(235, abs=10)
+    assert checked["saved_to"] == os.path.join(
+        os.path.dirname(own), "thickness", "check_01_ib"
     )
+
+    unknown = client.post(route, json={"path": "nope.tif"}, headers=AUTH)
     assert unknown.status_code == 404
-    assert fname in unknown.json()["detail"]["filenames"]
+    outside = client.post(route, json={"path": "/etc/hostname"}, headers=AUTH)
+    assert outside.status_code == 403
     refused = client.post(
-        f"/app/experiment/items/{lamella.name}/outputs/{sem}/thickness", headers=AUTH
+        route, json={"path": os.path.join(lamella.name, sem)}, headers=AUTH
     )
     assert refused.status_code == 422
-    bad = client.post(route, json={"height_um": "tall"}, headers=AUTH)
+    assert client.post(route, json={}, headers=AUTH).status_code == 422
+    bad = client.post(
+        route, json={"path": image_path, "height_um": "tall"}, headers=AUTH
+    )
     assert bad.status_code == 422
 
     client.headers["Authorization"] = f"Bearer {TOKEN}"
     sidecar = build_sidecar(client, client.get("/capabilities").json())
     result = asyncio.run(
         sidecar.call_tool(
-            "item_measure_thickness", {"item_name": lamella.name, "filename": fname}
+            "item_measure_thickness", {"item_name": lamella.name, "path": image_path}
         )
     )
     if isinstance(result, tuple):

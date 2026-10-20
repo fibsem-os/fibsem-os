@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from fibsem.imaging.thickness import (
+    LOW_CONTRAST_RATIO,
     MIN_BAND_PX,
     LamellaThicknessResult,
     measure_lamella_band,
@@ -21,13 +22,22 @@ FINE = 15e-6 / WIDTH  # 9.8 nm per pixel
 
 
 def band_image(
-    thickness_nm, angle_deg=0.0, pixel_size=FINE, offset_px=0.0, hole=None, seed=0
+    thickness_nm,
+    angle_deg=0.0,
+    pixel_size=FINE,
+    offset_px=0.0,
+    hole=None,
+    seed=0,
+    brightness=160,
+    residue_px=None,
 ):
     """A bright band (the lamella) between dark trenches, grey bulk beyond them.
 
     ``thickness_nm`` is a number or a function of the column; ``offset_px`` moves
-    the band up; ``hole`` (first, last) columns of no band. Each pixel is lit by
-    how much of it the band covers, as an edge falls between pixels.
+    the band up; ``hole`` (first, last) columns of no band; ``brightness`` is the
+    band's rise above the trenches; ``residue_px`` draws a second, fainter line
+    that far below the band, parallel to it. Each pixel is lit by how much of it
+    the band covers, as an edge falls between pixels.
     """
     image = FibsemImage.generate_blank_image(
         resolution=(WIDTH, HEIGHT), hfw=WIDTH * pixel_size
@@ -42,8 +52,11 @@ def band_image(
     cover = np.clip(
         np.minimum(ys + 0.5, centre + half) - np.maximum(ys - 0.5, centre - half), 0, 1
     )
-    data = 40 + cover * 160
-    data = np.where((np.abs(ys - centre) < 150) | (cover > 0), data, 120)
+    data = 40 + cover * brightness
+    bulk = 40 + brightness / 2
+    data = np.where((np.abs(ys - centre) < 150) | (cover > 0), data, bulk)
+    if residue_px is not None:
+        data = np.where(np.abs(ys - centre - residue_px) < 6, 170, data)
     if hole is not None:
         data[:, hole[0] : hole[1] + 1] = 40
     data += np.random.default_rng(seed).normal(0, 2.0, data.shape)
@@ -64,6 +77,26 @@ def test_a_rotated_band_reads_its_thickness_and_angle():
     assert answer["continuity"]["gaps_px"] == []
     assert answer["resolution"]["under_resolved"] is False
     assert answer["contrast"]["ratio"] > 3
+    assert answer["other_bands"] == []
+    assert answer["warnings"] == []
+
+
+def test_a_faint_band_warns_of_low_contrast():
+    answer = measure_lamella_band(band_image(235, brightness=30), Point(0, 0)).to_dict()
+    assert answer["contrast"]["ratio"] < LOW_CONTRAST_RATIO
+    assert [w["code"] for w in answer["warnings"]] == ["low_contrast"]
+
+
+def test_trench_residue_is_named_as_another_band():
+    """2026-10-19: residue in a trench is a second bright line, and the offset
+    to the band measured is not the lamella's when it is the wrong one."""
+    image = band_image(235, angle_deg=0.6, residue_px=100)
+    answer = measure_lamella_band(image, Point(0, 0)).to_dict()
+    assert [w["code"] for w in answer["warnings"]] == ["several_bands"]
+    ((other,),) = [answer["other_bands"]]
+    # 100 px below the POI, at 9.8 nm per pixel.
+    assert other["centre_offset_nm"] == pytest.approx(-980, abs=40)
+    assert other["contrast"] > 0.5
 
 
 def test_a_bowed_band_reads_its_range_and_thirds():
@@ -104,7 +137,10 @@ def test_a_hole_is_dropped_and_named():
 def test_the_result_plots_saves_and_loads(tmp_path):
     """As an autofocus result does: the numbers, a diagnostic plot, and both on
     disk to read back."""
-    result = measure_lamella_band(band_image(235, hole=(700, 719)), Point(0, 0))
+    result = measure_lamella_band(
+        band_image(235, hole=(700, 719), residue_px=100), Point(0, 0)
+    )
+    assert result.other_bands
     x0, y0, x1, y1 = result.region
     assert result.window.shape == (y1 - y0, x1 - x0)
     assert result.plot_jpeg()[:2] == b"\xff\xd8"  # JPEG magic
@@ -127,6 +163,7 @@ def test_coarse_pixels_flag_the_band_and_suggest_a_field_of_view():
     assert resolution["under_resolved"] is True
     # The band at 16 px: 235 nm / 16 * 1536 px.
     assert resolution["suggested_field_width_um"] == pytest.approx(22.6, abs=1.5)
+    assert "under_resolved" in [w["code"] for w in answer["warnings"]]
     assert answer["thickness_nm"]["mean"] == pytest.approx(235, abs=39)
     # Moved up 3 px from the POI: above it, so positive.
     assert answer["centre_offset_nm"] == pytest.approx(3 * 39, abs=39 / 2)

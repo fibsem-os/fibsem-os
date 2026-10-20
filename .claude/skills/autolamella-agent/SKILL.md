@@ -238,7 +238,7 @@ Every read works at Watch.
 | How has the run gone? | `experiment_get_task_history`; `workflow_get_summary` for the last workflow started in this app session |
 | Why did it fail? | `app_get_log` with the `task_id`, `level=WARNING` |
 | One lamella | `item_get`, `item_list_outputs`, `item_get_output_image` |
-| How thick is it? | `item_measure_thickness` on a FIB image from `item_list_outputs` |
+| How thick is it? | `item_measure_thickness` on a FIB image of the item |
 | The plan | `protocol_get`, `item_get_task_config`, `protocol_get_task_config` |
 | Grids | `grid_list`, `grid_get`, `grid_get_markers`, `experiment_render_markers` |
 | Grids on the hardware now | `grid_get_inventory` (which grid is loaded), `grid_get_current` |
@@ -526,19 +526,21 @@ the methods agree on what is left. If they don't agree, or the score stays
 low, the view has changed (milled, drifted out of frame): stop and tell the
 operator rather than aligning again.
 
-**How thick is the lamella?** `item_measure_thickness` with a FIB image from
-`item_list_outputs` measures the band between the trenches on the
-full-resolution file, around the item's POI: thickness, wedge, the band's
-angle, where it sits against the POI, and any holes. Use it instead of
-measuring a preview yourself. When `resolution.under_resolved` is true the
-band is under 8 px: take the next image at the suggested field width before
-trusting the number. It reads only images a task recorded (those
-`item_list_outputs` lists), not your own check images. Check its answer on
-the image before you use it: residue in a trench or a stepped wall gives a
-second bright line, and the band it finds may be the wrong one, so its
-`centre_offset` is wrong too (a polish window moved by it landed on trench
-residue). A low `contrast.ratio` (about 1.5) gave misleading numbers on a
-real run.
+**How thick is the lamella?** `item_measure_thickness` with a FIB image of
+the item measures the band between the trenches on the full-resolution file,
+around the item's POI: thickness, wedge, the band's angle, where it sits
+against the POI, and any holes. The image is any FIB image in the experiment:
+a task's reference (`item_list_outputs` names them; they sit in the item's
+folder, `<item_name>/<file>`) or your own check image, taken at the item's
+milling position so the POI falls on the lamella. Use it instead of
+measuring a preview yourself. Read its `warnings` first: `under_resolved`
+(band under 8 px: take the next image at the suggested field width),
+`low_contrast` (band under twice the trench brightness: a ratio of 1.5 gave
+misleading numbers on a real run; take a cleaner image), `several_bands`
+(another bright line in the window, listed in `other_bands`: residue in a
+trench or a stepped wall). Check the answer on the image before you use it:
+the band it finds may be the wrong one, and then its `centre_offset` is wrong
+too (a polish window moved by it landed on trench residue).
 
 **Correlating FM to FIB.** `correlation_correlate` fits a saved FM stack to
 a saved FIB image from fiducial pairs you give (FIB pixels; FM pixels and

@@ -185,7 +185,7 @@ class Lamellae(Protocol):
     def measure_thickness(
         self,
         item_name: str,
-        filename: str,
+        path: str,
         width_um: Optional[float] = None,
         height_um: Optional[float] = None,
     ) -> Dict[str, Any]: ...

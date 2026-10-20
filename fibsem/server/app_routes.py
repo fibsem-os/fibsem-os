@@ -262,26 +262,23 @@ def build_app_router(context: Any) -> APIRouter:
         # outputs listing names — the context refuses anything else.
         return _jpeg_or_404(context.output_image(item_name, filename))
 
-    @router.post(
-        "/experiment/items/{item_name}/outputs/{filename}/thickness", tags=[LAMELLAE]
-    )
-    def measure_thickness(
-        item_name: str, filename: str, body: Optional[Dict[str, Any]] = None
-    ):
-        # Computed over the saved file, nothing moves; a POST because the result
+    @router.post("/experiment/items/{item_name}/thickness", tags=[LAMELLAE])
+    def measure_thickness(item_name: str, body: Dict[str, Any]):
+        # Computed over a saved file, nothing moves; a POST because the result
         # is saved beside the image, as an autofocus run is.
+        path = body.get("path")
+        if not isinstance(path, str) or not path:
+            raise _missing_field("path is required")
         window = {}
         for key in ("width_um", "height_um"):
-            value = (body or {}).get(key)
+            value = body.get(key)
             if value is None:
                 continue
             try:
                 window[key] = float(value)
             except (TypeError, ValueError):
                 raise _missing_field(f"{key} is a number of microns.") from None
-        return _answer_or_refusal(
-            context.measure_thickness(item_name, filename, **window)
-        )
+        return _answer_or_refusal(context.measure_thickness(item_name, path, **window))
 
     @router.get("/experiment/grids", tags=[GRIDS])
     def grids():
