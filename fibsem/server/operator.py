@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.ai.agent.session import MESSAGE_LIMIT, AgentSession
 from fibsem.server import files
+from fibsem.server.agent_setup import setup_text
 from fibsem.server.auth import require_operator
 from fibsem.server.requests import RequestRefused
 from fibsem.workflows import evidence
@@ -55,6 +56,14 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
             "client": agent.client(),
             "request": request.to_dict() if request is not None else None,
         }
+
+    @router.get("/connect")
+    def connect():
+        """The text the card's "Connect an agent…" copies: pasted into an agent
+        on this machine, it registers the sidecar and checks the connection.
+        None when the sidecar isn't installed."""
+        host = agent.host
+        return {"text": setup_text(host.url if host is not None else None)}
 
     @router.get("/recent")
     def recent():
