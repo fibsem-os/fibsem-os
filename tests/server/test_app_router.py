@@ -1129,6 +1129,61 @@ def test_a_pose_is_set_from_the_stage_and_moved_back_to(driver, host, microscope
     assert name in unknown.json()["detail"]["item_names"]
 
 
+def test_an_item_is_moved_to_a_point_and_the_stage_stays(driver, host, microscope):
+    """Moving a lamella on an overview: its poses move, the stage doesn't."""
+    from fibsem.applications.autolamella.structures import Experiment
+    from fibsem.structures import FibsemStagePosition
+
+    name = host.experiment.positions[0].name
+    microscope.move_stage_absolute(FibsemStagePosition(x=0.0, y=0.0))
+    resp = driver.post(
+        f"/app/experiment/items/{name}/position",
+        json={"stage_position": {"x": 2e-4, "y": -1e-4, "z": 0, "r": 0, "t": 0}},
+    )
+    assert resp.status_code == 200, resp.text
+    lamella = host.experiment.get_lamella_by_name(name)
+    assert lamella.milling_pose.stage_position.x == pytest.approx(2e-4)
+    assert lamella.milling_pose.stage_position.y == pytest.approx(-1e-4)
+    assert microscope.get_stage_position().x == pytest.approx(0.0)
+    saved = Experiment.load(os.path.join(host.experiment.path, "experiment.yaml"))
+    moved = next(p for p in saved.positions if p.name == name)
+    assert moved.milling_pose.stage_position.x == pytest.approx(2e-4)
+
+    nowhere = driver.post(f"/app/experiment/items/{name}/position", json={})
+    assert nowhere.status_code == 422
+    host.runner.is_running = True
+    try:
+        refused = driver.post(
+            f"/app/experiment/items/{name}/position",
+            json={"stage_position": {"x": 0, "y": 0, "z": 0, "r": 0, "t": 0}},
+        )
+        assert refused.status_code == 409
+    finally:
+        host.runner.is_running = False
+
+
+def test_an_item_s_objective_position_is_applied_to_all(driver, host):
+    """Apply to All Lamella: one lamella's stored objective position on every
+    lamella with a fluorescence pose."""
+    from fibsem.structures import MicroscopeState
+
+    positions = host.experiment.positions
+    for lamella in positions[:2]:
+        lamella.fluorescence_pose = MicroscopeState()
+    with_pose = [p for p in positions if p.fluorescence_pose is not None]
+    source = with_pose[0]
+    source.fluorescence_pose.objective_position = 1.25e-3
+    resp = driver.post(
+        f"/app/experiment/items/{source.name}/objective_position/apply_to_all"
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["items"] == len(with_pose)
+    assert all(
+        p.fluorescence_pose.objective_position == pytest.approx(1.25e-3)
+        for p in with_pose
+    )
+
+
 def test_a_pose_is_not_set_from_the_stage_while_a_run_is_on(driver, host):
     """The run moves the stage, so the pose would be wherever it left it."""
     name = host.experiment.positions[0].name
