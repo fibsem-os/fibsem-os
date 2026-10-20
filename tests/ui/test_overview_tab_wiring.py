@@ -21,7 +21,15 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WINDOW = REPO_ROOT / "fibsem" / "applications" / "autolamella" / "ui" / "window.py"
-PREFERENCES_DIALOG = REPO_ROOT / "fibsem" / "ui" / "widgets" / "preferences_dialog.py"
+PREFERENCES_DIALOG = (
+    REPO_ROOT
+    / "fibsem"
+    / "applications"
+    / "autolamella"
+    / "ui"
+    / "dialogs"
+    / "preferences.py"
+)
 CONTAINER_SOURCE = (
     REPO_ROOT
     / "fibsem"

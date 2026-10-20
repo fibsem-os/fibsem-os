@@ -53,7 +53,6 @@ from fibsem.ui.widgets.custom_widgets import (
 )
 
 if TYPE_CHECKING:
-    from fibsem.applications.autolamella.structures import Lamella
     from fibsem.fm.progress import FluorescenceAcquisitionProgress
 
 
@@ -776,7 +775,7 @@ class FMControlWidget(QWidget):
 
         return str(path), f"{lamella_prefix}{name}"
 
-    def _validate_lamella_selection(self, lamella: "Lamella") -> None:
+    def _validate_lamella_selection(self, lamella: Any) -> None:
         # Check if current position is close to lamella fluorescence pose
         if (
             lamella.fluorescence_pose is None

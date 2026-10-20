@@ -1,6 +1,6 @@
 """The task-parameters form.
 
-Renders an AutoLamellaTaskConfig's own fields -- the ones past the base class --
+Renders a task config's own fields -- the ones past the base class --
 as a grid of controls, using the shared builder that the pattern, strategy and
 milling-settings forms use (FIB-526).
 
@@ -26,9 +26,9 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.ui.widgets.custom_widgets import TitledPanel, align_form
 from fibsem.ui.widgets.form_builder import Control, FormDefaults, build_control
+from fibsem.workflows.task_config import TaskConfig
 
 # What this form falls back to for what a field does not declare. These are the
 # bounds and precision it already had hardcoded; passing them keeps the form
@@ -52,9 +52,7 @@ class _Row:
     advanced: bool
 
 
-def build_parameter_rows(
-    config: AutoLamellaTaskConfig, grid: QGridLayout
-) -> List[_Row]:
+def build_parameter_rows(config: TaskConfig, grid: QGridLayout) -> List[_Row]:
     """Fill *grid* with a control per configurable parameter, and return the rows."""
     specs = config.params
     rows: List[_Row] = []
@@ -100,7 +98,7 @@ class AutoLamellaTaskParametersConfigWidget(QWidget):
 
     def __init__(
         self,
-        task_config: Optional[AutoLamellaTaskConfig] = None,
+        task_config: Optional[TaskConfig] = None,
         parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
@@ -125,7 +123,7 @@ class AutoLamellaTaskParametersConfigWidget(QWidget):
 
         self.main_layout.addWidget(self.params_panel)
 
-    def set_task_config(self, task_config: Optional[AutoLamellaTaskConfig]):
+    def set_task_config(self, task_config: Optional[TaskConfig]):
         """Set the task configuration to edit."""
         self.task_config = task_config
         self._update_from_config()

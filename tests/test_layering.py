@@ -4,8 +4,8 @@ Headless runs, the App Server and the device server use the core with no Qt. A Q
 import inside it (even a guarded one) ties the core to the window, so the rule is
 checked from source: no module in the core packages imports ``fibsem.ui``, an app's
 ``ui`` package, Qt or napari. Two more edges are kept as they are today: the UI reaches
-hardware through the microscope, never a driver, and an app's App Server routes never
-import the UI. Imports under ``if TYPE_CHECKING:`` don't run, so they are allowed.
+hardware through the microscope, never a driver, an app's App Server routes never
+import the UI, and the shared UI (``fibsem.ui``) never imports an app. Imports under ``if TYPE_CHECKING:`` don't run, so they are allowed.
 """
 
 import ast
@@ -96,6 +96,19 @@ def test_the_core_imports_no_ui():
 
 def test_the_ui_imports_no_driver():
     found = [line for path in _ui_files() for line in _imports(path, _is_driver)]
+    assert found == [], "\n".join(found)
+
+
+def _is_app(module: str) -> bool:
+    return module == "fibsem.applications" or module.startswith("fibsem.applications.")
+
+
+def test_the_shared_ui_imports_no_app():
+    found = [
+        line
+        for path in sorted((FIBSEM / "ui").rglob("*.py"))
+        for line in _imports(path, _is_app)
+    ]
     assert found == [], "\n".join(found)
 
 
