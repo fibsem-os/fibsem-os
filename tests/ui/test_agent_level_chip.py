@@ -145,7 +145,7 @@ def test_the_operator_messages_the_agent_once_one_is_heard_from(qapp):
     card.message_edit.setText("   ")
     card.send_button.click()
     card.message_edit.setText("  skip 03 ")
-    card.message_edit.returnPressed.emit()
+    card.message_edit.send.emit()
     assert sent == ["skip 03"]
     assert card.message_edit.text() == ""
     card.deleteLater()
@@ -1050,6 +1050,136 @@ def test_recent_shows_at_drive_and_is_hidden_below_it_until_asked_for(qapp):
     card.deleteLater()
 
 
+def _conversation():
+    reply = "Five cells:\n\n- **01** flat ice\n- **02** near the bar"
+    return [
+        RecentRow(
+            "06:02", "Take an overview of the whole grid", "", "muted", kind="you"
+        ),
+        RecentRow("06:03", "Overview · 7 × 7 tiles", "done", "ok", "drive"),
+        RecentRow("06:24", reply, "", "muted", "drive", kind="reply"),
+        RecentRow(
+            "06:51", "Chamber · Vent", "refused", "error", "drive", why="never allowed"
+        ),
+    ]
+
+
+def test_recent_is_one_timeline_with_either_half_shown(qapp):
+    """Agent UI notes 2026-10-20: Recent read like a log, newest first, its
+    messages and actions mixed. Now oldest first like a chat, with the
+    conversation and the actions each shown or not."""
+    from PyQt5.QtCore import Qt
+
+    card = AgentCard()
+    card.set_level(AgentLevel.DRIVE)
+    card.set_recent(_conversation())
+    assert [m.text() for m in card.recent_messages][0].startswith("Take an")
+    assert [b.text() for b in card.recent_buttons] == [
+        "Overview · 7 × 7 tiles",
+        "Chamber · Vent",
+    ]
+    # The reply in Markdown, its list kept; why the refusal, under it.
+    assert card.recent_messages[1].textFormat() == Qt.MarkdownText
+    assert "never allowed" in _labels(card)
+    assert "refused" in _labels(card) and "Drive" not in _labels(card)
+    card.recent_toggles["Actions"].click()
+    assert not card.recent_buttons and len(card.recent_messages) == 2
+    # The last half shown stays shown.
+    card.recent_toggles["Conversation"].click()
+    assert card.recent_toggles["Conversation"].isChecked()
+    assert len(card.recent_messages) == 2
+    card.recent_toggles["Actions"].click()
+    card.recent_toggles["Conversation"].click()
+    assert len(card.recent_buttons) == 2 and not card.recent_messages
+    # Folded, its newest line beside the link.
+    card.recent_link.click()
+    assert card.recent_last.text() == "last: Chamber · Vent, refused"
+    card.deleteLater()
+
+
+def test_a_long_message_folds_with_more(qapp):
+    from PyQt5.QtWidgets import QPushButton
+
+    from fibsem.ui.agent.card import FOLD_CHARS
+
+    long = "The trench is clean on both sides. " * 40
+    card = AgentCard()
+    card.set_level(AgentLevel.DRIVE)
+    card.set_recent([RecentRow("06:58", long, "", "muted", kind="note")])
+    (body,) = card.recent_messages
+    assert body.text().endswith("…") and len(body.text()) <= FOLD_CHARS + 2
+    (more,) = [b for b in card.findChildren(QPushButton) if b.text() == "more"]
+    more.click()
+    (body,) = card.recent_messages
+    assert body.text() == long
+    card.deleteLater()
+
+
+def test_the_message_box_grows_and_shift_enter_starts_a_line(qapp):
+    from PyQt5.QtCore import QEvent, Qt
+    from PyQt5.QtGui import QKeyEvent
+
+    card = AgentCard()
+    card.set_last_heard("Agent · last heard 4 s ago", heard=True)
+    card.setFixedWidth(560)
+    card.show()
+    box = card.message_edit
+    one = box.height()
+    box.setText("one\ntwo\nthree")
+    qapp.processEvents()
+    assert box.height() > one
+    sent = []
+    card.message_sent.connect(sent.append)
+    shift = QKeyEvent(QEvent.KeyPress, Qt.Key_Return, Qt.ShiftModifier)
+    box.keyPressEvent(shift)
+    assert not sent and box.text().count("\n") == 3
+    box.keyPressEvent(QKeyEvent(QEvent.KeyPress, Qt.Key_Return, Qt.NoModifier))
+    assert sent == ["one\ntwo\nthree"]
+    card.deleteLater()
+
+
+def test_floating_recent_takes_the_spare_height(qapp):
+    """Patrick 2026-10-20: a taller card grew an empty space under the
+    controls, not the conversation."""
+    card = AgentCard()
+    card.set_level(AgentLevel.DRIVE)
+    card.set_recent(_conversation())
+    card.set_floating(True)
+    card.setFixedSize(560, 1000)
+    card.show()
+    qapp.processEvents()
+    assert card.recent_scroll.height() > 600
+    card.set_floating(False)
+    qapp.processEvents()
+    assert card.recent_scroll.height() <= 360
+    card.deleteLater()
+
+
+def test_recent_follows_the_newest_row_unless_scrolled_up(qapp):
+    rows = [
+        RecentRow(f"06:{i:02d}", f"Note {i}", "", "muted", kind="note")
+        for i in range(30)
+    ]
+    card = AgentCard()
+    card.set_level(AgentLevel.DRIVE)
+    card.setFixedSize(560, 700)
+    card.show()
+    card.set_recent(rows)
+    qapp.processEvents()
+    bar = card.recent_scroll.verticalScrollBar()
+    assert bar.maximum() > 0 and bar.value() == bar.maximum()
+    card.set_recent(rows + [RecentRow("07:00", "Note 30", "", "muted", kind="note")])
+    qapp.processEvents()
+    assert bar.value() == bar.maximum()
+    # Scrolled up to read: a new row keeps the place.
+    bar.setValue(10)
+    card._recent_scrolled(10)
+    card.set_recent(rows[:2] + rows)
+    qapp.processEvents()
+    assert bar.value() == 10
+    card.deleteLater()
+
+
 def test_a_long_why_is_clamped_with_more(qapp):
     card = AgentCard()
     reason = "The trench floor is high on 01 in the 16:02 FIB image. " * 8
@@ -1095,8 +1225,8 @@ def test_at_drive_what_the_agent_does_shows_in_the_card_now_then_recent(qapp):
     qapp.processEvents()
     texts = [b.text() for b in chip.card.recent_buttons]
     assert texts == [
-        "Milled 'agent test mill'",
         "Stage · Move 2 µm in x",
+        "Milled 'agent test mill'",
     ]
     assert "move stage relative" not in _labels(chip.card)
     activity.follow_events(None)
@@ -1149,7 +1279,7 @@ def test_at_drive_each_direct_call_shows_in_now_then_recent_with_its_level(qapp)
         with control.take(AGENT, overview):
             buffer.append("command_started", dict(run, level="drive"))
             assert now() == overview
-            assert chip.card.recent_buttons[0].text() == overview
+            assert chip.card.recent_buttons[-1].text() == overview
             assert "running" in _labels(chip.card)
         buffer.append("command_ended", dict(run, state="done", level="drive"))
         with control.take(AGENT, "Milling · Run task 'trench'"):
@@ -1162,13 +1292,17 @@ def test_at_drive_each_direct_call_shows_in_now_then_recent_with_its_level(qapp)
     assert now() is None
     rows = [(r.text, r.outcome, r.level) for r in activity.recent]
     assert rows == [
-        ("Stopped the mill: through the lamella", "done", "drive"),
-        ("Milled 'trench'", "stopped", "drive"),
-        (overview, "done", "drive"),
-        (image, "done", "drive"),
         (move, "done", "drive"),
+        (image, "done", "drive"),
+        (overview, "done", "drive"),
+        ("Milled 'trench'", "stopped", "drive"),
+        ("Stopped the mill: through the lamella", "done", "drive"),
     ]
-    assert _labels(chip.card).count("Drive") == 5
+    # The level is the outcome's tooltip.
+    from PyQt5.QtWidgets import QLabel
+
+    words = chip.card.findChildren(QLabel, "agentOutcome")
+    assert sum("at Drive" in word.toolTip() for word in words) == 5
     activity.follow_events(None)
     activity.set_microscope(None)
     chip.deleteLater()

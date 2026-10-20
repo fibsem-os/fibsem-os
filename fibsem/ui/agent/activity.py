@@ -142,7 +142,7 @@ class AgentActivity(QObject):
 
     @property
     def recent(self) -> List[RecentRow]:
-        """What the agent did lately, newest first."""
+        """What the agent did lately, oldest first."""
         return self._recent.rows
 
     def follow_events(self, buffer) -> None:

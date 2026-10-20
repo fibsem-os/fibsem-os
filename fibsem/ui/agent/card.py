@@ -11,9 +11,12 @@ The chip in the status bar opens it. It holds, top to bottom:
   pending proposal, with Decline… and Approve;
 * what the agent did lately, Recent: open at first at Drive, where it acts
   without asking, folded to its last line below it (FIB-1414); the event log
-  at its right;
-* a line to message the agent, once one has been heard from, which it hears
-  from its watch and answers with a note (FIB-1423);
+  at its right. Open, it is one timeline, oldest first like a chat: the
+  conversation (the operator's messages, the agent's replies and notes, whole,
+  in Markdown) and the agent's actions (one line, how each ended in a word),
+  either or both shown;
+* a box to message the agent, once one has been heard from, which it hears
+  from its watch and answers with a note (FIB-1423); it grows with the text;
 * the controls: the level, drawn as the chip draws it, a menu of the four with
   what each allows (FIB-1418); Stop agent, drawn the same way; who the agent is
   and when it was last heard from.
@@ -31,8 +34,15 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from PyQt5.QtCore import QSize, Qt, pyqtSignal
-from PyQt5.QtGui import QImage, QMouseEvent, QPainter, QPixmap
+from PyQt5.QtCore import QSize, Qt, QTimer, pyqtSignal
+from PyQt5.QtGui import (
+    QFontMetrics,
+    QImage,
+    QKeyEvent,
+    QMouseEvent,
+    QPainter,
+    QPixmap,
+)
 from PyQt5.QtWidgets import (
     QAction,
     QActionGroup,
@@ -45,6 +55,7 @@ from PyQt5.QtWidgets import (
     QLayout,
     QLineEdit,
     QMenu,
+    QPlainTextEdit,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -74,6 +85,7 @@ from fibsem.ui.tokens import (
     PANEL_COLOR,
     PURPLE_COLOR,
     RED_COLOR,
+    ROW_ALT_COLOR,
     SURFACE_COLOR,
     TEXT_COLOR,
     TEXT_MUTED_COLOR,
@@ -97,6 +109,7 @@ ENLARGED_WIDTH = 1024
 # How a Recent row ended (agent_recent's tones), as a colour.
 _TONES = {
     "waiting": WAITING_COLOR,
+    "running": ACCENT_COLOR,
     "ok": OK_COLOR,
     "error": RED_COLOR,
     "muted": TEXT_MUTED_COLOR,
@@ -108,6 +121,15 @@ STACK_BELOW = 600
 NARROWEST = 360
 # The longest message to the agent, in characters (FIB-1423).
 MESSAGE_LIMIT = 2000
+# The message box grows to this many lines, then scrolls.
+MESSAGE_LINES = 6
+# A message longer than this many lines, or characters, folds, with "more".
+FOLD_LINES = 12
+FOLD_CHARS = 600
+# Recent's height on the chip; floating, it takes the window's spare height.
+RECENT_HEIGHT = 360
+# Recent's two halves, as its toggles name them.
+CONVERSATION, ACTIONS = "Conversation", "Actions"
 
 _CARD = f"""
     #agentCard {{ background: {SURFACE_COLOR}; }}
@@ -117,7 +139,7 @@ _CARD = f"""
         background: {PANEL_COLOR}; border-radius: 3px;
     }}
     #agentRule {{ background: {BORDER_COLOR}; }}
-    #agentCard QLineEdit {{
+    #agentCard QLineEdit, #agentCard QPlainTextEdit {{
         background: {PANEL_COLOR}; border: 1px solid {BORDER_COLOR}; border-radius: 3px;
         padding: 4px 6px;
         color: {TEXT_STRONG_COLOR};
@@ -130,6 +152,18 @@ _CARD = f"""
     #agentRecent {{ color: {TEXT_COLOR}; padding: 1px 0px; }}
     #agentRecent:hover {{ color: {TEXT_STRONG_COLOR}; }}
     #agentRecentRows {{ background: {PANEL_COLOR}; border-radius: 3px; }}
+    #agentRecentScroll {{ background: transparent; border: none; }}
+    #agentYou {{ background: {ROW_ALT_COLOR}; }}
+    #agentMessage {{ background: transparent; }}
+    #agentRowRule {{ background: {BORDER_COLOR}; }}
+    #agentToggle {{
+        background: transparent; color: {TEXT_MUTED_COLOR}; border: none;
+        padding: 0px 0px 1px 0px;
+    }}
+    #agentToggle:checked {{
+        color: {TEXT_STRONG_COLOR}; font-weight: bold;
+        border-bottom: 1px solid {TEXT_STRONG_COLOR};
+    }}
 """
 
 
@@ -212,6 +246,82 @@ class _RecentLine(QLabel):
 
     def click(self) -> None:
         self.clicked.emit()
+
+
+class _MessageBox(QPlainTextEdit):
+    """The message to the agent: grows with its text up to `MESSAGE_LINES`
+    lines, then scrolls. Enter sends; Shift+Enter starts a new line."""
+
+    send = pyqtSignal()
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setTabChangesFocus(True)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # type: ignore
+        self.document().setDocumentMargin(2)
+        self.textChanged.connect(self._changed)
+        self._fit()
+
+    def text(self) -> str:
+        return self.toPlainText()
+
+    def setText(self, text: str) -> None:  # noqa: N802 - QLineEdit's name
+        self.setPlainText(text)
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802 - Qt's name
+        enter = event.key() in (Qt.Key_Return, Qt.Key_Enter)  # type: ignore
+        if enter and not event.modifiers() & Qt.ShiftModifier:  # type: ignore
+            self.send.emit()
+            return
+        super().keyPressEvent(event)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt's name
+        super().resizeEvent(event)
+        self._fit()
+
+    def _changed(self) -> None:
+        text = self.toPlainText()
+        if len(text) > MESSAGE_LIMIT:
+            self.blockSignals(True)
+            self.setPlainText(text[:MESSAGE_LIMIT])
+            self.moveCursor(self.textCursor().End)
+            self.blockSignals(False)
+        self._fit()
+
+    def _fit(self) -> None:
+        # The document counts wrapped lines once laid out at this width.
+        lines = max(1, min(MESSAGE_LINES, int(self.document().size().height())))
+        self.setVerticalScrollBarPolicy(
+            Qt.ScrollBarAsNeeded if lines == MESSAGE_LINES else Qt.ScrollBarAlwaysOff  # type: ignore
+        )
+        margins = self.contentsMargins()
+        height = (
+            lines * self.fontMetrics().lineSpacing()
+            + 2 * self.document().documentMargin()
+            + margins.top()
+            + margins.bottom()
+            + 10  # the stylesheet's padding
+        )
+        self.setFixedHeight(int(height))
+
+
+def _folded(text: str) -> Optional[str]:
+    """A long message cut at a line or a word, "…" at its end; None when it
+    is short enough to show whole."""
+    lines = text.splitlines()
+    if len(lines) <= FOLD_LINES and len(text) <= FOLD_CHARS:
+        return None
+    cut = "\n".join(lines[:FOLD_LINES])
+    if len(cut) > FOLD_CHARS:
+        cut = cut[:FOLD_CHARS].rsplit(" ", 1)[0]
+    return cut.rstrip() + " …"
+
+
+def _rule() -> QFrame:
+    rule = QFrame()
+    rule.setObjectName("agentRowRule")
+    rule.setFixedHeight(1)
+    return rule
 
 
 def _section(text: str) -> QLabel:
@@ -498,6 +608,10 @@ class AgentCard(QFrame):
         self._wide = True
         self._level = AgentLevel.WATCH
         self._recent: List[Any] = []
+        # Recent's halves shown, and the long messages opened past "more".
+        self._halves = {CONVERSATION: True, ACTIONS: True}
+        self._unfolded: set = set()
+        self._floating = False
         # The operator's choice to show Recent, per level, for the session.
         self._recent_choice: Dict[AgentLevel, bool] = {}
         # The agent's evidence images by id, as drawn (`previews`).
@@ -530,7 +644,6 @@ class AgentCard(QFrame):
         self.float_button.setCursor(Qt.PointingHandCursor)  # type: ignore
         self.float_button.clicked.connect(self.float_clicked)
         head.addWidget(self.float_button)
-        self.set_floating(False)
         self.head = head
         layout.addLayout(head)
 
@@ -561,6 +674,28 @@ class AgentCard(QFrame):
         self.recent_last = _ElidedLabel(TEXT_MUTED_COLOR)
         self.recent_last.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         recent.addWidget(self.recent_last, 1)
+        # Open: which halves show, either or both (the last one on stays on).
+        self.recent_filter = QWidget()
+        toggles = QHBoxLayout(self.recent_filter)
+        toggles.setContentsMargins(0, 0, 0, 0)
+        toggles.setSpacing(6)
+        self.recent_toggles: Dict[str, QPushButton] = {}
+        for word in (CONVERSATION, ACTIONS):
+            if self.recent_toggles:
+                toggles.addWidget(_label("·", TEXT_MUTED_COLOR, small=True))
+            toggle = _link(word)
+            toggle.setObjectName("agentToggle")
+            # As wide as the word in bold, which it is while on.
+            bold = toggle.font()
+            bold.setBold(True)
+            toggle.setMinimumWidth(QFontMetrics(bold).horizontalAdvance(word) + 2)
+            toggle.setCheckable(True)
+            toggle.setChecked(True)
+            toggle.toggled.connect(lambda on, w=word: self._toggle_half(w, on))
+            toggles.addWidget(toggle)
+            self.recent_toggles[word] = toggle
+        toggles.addStretch(1)
+        recent.addWidget(self.recent_filter, 1)
         self.event_log_link = _link("Event log")
         self.event_log_link.setToolTip(
             "What the agent, the operator and the run did, in your browser."
@@ -568,9 +703,24 @@ class AgentCard(QFrame):
         self.event_log_link.clicked.connect(self.event_log_clicked)
         recent.addWidget(self.event_log_link)
         layout.addLayout(recent)
-        self._recent_rows = QVBoxLayout()
-        self._recent_rows.setSpacing(2)
-        layout.addLayout(self._recent_rows)
+        # The timeline: rebuilt whole on each change, at most `recent.SIZE` rows.
+        self.recent_scroll = QScrollArea()
+        self.recent_scroll.setObjectName("agentRecentScroll")
+        self.recent_scroll.setWidgetResizable(True)
+        self.recent_scroll.setFrameShape(QFrame.NoFrame)
+        self.recent_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # type: ignore
+        # Kept at the newest row unless the operator scrolled up to read, and
+        # then where they were, across rebuilds.
+        self._recent_at_end = True
+        self._recent_kept = 0
+        bar = self.recent_scroll.verticalScrollBar()
+        bar.rangeChanged.connect(self._recent_range_changed)
+        bar.sliderMoved.connect(self._recent_scrolled)
+        # A wheel, arrow or page step: read where it landed once it has moved.
+        bar.actionTriggered.connect(
+            lambda _: QTimer.singleShot(0, lambda: self._recent_scrolled(bar.value()))
+        )
+        layout.addWidget(self.recent_scroll)
 
         # A message to the agent (FIB-1423): it hears it from its watch and
         # answers with a note. It is not an approval: the level still decides.
@@ -579,18 +729,19 @@ class AgentCard(QFrame):
         message = QHBoxLayout(self.message_row)
         message.setContentsMargins(0, 0, 0, 0)
         message.setSpacing(8)
-        self.message_edit = QLineEdit()
-        self.message_edit.setPlaceholderText("Message the agent")
-        self.message_edit.setMaxLength(MESSAGE_LIMIT)
+        self.message_edit = _MessageBox()
+        self.message_edit.setPlaceholderText(
+            "Message the agent (Shift+Enter for a new line)"
+        )
         self.message_edit.setToolTip(
             "The agent reads it and answers with a note. It is not an approval: "
             "what the agent may do still depends on its level."
         )
-        self.message_edit.returnPressed.connect(self._send_message)
+        self.message_edit.send.connect(self._send_message)
         message.addWidget(self.message_edit, 1)
         self.send_button = _button("Send")
         self.send_button.clicked.connect(self._send_message)
-        message.addWidget(self.send_button)
+        message.addWidget(self.send_button, 0, Qt.AlignBottom)  # type: ignore
         layout.addWidget(self.message_row)
 
         rule = QFrame()
@@ -627,9 +778,11 @@ class AgentCard(QFrame):
         self._about = QHBoxLayout()
         self._about.setSpacing(10)
         layout.addLayout(self._about)
-        # A tall floating window keeps the rows packed at the top (FIB-1427).
+        # A tall floating window keeps the rows packed at the top (FIB-1427),
+        # unless Recent is open: then the timeline takes the height.
         layout.addStretch(1)
 
+        self.set_floating(False)
         self.set_level(AgentLevel.WATCH)
         self.set_last_heard(None)
         self.set_keep_on_top(False)
@@ -656,7 +809,7 @@ class AgentCard(QFrame):
         return self._recent_choice.get(self._level, self._level is AgentLevel.DRIVE)
 
     def set_recent(self, rows: List[Any]) -> None:
-        """What the agent did lately, newest first (`recent.RecentRow`)."""
+        """What the agent did lately, oldest first (`recent.RecentRow`)."""
         rows = list(rows)
         if rows == self._recent:
             return
@@ -746,7 +899,10 @@ class AgentCard(QFrame):
 
     def set_floating(self, floating: bool) -> None:
         """Whether the card is in its own window: its button then puts it back,
-        and the pin keeps it on top of every window."""
+        the pin keeps it on top of every window, and Recent takes the window's
+        spare height."""
+        self._floating = floating
+        self._place_recent()
         self.pin_button.setVisible(floating)
         self.float_button.setIcon(
             fibsem_icon(
@@ -1176,64 +1332,189 @@ class AgentCard(QFrame):
 
     def _render_recent(self) -> None:
         """Recent, under what waits: folded, its newest line beside the link;
-        open, one row per action (a long one wraps), how it ended at the right,
-        a click away from the event log."""
-        _clear(self._recent_rows)
+        open, one timeline, oldest first: the conversation as blocks, yours a
+        shade lighter, the actions one line each with how they ended, a click
+        away from the event log. Both shown, the actions sit quieter between
+        the messages."""
         shown = self.recent_shown
         self.recent_link.setText("Recent ▾" if shown else "Recent ▸")
-        newest = self._recent[0] if self._recent else None
+        self.recent_last.setVisible(not shown)
+        self.recent_filter.setVisible(shown)
+        self.recent_scroll.setVisible(shown)
+        newest = self._recent[-1] if self._recent else None
         last = ""
         if newest is not None and not shown:
-            # A message or a note has no outcome to add.
-            last = ", ".join(t for t in (newest.text, newest.outcome) if t)
+            if newest.conversation:
+                head = {"you": "You", "reply": "Reply"}.get(newest.kind, "Note")
+                last = f"{head}: {newest.text.split(chr(10), 1)[0]}"
+            else:
+                last = ", ".join(t for t in (newest.text, newest.outcome) if t)
             last = f"last: {last}"
         self.recent_last.setText(last)
         self.recent_buttons = []
+        self.recent_messages = []
         self.recent_evidence = []
+        self._place_recent()
         if not shown:
             self.updateGeometry()
             return
         box = QFrame()
         box.setObjectName("agentRecentRows")
         rows = QVBoxLayout(box)
-        rows.setContentsMargins(10, 6, 10, 6)
-        rows.setSpacing(2)
-        if not self._recent:
-            rows.addWidget(_label("Nothing yet.", TEXT_MUTED_COLOR, small=True))
-        for row in self._recent:
-            line = QHBoxLayout()
-            line.setSpacing(12)
-            top = Qt.AlignTop  # type: ignore
-            line.addWidget(_label(row.when, TEXT_MUTED_COLOR, small=True), 0, top)
-            # A long line wraps under itself, not allowed to widen the card.
-            button = _RecentLine(row.text)
-            button.setToolTip("Open the event log")
-            button.clicked.connect(self.event_log_clicked)
-            line.addWidget(button, 1)
-            evidence = getattr(row, "evidence", None)
-            if evidence:
-                link = _link("evidence")
-                link.setToolTip("Open the image the agent judged from")
-                link.clicked.connect(
-                    lambda _=False, e=evidence, t=row.text: self.open_evidence(e, t)
-                )
-                line.addWidget(link, 0, top)
-                self.recent_evidence.append(link)
-            line.addWidget(
-                _label(row.outcome, _TONES.get(row.tone, TEXT_MUTED_COLOR), small=True),
-                0,
-                top,
-            )
-            # At which level it was done (FIB-1426): Assist's were approved.
-            level = str(getattr(row, "level", "") or "")
-            tag = _label(level.title(), TEXT_MUTED_COLOR, small=True)
-            tag.setObjectName("agentLevelTag")
-            tag.setVisible(bool(level))
-            line.addWidget(tag, 0, top)
-            rows.addLayout(line)
-            self.recent_buttons.append(button)
-        self._recent_rows.addWidget(box)
+        rows.setContentsMargins(0, 0, 0, 0)
+        rows.setSpacing(0)
+        both = all(self._halves.values())
+        picked = [
+            row
+            for row in self._recent
+            if self._halves[CONVERSATION if row.conversation else ACTIONS]
+        ]
+        if not picked:
+            empty = _label("Nothing yet.", TEXT_MUTED_COLOR, small=True)
+            empty.setContentsMargins(10, 6, 10, 6)
+            rows.addWidget(empty)
+        for index, row in enumerate(picked):
+            if index:
+                rows.addWidget(_rule())
+            if row.conversation:
+                rows.addWidget(self._message_block(row))
+            else:
+                rows.addWidget(self._action_line(row, quiet=both))
+        rows.addStretch(1)
+        self.recent_scroll.setWidget(box)
         self.updateGeometry()
+
+    def _evidence_link(self, row: Any) -> Optional[QPushButton]:
+        evidence = getattr(row, "evidence", None)
+        if not evidence:
+            return None
+        link = _link("evidence")
+        link.setToolTip("Open the image the agent judged from")
+        link.clicked.connect(
+            lambda _=False, e=evidence, t=row.text: self.open_evidence(e, t)
+        )
+        self.recent_evidence.append(link)
+        return link
+
+    def _message_block(self, row: Any) -> QWidget:
+        """One message: who and when, then the text, the agent's in Markdown;
+        a long one folds to `FOLD_LINES` lines, with "more"."""
+        block = QFrame()
+        block.setObjectName("agentYou" if row.kind == "you" else "agentMessage")
+        column = QVBoxLayout(block)
+        column.setContentsMargins(10, 7, 10, 8)
+        column.setSpacing(3)
+        head = QHBoxLayout()
+        head.setSpacing(6)
+        who = {"you": "You", "reply": "Agent"}.get(row.kind, "Agent · note")
+        head.addWidget(_label(who, TEXT_STRONG_COLOR, small=True, bold=True))
+        head.addWidget(_label(row.when, TEXT_MUTED_COLOR, small=True))
+        head.addStretch(1)
+        link = self._evidence_link(row)
+        if link is not None:
+            head.addWidget(link)
+        column.addLayout(head)
+        key = (row.when, row.kind, row.text)
+        folded = _folded(row.text)
+        unfolded = key in self._unfolded
+        body = QLabel(row.text if folded is None or unfolded else folded)
+        body.setTextFormat(
+            Qt.PlainText if row.kind == "you" else Qt.MarkdownText  # type: ignore
+        )
+        body.setWordWrap(True)
+        body.setOpenExternalLinks(False)
+        body.setTextInteractionFlags(Qt.TextSelectableByMouse)  # type: ignore
+        body.setStyleSheet(f"color: {TEXT_COLOR};")
+        column.addWidget(body)
+        self.recent_messages.append(body)
+        if folded is not None:
+            more = _link("less" if unfolded else "more")
+            more.clicked.connect(lambda _=False, k=key: self._unfold(k))
+            column.addWidget(more, 0, Qt.AlignLeft)  # type: ignore
+        return block
+
+    def _action_line(self, row: Any, quiet: bool) -> QWidget:
+        """One action: when, what (a click opens the event log), how it ended
+        in a word, and on a muted line under it why it failed or was refused.
+        The level and why it ended otherwise are the word's tooltip. Between
+        messages it is smaller and muted."""
+        holder = QWidget()
+        line = QHBoxLayout(holder)
+        margin = 4 if quiet else 6
+        line.setContentsMargins(10, margin, 10, margin)
+        line.setSpacing(12)
+        top = Qt.AlignTop  # type: ignore
+        when = _label(row.when, TEXT_MUTED_COLOR, small=True)
+        when.setFixedWidth(when.fontMetrics().horizontalAdvance("00:00") + 2)
+        line.addWidget(when, 0, top)
+        text = QVBoxLayout()
+        text.setSpacing(1)
+        # A long line wraps under itself, not allowed to widen the card.
+        button = _RecentLine(row.text)
+        button.setToolTip("Open the event log")
+        button.clicked.connect(self.event_log_clicked)
+        if quiet:
+            font = button.font()
+            font.setPointSizeF(font.pointSizeF() - 1)
+            button.setFont(font)
+            button.setStyleSheet(f"color: {TEXT_MUTED_COLOR};")
+        text.addWidget(button)
+        why = str(getattr(row, "why", "") or "")
+        if why and row.tone == "error":
+            text.addWidget(_label(why, TEXT_MUTED_COLOR, small=True, wrap=True))
+        line.addLayout(text, 1)
+        link = self._evidence_link(row)
+        if link is not None:
+            line.addWidget(link, 0, top)
+        word = _label(row.outcome, _TONES.get(row.tone, TEXT_MUTED_COLOR), small=True)
+        word.setObjectName("agentOutcome")
+        # At which level it was done (FIB-1426): Assist's were approved.
+        level = str(getattr(row, "level", "") or "")
+        tip = [f"{row.outcome}: {why}" if why else row.outcome]
+        tip.append(
+            " · ".join(
+                t for t in (f"at {level.title()}" if level else "", row.when) if t
+            )
+        )
+        word.setToolTip("\n".join(t for t in tip if t))
+        line.addWidget(word, 0, top)
+        self.recent_buttons.append(button)
+        return holder
+
+    def _toggle_half(self, half: str, on: bool) -> None:
+        """Show or hide one half of Recent; the last one shown stays."""
+        if not on and not any(v for k, v in self._halves.items() if k != half):
+            toggle = self.recent_toggles[half]
+            toggle.blockSignals(True)
+            toggle.setChecked(True)
+            toggle.blockSignals(False)
+            return
+        self._halves[half] = on
+        self._render_recent()
+
+    def _unfold(self, key: Any) -> None:
+        self._unfolded ^= {key}
+        self._render_recent()
+
+    def _recent_scrolled(self, value: int) -> None:
+        """The operator moved the timeline: follow the newest row only while
+        they are at it."""
+        bar = self.recent_scroll.verticalScrollBar()
+        self._recent_at_end = value >= bar.maximum() - 4
+        self._recent_kept = value
+
+    def _recent_range_changed(self, _low: int, high: int) -> None:
+        bar = self.recent_scroll.verticalScrollBar()
+        bar.setValue(high if self._recent_at_end else min(self._recent_kept, high))
+
+    def _place_recent(self) -> None:
+        """Floating with Recent open, the timeline takes the window's spare
+        height; on the chip, it scrolls past `RECENT_HEIGHT`."""
+        layout = self.layout()
+        grow = self._floating and self.recent_shown
+        layout.setStretchFactor(self.recent_scroll, 1 if grow else 0)
+        layout.setStretch(layout.count() - 1, 0 if grow else 1)
+        self.recent_scroll.setMaximumHeight(16777215 if grow else RECENT_HEIGHT)
 
     def _send_message(self) -> None:
         text = self.message_edit.text().strip()

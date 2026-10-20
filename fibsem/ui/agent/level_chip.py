@@ -73,7 +73,7 @@ PULSE_STEP_MS = 50
 # The card's width on the chip: wide while something waits for the operator (the
 # actions beside the reason and the decision), narrow otherwise.
 WIDE_WIDTH = 780
-NARROW_WIDTH = 440
+NARROW_WIDTH = 560
 
 _LEVELS = {
     level: (LEVEL_WORDS[level], LEVEL_STYLES[level], LEVEL_TIPS[level])
