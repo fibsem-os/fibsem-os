@@ -501,6 +501,13 @@ class RequestStore:
                     f"Action {index + 1}: {tool} is not served here (the App "
                     "Server's devices setting is off).",
                 )
+            if spec.part and spec.part not in self._mounted:
+                raise RequestRefused(
+                    422,
+                    "not_available",
+                    f"Action {index + 1}: {tool} is not served here (this app "
+                    f"has no {spec.part.replace('_', ' ')}).",
+                )
             if not isinstance(arguments, dict):
                 raise RequestRefused(
                     422,

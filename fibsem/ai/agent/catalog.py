@@ -17,6 +17,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Optional, Tuple
 
+from fibsem.server.parts import GRIDS, ITEMS, LAMELLAE, MILLING_STAGES, POSES
+
 
 @dataclass(frozen=True)
 class ToolSpec:
@@ -35,6 +37,9 @@ class ToolSpec:
     # app_context; "services" (the analysis services) and "base" always.
     # /capabilities reports which.
     router: str = "microscope"
+    # The optional /app part that serves it (fibsem.server.parts); "" for the
+    # core. /capabilities lists the parts the app serves.
+    part: str = ""
     # Commands or changes the microscope, so takes control of it (FIB-1270).
     hardware: bool = False
     # The level note, where the level alone does not say it (request_create).
@@ -1252,6 +1257,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/experiment/items/{item_name}",
         level="watch",
         router="app",
+        part=ITEMS,
         params={"item_name": "the item (lamella) name"},
     ),
     ToolSpec(
@@ -1261,6 +1267,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/experiment/items/{item_name}/outputs",
         level="watch",
         router="app",
+        part=ITEMS,
         params={"item_name": "the item (lamella) name"},
     ),
     ToolSpec(
@@ -1270,6 +1277,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/experiment/items/{item_name}/outputs/{filename}",
         level="watch",
         router="app",
+        part=ITEMS,
         params={
             "item_name": "the item (lamella) name",
             "filename": "a basename from item_list_outputs",
@@ -1282,6 +1290,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/experiment/items/{item_name}/outputs/{filename}/thickness",
         level="watch",
         router="app",
+        part=LAMELLAE,
         params={
             "item_name": "the item (lamella) name",
             "filename": "a FIB image basename from item_list_outputs",
@@ -1373,6 +1382,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/experiment/grids",
         level="watch",
         router="app",
+        part=GRIDS,
     ),
     ToolSpec(
         name="grid_get",
@@ -1381,6 +1391,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/experiment/grids/{grid_name}",
         level="watch",
         router="app",
+        part=GRIDS,
         params={"grid_name": "the grid name"},
     ),
     ToolSpec(
@@ -1390,6 +1401,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/experiment/grids/{grid_name}/outputs/{filename}",
         level="watch",
         router="app",
+        part=GRIDS,
         params={
             "grid_name": "the grid name",
             "filename": "an overview basename from grid_list / grid_get",
@@ -1402,6 +1414,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/experiment/grids/{grid_name}/outputs/{filename}/stage_position",
         level="watch",
         router="app",
+        part=GRIDS,
         params={
             "grid_name": "the grid name",
             "filename": "an overview basename from grid_list / grid_get",
@@ -1419,6 +1432,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/experiment/grids/{grid_name}/outputs/{filename}/markers",
         level="watch",
         router="app",
+        part=GRIDS,
         params={
             "grid_name": "the grid name",
             "filename": "an overview basename from grid_list / grid_get",
@@ -1436,6 +1450,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/experiment/grids",
         level="drive",
         router="app",
+        part=GRIDS,
     ),
     ToolSpec(
         name="grid_rename",
@@ -1450,6 +1465,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/experiment/grids/{grid_name}/rename",
         level="drive",
         router="app",
+        part=GRIDS,
         params={
             "grid_name": "the grid's name now, from grid_list or grid_get_inventory",
             "name": "its new name",
@@ -1462,6 +1478,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/experiment/grids/{grid_name}/quality",
         level="drive",
         router="app",
+        part=GRIDS,
         params={
             "grid_name": "the grid name, from grid_list",
             "verdict": "GOOD, REWORK, FAILED, or UNASSESSED to clear",
@@ -1476,6 +1493,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/experiment/grids/{grid_name}/note",
         level="drive",
         router="app",
+        part=GRIDS,
         params={
             "grid_name": "the grid name, from grid_list",
             "note": "the note, at most 4000 characters ('' clears it)",
@@ -1488,6 +1506,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/experiment/grids/{grid_name}",
         level="drive",
         router="app",
+        part=GRIDS,
         params={"grid_name": "the grid name, from grid_list"},
     ),
     # The grids on the hardware: the sample handling service, which loads them
@@ -1614,6 +1633,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/experiment/items/{item_name}/task_config/{task_name}",
         level="watch",
         router="app",
+        part=ITEMS,
         params={
             "item_name": "the item (lamella) name",
             "task_name": "the task name, as listed by protocol_get",
@@ -1683,6 +1703,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/experiment/items/{item_name}/apply_protocol",
         level="drive",
         router="app",
+        part=ITEMS,
         params={
             "item_name": "the item (lamella) name",
             "task_names": "optional list of task names; omitted = every task in the protocol",
@@ -1696,6 +1717,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/experiment/items",
         level="drive",
         router="app",
+        part=ITEMS,
         params={
             "name": "optional name; the app picks one when omitted",
             "stage_position": "optional {x, y, z, r, t} (metres, radians) to add at",
@@ -1710,6 +1732,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/experiment/items/{item_name}",
         level="drive",
         router="app",
+        part=ITEMS,
         params={"item_name": "the item (lamella) name"},
     ),
     ToolSpec(
@@ -1720,6 +1743,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/experiment/items/{item_name}/move_to",
         level="drive",
         router="app",
+        part=POSES,
         hardware=True,
         params={"item_name": "the item (lamella) name", "pose": "the pose name"},
     ),
@@ -1730,6 +1754,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/experiment/items/{item_name}/poses/{pose}",
         level="drive",
         router="app",
+        part=POSES,
         params={"item_name": "the item (lamella) name", "pose": "the pose name"},
     ),
     ToolSpec(
@@ -1739,6 +1764,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/experiment/items/{item_name}/correlation",
         level="drive",
         router="app",
+        part=LAMELLAE,
         params={
             "item_name": "the item (lamella) name",
             "run_path": "the run folder correlation_correlate answered",
@@ -1751,6 +1777,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/experiment/items/{item_name}/objective_position",
         level="drive",
         router="app",
+        part=POSES,
         params={"item_name": "the item (lamella) name"},
     ),
     ToolSpec(
@@ -1760,6 +1787,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/experiment/items/{item_name}/objective/move_to",
         level="drive",
         router="app",
+        part=POSES,
         hardware=True,
         params={"item_name": "the item (lamella) name"},
     ),
@@ -1770,6 +1798,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/experiment/items/{item_name}/task_config/{task_name}/stages/reorder",
         level="drive",
         router="app",
+        part=MILLING_STAGES,
         params={
             "item_name": "the item (lamella) name",
             "task_name": "the task name",
@@ -1785,6 +1814,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/experiment/protocol/task_config/{task_name}/stages/reorder",
         level="drive",
         router="app",
+        part=MILLING_STAGES,
         params={
             "task_name": "the task name",
             "milling_key": "which milling config within the task",
@@ -1825,6 +1855,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/experiment/items/{item_name}",
         level="drive",
         router="app",
+        part=ITEMS,
         params={
             "item_name": "the item (lamella) name",
             "patch": "object of dotted-path: value entries to set",
@@ -1895,6 +1926,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/experiment/protocol/lamella_defaults",
         level="drive",
         router="app",
+        part=LAMELLAE,
         params={
             "use_petname": "true to name new items with petnames",
             "name_prefix": "the prefix for new item names",
@@ -1923,6 +1955,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/experiment/grid_protocol/task_config/{task_name}",
         level="watch",
         router="app",
+        part=GRIDS,
         params={"task_name": "a grid task name, from protocol_get's grid_tasks"},
     ),
     ToolSpec(
@@ -1932,6 +1965,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/experiment/grid_protocol/task_config/{task_name}",
         level="drive",
         router="app",
+        part=GRIDS,
         params={
             "task_name": "a grid task name, from protocol_get's grid_tasks",
             "patch": "object of dotted-path: value entries to set",
@@ -1945,6 +1979,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/experiment/grid_protocol/tasks/reorder",
         level="drive",
         router="app",
+        part=GRIDS,
         params={"order": "every grid task name, in the new order"},
     ),
     ToolSpec(
@@ -1954,6 +1989,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/experiment/grid_protocol/tasks/{task_name}/requirements",
         level="drive",
         router="app",
+        part=GRIDS,
         params={
             "task_name": "a grid task name, from protocol_get's grid_tasks",
             "requires": "the grid tasks it needs first ([] for none)",
@@ -1966,6 +2002,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/experiment/items/{item_name}/task_config/{task_name}",
         level="drive",
         router="app",
+        part=ITEMS,
         params={
             "item_name": "the item (lamella) name",
             "task_name": "the task name, as listed by protocol_get",
@@ -2030,6 +2067,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/workflow/grids/plan",
         level="watch",
         router="app",
+        part=GRIDS,
         params={
             "task_names": "grid tasks to run, from the protocol's grid_tasks names",
             "grid_names": "grids to run them on; omit for every recorded grid",
@@ -2044,6 +2082,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/workflow/grids/start",
         level="drive",
         router="app",
+        part=GRIDS,
         params={
             "task_names": "grid tasks to run, from the protocol's grid_tasks names",
             "grid_names": "grids to run them on; omit for every recorded grid",
@@ -2099,6 +2138,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/workflow/queue/grids",
         level="drive",
         router="app",
+        part=GRIDS,
         params={
             "task_names": "grid tasks to add, from the protocol's grid_tasks names",
             "grid_names": "the grids to add them for",
@@ -2259,10 +2299,18 @@ def tools_for_capabilities(capabilities: Dict) -> Tuple[ToolSpec, ...]:
     its routes are off: the operator can turn them on mid-session, and until
     then each answers 404 ``microscope_off`` saying so, where tools fixed at
     start would need the agent to reconnect. Only the app's tools depend on
-    the routers: a server hosts an application or not for its whole life.
+    the routers and parts: a server hosts an application or not for its whole
+    life.
     """
     routers = dict(capabilities.get("routers", {}), base=True, microscope=True)
-    return tuple(t for t in CATALOG if routers.get(t.router, False))
+    # A server from before the parts lists none and serves them all.
+    parts = capabilities.get("parts")
+    return tuple(
+        t
+        for t in CATALOG
+        if routers.get(t.router, False)
+        and (not t.part or parts is None or t.part in parts)
+    )
 
 
 # --- From a tool call to its route call ---

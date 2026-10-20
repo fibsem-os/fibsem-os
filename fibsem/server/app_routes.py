@@ -8,7 +8,8 @@ reverse — so this module never imports the application. The application's
 Every route is a thin pass-through: the context returns plain JSON-able
 snapshots and owns all app knowledge; nothing here touches domain objects.
 The level each router needs is applied where it is included, so auth stays in
-one place (build_server).
+one place (build_server). A route of an optional part (fibsem.server.parts) is
+tagged with it and served only when the context implements that part.
 """
 
 import json
@@ -19,6 +20,14 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from fibsem.ai.agent.calls import current_call
 from fibsem.server import files
 from fibsem.server.auth import take_control
+from fibsem.server.parts import (
+    GRIDS,
+    ITEMS,
+    LAMELLAE,
+    MILLING_STAGES,
+    POSES,
+    served_parts,
+)
 from fibsem.workflows import evidence
 
 __all__ = [
@@ -26,7 +35,18 @@ __all__ = [
     "build_app_control_router",
     "build_app_router",
     "build_app_stop_router",
+    "build_app_suggest_router",
 ]
+
+
+def _served(router: APIRouter, context: Any) -> APIRouter:
+    """*router* without the routes of parts *context* doesn't implement (each
+    part route is tagged with its part)."""
+    served = set(served_parts(context))
+    router.routes = [
+        route for route in router.routes if not set(getattr(route, "tags", ())) - served
+    ]
+    return router
 
 
 def _grid_run_body(body: Dict[str, Any]):
@@ -219,11 +239,11 @@ def build_app_router(context: Any) -> APIRouter:
             raise HTTPException(status_code=status, detail=detail)
         return result
 
-    @router.get("/experiment/items/{item_name}/outputs")
+    @router.get("/experiment/items/{item_name}/outputs", tags=[ITEMS])
     def task_outputs(item_name: str):
         return context.task_outputs(item_name)
 
-    @router.get("/experiment/items/{item_name}")
+    @router.get("/experiment/items/{item_name}", tags=[ITEMS])
     def item_detail(item_name: str):
         return context.item_detail(item_name)
 
@@ -231,18 +251,20 @@ def build_app_router(context: Any) -> APIRouter:
     def protocol_task_config(task_name: str):
         return context.protocol_task_config(task_name)
 
-    @router.get("/experiment/items/{item_name}/task_config/{task_name}")
+    @router.get("/experiment/items/{item_name}/task_config/{task_name}", tags=[ITEMS])
     def item_task_config(item_name: str, task_name: str):
         return context.item_task_config(item_name, task_name)
 
-    @router.get("/experiment/items/{item_name}/outputs/{filename}")
+    @router.get("/experiment/items/{item_name}/outputs/{filename}", tags=[ITEMS])
     def output_image(item_name: str, filename: str):
         # Serves actual image/jpeg (not a JSON payload) so a browser <img>
         # can consume it; filename must be a basename the item's own
         # outputs listing names — the context refuses anything else.
         return _jpeg_or_404(context.output_image(item_name, filename))
 
-    @router.post("/experiment/items/{item_name}/outputs/{filename}/thickness")
+    @router.post(
+        "/experiment/items/{item_name}/outputs/{filename}/thickness", tags=[LAMELLAE]
+    )
     def measure_thickness(
         item_name: str, filename: str, body: Optional[Dict[str, Any]] = None
     ):
@@ -261,19 +283,21 @@ def build_app_router(context: Any) -> APIRouter:
             context.measure_thickness(item_name, filename, **window)
         )
 
-    @router.get("/experiment/grids")
+    @router.get("/experiment/grids", tags=[GRIDS])
     def grids():
         return context.grids()
 
-    @router.get("/experiment/grids/{grid_name}")
+    @router.get("/experiment/grids/{grid_name}", tags=[GRIDS])
     def grid_detail(grid_name: str):
         return context.grid_detail(grid_name)
 
-    @router.get("/experiment/grids/{grid_name}/outputs/{filename}")
+    @router.get("/experiment/grids/{grid_name}/outputs/{filename}", tags=[GRIDS])
     def grid_output_image(grid_name: str, filename: str):
         return _jpeg_or_404(context.grid_output_image(grid_name, filename))
 
-    @router.get("/experiment/grids/{grid_name}/outputs/{filename}/stage_position")
+    @router.get(
+        "/experiment/grids/{grid_name}/outputs/{filename}/stage_position", tags=[GRIDS]
+    )
     def overview_stage_position(
         grid_name: str,
         filename: str,
@@ -289,11 +313,13 @@ def build_app_router(context: Any) -> APIRouter:
             context.overview_stage_position(grid_name, filename, px, fraction)
         )
 
-    @router.get("/experiment/grids/{grid_name}/outputs/{filename}/markers")
+    @router.get(
+        "/experiment/grids/{grid_name}/outputs/{filename}/markers", tags=[GRIDS]
+    )
     def grid_markers(grid_name: str, filename: str):
         return context.grid_markers(grid_name, filename)
 
-    @router.get("/experiment/grid_protocol/task_config/{task_name}")
+    @router.get("/experiment/grid_protocol/task_config/{task_name}", tags=[GRIDS])
     def grid_task_config(task_name: str):
         return _answer_or_refusal(context.grid_task_config(task_name))
 
@@ -372,7 +398,7 @@ def build_app_router(context: Any) -> APIRouter:
     def proposals():
         return context.proposals()
 
-    @router.post("/workflow/grids/plan")
+    @router.post("/workflow/grids/plan", tags=[GRIDS])
     def grid_workflow_plan(body: Dict[str, Any]):
         # A POST on the read router because it computes, never acts: the
         # preflight dialog's content for a grid run, from a body a GET could
@@ -446,7 +472,7 @@ def build_app_router(context: Any) -> APIRouter:
         # what a page opened in the morning needs to show the night.
         return context.event_history(before=before, limit=limit)
 
-    return router
+    return _served(router, context)
 
 
 def _evidence_refused(refusal: evidence.EvidenceRefused) -> HTTPException:
@@ -587,7 +613,7 @@ def build_app_control_router(context: Any) -> APIRouter:
             )
         return context.start_workflow(task_names, item_names)
 
-    @router.post("/workflow/grids/start")
+    @router.post("/workflow/grids/start", tags=[GRIDS])
     def start_grid_workflow(body: Dict[str, Any]):
         # The Grids view's Run / Screen all grids, remotely. Shares the lamella
         # run's worker slot, so the context refuses it while any run is live.
@@ -638,14 +664,14 @@ def build_app_control_router(context: Any) -> APIRouter:
         )
         return _answer_or_refusal(context.edit_queue(item_name, task_name, action))
 
-    @router.post("/workflow/queue/grids")
+    @router.post("/workflow/queue/grids", tags=[GRIDS])
     def queue_grid_tasks(body: Dict[str, Any]):
         # The Grids view's Add to queue on a running grid run: at the end.
         task_names = _names(body, "task_names", "the grid tasks to add")
         grid_names = _names(body, "grid_names", "the grids to add them for")
         return context.queue_grid_tasks(task_names, grid_names)
 
-    return router
+    return _served(router, context)
 
 
 def build_app_suggest_router(context: Any) -> APIRouter:
@@ -708,7 +734,7 @@ def build_app_suggest_router(context: Any) -> APIRouter:
             )
         return result
 
-    return router
+    return _served(router, context)
 
 
 def build_app_stop_router(context: Any) -> APIRouter:
@@ -731,7 +757,7 @@ def build_app_stop_router(context: Any) -> APIRouter:
         task_name = _required_text(body, "task_name", "the task running")
         return context.stop_task(item_name, task_name)
 
-    return router
+    return _served(router, context)
 
 
 def build_app_config_router(context: Any) -> APIRouter:
@@ -762,7 +788,7 @@ def build_app_config_router(context: Any) -> APIRouter:
             context.apply_protocol_task_config_patch(task_name, patch, version)
         )
 
-    @router.post("/experiment/items/{item_name}/task_config/{task_name}")
+    @router.post("/experiment/items/{item_name}/task_config/{task_name}", tags=[ITEMS])
     def patch_item_task_config(item_name: str, task_name: str, body: Dict[str, Any]):
         patch, version = _validated(body)
         return _refused_or(
@@ -853,7 +879,7 @@ def build_app_config_router(context: Any) -> APIRouter:
             context.set_task_requirements(task_name, requires, required)
         )
 
-    @router.post("/experiment/protocol/lamella_defaults")
+    @router.post("/experiment/protocol/lamella_defaults", tags=[LAMELLAE])
     def set_lamella_defaults(body: Dict[str, Any]):
         if not body:
             raise _missing_field(
@@ -871,18 +897,20 @@ def build_app_config_router(context: Any) -> APIRouter:
 
     # -- the grid protocol: grid task settings, order and requirements ---------
 
-    @router.post("/experiment/grid_protocol/task_config/{task_name}")
+    @router.post("/experiment/grid_protocol/task_config/{task_name}", tags=[GRIDS])
     def patch_grid_task_config(task_name: str, body: Dict[str, Any]):
         patch, version = _validated(body)
         result = context.apply_grid_task_config_patch(task_name, patch, version)
         return _refused_or(_answer_or_refusal(result))
 
-    @router.post("/experiment/grid_protocol/tasks/reorder")
+    @router.post("/experiment/grid_protocol/tasks/reorder", tags=[GRIDS])
     def reorder_grid_tasks(body: Dict[str, Any]):
         order = _names(body, "order", "every grid task, in the new order")
         return _answer_or_refusal(context.reorder_grid_tasks(order))
 
-    @router.post("/experiment/grid_protocol/tasks/{task_name}/requirements")
+    @router.post(
+        "/experiment/grid_protocol/tasks/{task_name}/requirements", tags=[GRIDS]
+    )
     def set_grid_task_requirements(task_name: str, body: Dict[str, Any]):
         requires = _names(body, "requires", "the grid tasks it needs first")
         return _answer_or_refusal(
@@ -907,7 +935,10 @@ def build_app_config_router(context: Any) -> APIRouter:
             )
         return milling_key, order, version
 
-    @router.post("/experiment/items/{item_name}/task_config/{task_name}/stages/reorder")
+    @router.post(
+        "/experiment/items/{item_name}/task_config/{task_name}/stages/reorder",
+        tags=[MILLING_STAGES],
+    )
     def reorder_item_stages(item_name: str, task_name: str, body: Dict[str, Any]):
         milling_key, order, version = _validated_reorder(body)
         return _refused_or(
@@ -916,7 +947,10 @@ def build_app_config_router(context: Any) -> APIRouter:
             )
         )
 
-    @router.post("/experiment/protocol/task_config/{task_name}/stages/reorder")
+    @router.post(
+        "/experiment/protocol/task_config/{task_name}/stages/reorder",
+        tags=[MILLING_STAGES],
+    )
     def reorder_protocol_stages(task_name: str, body: Dict[str, Any]):
         milling_key, order, version = _validated_reorder(body)
         return _refused_or(
@@ -925,7 +959,7 @@ def build_app_config_router(context: Any) -> APIRouter:
             )
         )
 
-    @router.post("/experiment/items/{item_name}/apply_protocol")
+    @router.post("/experiment/items/{item_name}/apply_protocol", tags=[ITEMS])
     def apply_protocol_to_item(item_name: str, body: Dict[str, Any]):
         # Wholesale by design — the verb IS "replace with the protocol
         # defaults" — so no version field; refusals ride _refused_or.
@@ -963,17 +997,17 @@ def build_app_config_router(context: Any) -> APIRouter:
 
     # -- grid records: the Grids tab's inventory read and Rename ----------------
 
-    @router.post("/experiment/grids")
+    @router.post("/experiment/grids", tags=[GRIDS])
     def add_grids():
         # A record for every grid the inventory holds and the experiment lacks.
         return _answer_or_refusal(context.add_grids())
 
-    @router.post("/experiment/grids/{grid_name}/rename")
+    @router.post("/experiment/grids/{grid_name}/rename", tags=[GRIDS])
     def rename_grid(grid_name: str, body: Dict[str, Any]):
         name = _required_text(body, "name", "the grid's new name")
         return _answer_or_refusal(context.rename_grid(grid_name, name))
 
-    @router.post("/experiment/grids/{grid_name}/quality")
+    @router.post("/experiment/grids/{grid_name}/quality", tags=[GRIDS])
     def set_grid_quality(grid_name: str, body: Dict[str, Any]):
         verdict = _required_text(
             body, "verdict", "GOOD, REWORK, FAILED, or UNASSESSED to clear"
@@ -983,7 +1017,7 @@ def build_app_config_router(context: Any) -> APIRouter:
             raise _missing_field("reason is text.")
         return _answer_or_refusal(context.set_grid_quality(grid_name, verdict, reason))
 
-    @router.post("/experiment/grids/{grid_name}/note")
+    @router.post("/experiment/grids/{grid_name}/note", tags=[GRIDS])
     def set_grid_note(grid_name: str, body: Dict[str, Any]):
         note = body.get("note")
         if not isinstance(note, str) or len(note) > 4000:
@@ -999,13 +1033,13 @@ def build_app_config_router(context: Any) -> APIRouter:
             call.recorded = True  # its note is the record of it
         return _answer_or_refusal(result)
 
-    @router.delete("/experiment/grids/{grid_name}")
+    @router.delete("/experiment/grids/{grid_name}", tags=[GRIDS])
     def remove_grid(grid_name: str):
         return _answer_or_refusal(context.remove_grid(grid_name))
 
     # -- lamella positions: the Lamella tab's buttons ---------------------------
 
-    @router.post("/experiment/items")
+    @router.post("/experiment/items", tags=[ITEMS])
     def add_item(body: Dict[str, Any]):
         # Where: the stage now (neither field), a stage position, or a point on a
         # grid overview ({grid_name, filename, px | fraction}). The app names it
@@ -1028,12 +1062,14 @@ def build_app_config_router(context: Any) -> APIRouter:
             )
         )
 
-    @router.delete("/experiment/items/{item_name}")
+    @router.delete("/experiment/items/{item_name}", tags=[ITEMS])
     def remove_item(item_name: str):
         return _answer_or_refusal(context.remove_item(item_name))
 
     @router.post(
-        "/experiment/items/{item_name}/move_to", dependencies=[Depends(take_control)]
+        "/experiment/items/{item_name}/move_to",
+        tags=[POSES],
+        dependencies=[Depends(take_control)],
     )
     def move_to_item_pose(item_name: str, body: Dict[str, Any]):
         pose = _required_text(body, "pose", "a pose name from the item (MILLING, ...)")
@@ -1041,23 +1077,24 @@ def build_app_config_router(context: Any) -> APIRouter:
 
     @router.post(
         "/experiment/items/{item_name}/objective/move_to",
+        tags=[POSES],
         dependencies=[Depends(take_control)],
     )
     def move_objective_to_item(item_name: str):
         # The tab's objective Move to: the FM objective to the stored position.
         return _answer_or_refusal(context.move_objective_to_item(item_name))
 
-    @router.post("/experiment/items/{item_name}/poses/{pose_name}")
+    @router.post("/experiment/items/{item_name}/poses/{pose_name}", tags=[POSES])
     def set_item_pose(item_name: str, pose_name: str):
         # From the stage position now: the tab's Set pose.
         return _answer_or_refusal(context.set_item_pose(item_name, pose_name))
 
-    @router.post("/experiment/items/{item_name}/objective_position")
+    @router.post("/experiment/items/{item_name}/objective_position", tags=[POSES])
     def set_item_objective_position(item_name: str):
         # From the FM objective now: the tab's Use current.
         return _answer_or_refusal(context.set_item_objective_position(item_name))
 
-    @router.post("/experiment/items/{item_name}")
+    @router.post("/experiment/items/{item_name}", tags=[ITEMS])
     def patch_item(item_name: str, body: Dict[str, Any]):
         # The item's own document (geometry, verdict, notes) — the write-side
         # mirror of GET /app/experiment/items/{item_name}, whose payload carries the
@@ -1065,7 +1102,7 @@ def build_app_config_router(context: Any) -> APIRouter:
         patch, version = _validated(body)
         return _refused_or(context.apply_item_patch(item_name, patch, version))
 
-    @router.post("/experiment/items/{item_name}/correlation")
+    @router.post("/experiment/items/{item_name}/correlation", tags=[LAMELLAE])
     def apply_item_correlation(item_name: str, body: Dict[str, Any]):
         # The correlation dialog's Continue: the item's POI to a saved run's
         # target, recorded as a correlation.
@@ -1117,4 +1154,4 @@ def build_app_config_router(context: Any) -> APIRouter:
             raise HTTPException(status_code=404, detail=detail)
         return result
 
-    return router
+    return _served(router, context)

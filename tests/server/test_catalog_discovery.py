@@ -77,6 +77,35 @@ def test_every_route_is_a_tool_or_says_why_not(app):
     assert all(reason.strip() for reason in NOT_TOOLS.values())
 
 
+def test_each_app_tool_names_the_part_its_route_is_served_by(app):
+    tags = {
+        _route_key(method, path): operation.get("tags", [])
+        for path, operations in app.openapi()["paths"].items()
+        for method, operation in operations.items()
+    }
+    wrong = {
+        t.name: (t.part, tags[_route_key(t.method, t.path)])
+        for t in CATALOG
+        if t.router == "app"
+        and [t.part] * bool(t.part) != tags[_route_key(t.method, t.path)]
+    }
+    assert wrong == {}
+
+
+def test_tools_of_a_part_the_app_lacks_are_not_offered():
+    from fibsem.ai.agent.catalog import tools_for_capabilities
+
+    routers = {"microscope": True, "services": True, "app": True}
+    every = {t.name for t in tools_for_capabilities({"routers": routers})}
+    core = {t.name for t in tools_for_capabilities({"routers": routers, "parts": []})}
+    grids = {
+        t.name for t in tools_for_capabilities({"routers": routers, "parts": ["grids"]})
+    }
+    assert "grid_list" in every and "grid_list" in grids and "grid_list" not in core
+    assert "item_get" in every and "item_get" not in grids
+    assert "app_get_status" in core
+
+
 # A named service tool is its group and its route's command or query
 # (``fm_acquire_overview`` -> ``imaging.fm_acquire_overview``,
 # ``beam_acquire_overview`` -> ``imaging.acquire_overview``), a read with ``get_``

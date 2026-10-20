@@ -43,6 +43,8 @@ Read `server_get_capabilities` (`/capabilities`) before anything else:
 
 - `routers.app` must be true, or no application is hosted and there is no
   session.
+- `parts` lists the optional parts of `/app` the app serves (items, poses,
+  grids, milling stages, lamellae); a tool of a part it lacks is not offered.
 - `level` is what the operator lets you do (next section). Tell them in a
   sentence what it means for this session.
 - `routers.microscope` says whether the microscope is served: live reads and

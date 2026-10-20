@@ -68,6 +68,28 @@ def client(microscope, host, event_buffer):
 def test_capabilities_reports_the_app_router(client):
     body = client.get("/capabilities", headers=AUTH).json()
     assert body["routers"] == {"microscope": True, "services": True, "app": True}
+    assert body["parts"] == ["items", "poses", "grids", "milling_stages", "lamellae"]
+
+
+class _CoreOnly:
+    """An app context with no optional parts."""
+
+    def status(self):
+        return {"core": True}
+
+
+def test_a_part_the_context_lacks_is_not_served(microscope):
+    app = build_server(
+        microscope, app_context=_CoreOnly(), auth=AuthConfig(token=TOKEN)
+    )
+    with TestClient(app, raise_server_exceptions=False) as core:
+        assert core.get("/capabilities", headers=AUTH).json()["parts"] == []
+        assert core.get("/app/workflow/status", headers=AUTH).json() == {"core": True}
+        assert core.get("/app/experiment/grids", headers=AUTH).status_code == 404
+        assert (
+            core.post("/app/experiment/items/a/poses/milling", headers=AUTH).status_code
+            == 404
+        )
 
 
 def test_without_app_context_the_routes_do_not_exist(microscope):
