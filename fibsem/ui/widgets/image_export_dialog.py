@@ -14,7 +14,7 @@ from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QColor, QIcon, QImage, QPixmap
+from PyQt5.QtGui import QColor, QIcon, QPixmap
 from PyQt5.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -60,6 +60,7 @@ from fibsem.ui.tokens import (
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
 )
+from fibsem.ui.utils import arr_to_qimage
 
 _FORMATS = (("PNG", ".png"), ("TIFF", ".tif"))
 _SCALES = (("1×", 1), ("2×", 2))
@@ -78,13 +79,6 @@ _SEGMENT_STYLE = f"""
         color: {TEXT_STRONG_COLOR};
     }}
 """
-
-
-def _rgb_to_qimage(rgb: np.ndarray) -> QImage:
-    rgb = np.ascontiguousarray(rgb)
-    h, w = rgb.shape[:2]
-    # copy(): the QImage otherwise borrows the array's buffer, which Python may free.
-    return QImage(rgb.data, w, h, 3 * w, QImage.Format.Format_RGB888).copy()
 
 
 class _Segmented(QWidget):
@@ -496,7 +490,7 @@ class ImageExportDialog(QDialog):
         # every pixel doubled, and rendering it only to shrink it costs four times as much.
         preview_options = self._preview_options()
         rgb = render_export(self.image, preview_options)
-        self._preview = QPixmap.fromImage(_rgb_to_qimage(rgb))
+        self._preview = QPixmap.fromImage(arr_to_qimage(rgb))
         h, w = export_shape(self.image, self.options)
         self.label_size.setText(f"{w} × {h} px · {self._format_name()}")
         self._show_preview()
@@ -545,7 +539,7 @@ class ImageExportDialog(QDialog):
         clipboard = QApplication.clipboard()
         if clipboard is None:
             return
-        clipboard.setImage(_rgb_to_qimage(self.rendered()))
+        clipboard.setImage(arr_to_qimage(self.rendered()))
         notification_service.show_toast("Image copied to the clipboard", "success")
 
     def save(self, path: str) -> str:
