@@ -927,8 +927,10 @@ with FibsemClient("http://localhost:8001", "...") as client:
     client.services["milling"].estimate_time()
 ```
 
-Values and results are read as the types the server declares. The App Server has no
-event stream for devices yet, so nothing tells the client of a change made elsewhere.
+Values and results are read as the types the server declares. `client.follow()` opens
+the App Server's `WS /microscope/events`, and from then on each device and service
+signals a change whoever made it: `changed`, `metadata_changed`, and `signalled` for a
+service's `remote_signals`.
 
-The remote driver's devices also work over the App Server's `/microscope` routes:
-`DeviceClient(host, port, token=..., events=False, root="/microscope")`.
+The remote driver's devices also work over the App Server's `/microscope` routes, its
+events keeping `cached` current: `DeviceClient(host, port, token=..., root="/microscope")`.

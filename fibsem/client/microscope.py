@@ -9,6 +9,7 @@ import time
 from functools import partial
 from typing import Any, Callable, Dict, Iterator, List, Mapping, Optional
 
+from psygnal import Signal
 from pydantic import PydanticSchemaGenerationError
 
 from fibsem.cancellation import OperationCancelledError
@@ -90,7 +91,20 @@ class Remote:
 
     Its commands and queries are methods: ``remote.acquire(image_settings=...)``.
     A long command answers at once with its `Run`.
+
+    Its signals fire once the client follows the server's events
+    (`FibsemClient.follow`), for a change whoever made it, on the stream's thread.
     """
+
+    changed = Signal(str, object)
+    """(parameter, value) read as the parameter's type."""
+
+    metadata_changed = Signal(str, object)
+    """(parameter, metadata) as `metadata` reads it."""
+
+    signalled = Signal(str, object)
+    """(signal, value) for one of the server's ``remote_signals`` (a milling
+    reading, the holder), its value as the server sent it."""
 
     def __init__(
         self, transport: Transport, root: str, name: str, description: Dict[str, Any]
@@ -136,6 +150,16 @@ class Remote:
         out."""
         answer = self._transport.fetch("GET", f"{self.path}/values")["values"]
         return {name: typed(self._value_type(name), v) for name, v in answer.items()}
+
+    def report(self, event: Mapping[str, Any]) -> None:
+        """Emit the signal a server event names."""
+        name, value = event["parameter"], event["value"]
+        if event["kind"] == "changed":
+            self.changed.emit(name, typed(self._value_type(name), value))
+        elif event["kind"] == "metadata":
+            self.metadata_changed.emit(name, value)
+        elif event["kind"] == "signal":
+            self.signalled.emit(name, value)
 
     def metadata(self, parameter: str) -> Dict[str, Any]:
         """A parameter's limits, choices and whether it is settable, now."""

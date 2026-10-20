@@ -13,13 +13,22 @@
 Devices and services are reached by name from the server's descriptions. With no
 url and token it finds the App Server on this machine (`transport.resolve`). What a
 call may do is what its token may: the agent token's level gates it.
+
+`FibsemClient.follow` opens the microscope's events, and each device and service
+signals its changes::
+
+    client.follow()
+    client.devices["stage"].changed.connect(print)
 """
 
 from typing import Any, Dict, Optional
 
+from fibsem.client.events import EventStream
 from fibsem.client.microscope import Remote, Remotes, Run
 from fibsem.client.transport import ServerError, ServerUnreachable, Transport
 from fibsem.structures import MicroscopeState, SystemSettings
+
+MICROSCOPE_EVENTS = "/microscope/events"
 
 __all__ = [
     "FibsemClient",
@@ -50,6 +59,27 @@ class FibsemClient:
         self.services = Remotes(self.transport, "/microscope/services")
         self.analysis = Remotes(self.transport, "/services")
         self._system: Optional[SystemSettings] = None
+        self._events: Optional[EventStream] = None
+
+    def follow(self) -> None:
+        """Follow ``WS /microscope/events``: from here on every device and service
+        signals its changes, whoever made them (`Remote.changed`). Returns once the
+        stream is open; a dropped stream opens again, and a change while it was
+        down is not signalled."""
+        if self._events is None:
+            for remotes in (self.devices, self.services):
+                remotes.refresh()
+            url = "ws" + self.transport.url.removeprefix("http") + MICROSCOPE_EVENTS
+            self._events = EventStream(
+                url, self._report, headers={"Authorization": self.transport.bearer}
+            )
+        self._events.start()
+
+    def _report(self, event: Dict[str, Any]) -> None:
+        remotes = self.devices if "device" in event else self.services
+        remote = remotes.get(event.get("device") or event.get("service"))
+        if remote is not None:
+            remote.report(event)
 
     def capabilities(self) -> Dict[str, Any]:
         """What the server serves, and the agent level."""
@@ -87,6 +117,8 @@ class FibsemClient:
         )
 
     def close(self) -> None:
+        if self._events is not None:
+            self._events.close()
         self.transport.close()
 
     def __enter__(self) -> "FibsemClient":

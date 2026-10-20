@@ -499,6 +499,8 @@ class SampleHandling(Service):
     # thread.
     holder_changed = Signal(object)
 
+    remote_signals = ("holder_changed",)
+
     def __init__(self, name: str = "sample_handling", **kwargs: Any):
         super().__init__(name, **kwargs)
         self.holder: Optional[SampleHolder] = None

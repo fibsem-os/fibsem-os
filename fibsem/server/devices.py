@@ -27,8 +27,9 @@ Errors keep their meaning across the wire: the client raises the same exception
 types a local device would.
 
 The same routes are mounted in the App Server (``fibsem.server.server``) under
-``/microscope/devices`` over ``microscope.devices``, behind its bearer token and level. Served here on their
-own, they have no authentication yet, nor a one-commander lease.
+``/microscope/devices`` over ``microscope.devices``, behind its bearer token and level,
+with the events at ``WS /microscope/events``. Served here on their own, they have no
+authentication yet, nor a one-commander lease.
 
 Try it on one computer:
 
@@ -56,6 +57,7 @@ import json
 import logging
 import math
 import threading
+from functools import partial
 from typing import (
     Any,
     Callable,
@@ -65,7 +67,6 @@ from typing import (
     Mapping,
     Optional,
     Sequence,
-    Set,
     Tuple,
 )
 
@@ -319,65 +320,116 @@ def device_health(device: Device) -> Dict[str, Any]:
     return {"ok": problem is None, "detail": problem}
 
 
-class _EventHub:
-    """Fans device signals, emitted on any thread, out to every open websocket."""
+# How many events may wait for one client before its stream is closed.
+STREAM_BACKLOG = 1000
 
-    def __init__(self) -> None:
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
-        self._queues: Set[asyncio.Queue] = set()
 
-    def attach(self, devices: Iterable[Device]) -> None:
-        for device in devices:
-            device.changed.connect(
-                lambda name, value, d=device: self.publish(d, name, "changed", value)
-            )
-            device.metadata_changed.connect(
-                lambda name, meta, d=device: self.publish(
-                    d, name, "metadata", metadata_payload(meta)
+async def stream_events(
+    websocket: WebSocket,
+    sources: Mapping[str, Mapping[str, Any]],
+    allowed: Callable[[], bool] = lambda: True,
+    backlog: int = STREAM_BACKLOG,
+) -> None:
+    """Send *websocket* the signals of every device and service in *sources* until
+    it closes, each as ``{noun: name, "parameter", "kind", "value"}``.
+
+    *sources* maps a noun (``"device"``, ``"service"``) to its map by name, read as
+    the stream opens. Kinds ``changed`` and ``metadata`` are a parameter's;
+    ``signal`` is one of the source's ``remote_signals``, named in ``parameter``,
+    its value the signal's argument (a list when it has several). Signals are
+    emitted on any thread. The stream closes once *allowed* answers False, or
+    once more than *backlog* events wait for a client that isn't reading.
+    """
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue = asyncio.Queue(maxsize=backlog)
+    behind = asyncio.Event()
+    connected: List[Tuple[Any, Callable[..., None]]] = []
+
+    def offer(event: Dict[str, Any]) -> None:
+        if queue.full():
+            behind.set()
+        else:
+            queue.put_nowait(event)
+
+    def follow(noun, source, signal, kind, encode, name=None) -> None:
+        def publish(parameter: str, *args: Any) -> None:
+            try:
+                event = {
+                    noun: source.name,
+                    "parameter": parameter,
+                    "kind": kind,
+                    "value": jsonable_encoder(encode(*args)),
+                }
+                loop.call_soon_threadsafe(offer, event)
+            except Exception:  # noqa: BLE001 - the emitter must not pay for it
+                logging.debug(
+                    f"could not send {source.name}.{parameter}", exc_info=True
                 )
+
+        # A parameter's signals carry its name; a remote signal is named here.
+        callback = publish if name is None else partial(publish, name)
+        signal.connect(callback)
+        connected.append((signal, callback))
+
+    for noun, by_name in sources.items():
+        for source in list(by_name.values()):
+            follow(noun, source, source.changed, "changed", to_wire)
+            follow(noun, source, source.metadata_changed, "metadata", metadata_payload)
+            for name in getattr(source, "remote_signals", ()):
+                follow(
+                    noun, source, getattr(source, name), "signal", _signal_value, name
+                )
+    await websocket.accept()
+    closed = asyncio.ensure_future(_until_closed(websocket))
+    # A send to a client that isn't reading never finishes, so falling behind
+    # interrupts it.
+    stop = {closed, asyncio.ensure_future(behind.wait())}
+    try:
+        while allowed() and not behind.is_set():
+            event = asyncio.ensure_future(queue.get())
+            await asyncio.wait(
+                {event, *stop}, timeout=1.0, return_when=asyncio.FIRST_COMPLETED
             )
+            if closed.done():
+                event.cancel()
+                return
+            if not event.done():
+                event.cancel()
+                continue
+            sending = asyncio.ensure_future(
+                websocket.send_text(json.dumps(event.result()))
+            )
+            await asyncio.wait({sending, *stop}, return_when=asyncio.FIRST_COMPLETED)
+            if closed.done():
+                sending.cancel()
+                return
+            if sending.done():
+                sending.result()  # a disconnect raises here
+            else:
+                sending.cancel()
+        # Too far behind: try again later, and read again on reopening. Otherwise
+        # a policy violation: refused from now on.
+        await websocket.close(code=1013 if behind.is_set() else 1008)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        for task in stop:
+            task.cancel()
+        for signal, callback in connected:
+            signal.disconnect(callback)
 
-    def publish(self, device: Device, parameter: str, kind: str, value: Any) -> None:
-        loop = self._loop
-        if loop is None or loop.is_closed():
-            return
-        event = {
-            "device": device.name,
-            "parameter": parameter,
-            "kind": kind,
-            "value": jsonable_encoder(to_wire(value)),
-        }
-        for queue in list(self._queues):
-            loop.call_soon_threadsafe(queue.put_nowait, event)
 
-    async def stream(self, websocket: WebSocket) -> None:
-        self._loop = asyncio.get_running_loop()
-        queue: asyncio.Queue = asyncio.Queue()
-        self._queues.add(queue)
-        await websocket.accept()
-        closed = asyncio.ensure_future(self._until_closed(websocket))
-        try:
-            while True:
-                event = asyncio.ensure_future(queue.get())
-                await asyncio.wait({event, closed}, return_when=asyncio.FIRST_COMPLETED)
-                if closed.done():
-                    event.cancel()
-                    return
-                await websocket.send_text(json.dumps(event.result()))
-        except WebSocketDisconnect:
-            pass
-        finally:
-            closed.cancel()
-            self._queues.discard(queue)
+def _signal_value(*args: Any) -> Any:
+    return to_wire(args[0] if len(args) == 1 else list(args))
 
-    @staticmethod
-    async def _until_closed(websocket: WebSocket) -> None:
-        """Clients only listen, so anything received is the close."""
-        try:
-            while True:
-                await websocket.receive_text()
-        except (WebSocketDisconnect, RuntimeError):
-            return
+
+async def _until_closed(websocket: WebSocket) -> None:
+    """Clients only listen, so anything received is the close."""
+    try:
+        while True:
+            await websocket.receive_text()
+    except (WebSocketDisconnect, RuntimeError):
+        return
 
 
 # How long ``GET .../run`` may wait for a run to end: under the sidecar's 120 s
@@ -678,8 +730,6 @@ def _images_in(result: Any) -> List[FibsemImage]:
 def build_device_app(devices: Iterable[Device]) -> FastAPI:
     """The server's routes over these devices, looked up by ``device.name``."""
     by_name: Dict[str, Device] = {device.name: device for device in devices}
-    hub = _EventHub()
-    hub.attach(by_name.values())
     app = FastAPI(title="fibsem devices")
 
     @app.get("/health")
@@ -692,7 +742,7 @@ def build_device_app(devices: Iterable[Device]) -> FastAPI:
 
     @app.websocket("/events")
     async def events(websocket: WebSocket) -> None:
-        await hub.stream(websocket)
+        await stream_events(websocket, {"device": by_name})
 
     return app
 

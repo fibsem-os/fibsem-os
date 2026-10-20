@@ -162,3 +162,4 @@ which follow the stop rule above.
 | `GET` | `/microscope/services/{service}/{parameter}/metadata` | Limits, choices, settable |
 | `POST` | `/microscope/services/{service}/commands/{command}` | Run a service command, e.g. `stage_movement/commands/move_relative`, `milling/commands/run`, `milling/commands/stop` |
 | `POST` | `/microscope/services/{service}/queries/{query}` | Ask a service query, e.g. `milling/queries/estimate_time` |
+| `WS` | `/microscope/events` | Every device's and service's changes as they happen: `{"device" or "service", "parameter", "kind", "value"}`, kind `changed`, `metadata` or `signal` (a service's `remote_signals`, such as `milling`'s `notable_reading` and `sample_handling`'s `holder_changed`). The agent token in the header at Watch; a browser `Origin` is refused, and the stream closes when the level drops to Off |
