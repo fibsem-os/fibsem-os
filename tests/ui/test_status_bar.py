@@ -646,12 +646,13 @@ def test_the_timeline_shows_its_first_failed_row(qapp):
     )
 
     timeline = WorkflowTimelineWidget()
-    timeline.set_steps(
+    timeline.sync_steps(
+        ["01", "02", "03"],
         [
             TimelineStep("01 · Polishing", StepStatus.COMPLETED),
             TimelineStep("02 · Polishing", StepStatus.FAILED),
             TimelineStep("03 · Polishing", StepStatus.FAILED),
-        ]
+        ],
     )
     assert timeline.show_first(StepStatus.FAILED) == 1
     assert timeline._selected_index == 1

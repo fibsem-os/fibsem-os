@@ -18,7 +18,6 @@ from __future__ import annotations
 import logging
 import os
 from copy import deepcopy
-from datetime import datetime
 from functools import partial
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional
 
@@ -231,11 +230,6 @@ class GridPositionsWidget(QWidget):
         if not same:
             self.canvas.clear()
             self._paths = {}
-        self.refresh()
-
-    def set_stage_state(self, loaded: bool, can_load: bool) -> None:
-        self._loaded = loaded
-        self._can_load = can_load
         self.refresh()
 
     @property

@@ -445,7 +445,6 @@ class WorkflowTab(QWidget):
         self._start_grid_run(
             task_names,
             grid_names,
-            inventory_first=False,
             **ending,
         )
 
@@ -492,7 +491,6 @@ class WorkflowTab(QWidget):
         self._start_grid_run(
             task_names,
             dialog.grid_names,
-            inventory_first=False,
             **ending,
         )
 
@@ -528,7 +526,6 @@ class WorkflowTab(QWidget):
         self,
         task_names: list,
         grid_names,
-        inventory_first: bool,
         unload_at_end: bool = False,
         report_at_end: bool = False,
     ) -> None:
@@ -540,7 +537,6 @@ class WorkflowTab(QWidget):
                 task_names=tuple(task_names),
                 names=tuple(grid_names) if grid_names is not None else None,
                 options={
-                    "inventory_first": inventory_first,
                     "unload_at_end": unload_at_end,
                     "report_at_end": report_at_end,
                 },

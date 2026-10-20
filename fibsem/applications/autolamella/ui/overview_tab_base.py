@@ -43,7 +43,7 @@ from __future__ import annotations
 
 import logging
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QVBoxLayout, QWidget
@@ -112,7 +112,6 @@ class AutoLamellaOverviewTabBase(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
 
         self.lamella_list = LamellaNameListWidget()
-        self.lamella_list.enable_actions_button(True)
         self.lamella_list.enable_move_to_action(True)
         self.lamella_list.enable_remove_button(True)
         self.lamella_list.lamella_selected.connect(self._on_list_selection)

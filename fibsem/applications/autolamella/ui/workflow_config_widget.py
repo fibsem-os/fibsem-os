@@ -108,22 +108,19 @@ def attention_state(task: AutoLamellaTaskDescription) -> str:
 
 def _attention_chip(
     task: AutoLamellaTaskDescription,
-    has_dependents: bool = True,
     attendance: Optional[Attendance] = None,
 ) -> tuple[str, str, str]:
     """(label, colour, tooltip) for the chip: the word is the state, the
     colour is the mode's, and the tooltip says what the state means for this
     task -- whether it needs you there while it runs -- when the task's
     type is known (``attendance``)."""
-    label, colour, tip = _attention_chip_words(task, has_dependents)
+    label, colour, tip = _attention_chip_words(task)
     if attendance is not None:
         tip = f"{label} — {attendance.line} Click to change."
     return label, colour, tip
 
 
-def _attention_chip_words(
-    task: AutoLamellaTaskDescription, has_dependents: bool = True
-) -> tuple[str, str, str]:
+def _attention_chip_words(task: AutoLamellaTaskDescription) -> tuple[str, str, str]:
     state = attention_state(task)
     label = ATTENTION_LABELS[state]
     if state == "supervised":
@@ -146,11 +143,7 @@ def _chip_style(colour: str, muted: bool = False) -> str:
     return tinted_chip_style(NEUTRAL_700 if muted else colour)
 
 
-def _requires_text(
-    task: AutoLamellaTaskDescription,
-    font: QFont,
-    schedule: bool = True,
-) -> str:
+def _requires_text(task: AutoLamellaTaskDescription, font: QFont) -> str:
     """What the task waits for, and when it is scheduled, sized to the
     column that holds them.
 
@@ -166,7 +159,7 @@ def _requires_text(
     parts = []
     if task.requires:
         parts.append("after " + _requires_phrase(task.requires))
-    if schedule and task.scheduled_at is not None:
+    if task.scheduled_at is not None:
         parts.append("at " + task.scheduled_at.strftime("%d %b %H:%M"))
     if not parts:
         return ""
@@ -247,9 +240,7 @@ class WorkflowTaskRowWidget(QWidget):
         self.btn_attention.setCursor(Qt.PointingHandCursor)
         self.btn_attention.setFocusPolicy(Qt.NoFocus)
         layout.addWidget(self.btn_attention)
-        self._has_dependents = True
         self._attendance: Optional[Attendance] = None
-        self._schedule_visible = True
 
         # Edit opens the dialog, which is also where a task is removed: a
         # trash can on every row was the one thing there nobody pressed.
@@ -275,16 +266,6 @@ class WorkflowTaskRowWidget(QWidget):
 
         self.refresh()
 
-    def set_schedule_visible(self, visible: bool) -> None:
-        self._schedule_visible = visible
-        self.refresh()
-
-    def set_has_dependents(self, has_dependents: bool) -> None:
-        """Whether any later task requires this one."""
-        if has_dependents != self._has_dependents:
-            self._has_dependents = has_dependents
-            self.refresh()
-
     def set_attendance(self, attendance: Optional[Attendance]) -> None:
         """What this task needs from a person, derived from its type: said on
         the chip's tooltip and the row's, so the mode reads as what it does."""
@@ -308,11 +289,7 @@ class WorkflowTaskRowWidget(QWidget):
     def refresh(self) -> None:
         """Re-read all display fields from the stored task."""
         self.name_label.setText(self.task.name)
-        requires = _requires_text(
-            self.task,
-            self.requires_label.font(),
-            self._schedule_visible,
-        )
+        requires = _requires_text(self.task, self.requires_label.font())
         self.requires_label.setText(requires)
         # The column only where there is something in it: on the rows without a
         # dependency the name has the room ("Acquire Fluorescence Image").
@@ -320,7 +297,7 @@ class WorkflowTaskRowWidget(QWidget):
         tips = []
         if self.task.requires:
             tips.append("Requires: " + _requires_phrase(self.task.requires))
-        if self.task.scheduled_at is not None and self._schedule_visible:
+        if self.task.scheduled_at is not None:
             tips.append(
                 "Scheduled: "
                 + self.task.scheduled_at.strftime(DATETIME_DISPLAY_AMPM)
@@ -329,9 +306,7 @@ class WorkflowTaskRowWidget(QWidget):
         if self._attendance is not None:
             tips.append(self._attendance.line)
         self.setToolTip("\n".join(tips))
-        label, colour, tooltip = _attention_chip(
-            self.task, self._has_dependents, self._attendance
-        )
+        label, colour, tooltip = _attention_chip(self.task, self._attendance)
         self.btn_attention.setText(label)
         self.btn_attention.setIcon(
             fibsem_icon(_CHIP_ICONS[attention_state(self.task)], color=colour)
@@ -373,12 +348,7 @@ class WorkflowConfigWidget(QWidget):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
 
-        self._btn_visible = {
-            "schedule": True,
-            "supervise": True,  # the attention chip
-            "edit": True,
-            "remove": True,
-        }
+        self._remove_allowed = True
         self._checked: Dict[int, bool] = {}  # id(task) -> checked
         # The protocol the tasks belong to, for what each task's type asks:
         # the workflow config alone names tasks, not their types.
@@ -443,20 +413,15 @@ class WorkflowConfigWidget(QWidget):
         self._list.setItemWidget(item, row)
 
         self._connect_row(row)
-        self._apply_btn_visibility(row)
-        self._refresh_dependents()
+        self._refresh_attendance()
         self._sync_select_all()
         return row
 
-    def _refresh_dependents(self) -> None:
-        """Tell each row whether a later task requires it, and what its task
-        needs from a person."""
-        tasks = self.get_tasks()
-        required = {req for task in tasks for req in task.requires}
+    def _refresh_attendance(self) -> None:
+        """Tell each row what its task needs from a person."""
         protocol = self._protocol
         for i in range(self._list.count()):
             row = self._row(i)
-            row.set_has_dependents(row.task.name in required)
             row.set_attendance(
                 attendance_for(protocol, row.task.name)
                 if protocol is not None
@@ -466,31 +431,14 @@ class WorkflowConfigWidget(QWidget):
     def _connect_row(self, row: WorkflowTaskRowWidget) -> None:
         row.attention_changed.connect(self.attention_changed)
         # what the task needs from a person is said by its mode
-        row.attention_changed.connect(lambda _t: self._refresh_dependents())
+        row.attention_changed.connect(lambda _t: self._refresh_attendance())
         row.edit_clicked.connect(self.edit_requested)
         row.selection_changed.connect(self._on_row_selection_changed)
-
-    def enable_schedule_button(self, visible: bool) -> None:
-        """Whether rows say when they are scheduled (the label, not a button)."""
-        self._btn_visible["schedule"] = visible
-        for i in range(self._list.count()):
-            self._row(i).set_schedule_visible(visible)
-
-    def enable_supervise_button(self, visible: bool) -> None:
-        """Show or hide the attention chip."""
-        self._btn_visible["supervise"] = visible
-        for i in range(self._list.count()):
-            self._row(i).btn_attention.setVisible(visible)
-
-    def enable_edit_button(self, visible: bool) -> None:
-        self._btn_visible["edit"] = visible
-        for i in range(self._list.count()):
-            self._row(i).btn_edit.setVisible(visible)
 
     def enable_remove_button(self, visible: bool) -> None:
         """Whether tasks may be removed at all. Removal lives in the edit
         dialog now; the host reads ``remove_allowed`` when it opens one."""
-        self._btn_visible["remove"] = visible
+        self._remove_allowed = visible
 
     def add_header_widget(self, widget: QWidget) -> None:
         """Put *widget* on the header's right, after Add: the panel's ⚙ and ?."""
@@ -498,7 +446,7 @@ class WorkflowConfigWidget(QWidget):
 
     @property
     def remove_allowed(self) -> bool:
-        return self._btn_visible["remove"]
+        return self._remove_allowed
 
     def remove_task(self, task: AutoLamellaTaskDescription) -> None:
         for i in range(self._list.count()):
@@ -519,12 +467,12 @@ class WorkflowConfigWidget(QWidget):
         """The protocol whose tasks these are, so each row can say what its
         task needs from a person. None: nothing is said."""
         self._protocol = protocol
-        self._refresh_dependents()
+        self._refresh_attendance()
 
     def refresh_all(self) -> None:
         for i in range(self._list.count()):
             self._row(i).refresh()
-        self._refresh_dependents()
+        self._refresh_attendance()
 
     def get_tasks(self) -> List[AutoLamellaTaskDescription]:
         """Return tasks in current display order."""
@@ -569,18 +517,11 @@ class WorkflowConfigWidget(QWidget):
     def _row(self, i: int) -> WorkflowTaskRowWidget:
         return self._list.itemWidget(self._list.item(i))  # type: ignore[return-value]
 
-    def _apply_btn_visibility(self, row: WorkflowTaskRowWidget) -> None:
-        row.set_schedule_visible(self._btn_visible["schedule"])
-        row.btn_attention.setVisible(self._btn_visible["supervise"])
-        row.btn_edit.setVisible(self._btn_visible["edit"])
-
     def request_remove(self, task: AutoLamellaTaskDescription) -> None:
         """Drop the task's row and announce it. The confirmation happened in
         the edit dialog; this is the one removal path."""
         self.remove_task(task)
         self.remove_requested.emit(task)
-
-    _on_remove_clicked = request_remove  # the old name
 
     def _on_row_selection_changed(
         self, task: AutoLamellaTaskDescription, checked: bool
@@ -604,8 +545,7 @@ class WorkflowConfigWidget(QWidget):
             item.setSizeHint(QSize(0, _ROW_HEIGHT))
             self._list.setItemWidget(item, row)
             self._connect_row(row)
-            self._apply_btn_visibility(row)
-        self._refresh_dependents()
+        self._refresh_attendance()
         self._sync_select_all()
         self.order_changed.emit(tasks)
 

@@ -5,15 +5,12 @@ import os
 import sys
 import threading
 import warnings
-from dataclasses import replace
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
 try:
     sys.modules.pop("PySide6.QtCore")
 except Exception:
     pass
-
-from datetime import datetime
 
 from psygnal import EmissionInfo
 from PyQt5.QtCore import Qt, pyqtSignal
@@ -23,13 +20,11 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QSplitter,
     QTabWidget,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 from superqt import ensure_main_thread
 
-import fibsem
 import fibsem.config as fibsem_cfg
 from fibsem.acting import OPERATOR
 from fibsem.applications.autolamella import config as cfg
@@ -88,7 +83,6 @@ from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.stylesheets import (
     GRAY_ICON_COLOR,
     NAPARI_STYLE,
-    STATUS_BAR_STYLESHEET,
     border_stylesheet,
 )
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
@@ -233,9 +227,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.create_tabs()
         self._apply_preferences()
         self._update_instructions()
-
-        # Connect tab change to status bar update
-        self.tab_widget.currentChanged.connect(self._on_tab_changed)
 
     def _on_preferences_saved(self, preferences) -> None:
         self._preferences = preferences
@@ -522,10 +513,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._refresh_header()
         self._update_instructions()
 
-    def _on_tab_changed(self, index: int):
-        """Handle tab change and update status bar."""
-        self.status_bar.setStyleSheet(STATUS_BAR_STYLESHEET)
-
     def _create_panel(self):
         """The right-hand panel, and the session's run, responder and executor."""
         self.panel = MicroscopePanel(
@@ -576,10 +563,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
-
-        # Viewer-less: the quad-view controller is the display, so no napari viewer is
-        # created here.
-        self.main_viewer = None
 
         self._create_panel()
 
@@ -992,7 +975,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         )
         self.run_relay.queue_changed.connect(self.workflow_tab.on_queue_changed)
         lamella = self.workflow_tab.lamella_workflow_widget
-        lamella.lamella_move_to_requested.connect(self._on_lamella_move_to)
         lamella.lamella_edit_requested.connect(self._on_lamella_edit)
         lamella.lamella_remove_requested.connect(self._on_lamella_remove_requested)
         lamella.lamella_defect_changed.connect(self._on_lamella_defect_changed)
@@ -1818,8 +1800,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         dialog.exec_()
 
         return
-
-    #### PROTOCOL EDITOR
 
     def open_information_dialog(self) -> None:
         # No connection guard: checking which version you are running is exactly

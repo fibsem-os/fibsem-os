@@ -7,7 +7,6 @@ from PyQt5.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
     QLabel,
-    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -105,16 +104,10 @@ class TestWindow(QWidget):
 
         toggle_row = QHBoxLayout()
         toggle_row.setSpacing(6)
-        for label, fn in [
-            ("Schedule", self.workflow_widget.enable_schedule_button),
-            ("Supervise", self.workflow_widget.enable_supervise_button),
-            ("Edit", self.workflow_widget.enable_edit_button),
-            ("Remove", self.workflow_widget.enable_remove_button),
-        ]:
-            cb = QCheckBox(label)
-            cb.setChecked(True)
-            cb.toggled.connect(fn)
-            toggle_row.addWidget(cb)
+        cb_remove = QCheckBox("Remove")
+        cb_remove.setChecked(True)
+        cb_remove.toggled.connect(self.workflow_widget.enable_remove_button)
+        toggle_row.addWidget(cb_remove)
         toggle_row.addStretch()
         left.addLayout(toggle_row)
 

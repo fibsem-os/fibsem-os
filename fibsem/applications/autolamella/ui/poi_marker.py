@@ -155,16 +155,6 @@ class PoiMarker:
         self.frame = self.view_frame()
         controller.set_points(BeamType.ION, OVERLAY_ID, [poi_pixel(self.frame, poi)])
 
-    def pixel(
-        self, poi: "Point", fallback: Optional["FibsemImage"] = None
-    ) -> Optional[Tuple[float, float]]:
-        """*poi* in the view's pixels (else *fallback*'s), for a preview; None
-        without a frame."""
-        frame = self.view_frame(fallback)
-        if getattr(frame, "metadata", None) is None:
-            return None
-        return poi_pixel(frame, poi)
-
     def read(self) -> Optional["Point"]:
         """Where the marker is, as a point of interest; None without one."""
         controller = self.controller()

@@ -299,9 +299,6 @@ class LamellaPoseListWidget(QWidget):
                 row.set_state(state)
                 return
 
-    def clear(self) -> None:
-        self._list.clear()
-
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------

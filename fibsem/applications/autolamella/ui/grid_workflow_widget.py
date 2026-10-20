@@ -318,8 +318,6 @@ class _TaskRow(QWidget):
         super().__init__(parent)
         self.config = config
         self._reason: Optional[str] = None
-        # Whether another task in the protocol requires this one.
-        self._has_dependents = False
         self.setAttribute(Qt.WA_TranslucentBackground)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(6, 0, 6, 0)
@@ -387,12 +385,6 @@ class _TaskRow(QWidget):
     def set_unavailable(self, reason: Optional[str]) -> None:
         self._reason = reason
         self.refresh()
-
-    def set_has_dependents(self, has_dependents: bool) -> None:
-        """Whether a task requires this one."""
-        if has_dependents != self._has_dependents:
-            self._has_dependents = has_dependents
-            self.refresh()
 
     def _toggle_attention(self) -> None:
         self.config.attention = (
@@ -784,7 +776,6 @@ class GridWorkflowWidget(QWidget):
                 self._task_rows[name] = row
                 # Every task ticked by default: the usual run is the whole protocol.
                 row.checkbox.setChecked(name in checked_tasks or not checked_tasks)
-            self._refresh_dependents()
         self._sync_headers()
         self.refresh()
 
@@ -942,21 +933,9 @@ class GridWorkflowWidget(QWidget):
 
     # -- order -----------------------------------------------------------------
 
-    def _refresh_dependents(self) -> None:
-        """Tell each row whether a task requires it."""
-        protocol = self._protocol()
-        if protocol is None:
-            return
-        required = {
-            req for config in protocol.task_config.values() for req in config.requires
-        }
-        for name, row in self._task_rows.items():
-            row.set_has_dependents(name in required)
-
     def _on_attention_changed(self, task_name: str) -> None:
         """A chip click changed a task's attention: saved with the protocol,
         like its order."""
-        self._refresh_dependents()
         self._save_protocol()
         self.protocol_changed.emit()
 
@@ -984,7 +963,6 @@ class GridWorkflowWidget(QWidget):
             logging.warning(why)
             return
         self._save_protocol()
-        self._refresh_dependents()
         for row in self._task_rows.values():
             row.refresh()
         self.protocol_changed.emit()
@@ -1036,7 +1014,6 @@ class GridRunPreflightDialog(QDialog):
         grid_names: List[str],
         exchanges: int,
         output_root: str,
-        screen_all: bool = False,
         adding: bool = False,
         beams_off: Sequence[BeamType] = (),
         first_run: Sequence[str] = (),
@@ -1058,13 +1035,7 @@ class GridRunPreflightDialog(QDialog):
         person (``grid_run_attendance``). ``unload_at_end``, ``report_at_end``: how
         the run ends, from the Grids page's ⚙; said, not chosen, here."""
         super().__init__(parent)
-        self.setWindowTitle(
-            "Add to the queue"
-            if adding
-            else "Screen all grids"
-            if screen_all
-            else "Run grid workflow"
-        )
+        self.setWindowTitle("Add to the queue" if adding else "Run grid workflow")
         self.setMinimumWidth(460)
         self.setStyleSheet(f"background: {BACKGROUND};")
         layout = QVBoxLayout(self)
@@ -1073,8 +1044,6 @@ class GridRunPreflightDialog(QDialog):
         title = QLabel(
             "Add the tasks on the selected grids after everything queued"
             if adding
-            else "Run inventory, then the tasks on every present grid"
-            if screen_all
             else "Run the tasks on the selected grids"
         )
         title.setStyleSheet(
@@ -1083,20 +1052,10 @@ class GridRunPreflightDialog(QDialog):
         layout.addWidget(title)
 
         metrics = QHBoxLayout()
-        metrics.addWidget(
-            metric(
-                "Grids",
-                "every present" if screen_all else str(len(grid_names)),
-                f"{len(grid_names)} known now" if screen_all else "",
-            )
-        )
+        metrics.addWidget(metric("Grids", str(len(grid_names))))
         metrics.addWidget(metric("Tasks per grid", str(len(task_names))))
         metrics.addWidget(
-            metric(
-                "Exchanges",
-                "one per grid" if screen_all else str(exchanges),
-                "" if exchanges or screen_all else "all loaded",
-            )
+            metric("Exchanges", str(exchanges), "" if exchanges else "all loaded")
         )
         layout.addLayout(metrics)
 
@@ -1110,14 +1069,6 @@ class GridRunPreflightDialog(QDialog):
             note = "Estimates round up."
             if attendance is not None and attendance.waits_for_a_human:
                 note += " Time spent waiting for you is not included."
-            if screen_all:
-                # The plan is built from the grids known before the inventory
-                # reads the magazine, so the quote is for those.
-                note += (
-                    f" Quoted for the {len(grid_names)} grid"
-                    f"{'s' if len(grid_names) != 1 else ''} known now; the "
-                    "inventory can find more."
-                )
             footnote = QLabel(note)
             footnote.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 10px; {ON_PANEL}")
             footnote.setWordWrap(True)
@@ -1130,8 +1081,6 @@ class GridRunPreflightDialog(QDialog):
         ]
         if len(plan) > self._STEPS_SHOWN:
             lines.append(f"… and {len(plan) - self._STEPS_SHOWN} more steps")
-        if screen_all:
-            lines.insert(0, "inventory")
         rows = [("Plan", lines[0])] + [("", line) for line in lines[1:]]
         layout.addWidget(detail_block(rows if lines else [("Plan", "nothing yet")]))
         layout.addWidget(meta_label(f"Output: {output_root}/grids/<grid>/"))
@@ -1164,11 +1113,10 @@ class GridRunPreflightDialog(QDialog):
                 f"{n} (default name)" if is_default_grid_name(n) else n
                 for n in first_run
             )
-            more = ", and any grid the inventory adds" if screen_all else ""
             layout.addWidget(
                 warning_label(
                     f"Names are fixed once a grid has run. Running for the first "
-                    f"time: {first}{more}. Rename on the Grids tab first if needed."
+                    f"time: {first}. Rename on the Grids tab first if needed."
                 )
             )
 

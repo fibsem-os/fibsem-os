@@ -38,7 +38,7 @@ from fibsem.ui.tokens import (
     CANVAS_BG,
     NEUTRAL_550,
 )
-from fibsem.ui.widgets.custom_widgets import ElidedLabel, IconToolButton
+from fibsem.ui.widgets.custom_widgets import ElidedLabel
 from fibsem.ui.widgets.preflight import format_clock
 from fibsem.util.timestamps import now
 from fibsem.workflows.quality import (
@@ -314,7 +314,6 @@ class LamellaRowWidget(QWidget):
     (when the experiment has more than one), a short status, a defect icon
     only once there is a defect, and one actions menu."""
 
-    move_to_clicked = pyqtSignal(object)  # Lamella
     edit_clicked = pyqtSignal(object)  # Lamella
     remove_clicked = pyqtSignal(object)  # Lamella
     defect_changed = pyqtSignal(object)  # Lamella
@@ -582,7 +581,6 @@ class _LamellaListHeader(ListHeader):
 class LamellaListWidget(QWidget):
     """List widget displaying Lamella objects with name, defect, status and actions."""
 
-    move_to_requested = pyqtSignal(object)  # Lamella
     edit_requested = pyqtSignal(object)  # Lamella
     remove_requested = pyqtSignal(object)  # Lamella
     defect_changed = pyqtSignal(object)  # Lamella
@@ -619,12 +617,6 @@ class LamellaListWidget(QWidget):
         layout.addWidget(self._list)
 
         self._header.select_all_changed.connect(self.set_all_selected)
-
-        self._btn_visible = {
-            "edit": True,
-            "remove": True,
-            "defect": True,
-        }
 
     # ------------------------------------------------------------------
     # Public API
@@ -693,36 +685,13 @@ class LamellaListWidget(QWidget):
         self._list.setItemWidget(item, row)
         item.setHidden(not self._row_passes(row, self.grid_filter.selected))
 
-        row.move_to_clicked.connect(self.move_to_requested)
         row.edit_clicked.connect(self.edit_requested)
         row.remove_clicked.connect(self._on_remove_clicked)
         row.defect_changed.connect(self.defect_changed)
         row.selection_changed.connect(self._on_row_selection_changed)
 
-        self._apply_btn_visibility(row)
         self._sync_select_all()
         return row
-
-    def enable_actions_button(self, visible: bool) -> None:
-        self.enable_edit_action(visible)
-
-    def enable_move_to_action(self, visible: bool) -> None:
-        pass  # not available
-
-    def enable_edit_action(self, visible: bool) -> None:
-        self._btn_visible["edit"] = visible
-        for i in range(self._list.count()):
-            self._apply_btn_visibility(self._row(i))
-
-    def enable_remove_button(self, visible: bool) -> None:
-        self._btn_visible["remove"] = visible
-        for i in range(self._list.count()):
-            self._apply_btn_visibility(self._row(i))
-
-    def enable_defect_button(self, visible: bool) -> None:
-        self._btn_visible["defect"] = visible
-        for i in range(self._list.count()):
-            self._apply_btn_visibility(self._row(i))
 
     def remove_lamella(self, lamella: Lamella) -> None:
         for i in range(self._list.count()):
@@ -791,13 +760,6 @@ class LamellaListWidget(QWidget):
 
     def _row(self, i: int) -> LamellaRowWidget:
         return self._list.itemWidget(self._list.item(i))  # type: ignore[return-value]
-
-    def _apply_btn_visibility(self, row: LamellaRowWidget) -> None:
-        row.action_edit.setVisible(self._btn_visible["edit"])
-        row.action_remove.setVisible(self._btn_visible["remove"])
-        row.defect_menu.menuAction().setVisible(self._btn_visible["defect"])
-        if not self._btn_visible["defect"]:
-            row.btn_defect.setVisible(False)
 
     def _on_remove_clicked(self, lamella: Lamella) -> None:
         self.remove_lamella(lamella)

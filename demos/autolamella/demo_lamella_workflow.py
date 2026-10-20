@@ -128,9 +128,6 @@ class TestWindow(QWidget):
         root.addLayout(btn_row)
 
         # ── signal connections ────────────────────────────────────────────
-        self.widget.lamella_move_to_requested.connect(
-            lambda lam: self._log(f"Move to: {lam.name}")
-        )
         self.widget.lamella_edit_requested.connect(
             lambda lam: self._log(f"Edit lamella: {lam.name}")
         )

@@ -370,14 +370,6 @@ class AutoLamellaOverviewContainerTab(QWidget):
             # The page's widget was destroyed and took the strip with it.
             pass
 
-    def modality_chip(self, modality: str) -> QPushButton:
-        """The chip for *modality*, for a host or a test that wants to read its state.
-
-        Public because "why can I not reach fluorescence" is now answered on the chip
-        rather than on the tab, and the answer has to be readable from outside.
-        """
-        return self._chips[modality]
-
     def _on_chip_clicked(self, modality: str) -> None:
         self.set_modality(modality)
 

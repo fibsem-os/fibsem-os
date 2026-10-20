@@ -1,25 +1,8 @@
-"""The lamella list: a name-per-row list with status and a defect indicator.
-
-Lifted out of ``custom_widgets`` (FIB-554). It was the only thing in that module
-that knew about AutoLamella, and ``custom_widgets`` is imported by 78 files -- so
-the shared widget library dragged the application into every one of them. The
-imports were deferred into function bodies to soften that, which worked, but left
-an application widget living in the generic library.
-
-Nothing here is generic: a row renders ``lamella.task_state`` and ``lamella.defect``
-and the defect menu writes ``DefectState`` back. So the imports are plain
-module-level ones now -- there is no cycle (``autolamella.structures`` does not
-import ``fibsem.ui``) and several sibling widgets already do the same.
-
-This belongs under ``fibsem/applications/autolamella/ui/`` eventually. It cannot go
-there yet: three of its consumers (the minimap, the coincidence viewer and the spot
-burn widget) live in ``fibsem/ui/``, so moving it now would create three new
-generic-to-application imports rather than removing any. That move is FIB-559.
-"""
+"""The lamella list: a name-per-row list with status and a defect indicator."""
 
 from __future__ import annotations
 
-from typing import Any, List, Optional, Tuple
+from typing import Any, Optional, Tuple
 
 from PyQt5.QtCore import QSize, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
@@ -36,6 +19,13 @@ from PyQt5.QtWidgets import (
 )
 from superqt import ensure_main_thread
 
+from fibsem.applications.autolamella.ui.lamella_list_widget import (
+    VERDICT_LOOK,
+    add_defect_menu,
+    apply_grid_label,
+    completed_text,
+    not_on_stage_reason,
+)
 from fibsem.ui import stylesheets as stylesheets
 from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION, fibsem_icon
 from fibsem.ui.tokens import CANVAS_BG, NEUTRAL_550
@@ -61,10 +51,6 @@ def _lamella_status_text(lamella) -> tuple[str, str]:
             return f"{ts.name}", "color: #6aabdf; background: transparent;"
     last = getattr(lamella, "last_completed_task", None)
     if last:
-        from fibsem.applications.autolamella.ui.lamella_list_widget import (
-            completed_text,
-        )
-
         return completed_text(last), f"color: {NEUTRAL_550}; background: transparent;"
     return "", "background: transparent;"
 
@@ -74,8 +60,6 @@ def _lamella_defect_icon(lamella) -> tuple[str, str, str]:
 
     Gracefully handles objects without defect field.
     """
-    from fibsem.applications.autolamella.ui.lamella_list_widget import VERDICT_LOOK
-
     defect = getattr(lamella, "defect", None)
     if defect is None:
         return VERDICT_LOOK[Verdict.UNASSESSED]
@@ -97,9 +81,7 @@ class _LamellaRow(QWidget):
         super().__init__(parent)
         self.lamella = lamella
         # (grid name, on the stage, named at all), from the host; see
-        # `lamella_list_widget.GridContext`. That module is the application's
-        # and this one is still in the shared layer (FIB-559), so the small
-        # helpers it needs are imported inside the methods that use them.
+        # `lamella_list_widget.GridContext`.
         self._grid: Optional[Tuple[str, bool]] = None
         self._grid_named = False
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -121,10 +103,6 @@ class _LamellaRow(QWidget):
 
         self.status_label = ElidedLabel()
         layout.addWidget(self.status_label, stretch=1)
-
-        from fibsem.applications.autolamella.ui.lamella_list_widget import (
-            add_defect_menu,
-        )
 
         # Only drawn once someone has judged the lamella. Clicking it opens the
         # verdict menu.
@@ -218,11 +196,6 @@ class _LamellaRow(QWidget):
 
     @ensure_main_thread
     def refresh(self) -> None:
-        from fibsem.applications.autolamella.ui.lamella_list_widget import (
-            apply_grid_label,
-            not_on_stage_reason,
-        )
-
         self.name_label.setText(self.lamella.name)
         self.setToolTip(self.lamella.description or "")
         text, style = _lamella_status_text(self.lamella)
@@ -416,10 +389,6 @@ class LamellaNameListWidget(QWidget):
 
     def enable_defect_button(self, visible: bool) -> None:
         self._set_visible("defect", visible)
-
-    def enable_actions_button(self, visible: bool) -> None:
-        """Kept for callers: every action lives on the one actions menu, which
-        shows whenever any of them does."""
 
     def enable_move_to_action(self, visible: bool) -> None:
         self._set_visible("move_to", visible)
