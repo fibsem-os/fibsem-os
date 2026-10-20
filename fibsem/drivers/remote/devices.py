@@ -140,6 +140,11 @@ class RemoteDeviceUnreachable(ConnectionError):
     """The server could not be reached. Nothing about the device is known right now."""
 
 
+def _decoded(type_: type, value: Any) -> Any:
+    """A value read from the wire as *type_*; None (nothing yet) stays None."""
+    return None if value is None else decode(type_, value)
+
+
 def _range(payload: Dict[str, Any]) -> RangeLimit:
     """An end sent as None is unbounded: JSON has no infinity."""
     low, high = payload["min"], payload["max"]
@@ -201,9 +206,11 @@ class DeviceClient:
         ``reconnected`` never change or fire.
         """
         self.base_url = f"http://{host}:{port}{root}"
+        self.root = root
         self.events = events
-        self._transport = Transport(self.base_url, token, discover=False)
-        self._devices: Dict[str, Device] = {}
+        self._transport = Transport(f"http://{host}:{port}", token, discover=False)
+        # Each remote device and service it serves, by its noun and name.
+        self._remotes: Dict[Tuple[str, str], Any] = {}
         self._events = EventStream(
             f"ws://{host}:{port}{root}/events",
             self._dispatch,
@@ -230,7 +237,7 @@ class DeviceClient:
         (connect, read) with None for no read limit."""
         try:
             return self._transport.fetch(
-                method, f"/{path}", json, timeout=_timeout(timeout)
+                method, f"{self.root}/{path}", json, timeout=_timeout(timeout)
             )
         except ServerUnreachable as error:
             # One line saying what is unreachable and why.
@@ -257,10 +264,10 @@ class DeviceClient:
 
     # -- events ---------------------------------------------------------------------
 
-    def register(self, device: Device, wait: bool = True) -> None:
-        """Follow the device's events. The first device starts the event stream; with
-        ``wait``, until it is open, so no change is missed from here on."""
-        self._devices[device.name] = device
+    def register(self, remote: Any, wait: bool = True) -> None:
+        """Follow a remote device's or service's events. The first starts the event
+        stream; with ``wait``, until it is open, so no change is missed from here on."""
+        self._remotes[(remote.noun, remote.name)] = remote
         if self.events:
             self._events.start(wait=READ_TIMEOUT if wait else None)
 
@@ -280,7 +287,7 @@ class DeviceClient:
         """
         offline = [
             device
-            for device in self._devices.values()
+            for device in self._remotes.values()
             if isinstance(device, RemoteDevice) and not device.online
         ]
         if not offline:
@@ -300,7 +307,7 @@ class DeviceClient:
 
     def _resync(self) -> None:
         """After a gap, events may have been missed: read metadata and values again."""
-        for device in self._devices.values():
+        for device in self._remotes.values():
             for param in device.parameters.values():
                 try:
                     param.refresh_metadata()
@@ -311,24 +318,31 @@ class DeviceClient:
                     )
 
     def _dispatch(self, event: Dict[str, Any]) -> None:
-        device = self._devices.get(event.get("device"))
-        param = device.parameters.get(event["parameter"]) if device else None
+        noun = "service" if "service" in event else "device"
+        remote = self._remotes.get((noun, event.get(noun)))
+        if remote is None:
+            return
+        if event["kind"] == "signal":
+            remote.signalled(event["parameter"], event["value"])
+            return
+        param = remote.parameters.get(event["parameter"])
         if param is None:
             return
+        key = (noun, remote.name, event["parameter"])
         if event["kind"] == "changed":
-            if self._take_echo((event["device"], event["parameter"]), event["value"]):
+            if self._take_echo(key, event["value"]):
                 return  # our own write: its write path signals it
-            param.report(decode(param.type, event["value"]))  # only if news
+            param.report(_decoded(param.type, event["value"]))  # only if news
         elif event["kind"] == "metadata":
             param.refresh_metadata()
 
-    def _expect_echo(self, key: Tuple[str, str], value: Any) -> None:
+    def _expect_echo(self, key: Tuple[str, str, str], value: Any) -> None:
         if not self.events:
             return  # no stream, so no echo will come back to take it
         with self._echoes_lock:
             self._echoes.setdefault(key, []).append(value)
 
-    def _take_echo(self, key: Tuple[str, str], value: Any) -> bool:
+    def _take_echo(self, key: Tuple[str, str, str], value: Any) -> bool:
         with self._echoes_lock:
             pending = self._echoes.get(key, [])
             for i, expected in enumerate(pending):
@@ -342,11 +356,17 @@ class DeviceClient:
         self._transport.close()
 
 
-class RemoteDevice(Device):
-    """Parameters and commands of a device served by ``fibsem.server.devices``.
+class RemoteParts:
+    """Parameters, commands and queries of a device or service served by
+    ``fibsem.server.devices``, under ``{collection}/{name}``. `RemoteDevice` and
+    `fibsem.drivers.remote.services.RemoteService` mix it in."""
 
-    Mix it in before a device type. The device's ``name`` is its name on the server.
-    """
+    noun = "device"
+    """What the server's events call it (``{"device": name}``)."""
+
+    @property
+    def collection(self) -> str:
+        return f"{self.noun}s"
 
     def __init__(self, *args: Any, client: DeviceClient, **kwargs: Any):
         super().__init__(*args, **kwargs)
@@ -362,7 +382,7 @@ class RemoteDevice(Device):
         self.check_roles()
         if description is None:
             description = self.client.request(
-                "GET", f"devices/{self.name}", READ_TIMEOUT
+                "GET", f"{self.collection}/{self.name}", READ_TIMEOUT
             )
         self._bind_from(description)
         self.client.register(self)
@@ -414,35 +434,41 @@ class RemoteDevice(Device):
         """Run one of the device's commands on the server. Structured arguments
         (a ``Point``) cross the wire like parameter values do. ``timeout`` is the
         requests timeout: seconds, or (connect, read)."""
-        path = f"devices/{self.name}/commands/{command}"
-        body = {"kwargs": {name: to_wire(value) for name, value in kwargs.items()}}
-        if command in _STOPS:
-            # The App Server records why with every stop; a device server ignores it.
-            body["reason"] = f"{self.name} {command} from a remote microscope"
-        answer = self.client.request("POST", path, timeout, json=body)
+        answer = self._post_command(command, timeout, kwargs)
         if isinstance(answer, (np.ndarray, Frame, FibsemImage, list)):
             return answer
         return answer["result"]
 
+    def _post_command(
+        self, command: str, timeout: Any, kwargs: Mapping[str, Any]
+    ) -> Any:
+        """The server's answer to *command*: JSON, or the data it sent."""
+        path = f"{self.collection}/{self.name}/commands/{command}"
+        body = {"kwargs": {name: to_wire(value) for name, value in kwargs.items()}}
+        if command in _STOPS:
+            # The App Server records why with every stop; a device server ignores it.
+            body["reason"] = f"{self.name} {command} from a remote microscope"
+        return self.client.request("POST", path, timeout, json=body)
+
     def call_query(self, query: str, timeout: Any = READ_TIMEOUT, **kwargs: Any) -> Any:
         """Ask one of the device's queries on the server: a read that takes
         arguments and moves nothing."""
-        path = f"devices/{self.name}/queries/{query}"
+        path = f"{self.collection}/{self.name}/queries/{query}"
         body = {"kwargs": {name: to_wire(value) for name, value in kwargs.items()}}
         return self.client.request("POST", path, timeout, json=body)["result"]
 
     def _reader(self, name: str) -> Callable[[], Any]:
-        path = f"devices/{self.name}/{name}"
+        path = f"{self.collection}/{self.name}/{name}"
         type_ = self.declared_parameters()[name].type
-        return lambda: decode(
+        return lambda: _decoded(
             type_, self.client.request("GET", path, READ_TIMEOUT)["value"]
         )
 
     def _writer(self, name: str) -> Callable[[Any], None]:
-        path = f"devices/{self.name}/{name}"
+        path = f"{self.collection}/{self.name}/{name}"
 
         def write(value: Any) -> None:
-            key, wire = (self.name, name), to_wire(value)
+            key, wire = (self.noun, self.name, name), to_wire(value)
             self.client._expect_echo(key, wire)  # matched in the form it comes back
             try:
                 self.client.request("PUT", path, WRITE_TIMEOUT, json={"value": wire})
@@ -457,7 +483,7 @@ class RemoteDevice(Device):
     ) -> Callable[[], ParameterMetadata]:
         """The description already carries the metadata, so binding costs no request;
         a later refresh (a dependency changed, a reconnect) asks the server again."""
-        path = f"devices/{self.name}/{name}/metadata"
+        path = f"{self.collection}/{self.name}/{name}/metadata"
         pending = [first]
         type_ = self.declared_parameters()[name].type
 
@@ -467,6 +493,16 @@ class RemoteDevice(Device):
             return _metadata(self.client.request("GET", path, READ_TIMEOUT), type_)
 
         return read
+
+    def signalled(self, name: str, value: Any) -> None:
+        """One of the server's ``remote_signals`` was emitted there."""
+
+
+class RemoteDevice(RemoteParts, Device):
+    """A device served by ``fibsem.server.devices``.
+
+    Mix it in before a device type. The device's ``name`` is its name on the server.
+    """
 
 
 class RemoteBeam(RemoteDevice, Beam):

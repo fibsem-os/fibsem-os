@@ -1087,7 +1087,7 @@ def build_app_config_router(context: Any) -> APIRouter:
     @router.post(
         "/experiment/items/{item_name}/move_to",
         tags=[POSES],
-        dependencies=[Depends(take_control)],
+        dependencies=[Depends(take_control, scope="function")],
     )
     def move_to_item_pose(item_name: str, body: Dict[str, Any]):
         pose = _required_text(body, "pose", "a pose name from the item (MILLING, ...)")
@@ -1096,7 +1096,7 @@ def build_app_config_router(context: Any) -> APIRouter:
     @router.post(
         "/experiment/items/{item_name}/objective/move_to",
         tags=[POSES],
-        dependencies=[Depends(take_control)],
+        dependencies=[Depends(take_control, scope="function")],
     )
     def move_objective_to_item(item_name: str):
         # The tab's objective Move to: the FM objective to the stored position.

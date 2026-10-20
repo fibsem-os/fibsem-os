@@ -80,10 +80,12 @@ def to_wire(value: Any) -> Any:
     name or value as it declares, a tuple as a list.
 
     One of several classes saved under a name (a pattern's shape) is written as
-    its base writes it, with the name, so it reads back where the base is declared.
-    A result assembled with its images (an autofocus result) has no codec form; it
-    writes its own ``to_dict``, which leaves the images out.
+    its base writes it, with the name, so it reads back where the base is declared;
+    in a list too. A result assembled with its images (an autofocus result) has no
+    codec form; it writes its own ``to_dict``, which leaves the images out.
     """
+    if isinstance(value, (list, tuple)):
+        return [to_wire(item) for item in value]
     try:
         return encode(value, _tagged_base(type(value)))
     except PydanticSchemaGenerationError:
