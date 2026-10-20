@@ -77,6 +77,7 @@ def test_an_alignment_is_one_event_with_every_step(microscope, recorded, tmp_pat
         for r in run.results
     ]
     assert alignment["validation"] is None
+    assert alignment["check"] == run.check()
     assert alignment["path"] == str(tmp_path / "alignment" / run.name)
     assert os.path.exists(os.path.join(alignment["path"], "data.json"))
     assert alignment["status"] == "completed"
@@ -198,6 +199,7 @@ def test_an_autofocus_records_the_working_distance_it_left(microscope, recorded)
         result.initial_working_distance
     )
     assert focus["focus_score"] == pytest.approx(result.focus_score)
+    assert focus["check"] == result.check()
     assert focus["steps"] == len(result.iterations)
     assert focus["hfw"] == pytest.approx(100e-6)
     assert focus["status"] == "completed"
@@ -260,3 +262,68 @@ def test_an_autofocus_that_raises_is_recorded_failed(microscope, recorded, monke
     (focus,) = recorded("autofocus")
     assert focus["status"] == "failed"
     assert focus["error"] == "RuntimeError: stage lost"
+
+
+def _focus_result(start, best, wds):
+    from fibsem.autofunctions.autofocus import AutoFocusIteration, AutoFocusResult
+
+    iterations = [
+        AutoFocusIteration(
+            working_distance=wd,
+            focus_score=10.0 if wd == best else 5.0,
+            pass_index=0,
+            image=None,
+        )
+        for wd in wds
+    ]
+    return AutoFocusResult(
+        image=None,
+        working_distance=best,
+        initial_working_distance=start,
+        focus_score=10.0,
+        iterations=iterations,
+    )
+
+
+def test_an_autofocus_that_jumps_or_ends_at_the_sweep_edge_is_doubtful():
+    """2026-10-19: Setup's focus picked a bad working distance on dark sites and
+    the run carried on. The check says so; it stops nothing."""
+    wds = [15.9e-3, 15.95e-3, 16.0e-3, 16.05e-3, 16.1e-3]
+    near = _focus_result(16.0e-3, 16.05e-3, wds).check()
+    assert near == {"verdict": "passed", "reasons": [], "peak_ratio": 2.0}
+
+    far = _focus_result(15.8e-3, 16.05e-3, wds).check()
+    assert far["verdict"] == "doubtful"
+    assert far["reasons"] == ["the working distance moved +0.250 mm, more than 0.1 mm"]
+
+    edge = _focus_result(16.0e-3, 16.1e-3, wds).check()
+    assert edge["reasons"] == ["the best focus is at the edge of the sweep"]
+
+
+def test_an_alignment_is_doubtful_when_its_methods_disagree_or_a_step_fails():
+    from types import SimpleNamespace
+
+    from fibsem.alignment import AlignmentResult
+
+    def run(validation, *success):
+        steps = [SimpleNamespace(success=ok) for ok in success]
+        return AlignmentResult(
+            name="a",
+            reference_image=None,
+            subsystem=AlignmentSubsystem.BEAM_SHIFT,
+            method=None,
+            results=steps,
+            validation=validation,
+        ).check()
+
+    agree = SimpleNamespace(agreement=True, max_disagreement_px=0.4)
+    disagree = SimpleNamespace(agreement=False, max_disagreement_px=4.2)
+    assert run(agree, True) == {"verdict": "passed", "reasons": []}
+    assert run(None, True) == {"verdict": "unchecked", "reasons": []}
+    assert run(disagree, True) == {
+        "verdict": "doubtful",
+        "reasons": ["the methods disagree by 4.2 px"],
+    }
+    assert run(None, True, False)["reasons"] == [
+        "step 2 scored under the minimum response, so it did not move"
+    ]

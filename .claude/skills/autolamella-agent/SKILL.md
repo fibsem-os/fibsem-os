@@ -151,6 +151,11 @@ Its lines:
 - `MILL STAGE STARTED` and `MILL ENDED`: every mill, whoever started it (see
   *Milling*). `MILL READING`: a milling monitor triggered or failed (see
   *Milling monitors*). `COMMAND ENDED`: a long command ended.
+- `AUTOFOCUS` and `ALIGNMENT`: every one, whoever ran it (a task's own
+  included), with its check: `passed`, `unchecked`, or `doubtful (why)` (the
+  working distance moved more than 0.1 mm or the best focus is at the sweep's
+  edge; the alignment methods disagree or a step didn't move). Nothing stops
+  on a doubtful one: look at the result and fix or flag it yourself.
 - `WORKFLOW STARTED` and `WORKFLOW ENDED`. An ended workflow says how:
   `workflow_stalled` (tasks were left that could not run), `workflow_failed: <error>`, or
   `stopped without an end event` (it died without saying so). For the last

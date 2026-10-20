@@ -858,3 +858,62 @@ def test_a_question_held_before_the_watch_started_is_its_first_line(app):
 
     assert code is None
     assert lines == [watch_mod._proposal_line(lamella.name, "Setup Lamella Position")]
+
+
+def test_every_autofocus_and_alignment_is_a_line_with_its_check():
+    """2026-10-19: the agent found a bad working distance only by reading the
+    log. Each result is a line, whoever ran it, with how it was judged."""
+    item = {"id": "a", "name": "01-alive-dory"}
+    lines = []
+    watch_mod._print_events(
+        [
+            {
+                "seq": 1,
+                "kind": "autofocus",
+                "item": item,
+                "payload": {
+                    "beam_type": "ION",
+                    "status": "completed",
+                    "initial_working_distance": 16.0e-3,
+                    "working_distance": 16.25e-3,
+                    "focus_score": 8.16,
+                    "check": {
+                        "verdict": "doubtful",
+                        "reasons": ["the working distance moved +0.250 mm"],
+                    },
+                    "path": "/e/01/autofocus",
+                },
+            },
+            {
+                "seq": 2,
+                "kind": "alignment",
+                "item": item,
+                "payload": {
+                    "name": "ref_alignment",
+                    "beam_type": "ION",
+                    "status": "completed",
+                    "results": [{"shift": {"x": 120e-9, "y": -40e-9}, "score": 0.81}],
+                    "check": {"verdict": "passed", "reasons": []},
+                    "path": None,
+                },
+            },
+            {
+                "seq": 3,
+                "kind": "autofocus",
+                "payload": {
+                    "beam_type": "ELECTRON",
+                    "status": "failed",
+                    "error": "RuntimeError: no beam",
+                },
+            },
+        ],
+        0,
+        lines.append,
+    )
+    assert lines == [
+        "AUTOFOCUS item=01-alive-dory beam=ION wd=16.000->16.250 mm score=8.16 "
+        "doubtful (the working distance moved +0.250 mm) path=/e/01/autofocus",
+        "ALIGNMENT 'ref_alignment' item=01-alive-dory beam=ION shift=(120, -40) nm "
+        "score=0.81 passed",
+        "AUTOFOCUS beam=ELECTRON status=failed (RuntimeError: no beam)",
+    ]
