@@ -45,6 +45,8 @@ Read `server_get_capabilities` (`/capabilities`) before anything else:
   session.
 - `parts` lists the optional parts of `/app` the app serves (items, poses,
   grids, milling stages, lamellae); a tool of a part it lacks is not offered.
+- `app_name` is the app the operator works in: where they set your level and
+  approve your requests. Name it when you tell them where to act.
 - `level` is what the operator lets you do (next section). Tell them in a
   sentence what it means for this session.
 - `routers.microscope` says whether the microscope is served: live reads and

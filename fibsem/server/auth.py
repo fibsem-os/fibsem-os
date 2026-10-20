@@ -231,11 +231,18 @@ def _dashboard_refused() -> HTTPException:
     )
 
 
+def _app_name(request: Request) -> str:
+    """The app the operator works in, as its window names it."""
+    return getattr(request.app.state, "app_name", None) or "fibsemOS"
+
+
 # A decision the agent puts to the operator at Assist, rather than in a request.
 _SUGGESTED_AT_ASSIST = "/app/workflow/decide"
 
 
-def _level_detail(auth: AuthConfig, needed: AgentLevel, path: str = "") -> dict:
+def _level_detail(
+    auth: AuthConfig, needed: AgentLevel, path: str = "", app_name: str = "fibsemOS"
+) -> dict:
     if auth.stopped:
         return {
             "error_type": "agent_stopped",
@@ -254,7 +261,7 @@ def _level_detail(auth: AuthConfig, needed: AgentLevel, path: str = "") -> dict:
             "message": "At Assist the operator decides proposals, your own "
             "requests included: suggest a task's decision (proposal_suggest, POST "
             "/app/workflow/proposals/suggest) with your reason, and the operator "
-            "approves or declines it in AutoLamella.",
+            f"approves or declines it in {app_name}.",
         }
     if auth.level is AgentLevel.ASSIST and needed is AgentLevel.DRIVE:
         return {
@@ -262,14 +269,14 @@ def _level_detail(auth: AuthConfig, needed: AgentLevel, path: str = "") -> dict:
             "level": AgentLevel.ASSIST.value,
             "message": "At Assist the agent asks before it acts: put this call "
             "in a request (request_create, POST /app/agent/requests) with your "
-            "reason, and the operator approves or rejects it in AutoLamella.",
+            f"reason, and the operator approves or rejects it in {app_name}.",
         }
     return {
         "error_type": "level",
         "level": auth.level.value,
         "message": f"Not allowed while the agent level is "
         f"{auth.level.value.title()}: the operator sets the level from the "
-        "Agent chip in AutoLamella.",
+        f"Agent chip in {app_name}.",
     }
 
 
@@ -302,12 +309,15 @@ def require_level(needed: AgentLevel):
                     "error_type": "agent_off",
                     "level": AgentLevel.OFF.value,
                     "message": "The agent is off: the operator has set the "
-                    "agent level to Off in AutoLamella.",
+                    f"agent level to Off in {_app_name(request)}.",
                 },
             )
         if not (auth.reaches(needed) or lent):
             raise HTTPException(
-                status_code=403, detail=_level_detail(auth, needed, request.url.path)
+                status_code=403,
+                detail=_level_detail(
+                    auth, needed, request.url.path, _app_name(request)
+                ),
             )
 
     return dependency

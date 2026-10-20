@@ -136,6 +136,9 @@ class AppWindow(Protocol):
 class AutoLamellaAppContext:
     """Read-only facade over a running (or resting) AutoLamella session."""
 
+    # The app the operator works in, as the App Server names it to the agent.
+    app_name = "AutoLamella"
+
     def __init__(self, session, window: Optional[AppWindow] = None, event_buffer=None):
         self._session = session
         self._window = window

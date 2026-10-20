@@ -475,6 +475,8 @@ def build_server(
     app.add_middleware(_AgentActs)
     app.state.auth = auth
     app.state.microscope = microscope
+    # The app the operator works in, as the agent's refusals name it.
+    app.state.app_name = getattr(app_context, "app_name", None) or "fibsemOS"
     if services is None:
         from fibsem.services.analysis import analysis_services
 
@@ -541,6 +543,9 @@ def build_server(
                 "services": True,
                 "app": app_context is not None,
             },
+            # The app the operator works in: where they set the level and
+            # decide requests.
+            "app_name": app.state.app_name,
             # The optional /app parts this app serves (fibsem.server.parts).
             "parts": served_parts(app_context),
             # The agent level (FIB-1035): what the agent may do right now.
