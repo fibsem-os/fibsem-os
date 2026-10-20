@@ -483,7 +483,10 @@ class TestTheControlWidgetWiring:
         during live view is what the panel is for.
         """
         source = self._source()
-        for control in ("objectiveControlWidget", "channelSettingsWidget"):
+        for control in (
+            "objectiveControlWidget",
+            "acquisitionSettingsWidget.channels_widget",
+        ):
             assert f"self.{control}.setEnabled(may_touch)" in source, control
         assert "interactive = self.fm.is_interactive" in source
         assert "may_touch = posed and interactive" in source

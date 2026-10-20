@@ -181,7 +181,8 @@ class WorkflowRunner:
 
     ``starting(request)`` is emitted where ``start`` was called, before the
     run's thread starts: a window lands its pending edits and draws its run
-    chrome there, whoever started the run. ``finished(cancelled)`` is
+    chrome there, whoever started the run. ``stopping`` is emitted where a
+    stop of the run was asked, whoever asked. ``finished(cancelled)`` is
     emitted on the run's thread when it has ended. ``notice(message, type)``
     is what a hook asks to be shown, from the run's thread; with nobody
     listening, notification hooks log instead. ``queue_changed(info)`` is the
@@ -193,6 +194,7 @@ class WorkflowRunner:
     """
 
     starting = Signal(object)
+    stopping = Signal()
     finished = Signal(bool)
     notice = Signal(str, str)
     queue_changed = Signal(dict)
@@ -242,10 +244,13 @@ class WorkflowRunner:
     def stop(self, actor: Any = None, via: str = "", **details: Any) -> None:
         """End the run after the task now running unwinds. Named, ``actor``'s
         stop goes on the record first, saying from where (``via``)."""
+        if not self.is_running:
+            return
         self._record_stop("workflow", actor, via, details)
         manager = self.manager
         if manager is not None:
             manager.stop()
+        self.stopping.emit()
 
     def stop_task(self, actor: Any = None, via: str = "", **details: Any) -> None:
         """Abandon the task now running and go on with the rest; recorded as

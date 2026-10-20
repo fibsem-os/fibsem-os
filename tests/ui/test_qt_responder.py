@@ -312,5 +312,5 @@ def test_fluorescence_channels_reach_the_fm_widget(ui, qapp):
     )
 
     assert "error" not in outcome
-    got = ui.panel.fm_control_widget.channelSettingsWidget.channel_settings
+    got = ui.panel.fm_control_widget.acquisitionSettingsWidget.channel_settings
     assert [c.name for c in got] == ["channel-from-the-workflow"]

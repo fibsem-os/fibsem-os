@@ -56,7 +56,7 @@ def test_idle_says_nothing_in_the_panel(window, tmp_path):
     )
     window.experiment = experiment
 
-    window._refresh_panel()
+    window.panel.refresh()
 
     # Not merely empty -- gone. An empty label still reserves its line.
     assert not window.panel.prompt_bar.message.isVisible()

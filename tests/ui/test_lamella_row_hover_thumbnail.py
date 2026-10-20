@@ -14,14 +14,14 @@ from PyQt5.QtCore import QEvent
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.applications.autolamella.structures import Lamella
-from fibsem.applications.autolamella.ui.lamella.rows import LamellaRowWidget
+from fibsem.applications.autolamella.ui.lamella.rows import LamellaRow
 
 
 @pytest.fixture
 def row(tmp_path, destroy_widgets_after_test):
     QApplication.instance() or QApplication([])
     lamella = Lamella(petname="01-test", path=str(tmp_path / "01-test"), number=1)
-    widget = LamellaRowWidget(lamella)
+    widget = LamellaRow(lamella, thumbnail=True)
     widget.show()
     yield widget
     widget.close()

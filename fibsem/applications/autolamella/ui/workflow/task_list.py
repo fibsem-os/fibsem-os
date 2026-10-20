@@ -5,12 +5,10 @@ from typing import Dict, List, Optional
 from PyQt5.QtCore import QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QFont, QFontMetrics
 from PyQt5.QtWidgets import (
-    QAbstractItemView,
     QCheckBox,
     QFrame,
     QHBoxLayout,
     QLabel,
-    QListWidget,
     QListWidgetItem,
     QToolButton,
     QVBoxLayout,
@@ -40,6 +38,7 @@ from fibsem.ui.widgets.lists import (
     NAME_PX,
     ROW_HEIGHT,
     ListHeader,
+    ReorderableListWidget,
     tinted_chip_style,
 )
 from fibsem.workflows.attention import Attention
@@ -70,25 +69,6 @@ ATTENTION_LABELS = {
     "supervised": "Supervised",
     "automated": "Automated",
 }
-
-
-class _DraggableTaskList(QListWidget):
-    """QListWidget with InternalMove drag-and-drop that emits the new task order after each drop.
-
-    Qt removes itemWidget associations when items are moved, so the parent must
-    listen to ``reordered`` and rebuild the row widgets.
-    """
-
-    reordered = pyqtSignal(list)  # List[TaskPlan]
-
-    def dropEvent(self, event) -> None:
-        super().dropEvent(event)
-        tasks = [
-            self.item(i).data(Qt.ItemDataRole.UserRole)
-            for i in range(self.count())
-            if self.item(i).data(Qt.ItemDataRole.UserRole) is not None
-        ]
-        self.reordered.emit(tasks)
 
 
 def attention_state(attention: Attention) -> str:
@@ -363,9 +343,7 @@ class WorkflowTaskList(QWidget):
         sep.setStyleSheet("color: #3a3d42;")
         layout.addWidget(sep)
 
-        self._list = _DraggableTaskList()
-        self._list.setDragDropMode(QAbstractItemView.InternalMove)
-        self._list.setDefaultDropAction(Qt.DropAction.MoveAction)
+        self._list = ReorderableListWidget()
         self._list.setSpacing(0)
         # No item padding, as on the lamella list: the app sheet pads items by 4px,
         # which put the rows' tick boxes 4px in from the header's.
@@ -554,13 +532,4 @@ class WorkflowTaskList(QWidget):
         if count == 0:
             return
         n_checked = sum(self._row(i).checkbox.isChecked() for i in range(count))
-        cb = self._header.checkbox_all
-        cb.blockSignals(True)
-        if n_checked == 0:
-            cb.setCheckState(Qt.CheckState.Unchecked)
-        elif n_checked == count:
-            cb.setCheckState(Qt.CheckState.Checked)
-        else:
-            cb.setTristate(True)
-            cb.setCheckState(Qt.CheckState.PartiallyChecked)
-        cb.blockSignals(False)
+        self._header.sync(n_checked, count)

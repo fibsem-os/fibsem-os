@@ -575,7 +575,9 @@ class FibsemMillingTask:
                     self.initial_beam_shift, beam_type=self.config.channel
                 )
 
-            self._post_task_acquisition()
+            # No beam after a stop or a failure (FIB-1430, FIB-1508).
+            if outcome is MillingProgressStatus.TASK_FINISHED:
+                self._post_task_acquisition()
 
     def _post_task_acquisition(self) -> None:
         """Acquire an image after finishing the milling task."""

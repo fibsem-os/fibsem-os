@@ -288,8 +288,8 @@ def test_the_card_mode_survives_the_preferences_dialog():
     """The preference is only reachable if it round-trips the dialog -- the same four
     places any preference has to survive: the field, the widget, the load and the save.
     """
+    from fibsem.applications.autolamella.ui.dialogs.preferences import PreferencesDialog
     from fibsem.config import UserPreferences
-    from fibsem.ui.widgets.preferences_dialog import PreferencesDialog
 
     prefs = UserPreferences()
     prefs.display.lamella_card_mode = MODE_COMPACT
@@ -310,8 +310,8 @@ def test_a_mode_this_build_does_not_know_falls_back_the_same_way_everywhere():
     which would have shown "Cozy" over a strip drawing Standard -- and pressing OK
     would then apply a layout nobody chose.
     """
+    from fibsem.applications.autolamella.ui.dialogs.preferences import PreferencesDialog
     from fibsem.config import DisplayPreferences, UserPreferences
-    from fibsem.ui.widgets.preferences_dialog import PreferencesDialog
 
     prefs = UserPreferences()
     prefs.display.lamella_card_mode = "tile"  # a name from before the rename

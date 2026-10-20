@@ -21,25 +21,26 @@ Vocabulary: the surface speaks ``item_name`` throughout.
 
 The facade reads the session (``fibsem.workflows.session.AppSession``): the
 experiment, the microscope, the runner, the responder and the latest images,
-and starts and stops runs through its runner, so it serves with no window.
-A window (:class:`AppWindow`, ``AutoLamellaWindow`` in production) adds what only
-it has: its redraws after an agent's edit, its adoption of an experiment or
-protocol, its hardware stops, and the config edits it still applies.
+and starts and stops runs through its runner. It never talks to a window: an
+edit runs where the session edits the experiment, and a window redraws on the
+experiment's events and ``session.changed``.
 """
 
 import logging
 import os
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Protocol
+from typing import Any, Dict, List, Optional
 
 import fibsem.config as fibsem_cfg
 from fibsem.acting import Actor
 from fibsem.applications.autolamella import task_outputs as _task_outputs
 from fibsem.applications.autolamella.config_edits import (
     ITEM_PATCH_FIELDS,
+    apply_correlation,
     config_version,
     item_fields_version,
     item_patch_refusal,
+    poi_patch,
     workflow_field_refusal,
 )
 from fibsem.geometry.saved_images import image_point_to_stage_position, stage_projector
@@ -56,10 +57,10 @@ from fibsem.workflows.outputs import (
     latest_item_output,
 )
 from fibsem.workflows.runner import GRIDS, RunRequest
+from fibsem.workflows.session import CONFIG, GRID_RECORDS, PROTOCOL
 from fibsem.workflows.status import TaskStatus
 
 __all__ = [
-    "AppWindow",
     "AutoLamellaAppContext",
     "ITEM_PATCH_FIELDS",
     "config_version",
@@ -119,40 +120,10 @@ def _attendance_line(task_protocol: Any, task_name: str) -> str:
     return att.line if att is not None else ""
 
 
-class AppWindow(Protocol):
-    """The window side of the context: what a window attached to the session
-    does that the session cannot. Every method runs where the experiment is
-    edited (``session.run_edit``) except the two stops, which run anywhere."""
-
-    # an agent changed the grid records, or the experiment's protocol
-    grids_changed: Any
-    experiment_update_signal: Any
-
-    def after_agent_edit(self, select_latest: bool = False) -> None: ...
-
-    def adopt_experiment(self, experiment: Any) -> None: ...
-
-    def adopt_protocol(self, protocol: Any) -> None: ...
-
-    # Stop Workflow and Stop Task: the run's stop, and the hardware's halt
-    def stop_task_workflow(self) -> None: ...
-
-    def stop_current_task(self) -> None: ...
-
-    # Around an agent's config edit (``config_edits``): flush what the
-    # editors hold first, then redraw and tell the operator what changed.
-    def before_config_edit(self) -> None: ...
-
-    def after_config_edit(
-        self, level: str, item_name: str, task_name: str, result
-    ) -> None: ...
-
-
 class AutoLamellaAppContext(AppContext):
     """Read-only facade over a running (or resting) AutoLamella session."""
 
     app_name = "AutoLamella"
-    _window: Optional[AppWindow]
 
     # --- experiment record ----------------------------------------------------
 
@@ -515,12 +486,15 @@ class AutoLamellaAppContext(AppContext):
             )
         return payload
 
-    def grid_render_markers(self, grid_name: str, filename: str) -> Dict[str, Any]:
-        """One recorded beam overview with the grid's items drawn on it, as the
+    def render_markers(
+        self, path: str, grid_name: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Any beam image in the experiment with the items drawn on it, as the
         overview plot dialog draws them (`overview_figure`): numbers for names,
-        green, red for a failed item. Saved as ``markers/<overview>.png`` beside
-        the overview (replaced when drawn again), a path the agent can cite as
-        evidence; the answer carries a preview."""
+        green, red for a failed item. *grid_name* draws that grid's items only;
+        without it, every item with a pose. Saved as ``markers/<image>.png``
+        beside the image (replaced when drawn again), a path the agent can cite
+        as evidence; the answer carries a preview."""
         import base64
 
         from fibsem.applications.autolamella.overview_figure import (
@@ -532,39 +506,37 @@ class AutoLamellaAppContext(AppContext):
         experiment = self._experiment
         if experiment is None:
             return {"error_type": "not_found", "error": "No experiment is open."}
-        grid = experiment.get_grid_by_name(grid_name)
-        if grid is None:
-            return dict(
-                self._no_such_grid(experiment, grid_name), error_type="not_found"
-            )
-        match = item_output_named(experiment, grid, filename)
-        if match is None:
-            return {
-                "error_type": "not_found",
-                "error": f"No output named {filename!r} for grid {grid_name!r}.",
-                "filenames": _basenames(all_item_outputs(experiment, grid)),
-            }
-        if is_fluorescence_image(match):
+        target, refusal = self._experiment_image(path)
+        if refusal:
+            return refusal
+        lamellae, linked, reason = list(experiment.positions), None, ""
+        if grid_name is not None:
+            grid = experiment.get_grid_by_name(grid_name)
+            if grid is None:
+                return dict(
+                    self._no_such_grid(experiment, grid_name), error_type="not_found"
+                )
+            lamellae, linked, reason = _grid_items(experiment, grid)
+        if is_fluorescence_image(target):
             return {
                 "error_type": "invalid",
-                "error": f"{filename!r} is a fluorescence overview; the items are drawn on a beam overview.",
+                "error": f"{path!r} is a fluorescence image; the items are drawn on a beam image.",
             }
         try:
-            image = FibsemImage.load(match)
+            image = FibsemImage.load(target)
         except Exception as exc:  # noqa: BLE001 - an unreadable file is a data fact
-            return {"error_type": "invalid", "error": f"{filename!r}: {exc}"}
-        lamellae, linked, reason = _grid_items(experiment, grid)
-        stem = os.path.splitext(os.path.basename(match))[0]
-        path = os.path.join(os.path.dirname(match), "markers", f"{stem}.png")
-        jpeg = save_markers_picture(image, lamellae, path)
+            return {"error_type": "invalid", "error": f"{path!r}: {exc}"}
+        stem = os.path.splitext(os.path.basename(target))[0]
+        saved = os.path.join(os.path.dirname(target), "markers", f"{stem}.png")
+        jpeg = save_markers_picture(image, lamellae, saved)
         answer = {
-            "grid_name": grid_name,
-            "filename": filename,
-            "path": path,
+            "image": path,
+            "path": saved,
             "items": [lam.name for lam in lamellae],
-            "linked": linked,
             "plot": {"image_b64_jpeg": base64.b64encode(jpeg).decode()},
         }
+        if grid_name is not None:
+            answer.update(grid_name=grid_name, linked=linked)
         if reason:
             answer["reason"] = reason
         return answer
@@ -605,9 +577,45 @@ class AutoLamellaAppContext(AppContext):
 
     # --- experiments and protocols: the File menu, for an agent at Drive ---------
     #
-    # Kept to known places (Patrick's call, 2026-10-14): a new experiment goes in
-    # the default experiments folder, a load is one of the recent experiments, and
-    # a protocol is one of the files in the protocol folder, by name.
+    # Kept to known places (Patrick's call, 2026-10-14; widened 2026-10-20): a new
+    # experiment goes anywhere under the experiments folder, a load is a recent
+    # experiment or one under that folder, and a protocol is one of the files in
+    # the protocol folder, by name.
+
+    def _experiments_folder(self) -> str:
+        """Where the agent creates and finds experiments: the session's folder,
+        else the default experiments folder."""
+        from fibsem.applications.autolamella import experiment_setup
+
+        return (
+            self._session.experiments_folder
+            or experiment_setup.default_experiment_directory()
+        )
+
+    def saved_experiments(self) -> Dict[str, Any]:
+        """Every experiment under the experiments folder, newest first."""
+        from fibsem.applications.autolamella.tools.experiments import (
+            discover_experiments,
+        )
+
+        folder = self._experiments_folder()
+        return {
+            "folder": folder,
+            "items": [self.experiment_entry(s) for s in discover_experiments(folder)],
+        }
+
+    def _under_experiments_folder(self, path: str) -> Optional[str]:
+        """*path* (relative to the experiments folder, or absolute) when it is
+        inside that folder, links followed; else None."""
+        import os
+
+        folder = os.path.realpath(self._experiments_folder())
+        target = os.path.realpath(os.path.join(folder, path))
+        try:
+            inside = os.path.commonpath([target, folder]) == folder
+        except ValueError:  # another drive
+            return None
+        return target if inside and target != folder else None
 
     def protocols(self) -> Dict[str, Any]:
         """The protocol files an agent may load or create an experiment with."""
@@ -645,14 +653,7 @@ class AutoLamellaAppContext(AppContext):
 
     def _adopt(self, experiment) -> None:
         """Make *experiment* the open one, as the dialogs' OK does."""
-
-        def adopt():
-            if self._window is not None:
-                self._window.adopt_experiment(experiment)
-            else:
-                self._session.adopt(experiment)
-
-        self._agent_call(adopt)
+        self._agent_call(lambda: self._session.adopt(experiment))
 
     def create_experiment(
         self,
@@ -660,10 +661,51 @@ class AutoLamellaAppContext(AppContext):
         protocol: Optional[str] = None,
         description: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Create an experiment in the default experiments folder and open it,
-        with *protocol* from the protocol folder (the default protocol when
-        omitted). An existing experiment of that name is refused, never
-        overwritten."""
+        """Create an experiment at *name*, a folder path under the experiments
+        folder (made as needed), and open it, with *protocol* from the protocol
+        folder (the default protocol when omitted). An existing folder is
+        refused, never overwritten."""
+        import os
+
+        from fibsem.applications.autolamella import experiment_setup
+        from fibsem.applications.autolamella.tools.experiments import (
+            DEFAULT_MAX_DEPTH,
+        )
+
+        refusal = self._session_refusal()
+        if refusal:
+            return refusal
+        parts = (name or "").replace("\\", "/").split("/")
+        path = self._under_experiments_folder(name or "")
+        if any(p in ("", ".", "..") for p in parts) or path is None:
+            return {
+                "error_type": "invalid",
+                "error": "name is a folder, or a path of folders, under the "
+                f"experiments folder {self._experiments_folder()}.",
+            }
+        if len(parts) > DEFAULT_MAX_DEPTH:
+            return {
+                "error_type": "invalid",
+                "error": f"At most {DEFAULT_MAX_DEPTH} folders deep, so "
+                "experiment_list_all finds it again.",
+            }
+        if os.path.exists(path):
+            return {"error_type": "invalid", "error": f"{path} exists."}
+        task_protocol, refusal = self._protocol_or_refusal(protocol)
+        if refusal:
+            return refusal
+        metadata = {"description": description} if description else None
+        experiment = experiment_setup.create_experiment(
+            os.path.dirname(path), os.path.basename(path), task_protocol, metadata
+        )
+        self._adopt(experiment)
+        return {"applied": True, "experiment": self.experiment_summary()}
+
+    def load_experiment(self, path: str) -> Dict[str, Any]:
+        """Open a recent experiment (``path`` as the recent list gives it) or
+        one under the experiments folder (its folder or experiment.yaml,
+        relative to that folder or absolute), as the Load dialog does. One with
+        no protocol is refused."""
         import os
 
         from fibsem.applications.autolamella import experiment_setup
@@ -671,40 +713,24 @@ class AutoLamellaAppContext(AppContext):
         refusal = self._session_refusal()
         if refusal:
             return refusal
-        if not name or os.path.basename(name) != name or name in (".", ".."):
-            return {"error_type": "invalid", "error": "name is a plain folder name."}
-        directory = experiment_setup.default_experiment_directory()
-        if os.path.exists(os.path.join(directory, name)):
-            return {
-                "error_type": "invalid",
-                "error": f"An experiment named {name!r} exists in {directory}.",
-            }
-        task_protocol, refusal = self._protocol_or_refusal(protocol)
-        if refusal:
-            return refusal
-        metadata = {"description": description} if description else None
-        experiment = experiment_setup.create_experiment(
-            directory, name, task_protocol, metadata=metadata
-        )
-        self._adopt(experiment)
-        return {"applied": True, "experiment": self.experiment_summary()}
-
-    def load_experiment(self, path: str) -> Dict[str, Any]:
-        """Open one of the recent experiments (``path`` as the recent list gives
-        it), as the Load dialog does. One with no protocol is refused."""
-        from fibsem.applications.autolamella import experiment_setup
-
-        refusal = self._session_refusal()
-        if refusal:
-            return refusal
         recent = [entry["path"] for entry in self.recent_experiments()]
         if path not in recent:
-            return {
-                "error_type": "not_found",
-                "error": "Only a recent experiment can be loaded; the operator "
-                "opens any other from the Load dialog.",
-                "recent_paths": recent,
-            }
+            found = self._under_experiments_folder(path)
+            if found is not None and os.path.isdir(found):
+                found = os.path.join(found, "experiment.yaml")
+            if (
+                found is None
+                or os.path.basename(found) != "experiment.yaml"
+                or (not os.path.isfile(found))
+            ):
+                return {
+                    "error_type": "not_found",
+                    "error": "Not a recent experiment or one under the "
+                    f"experiments folder {self._experiments_folder()}; the "
+                    "operator opens any other from the Load dialog.",
+                    "recent_paths": recent,
+                }
+            path = found
         experiment, why = experiment_setup.load_for_adoption(path)
         if experiment is None:
             return {"error_type": "invalid", "error": f"Not loaded: {why}."}
@@ -727,14 +753,9 @@ class AutoLamellaAppContext(AppContext):
         if refusal:
             return refusal
 
-        def attach():
-            if self._window is not None:
-                self._window.adopt_protocol(task_protocol)
-            else:
-                experiment.task_protocol = task_protocol
-                experiment.save_protocol()
+        from fibsem.applications.autolamella.experiment_setup import adopt_protocol
 
-        self._agent_call(attach)
+        self._agent_call(lambda: adopt_protocol(self._session, task_protocol))
         return {"applied": True, "protocol": self.protocol()}
 
     # --- lamella positions: the Lamella tab's buttons, for an agent at Drive ------
@@ -743,16 +764,13 @@ class AutoLamellaAppContext(AppContext):
         self, level, item_name, task_name, patch, version, timeout: float, shown=None
     ) -> Dict[str, Any]:
         """An agent's config edit (``config_edits``) where the session edits
-        the experiment, between the window's flush and redraw when one is
-        attached; *shown* is the level the window redraws, when not *level*."""
+        the experiment, said on ``session.changed`` when applied; *shown* is the
+        level said, when not *level*."""
         from fibsem.applications.autolamella.config_edits import apply_agent_edit
 
-        window = self._window
         session = self._session
 
         def edit():
-            if window is not None:
-                window.before_config_edit()
             result = apply_agent_edit(
                 session.experiment,
                 lambda: session.microscope,
@@ -762,8 +780,16 @@ class AutoLamellaAppContext(AppContext):
                 patch,
                 version,
             )
-            if window is not None and result.get("applied"):
-                window.after_config_edit(shown or level, item_name, task_name, result)
+            if result.get("applied"):
+                session.changed.emit(
+                    CONFIG,
+                    {
+                        "level": shown or level,
+                        "item_name": item_name,
+                        "task_name": task_name,
+                        "result": result,
+                    },
+                )
             return result
 
         result = session.run_edit(edit).result(timeout=timeout)
@@ -859,7 +885,7 @@ class AutoLamellaAppContext(AppContext):
             return lamella.name
 
         try:
-            added = self._agent_call(add, select_latest=True)
+            added = self._agent_call(add)
         except ValueError as exc:
             return {"error_type": "invalid", "error": str(exc)}
         return {"applied": True, "item": self.item_detail(added)}
@@ -919,9 +945,8 @@ class AutoLamellaAppContext(AppContext):
     # -- grid records: the Grids tab's inventory read and Rename ----------------
 
     def _grids_changed(self) -> None:
-        """Tell the app's grid views an agent changed the records."""
-        if self._window is not None:
-            self._window.grids_changed.emit()
+        """Tell whoever draws the grid records they changed."""
+        self._session.changed.emit(GRID_RECORDS)
 
     def add_grids(self) -> Dict[str, Any]:
         """Record every grid in the inventory that the experiment has no record
@@ -1207,7 +1232,12 @@ class AutoLamellaAppContext(AppContext):
 
         from fibsem.applications.autolamella.poses import set_objective_position
 
-        self._agent_call(lambda: set_objective_position(experiment, lamella, value))
+        def store():
+            set_objective_position(experiment, lamella, value)
+            # A stored objective position emits nothing of its own.
+            experiment.positions.events.changed.emit()
+
+        self._agent_call(store)
         return {"applied": True, "item_name": item_name, "objective_position": value}
 
     def move_item(
@@ -1284,9 +1314,14 @@ class AutoLamellaAppContext(AppContext):
                 "error": f"{item_name} has no objective position stored.",
             }
         skipped = busy_lamellae(self._runner, experiment)
-        count = self._agent_call(
-            lambda: set_objective_position_on_all(experiment, value, skip=skipped)
-        )
+
+        def store():
+            count = set_objective_position_on_all(experiment, value, skip=skipped)
+            # A stored objective position emits nothing of its own.
+            experiment.positions.events.changed.emit()
+            return count
+
+        count = self._agent_call(store)
         return {
             "applied": True,
             "objective_position": value,
@@ -1457,6 +1492,12 @@ class AutoLamellaAppContext(AppContext):
         config = self._edited_task_config(tool, arguments)
         if config is None:
             return None
+        if tool == "item_update_task_config":
+            running = self._running_task_refusal(
+                arguments.get("item_name"), arguments.get("task_name")
+            )
+            if running:
+                return running
         if tool != "protocol_update_grid_task_config":
             refused = workflow_field_refusal(patch)
             if refused:
@@ -1466,6 +1507,26 @@ class AutoLamellaAppContext(AppContext):
         except PatchError as exc:
             return str(exc)
         return None
+
+    def _running_task_refusal(self, item_name: str, task_name: str) -> Optional[str]:
+        """Why an edit to this item's task config can't take effect: the task is
+        running for it now and has already copied its config. None otherwise."""
+        manager = self._manager
+        if manager is None:
+            return None
+        running = any(
+            item.item_name == item_name
+            and item.task_name == task_name
+            and item.status is TaskStatus.InProgress
+            for item in manager.queue.items
+        )
+        if not running:
+            return None
+        return (
+            f"{task_name!r} is running for {item_name!r} right now and has "
+            "already copied its config — the edit would never take effect. "
+            "Patch it after the task finishes."
+        )
 
     def apply_item_patch(
         self,
@@ -1500,11 +1561,7 @@ class AutoLamellaAppContext(AppContext):
         it is version-checked, the patterns that follow the point move with it,
         and it is saved and shown as the agent's edit.
         """
-        from fibsem.correlation.history import (
-            correlation_dir,
-            correlation_record,
-            load_run,
-        )
+        from fibsem.correlation.history import correlation_dir, load_run
 
         experiment = self._experiment
         if experiment is None:
@@ -1529,18 +1586,18 @@ class AutoLamellaAppContext(AppContext):
                 "error_type": "invalid",
                 "error": f"the run at {run_path} has no fitted point of interest.",
             }
-        poi = result.poi[0].px_m
-        applied = self.apply_item_patch(
-            item_name,
-            {"poi.x": float(poi.x), "poi.y": float(poi.y)},
-            item_fields_version(lamella),
-            timeout=timeout,
+        version = item_fields_version(lamella)
+        applied = apply_correlation(
+            result,
+            lamella,
+            folder,
+            experiment.path,
+            lambda poi: self.apply_item_patch(
+                item_name, poi_patch(poi), version, timeout=timeout
+            ),
+            self.record_event,
         )
         if applied.get("applied"):
-            self.record_event(
-                "correlation",
-                correlation_record(result, lamella, folder, experiment.path),
-            )
             applied["run_path"] = run_path
         return applied
 
@@ -1693,23 +1750,14 @@ class AutoLamellaAppContext(AppContext):
         and a refusal is more honest than a silent no-op. Pending tasks pick
         the change up when they start (the ``set_supervision`` semantics).
         """
-        manager = self._manager
-        if manager is not None:
-            running = any(
-                item.item_name == item_name
-                and item.task_name == task_name
-                and item.status is TaskStatus.InProgress
-                for item in manager.queue.items
-            )
-            if running:
-                return {
-                    "available": True,
-                    "applied": False,
-                    "error_type": "task_running",
-                    "error": f"{task_name!r} is running for {item_name!r} right "
-                    "now and has already copied its config — the edit would "
-                    "never take effect. Patch it after the task finishes.",
-                }
+        why = self._running_task_refusal(item_name, task_name)
+        if why:
+            return {
+                "available": True,
+                "applied": False,
+                "error_type": "task_running",
+                "error": why,
+            }
         return self._config_edit(
             "item", item_name, task_name, dict(patch), str(version), timeout
         )
@@ -1730,7 +1778,9 @@ class AutoLamellaAppContext(AppContext):
         ``screen_all`` the grids are whatever the inventory finds at run time,
         so the plan names the known grids and says so rather than guessing.
         Exchanges are deliberately not counted: whether a grid is loaded
-        is a live stage fact this facade does not read.
+        is a live stage fact this facade does not read. ``estimate`` is the
+        preflight dialog's (`grid_run_estimate`) without them, with each beam
+        overview's tiles and size.
         """
         from fibsem.workflows.grid.manager import (
             plan_grid_run,
@@ -1772,6 +1822,7 @@ class AutoLamellaAppContext(AppContext):
                     {"grid": grid, "step": step}
                     for grid, step in plan_grid_run(list(task_names), known_grids)
                 ],
+                "estimate": _grid_plan_estimate(experiment, task_names, known_grids),
             }
         if grid_names is None:
             grid_names = known_grids
@@ -1793,6 +1844,7 @@ class AutoLamellaAppContext(AppContext):
                 {"grid": grid, "step": step}
                 for grid, step in plan_grid_run(list(task_names), list(grid_names))
             ],
+            "estimate": _grid_plan_estimate(experiment, task_names, grid_names),
         }
 
     def start_grid_workflow(
@@ -1938,12 +1990,6 @@ class AutoLamellaAppContext(AppContext):
     # -- the workflow's tasks: the Workflow tab's task list and the protocol
     # editor's Add and Remove. Refused while a workflow runs: the run reads them.
 
-    def _experiment_changed(self) -> None:
-        """Tell the app's views an agent changed the experiment's protocol, so
-        no editor writes back a list it drew before the change."""
-        if self._window is not None:
-            self._window.experiment_update_signal.emit()
-
     def _workflow_edit(self, what: str):
         """The experiment and its workflow config for an edit, or a refusal."""
         experiment = self._experiment
@@ -1960,15 +2006,16 @@ class AutoLamellaAppContext(AppContext):
         return experiment, protocol.workflow_config, None
 
     def _protocol_changed(self, experiment, change: Dict[str, Any]) -> bool:
-        """Save the protocol after an edit (GUI thread), redraw, and put it on
-        the record. Whether it saved."""
+        """Save the protocol after an edit, say it changed, so no editor writes
+        back a list it drew before the change, and put it on the record.
+        Whether it saved."""
         saved = True
         try:
             experiment.save(save_protocol=True)
         except Exception:
             saved = False
             logging.exception("save after a protocol change failed; applied in memory")
-        self._experiment_changed()
+        self._session.changed.emit(PROTOCOL)
         self.record_event("workflow_changed", change)
         return saved
 
@@ -2348,3 +2395,41 @@ class AutoLamellaAppContext(AppContext):
             ],
             "queue_version": edit.version,
         }
+
+
+def _grid_plan_estimate(experiment, task_names, grid_names) -> Optional[Dict[str, Any]]:
+    """A grid run's time, exchanges not counted, and each beam overview's
+    tiles and size: what its confirmation says. None when it can't say."""
+    from fibsem.applications.autolamella.workflows.estimate import grid_run_estimate
+    from fibsem.workflows.grid.imaging import BeamOverviewGridTaskConfig
+
+    estimate = grid_run_estimate(
+        experiment, None, list(task_names), list(grid_names), exchanges=0
+    )
+    if estimate is None:
+        return None
+    configs = experiment.grid_protocol.task_config
+    tasks = []
+    for row in estimate.tasks:
+        task: Dict[str, Any] = {
+            "task_name": row.name,
+            "count": row.count,
+            "seconds": row.seconds,
+        }
+        config = configs.get(row.name)
+        if isinstance(config, BeamOverviewGridTaskConfig):
+            settings = config.settings
+            task["overview"] = {
+                "nrows": settings.nrows,
+                "ncols": settings.ncols,
+                "tiles": settings.n_enabled_tiles,
+                "tile_hfw": settings.image_settings.hfw,
+                "width": float(settings.total_fov_x),
+                "height": float(settings.total_fov_y),
+            }
+        tasks.append(task)
+    return {
+        "seconds": estimate.work_seconds,
+        "exchanges_counted": False,
+        "tasks": tasks,
+    }

@@ -85,7 +85,7 @@ def test_the_applier_reaches_the_editor_through_the_window(window, experiment):
     ui = window
     lamella = experiment.positions[0]
     config = lamella.task_config[TASK]
-    context = AutoLamellaAppContext(ui.session, window=ui)
+    context = AutoLamellaAppContext(ui.session)
     result = context._config_edit(
         "item",
         lamella.name,

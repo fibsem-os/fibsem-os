@@ -42,7 +42,7 @@ from fibsem.workflows.events import (
     make_lifecycle_hook,
 )
 
-__all__ = ["AppServerHost"]
+__all__ = ["AppServerHost", "chat_url", "event_log_url"]
 
 
 def _stop_the_microscope(microscope) -> None:
@@ -67,6 +67,20 @@ def _stop_the_microscope(microscope) -> None:
 
 
 _START_TIMEOUT_S = 10.0
+
+
+def event_log_url(host) -> str:
+    """The event log address with its own read-only token (FIB-1035), never
+    the agent's, in the URL *fragment* — the one part of a URL a browser
+    never sends anywhere, so it reaches the page's own script and nothing
+    else (no server log, no referrer)."""
+    return f"{host.url}/dashboard/log#token={host.auth.dashboard_token}"
+
+
+def chat_url(host) -> str:
+    """The chat page, with the operator token in the fragment as the
+    event log has its own."""
+    return f"{host.url}/chat#token={host.auth.operator_token}"
 
 
 class AppServerHost:
