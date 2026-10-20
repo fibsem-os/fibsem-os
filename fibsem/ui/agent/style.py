@@ -4,7 +4,12 @@ set wherever they show."""
 
 from __future__ import annotations
 
-from fibsem.ai.agent.levels import AgentLevel
+from fibsem.ai.agent.levels import (
+    LEVEL_NAMES,
+    LEVEL_TIPS,
+    LEVEL_WORDS,
+    AgentLevel,
+)
 from fibsem.ui.tokens import (
     BORDER_COLOR,
     PURPLE_COLOR,
@@ -65,51 +70,27 @@ STOP_CHIP = (
     + f"QPushButton:hover {{ background-color: {_tint(RED_COLOR, 0.25)}; }}"
 )
 
-# Each level: its name, the chip's word, its look, and what it allows.
-LEVELS = {
-    AgentLevel.OFF: (
-        "Off",
-        "Agent: Off",
-        CHIP.format(color=TEXT_MUTED_COLOR, background="transparent", border="none"),
-        "No access",
+# Each level's look; its name, word and what it allows are `levels`'.
+LEVEL_STYLES = {
+    AgentLevel.OFF: CHIP.format(
+        color=TEXT_MUTED_COLOR, background="transparent", border="none"
     ),
-    AgentLevel.WATCH: (
-        "Watch",
-        "Agent: Watching",
-        CHIP.format(
-            color=TEXT_STRONG_COLOR,
-            background="transparent",
-            border=f"1px solid {PURPLE_COLOR}",
-        ),
-        "Read only",
+    AgentLevel.WATCH: CHIP.format(
+        color=TEXT_STRONG_COLOR,
+        background="transparent",
+        border=f"1px solid {PURPLE_COLOR}",
     ),
-    AgentLevel.ASSIST: (
-        "Assist",
-        "Agent: Assisting",
-        CHIP.format(
-            color=TEXT_STRONG_COLOR,
-            background=PURPLE_TINT,
-            border=f"1px solid {PURPLE_COLOR}",
-        ),
-        "Asks first",
+    AgentLevel.ASSIST: CHIP.format(
+        color=TEXT_STRONG_COLOR,
+        background=PURPLE_TINT,
+        border=f"1px solid {PURPLE_COLOR}",
     ),
-    AgentLevel.DRIVE: (
-        "Drive",
-        "Agent: Driving",
-        CHIP.format(
-            color=TEXT_STRONG_COLOR,
-            background=PURPLE_COLOR,
-            border=f"1px solid {PURPLE_COLOR}",
-        ),
-        "Full control",
+    AgentLevel.DRIVE: CHIP.format(
+        color=TEXT_STRONG_COLOR,
+        background=PURPLE_COLOR,
+        border=f"1px solid {PURPLE_COLOR}",
     ),
 }
-
-LEVEL_NAMES = {level: name for level, (name, _, _, _) in LEVELS.items()}
-# The chip's word for each level, for anywhere else that names it.
-LEVEL_WORDS = {level: word for level, (_, word, _, _) in LEVELS.items()}
-LEVEL_STYLES = {level: style for level, (_, _, style, _) in LEVELS.items()}
-LEVEL_TIPS = {level: tip for level, (_, _, _, tip) in LEVELS.items()}
 
 # The level menu: roomier than the app's default; its rows paint their own hover
 # (a QWidgetAction's row gets none from QMenu::item:selected).

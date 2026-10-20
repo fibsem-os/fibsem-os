@@ -16,9 +16,8 @@ and this follows it:
   service announces what is drawn (``patterns_changed``); they are the agent's
   when the agent is in control as they are drawn.
 
-The agent card's "Now" line is `now`: the action, or while the agent mills,
-which mill, how far and how long is left ("Milling 'trench' · stage 2 of 6 ·
-about 15s left", FIB-1413); `now_changed` says when it changes.
+The agent card's "Now" line is `now` (`fibsem.ai.agent.now`); `now_changed`
+says when it changes.
 
 The card's Recent list is `recent`: what the agent did lately, from the session's
 record (`follow_events`), as `recent.RecentActions` reads it (FIB-1414);
@@ -38,12 +37,8 @@ from PyQt5.QtCore import QObject, Qt, QTimer, pyqtSignal
 from superqt import ensure_main_thread
 
 from fibsem.acting import AGENT
+from fibsem.ai.agent.now import AgentNow
 from fibsem.ai.agent.recent import RecentActions, RecentRow
-from fibsem.milling.progress import (
-    AgentMillOwner,
-    MillingProgress,
-    MillingProgressStatus,
-)
 from fibsem.structures import BeamType
 from fibsem.ui import notification_service
 from fibsem.ui.tokens import PURPLE_COLOR
@@ -113,13 +108,8 @@ class AgentActivity(QObject):
         self._announce_timer = QTimer(self)
         self._announce_timer.setSingleShot(True)
         self._announce_timer.timeout.connect(self._announce)
-        # The agent's mill and how far it is: (name, stage, of, seconds left).
-        self._mill_owner = AgentMillOwner()
-        # name, stage, of, seconds left, and whether a stage is starting
-        self._mill: Optional[
-            Tuple[str, Optional[int], Optional[int], Optional[float], bool]
-        ]
-        self._mill = None
+        # The Now line's action and mill, as the chat page follows them.
+        self._following = AgentNow()
         self._now: Optional[str] = None
         self._events = None
         self._unsubscribe: Optional[Callable[[], None]] = None
@@ -228,7 +218,8 @@ class AgentActivity(QObject):
             self._milling = None
         self._set_action(None)
         self._show_patterns([])
-        self._set_mill(None)
+        self._following.clear()
+        self._say_now()
         if self._control is not None:
             self._control.changed.connect(self._on_control_changed)
             self._on_control_changed(self._control.current)
@@ -253,6 +244,7 @@ class AgentActivity(QObject):
             took = format_duration_rounded(time.monotonic() - self._since)
             self._toast_end(self._action, f"Agent: {self._action} ended after {took}")
         self._action = action
+        self._following.action = action
         self._since = time.monotonic()
         self._announced = False
         self._announce_timer.stop()
@@ -263,44 +255,11 @@ class AgentActivity(QObject):
 
     @ensure_main_thread
     def _on_milling_progress(self, payload: object) -> None:
-        """A milling report: the agent's own mill, or any mill while the agent
-        holds the microscope (its ``run_task``), is on the Now line."""
-        report = MillingProgress.from_payload(payload)
-        own = self._mill_owner.agent_mill(report, self._action is not None)
-        if report.status.is_terminal or not (own or self._action is not None):
-            self._set_mill(None)
-            return
-        last = self._mill
-        name = report.milling_task_name or own or (last[0] if last else "milling")
-        stage, total = report.display_stage, report.total_stages
-        if stage is None and last is not None:
-            stage, total = last[1], last[2]  # a tick does not repeat the stage
-        # A stage starting has no countdown yet: the last stage's is over.
-        preparing = report.status in (
-            MillingProgressStatus.TASK_STARTED,
-            MillingProgressStatus.STAGE_STARTED,
-        )
-        remaining = report.remaining_time
-        if remaining is None and last is not None and not preparing:
-            remaining = last[3]
-        self._set_mill((name, stage, total, remaining, preparing))
-
-    def _set_mill(self, mill) -> None:
-        self._mill = mill
+        self._following.take_progress(payload)
         self._say_now()
 
     def _say_now(self) -> None:
-        now = self._action
-        if self._mill is not None:
-            name, stage, total, remaining, preparing = self._mill
-            parts = [f"Milling '{name}'"]
-            if stage and total and total > 1:
-                parts.append(f"stage {stage} of {total}")
-            if preparing and remaining is None:
-                parts.append("preparing")
-            elif remaining is not None:
-                parts.append(f"about {format_duration_rounded(remaining)} left")
-            now = " · ".join(parts)
+        now = self._following.text
         if now != self._now:
             self._now = now
             self.now_changed.emit(now)

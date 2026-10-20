@@ -76,7 +76,7 @@ class AgentChipHost(QObject):
             view_controller,
             reference_image=sources.proposal_image,
             task_config=sources.task_config,
-            show_picture=self.chip.card.set_image,
+            show_picture=self._show_picture,
             item_pose=sources.item_pose,
             item_image=sources.item_image,
             overview_image=sources.overview_image,
@@ -162,6 +162,20 @@ class AgentChipHost(QObject):
         )
         self.previews.show_suggestion(
             suggestion_request(item, task_name, proposal, str(experiment.path))
+        )
+
+    def _show_picture(
+        self, image, caption: str = "", suggestion: bool = False, legend=()
+    ) -> None:
+        """The card's picture, and the same picture for the chat page."""
+        from fibsem.ui.agent.card import picture_png
+
+        self.chip.card.set_image(image, caption, suggestion=suggestion, legend=legend)
+        drawn = image is not None and not image.isNull()
+        self._agent.set_picture(
+            "suggestion" if suggestion else "request",
+            picture_png(image, legend) if drawn else None,
+            caption,
         )
 
     def _on_approve_suggestion(self) -> None:
