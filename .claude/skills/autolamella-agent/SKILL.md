@@ -180,6 +180,13 @@ and `reply_to` set to that id: the card shows your note as your reply, under
 their message. Answer every message, even if only to say you can't do what it
 asks and why.
 
+**When an ask leaves out the rule, ask for it.** "Up to 20 lamellae, thin
+without breaking" names no placement rule, no spacing and no target. Before
+you start, ask for what's missing, then say back the rule you will work to.
+If the operator leaves it to you, name the defaults you're using (this
+skill's) in a note. Guessing the rule cost a 35 min site survey on a real
+run: the first six picks were too close to the grid bars.
+
 A message is never an approval. "Go ahead and mill 03" at Assist still means
 a request; at Watch it means saying what you would do. Your level decides what
 you may do, whatever a message says.
@@ -327,10 +334,29 @@ that explains it:
 4. Take the image again, once. If it is still blank, stop and tell the
    operator what you read at each step.
 
+**Check every result yourself.** An auto function's answer is a claim, not a
+fact: alignment, autofocus, brightness and contrast, coincidence, thickness.
+After each one, look at the image it left and read its numbers (score,
+agreement, converged, at_edge, contrast), and check that they match what you
+see. Never apply a correction a tool hands you (a thickness `centre_offset`,
+a coincidence `dy`) without finding it on the image first. A task's own
+alignment and autofocus are no different: read what they did before you
+decide the next proposal. When one went wrong, you own it: fix it, or stop
+and tell the operator, and say which result you didn't trust and why.
+
+**Don't judge a poor image.** If an image is out of focus, too dark, saturated
+or too noisy to read, fix it before deciding anything from it: refocus, run
+`beam_auto_brightness_contrast` or `beam_auto_contrast`, or set
+`line_integration` / `frame_integration` in `image_settings` for a cleaner
+frame without a long dwell. Then take it again.
+
 **Check what an autofocus did.** Read the working distance before
 `beam_auto_focus` and after it. A change of more than about 0.1 mm is worth a
-fresh image and a sentence to the operator before you go on. On a coated or
-tilted surface that one focus can't hold, use a focus stack.
+fresh image and a sentence to the operator before you go on. Setup's own
+autofocus (`use_autofocus`, on by default) applies its best working distance
+without that check: on dark FIB views it has picked a wrong one, so read the
+working distance after Setup and compare. On a coated or tilted surface that
+one focus can't hold, use a focus stack.
 
 **Move with `stage_stable_move`.** To bring something you see to the centre
 of an image, call `stage_stable_move` with its offset from the image centre in
@@ -434,6 +460,15 @@ wrong, stop the mill as your level allows (see *Stopping*) and tell the
 operator. Collect the result with `service_wait_for_run` milling, with the
 line's `run` as `run_id`, or without one for the mill going on.
 
+**What tasks move for you.** Some tasks edit other configs as they run, so
+check the next one before you rely on an edit you made by hand. Setup moves
+the fiducial to the centre of the decided alignment area
+(`sync_fiducial_position`): a wide area can push it into a neighbour.
+Rough Milling moves the Polishing patterns to its own position
+(`sync_polishing_position`). Setup can move the fluorescence pose to follow
+the lamella (`sync_fluorescence_pose`, off by default). Turn a sync off in
+that task's config to keep your edit.
+
 **Milling monitors.** A stage can list monitors that watch it while it
 mills, each `{name, config}` in its `monitors`. `milling_list_options` lists
 them with their config fields; you pick one by name and set its config, never
@@ -454,26 +489,32 @@ whole task. A monitor set to `end` keeps working when you are slow or gone.
 A protocol stage's monitor config is patched as
 `stages.<stage>.monitors.<i>.config.<field>`.
 
-**Polishing by hand.** When the operator asks you to thin a lamella outside
-the task, one `milling_run_stage` per step:
+**Polishing.** The target is a lamella under 200 nm, thinner if it holds.
+The same rules apply in the Polishing task's milling proposal and by hand
+(one `milling_run_stage` per step):
 
+- Start gently and step down. Begin with a wide gap and narrow it a step at
+  a time, lowering the current as it narrows; never jump to the final gap. On the
+  Arctis the band ran at 0.53-0.73× the gap, so expect the target near a
+  250-300 nm gap there; other instruments differ, so measure, don't assume.
 - Preview every step's patterns on a fresh ion image first
   (`milling_preview_patterns`), and look at where they land.
 - Re-align to the reference before every step. Below about 300 nm, if the
   alignment methods disagree, align again before milling. For polish passes,
   set the Polishing task's `alignment.full_frame_below` (80 pA, say) rather
   than re-aligning by hand.
-- Measure the band, don't trust the gap. Track the pattern gap you asked for
-  and the band you measure on a FIB image, and stop on whichever reaches the
-  target first: on the Arctis the band ran at 0.53-0.73× the gap. Measure on
-  enough pixels: once the band is under about 400 nm, image at a narrower FIB
-  field of view (15 µm, not 30 µm).
-- After rough milling, measure the band's tilt and rotate the polishing
-  patterns to match. A 0.6° mismatch left a 55 nm wedge along the lamella.
-- Check the SEM view of the face after each step as a second opinion:
-  contrast changes, cracks, bending.
+- After every step, a FIB image and an SEM image, both saved as files, not
+  previews, so the operator can review them later. Once the band is under
+  about 400 nm, image the FIB at a narrow field of view (15 µm, not 30 µm).
+- Measure the band, don't trust the gap, and stop on the first of: the band
+  under 200 nm; the band faint or low in contrast, even if it still looks
+  wide (a faint band is already thin: a lamella milled through on the next
+  pass when this was read as width); the SEM shows a crack, a break, a hole,
+  bending or the face deteriorating.
+- The polishing patterns can't be rotated to follow a tilted band. If the
+  band is tilted enough to leave a wedge, say so before thinning further.
 - Report each step: current, gap, time, the alignment residual, the band
-  measured.
+  measured, what the SEM showed.
 
 **Aligning to a reference.** To bring the view back onto a saved image (a
 task's reference from `item_list_outputs`, or one you saved),
@@ -491,7 +532,13 @@ full-resolution file, around the item's POI: thickness, wedge, the band's
 angle, where it sits against the POI, and any holes. Use it instead of
 measuring a preview yourself. When `resolution.under_resolved` is true the
 band is under 8 px: take the next image at the suggested field width before
-trusting the number.
+trusting the number. It reads only images a task recorded (those
+`item_list_outputs` lists), not your own check images. Check its answer on
+the image before you use it: residue in a trench or a stepped wall gives a
+second bright line, and the band it finds may be the wrong one, so its
+`centre_offset` is wrong too (a polish window moved by it landed on trench
+residue). A low `contrast.ratio` (about 1.5) gave misleading numbers on a
+real run.
 
 **Correlating FM to FIB.** `correlation_correlate` fits a saved FM stack to
 a saved FIB image from fiducial pairs you give (FIB pixels; FM pixels and
@@ -561,12 +608,34 @@ features a few µm off (about 4 % in x and 7 % in y per step on the Arctis).
 After moving to a point picked on an overview, take a fresh image and centre
 on the feature itself before acting, as an operator would.
 
-**Finding sites.** When you pick sites (cells, squares) on an overview:
+**Finding sites.** When you pick sites (cells, squares):
 
-- Start with what worked on a real grid: GrabCut on the holey film, tracing
+- Ask for the operator's placement rule first (*When an ask leaves out the
+  rule*). Without one, use these rules and say so.
+- Survey before GIS deposition and sputter coating when you can: cells and
+  grid bars stand out far better. Positions are stage coordinates, so a site
+  picked before coating holds after it while the grid stays loaded. Grids
+  often arrive coated, so you will also have to pick on coated grids.
+- Prefer the FIB image for picking cells when you have it (at the milling
+  angle): good cells are often easier to tell there than on the SEM
+  overview. A FIB image doses the sample, so keep the current low and the
+  frames few.
+- One lamella per grid square. A square usually has room for one good one
+  without overlapping another lamella's trenches, fiducial or stress-relief
+  cuts, or a grid bar. If two must share a square, the film between their
+  cuts can tear (two lamellae about 15 µm apart tore during rough milling):
+  ask the operator first.
+- Where in the square, best first: (1) the clear middle, more than about
+  10 µm from any bar, with room for the trenches, fiducial and stress relief;
+  (2) within 10 µm of a bar, only if the square has no cell in the middle, and
+  ranked below every square that has; (3) on a bar: never mill it.
+- The film under the site has to be intact. A broken, sheeted or covered
+  square is not a site.
+- Methods that worked on an uncoated grid: GrabCut on the holey film, tracing
   the grid bars by hand where shading defeats a threshold, and a piece of
-  debris as an anchor to find the same place again. Say how sure you are of
-  each detection, not only where it is.
+  debris as an anchor to find the same place again. GrabCut needs code you
+  may not be able to run; then judge by eye and say so. Say how sure you are
+  of each detection, not only where it is.
 - Look at the tile seams. A feature on a seam can be cut in two, doubled or
   hidden under the next tile; check it in the tiles on both sides before you
   count it.

@@ -83,6 +83,9 @@ values mills it as proposed.
   delegated, like any placement.
 - Between passes the proposal lends control, as any other does: image,
   move or re-align before the next `run`. Never during a mill.
+- *Polishing passes*: the stop rules are autolamella-agent's *Polishing*:
+  step the gap down gently, image FIB and SEM after every pass, and accept
+  as soon as the band is under 200 nm, goes faint, or the SEM shows damage.
 
 **An `alignment_area` proposal** (rule 5):
 `values.alignment_area` is the rectangle (`left`, `top`, `width`,
@@ -132,23 +135,31 @@ it is at, and at any other `state` the task carries on as if confirmed.
 Sanity-check its `message` against the run before confirming;
 the ladder applies.
 
-**Before a position or a POI: check coincidence.** Setup's position
-proposal ("Double click the image to move to the milling position… Press
-Continue", a `state` proposal) fixes where the lamella is
+**Before a position or a POI: check focus, contrast and coincidence.**
+Setup's position proposal ("Double click the image to move to the milling
+position… Press Continue", a `state` proposal) fixes where the lamella is
 milled, and the `point_of_interest` proposal after it fixes the point the
-mills follow. Both
-beams have to be looking at the same target. Before you decide or
-place either:
+mills follow. Both beams have to be looking at the same target, in focus and
+readable. This is not optional: skipping it because the mills are FIB only
+is wrong, because the SEM is how you check the lamella later, in polishing
+above all, and it has to show the same place at a small field of view.
+Before you decide or place either:
 
 1. Choose a target you can name: a cell, or the feature the operator asked
    for. The image centre is not a target; a grid-square edge with no cell
    on it is not one either.
 2. At the position proposal, take fresh SEM and FIB images
-   (`beam_acquire_image`) and check the target is at the centre of both. If
-   it is not, run the coincidence loop (autolamella-agent, *Using the
-   microscope*): centre it in one beam with `stage_stable_move`, bring the
-   other beam onto it with `stage_vertical_move`, and image both again.
-3. Only then decide, and show the operator both images, saying which is
+   (`beam_acquire_image`). Check both are in focus and their brightness and
+   contrast let you read them; fix them first if not (autolamella-agent,
+   *Don't judge a poor image*), and check what Setup's own autofocus did.
+3. Check the target is at the centre of both. If it is not, run the
+   coincidence loop (autolamella-agent, *Using the microscope*): centre it
+   in one beam with `stage_stable_move`, bring the other beam onto it with
+   `stage_vertical_move`, and image both again.
+4. Check it again with both beams at a 50 µm field of view: the same feature
+   within 5 µm of the centre in both images (aim for 2-3 µm). Coincidence
+   only shows as a vertical offset, so measure it up and down the image.
+5. Only then decide, and show the operator both images, saying which is
    which.
 
 Checking only the beam you moved in is not enough. A FIB stable move onto a
