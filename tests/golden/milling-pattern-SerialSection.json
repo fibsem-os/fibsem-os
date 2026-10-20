@@ -1,0 +1,16 @@
+{
+  "inverted": false,
+  "name": "SerialSection",
+  "point": {
+    "name": null,
+    "x": 0.0,
+    "y": 0.0
+  },
+  "section_depth": 2e-05,
+  "section_thickness": 4e-06,
+  "section_width": 5e-05,
+  "side_depth": 4e-05,
+  "side_height": 1e-05,
+  "side_width": 1e-05,
+  "use_side_patterns": true
+}

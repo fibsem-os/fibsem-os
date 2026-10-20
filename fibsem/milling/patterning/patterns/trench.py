@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import (
+    Annotated,
     Any,
     ClassVar,
     List,
@@ -13,6 +14,7 @@ from typing import (
 import numpy as np
 from numpy.typing import NDArray
 
+from fibsem.codec import NotSaved
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
     angle_param,
@@ -268,8 +270,12 @@ class TrenchBitmapPattern(BasePattern[FibsemBitmapSettings]):
         filepath=True,
         display=Display("File Path Lower"),
     )
-    array: Optional[NDArray[Any]] = param(None, display=Display(hidden=True))
-    array_lower: Optional[NDArray[Any]] = param(None, display=Display(hidden=True))
+    array: Annotated[Optional[NDArray[Any]], NotSaved] = param(
+        None, display=Display(hidden=True)
+    )
+    array_lower: Annotated[Optional[NDArray[Any]], NotSaved] = param(
+        None, display=Display(hidden=True)
+    )
     interpolation: Optional[Literal["nearest", "bicubic", "bilinear"]] = param(
         None,
         choices=[None, "nearest", "bilinear", "bicubic"],

@@ -1,0 +1,16 @@
+{
+  "cross_section": "Rectangle",
+  "depth": 1e-06,
+  "distance": 2e-06,
+  "hheight": 5e-07,
+  "hwidth": 2e-06,
+  "inverted": false,
+  "name": "WaffleNotch",
+  "point": {
+    "name": null,
+    "x": 0.0,
+    "y": 0.0
+  },
+  "vheight": 2e-06,
+  "vwidth": 5e-07
+}

@@ -1,0 +1,20 @@
+{
+  "cross_section": "Rectangle",
+  "depth": 5e-06,
+  "height": 2e-06,
+  "n_columns": 5,
+  "n_rows": 5,
+  "name": "ArrayPattern",
+  "passes": 0,
+  "pitch_horizontal": 5e-06,
+  "pitch_vertical": 5e-06,
+  "point": {
+    "name": null,
+    "x": 0.0,
+    "y": 0.0
+  },
+  "rotation": 0,
+  "scan_direction": "TopToBottom",
+  "use_circle": false,
+  "width": 2e-06
+}

@@ -1,0 +1,78 @@
+{
+  "enabled": true,
+  "milling": {
+    "application_file": "Si",
+    "dwell_time": 1e-06,
+    "hfw": 8e-05,
+    "milling_channel": "ION",
+    "milling_current": 2e-09,
+    "milling_voltage": 30000.0,
+    "patterning_mode": "Serial",
+    "preset": "30 keV; 2nA",
+    "rate": 1.3e-08,
+    "spacing": 0.005,
+    "spot_size": 1e-06
+  },
+  "monitors": [
+    {
+      "config": {
+        "bbox": null,
+        "consecutive_triggers": 10,
+        "drop_fraction": 0.3,
+        "max_pause": 60.0,
+        "on_trigger": "suggest",
+        "rolling_window": 10,
+        "save_interval": 2.0,
+        "warmup_duration": 30.0
+      },
+      "name": "FM Intensity"
+    },
+    {
+      "config": {
+        "autocontrast": true,
+        "dwell_time": 1e-06,
+        "hfw": 8e-05,
+        "interval": 30.0,
+        "max_pause": 60.0,
+        "resolution": [
+          1536,
+          1024
+        ]
+      },
+      "name": "SEM Peek"
+    }
+  ],
+  "name": "Rough Mill",
+  "pattern": {
+    "cross_section": "Rectangle",
+    "depth": 2e-06,
+    "fillet": 0.0,
+    "lower_trench_height": 5e-06,
+    "name": "Trench",
+    "passes": 0,
+    "point": {
+      "name": null,
+      "x": 0.0,
+      "y": 0.0
+    },
+    "spacing": 5e-06,
+    "time": 0.0,
+    "upper_trench_height": 5e-06,
+    "width": 1.2e-05
+  },
+  "strategy": {
+    "config": {
+      "acquire_fib_image": true,
+      "bbox": null,
+      "consecutive_triggers": 10,
+      "intensity_drop_fraction": 0.4,
+      "rolling_window": 10,
+      "save_fm_images": true,
+      "save_rate_limit": 2,
+      "supervised": true,
+      "timeout": 120,
+      "warmup_duration": 30.0
+    },
+    "name": "CoincidenceMilling"
+  }
+}

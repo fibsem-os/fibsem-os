@@ -1,0 +1,13 @@
+{
+  "depth": 1e-06,
+  "end_x": 1e-05,
+  "end_y": 0.0,
+  "name": "Line",
+  "point": {
+    "name": null,
+    "x": 0.0,
+    "y": 0.0
+  },
+  "start_x": -1e-05,
+  "start_y": 0.0
+}

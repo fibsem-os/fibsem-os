@@ -10,6 +10,7 @@ import threading
 import pytest
 
 from fibsem import utils
+from fibsem.codec import decode
 from fibsem.devices.core import Resources
 from fibsem.devices.sample_loader import (
     GridExchangeError,
@@ -19,7 +20,7 @@ from fibsem.devices.sample_loader import (
     StageSample,
 )
 from fibsem.devices.stage import STAGE_RESOURCE
-from fibsem.devices.wire import from_wire, to_wire
+from fibsem.devices.wire import to_wire
 from fibsem.drivers.demo.devices import DemoSampleLoader as DemoSampleLoaderDevice
 from fibsem.drivers.demo.devices import build_demo_sample_loader
 from fibsem.drivers.registry import BuildContext
@@ -194,9 +195,9 @@ class TestDevice:
                 MagazineSlot(2, MagazineSlotState.UNKNOWN),
             )
         )
-        assert from_wire(Magazine, to_wire(magazine)) == magazine
+        assert decode(Magazine, to_wire(magazine)) == magazine
         sample = StageSample(True, "grid-oak")
-        assert from_wire(StageSample, to_wire(sample)) == sample
+        assert decode(StageSample, to_wire(sample)) == sample
 
     def test_vendor_state_names_are_read_case_blind(self):
         assert MagazineSlotState.from_name("Occupied") is MagazineSlotState.OCCUPIED

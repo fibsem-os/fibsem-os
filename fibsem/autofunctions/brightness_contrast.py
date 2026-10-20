@@ -46,6 +46,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import cv2
 import numpy as np
 
+from fibsem.codec import decode, encode
 from fibsem.structures import FibsemRectangle
 
 # How far each control moves (centre, log spread), per unit of its range, before the
@@ -121,15 +122,11 @@ class BrightnessContrastSettings:
         self.spread_percentiles = tuple(self.spread_percentiles)
 
     def to_dict(self) -> Dict[str, Any]:
-        d = dataclasses.asdict(self)
-        d["reduced_area"] = (
-            self.reduced_area.to_dict() if self.reduced_area is not None else None
-        )
-        return d
+        return encode(self)
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "BrightnessContrastSettings":
-        return cls(**d)
+        return decode(cls, d)
 
 
 @dataclass

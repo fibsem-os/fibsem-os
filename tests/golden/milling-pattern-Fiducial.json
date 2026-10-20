@@ -1,0 +1,14 @@
+{
+  "asymmetric": false,
+  "cross_section": "Rectangle",
+  "depth": 1e-06,
+  "height": 1e-05,
+  "name": "Fiducial",
+  "point": {
+    "name": null,
+    "x": 0.0,
+    "y": 0.0
+  },
+  "rotation": 45.0,
+  "width": 1e-06
+}

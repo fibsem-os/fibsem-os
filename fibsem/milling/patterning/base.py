@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import asdict, dataclass, field, fields
+from dataclasses import dataclass, field, fields
 from functools import cached_property
 from typing import (
+    Annotated,
     Any,
     ClassVar,
     Dict,
@@ -17,12 +18,10 @@ from typing import (
     TypeVar,
 )
 
-import numpy as np
-
+from fibsem.codec import NotSaved, Tagged, decode, encode
 from fibsem.milling.properties import distance_param
 from fibsem.structures import (
     Configurable,
-    CrossSectionPattern,
     Display,
     Parameter,
     Point,
@@ -37,7 +36,10 @@ TPattern = TypeVar("TPattern", bound="BasePattern")
 
 
 @dataclass
-class BasePattern(Configurable, ABC, Generic[TFibsemPatternSettings]):
+class BasePattern(Tagged, Configurable, ABC, Generic[TFibsemPatternSettings]):
+    """A milling pattern, saved with its ``name`` beside its fields."""
+
+    TYPE_KEY: ClassVar[str] = "name"
     name: ClassVar[str] = field(init=False)
     # Its type, Point, comes from the annotation: the form dispatches the
     # two-spinbox row on it. An offset from the image centre, so signed.
@@ -52,7 +54,7 @@ class BasePattern(Configurable, ABC, Generic[TFibsemPatternSettings]):
     )
     # Computed by define(), never edited: the form skips it on `hidden` rather
     # than on a hardcoded field name, so a plugin can hide its own fields too.
-    shapes: Optional[List[TFibsemPatternSettings]] = param(
+    shapes: Annotated[Optional[List[TFibsemPatternSettings]], NotSaved] = param(
         None, display=Display(hidden=True), init=False
     )
 
@@ -60,38 +62,37 @@ class BasePattern(Configurable, ABC, Generic[TFibsemPatternSettings]):
     def define(self) -> List[TFibsemPatternSettings]:
         pass
 
+    @classmethod
+    def type_name(cls) -> str:
+        return cls.name
+
+    @classmethod
+    def subclass_named(cls, name: str) -> Type["BasePattern"]:
+        """The registered pattern called ``name``, in any case.
+
+        Raises:
+            ValueError: no pattern is called that.
+        """
+        from fibsem.milling.patterning import get_patterns
+
+        patterns = get_patterns()
+        folded = {key.casefold(): pattern for key, pattern in patterns.items()}
+        pattern = patterns.get(name) or folded.get(str(name).casefold())
+        if pattern is None:
+            raise ValueError(
+                f"No milling pattern named '{name}'. "
+                f"Available patterns: {', '.join(patterns)}"
+            )
+        return pattern
+
     def to_dict(self) -> Dict[str, Any]:
-        ddict = asdict(self)
-        # Handle any special cases
-        if "cross_section" in ddict:
-            ddict["cross_section"] = ddict["cross_section"].name
-        if "vertices" in ddict:
-            ddict["vertices"] = ddict["vertices"].tolist()
-        ddict["name"] = self.name
-        del ddict["shapes"]
-        return ddict
+        return encode(self, BasePattern)
 
     @classmethod
     def from_dict(cls: Type[TPattern], ddict: Dict[str, Any]) -> TPattern:
-        kwargs = {}
-        for f in fields(cls):
-            if f.name in ddict:
-                kwargs[f.name] = ddict[f.name]
-
-        # Construct objects
-        point = kwargs.pop("point", None)
-        if point is not None:
-            kwargs["point"] = Point.from_dict(point)
-
-        cross_section = kwargs.pop("cross_section", None)
-        if cross_section is not None:
-            kwargs["cross_section"] = CrossSectionPattern[cross_section]
-
-        vertices = kwargs.pop("vertices", None)
-        if vertices is not None:
-            kwargs["vertices"] = np.array(vertices)
-
-        return cls(**kwargs)
+        """A pattern of this class, or of the one ``ddict`` names when this is
+        the base."""
+        return decode(BasePattern if cls is BasePattern else cls, ddict)
 
     @cached_property
     def required_attributes(self) -> Tuple[str, ...]:

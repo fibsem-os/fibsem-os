@@ -533,3 +533,103 @@ OLD_REST = {
 def test_an_old_rest_shape_saves_again_as_pinned(case):
     cls, data = OLD_REST[case]
     _check(case, cls.from_dict(data).to_dict())
+
+
+# ---- milling stages, patterns, strategies and monitors ------------------------
+
+
+def _stage(**overrides):
+    from fibsem.milling.base import FibsemMillingStage, get_strategy_config
+    from fibsem.milling.monitors.fm_intensity import FmIntensityConfig
+    from fibsem.milling.monitors.sem_peek import SemPeekConfig
+    from fibsem.milling.patterning import get_pattern
+    from fibsem.structures import FibsemMillingSettings
+
+    fields = dict(
+        name="Rough Mill",
+        num=1,
+        milling=FibsemMillingSettings(
+            milling_current=2e-9, hfw=80e-6, milling_channel=BeamType.ION
+        ),
+        pattern=get_pattern("Trench", {"width": 12e-6, "depth": 2e-6}),
+        strategy=get_strategy_config(
+            "CoincidenceMilling",
+            {"config": {"timeout": 120, "intensity_drop_fraction": 0.4}},
+        ),
+        alignment=MillingAlignment(enabled=True, rect=RECTANGLE),
+        imaging=IMAGE,
+        monitors=[FmIntensityConfig(drop_fraction=0.3), SemPeekConfig()],
+    )
+    fields.update(overrides)
+    return FibsemMillingStage(**fields)
+
+
+def _patterns():
+    from fibsem.milling.patterning import BUILTIN_PATTERNS
+    from fibsem.milling.patterning.patterns.polygon import PolygonPattern
+
+    # Built-in only: a test may register its own pattern in the same process.
+    patterns = {name: cls() for name, cls in BUILTIN_PATTERNS.items()}
+    # Not registered, so read back by its class.
+    patterns["PolygonPattern"] = PolygonPattern(
+        vertices=np.array([[0.0, 0.0], [1e-6, 0.0], [0.0, 1e-6]])
+    )
+    return patterns
+
+
+def test_a_milling_stage_saves_as_pinned_and_reads_back():
+    from fibsem.milling.base import FibsemMillingStage
+
+    stage = _stage()
+    saved = stage.to_dict()
+    _check("milling-stage", saved)
+    _check("milling-stage-short", stage.to_dict(short=True))
+    again = FibsemMillingStage.from_dict(_plain(saved))
+    assert again == stage
+    assert _plain(again.to_dict()) == _plain(saved)
+
+
+@pytest.mark.parametrize("name", sorted(_patterns()))
+def test_every_pattern_saves_as_pinned_and_reads_back(name):
+    from fibsem.milling.patterning.base import BasePattern
+
+    pattern = _patterns()[name]
+    saved = pattern.to_dict()
+    _check(f"milling-pattern-{name}", saved)
+    reader = type(pattern) if name == "PolygonPattern" else BasePattern
+    assert _plain(reader.from_dict(_plain(saved)).to_dict()) == _plain(saved)
+
+
+OLD_STAGES = {
+    # No alignment block: alignment off, as a saved alignment without keys reads.
+    "old-stage-no-alignment": {
+        "name": "Mill",
+        "milling": {"milling_current": 1e-9, "hfw": 1e-4},
+        "pattern": {"name": "rectangle", "width": 1e-5},
+    },
+    # A legacy `strategy: {}` is Standard.
+    "old-stage-empty-strategy": {
+        "name": "Mill",
+        "milling": {},
+        "pattern": {"name": "Rectangle"},
+        "strategy": {},
+    },
+    # A strategy and a monitor not installed here: Standard, and no monitor.
+    "old-stage-unknown-plugins": {
+        "name": "Mill",
+        "milling": {},
+        "pattern": {"name": "Rectangle"},
+        "strategy": {"name": "NotInstalled", "config": {"passes": 3}},
+        "monitors": [
+            {"name": "NotInstalled", "config": {}},
+            {"name": "SEM Peek", "config": {"hfw": 1e-4}},
+        ],
+    },
+}
+
+
+@pytest.mark.parametrize("case", sorted(OLD_STAGES))
+def test_an_old_stage_shape_saves_again_as_pinned(case):
+    from fibsem.milling.base import FibsemMillingStage
+
+    _check(case, FibsemMillingStage.from_dict(OLD_STAGES[case]).to_dict())

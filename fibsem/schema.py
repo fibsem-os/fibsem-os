@@ -30,7 +30,7 @@ _SCALARS = {bool: "boolean", int: "integer", float: "number", str: "string"}
 
 
 def value_schema(hint: Any, defs: Dict[str, Schema]) -> Schema:
-    """A type as JSON Schema: a scalar, an enum (by value), a list or tuple, a mapping,
+    """A type as JSON Schema: a scalar, an enum (as the wire writes it), a list or tuple, a mapping,
     ``Optional`` (or null), or a dataclass (a ``$ref`` into ``defs``, which it fills).
     Anything else is ``{}``: any value."""
     if hint is None or hint is type(None):
@@ -38,10 +38,7 @@ def value_schema(hint: Any, defs: Dict[str, Schema]) -> Schema:
     if hint in _SCALARS:
         return {"type": _SCALARS[hint]}
     if isinstance(hint, type) and issubclass(hint, Enum):
-        return {
-            "enum": [_plain(member.value) for member in hint],
-            "title": hint.__name__,
-        }
+        return {"enum": [_plain(member) for member in hint], "title": hint.__name__}
     if isinstance(hint, type) and dataclasses.is_dataclass(hint):
         return dataclass_schema(hint, defs)
     origin = typing.get_origin(hint)

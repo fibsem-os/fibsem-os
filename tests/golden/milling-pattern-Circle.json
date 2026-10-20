@@ -1,0 +1,11 @@
+{
+  "depth": 1e-06,
+  "name": "Circle",
+  "point": {
+    "name": null,
+    "x": 0.0,
+    "y": 0.0
+  },
+  "radius": 5e-06,
+  "thickness": 0
+}

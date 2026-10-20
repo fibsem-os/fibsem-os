@@ -1,0 +1,24 @@
+{
+  "depth": 1e-06,
+  "is_exclusion": false,
+  "name": "PolygonPattern",
+  "point": {
+    "name": null,
+    "x": 0.0,
+    "y": 0.0
+  },
+  "vertices": [
+    [
+      0.0,
+      0.0
+    ],
+    [
+      1e-06,
+      0.0
+    ],
+    [
+      0.0,
+      1e-06
+    ]
+  ]
+}
