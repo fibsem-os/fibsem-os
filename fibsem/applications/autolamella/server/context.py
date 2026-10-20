@@ -1457,6 +1457,12 @@ class AutoLamellaAppContext(AppContext):
         config = self._edited_task_config(tool, arguments)
         if config is None:
             return None
+        if tool == "item_update_task_config":
+            running = self._running_task_refusal(
+                arguments.get("item_name"), arguments.get("task_name")
+            )
+            if running:
+                return running
         if tool != "protocol_update_grid_task_config":
             refused = workflow_field_refusal(patch)
             if refused:
@@ -1466,6 +1472,26 @@ class AutoLamellaAppContext(AppContext):
         except PatchError as exc:
             return str(exc)
         return None
+
+    def _running_task_refusal(self, item_name: str, task_name: str) -> Optional[str]:
+        """Why an edit to this item's task config can't take effect: the task is
+        running for it now and has already copied its config. None otherwise."""
+        manager = self._manager
+        if manager is None:
+            return None
+        running = any(
+            item.item_name == item_name
+            and item.task_name == task_name
+            and item.status is TaskStatus.InProgress
+            for item in manager.queue.items
+        )
+        if not running:
+            return None
+        return (
+            f"{task_name!r} is running for {item_name!r} right now and has "
+            "already copied its config — the edit would never take effect. "
+            "Patch it after the task finishes."
+        )
 
     def apply_item_patch(
         self,
@@ -1693,23 +1719,14 @@ class AutoLamellaAppContext(AppContext):
         and a refusal is more honest than a silent no-op. Pending tasks pick
         the change up when they start (the ``set_supervision`` semantics).
         """
-        manager = self._manager
-        if manager is not None:
-            running = any(
-                item.item_name == item_name
-                and item.task_name == task_name
-                and item.status is TaskStatus.InProgress
-                for item in manager.queue.items
-            )
-            if running:
-                return {
-                    "available": True,
-                    "applied": False,
-                    "error_type": "task_running",
-                    "error": f"{task_name!r} is running for {item_name!r} right "
-                    "now and has already copied its config — the edit would "
-                    "never take effect. Patch it after the task finishes.",
-                }
+        why = self._running_task_refusal(item_name, task_name)
+        if why:
+            return {
+                "available": True,
+                "applied": False,
+                "error_type": "task_running",
+                "error": why,
+            }
         return self._config_edit(
             "item", item_name, task_name, dict(patch), str(version), timeout
         )
