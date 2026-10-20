@@ -693,7 +693,9 @@ def test_a_correlation_that_cannot_be_recorded_is_still_applied(
     def _broken(*args, **kwargs):
         raise RuntimeError("cannot describe it")
 
-    monkeypatch.setattr(lamella_editor_module, "correlation_record", _broken)
+    import fibsem.correlation.history as history
+
+    monkeypatch.setattr(history, "correlation_record", _broken)
     lamella = experiment.positions[0]
 
     _accept_correlation(editor, monkeypatch, _correlation_result(Point(x=1e-6, y=1e-6)))

@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 import logging
 import os
-from typing import TYPE_CHECKING, Dict, Iterable, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional
 
 import numpy as np
 from PyQt5.QtCore import Qt, pyqtSignal
@@ -22,7 +22,13 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem import conversions
-from fibsem.applications.autolamella.config_edits import copy_task_configs
+from fibsem.applications.autolamella.config_edits import (
+    apply_correlation,
+    copy_task_configs,
+    edit_item_fields,
+    item_fields_version,
+    poi_patch,
+)
 from fibsem.applications.autolamella.image_positions import (
     ImagePosition,
     PositionComparison,
@@ -44,14 +50,10 @@ from fibsem.applications.autolamella.task_outputs import (
 )
 from fibsem.applications.autolamella.ui.protocol.edit_recording import PendingEdits
 from fibsem.applications.autolamella.ui.protocol.editor import TaskConfigEditor
-from fibsem.applications.autolamella.workflows.tasks.fiducial import (
-    follow_alignment_area,
-)
 from fibsem.applications.autolamella.workflows.tasks.tasks import (
     AcquireFluorescenceImageConfig,
     SpotBurnFiducialTaskConfig,
 )
-from fibsem.correlation.history import correlation_record
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.structures import (
     BeamType,
@@ -60,7 +62,7 @@ from fibsem.structures import (
     FibsemStagePosition,
     Point,
 )
-from fibsem.ui import stylesheets
+from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.tokens import (
     BORDER_COLOR,
     CANVAS_BG,
@@ -1012,30 +1014,38 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         """
         self.task_editor.set_values({"coordinates": list(settings.coordinates)})
 
-    def _on_point_of_interest_updated(self, point: Point, via: Optional[str] = None):
+    def _on_point_of_interest_updated(
+        self, point: Point, via: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Callback when the point of interest is updated. *via* names where the
         point came from, for the record, when not from the editor itself."""
         selected_lamella = self._selected_lamella
         if selected_lamella is None:
-            return
+            return {"applied": False}
 
         logging.info(f"Updated {selected_lamella.name}, Point of Interest: {point}")
         self._edits.touch(
             selected_lamella, None, "poi", lambda: selected_lamella.poi, via
         )
         self._edits.touch_patterns(selected_lamella, via=via or "point of interest")
+        result = self._edit_item_fields(selected_lamella, poi_patch(point))
+        if result["applied"]:
+            self._draw_point_of_interest(selected_lamella.poi)
+        return result
 
-        # update point of interest in the task config
-        selected_lamella.poi = point
-
-        # update point of interest in the task config, and optionally sync pattern positions to the new point
-        selected_lamella.poi = point
-        synced_tasks = selected_lamella.sync_tasks_to_poi()
-        self._draw_point_of_interest(point)
-        if synced_tasks:
-            self._on_selected_task_changed()  # refresh milling task editor to show updated pattern positions
-
+    def _edit_item_fields(
+        self, lamella: Lamella, patch: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Patch *lamella*'s own fields as the App Server's item patch does, then
+        refresh the patterns that moved with them and save."""
+        result = edit_item_fields(lamella, patch, item_fields_version(lamella))
+        if not result["applied"]:
+            logging.warning(f"{lamella.name}: edit refused: {result}")
+            return result
+        if result["synced_tasks"]:
+            self._on_selected_task_changed()  # show the patterns where they now are
         self._save_experiment()
+        return result
 
     def _draw_point_of_interest(self, point: Point):
         """Draw the point-of-interest marker on the FIB canvas.
@@ -1123,11 +1133,20 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             lamella, None, "alignment_area", lambda: lamella.alignment_area
         )
         self._edits.touch_patterns(lamella, via="alignment area")
-        lamella.alignment_area = rect
-        # the fiducial not milled yet follows the area (FIB-1430)
-        if follow_alignment_area(lamella):
-            self._on_selected_task_changed()
-        self._save_experiment()
+        result = self._edit_item_fields(
+            lamella,
+            {
+                f"alignment_area.{side}": float(getattr(rect, side))
+                for side in ("left", "top", "width", "height")
+            },
+        )
+        if not result["applied"]:
+            # refused and put back: show the area the lamella still has
+            self._draw_alignment_area()
+            notification_service.show_toast(
+                "Alignment area not changed: it must lie inside the image.",
+                "warning",
+            )
 
     def _add_poi_context_menu_action(
         self, config: ContextMenuConfig, point: Point
@@ -1307,31 +1326,22 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         logging.info(
             f"correlation-result: rms={result.rms_error:.3f}, poi={result.poi[0].px_m}"
         )
-        self._record_correlation(result, run_folder)
-        poi: Point = result.poi[0].px_m  # Point in metres, same format as old signal
-        self._on_point_of_interest_updated(poi, via="correlation")
+        lamella = self._selected_lamella
+        experiment = self.session.experiment
+        apply_correlation(
+            result,
+            lamella,
+            run_folder,
+            getattr(experiment, "path", None),
+            lambda poi: self._on_point_of_interest_updated(poi, via="correlation"),
+            self._record_event,
+        )
 
-    def _record_correlation(
-        self, result: "CorrelationResult", run_folder: Optional[str]
-    ) -> None:
-        """Record the correlation on the experiment's record. Never raises: a
-        correlation that cannot be recorded is still applied."""
-        try:
-            microscope = self.session.microscope
-            if microscope is None or self._selected_lamella is None:
-                return
-            experiment = self.session.experiment
-            microscope.record_event(
-                "correlation",
-                correlation_record(
-                    result,
-                    self._selected_lamella,
-                    run_folder,
-                    getattr(experiment, "path", None),
-                ),
-            )
-        except Exception:  # noqa: BLE001 - recording must not matter
-            logging.debug("could not record the correlation", exc_info=True)
+    def _record_event(self, kind: str, payload: Dict[str, Any]) -> None:
+        """Put an event on the experiment's record, when a microscope keeps one."""
+        microscope = self.session.microscope
+        if microscope is not None:
+            microscope.record_event(kind, payload)
 
     def _on_apply_to_other_clicked(self):
         """Open dialog to apply this lamella's config to other lamella."""
@@ -1413,10 +1423,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         text = self.line_edit_description.text()
         if lamella.description == text:
             return
-        lamella.description = (
-            text  # fires events.description -> updates read-only mirrors
-        )
-        self._save_experiment()
+        self._edit_item_fields(lamella, {"description": text})
 
     def _save_experiment(self):
         """Persist the edit, coalescing a burst of them into one write.
