@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from fibsem.structures import InsertableDeviceState
+from tests.server.test_remote_fm import _unreachable  # noqa: E402
 
 pytest.importorskip("fastapi")
 pytest.importorskip("websockets")
@@ -290,8 +291,7 @@ def test_a_server_without_live_view_is_still_pulled(served):
 
 def test_a_guard_read_fails_closed_when_the_fm_computer_is_gone(served):
     _, fm = served
-    fm.client._session.close()
-    fm.client.base_url = "http://127.0.0.1:1"  # nothing listens there
+    _unreachable(fm.client)
     with pytest.raises(RemoteDeviceUnreachable):
         fm.objective.state
     with pytest.raises(RemoteDeviceUnreachable):

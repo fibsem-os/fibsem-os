@@ -23,7 +23,13 @@ from fibsem.drivers.remote.devices import (  # noqa: E402
     connect_remote_beams,
 )
 from fibsem.server.devices import DeviceServer, demo_devices  # noqa: E402
-from fibsem.structures import BeamType, FibsemRectangle, Point, ScanMode  # noqa: E402
+from fibsem.structures import (  # noqa: E402
+    BeamType,
+    FibsemImage,
+    FibsemRectangle,
+    Point,
+    ScanMode,
+)
 
 BEAMS = (BeamType.ELECTRON, BeamType.ION)
 
@@ -147,7 +153,18 @@ def test_commands_run_on_the_server(served):
     assert local[BeamType.ELECTRON].blanked.get_value() is True
     sem.call_command("unblank")
     assert local[BeamType.ELECTRON].blanked.get_value() is False
-    assert sem.commands["acquire"].available is False
+
+
+def test_a_remote_beam_acquires_on_the_server(served):
+    _, remote, _ = served
+    sem = remote[BeamType.ELECTRON]
+    heard = []
+    sem.image_acquired.connect(heard.append)
+    image = sem.acquire()
+    assert isinstance(image, FibsemImage)
+    assert image.metadata.image_settings.beam_type is BeamType.ELECTRON
+    assert image.data.ndim == 2
+    assert heard == [image]
 
 
 def test_a_stopped_server_fails_closed(served):

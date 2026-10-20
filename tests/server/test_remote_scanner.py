@@ -103,7 +103,14 @@ def _build(server, name, type_):
             "port": server.port,
         }
     )
-    return build_device_entries([ResolvedEntry(entry, "remote")], None).get(name)
+    cleanups = []
+    device = build_device_entries(
+        [ResolvedEntry(entry, "remote")], None, None, cleanups
+    ).get(name)
+    if device is None:  # nothing built to close the server's client
+        for cleanup in cleanups:
+            cleanup()
+    return device
 
 
 def test_a_served_device_names_its_driver_and_type():

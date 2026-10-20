@@ -21,7 +21,7 @@ from fibsem.drivers.remote.devices import (  # noqa: E402
     connect_remote_beams,
 )
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures import BeamType  # noqa: E402
+from fibsem.structures import BeamType, FibsemImage  # noqa: E402
 
 TOKEN = "test-token"
 
@@ -97,10 +97,16 @@ def test_a_command_runs_on_the_microscope(beams, microscope):
     assert microscope.beams[BeamType.ION].blanked.get_value() is False
 
 
+def test_a_beam_image_crosses_whole(beams, microscope):
+    image = beams["electron"].acquire()
+    assert isinstance(image, FibsemImage)
+    assert image.metadata.image_settings.beam_type is BeamType.ELECTRON
+    assert image.metadata.pixel_size.x > 0
+
+
 def test_the_devices_send_the_token(beams, remote, port):
     beams["electron"].parameters["current"].get_value()
-    session = remote._session
-    assert session.headers["Authorization"] == f"Bearer {TOKEN}"
+    assert remote._transport.bearer == f"Bearer {TOKEN}"
     url = f"http://127.0.0.1:{port}/microscope/devices/electron/current"
     assert requests.get(url, timeout=5).status_code == 401
     tokenless = DeviceClient("127.0.0.1", port, events=False, root="/microscope")

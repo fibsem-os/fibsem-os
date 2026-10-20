@@ -7,6 +7,7 @@ it names.
 
 import io
 import json
+import logging
 import os
 from typing import Any, Dict, Mapping, Optional, Tuple
 
@@ -28,6 +29,9 @@ from fibsem.structures import FibsemImage
 
 TIMEOUT = httpx.Timeout(120.0, connect=5.0)  # moves and acquisitions are slow
 
+# httpx logs every request at INFO: a remote device's reads would fill the log
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
 NO_SERVER = (
     "No App Server found. Pass url and token, set FIBSEM_SERVER_URL and "
     "FIBSEM_SERVER_TOKEN, or start the App Server on this machine (it writes "
@@ -36,7 +40,12 @@ NO_SERVER = (
 
 
 class ServerUnreachable(ConnectionError):
-    """No server was found, or it did not answer."""
+    """No server was found, or it did not answer: ``timed_out`` when a request
+    may have reached it."""
+
+    def __init__(self, message: str, timed_out: bool = False):
+        super().__init__(message)
+        self.timed_out = timed_out
 
 
 class ServerError(RuntimeError):
@@ -88,6 +97,9 @@ class Transport:
     connection refused, the transport resolves again and, when that finds another
     server, retries there once. A request that may have reached the server (one
     that timed out) is never retried.
+
+    With ``discover=False`` it is the server at *url* and nothing else, with
+    *token* or none: a Device Server, which has no token and no discovery file.
     """
 
     def __init__(
@@ -96,9 +108,11 @@ class Transport:
         token: Optional[str] = None,
         user_agent: Optional[str] = None,
         timeout: httpx.Timeout = TIMEOUT,
+        discover: bool = True,
     ):
         self._asked = (url, token)
-        resolved = resolve(url, token)
+        self._discover = discover
+        resolved = resolve(url, token) if discover else (url, token)
         if resolved is None:
             raise ServerUnreachable(NO_SERVER)
         self._resolved = resolved
@@ -111,9 +125,10 @@ class Transport:
         return self._resolved[0]
 
     @property
-    def bearer(self) -> str:
-        """The ``Authorization`` header's value."""
-        return f"Bearer {self._resolved[1]}"
+    def bearer(self) -> Optional[str]:
+        """The ``Authorization`` header's value; None with no token."""
+        token = self._resolved[1]
+        return None if token is None else f"Bearer {token}"
 
     @property
     def user_agent(self) -> str:
@@ -126,7 +141,9 @@ class Transport:
         self._http.headers["User-Agent"] = user_agent
 
     def _connect(self) -> httpx.Client:
-        headers = {"Authorization": self.bearer, "User-Agent": self._user_agent}
+        headers = {"User-Agent": self._user_agent}
+        if self.bearer is not None:
+            headers["Authorization"] = self.bearer
         return self._client(self.url, headers)
 
     def _client(self, url: str, headers: Dict[str, str]) -> httpx.Client:
@@ -134,6 +151,8 @@ class Transport:
         return httpx.Client(base_url=url, headers=headers, timeout=self._timeout)
 
     def _reresolve(self) -> bool:
+        if not self._discover:
+            return False
         fresh = resolve(*self._asked)
         if fresh is None or fresh == self._resolved:
             return False
@@ -149,7 +168,7 @@ class Transport:
             return self._attempt(method, path, kwargs)
         except httpx.TimeoutException:
             raise ServerUnreachable(
-                f"{method} {self.url}{path}: no answer in time"
+                f"{method} {self.url}{path}: no answer in time", timed_out=True
             ) from None
         except httpx.TransportError as error:
             raise ServerUnreachable(
