@@ -71,7 +71,7 @@
   .request .title { font-size:11.5px; color:var(--agent); margin-bottom:4px; }
   .request ul { padding-left:18px; color:var(--strong); }
   .request .reason { margin-top:6px; }
-  .request .buttons { display:flex; gap:8px; margin-top:10px; }
+  .request .buttons { display:flex; gap:8px; margin-top:10px; justify-content:flex-end; }
   .request input { flex:1; min-width:0; background:var(--canvas); border:1px solid var(--border);
     border-radius:3px; padding:4px 8px; color:var(--text); font:inherit; font-size:12px; }
 
@@ -119,6 +119,8 @@ let draft = "";
 const evidenceCache = new Map();
 // Kept at the newest row while the operator hasn't scrolled up from it.
 let pinned = true;
+// Reject… asks why first, as the card does.
+let rejecting = false;
 
 function esc(text) {
   return String(text ?? "").replace(/[&<>"']/g, c =>
@@ -232,8 +234,9 @@ function requestHtml(request) {
     <div class="title">Agent asks</div><ul>${actions}</ul>
     <div class="reason"><span class="muted">Why:</span> ${esc(request.reason)}</div>
     ${request.evidence ? evidenceHtml({ evidence: { evidence_id: request.evidence } }) : ""}
-    <div class="buttons"><button class="btn primary" id="approve">Approve</button>
-      <input id="reject-reason" placeholder="Why not (optional)"><button class="btn" id="reject">Reject</button></div></div>`;
+    <div class="buttons">${rejecting
+      ? `<input id="reject-reason" placeholder="Tell the agent why (optional)"><button class="btn" id="back">Back</button><button class="btn primary" id="reject">Reject</button>`
+      : `<button class="btn" id="reject-start">Reject…</button><button class="btn primary" id="approve">Approve</button>`}</div></div>`;
 }
 
 function rowsHtml() {
@@ -303,11 +306,16 @@ function wire() {
   const request = $app.querySelector("[data-request]");
   if (request) {
     const id = encodeURIComponent(request.dataset.request);
-    $app.querySelector("#approve").onclick = () =>
-      act(api(`/app/agent/requests/${id}/approve`, { method: "POST" }));
-    $app.querySelector("#reject").onclick = () => act(api(`/app/agent/requests/${id}/reject`, {
-      method: "POST", body: JSON.stringify({ reason: $app.querySelector("#reject-reason").value }),
-    }));
+    const on = (sel, fn) => { const el = $app.querySelector(sel); if (el) el.onclick = fn; };
+    on("#approve", () => act(api(`/app/agent/requests/${id}/approve`, { method: "POST" })));
+    on("#reject-start", () => { rejecting = true; render(); $app.querySelector("#reject-reason").focus(); });
+    on("#back", () => { rejecting = false; render(); });
+    on("#reject", () => {
+      rejecting = false;
+      act(api(`/app/agent/requests/${id}/reject`, {
+        method: "POST", body: JSON.stringify({ reason: $app.querySelector("#reject-reason").value }),
+      }));
+    });
   }
 }
 
