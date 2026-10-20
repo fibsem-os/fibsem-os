@@ -91,6 +91,14 @@
   .composer .who { font-variant-numeric:tabular-nums; }
   .composer .who b { color:var(--agent); font-weight:600; }
   .error { color:var(--err); }
+  .link { background:none; border:0; padding:0; color:var(--accent); cursor:pointer; }
+  .link:hover { color:#7bc0ff; }
+  .connect { margin:12px 16px 0; border:1px solid var(--border); border-radius:3px; padding:10px 12px; background:var(--panel); }
+  .connect .title { font-size:11.5px; font-weight:600; color:var(--strong); margin-bottom:4px; }
+  .connect p { color:var(--muted); font-size:12px; }
+  .connect pre { margin-top:8px; max-height:180px; overflow:auto; white-space:pre-wrap; font-family:var(--mono);
+    font-size:11.5px; background:var(--canvas); border:1px solid var(--border); border-radius:3px; padding:8px; }
+  .connect .buttons { display:flex; gap:8px; margin-top:10px; justify-content:flex-end; }
 
   .gate { max-width:420px; margin:18vh auto 0; padding:16px; }
   .gate h1 { font-size:14px; color:var(--strong); margin-bottom:8px; }
@@ -129,6 +137,8 @@ const evidenceCache = new Map();
 let pinned = true;
 // Reject… asks why first, as the card does.
 let rejecting = false;
+// "Connect an agent…": open, and its text once read ({text} or null).
+let connecting = false, connectAnswer = null;
 
 function esc(text) {
   return String(text ?? "").replace(/[&<>"']/g, c =>
@@ -201,7 +211,20 @@ function whoHtml() {
   const a = state.agent || {};
   const name = a.client ? esc(a.client.split("/")[0]) : "Agent";
   const stopped = a.stopped ? " · stopped by you" : "";
-  return `<span class="who"><b>${name}</b> · ${lastHeard(a.last_heard_s)}${stopped}</span>`;
+  // Until an agent is heard from, the way to connect one, as on the card.
+  const connect = a.last_heard_s == null && !connecting
+    ? ` · <button class="link" id="connect">Connect an agent…</button>` : "";
+  return `<span class="who"><b>${name}</b> · ${lastHeard(a.last_heard_s)}${stopped}${connect}</span>`;
+}
+
+function connectHtml() {
+  if (!connecting || (state.agent && state.agent.last_heard_s != null)) return "";
+  const text = connectAnswer && connectAnswer.text;
+  const body = connectAnswer == null ? `<p>Reading…</p>`
+    : text ? `<p>Paste this into Claude Code on the microscope PC: it registers the fibsem sidecar, checks the connection and tells you its level.</p><pre id="setup">${esc(text)}</pre>`
+    : `<p>fibsem-mcp isn't installed on the microscope PC. Install it there with: pip install fibsem[mcp]</p>`;
+  return `<div class="connect"><div class="title">Connect an agent</div>${body}
+    <div class="buttons"><button class="btn" id="connect-close">Close</button>${text ? `<button class="btn primary" id="copy-setup">Copy</button>` : ""}</div></div>`;
 }
 
 function headerHtml() {
@@ -272,7 +295,7 @@ function render() {
   const reason = $app.querySelector("#reject-reason");
   const rejectDraft = reason ? reason.value : "";
   $app.innerHTML = `<div class="page">${headerHtml()}
-    <div class="rows">${rowsHtml()}</div>
+    <div class="rows">${rowsHtml()}</div>${connectHtml()}
     <div class="composer"><textarea id="msg" rows="1" maxlength="${LIMIT}" placeholder="Message the agent"></textarea>
       <div class="foot">${whoHtml()}<span id="foot">Enter sends · Shift+Enter for a new line</span>
       <button class="btn primary" id="send">Send</button></div></div></div>`;
@@ -319,6 +342,10 @@ function wire() {
       render();
     };
   }
+  const click = (sel, fn) => { const el = $app.querySelector(sel); if (el) el.onclick = fn; };
+  click("#connect", openConnect);
+  click("#connect-close", () => { connecting = false; render(); });
+  click("#copy-setup", copySetup);
   const request = $app.querySelector("[data-request]");
   if (request) {
     const id = encodeURIComponent(request.dataset.request);
@@ -332,6 +359,26 @@ function wire() {
         method: "POST", body: JSON.stringify({ reason: $app.querySelector("#reject-reason").value }),
       }));
     });
+  }
+}
+
+async function openConnect() {
+  connecting = true;
+  render();
+  try { connectAnswer = await api("/app/agent/connect"); }
+  catch (e) { connecting = false; say(e.message, true); }
+  render();
+}
+
+async function copySetup() {
+  const text = connectAnswer && connectAnswer.text;
+  try { await navigator.clipboard.writeText(text); say("Copied · paste it into your agent"); }
+  catch (e) {
+    // No clipboard (not localhost): select it to copy by hand.
+    const range = document.createRange();
+    range.selectNodeContents($app.querySelector("#setup"));
+    getSelection().removeAllRanges(); getSelection().addRange(range);
+    say("Selected · copy it with Ctrl+C");
   }
 }
 

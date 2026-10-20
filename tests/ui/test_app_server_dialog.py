@@ -13,16 +13,13 @@ pytest.importorskip("PyQt5")
 pytest.importorskip("fastapi")
 
 from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
+from fibsem.server.agent_setup import agent_setup_text, sidecar_path  # noqa: E402
 from fibsem.server.auth import AuthConfig  # noqa: E402
 from fibsem.server.discovery import dev_checkout  # noqa: E402
 from fibsem.ui.agent.app_server_dialog import (  # noqa: E402
     AppServerDialog,
 )
-from fibsem.ui.agent.connect_agent_dialog import (  # noqa: E402
-    ConnectAgentDialog,
-    agent_setup_text,
-    sidecar_path,
-)
+from fibsem.ui.agent.connect_agent_dialog import ConnectAgentDialog  # noqa: E402
 
 
 class _Host:

@@ -252,3 +252,11 @@ def test_the_chat_page_is_served(server):
     answer = server.get("/chat")
     assert answer.status_code == 200
     assert "/app/agent/recent" in answer.text
+
+
+def test_the_connect_text_is_the_card_s(server):
+    from fibsem.server.agent_setup import setup_text
+
+    answer = server.get("/app/agent/connect", headers=server.operator)
+    assert answer.json()["text"] == setup_text(server.session.app_server.url)
+    assert server.get("/app/agent/connect", headers=server.agent).status_code == 403
