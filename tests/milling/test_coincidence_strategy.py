@@ -18,6 +18,7 @@ import fibsem.config as fconfig
 from fibsem import utils
 from fibsem.milling.base import FibsemMillingStage, get_strategy
 from fibsem.milling.patterning.patterns import RectanglePattern
+from fibsem.milling.steps import ENDED, MillingStepEnd
 from fibsem.milling.strategy import get_strategy_names
 from fibsem.milling.strategy.coincidence import (
     CoincidenceMillingStrategy,
@@ -121,7 +122,10 @@ def fm_microscope(tmp_path):
 def _coincidence_config(path: str) -> FibsemMillingTaskConfig:
     strategy = CoincidenceMillingStrategy(
         config=CoincidenceMillingStrategyConfig(
-            timeout=600, save_fm_images=False, acquire_fib_image=False
+            timeout=600,
+            save_fm_images=False,
+            acquire_fib_image=False,
+            bbox=FibsemRectangle(0.25, 0.25, 0.5, 0.5),
         )
     )
     config = FibsemMillingTaskConfig(
@@ -131,7 +135,7 @@ def _coincidence_config(path: str) -> FibsemMillingTaskConfig:
             FibsemMillingStage(
                 name="Coincidence 01",
                 milling=FibsemMillingSettings(milling_current=60e-12),
-                pattern=RectanglePattern(width=9e-6, height=20e-6, depth=0.4e-6),
+                pattern=RectanglePattern(width=9e-6, height=20e-6, depth=4e-6),
                 strategy=strategy,
             )
         ],
@@ -144,20 +148,17 @@ def _coincidence_config(path: str) -> FibsemMillingTaskConfig:
 
 
 def test_headless_run_stops_on_the_callers_stop_event(fm_microscope, tmp_path):
-    """No milling widget: a stop event set while the strategy is monitoring must end
-    the run on the next tick and still finalise. Before the strategy read the event
-    a headless run could only end at its own timeout."""
-    from fibsem.milling.progress import MillingProgressStatus
-
+    """No milling widget: a stop event set while the strategy is monitoring ends
+    the run and it still finalises, saving its files."""
     config = _coincidence_config(str(tmp_path))
     stop_event = threading.Event()
-    ticks = []
+    frames = []
 
-    def _stop_on_first_tick(progress):
-        # the strategy's monitor loop emits STAGE_UPDATE once per tick
-        if progress.status is MillingProgressStatus.STAGE_UPDATE:
-            ticks.append(progress)
-            stop_event.set()
+    def _stop_on_a_frame(stats):
+        frames.append(stats)
+        stop_event.set()
+
+    config.stages[0].get_strategy().intensity_stats_signal.connect(_stop_on_a_frame)
 
     milling = []
 
@@ -165,14 +166,12 @@ def test_headless_run_stops_on_the_callers_stop_event(fm_microscope, tmp_path):
         if kind == "milling":
             milling.append(payload)
 
-    fm_microscope.milling.progress.changed.connect(_stop_on_first_tick)
     fm_microscope.session.record_signal.connect(_milling)
     try:
         started = time.time()
         task = run_milling_task(fm_microscope, config, stop_event=stop_event)
         elapsed = time.time() - started
     finally:
-        fm_microscope.milling.progress.changed.disconnect(_stop_on_first_tick)
         fm_microscope.session.record_signal.disconnect(_milling)
 
     # the task keeps the config it was given; its stage's strategy is the one that ran
@@ -181,8 +180,7 @@ def test_headless_run_stops_on_the_callers_stop_event(fm_microscope, tmp_path):
     assert strategy.microscope is fm_microscope
     assert task._stop_event is stop_event
     assert strategy.is_cancelled
-    # stopped on the tick after the event, nowhere near the 600 s timeout
-    assert 1 <= len(ticks) <= 2
+    # stopped soon after the event, nowhere near the 600 s timeout
     assert elapsed < 30
     # finalised: FM acquisition stopped
     assert not fm_microscope.fm.is_acquiring
@@ -194,6 +192,8 @@ def test_headless_run_stops_on_the_callers_stop_event(fm_microscope, tmp_path):
     assert 0 < said["facts"]["Mill time (s)"] < 30
     assert said["facts"]["Intensity drop seen"] is False
     assert os.path.isfile(said["figure"])
+    for name in ("intensities.npy", "intensity_stats.csv"):
+        assert os.path.isfile(os.path.join(strategy.path, name))
 
 
 def test_headless_run_never_starts_on_a_preset_stop_event(fm_microscope, tmp_path):
@@ -244,24 +244,80 @@ def _old_drop_stats(values, elapsed, settings):
     return out
 
 
-def test_the_shared_drop_rule_detects_as_the_strategy_did_with_live_edits(
-    monkeypatch,
-):
-    """The viewer's drop threshold changes the running strategy's config; the
-    shared rule takes it at the next frame, as the strategy's own code did."""
+class _Step:
+    """Just enough of a mill step for a monitor fed frames by hand: the milled
+    time is whatever the test sets."""
+
+    def __init__(self, fm):
+        from types import SimpleNamespace
+
+        self.microscope = SimpleNamespace(fm=fm)
+        self.output_dir = None
+        self.ending = threading.Event()
+        self.pausing = threading.Event()
+        self.time = 0.0
+        self.ends = []
+
+    def milled_time(self):
+        return self.time
+
+    def report(self, *args, **kwargs):
+        pass
+
+    def end_step(self, reason, by=None):
+        self.ends.append((reason, by))
+        self.ending.set()
+
+
+class _Fm:
+    def __init__(self):
+        from psygnal import SignalInstance
+
+        self.acquisition_signal = SignalInstance(signature=(object,))
+        self.is_acquiring = False
+
+    def start_acquisition(self):
+        self.is_acquiring = True
+
+    def stop_acquisition(self):
+        self.is_acquiring = False
+
+    @property
+    def is_streaming(self):
+        return self.is_acquiring
+
+    def set_active_channel(self):
+        pass
+
+
+def _strategy(**config):
+    strategy = CoincidenceMillingStrategy(
+        config=CoincidenceMillingStrategyConfig(save_fm_images=False, **config)
+    )
+    strategy.camera_resolution = (8, 8)
+    return strategy
+
+
+def _monitoring(strategy):
+    """The strategy's monitor, started on a step whose frames the test sends."""
+    fm = _Fm()
+    step = _Step(fm)
+    monitor = strategy._make_monitor()
+    monitor.start(step)
+    return monitor, step, fm
+
+
+def _frame(value, shape=(8, 8)):
     from types import SimpleNamespace
 
-    strategy = CoincidenceMillingStrategy(
-        config=CoincidenceMillingStrategyConfig(
-            save_fm_images=False,
-            rolling_window=3,
-            warmup_duration=2.0,
-            consecutive_triggers=2,
-        )
-    )
-    strategy.microscope = SimpleNamespace(fm=object())
-    strategy.camera_resolution = (8, 8)
-    strategy._acquisition_start_time = 1000.0
+    return SimpleNamespace(data=np.full(shape, value, dtype=float))
+
+
+def test_the_drop_rule_detects_as_the_old_strategy_did_with_live_edits():
+    """The viewer's drop threshold changes the running strategy's config; the
+    monitor takes it at the next frame, as the old strategy's own code did."""
+    strategy = _strategy(rolling_window=3, warmup_duration=2.0, consecutive_triggers=2)
+    monitor, step, fm = _monitoring(strategy)
     rng = np.random.default_rng(1)
     values = list(rng.normal(1000, 30, 20)) + list(rng.normal(500, 30, 20))
     values += list(rng.normal(1000, 30, 10)) + list(rng.normal(700, 30, 20))
@@ -271,8 +327,9 @@ def test_the_shared_drop_rule_detects_as_the_strategy_did_with_live_edits(
     strategy.intensity_stats_signal.connect(stats.append)
     for i, value in enumerate(values):
         strategy.config.intensity_drop_fraction = fractions[i]
-        monkeypatch.setattr(time, "time", lambda now=1000.0 + i: now)
-        strategy.on_fm_acquisition_signal(SimpleNamespace(data=np.full((8, 8), value)))
+        step.time = float(i)
+        fm.acquisition_signal.emit(_frame(value))
+    monitor.stop()
 
     expected = _old_drop_stats(
         values,
@@ -295,3 +352,93 @@ def test_the_shared_drop_rule_detects_as_the_strategy_did_with_live_edits(
     )
     drops = [i for i, row in enumerate(expected) if row[4]]
     assert drops and any(i >= 45 for i in drops), "the lowered threshold fires"
+    assert strategy._drop_detected
+    assert step.ends == [], "supervised: a drop is only suggested"
+    assert len(strategy.intensities) == len(values)
+    assert len(strategy._stats_records) == len(values)
+
+
+def test_the_viewer_gets_the_stats_it_draws():
+    strategy = _strategy(rolling_window=1, warmup_duration=1.0)
+    _, step, fm = _monitoring(strategy)
+    stats, crops = [], []
+    strategy.intensity_stats_signal.connect(stats.append)
+    strategy.cropped_image_signal.connect(crops.append)
+    for t in (0.0, 2.0, 3.0):
+        step.time = t
+        fm.acquisition_signal.emit(_frame(100.0))
+
+    warming, warm = stats[0], stats[-1]
+    assert set(warming) == {
+        "value",
+        "rolling_mean",
+        "peak_rolling_mean",
+        "threshold_value",
+        "warmup_complete",
+    }
+    for key in (
+        "value",
+        "peak_rolling_mean",
+        "threshold_value",
+        "warmup_complete",
+        "drop_fraction",
+        "threshold_fraction",
+        "drop_detected",
+    ):
+        assert key in warm
+    assert [c["arr"].shape for c in crops] == [(8, 8)] * 3
+    assert strategy.first_fm_acq is not None and strategy.last_fm_acq is not None
+
+
+def test_the_viewers_box_is_where_the_intensity_is_read():
+    strategy = _strategy(rolling_window=1)
+    _, step, fm = _monitoring(strategy)
+    crops = []
+    strategy.cropped_image_signal.connect(crops.append)
+    strategy._on_bbox_update(FibsemRectangle(0.0, 0.0, 0.5, 0.5))
+    data = np.zeros((8, 8))
+    data[:4, :4] = 10.0
+    fm.acquisition_signal.emit(type("F", (), {"data": data})())
+
+    assert crops[-1]["arr"].shape == (4, 4)
+    assert strategy.intensities == [10.0]
+
+
+def _a_drop(strategy, step, fm, start=0):
+    for i, value in enumerate([1000.0] * 5 + [100.0] * 3):
+        step.time = float(start + i)
+        fm.acquisition_signal.emit(_frame(value))
+
+
+def test_unsupervised_a_drop_ends_the_mill():
+    strategy = _strategy(
+        supervised=False, rolling_window=1, warmup_duration=1.0, consecutive_triggers=1
+    )
+    monitor, step, fm = _monitoring(strategy)
+    _a_drop(strategy, step, fm)
+
+    assert step.ends == [("intensity drop", monitor.by)]
+    step.end = MillingStepEnd(ENDED, by=monitor.by, reason="intensity drop")
+    assert strategy._why_it_ended() == "drop"
+
+
+def test_switching_to_unsupervised_after_a_drop_ends_the_mill():
+    """The old loop ended an unsupervised run on a drop seen before the switch."""
+    strategy = _strategy(rolling_window=1, warmup_duration=1.0, consecutive_triggers=1)
+    monitor, step, fm = _monitoring(strategy)
+    _a_drop(strategy, step, fm)
+    assert step.ends == []
+
+    strategy.config.supervised = False
+    fm.acquisition_signal.emit(_frame(100.0))
+    assert step.ends[0] == ("intensity drop", monitor.by)
+
+
+def test_the_time_limit_ends_the_mill():
+    strategy = _strategy(timeout=0.2)
+    monitor, step, _ = _monitoring(strategy)
+    assert step.ending.wait(5.0)
+    monitor.stop()
+    assert step.ends == [("reached the time limit", monitor.by)]
+    step.end = MillingStepEnd(ENDED, by=monitor.by, reason="reached the time limit")
+    assert strategy._why_it_ended() == "timeout"

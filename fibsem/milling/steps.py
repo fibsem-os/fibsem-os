@@ -340,6 +340,9 @@ class MillingStageRun:
         self.ending = threading.Event()
         self.end: Optional[MillingStepEnd] = None
         self.steps: List[MillingStep] = []
+        # Monitors the strategy adds to each step, beside the stage's own: each
+        # makes one afresh for a step.
+        self.monitors: List[Callable[[], Any]] = []
 
     def end_as(self, end: MillingStepEnd) -> None:
         if self.end is None:

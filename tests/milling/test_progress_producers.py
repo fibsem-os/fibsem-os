@@ -91,56 +91,58 @@ class TestADelegatingStrategy:
 
 
 class TestTheCoincidenceStrategy:
-    """Self-driving: it runs its own monitor loop rather than delegating to
-    `run_milling`, which is the whole point of the strategy abstraction."""
+    """It mills through the milling service with its FM monitor holding the
+    view, so the service's clock reports for it."""
 
-    def _monitor_once(self, microscope):
-        strategy = CoincidenceMillingStrategy()
-        strategy.microscope = microscope
-        strategy.stage = FibsemMillingStage(name="Coincidence Mill")
-        strategy.config = CoincidenceMillingStrategyConfig()
-        strategy._drop_detected = False
+    @pytest.fixture
+    def run(self, microscope, tmp_path):
+        from types import SimpleNamespace
+
+        from tests.milling.test_coincidence_strategy import _Fm
+
+        microscope.fm = _Fm()
+        microscope.fm.camera = SimpleNamespace(resolution=(8, 8))
+        looks = []
+        poll = microscope.milling._poll
+
+        def _poll():
+            step = microscope.milling._step
+            milling = (
+                step.milled_time() < strategy.estimate and not step.ending.is_set()
+            )
+            looks.append(microscope.fm.is_acquiring and milling)
+            return poll()
+
+        microscope.milling._poll = _poll
+        stage = FibsemMillingStage(name="Coincidence Mill")
+        stage.alignment.enabled = False
+        strategy = CoincidenceMillingStrategy(
+            CoincidenceMillingStrategyConfig(
+                save_fm_images=False, acquire_fib_image=False
+            )
+        )
+        strategy.estimate = microscope.estimate_milling_time()
         emitted = _collect(microscope)
-        # An estimate of zero puts the timeout in the past, so the loop emits exactly
-        # once and breaks. It still sleeps its one real second first.
-        strategy._monitor_milling_progress(estimated_time=0.0)
-        return emitted
+        strategy.run(microscope, stage)
+        return emitted, looks
 
-    def test_it_declines_to_read_the_milling_state(self, microscope):
-        """Not sloppiness, and not something to "fix" by calling the getter like
-        everyone else. On ThermoFisher `get_milling_state()` sets the active view, and
-        this strategy is running a fluorescence acquisition that holds the view for its
-        whole duration -- asking would yank it away mid-acquisition."""
-        calls = []
-        original = microscope.get_milling_state
-        microscope.get_milling_state = lambda *a, **k: (
-            calls.append(1) or original(*a, **k)
-        )
-        try:
-            emitted = self._monitor_once(microscope)
-        finally:
-            microscope.get_milling_state = original
-
+    def test_it_never_looks_at_the_instrument_while_the_fm_watches_the_mill(self, run):
+        """On ThermoFisher reading the milling state sets the active view, and the
+        FM acquisition holds the view while it mills: asking would yank it away
+        mid-acquisition. The instrument is looked at only once the milling time
+        is milled, or the mill is ending."""
+        emitted, looks = run
         assert emitted
-        assert calls == [], "the monitor loop polled the milling state"
-        assert all(r.milling_state is MillingState.UNKNOWN for r in emitted)
+        assert looks, "the pattern was never seen out"
+        assert True not in looks, "the instrument was looked at mid-acquisition"
 
-    def test_the_gap_is_an_enum_member_not_a_string(self, microscope):
-        """Every other producer sends a `MillingState`. This one used to send the string
-        `"UNKNOWN"`, so a consumer had to pattern-match a magic value to tell the two
-        apart."""
-        emitted = self._monitor_once(microscope)
-        assert emitted[0].milling_state is MillingState.UNKNOWN
-        assert not isinstance(emitted[0].milling_state, str)
-
-    def test_a_self_driving_strategy_stamps_every_report(self, microscope):
-        """Unlike a delegating one, nothing else emits on its behalf, so it can carry
-        its own words on every tick and needs no stickiness."""
-        emitted = self._monitor_once(microscope)
-        assert all(
-            r.message == "Coincidence milling: Coincidence Mill" for r in emitted
-        )
-        assert all(r.status is MillingProgressStatus.STAGE_UPDATE for r in emitted)
+    def test_it_says_what_it_is_doing(self, run):
+        emitted, _ = run
+        first = emitted[0]
+        assert first.message == "Coincidence milling: Coincidence Mill"
+        assert first.status is MillingProgressStatus.STAGE_UPDATE
+        ticks = [r for r in emitted if r.remaining_time is not None]
+        assert ticks, "the service reported no countdown"
 
 
 # --------------------------------------------------------------------------------------
