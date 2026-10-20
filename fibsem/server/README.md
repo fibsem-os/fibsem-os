@@ -1,6 +1,6 @@
 # The App Server
 
-The HTTP server AutoLamella hosts for agents and the dashboard (the App
+The HTTP server AutoLamella hosts for agents and the event log (the App
 Server). Its client is `fibsem.client.FibsemClient`. The user guide is
 [docs/app-server.md](../../docs/app-server.md).
 
@@ -13,7 +13,7 @@ pip install -e .[server]
 ## Starting the Server
 
 The App Server runs inside AutoLamella: turn it on in Tools → App Server,
-which also shows its address and the dashboard. With
+which also shows its address and the event log. With
 *Serve the microscope* on, it also serves the `/microscope` routes below. While it runs it writes `~/.fibsem/app-server.json` (url and
 token), so local clients connect without copying anything.
 

@@ -59,7 +59,7 @@ class ToolSpec:
                 "except while a run waits on a proposal: then one action at a "
                 "time, and the run waits for it to finish."
             )
-        return f"{note} The operator sets the level from the Agent chip in AutoLamella."
+        return f"{note} The operator sets the level from the Agent chip in the app."
 
     @property
     def full_description(self) -> str:

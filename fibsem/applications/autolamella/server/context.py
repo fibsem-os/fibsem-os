@@ -136,6 +136,9 @@ class AppWindow(Protocol):
 class AutoLamellaAppContext:
     """Read-only facade over a running (or resting) AutoLamella session."""
 
+    # The app the operator works in, as the App Server names it to the agent.
+    app_name = "AutoLamella"
+
     def __init__(self, session, window: Optional[AppWindow] = None, event_buffer=None):
         self._session = session
         self._window = window
@@ -1071,7 +1074,6 @@ class AutoLamellaAppContext:
         out as for a click; it is saved. At the stage position now is refused
         while a workflow runs: the stage is wherever the run has moved it."""
         from fibsem.applications.autolamella.poses import add_lamella
-        from fibsem.structures import FibsemStagePosition
 
         experiment, microscope, refusal = self._editable()
         if refusal:
@@ -1083,24 +1085,9 @@ class AutoLamellaAppContext:
                 return refusal
         if name is not None and experiment.get_lamella_by_name(name) is not None:
             return {"error_type": "invalid", "error": f"An item named {name!r} exists."}
-        position, grid_id = None, None
-        if overview is not None:
-            converted = self.overview_stage_position(
-                overview.get("grid_name", ""),
-                overview.get("filename", ""),
-                px=overview.get("px"),
-                fraction=overview.get("fraction"),
-            )
-            if "error_type" in converted:
-                return converted
-            position = FibsemStagePosition.from_dict(converted["stage_position"])
-            grid_id = converted["grid_id"]
-        elif stage_position is not None:
-            # {x, y, z, r, t} as the tool describes it, in the stage's raw frame,
-            # as the stage tools give positions; from_dict also wants the frame.
-            position = FibsemStagePosition.from_dict(
-                {"coordinate_system": "RAW", **stage_position}
-            )
+        position, grid_id, refusal = self._marked_position(stage_position, overview)
+        if refusal:
+            return refusal
 
         def add():
             lamella = add_lamella(
@@ -1117,6 +1104,36 @@ class AutoLamellaAppContext:
         except ValueError as exc:
             return {"error_type": "invalid", "error": str(exc)}
         return {"applied": True, "item": self.item_detail(added)}
+
+    def _marked_position(
+        self,
+        stage_position: Optional[Dict[str, Any]],
+        overview: Optional[Dict[str, Any]],
+    ):
+        """``(position, grid_id, refusal)`` for a point given as a stage position
+        or under a point of a grid overview (which also names its grid); all
+        None for neither."""
+        from fibsem.structures import FibsemStagePosition
+
+        if overview is not None:
+            converted = self.overview_stage_position(
+                overview.get("grid_name", ""),
+                overview.get("filename", ""),
+                px=overview.get("px"),
+                fraction=overview.get("fraction"),
+            )
+            if "error_type" in converted:
+                return None, None, converted
+            position = FibsemStagePosition.from_dict(converted["stage_position"])
+            return position, converted["grid_id"], None
+        if stage_position is not None:
+            # {x, y, z, r, t} as the tool describes it, in the stage's raw frame,
+            # as the stage tools give positions; from_dict also wants the frame.
+            position = FibsemStagePosition.from_dict(
+                {"coordinate_system": "RAW", **stage_position}
+            )
+            return position, None, None
+        return None, None, None
 
     def remove_item(self, item_name: str) -> Dict[str, Any]:
         """Remove a lamella from the experiment, as its row's Remove does. Its
@@ -1416,6 +1433,79 @@ class AutoLamellaAppContext:
 
         self._agent_call(lambda: set_objective_position(experiment, lamella, value))
         return {"applied": True, "item_name": item_name, "objective_position": value}
+
+    def move_item(
+        self,
+        item_name: str,
+        stage_position: Optional[Dict[str, Any]] = None,
+        overview: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Move a lamella to a point, as moving it on an overview does: to
+        stage_position, or under a point of a grid overview. A point on the
+        fluorescence side moves its fluorescence pose and the milling pose
+        follows; otherwise the other way round. The stage doesn't move. Saved.
+        Refused while a workflow runs."""
+        from fibsem.applications.autolamella.poses import (
+            FLUORESCENCE_ORIENTATION,
+            fluorescence_move,
+            move_lamella,
+        )
+
+        experiment, microscope, refusal = self._editable()
+        if refusal:
+            return refusal
+        if stage_position is None and overview is None:
+            return {
+                "error_type": "invalid",
+                "error": "Give stage_position or overview: where to move it to.",
+            }
+        refusal = self._not_while_running("move items")
+        if refusal:
+            return refusal
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
+            return {"error_type": "not_found", **refusal}
+        if lamella.milling_pose is None:
+            return {
+                "error_type": "invalid",
+                "error": f"{item_name} has no pose to move.",
+            }
+        position, _, refusal = self._marked_position(stage_position, overview)
+        if refusal:
+            return refusal
+        poses = None
+        if microscope.get_stage_orientation(position) == FLUORESCENCE_ORIENTATION:
+            try:
+                poses = fluorescence_move(microscope, lamella, position)
+            except ValueError as exc:
+                return {"error_type": "invalid", "error": str(exc)}
+        self._agent_call(
+            lambda: move_lamella(experiment, microscope, lamella, position, poses)
+        )
+        return {"applied": True, "item": self.item_detail(item_name)}
+
+    def set_objective_position_on_all(self, item_name: str) -> Dict[str, Any]:
+        """Store a lamella's objective position on every lamella with a
+        fluorescence pose, as its Apply to All Lamella does. Saved."""
+        from fibsem.applications.autolamella.poses import set_objective_position_on_all
+
+        experiment, _, refusal = self._editable()
+        if refusal:
+            return refusal
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
+            return {"error_type": "not_found", **refusal}
+        pose = lamella.fluorescence_pose
+        value = pose.objective_position if pose is not None else None
+        if value is None:
+            return {
+                "error_type": "not_found",
+                "error": f"{item_name} has no objective position stored.",
+            }
+        count = self._agent_call(
+            lambda: set_objective_position_on_all(experiment, value)
+        )
+        return {"applied": True, "objective_position": value, "items": count}
 
     def move_objective_to_item(self, item_name: str) -> Dict[str, Any]:
         """Move the FM objective to the position stored on a lamella's

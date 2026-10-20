@@ -91,6 +91,7 @@ from fibsem.devices.runs import current_run_id
 from fibsem.milling.base import FibsemMillingStage, estimate_milling_time
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.milling.readings import MillingReadings
+from fibsem.milling.rtm import RtmFrame, is_monitored
 from fibsem.milling.steps import (
     ENDED,
     FINISHED,
@@ -414,6 +415,11 @@ class Milling(Service):
     # The app draws an agent's mill from it (FIB-1375), which it has no config of.
     patterns_changed = Signal(object)
 
+    # Each RTM read (`RtmFrame`), on the reader's thread: a subscriber returns
+    # quickly and does heavy work on its own thread. Only a step with the RTM
+    # monitor reads.
+    rtm_frame = Signal(object)
+
     # How often `run` looks at the instrument, in seconds.
     poll_interval: float = 1.0
     # How long after the start an idle instrument still means "not running yet"
@@ -427,6 +433,9 @@ class Milling(Service):
     setting_names: Tuple[str, ...] = ()
     # The directions this driver can scan a pattern in. A driver sets it.
     scan_directions: Tuple[str, ...] = ()
+    # The RTM modes this driver reads in (`fibsem.milling.rtm.RTM_MODES`); none
+    # for a driver without RTM. A driver with the `_*_rtm` hooks sets it.
+    rtm_modes: Tuple[str, ...] = ()
 
     def __init__(self, name: str = "milling", **kwargs: Any):
         super().__init__(name, **kwargs)
@@ -455,6 +464,9 @@ class Milling(Service):
         self._set_up: Optional[FibsemMillingSettings] = None
         # Inside ``part_of``: a run there is part of something with its own record.
         self._part_of = threading.local()
+        # The latest RTM read and how many reads this RTM run has made.
+        self.last_rtm_frame: Optional[RtmFrame] = None
+        self._rtm_sequence = 0
 
     @property
     def drawn_patterns(self) -> List[FibsemPatternSettings]:
@@ -467,6 +479,49 @@ class Milling(Service):
             self.patterns_changed.emit(list(self._drawn))
         except Exception:  # noqa: BLE001 - showing them must not cost the mill
             logging.debug("could not announce the drawn patterns", exc_info=True)
+
+    @property
+    def has_rtm(self) -> bool:
+        """Whether this driver reads RTM."""
+        return bool(self.rtm_modes)
+
+    def rtm_patterns(self) -> Dict[int, FibsemPatternSettings]:
+        """The drawn patterns RTM reads, by draw index."""
+        return {i: p for i, p in enumerate(self._drawn) if is_monitored(p)}
+
+    def rtm_start(self, mode: str) -> None:
+        """Start reading RTM in *mode*; the reads come from ``rtm_read``."""
+        if mode not in self.rtm_modes:
+            raise ValueError(
+                f"{self._driver_name()} reads no RTM in {mode!r}; "
+                f"its modes: {list(self.rtm_modes) or 'none'}."
+            )
+        self._rtm_sequence = 0
+        self._start_rtm(mode)
+
+    def rtm_read(self, interval: float = 0.0) -> Optional[RtmFrame]:
+        """Read RTM once, keep it as ``last_rtm_frame`` and emit it on
+        ``rtm_frame``; None when the instrument had nothing new."""
+        read = self._read_rtm()
+        if read is None:
+            return None
+        resolution, values, positions = read
+        self._rtm_sequence += 1
+        frame = RtmFrame(
+            sequence=self._rtm_sequence,
+            timestamp=time.time(),
+            interval=interval,
+            resolution=tuple(resolution),
+            values=values,
+            positions=positions,
+        )
+        self.last_rtm_frame = frame
+        self.rtm_frame.emit(frame)
+        return frame
+
+    def rtm_stop(self) -> None:
+        """Stop reading RTM."""
+        self._stop_rtm()
 
     def connect(self: _M) -> _M:
         super().connect()
@@ -981,7 +1036,7 @@ class Milling(Service):
     @query
     def list_options(self) -> Dict[str, Any]:
         """The names a stage's ``pattern.name`` and ``strategy.name`` take, and
-        its monitors: each name with its config's fields."""
+        the monitors this instrument can run: each name with its config's fields."""
         from fibsem.milling.monitors import get_monitors
         from fibsem.milling.patterning import get_pattern_names
         from fibsem.milling.strategy import get_strategy_names
@@ -992,6 +1047,7 @@ class Milling(Service):
             "monitors": {
                 name: monitor.config_class.describe()
                 for name, monitor in get_monitors().items()
+                if monitor.available(self)
             },
         }
 
@@ -1262,6 +1318,20 @@ class Milling(Service):
         and its total (``estimated_time``) and ``remaining_time`` where the instrument
         reports them. By default only the state: the loop counts the time itself."""
         return progress_update(state=self.read_state())
+
+    def _start_rtm(self, mode: str) -> None:
+        raise NotImplementedError(f"{self._driver_name()} has no RTM.")
+
+    def _read_rtm(
+        self,
+    ) -> Optional[Tuple[Tuple[int, int], Dict[int, Any], Dict[int, Any]]]:
+        """One read: the image resolution (width, height), and by draw index each
+        monitored pattern's values and their positions (n x 2 pixels); None
+        when there is nothing new."""
+        raise NotImplementedError(f"{self._driver_name()} has no RTM.")
+
+    def _stop_rtm(self) -> None:
+        pass
 
     def _before_run(self) -> None:
         """Get a drawn run ready to start, before its estimate; by default nothing."""
