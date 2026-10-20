@@ -716,14 +716,20 @@ function wirePanelBar() {
 
 /* Microscope: read only. What it is, the latest image of each beam, and the
    stage and beams now. */
-const scope = { info: null, state: null, images: null, status: null, error: null };
+const scope = { info: null, state: null, images: null, status: null, devices: null, services: null };
 
 async function readMicroscope(first) {
   if (panel !== "microscope") return;
   const take = path => api(path).catch(() => null);
-  const [info, state, images, status] = await Promise.all([
-    first || !scope.info ? take("/microscope") : Promise.resolve(scope.info),
-    take("/microscope/state"), take("/app/experiment/images"), take("/app/workflow/status")]);
+  if (first || !scope.info || scope.info.error) {
+    // What it is and what it has: read once each time the panel opens.
+    const [info, devices, services] = await Promise.all([
+      api("/microscope").catch(e => ({ error: e.message })), take("/microscope/devices"), take("/microscope/services")]);
+    Object.assign(scope, { info, devices, services });
+  }
+  const info = scope.info;
+  const [state, images, status] = await Promise.all([
+    info.error ? null : take("/microscope/state"), take("/app/experiment/images"), take("/app/workflow/status")]);
   const before = JSON.stringify([scope.info, scope.state, scope.status, imageStamp(scope.images)]);
   Object.assign(scope, { info, state, images, status });
   if (first || JSON.stringify([info, state, status, imageStamp(images)]) !== before) drawMicroscope();
@@ -733,7 +739,8 @@ const imageStamp = images => images ? ["sem", "fib"].map(k => images[k] && image
 
 function drawMicroscope() {
   if (panel !== "microscope") return;
-  const info = scope.info, ms = scope.state && scope.state.microscope_state, st = scope.status || {};
+  const info = scope.info && !scope.info.error ? scope.info : null;
+  const ms = scope.state && scope.state.microscope_state, st = scope.status || {};
   const um = v => v == null ? "–" : `${+(v * 1e6).toPrecision(4)} µm`;
   const deg = v => v == null ? "–" : `${+(v * 180 / Math.PI).toFixed(1)}°`;
   const current = v => v == null ? "–" : v < 1e-9 ? `${+(v * 1e12).toPrecision(3)} pA` : `${+(v * 1e9).toPrecision(3)} nA`;
@@ -769,7 +776,13 @@ function drawMicroscope() {
     parts.push(`<h3>Beams</h3><table><tr><th></th><th>Voltage</th><th>Current</th><th>Field width</th><th>WD</th></tr>
       ${row("Electron", ms.electron_beam)}${row("Ion", ms.ion_beam)}</table>`);
   }
-  if (!info && !ms) parts.push(`<p class="muted" style="margin-top:12px">The microscope's details aren't readable from this page.</p>`);
+  const listed = (title, map) => {
+    const rows = Object.values(map || {});
+    return rows.length ? `<h3>${title}</h3><dl>${rows.map(d =>
+      `<dt>${esc(d.name)}</dt><dd>${esc([d.class, d.driver].filter(Boolean).join(" · "))}</dd>`).join("")}</dl>` : "";
+  };
+  parts.push(listed("Devices", scope.devices), listed("Services", scope.services));
+  if (scope.info && scope.info.error) parts.push(`<p class="muted" style="margin-top:12px">${esc(scope.info.error)}</p>`);
   const name = info ? [info.manufacturer, info.model].filter(Boolean).join(" ") : "";
   $files.innerHTML = `<div class="inner">${panelBar("Microscope", name)}<div class="scope">${parts.join("")}</div></div>`;
   $files.querySelector("#panel-close").onclick = () => openPanel(null);

@@ -104,11 +104,48 @@ def test_only_the_operator_reaches_the_operator_routes(server, who, status):
 def test_the_operator_reads_but_does_not_reach_the_agents_routes(server):
     assert server.get("/capabilities", headers=server.operator).status_code == 200
     assert server.get("/app/events", headers=server.operator).status_code == 200
-    answer = server.get("/microscope", headers=server.operator)
+    answer = server.post(
+        "/app/workflow/stop", headers=server.operator, json={"reason": "test"}
+    )
     assert answer.status_code == 403
     assert answer.json()["detail"]["error_type"] == "operator_reach"
+    # Not served here: the page reads why.
+    answer = server.get("/microscope", headers=server.operator)
+    assert answer.json()["detail"]["error_type"] == "microscope_off"
     # Reading is not the agent being heard from.
     assert server.config.seconds_since_seen() is None
+
+
+def test_the_operator_reads_what_the_microscope_is(microscope, tmp_path):  # noqa: F811
+    session = AppSession()
+    session.microscope = microscope
+    session.agent_auth = AuthConfig.generate(level=AgentLevel.WATCH)
+    host = AppServerHost(
+        session,
+        lambda buffer: AutoLamellaAppContext(session, event_buffer=buffer),
+        port=_free_port(),
+        discovery_path=tmp_path / "app-server.json",
+        serve_microscope=True,
+    )
+    assert host.start()
+    operator = _bearer(session.agent_auth.operator_token)
+    try:
+        with httpx.Client(base_url=host.url, timeout=30) as client:
+            # What it is and its state: the page's Microscope panel.
+            assert client.get("/microscope", headers=operator).json()["manufacturer"]
+            state = client.get("/microscope/state", headers=operator).json()
+            assert "stage_position" in state["microscope_state"]
+            # Its devices, and every write and command, stay the agent's.
+            for method, path in (
+                ("GET", "/microscope/devices"),
+                ("GET", "/microscope/devices/stage/values"),
+                ("PUT", "/microscope/state"),
+            ):
+                answer = client.request(method, path, headers=operator, json={})
+                assert answer.status_code == 403, path
+            assert session.agent_auth.seconds_since_seen() is None
+    finally:
+        host.stop()
 
 
 def test_a_message_goes_on_the_record_as_the_operators(server):
