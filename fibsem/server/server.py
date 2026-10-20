@@ -502,6 +502,7 @@ def build_server(
     app.state.microscope = microscope
     # The app the operator works in, as the agent's refusals name it.
     app.state.app_name = getattr(app_context, "app_name", None) or "fibsemOS"
+    app.state.app_context = app_context
     if services is None:
         from fibsem.services.analysis import analysis_services
 

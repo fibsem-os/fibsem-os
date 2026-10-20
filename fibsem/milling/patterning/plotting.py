@@ -57,6 +57,19 @@ PROPERTIES = {
     "rotation_point": "center",
 }
 
+
+@dataclass(frozen=True)
+class PatternStyle:
+    """How a pattern is drawn: its line width (points), and how opaque its
+    fill and its edge are (0 for none)."""
+
+    line_width: float = PROPERTIES["line_width"]
+    fill: float = PROPERTIES["opacity"]
+    edge: float = PROPERTIES["opacity"]
+
+
+DEFAULT_STYLE = PatternStyle()
+
 OVERLAP_PROPERTIES = {
     "line_width": 0.5,
     "edge_color": "red",
@@ -193,6 +206,7 @@ def _add_rectangle_mpl(
     ax: plt.Axes,
     label: str | None = None,
     zorder: int | None = None,
+    style: PatternStyle = DEFAULT_STYLE,
 ) -> mpatches.Patch | None:
     """Create a rectangle patch from a shape."""
     pixel_size = image.metadata.pixel_size.x
@@ -210,10 +224,9 @@ def _add_rectangle_mpl(
         height=height,
         angle=math.degrees(-shape.rotation),
         rotation_point=PROPERTIES["rotation_point"],
-        linewidth=PROPERTIES["line_width"],
-        edgecolor=colour,
-        facecolor=colour,
-        alpha=PROPERTIES["opacity"],
+        linewidth=style.line_width,
+        edgecolor=to_rgba(colour, style.edge),
+        facecolor=to_rgba(colour, style.fill),
         zorder=zorder,
     )
 
@@ -232,6 +245,7 @@ def _add_circle_mpl(
     ax: plt.Axes,
     label: str | None = None,
     zorder: int | None = None,
+    style: PatternStyle = DEFAULT_STYLE,
 ) -> mpatches.Patch | None:
     """Create a circle patch from a shape."""
     pixel_size = image.metadata.pixel_size.x
@@ -253,10 +267,9 @@ def _add_circle_mpl(
             r=radius_px,
             width=radius_px - inner_radius_px,
             angle=math.degrees(-shape.rotation),
-            linewidth=PROPERTIES["line_width"],
-            edgecolor=colour,
-            facecolor=colour,
-            alpha=PROPERTIES["opacity"],
+            linewidth=style.line_width,
+            edgecolor=to_rgba(colour, style.edge),
+            facecolor=to_rgba(colour, style.fill),
             zorder=zorder,
         )
     elif start_angle != 0 or end_angle != 360:
@@ -266,10 +279,9 @@ def _add_circle_mpl(
             r=radius_px,
             theta1=start_angle,
             theta2=end_angle,
-            linewidth=PROPERTIES["line_width"],
-            edgecolor=colour,
-            facecolor=colour,
-            alpha=PROPERTIES["opacity"],
+            linewidth=style.line_width,
+            edgecolor=to_rgba(colour, style.edge),
+            facecolor=to_rgba(colour, style.fill),
             zorder=zorder,
         )
     else:
@@ -277,10 +289,9 @@ def _add_circle_mpl(
         patch = mpatches.Circle(
             (px, py),
             radius=radius_px,
-            linewidth=PROPERTIES["line_width"],
-            edgecolor=colour,
-            facecolor=colour,
-            alpha=PROPERTIES["opacity"],
+            linewidth=style.line_width,
+            edgecolor=to_rgba(colour, style.edge),
+            facecolor=to_rgba(colour, style.fill),
             zorder=zorder,
         )
 
@@ -299,6 +310,7 @@ def _add_line_mpl(
     ax: plt.Axes,
     label: str | None = None,
     zorder: int | None = None,
+    style: PatternStyle = DEFAULT_STYLE,
 ) -> mpatches.Patch | None:
     """Create a line patch from a shape."""
     pixel_size = image.metadata.pixel_size.x
@@ -310,10 +322,9 @@ def _add_line_mpl(
     patch = mpatches.FancyArrowPatch(
         (start_pixel_x, start_pixel_y),
         (end_pixel_x, end_pixel_y),
-        linewidth=PROPERTIES["line_width"] * 2,
-        edgecolor=colour,
-        facecolor=colour,
-        alpha=PROPERTIES["opacity"] + 0.2,
+        linewidth=style.line_width * 2,
+        edgecolor=to_rgba(colour, min(1.0, style.edge + 0.2)),
+        facecolor=to_rgba(colour, min(1.0, style.edge + 0.2)),
         arrowstyle="-",
         zorder=zorder,
     )
@@ -404,6 +415,7 @@ def _add_bitmap_mpl(
     ax: plt.Axes,
     label: str | None = None,
     zorder: int | None = None,
+    style: PatternStyle = DEFAULT_STYLE,
 ) -> mpatches.Patch | None:
     """Draw a rectangle pattern on an image.
     Args:
@@ -425,7 +437,7 @@ def _add_bitmap_mpl(
         shape, pixel_size, (image_shape[0], image_shape[1])
     )
 
-    rgba = bitmap_to_rgba(shape, width, height, colour)
+    rgba = bitmap_to_rgba(shape, width, height, colour, opacity=style.fill)
 
     # Draw the edges
     edge_rectangle = mpatches.Rectangle(
@@ -437,10 +449,9 @@ def _add_bitmap_mpl(
         height=height,
         angle=math.degrees(-shape.rotation),
         rotation_point=PROPERTIES["rotation_point"],
-        linewidth=PROPERTIES["line_width"],
-        edgecolor=colour,
+        linewidth=style.line_width,
+        edgecolor=to_rgba(colour, style.edge),
         facecolor="none",
-        alpha=PROPERTIES["opacity"],
         zorder=zorder,
     )
     ax.add_patch(edge_rectangle)
@@ -472,6 +483,7 @@ def _add_polygon_mpl(
     ax: plt.Axes,
     label: str | None = None,
     zorder: int | None = None,
+    style: PatternStyle = DEFAULT_STYLE,
 ) -> mpatches.Patch | None:
     """Create a rectangle patch from a shape."""
     pixel_size = image.metadata.pixel_size.x
@@ -481,10 +493,9 @@ def _add_polygon_mpl(
     patch = mpatches.Polygon(
         pixel_vertices,
         closed=True,
-        linewidth=PROPERTIES["line_width"],
-        edgecolor=colour,
-        facecolor=colour,
-        alpha=PROPERTIES["opacity"],
+        linewidth=style.line_width,
+        edgecolor=to_rgba(colour, style.edge),
+        facecolor=to_rgba(colour, style.fill),
         zorder=zorder,
     )
 
@@ -494,6 +505,35 @@ def _add_polygon_mpl(
         return mpatches.Patch(
             color=colour, linewidth=PROPERTIES["line_width"], label=label
         )
+
+
+_SHAPE_DRAWERS = (
+    (FibsemRectangleSettings, _add_rectangle_mpl),
+    (FibsemCircleSettings, _add_circle_mpl),
+    (FibsemLineSettings, _add_line_mpl),
+    (FibsemBitmapSettings, _add_bitmap_mpl),
+    (FibsemPolygonSettings, _add_polygon_mpl),
+)
+
+
+def add_shape_mpl(
+    shape: FibsemPatternSettings,
+    image: FibsemImage,
+    colour: str,
+    ax: plt.Axes,
+    label: str | None = None,
+    zorder: int | None = None,
+    style: PatternStyle = DEFAULT_STYLE,
+) -> mpatches.Patch | None:
+    """Draw one pattern shape on *ax* over *image*, in *colour* and *style*;
+    its legend handle when *label* is given."""
+    for kind, draw in _SHAPE_DRAWERS:
+        if isinstance(shape, kind):
+            return draw(
+                shape, image, colour, ax=ax, label=label, zorder=zorder, style=style
+            )
+    logging.info("Unsupported shape type %s, skipping", str(type(shape)))
+    return None
 
 
 def _add_overlaps_mpl(
@@ -690,57 +730,14 @@ def draw_milling_patterns(
             handle = None
             zorder += 1
             try:
-                # Get the appropriate drawing function based on shape type
-                if isinstance(shape, FibsemRectangleSettings):
-                    handle = _add_rectangle_mpl(
-                        shape,
-                        image,
-                        colour,
-                        ax=ax,
-                        label=label if j == 0 else None,
-                        zorder=zorder,
-                    )
-                elif isinstance(shape, FibsemCircleSettings):
-                    handle = _add_circle_mpl(
-                        shape,
-                        image,
-                        colour,
-                        ax=ax,
-                        label=label if j == 0 else None,
-                        zorder=zorder,
-                    )
-                elif isinstance(shape, FibsemLineSettings):
-                    handle = _add_line_mpl(
-                        shape,
-                        image,
-                        colour,
-                        ax=ax,
-                        label=label if j == 0 else None,
-                        zorder=zorder,
-                    )
-                elif isinstance(shape, FibsemBitmapSettings):
-                    handle = _add_bitmap_mpl(
-                        shape,
-                        image,
-                        colour,
-                        ax=ax,
-                        label=label if j == 0 else None,
-                        zorder=zorder,
-                    )
-                elif isinstance(shape, FibsemPolygonSettings):
-                    handle = _add_polygon_mpl(
-                        shape,
-                        image,
-                        colour,
-                        ax=ax,
-                        label=label if j == 0 else None,
-                        zorder=zorder,
-                    )
-                else:
-                    logging.info(
-                        "Unsupported shape type %s, skipping", str(type(shape))
-                    )
-                    continue
+                handle = add_shape_mpl(
+                    shape,
+                    image,
+                    colour,
+                    ax=ax,
+                    label=label if j == 0 else None,
+                    zorder=zorder,
+                )
                 if handle is not None:
                     handles.append(handle)
             except Exception:

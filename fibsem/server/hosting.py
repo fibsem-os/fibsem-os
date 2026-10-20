@@ -136,6 +136,13 @@ class AppServerHost:
             return None
         return getattr(self._app.state, "requests", None)
 
+    @property
+    def app_context(self):
+        """The app's ``/app`` view while the server runs, else None."""
+        if not self.running or self._app is None:
+            return None
+        return getattr(self._app.state, "app_context", None)
+
     def agent_seconds_since_seen(self) -> Optional[float]:
         """Seconds since the agent's token last made a request, or None if the
         server isn't running or nothing has connected yet. A live supervising
