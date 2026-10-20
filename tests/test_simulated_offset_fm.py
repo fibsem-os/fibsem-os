@@ -170,3 +170,61 @@ def test_the_traverse_re_poses_instead_of_refusing():
     assert microscope.get_current_device() == "FM"
     assert microscope.get_stage_orientation() == "FIB"
     assert microscope.fm.objective.state is InsertableDeviceState.INSERTED
+
+
+# ── a saved position at the other device goes by the traverse ────────
+
+
+def _objective_at_moves(microscope) -> list:
+    """The objective's state and the stage's device at every leg the stage drives."""
+    seen = []
+    stage = microscope._movement_service()
+    real = stage._move_stage
+
+    def record(position, *args, **kwargs):
+        seen.append((microscope.fm.objective.state, microscope.get_current_device()))
+        return real(position, *args, **kwargs)
+
+    stage._move_stage = record
+    return seen
+
+
+def test_a_fluorescence_pose_is_reached_with_the_objective_out_for_the_traverse():
+    """A task going from a milling pose to a fluorescence pose used to cross the
+    chamber in one absolute move, re-posing at the far end."""
+    microscope = _microscope(IFLM_CONFIG)
+    milling = _at(microscope, "MILLING")
+    fluorescence = microscope.to_device(_at(microscope, "FIB"), "FM")
+    microscope.safe_absolute_stage_movement(milling)
+    microscope.fm.objective.insert()
+    seen = _objective_at_moves(microscope)
+
+    microscope.safe_absolute_stage_movement(fluorescence)
+
+    assert microscope.get_current_device() == "FM"
+    assert microscope.get_stage_orientation() == "FIB"
+    assert microscope.fm.objective.state is InsertableDeviceState.INSERTED
+    # Every leg driven from the beams, the re-pose and the traverse, with it out.
+    assert seen
+    assert all(
+        state is not InsertableDeviceState.INSERTED
+        for state, device in seen
+        if device == "FIBSEM"
+    )
+
+
+def test_a_milling_pose_is_reached_from_the_fm_with_the_objective_out():
+    """The way back: a task leaving the FM pose with the objective inserted."""
+    microscope = _microscope(IFLM_CONFIG)
+    milling = _at(microscope, "MILLING")
+    microscope.safe_absolute_stage_movement(_at(microscope, "FIB"))
+    microscope.move_to_device("FM")
+    assert microscope.fm.objective.state is InsertableDeviceState.INSERTED
+    seen = _objective_at_moves(microscope)
+
+    microscope.safe_absolute_stage_movement(milling)
+
+    assert microscope.get_current_device() == "FIBSEM"
+    assert microscope.get_stage_orientation() == "MILLING"
+    assert seen
+    assert all(state is not InsertableDeviceState.INSERTED for state, _ in seen)
