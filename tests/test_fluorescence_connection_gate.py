@@ -34,14 +34,6 @@ def _microscope(config_path: str):
     return microscope
 
 
-def _has_requests() -> bool:
-    try:
-        import requests  # noqa: F401
-    except ImportError:
-        return False
-    return True
-
-
 def _from(settings: dict, tmp_path) -> "object":
     """Connect to a one-off variant of a shipped configuration.
 
@@ -263,14 +255,11 @@ def test_a_required_remote_fm_that_is_not_served_fails_the_connect(tmp_path):
         driver="remote", address="127.0.0.1", port=1, required=True
     )
 
-    # Without the server extra the remote driver can't be loaded at all.
-    reason = "127.0.0.1:1" if _has_requests() else "requests"
-    with pytest.raises(RequiredDeviceUnavailable, match=reason):
+    with pytest.raises(RequiredDeviceUnavailable, match="127.0.0.1:1"):
         _from(settings, tmp_path)
 
 
 def test_a_remote_fm_without_an_address_gets_no_fm(tmp_path, caplog):
-    pytest.importorskip("requests")
     settings = utils.load_yaml(IFLM_CONFIG)
     utils.configuration_device(settings, "fm")["driver"] = "remote"
 
@@ -306,10 +295,7 @@ def test_the_fm_is_built_by_its_drivers_fm_builder():
     own driver has none, so a Tescan FM can only be one on its own PC."""
     from fibsem.drivers.registry import device_builder
 
-    drivers = ["ThermoFisher", "Odemis", "Demo"]
-    if _has_requests():  # the remote driver needs the server extra
-        drivers.append("remote")
-    for driver in drivers:
+    for driver in ["ThermoFisher", "Odemis", "Demo", "remote"]:
         assert device_builder(driver, "fm") is not None, driver
     assert device_builder("Tescan", "fm") is None
 
