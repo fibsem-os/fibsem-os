@@ -2594,6 +2594,16 @@
      "stage.move_absolute",
      {
       "r": 0.0,
+      "t": null,
+      "x": null,
+      "y": null,
+      "z": null
+     }
+    ],
+    [
+     "stage.move_absolute",
+     {
+      "r": 0.0,
       "t": 0.610865238198,
       "x": -0.001,
       "y": 0.0,
@@ -2635,10 +2645,30 @@
      "stage.move_absolute",
      {
       "r": 0.0,
+      "t": null,
+      "x": null,
+      "y": null,
+      "z": null
+     }
+    ],
+    [
+     "stage.move_absolute",
+     {
+      "r": 0.0,
       "t": 0.610865238198,
       "x": -0.001,
       "y": 0.0,
       "z": 0.0
+     }
+    ],
+    [
+     "stage.move_absolute",
+     {
+      "r": 0.0,
+      "t": null,
+      "x": null,
+      "y": null,
+      "z": null
      }
     ],
     [

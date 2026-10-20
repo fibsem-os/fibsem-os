@@ -228,3 +228,20 @@ def test_a_milling_pose_is_reached_from_the_fm_with_the_objective_out():
     assert microscope.get_stage_orientation() == "MILLING"
     assert seen
     assert all(state is not InsertableDeviceState.INSERTED for state, _ in seen)
+
+
+def test_a_holder_slot_is_reached_from_the_fm_with_the_objective_out():
+    """Moving to a slot used to be a raw absolute move, so from the FM it crossed
+    the chamber with the objective inserted."""
+    microscope = _microscope(IFLM_CONFIG)
+    slot = microscope.sample_handling.holder.slots["Slot-01"]
+    slot.position = _at(microscope, "SEM")
+    microscope.safe_absolute_stage_movement(_at(microscope, "FIB"))
+    microscope.move_to_device("FM")
+    seen = _objective_at_moves(microscope)
+
+    microscope.sample_handling.move_to_slot("Slot-01")
+
+    assert microscope.get_current_device() == "FIBSEM"
+    assert seen
+    assert all(state is not InsertableDeviceState.INSERTED for state, _ in seen)
