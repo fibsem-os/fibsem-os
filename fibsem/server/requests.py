@@ -546,8 +546,7 @@ class RequestStore:
                 raise RequestRefused(
                     403,
                     "not_allowed",
-                    f"Action {index + 1}: the agent may not use {tool} this way, "
-                    f"at any level: {why}.",
+                    f"Action {index + 1}: {why}",
                     call=_call_named(spec, tool, arguments),
                 )
             kwargs = body.get("kwargs") if isinstance(body, dict) else None

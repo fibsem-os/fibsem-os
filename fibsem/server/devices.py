@@ -214,6 +214,23 @@ def _facts(device: Device) -> Dict[str, Any]:
 Refuse = Callable[[Device, str, str, Mapping[str, Any]], Optional[str]]
 
 
+def not_allowed(message: str) -> HTTPException:
+    return HTTPException(
+        status_code=403, detail={"error_type": "not_allowed", "message": message}
+    )
+
+
+def never_allowed(device: Device, kind: str, name: str, why: str) -> str:
+    """Why the agent may not use a write or a command the blocklist names: at
+    any level, so the App Server says it before the level does."""
+    if kind == "write":
+        return (
+            f"The agent may not set {device.name}.{name}, at any level: {why}. "
+            "Its value stays readable."
+        )
+    return f"The agent may not run {device.name}.{name}, at any level: {why}."
+
+
 def describe_device(device: Device, refuse: Optional[Refuse] = None) -> Dict[str, Any]:
     """A device's parameters, commands, queries and facts. With *refuse*, each
     parameter and command also says whether the agent may use it (``agent``):
@@ -498,18 +515,8 @@ def build_device_router(
             return
         if refuse(d, kind, name, {}) is None:
             # Refused for its arguments (a path outside the experiment), not itself.
-            message = f"{d.name}.{name} refused: {why}."
-        elif kind == "write":
-            message = (
-                f"The agent may not set {d.name}.{name}, at any level: {why}. "
-                "Its value stays readable."
-            )
-        else:
-            message = f"The agent may not run {d.name}.{name}, at any level: {why}."
-        raise HTTPException(
-            status_code=403,
-            detail={"error_type": "not_allowed", "message": message},
-        )
+            raise not_allowed(f"{d.name}.{name} refused: {why}.")
+        raise not_allowed(never_allowed(d, kind, name, why))
 
     def run(call: Any, what: str) -> Any:
         try:
