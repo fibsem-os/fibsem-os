@@ -67,6 +67,7 @@ def test_supervised_says_who_decides_when_the_agent_does(controls):
     controls.set_supervision(SUPERVISED, "Polishing")
     assert "Your input will be required" in controls.supervision_btn.toolTip()
 
+
 def test_attention_shows_what_it_is_told_and_hides_on_none(controls):
     controls.set_attention("Review Required (2)", "decide 01-a and 02-b")
     assert controls.attention_btn.text() == "Review Required (2)"
