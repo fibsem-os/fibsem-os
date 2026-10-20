@@ -36,10 +36,11 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.applications.autolamella.structures import Lamella
-from fibsem.applications.autolamella.ui.lamella import cards as lcw
+from fibsem.applications.autolamella.ui.common import thumbnails
 from fibsem.applications.autolamella.ui.lamella.cards import LamellaCardWidget
 from fibsem.config import MODE_COMPACT, MODE_COZY
 from fibsem.structures import FibsemImage
+from fibsem.ui.utils import arr_to_qimage
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -47,9 +48,9 @@ _app = QApplication.instance() or QApplication(sys.argv)
 @pytest.fixture(autouse=True)
 def _clear_cache():
     """The cache is module-level, so tests would otherwise see each other's entries."""
-    lcw._THUMBNAIL_CACHE.clear()
+    thumbnails._THUMBNAIL_CACHE.clear()
     yield
-    lcw._THUMBNAIL_CACHE.clear()
+    thumbnails._THUMBNAIL_CACHE.clear()
 
 
 @pytest.fixture
@@ -68,6 +69,14 @@ def stored_size(lamella: Lamella):
 
     with Image.open(os.path.join(lamella.path, "thumbnail.png")) as handle:
         return handle.size
+
+
+def _draw(lamella: Lamella, w: int, h: int):
+    """The lamella's thumbnail through the shared cache, as its card reads it."""
+    path = os.path.join(lamella.path, "thumbnail.png")
+    return thumbnails.cached_thumbnail(
+        path, w, h, lambda: arr_to_qimage(lamella.get_thumbnail())
+    )
 
 
 class TestTheWriteIsDisplaySized:
@@ -185,7 +194,7 @@ class TestTheScaledImageIsCached:
         standard_width = card._thumb_label.pixmap().width()
 
         assert cozy_width != standard_width
-        assert len(lcw._THUMBNAIL_CACHE) == 2
+        assert len(thumbnails._THUMBNAIL_CACHE) == 2
 
     def test_a_compact_card_reads_nothing(self, lamella, monkeypatch):
         """No thumbnail in that arrangement, so decoding one is pure waste."""
@@ -222,13 +231,13 @@ class TestTheCacheIsSafe:
 
     def test_the_cache_is_bounded(self, lamella, monkeypatch):
         """Every rewrite lands under a new key, so a run would grow this forever."""
-        monkeypatch.setattr(lcw, "_THUMBNAIL_CACHE_MAX", 4)
+        monkeypatch.setattr(thumbnails, "_THUMBNAIL_CACHE_MAX", 4)
 
         for value in range(12):
             lamella.save_thumbnail(frame(64, 64, value=value * 20))
-            lcw._thumbnail_image(lamella, 66, 44)
+            _draw(lamella, 66, 44)
 
-        assert len(lcw._THUMBNAIL_CACHE) <= 4
+        assert len(thumbnails._THUMBNAIL_CACHE) <= 4
 
     def test_the_bound_evicts_the_least_recently_used(self, lamella, tmp_path):
         """Evicting the entry being drawn every frame would defeat the cache."""
@@ -242,16 +251,16 @@ class TestTheCacheIsSafe:
             other.save_thumbnail(frame(64, 64, value=i * 30))
             others.append(other)
 
-        lcw._THUMBNAIL_CACHE.clear()
-        lcw._THUMBNAIL_CACHE_MAX_original = lcw._THUMBNAIL_CACHE_MAX
+        thumbnails._THUMBNAIL_CACHE.clear()
+        thumbnails._THUMBNAIL_CACHE_MAX_original = thumbnails._THUMBNAIL_CACHE_MAX
         try:
-            lcw._THUMBNAIL_CACHE_MAX = 3
-            lcw._thumbnail_image(lamella, 66, 44)  # the one we keep touching
+            thumbnails._THUMBNAIL_CACHE_MAX = 3
+            _draw(lamella, 66, 44)  # the one we keep touching
             for other in others:
-                lcw._thumbnail_image(lamella, 66, 44)  # ...touched again
-                lcw._thumbnail_image(other, 66, 44)
+                _draw(lamella, 66, 44)  # ...touched again
+                _draw(other, 66, 44)
         finally:
-            lcw._THUMBNAIL_CACHE_MAX = lcw._THUMBNAIL_CACHE_MAX_original
+            thumbnails._THUMBNAIL_CACHE_MAX = thumbnails._THUMBNAIL_CACHE_MAX_original
 
-        kept = [key[0] for key in lcw._THUMBNAIL_CACHE]
+        kept = [key[0] for key in thumbnails._THUMBNAIL_CACHE]
         assert os.path.join(lamella.path, "thumbnail.png") in kept

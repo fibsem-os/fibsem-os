@@ -89,7 +89,7 @@ def _global_edit(window, experiment, monkeypatch, update_lamellae=True, said=Non
     editor.set_experiment(experiment)
 
     def accept(dialog):
-        dialog._select_all_tasks()
+        dialog.task_checklist.set_all_checked(True)
         dialog.spinbox_milling_fov.setValue(dialog.spinbox_milling_fov.value() + 10)
         settings = dialog.ref_image_params_widget.get_settings()
         settings.field_of_view1 = 200e-6

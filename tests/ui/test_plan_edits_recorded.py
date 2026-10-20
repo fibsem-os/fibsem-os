@@ -422,7 +422,7 @@ def test_a_global_edit_records_the_protocol_and_each_lamella(
     window, protocol_editor, experiment, edits, monkeypatch
 ):
     def accept(dialog):  # every task, a wider milling field of view, lamellae too
-        dialog._select_all_tasks()
+        dialog.task_checklist.set_all_checked(True)
         dialog.spinbox_milling_fov.setValue(dialog.spinbox_milling_fov.value() + 10)
         dialog.checkbox_update_existing.setChecked(True)
         return protocol_editor_module.QDialog.Accepted

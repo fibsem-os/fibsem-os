@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from PyQt5.QtCore import QEvent, QSize, Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QCursor, QImage, QPixmap
+from PyQt5.QtGui import QCursor, QPixmap
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QAction,
@@ -45,6 +45,7 @@ from fibsem.ui.tokens import (
     CANVAS_BG,
     NEUTRAL_550,
 )
+from fibsem.ui.utils import arr_to_qimage
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, IconToolButton
 from fibsem.ui.widgets.lists import (
     DETAIL_PX,
@@ -79,13 +80,8 @@ class _LamellaTooltip(QWidget):
         layout.addWidget(self._img_label)
 
     def set_image(self, arr: np.ndarray) -> None:
-        if arr.ndim == 2:
-            arr = np.stack([arr, arr, arr], axis=2)
-        arr = np.ascontiguousarray(arr, dtype=np.uint8)
-        h, w, c = arr.shape
-        qimg = QImage(arr.data, w, h, w * c, QImage.Format_RGB888)
         self._img_label.setPixmap(
-            QPixmap.fromImage(qimg).scaled(
+            QPixmap.fromImage(arr_to_qimage(arr)).scaled(
                 256,
                 170,
                 Qt.AspectRatioMode.KeepAspectRatio,
@@ -581,16 +577,7 @@ class LamellaListWidget(QWidget):
         if count == 0:
             return
         n_checked = sum(row.checkbox.isChecked() for row in rows)
-        cb = self._header.checkbox_all
-        cb.blockSignals(True)
-        if n_checked == 0:
-            cb.setCheckState(Qt.Unchecked)
-        elif n_checked == count:
-            cb.setCheckState(Qt.Checked)
-        else:
-            cb.setTristate(True)
-            cb.setCheckState(Qt.PartiallyChecked)
-        cb.blockSignals(False)
+        self._header.sync(n_checked, count)
 
 
 _LAMELLA_NAME_MIN_WIDTH = 160

@@ -1894,7 +1894,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         if self.microscope is not None and self.microscope.fm is not None:
             if self.fm_control_widget is not None:
                 selected_channel_settings = (
-                    self.fm_control_widget.channelSettingsWidget.selected_channel
+                    self.fm_control_widget.acquisitionSettingsWidget.selected_channel
                 )
                 if selected_channel_settings is None:
                     QMessageBox.critical(

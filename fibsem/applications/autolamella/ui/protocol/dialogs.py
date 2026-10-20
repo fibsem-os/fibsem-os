@@ -13,7 +13,6 @@ from typing import Collection, Dict, List, Optional, Tuple
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
-    QAbstractItemView,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -24,10 +23,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QListWidget,
-    QListWidgetItem,
     QMessageBox,
-    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -43,9 +39,9 @@ from fibsem.structures import (
     ReferenceImageParameters,
     field_specs,
 )
-from fibsem.ui.stylesheets import PRIMARY_BUTTON_STYLESHEET
 from fibsem.ui.tokens import NEUTRAL_200, TEXT_MUTED_COLOR
 from fibsem.ui.utils import beam_spec
+from fibsem.ui.widgets.checklist import ApplyDialog, TaskChecklist
 from fibsem.ui.widgets.custom_widgets import (
     ElidedLabel,
     IconToolButton,
@@ -58,7 +54,7 @@ from fibsem.ui.widgets.reference_image_parameters_widget import (
 )
 
 
-class AutoLamellaGlobalTaskEditDialog(QDialog):
+class AutoLamellaGlobalTaskEditDialog(ApplyDialog):
     """Dialog for globally editing reference imaging and milling field of view across all tasks."""
 
     def __init__(self, experiment: Experiment, parent: Optional[QWidget] = None):
@@ -109,42 +105,13 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
         )
 
         # Task selection panel
-        task_content = QWidget()
-        task_selection_layout = QVBoxLayout(task_content)
-        task_selection_layout.setContentsMargins(0, 0, 0, 0)
-
-        # Create list widget for task selection
-        self.tasks_list = QListWidget()
-        self.tasks_list.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.tasks_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # type: ignore
-
-        # Add tasks as checkable items
-        for task_name in self.experiment.task_protocol.task_config.keys():
-            item = QListWidgetItem(task_name)
-            item.setFlags(item.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsSelectable)  # type: ignore
-            item.setCheckState(Qt.Checked)  # type: ignore
-            self.tasks_list.addItem(item)
-
-        # Connect item changed signal to update info label
-        self.tasks_list.itemChanged.connect(lambda _: self._update_info_label())
-
-        task_selection_layout.addWidget(self.tasks_list)
-
-        # Add Select All / Deselect All buttons
-        tasks_buttons_layout = QHBoxLayout()
-        self.pushButton_select_all = QPushButton("Select All Tasks")
-        self.pushButton_deselect_all = QPushButton("Deselect All Tasks")
-
-        self.pushButton_select_all.clicked.connect(self._select_all_tasks)
-        self.pushButton_deselect_all.clicked.connect(self._deselect_all_tasks)
-
-        tasks_buttons_layout.addWidget(self.pushButton_select_all)
-        tasks_buttons_layout.addWidget(self.pushButton_deselect_all)
-        task_selection_layout.addLayout(tasks_buttons_layout)
-
-        self.task_selection_group = TitledPanel(
-            "Apply Changes To", content=task_content, collapsible=False
+        self.task_checklist = TaskChecklist(
+            "Apply Changes To",
+            select_label="Select All Tasks",
+            deselect_label="Deselect All Tasks",
         )
+        self.task_checklist.set_items(list(self.experiment.task_protocol.task_config))
+        self.task_checklist.changed.connect(self._update_info_label)
 
         # Info label
         self.label_info = QLabel()
@@ -172,25 +139,7 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
             # Enable by default when positions exist
             self.checkbox_update_existing.setChecked(True)
 
-        # Dialog buttons
-        self.button_box = QDialogButtonBox(self)
-        self.pushButton_apply = QPushButton("Apply to Selected Tasks")
-        self.pushButton_apply.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
-        self.pushButton_apply.setAutoDefault(False)  # Prevent Enter key from triggering
-        self.pushButton_cancel = QPushButton("Cancel")
-        self.pushButton_cancel.setAutoDefault(
-            False
-        )  # Prevent Enter key from triggering
-
-        self.button_box.addButton(self.pushButton_apply, QDialogButtonBox.AcceptRole)
-        self.button_box.addButton(self.pushButton_cancel, QDialogButtonBox.RejectRole)
-
-        self.pushButton_apply.clicked.connect(self.accept)
-        self.pushButton_cancel.clicked.connect(self.reject)
-
-        # Ensure no button is default
-        self.pushButton_apply.setDefault(False)
-        self.pushButton_cancel.setDefault(False)
+        self.button_box = self.apply_buttons("Apply to Selected Tasks")
 
         # Connect signals for live updates
         self.ref_image_params_widget.settings_changed.connect(self._on_settings_changed)
@@ -219,7 +168,7 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
         main_layout.addWidget(self.milling_fov_group)
 
         # Add task selection group
-        main_layout.addWidget(self.task_selection_group)
+        main_layout.addWidget(self.task_checklist)
 
         # Add info label
         main_layout.addWidget(self.label_info)
@@ -265,28 +214,9 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
         """Handle changes to reference imaging settings."""
         self._update_info_label()
 
-    def _select_all_tasks(self):
-        """Select all tasks in the task list."""
-        for i in range(self.tasks_list.count()):
-            item = self.tasks_list.item(i)
-            if item:
-                item.setCheckState(Qt.Checked)  # type: ignore
-
-    def _deselect_all_tasks(self):
-        """Deselect all tasks in the task list."""
-        for i in range(self.tasks_list.count()):
-            item = self.tasks_list.item(i)
-            if item:
-                item.setCheckState(Qt.Unchecked)  # type: ignore
-
     def get_selected_tasks(self) -> List[str]:
         """Get list of selected task names."""
-        selected = []
-        for i in range(self.tasks_list.count()):
-            item = self.tasks_list.item(i)
-            if item and item.checkState() == Qt.Checked:  # type: ignore
-                selected.append(item.text())
-        return selected
+        return self.task_checklist.checked()
 
     def _update_info_label(self):
         """Update the info label with the number of tasks that will be affected."""
@@ -338,15 +268,6 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
     def milling_fov(self) -> float:
         """The milling field of view chosen, in metres."""
         return self.spinbox_milling_fov.value() / SI_TO_MICRO
-
-    def keyPressEvent(self, event):
-        """Override key press event to prevent Enter/Return from accepting the dialog."""
-        # Block Enter and Return keys from accepting the dialog
-        # Qt.Key_Return is the main Enter key, Qt.Key_Enter is the numpad Enter
-        if event.key() in (Qt.Key_Return, Qt.Key_Enter):  # type: ignore
-            event.ignore()
-        else:
-            super().keyPressEvent(event)
 
 
 _FIELDS = ("name", "description", "version")

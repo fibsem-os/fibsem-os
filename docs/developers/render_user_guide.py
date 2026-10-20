@@ -1328,17 +1328,21 @@ def render_fluorescence(h: Harness) -> None:
     # in a scroll area, so they are grabbed from its content widget (which
     # lays out at full height) and the buttons from the tab itself.
     panels_widget = fmc.objectivePanel.parentWidget()
-    for panel in (fmc.cameraPanel, fmc.autofocusPanel, fmc.histogramPanel):
+    for panel in (
+        fmc.cameraPanel,
+        fmc.acquisitionSettingsWidget.autofocus_panel,
+        fmc.histogramPanel,
+    ):
         panel._btn_collapse.setChecked(False)
-    fmc.zParametersPanel._btn_collapse.setChecked(True)
+    fmc.acquisitionSettingsWidget.z_parameters_panel._btn_collapse.setChecked(True)
     h.pump(300)
     h.shot(
         "fluorescence-tab",
         target=panels_widget,
         callouts=[
             Box(fmc.objectivePanel),
-            Box(fmc.channelPanel),
-            Box(fmc.zParametersPanel),
+            Box(fmc.acquisitionSettingsWidget.channels_panel),
+            Box(fmc.acquisitionSettingsWidget.z_parameters_panel),
         ],
         numbered=True,
         crop=True,
@@ -1414,9 +1418,9 @@ def render_fluorescence(h: Harness) -> None:
             power=0.2,
         ),
     ]
-    fmc.channelSettingsWidget.channel_settings = channels
+    fmc.acquisitionSettingsWidget.channel_settings = channels
     h.pump(400)
-    h.shot("channels", target=fmc.channelPanel, crop=True)
+    h.shot("channels", target=fmc.acquisitionSettingsWidget.channels_panel, crop=True)
 
     # Acquire Image takes every channel in the list on one plane (FIB-943),
     # so one press gives the four-channel image the viewer composes
@@ -1494,13 +1498,17 @@ def render_fluorescence(h: Harness) -> None:
     h.pump(300)
 
     # a z-stack: the parameters, then the slice controls under the view
-    zp = fmc.zParametersWidget
+    zp = fmc.acquisitionSettingsWidget.z_parameters_widget
     zp.doubleSpinBox_zmin.setValue(-10.0)
     zp.doubleSpinBox_zmax.setValue(10.0)
     zp.doubleSpinBox_zstep.setValue(2.0)
     h.pump(200)
-    h.shot("z-parameters", target=fmc.zParametersPanel, crop=True)
-    fmc.channelSettingsWidget.channel_settings = channels[1:3]
+    h.shot(
+        "z-parameters",
+        target=fmc.acquisitionSettingsWidget.z_parameters_panel,
+        crop=True,
+    )
+    fmc.acquisitionSettingsWidget.channel_settings = channels[1:3]
     h.pump(300)
     fmc.pushButton_acquire_zstack.click()
     h.wait_fm(fmc)
