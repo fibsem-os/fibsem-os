@@ -22,10 +22,12 @@ the agent are told apart, and what governs the agent never cuts off the
 dashboard.
 
 An **operator token** is the operator from outside the window: the web page,
-or their own script. It reads what the dashboard reads and reaches the
+or their own script, or their app on another computer. It reaches the
 operator's routes (`fibsem.server.operator`): message the agent, set its
-level, Stop agent, approve or reject its request. The level never gates it,
-and the agent's token never reaches those routes. One per install, kept on
+level, Stop agent, approve or reject its request. It also reaches the
+agent's routes as the operator: what it does is the operator's on the record
+and in control. The blocklist still applies. The level never gates it,
+and the agent's token never reaches the operator's routes. One per install, kept on
 disk (`fibsem.server.operator_token`), never in the discovery file.
 """
 
@@ -242,17 +244,6 @@ def _operator_only() -> HTTPException:
     )
 
 
-def _operator_reach() -> HTTPException:
-    return HTTPException(
-        status_code=403,
-        detail={
-            "error_type": "operator_reach",
-            "message": "The operator token reads the session and reaches the "
-            "operator's routes under /app/agent; this route is the agent's.",
-        },
-    )
-
-
 def _dashboard_refused() -> HTTPException:
     return HTTPException(
         status_code=403,
@@ -316,8 +307,10 @@ def require_level(needed: AgentLevel):
     """Build a FastAPI dependency enforcing a valid token and an agent level of
     at least *needed*, and refusing everything while the level is Off.
 
-    The agent token only: the dashboard token is refused here (403), so it
-    reaches nothing beyond the routes guarded by :func:`require_monitoring`.
+    The operator token passes at any level, Off included: the operator acting
+    from another computer, recorded as the operator. The dashboard token is
+    refused here (403), so it reaches nothing beyond the routes guarded by
+    :func:`require_monitoring`.
     """
     needed = AgentLevel(needed)
 
@@ -328,7 +321,7 @@ def require_level(needed: AgentLevel):
             if _matches(token, auth.dashboard_token):
                 raise _dashboard_refused()
             if _matches(token, auth.operator_token):
-                raise _operator_reach()
+                return
             raise _unauthorized()
         lent = _lent.get()
         # A valid token is proof of life whatever happens next -- a level
@@ -371,17 +364,15 @@ def require_level(needed: AgentLevel):
 
 
 def require_monitoring():
-    """The monitoring routes' dependency: the agent token at Watch, or the
-    dashboard or operator token for a GET. Neither is the agent, so neither
-    counts as the agent being heard from."""
+    """The monitoring routes' dependency: the agent token at Watch, the
+    operator token, or the dashboard token for a GET. Neither of the last two is
+    the agent, so neither counts as the agent being heard from."""
     as_agent = require_level(AgentLevel.WATCH)
 
     def dependency(request: Request) -> None:
         auth: AuthConfig = request.app.state.auth
         token = _bearer_token(request)
-        if _matches(token, auth.dashboard_token) or _matches(
-            token, auth.operator_token
-        ):
+        if _matches(token, auth.dashboard_token):
             if request.method != "GET":
                 # The read router carries POSTs too (the workflow stop, the
                 # grid plan): the dashboard only looks.

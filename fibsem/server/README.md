@@ -43,6 +43,16 @@ whatever the level: `GET /app/agent` (level, last heard, the waiting request),
 `POST /app/agent/messages` `{"text"}`, `PUT /app/agent/level` `{"level"}`,
 `POST /app/agent/stop`, and `POST /app/agent/requests/{id}/approve` or
 `/reject` `{"reason"}`. The agent's token gets `403 operator_only` there.
+It also reaches every agent route as the operator, at any level (Off too): the
+operator's app on another computer (`fibsem.client.remote_microscope`). Its acts
+take control as the operator and a stop needs no reason; the blocklist still
+applies (venting, the manipulator and the GIS stay at the microscope).
+To connect from another computer: open an SSH tunnel to the App Server port
+(`ssh -N -L 8001:localhost:8001 <pc>`), copy the operator token at the PC
+(Tools → App Server → Copy operator token), and pass it in:
+`RemoteMicroscope.connect("http://localhost:8001", token)`, or set
+`FIBSEM_SERVER_URL` and `FIBSEM_SERVER_TOKEN`. The remote computer keeps no copy;
+"New operator token" revokes it.
 A long service command (marked `long: true` in the listing: milling's `run`,
 `run_task` and `run_stage`; imaging's `acquire_focus_stack`, `acquire_overview`,
 `fm_auto_focus`, `fm_acquire_image` and `fm_acquire_overview`; alignment's
