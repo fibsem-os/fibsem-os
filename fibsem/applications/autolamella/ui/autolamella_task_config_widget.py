@@ -55,11 +55,7 @@ class _Row:
 def build_parameter_rows(
     config: AutoLamellaTaskConfig, grid: QGridLayout
 ) -> List[_Row]:
-    """Fill *grid* with a control per configurable parameter, and return the rows.
-
-    Shared by both containers in this module, which each carried their own copy
-    of this loop -- and had already drifted: only one of them honoured `label`.
-    """
+    """Fill *grid* with a control per configurable parameter, and return the rows."""
     specs = config.params
     rows: List[_Row] = []
 
@@ -100,7 +96,6 @@ class AutoLamellaTaskParametersConfigWidget(QWidget):
     beside this one by the Protocol and Lamella tabs.
     """
 
-    config_changed = pyqtSignal(AutoLamellaTaskConfig)
     parameter_changed = pyqtSignal(str, object)  # field name, new value
 
     def __init__(
@@ -175,13 +170,9 @@ class AutoLamellaTaskParametersConfigWidget(QWidget):
         self.parameter_changed.emit(field_name, value)
 
     def _clear_form(self):
-        """Clear the grid. Rows are dropped first -- see the sibling container."""
+        """Clear the grid, dropping the rows first."""
         self._rows = []
         while self.grid_layout.count():
             child = self.grid_layout.takeAt(0)
             if child and child.widget():
                 child.widget().setParent(None)
-
-    def get_task_config(self) -> Optional[AutoLamellaTaskConfig]:
-        """Get the current task configuration."""
-        return self.task_config

@@ -63,7 +63,6 @@ class ExperimentTab(QWidget):
         self.lamella_list = LamellaNameListWidget()
         self.lamella_list.enable_add_button(True)
         self.lamella_list.enable_defect_button(True)
-        self.lamella_list.enable_actions_button(True)
         self.lamella_list.enable_move_to_action(True)
         self.lamella_list.enable_update_action(True)
         self.lamella_list.enable_remove_button(True)

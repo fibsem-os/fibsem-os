@@ -6,7 +6,6 @@ from pathlib import Path
 
 from PyQt5.QtWidgets import (
     QApplication,
-    QCheckBox,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -106,25 +105,6 @@ class TestWindow(QWidget):
         btn_row.addStretch()
         root.addLayout(btn_row)
 
-        toggle_row = QHBoxLayout()
-        toggle_row.setSpacing(6)
-
-        for label, fn in [
-            ("Actions", self.lamella_list.enable_actions_button),
-            ("Remove", self.lamella_list.enable_remove_button),
-            ("Defect", self.lamella_list.enable_defect_button),
-        ]:
-            cb = QCheckBox(label)
-            cb.setChecked(True)
-            cb.toggled.connect(fn)
-            toggle_row.addWidget(cb)
-
-        toggle_row.addStretch()
-        root.addLayout(toggle_row)
-
-        self.lamella_list.move_to_requested.connect(
-            lambda lam: self._log(f"Move to: {lam.name}")
-        )
         self.lamella_list.edit_requested.connect(
             lambda lam: self._log(f"Edit: {lam.name}")
         )

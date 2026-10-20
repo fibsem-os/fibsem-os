@@ -33,7 +33,6 @@ from fibsem.fm.structures import (
     AutoFocusMode,
     ChannelSettings,
     OverviewParameters,
-    ZParameters,
 )
 from fibsem.imaging.tiling.progress import (
     MODALITY_BEAM,
@@ -2296,7 +2295,7 @@ def test_a_microscope_without_fluorescence_greys_the_chip_and_says_why(qapp):
 
     host._refresh_overview_microscope()
 
-    chip = host.overview_tab.modality_chip(TAB_MODALITY_FLUORESCENCE)
+    chip = host.overview_tab._chips[TAB_MODALITY_FLUORESCENCE]
     assert not chip.isEnabled()
     assert chip.toolTip() == "No Fluorescence Microscope Available"
     assert host.fm_overview_widget is None
@@ -2328,7 +2327,7 @@ def test_connecting_a_microscope_without_fluorescence_keeps_the_chip(qapp):
     does not move -- only the reason it gives changes, from 'connect one' to 'this system
     has none'."""
     host = _StubHost(microscope=None)
-    chip = host.overview_tab.modality_chip(TAB_MODALITY_FLUORESCENCE)
+    chip = host.overview_tab._chips[TAB_MODALITY_FLUORESCENCE]
     assert not chip.isEnabled()
     assert chip.toolTip() == "Connect a microscope to use the Overview"
 
@@ -2348,7 +2347,7 @@ def test_a_microscope_with_fluorescence_brings_the_chip_back(qapp):
 
     host = _StubHost(microscope=_plain_microscope())
     host._refresh_overview_microscope()
-    chip = host.overview_tab.modality_chip(TAB_MODALITY_FLUORESCENCE)
+    chip = host.overview_tab._chips[TAB_MODALITY_FLUORESCENCE]
     assert not chip.isEnabled()
 
     host.microscope = build_microscope()
@@ -2393,7 +2392,7 @@ def test_nothing_unreachable_is_ever_silent(qapp):
             )
 
         for modality in (TAB_MODALITY_FIBSEM, TAB_MODALITY_FLUORESCENCE):
-            chip = host.overview_tab.modality_chip(modality)
+            chip = host.overview_tab._chips[modality]
             assert chip.isVisible() or not host.overview_tab.isVisible(), (
                 f"{label}: the {modality} chip was withdrawn rather than greyed"
             )
@@ -2806,7 +2805,6 @@ def _microscope_at(tilt_deg: float):
     """A compustage microscope posed at a given tilt, with fluorescence attached."""
     import numpy as np
 
-    from fibsem import utils
     from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
     from fibsem.structures import FibsemStagePosition
 

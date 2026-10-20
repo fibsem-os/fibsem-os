@@ -2481,38 +2481,3 @@ def open_coincidence_viewer_window(
     widget.resize(1400, 800)
     widget.show()
     return widget
-
-
-# ---------------------------------------------------------------------------
-# Standalone smoke-test
-# ---------------------------------------------------------------------------
-
-
-def main():
-    import sys
-
-    from PyQt5.QtWidgets import QApplication
-
-    app = QApplication.instance() or QApplication(sys.argv)
-    # app.setStyle("Fusion")
-
-    from fibsem import utils
-    from fibsem.applications.autolamella.structures import Experiment
-    from fibsem.config import load_user_preferences
-
-    microscope, settings = utils.setup_session()
-    import os
-
-    path = load_user_preferences().experiment.last_experiment_path
-    exp = Experiment.load(os.path.join(path, "experiment.yaml"))
-
-    widget = FluorescenceCoincidenceViewerWidget(microscope=microscope, experiment=exp)
-    widget.setWindowTitle("FluorescenceCoincidenceViewerWidget — preview")
-    widget.resize(1400, 800)
-    widget.show()
-
-    sys.exit(app.exec_())
-
-
-if __name__ == "__main__":
-    main()

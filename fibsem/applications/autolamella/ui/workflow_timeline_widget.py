@@ -526,11 +526,6 @@ class WorkflowTimelineWidget(QWidget):
         root.addWidget(self._scroll)
 
     # ── Public API ────────────────────────────────────────────────────────
-    def set_steps(self, steps: List[TimelineStep]) -> None:
-        """Replace the timeline wholesale. Rows are keyed by position."""
-        self.clear()
-        self.sync_steps([str(i) for i in range(len(steps))], steps)
-
     def sync_steps(self, keys: List[str], steps: List[TimelineStep]) -> None:
         """Reconcile the rows against *keys*, reusing the widgets already built.
 
@@ -625,16 +620,6 @@ class WorkflowTimelineWidget(QWidget):
                 self._scroll.ensureWidgetVisible(self._rows[index])
                 return index
         return None
-
-    def set_active_step(self, index: int) -> None:
-        for i, step in enumerate(self._steps):
-            if i < index:
-                step.status = StepStatus.COMPLETED
-            elif i == index:
-                step.status = StepStatus.ACTIVE
-            else:
-                step.status = StepStatus.PENDING
-            self._rows[i].refresh(step)
 
     def clear(self) -> None:
         self._steps.clear()

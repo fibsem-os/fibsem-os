@@ -4,7 +4,6 @@ from typing import List, Optional
 
 from PyQt5.QtCore import QPoint, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
-    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFrame,
@@ -222,7 +221,6 @@ class LamellaWorkflowWidget(QWidget):
     """
 
     # ── lamella signals ──────────────────────────────────────────────────
-    lamella_move_to_requested = pyqtSignal(object)  # Lamella
     lamella_edit_requested = pyqtSignal(object)  # Lamella
     lamella_remove_requested = pyqtSignal(object)  # Lamella
     lamella_defect_changed = pyqtSignal(object)  # Lamella
@@ -259,7 +257,6 @@ class LamellaWorkflowWidget(QWidget):
         # (`list_chrome.ListHeader`).
         self.lamella_list = LamellaListWidget()
         self.lamella_list.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.lamella_list.enable_move_to_action(False)
         root.addWidget(self.lamella_list, 1)
 
         # ── workflow section ─────────────────────────────────────────────
@@ -283,7 +280,6 @@ class LamellaWorkflowWidget(QWidget):
         self.workflow.add_header_widget(self.btn_help)
 
         # ── wire signals ─────────────────────────────────────────────────
-        self.lamella_list.move_to_requested.connect(self.lamella_move_to_requested)
         self.lamella_list.edit_requested.connect(self.lamella_edit_requested)
         self.lamella_list.remove_requested.connect(self.lamella_remove_requested)
         self.lamella_list.defect_changed.connect(self.lamella_defect_changed)
@@ -390,8 +386,6 @@ class LamellaWorkflowWidget(QWidget):
         self.workflow.request_remove(task)
 
     def _on_add_task_clicked(self) -> None:
-        # Import here to avoid circular imports at module level
-
         available = self._available_task_names()
         dialog = AddTaskDialog(
             available_tasks=available,
