@@ -577,7 +577,8 @@ def build_server(
 
     # --- The microscope as a whole ---
 
-    @whole.get("", dependencies=[Depends(_watch)])
+    # What it is and its state: the operator's page reads these too.
+    @whole.get("", dependencies=[Depends(require_monitoring())])
     def get_microscope():
         info = microscope.system.info
         return {
@@ -591,7 +592,7 @@ def build_server(
             "system": microscope.system.to_dict(),
         }
 
-    @whole.get("/state", dependencies=[Depends(_watch)])
+    @whole.get("/state", dependencies=[Depends(require_monitoring())])
     def get_microscope_state():
         return {"microscope_state": microscope.get_microscope_state().to_dict()}
 
@@ -750,8 +751,9 @@ def _microscope_off(request: Request) -> None:
 
 def _microscope_off_router() -> APIRouter:
     """Every path under /microscope, answering a 404 that says the microscope
-    is not served. Behind the token like the routes they stand in for."""
-    off = APIRouter(dependencies=[Depends(_watch)])
+    is not served. Behind the token like the routes they stand in for; the
+    operator's page reads why too."""
+    off = APIRouter(dependencies=[Depends(require_monitoring())])
     for path in (MICROSCOPE, MICROSCOPE + "/{rest:path}"):
         off.add_api_route(
             path,
