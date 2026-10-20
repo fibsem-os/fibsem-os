@@ -24,6 +24,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem import conversions
+from fibsem.applications.autolamella.config_edits import copy_task_configs
 from fibsem.applications.autolamella.image_positions import (
     ImagePosition,
     PositionComparison,
@@ -1633,15 +1634,13 @@ class AutoLamellaProtocolEditorWidget(QWidget):
                     lambda t=task: protocol.get(t),
                     via,
                 )
-        # Apply configs via experiment method
-        updated_count = experiment.apply_lamella_config(
-            lamella_names=selected_lamella_names,
-            task_names=selected_tasks,
-            source_lamella_name=source_lamella.name,
+        updated_count, _ = copy_task_configs(
+            experiment,
+            selected_lamella_names,
+            selected_tasks,
+            source_name=source_lamella.name,
             update_base_protocol=update_base_protocol,
         )
-
-        self._save_experiment()
 
         # Show success message
         task_list = ", ".join(f"'{t}'" for t in selected_tasks)

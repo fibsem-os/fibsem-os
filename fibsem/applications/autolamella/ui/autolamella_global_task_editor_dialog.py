@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import copy
 import logging
-from typing import Any, List, Optional, Sequence
+from typing import List, Optional
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
@@ -39,7 +38,6 @@ from fibsem.ui.widgets.form_builder import configure_spinbox
 from fibsem.ui.widgets.reference_image_parameters_widget import (
     ReferenceImageParametersWidget,
 )
-from fibsem.workflows.status import TaskStatus
 
 
 class AutoLamellaGlobalTaskEditDialog(QDialog):
@@ -319,48 +317,9 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
         self.label_info.setStyleSheet("color: gray; font-style: italic;")
         self.pushButton_apply.setEnabled(True)
 
-    def apply_changes(self, lamellae: Sequence[Any] = ()) -> int:
-        """Set the reference imaging and milling field of view on the selected
-        tasks: the protocol's, and those of each of *lamellae* that has the
-        task. Only these two settings: a lamella keeps everything else it was
-        tuned to (FIB-1071). Returns how many of the protocol's selected tasks
-        have milling.
-
-        A lamella's task that is running is left alone: the task holds that
-        config object, so an edit would change its settings mid-run. Those are
-        listed in ``skipped_running`` as (lamella name, task name)."""
-        self.skipped_running: List[tuple] = []
-        # Get selected tasks
-        selected_tasks = self.get_selected_tasks()
-
-        if not selected_tasks:
-            logging.warning("No tasks selected - no changes applied")
-            return 0
-
-        # Get the new values
-        new_ref_imaging = self.ref_image_params_widget.get_settings()
-        new_milling_fov = (
-            self.spinbox_milling_fov.value() / SI_TO_MICRO
-        )  # Convert to SI units
-
-        # Apply to selected task configs
-        updated_count = 0
-        for task_name in selected_tasks:
-            task_config = self.experiment.task_protocol.task_config.get(task_name)
-            if not task_config:
-                continue
-            if _set_imaging(task_config, new_ref_imaging, new_milling_fov):
-                updated_count += 1
-            for lamella in lamellae:
-                lamella_config = lamella.task_config.get(task_name)
-                if lamella_config is None:
-                    continue
-                if _is_running(lamella, task_name):
-                    self.skipped_running.append((lamella.name, task_name))
-                    continue
-                _set_imaging(lamella_config, new_ref_imaging, new_milling_fov)
-
-        return updated_count
+    def milling_fov(self) -> float:
+        """The milling field of view chosen, in metres."""
+        return self.spinbox_milling_fov.value() / SI_TO_MICRO
 
     def keyPressEvent(self, event):
         """Override key press event to prevent Enter/Return from accepting the dialog."""
@@ -370,27 +329,3 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
             event.ignore()
         else:
             super().keyPressEvent(event)
-
-
-def _set_imaging(
-    task_config: Any, reference_imaging: ReferenceImageParameters, milling_fov: float
-) -> bool:
-    """Set a task's reference imaging, and each milling config's field of view;
-    whether it has milling. The save path is kept: the dialog's settings carry
-    none, and a None path fails the next image saved with them."""
-    path = task_config.reference_imaging.imaging.path
-    task_config.reference_imaging = copy.deepcopy(reference_imaging)
-    task_config.reference_imaging.imaging.path = path
-    for milling_config in (task_config.milling or {}).values():
-        milling_config.field_of_view = milling_fov
-    return bool(task_config.milling)
-
-
-def _is_running(lamella: Any, task_name: str) -> bool:
-    """Whether *task_name* is the task running on *lamella* now."""
-    state = getattr(lamella, "task_state", None)
-    return (
-        state is not None
-        and state.name == task_name
-        and state.status == TaskStatus.InProgress
-    )

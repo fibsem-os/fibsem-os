@@ -115,3 +115,50 @@ def test_an_item_patch_needs_no_window(tmp_path):
     )
     assert result["applied"], result
     assert lamella.description == "checked"
+
+
+def test_the_editors_copy_and_global_edit_save_the_protocol(tmp_path):
+    """The lamella editor's Apply to other lamellae, with the base protocol
+    too, and the protocol editor's Global Edit: config_edits functions, the
+    one the agent's apply_protocol calls among them, saved with the protocol."""
+    from fibsem.applications.autolamella.config_edits import (
+        copy_task_configs,
+        set_reference_imaging,
+    )
+
+    _, experiment, _ = _context(tmp_path)
+    experiment.add_new_lamella(MicroscopeState(), EventedDict())
+    source, target = experiment.positions
+    source.task_config[TASK].milling[KEY].stages[0].pattern.depth = 3.1e-6
+    target.task_config[TASK] = MillRoughTaskConfig(task_name=TASK)
+
+    count, saved = copy_task_configs(
+        experiment,
+        [target.name],
+        [TASK],
+        source_name=source.name,
+        update_base_protocol=True,
+    )
+
+    assert (count, saved) == (1, True)
+    protocol = AutoLamellaTaskProtocol.load(Path(experiment.path) / "protocol.yaml")
+    assert protocol.task_config[TASK].milling[KEY].stages[0].pattern.depth == 3.1e-6
+
+    reference = experiment.task_protocol.task_config[TASK].reference_imaging
+    reference.field_of_view1 = 222e-6
+    target.task_state.name, target.task_state.status = TASK, _in_progress()
+    milling, skipped = set_reference_imaging(
+        experiment, [TASK], reference, 99e-6, experiment.positions
+    )
+
+    assert milling == 1 and skipped == [(target.name, TASK)]
+    assert source.task_config[TASK].milling[KEY].field_of_view == 99e-6
+    assert target.task_config[TASK].milling[KEY].field_of_view != 99e-6
+    protocol = AutoLamellaTaskProtocol.load(Path(experiment.path) / "protocol.yaml")
+    assert protocol.task_config[TASK].milling[KEY].field_of_view == 99e-6
+
+
+def _in_progress():
+    from fibsem.workflows.status import TaskStatus
+
+    return TaskStatus.InProgress

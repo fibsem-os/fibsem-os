@@ -21,6 +21,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.applications.autolamella.config_edits import set_reference_imaging
 from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
 from fibsem.applications.autolamella.ui.autolamella_fluorescence_acquisition_task_config_widget import (
     AutoLamellaFluorescenceAcquisitionTaskConfigWidget,
@@ -954,25 +955,22 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
                     self.experiment.positions, selected_task_names, via
                 )
 
-            # The same two settings on each lamella, when asked: not the
-            # protocol's whole config, which would reset everything else a
-            # lamella was tuned to (FIB-1071).
-            updated_count = dialog.apply_changes(
-                self.experiment.positions if update_lamella else ()
+            updated_count, skipped = set_reference_imaging(
+                self.experiment,
+                selected_task_names,
+                dialog.ref_image_params_widget.get_settings(),
+                dialog.milling_fov(),
+                self.experiment.positions if update_lamella else (),
             )
-
-            # Save the experiment
-            self._save_experiment()
 
             # Refresh the current task view to reflect changes
             self._on_selected_task_changed()
 
             # Show success message
-            selected_count = len(dialog.get_selected_tasks())
+            selected_count = len(selected_task_names)
             msg = f"Successfully updated reference imaging for {selected_count} task(s) and milling FoV for {updated_count} task(s) with milling."
             if update_lamella:
                 msg += "\nExisting lamella configurations were also updated."
-            skipped = getattr(dialog, "skipped_running", [])
             if skipped:
                 names = ", ".join(f"{lamella} ({task})" for lamella, task in skipped)
                 msg += f"\nNot changed, because the task is running: {names}."
