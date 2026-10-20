@@ -607,9 +607,45 @@ class AutoLamellaAppContext(AppContext):
 
     # --- experiments and protocols: the File menu, for an agent at Drive ---------
     #
-    # Kept to known places (Patrick's call, 2026-10-14): a new experiment goes in
-    # the default experiments folder, a load is one of the recent experiments, and
-    # a protocol is one of the files in the protocol folder, by name.
+    # Kept to known places (Patrick's call, 2026-10-14; widened 2026-10-20): a new
+    # experiment goes anywhere under the experiments folder, a load is a recent
+    # experiment or one under that folder, and a protocol is one of the files in
+    # the protocol folder, by name.
+
+    def _experiments_folder(self) -> str:
+        """Where the agent creates and finds experiments: the session's folder,
+        else the default experiments folder."""
+        from fibsem.applications.autolamella import experiment_setup
+
+        return (
+            self._session.experiments_folder
+            or experiment_setup.default_experiment_directory()
+        )
+
+    def saved_experiments(self) -> Dict[str, Any]:
+        """Every experiment under the experiments folder, newest first."""
+        from fibsem.applications.autolamella.tools.experiments import (
+            discover_experiments,
+        )
+
+        folder = self._experiments_folder()
+        return {
+            "folder": folder,
+            "items": [self.experiment_entry(s) for s in discover_experiments(folder)],
+        }
+
+    def _under_experiments_folder(self, path: str) -> Optional[str]:
+        """*path* (relative to the experiments folder, or absolute) when it is
+        inside that folder, links followed; else None."""
+        import os
+
+        folder = os.path.realpath(self._experiments_folder())
+        target = os.path.realpath(os.path.join(folder, path))
+        try:
+            inside = os.path.commonpath([target, folder]) == folder
+        except ValueError:  # another drive
+            return None
+        return target if inside and target != folder else None
 
     def protocols(self) -> Dict[str, Any]:
         """The protocol files an agent may load or create an experiment with."""
@@ -662,10 +698,51 @@ class AutoLamellaAppContext(AppContext):
         protocol: Optional[str] = None,
         description: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Create an experiment in the default experiments folder and open it,
-        with *protocol* from the protocol folder (the default protocol when
-        omitted). An existing experiment of that name is refused, never
-        overwritten."""
+        """Create an experiment at *name*, a folder path under the experiments
+        folder (made as needed), and open it, with *protocol* from the protocol
+        folder (the default protocol when omitted). An existing folder is
+        refused, never overwritten."""
+        import os
+
+        from fibsem.applications.autolamella import experiment_setup
+        from fibsem.applications.autolamella.tools.experiments import (
+            DEFAULT_MAX_DEPTH,
+        )
+
+        refusal = self._session_refusal()
+        if refusal:
+            return refusal
+        parts = (name or "").replace("\\", "/").split("/")
+        path = self._under_experiments_folder(name or "")
+        if any(p in ("", ".", "..") for p in parts) or path is None:
+            return {
+                "error_type": "invalid",
+                "error": "name is a folder, or a path of folders, under the "
+                f"experiments folder {self._experiments_folder()}.",
+            }
+        if len(parts) > DEFAULT_MAX_DEPTH:
+            return {
+                "error_type": "invalid",
+                "error": f"At most {DEFAULT_MAX_DEPTH} folders deep, so "
+                "experiment_list_all finds it again.",
+            }
+        if os.path.exists(path):
+            return {"error_type": "invalid", "error": f"{path} exists."}
+        task_protocol, refusal = self._protocol_or_refusal(protocol)
+        if refusal:
+            return refusal
+        metadata = {"description": description} if description else None
+        experiment = experiment_setup.create_experiment(
+            os.path.dirname(path), os.path.basename(path), task_protocol, metadata
+        )
+        self._adopt(experiment)
+        return {"applied": True, "experiment": self.experiment_summary()}
+
+    def load_experiment(self, path: str) -> Dict[str, Any]:
+        """Open a recent experiment (``path`` as the recent list gives it) or
+        one under the experiments folder (its folder or experiment.yaml,
+        relative to that folder or absolute), as the Load dialog does. One with
+        no protocol is refused."""
         import os
 
         from fibsem.applications.autolamella import experiment_setup
@@ -673,40 +750,24 @@ class AutoLamellaAppContext(AppContext):
         refusal = self._session_refusal()
         if refusal:
             return refusal
-        if not name or os.path.basename(name) != name or name in (".", ".."):
-            return {"error_type": "invalid", "error": "name is a plain folder name."}
-        directory = experiment_setup.default_experiment_directory()
-        if os.path.exists(os.path.join(directory, name)):
-            return {
-                "error_type": "invalid",
-                "error": f"An experiment named {name!r} exists in {directory}.",
-            }
-        task_protocol, refusal = self._protocol_or_refusal(protocol)
-        if refusal:
-            return refusal
-        metadata = {"description": description} if description else None
-        experiment = experiment_setup.create_experiment(
-            directory, name, task_protocol, metadata=metadata
-        )
-        self._adopt(experiment)
-        return {"applied": True, "experiment": self.experiment_summary()}
-
-    def load_experiment(self, path: str) -> Dict[str, Any]:
-        """Open one of the recent experiments (``path`` as the recent list gives
-        it), as the Load dialog does. One with no protocol is refused."""
-        from fibsem.applications.autolamella import experiment_setup
-
-        refusal = self._session_refusal()
-        if refusal:
-            return refusal
         recent = [entry["path"] for entry in self.recent_experiments()]
         if path not in recent:
-            return {
-                "error_type": "not_found",
-                "error": "Only a recent experiment can be loaded; the operator "
-                "opens any other from the Load dialog.",
-                "recent_paths": recent,
-            }
+            found = self._under_experiments_folder(path)
+            if found is not None and os.path.isdir(found):
+                found = os.path.join(found, "experiment.yaml")
+            if (
+                found is None
+                or os.path.basename(found) != "experiment.yaml"
+                or (not os.path.isfile(found))
+            ):
+                return {
+                    "error_type": "not_found",
+                    "error": "Not a recent experiment or one under the "
+                    f"experiments folder {self._experiments_folder()}; the "
+                    "operator opens any other from the Load dialog.",
+                    "recent_paths": recent,
+                }
+            path = found
         experiment, why = experiment_setup.load_for_adoption(path)
         if experiment is None:
             return {"error_type": "invalid", "error": f"Not loaded: {why}."}

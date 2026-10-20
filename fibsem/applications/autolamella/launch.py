@@ -1,7 +1,8 @@
-"""``fibsem-autolamella-server``: open an AutoLamella experiment on a microscope
-and serve it over the App Server, with no window. The agent level starts at
-Watch; the operator raises it from the chat page. Set up in the window first
-(positions, patterns, calibration), quit it, then serve the same experiment."""
+"""``fibsem-autolamella-server``: serve AutoLamella on a microscope over the App
+Server, with no window, and an experiment open or none (the agent can create or
+open one). The agent level starts at Watch; the operator raises it from the chat
+page. Set up in the window first (positions, patterns, calibration), quit it,
+then serve the same experiment."""
 
 import argparse
 import threading
@@ -38,7 +39,12 @@ def _parser() -> argparse.ArgumentParser:
         "experiment",
         type=Path,
         nargs="?",
-        help="The experiment's folder; the most recent one when left out.",
+        help="The experiment's folder; none open when left out.",
+    )
+    parser.add_argument(
+        "--last",
+        action="store_true",
+        help="Open the most recent experiment.",
     )
     parser.add_argument(
         "--create",
@@ -51,6 +57,12 @@ def _parser() -> argparse.ArgumentParser:
         help="The new experiment's protocol file; the default protocol when left out.",
     )
     parser.add_argument(
+        "--experiments",
+        type=Path,
+        help="Where the agent creates and finds experiments (default: the "
+        "default experiments folder).",
+    )
+    parser.add_argument(
         "--serve-microscope",
         action="store_true",
         default=None,
@@ -61,8 +73,10 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _experiment(args: argparse.Namespace):
-    """The experiment to serve, or None and why not."""
+    """The experiment to serve (None for none) and why not, when not."""
     folder = args.experiment
+    if args.last and (folder is not None or args.create):
+        return None, "--last opens the most recent experiment; leave out the folder."
     if args.create:
         if folder is None:
             return None, "--create needs the new experiment's folder."
@@ -78,10 +92,12 @@ def _experiment(args: argparse.Namespace):
         ), None
     if args.protocol is not None:
         return None, "--protocol is for --create; an experiment keeps its own."
+    if folder is None and not args.last:
+        return None, None
     if folder is None:
         last = fibsem_cfg.get_last_experiment_file()
         if last is None:
-            return None, "no recent experiment; name one, or --create one."
+            return None, "no recent experiment; name one, or leave out --last."
         path = Path(last)
     else:
         path = folder / EXPERIMENT_FILENAME
@@ -98,11 +114,16 @@ def main(
 ) -> int:
     """Serve until Ctrl-C (or *stop* is set), then stop the run and the server."""
     args = _parser().parse_args(argv)
+    if args.experiments is not None and not args.experiments.is_dir():
+        print(f"error: {args.experiments} is not a folder.")
+        return 1
     experiment, why = _experiment(args)
-    if experiment is None:
+    if why is not None:
         print(f"error: {why}")
         return 1
     session = headless.open_session(headless.connect(args), experiment)
+    if args.experiments is not None:
+        session.experiments_folder = str(args.experiments.resolve())
     session.serve_microscope = (
         args.serve_microscope
         if args.serve_microscope is not None

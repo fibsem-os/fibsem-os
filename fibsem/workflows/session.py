@@ -99,6 +99,9 @@ class AppSession:
         # the microscope (FIB-1359), None until the client first says.
         self.agent_auth: Optional[Any] = None
         self.serve_microscope: Optional[bool] = None
+        # Where an agent creates and finds experiments this session; None is
+        # the app's default (fibsem-autolamella-server --experiments sets it).
+        self.experiments_folder: Optional[str] = None
         # The agent as the operator meets it: its level, its requests and the
         # operator's messages (FIB-1461).
         self.agent = AgentSession(self)

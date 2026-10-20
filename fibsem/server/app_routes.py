@@ -339,6 +339,10 @@ def build_app_router(context: Any) -> APIRouter:
     def recent_experiments():
         return {"items": context.recent_experiments()}
 
+    @router.get("/experiment/all")
+    def saved_experiments():
+        return context.saved_experiments()
+
     @router.get("/experiment/images")
     def display_images():
         return context.display_images()
@@ -996,7 +1000,9 @@ def build_app_config_router(context: Any) -> APIRouter:
 
     @router.post("/experiment/create")
     def create_experiment(body: Dict[str, Any]):
-        name = _required_text(body, "name", "the new experiment's folder name")
+        name = _required_text(
+            body, "name", "the new experiment's folder, under the experiments folder"
+        )
         return _answer_or_refusal(
             context.create_experiment(
                 name, protocol=body.get("protocol"), description=body.get("description")
@@ -1005,7 +1011,9 @@ def build_app_config_router(context: Any) -> APIRouter:
 
     @router.post("/experiment/load")
     def load_experiment(body: Dict[str, Any]):
-        path = _required_text(body, "path", "a path from the recent experiments")
+        path = _required_text(
+            body, "path", "a path from the recent experiments or the experiments folder"
+        )
         return _answer_or_refusal(context.load_experiment(path))
 
     @router.post("/experiment/protocol/load")

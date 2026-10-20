@@ -94,7 +94,7 @@ def test_an_experiment_is_created_in_the_default_folder_and_opened(
     assert "standard.yaml" in unknown.json()["detail"]["protocol_names"]
 
 
-def test_only_a_recent_experiment_is_loaded(driver, host):
+def test_a_recent_experiment_is_loaded(driver, host):
     driver.post("/app/experiment/create", json={"name": "first"})
     driver.post("/app/experiment/create", json={"name": "second"})
     assert host.experiment.name == "second"
@@ -108,6 +108,54 @@ def test_only_a_recent_experiment_is_loaded(driver, host):
     refused = driver.post("/app/experiment/load", json={"path": "/etc/experiment.yaml"})
     assert refused.status_code == 404
     assert first in refused.json()["detail"]["recent_paths"]
+
+
+def test_an_experiment_is_created_and_found_anywhere_under_the_folder(
+    driver, host, places
+):
+    made = driver.post("/app/experiment/create", json={"name": "2026-10-20/grid-a"})
+    assert made.status_code == 200, made.text
+    assert host.experiment.name == "grid-a"
+    assert os.path.isfile(places / "2026-10-20" / "grid-a" / "experiment.yaml")
+    found = driver.get("/app/experiment/all").json()
+    assert found["folder"] == str(places)
+    assert [e["name"] for e in found["items"]] == ["grid-a"]
+
+    for name in ("../out", "/tmp/abs", "a//b", "a/./b", "a/b/c/d"):
+        refused = driver.post("/app/experiment/create", json={"name": name})
+        assert refused.status_code == 422, name
+    os.symlink(places.parent, places / "link")
+    linked = driver.post("/app/experiment/create", json={"name": "link/out"})
+    assert linked.status_code == 422
+
+
+def test_an_experiment_under_the_folder_is_loaded(driver, host, places):
+    driver.post("/app/experiment/create", json={"name": "lab/first"})
+    driver.post("/app/experiment/create", json={"name": "second"})
+    # off the recents list, but under the folder: by its folder, relative
+    from fibsem.config import load_user_preferences, save_user_preferences
+
+    prefs = load_user_preferences()
+    prefs.experiment.recent_experiments = []
+    save_user_preferences(prefs)
+    loaded = driver.post("/app/experiment/load", json={"path": "lab/first"})
+    assert loaded.status_code == 200, loaded.text
+    assert host.experiment.name == "first"
+    absolute = str(places / "second" / "experiment.yaml")
+    assert driver.post("/app/experiment/load", json={"path": absolute}).is_success
+    assert host.experiment.name == "second"
+    for path in ("lab", "../elsewhere", "lab/first/protocol.yaml"):
+        refused = driver.post("/app/experiment/load", json={"path": path})
+        assert refused.status_code == 404, path
+
+
+def test_the_session_names_its_own_experiments_folder(driver, host, tmp_path):
+    own = tmp_path / "own"
+    own.mkdir()
+    host.experiments_folder = str(own)
+    assert driver.post("/app/experiment/create", json={"name": "x"}).is_success
+    assert os.path.isfile(own / "x" / "experiment.yaml")
+    assert driver.get("/app/experiment/all").json()["folder"] == str(own)
 
 
 def test_a_protocol_is_loaded_into_the_open_experiment(driver, host):

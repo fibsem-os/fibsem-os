@@ -1019,6 +1019,14 @@ TOOLS: Tuple[ToolSpec, ...] = (
         router="app",
     ),
     ToolSpec(
+        name="experiment_list_all",
+        description="Every experiment under the experiments folder (up to 3 folders deep), newest first, without loading them: where experiment_create puts a new one, and what experiment_load can open.",
+        method="GET",
+        path="/app/experiment/all",
+        level="watch",
+        router="app",
+    ),
+    ToolSpec(
         name="protocol_list",
         description="The protocol files in the protocol folder, by name, with the default marked: what experiment_create and protocol_load take.",
         method="GET",
@@ -1028,13 +1036,13 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="experiment_create",
-        description="Create an experiment in the default experiments folder and open it in place of the current one, with a protocol from protocol_list (the default when omitted). An existing name is refused, never overwritten. Refused while a workflow runs.",
+        description="Create an experiment under the experiments folder and open it in place of the current one, with a protocol from protocol_list (the default when omitted). name is a folder, or a path of up to 3 folders (e.g. 2026-10-20/grid-a), made as needed; an existing folder is refused, never overwritten. Refused while a workflow runs.",
         method="POST",
         path="/app/experiment/create",
         level="drive",
         router="app",
         params={
-            "name": "the new experiment's folder name",
+            "name": "the new experiment's folder under the experiments folder: a name, or a relative path of folders",
             "protocol": "optional protocol name from protocol_list",
             "description": "optional one-line description",
         },
@@ -1043,12 +1051,12 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="experiment_load",
-        description="Open one of the recent experiments (a path from experiment_list_recent) in place of the current one. Any other experiment is the operator's to open. Refused while a workflow runs.",
+        description="Open an experiment in place of the current one: a path from experiment_list_recent or experiment_list_all. Any other experiment is the operator's to open. Refused while a workflow runs.",
         method="POST",
         path="/app/experiment/load",
         level="drive",
         router="app",
-        params={"path": "a path from experiment_list_recent"},
+        params={"path": "a path from experiment_list_recent or experiment_list_all"},
         line=_experiment_load,
     ),
     ToolSpec(
