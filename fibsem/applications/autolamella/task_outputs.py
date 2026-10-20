@@ -281,9 +281,7 @@ class PreviewSources:
     def proposal_image(self, arguments: dict) -> Optional["FibsemImage"]:
         """The image a waiting ``proposal_decide``'s values sit on: its
         proposal's reference image."""
-        from fibsem.applications.autolamella.reference_images import (
-            load_reference_image,
-        )
+        from fibsem.workflows.reference_images import load_reference_image
 
         found = self.proposal_pending(arguments)
         if found is None:

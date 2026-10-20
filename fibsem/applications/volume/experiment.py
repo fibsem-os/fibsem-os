@@ -124,7 +124,7 @@ class VolumeExperiment(ProposalDecisions, BaseExperiment):
             return f"No position named {name!r}."
         if iterations < 1:
             return "A position needs at least one slice."
-        cut = self._slices_cut(position)
+        cut = self.slices_cut(position)
         if iterations < cut:
             return f"{name} has already cut {cut} slices."
         position.iterations = int(iterations)
@@ -139,7 +139,7 @@ class VolumeExperiment(ProposalDecisions, BaseExperiment):
             return f"No position named {name!r}."
         if not isinstance(poi, Point):
             return f"The point of interest must be a point, not {type(poi).__name__}."
-        if self._slices_cut(position):
+        if self.slices_cut(position):
             return f"{name} has cut slices from its point of interest."
         position.poi = Point(poi.x, poi.y)
         self.save()
@@ -156,7 +156,7 @@ class VolumeExperiment(ProposalDecisions, BaseExperiment):
         self.save()
         return ""
 
-    def _slices_cut(self, position: VolumePosition) -> int:
+    def slices_cut(self, position: VolumePosition) -> int:
         """How many slices ``position`` has cut: a per-slice task completed."""
         return len(
             {

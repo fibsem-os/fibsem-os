@@ -26,6 +26,7 @@ from fibsem.applications.autolamella.edit_recording import (
     serialise,
     touch_agent_patch,
 )
+from fibsem.server.app_context import content_hash, find_item, item_pose_positions
 from fibsem.server.config_patch import PatchError, apply_patch, check_patch
 from fibsem.workflows.events import to_plain
 from fibsem.workflows.status import TaskStatus
@@ -37,25 +38,6 @@ from fibsem.workflows.task_config import WORKFLOW_FIELDS
 # (milling_angle is recorded from where Setup put the stage — writing it
 # would move nothing), or the record itself.
 ITEM_PATCH_FIELDS = ("poi", "alignment_area", "description", "defect")
-
-
-def _content_hash(data) -> str:
-    import hashlib
-    import json
-
-    return hashlib.sha256(
-        json.dumps(data, sort_keys=True, default=str).encode()
-    ).hexdigest()[:16]
-
-
-def item_pose_positions(lamella) -> Dict[str, Any]:
-    """Where each of an item's poses puts the stage, by pose name (None where a
-    pose has no position): the item document's ``poses``."""
-    poses = {}
-    for pose_name, pose in dict(lamella.poses).items():
-        position = getattr(pose, "stage_position", None)
-        poses[pose_name] = position.to_dict() if position is not None else None
-    return poses
 
 
 def item_fields_version(lamella) -> str:
@@ -73,7 +55,7 @@ def item_fields_version(lamella) -> str:
         name: to_plain(getattr(lamella, name, None)) for name in ITEM_PATCH_FIELDS
     }
     fields["poses"] = item_pose_positions(lamella)
-    return _content_hash(fields)
+    return content_hash(fields)
 
 
 def config_version(config, workflow_fields: bool = False) -> str:
@@ -91,24 +73,7 @@ def config_version(config, workflow_fields: bool = False) -> str:
     if not workflow_fields:
         for name in WORKFLOW_FIELDS:
             data.pop(name, None)
-    return _content_hash(to_plain(data))
-
-
-def find_item(experiment, item_name: str):
-    """The item named *item_name*, and None; or None and why not, in the words
-    every route refuses an unknown item with, and the names there are. Each
-    route puts the refusal in its own answer's shape."""
-    lamella = (
-        experiment.get_lamella_by_name(item_name) if experiment is not None else None
-    )
-    if lamella is not None:
-        return lamella, None
-    return None, {
-        "error": f"No item named {item_name!r} in this experiment.",
-        "item_names": [p.name for p in experiment.positions]
-        if experiment is not None
-        else [],
-    }
+    return content_hash(to_plain(data))
 
 
 def apply_agent_edit(
