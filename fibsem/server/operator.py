@@ -8,14 +8,18 @@ calls, so both record the same thing. Behind the operator token only
 approve its own request or raise its own level.
 """
 
+import dataclasses
+import os
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.ai.agent.session import MESSAGE_LIMIT, AgentSession
+from fibsem.server import files
 from fibsem.server.auth import require_operator
 from fibsem.server.requests import RequestRefused
+from fibsem.workflows import evidence
 
 
 def _refused(status_code: int, error_type: str, message: str) -> HTTPException:
@@ -42,13 +46,38 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
         client its sidecar named, and the request waiting, if any."""
         auth = agent.host.auth if agent.host is not None else None
         request = agent.current()
+        path = agent.experiment_path()
         return {
+            "experiment": os.path.basename(path) if path else None,
             "level": agent.level.value if agent.level is not None else None,
             "stopped": bool(auth.stopped) if auth is not None else False,
             "last_heard_s": agent.seconds_since_seen(),
             "client": agent.client(),
             "request": request.to_dict() if request is not None else None,
         }
+
+    @router.get("/recent")
+    def recent():
+        """The card's rows: the conversation and the agent's actions, oldest
+        first, as the card reads them from the record."""
+        return {"rows": [dataclasses.asdict(row) for row in agent.recent()]}
+
+    @router.get("/evidence/{evidence_id}")
+    def get_evidence(evidence_id: str):
+        """A piece of evidence: its image as a preview, and its marks in the
+        image's pixels."""
+        root = agent.experiment_path()
+        try:
+            record = evidence.load(lambda: root, evidence_id)
+        except evidence.EvidenceRefused as refusal:
+            raise HTTPException(status_code=refusal.status_code, detail=refusal.detail)
+        image = record.get("image")
+        try:
+            relative = os.path.relpath(image, os.path.realpath(root))
+            answer = files.read(root, relative)
+        except (TypeError, ValueError, files.FileRefusal) as exc:
+            raise _refused(404, "not_found", f"The evidence image is missing: {exc}")
+        return {"preview": answer.get("preview"), "marks": record.get("marks")}
 
     @router.post("/messages", status_code=201)
     def send_message(body: Dict[str, Any]):

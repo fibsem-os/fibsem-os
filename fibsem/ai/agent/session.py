@@ -197,6 +197,25 @@ class AgentSession:
         recorder.buffer.append(NOTE, note_record(text, id=message_id), actor=OPERATOR)
         return message_id
 
+    def recent(self) -> List[Any]:
+        """The agent card's rows (`recent.RecentRow`), read from the session's
+        record now: for a reader outside the window."""
+        from fibsem.ai.agent.recent import RecentActions
+
+        recorder = self._session.recorder
+        rows = RecentActions()
+        if recorder is not None:
+            for record in recorder.buffer.events_since(0).get("events", []):
+                rows.add(record)
+        return rows.rows
+
+    def experiment_path(self) -> Optional[str]:
+        """Where what the agent does is recorded: the open experiment, or the
+        session's plain one; None for neither."""
+        experiment = self._session.experiment or self._session.plain_experiment
+        path = getattr(experiment, "path", None)
+        return str(path) if path is not None else None
+
     def seconds_since_seen(self) -> Optional[float]:
         """Seconds since the agent's token last made a request, or None."""
         host = self._session.app_server

@@ -218,3 +218,37 @@ def test_a_new_token_revokes_the_old_one(server):
     assert server.get("/app/agent", headers=old).status_code == 401
     new = _bearer(server.config.operator_token)
     assert server.get("/app/agent", headers=new).status_code == 200
+
+
+def test_the_card_s_rows_read_as_a_conversation(server):
+    server.post(
+        "/app/agent/messages", headers=server.operator, json={"text": "how's 01?"}
+    )
+    message_id = _notes(server)[-1]["payload"]["id"]
+    server.session.recorder.buffer.append(
+        NOTE, {"text": "01 is **fine**", "reply_to": message_id}, actor="agent"
+    )
+    rows = server.get("/app/agent/recent", headers=server.operator).json()["rows"]
+    assert [(row["kind"], row["text"]) for row in rows[-2:]] == [
+        ("you", "how's 01?"),
+        ("reply", "01 is **fine**"),
+    ]
+    assert server.get("/app/agent/recent", headers=server.agent).status_code == 403
+
+
+def test_the_agent_s_state_names_the_experiment(server):
+    state = server.get("/app/agent", headers=server.operator).json()
+    assert state["experiment"] == os.path.basename(server.session.experiment.path)
+    assert state["request"] is None
+
+
+def test_missing_evidence_is_not_found(server):
+    answer = server.get("/app/agent/evidence/0123abcd", headers=server.operator)
+    assert answer.status_code == 404
+
+
+def test_the_chat_page_is_served(server):
+    # Static, like the event log: every call it makes needs the operator token.
+    answer = server.get("/chat")
+    assert answer.status_code == 200
+    assert "/app/agent/recent" in answer.text

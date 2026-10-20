@@ -313,6 +313,12 @@ class AppServerDialog(QDialog):
         else (no server log, no referrer)."""
         return f"{host.url}/dashboard/log#token={host.auth.dashboard_token}"
 
+    @staticmethod
+    def chat_url(host) -> str:
+        """The chat page, with the operator token in the fragment as the
+        event log has its own."""
+        return f"{host.url}/chat#token={host.auth.operator_token}"
+
     def _on_event_log_clicked(self) -> None:
         host = self._host()
         if host is None:

@@ -56,6 +56,7 @@ class AgentChipHost(QObject):
         self.chip.level_chosen.connect(self._on_level_chosen)
         self.chip.connect_clicked.connect(self._on_connect_agent)
         self.chip.event_log_clicked.connect(self._on_open_event_log)
+        self.chip.chat_clicked.connect(self._on_open_chat)
         self.chip.stop_clicked.connect(self._on_stop)
         self.chip.approve_clicked.connect(self._on_approve)
         self.chip.reject_clicked.connect(self._on_reject)
@@ -258,6 +259,15 @@ class AgentChipHost(QObject):
         if host is None:
             return
         open_in_browser(AppServerDialog.event_log_url(host))
+
+    def _on_open_chat(self) -> None:
+        """From the card: the chat with the agent in the browser."""
+        from fibsem.ui.agent.app_server_dialog import AppServerDialog, open_in_browser
+
+        host = self._agent.host
+        if host is None:
+            return
+        open_in_browser(AppServerDialog.chat_url(host))
 
     def _on_approve(self, request_id: str) -> None:
         """Run the request. Its actions run on their own worker thread, so this
