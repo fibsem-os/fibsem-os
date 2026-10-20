@@ -18,7 +18,6 @@ from psygnal.containers import EventedDict
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.acting import ActorKind
-from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
@@ -35,6 +34,7 @@ from fibsem.cancellation import StopEvent
 from fibsem.structures import Point
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import (
+    POINT_OF_INTEREST,
     PROPOSAL_KINDS,
     Decision,
     DecisionOutcome,

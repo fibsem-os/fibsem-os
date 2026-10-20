@@ -86,6 +86,39 @@ def test_the_agent_judges_notes_and_removes_a_grid(driving):
     assert experiment.get_grid_by_name("G2") is None
 
 
+def test_the_agent_s_grid_note_is_its_note_on_the_record(driving):
+    from fibsem.acting import AGENT
+    from fibsem.workflows.actions import ACTION, NOTE
+
+    _ok(_call(driving, "grid_add"))
+    grid = driving.host.experiment.get_grid_by_name("G1")
+    acted = []
+
+    def record(kind, payload):
+        acted.append(kind)
+
+    driving.host.microscope.session.record_signal.connect(record)
+    try:
+        _ok(_call(driving, "grid_set_note", grid_name="G1", note="thin ice"))
+        noted = [(p, actor) for k, p, actor in driving.context.recorded if k == NOTE]
+        assert noted == [
+            (
+                {"text": "thin ice", "item_id": grid.id, "item_name": "G1"},
+                AGENT,
+            )
+        ]
+        # The note is the record of the call: no action besides it.
+        assert ACTION not in acted
+
+        # Clearing it is not a note; the call is recorded as an act.
+        _ok(_call(driving, "grid_set_note", grid_name="G1", note=""))
+    finally:
+        driving.host.microscope.session.record_signal.disconnect(record)
+    assert grid.description == ""
+    assert len([k for k, *_ in driving.context.recorded if k == NOTE]) == 1
+    assert acted.count(ACTION) == 1
+
+
 # --- the workflow's tasks ---------------------------------------------------------
 
 

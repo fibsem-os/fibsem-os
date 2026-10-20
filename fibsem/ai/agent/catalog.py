@@ -163,6 +163,15 @@ _OVERVIEW_CENTRE = (
     "on; the stage comes back to where it was (default where the stage is)"
 )
 
+# For a move that changes the pose (FIB-1497).
+_RETRACT_FIRST = " Retract the FM objective first: nothing retracts it for you."
+# For an FM image: inserted is not in focus (FIB-1497).
+_NEAR_FOCUS = (
+    " The objective must be near its focus, not only inserted: go to the "
+    "item's objective position (item_move_to_objective_position) or run "
+    "fm_auto_focus first."
+)
+
 # Titles the name, read out, gets wrong.
 _TITLES: Dict[str, str] = {
     "beam_auto_brightness_contrast": "Beam: Auto brightness and contrast",
@@ -257,11 +266,15 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "How long the drawn patterns take to mill, in seconds, and the ion "
             "current they mill at (milling_current, amps). warning is set when the "
             "recipe asked for a current the beam does not list; it names the "
-            "nearest listed currents."
+            "nearest listed currents. With stages (FibsemMillingStage dicts, as "
+            "run_stage takes), how long those would take before anything is "
+            "drawn: seconds in all, and each stage's."
         ),
         method="POST",
         path="/microscope/services/milling/queries/estimate_time",
         level="watch",
+        params={"stages": "FibsemMillingStage dicts; left out, what prepare drew"},
+        optional=("stages",),
     ),
     ToolSpec(
         name="milling_run_stage",
@@ -676,7 +689,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "where fitted): its rotation and tilt, by the safe move "
             "(stage_move_absolute). x, y and z stay, except that a half turn "
             "carries x and y round the rotation centre where the instrument "
-            "reports one, so the same spot comes back under the beam."
+            "reports one, so the same spot comes back under the beam." + _RETRACT_FIRST
         ),
         method="POST",
         path="/microscope/services/stage_movement/commands/move_to_orientation",
@@ -690,7 +703,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "Move the stage to an absolute position (metres and radians) safely: "
             "for a large rotation it tilts flat first, and it rotates before "
             "moving the other axes, so a tilted sample isn't swung round. Use "
-            "it to return to a saved position."
+            "it to return to a saved position." + _RETRACT_FIRST
         ),
         method="POST",
         path="/microscope/services/stage_movement/commands/safe_absolute_stage_movement",
@@ -728,7 +741,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
         name="stage_move_to_milling_angle",
         description=(
             "Tilt the stage to a milling angle, in degrees. The stage stays at its "
-            "current rotation unless rotation_deg names another."
+            "current rotation unless rotation_deg names another." + _RETRACT_FIRST
         ),
         method="POST",
         path="/microscope/services/stage_movement/commands/move_to_milling_angle",
@@ -1041,7 +1054,8 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "a fine pass, scoring a frame at each step on the current channel, as "
             "the FM tab's auto-focus does, and leave it at the best position. "
             "Refused while the FM is in use or can't see the sample from this "
-            "pose (move to the FM pose first). A long command: it answers with "
+            "pose (move to the FM pose first). Start from the item's objective "
+            "position (item_move_to_objective_position) where it has one. A long command: it answers with "
             "its run at once; service_wait_for_run imaging gives the best objective "
             "position and the scores; service_call_command imaging stop, with a "
             "reason, ends it."
@@ -1062,7 +1076,9 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "A fluorescence image where the stage and objective are, in each of "
             "the channels; with zparams, a z-stack about the objective's position, "
             "which it comes back to after. Refused while the FM is in use or "
-            "can't image the sample from here. path must be a folder inside "
+            "can't image the sample from here."
+            + _NEAR_FOCUS
+            + " path must be a folder inside "
             "the open experiment. A long command: it answers with its run at "
             "once; service_wait_for_run imaging gives the image's path and "
             "summary; service_call_command imaging stop, with a reason, ends it "
@@ -1095,7 +1111,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "camera fields in each of the channels, stitched into one mosaic. The "
             "stage moves to each tile, and it and the objective come back after. "
             "The objective must be in, at the FM pose; refused while the FM is in "
-            "use. path must be a folder inside the open experiment. "
+            "use." + _NEAR_FOCUS + " path must be a folder inside the open experiment. "
             "fm_estimate_overview first: tiles take seconds to minutes each. A "
             "long command: it answers with its run at once; service_wait_for_run imaging "
             "gives the mosaic's path and summary, the tiles' paths and the overview, "
@@ -1130,7 +1146,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
         description=(
             "What fm_acquire_overview with these arguments would do: how many "
             "tiles and images, and how long it runs in seconds, stage and "
-            "objective moves and focus sweeps counted. Moves nothing."
+            "objective moves and focus sweeps counted. Moves nothing." + _NEAR_FOCUS
         ),
         method="POST",
         path="/microscope/services/imaging/queries/fm_estimate_overview",
@@ -1455,7 +1471,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="grid_set_note",
-        description="Keep a note on a grid's record, as the Grids tab's Note does; an empty note clears it. Apart from the verdict, so judging the grid again keeps it. Saved.",
+        description="Keep a note on a grid's record, as the Grids tab's Note does; an empty note clears it. Apart from the verdict, so judging the grid again keeps it. Saved, and a note (not a clearing) goes on the record as your note on the grid.",
         method="POST",
         path="/app/experiment/grids/{grid_name}/note",
         level="drive",
@@ -1698,7 +1714,8 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="item_move_to_pose",
-        description="Move the stage to one of a lamella's poses (MILLING, FLUORESCENCE, ... as item_get lists), through the safe move that goes flat before a large rotation. Answers with the stage position after.",
+        description="Move the stage to one of a lamella's poses (MILLING, FLUORESCENCE, ... as item_get lists), through the safe move that goes flat before a large rotation. Answers with the stage position after."
+        + _RETRACT_FIRST,
         method="POST",
         path="/app/experiment/items/{item_name}/move_to",
         level="drive",
@@ -2405,7 +2422,7 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
         {},
         _kwargs(since=int(a.get("since") or 0), timeout=float(a.get("timeout") or 0.0)),
     ),
-    "milling_estimate_time": lambda a: ({}, _kwargs()),
+    "milling_estimate_time": lambda a: ({}, _kwargs(stages=a.get("stages"))),
     "alignment_align_to_reference": lambda a: (
         {},
         _kwargs(
@@ -2560,4 +2577,8 @@ def route_call(
         path = path.replace("{" + name + "}", encode(args.pop(name)))
     if shape is None:
         body = args
-    return spec.method, path, body or None
+    if not body:
+        # A POST with no arguments still sends its (empty) object: a route
+        # that reads a body refuses none at all.
+        body = {} if spec.method in ("POST", "PUT") else None
+    return spec.method, path, body

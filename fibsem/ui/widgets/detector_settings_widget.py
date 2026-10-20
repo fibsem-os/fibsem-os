@@ -1,5 +1,3 @@
-import logging
-
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QComboBox,
@@ -15,6 +13,7 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, FibsemDetectorSettings, Parameter
 from fibsem.ui.utils import install_wheel_blocker
 from fibsem.ui.widgets.form_builder import parameter_spec
+from fibsem.workflows.actions import record_operator_action
 
 
 class _LabeledSlider(QWidget):
@@ -149,45 +148,35 @@ class FibsemDetectorSettingsWidget(QWidget):
         self.microscope.set_detector_type(detector_type, self.beam_type)
         # the modes depend on the type: the device has read them again
         self._populate_modes()
-        logging.debug(
-            {
-                "msg": "_on_type_changed",
-                "beam_type": self.beam_type.name,
-                "detector_type": detector_type,
-            }
-        )
+        self._record("detector type", "type", detector_type)
         self.settings_changed.emit(self.get_settings())
 
     def _on_mode_changed(self, mode: str):
         if not mode:
             return
         self.microscope.set_detector_mode(mode, self.beam_type)
-        logging.debug(
-            {"msg": "_on_mode_changed", "beam_type": self.beam_type.name, "mode": mode}
-        )
+        self._record("detector mode", "mode", mode)
         self.settings_changed.emit(self.get_settings())
 
     def _on_brightness_changed(self, value: float):
         self.microscope.set_detector_brightness(value, self.beam_type)
-        logging.debug(
-            {
-                "msg": "_on_brightness_changed",
-                "beam_type": self.beam_type.name,
-                "brightness": value,
-            }
-        )
+        self._record("brightness", "brightness", value)
         self.settings_changed.emit(self.get_settings())
 
     def _on_contrast_changed(self, value: float):
         self.microscope.set_detector_contrast(value, self.beam_type)
-        logging.debug(
-            {
-                "msg": "_on_contrast_changed",
-                "beam_type": self.beam_type.name,
-                "contrast": value,
-            }
-        )
+        self._record("contrast", "contrast", value)
         self.settings_changed.emit(self.get_settings())
+
+    def _record(self, label: str, setting: str, value) -> None:
+        record_operator_action(
+            self.microscope,
+            f"Set the {self.beam_type.name} {label}",
+            via="Detector settings",
+            beam=self.beam_type.name,
+            setting=setting,
+            value=value,
+        )
 
     # ------------------------------------------------------------------
     # Public API

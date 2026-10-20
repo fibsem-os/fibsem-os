@@ -299,3 +299,32 @@ def test_the_drawn_patterns_are_announced_until_they_are_removed(microscope):
     milling.prepare(_recipe(), [_rectangle()])
     microscope.clear_patterns()
     assert seen == [2, 3, 0, 1, 0]
+
+
+def test_the_estimate_takes_stages_before_anything_is_drawn(microscope):
+    """Round 10 (FIB-1496): the estimate only answered for what was drawn."""
+    from fibsem.milling import FibsemMillingStage
+
+    stage = FibsemMillingStage(name="Rough")
+    answer = microscope.milling.estimate_time(stages=[stage])
+    seconds = Milling.estimate_stage(stage)
+    assert answer == {
+        "seconds": seconds,
+        "stages": [{"name": "Rough", "seconds": seconds}],
+    }
+
+
+def test_the_demo_can_mill_in_proportion_to_the_estimate(microscope, monkeypatch):
+    """Off by default (a few seconds a pattern); with the scale set, a fraction
+    of the sputter-rate estimate, so a stop can be tried mid-mill."""
+    from fibsem.drivers.demo.services import SIM_MILL_SCALE
+    from fibsem.milling.base import estimate_volume_time
+
+    milling = microscope.milling
+    milling.prepare(_recipe(), [_rectangle()])
+    assert milling.estimate_time()["seconds"] == 5
+    monkeypatch.setenv(SIM_MILL_SCALE, "0.5")
+    current = microscope.get_beam_current(microscope.milling_channel)
+    assert milling.estimate_time()["seconds"] == pytest.approx(
+        0.5 * estimate_volume_time(_rectangle().volume, current)
+    )

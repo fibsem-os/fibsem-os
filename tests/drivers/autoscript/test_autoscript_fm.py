@@ -40,6 +40,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.drivers.autoscript import recording_env
+
 SCRIPT = Path(__file__).parents[2] / "fixtures" / "autoscript_fm_parity.py"
 # What the old class did in each case, keyed as the cases are.
 PINS = json.loads(
@@ -55,7 +57,7 @@ FM_VIEW = 3
 @pytest.fixture(scope="module")
 def recorded(tmp_path_factory):
     out = tmp_path_factory.mktemp("autoscript_fm") / "recording.json"
-    env = dict(os.environ, FIBSEM_SIM_NO_DELAY="1")
+    env = recording_env()
     result = subprocess.run(
         [sys.executable, str(SCRIPT), str(out)],
         env=env,

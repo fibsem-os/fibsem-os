@@ -413,7 +413,7 @@ class RecentActions:
     def _on_note(self, record, p, agent):
         if agent:
             return self._on_agent_note(record, p, agent)
-        if record.get("actor") == OPERATOR:
+        if record.get("actor") == OPERATOR and p.get("id"):
             return self._on_operator_message(record, p, agent)
         return False
 

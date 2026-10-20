@@ -6,7 +6,6 @@ import os
 import pytest
 from psygnal.containers import EventedDict
 
-from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
@@ -15,6 +14,7 @@ from fibsem.structures import MicroscopeState, Point
 from fibsem.workflows.event_recording import ProposalTap
 from fibsem.workflows.events import EventBuffer
 from fibsem.workflows.proposals import (
+    POINT_OF_INTEREST,
     STATE,
     DecisionOutcome,
     Proposal,

@@ -7,7 +7,9 @@ change only through the microscope's beam methods, so through the beam devices.
 Nothing on the Demo ends a mill but the clock, so a ``run`` is timed by the estimate
 it starts with, on simulated time: each wait is ``sim_sleep``, which the test suite
 turns off, and the time counts as it would have passed. A ``start`` alone runs until
-something stops it.
+something stops it. Each pattern takes a few seconds, or, with
+``FIBSEM_SIM_MILL_SCALE`` set, that fraction of the sputter-rate estimate for what
+is drawn, so a stop can be tried mid-mill (FIB-1496).
 
 `DemoSpotBurn` is the shared point-by-point burn, also on simulated time.
 """
@@ -15,6 +17,7 @@ something stops it.
 from __future__ import annotations
 
 import logging
+import os
 from typing import TYPE_CHECKING, Optional
 
 from fibsem._timing import sim_sleep
@@ -23,6 +26,7 @@ from fibsem.drivers.demo.simulator import (
     SIM_ASYNC_MILLING_EXTRA_TIME,
     SIMULATOR_SCAN_DIRECTIONS,
 )
+from fibsem.milling.base import estimate_volume_time
 from fibsem.milling.progress import MillingProgress
 from fibsem.services.milling import Milling, bind_milling, progress_update
 from fibsem.services.spot_burn import SpotBurn, bind_spot_burn
@@ -40,6 +44,8 @@ if TYPE_CHECKING:
 _PATTERNING_MODES = ("Serial", "Parallel")
 # simulated seconds each pattern takes
 _PATTERN_TIME = 5
+# set to mill for this fraction of the sputter-rate estimate instead
+SIM_MILL_SCALE = "FIBSEM_SIM_MILL_SCALE"
 
 
 class DemoMilling(Milling):
@@ -165,12 +171,25 @@ class DemoMilling(Milling):
 
     def _estimate(self) -> float:
         estimate = _PATTERN_TIME * len(self.connection.milling_system.patterns)
+        scale = _mill_scale()
+        if scale:
+            microscope = self.parent
+            current = microscope.get_beam_current(microscope.milling_channel)
+            volume = sum(p.volume for p in self.drawn_patterns)
+            estimate = scale * estimate_volume_time(volume, current)
         if self._open_ended and self.read_state() in ACTIVE_MILLING_STATES:
             estimate += SIM_ASYNC_MILLING_EXTRA_TIME
         return estimate
 
     def _clear(self) -> None:
         self.connection.milling_system.patterns = []
+
+
+def _mill_scale() -> float:
+    try:
+        return max(0.0, float(os.environ.get(SIM_MILL_SCALE) or 0))
+    except ValueError:
+        return 0.0
 
 
 def bind_demo_milling(microscope: DemoMicroscope) -> Optional[DemoMilling]:

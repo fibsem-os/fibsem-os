@@ -373,6 +373,7 @@ def build_device_router(
     refuse: Optional[Refuse] = None,
     long_commands: bool = False,
     adopt_control: Optional[Callable[[Request], Optional[Callable[[], None]]]] = None,
+    paths: Optional[Callable[[Mapping[str, Any]], Dict[str, Any]]] = None,
 ) -> APIRouter:
     """The ``/devices`` routes over whatever *devices* returns, by name.
 
@@ -386,7 +387,9 @@ def build_device_router(
     *on_image* is given each image a command acquired, before it is answered: the
     App Server shows it in the app's views (FIB-1375). *refuse* says why a write
     or a command is never allowed here (403 ``not_allowed``), and the listings
-    mark those (``agent: false``): the App Server's allowlist.
+    mark those (``agent: false``): the App Server's allowlist. *paths* reads a
+    command's or query's relative paths where they belong (the App Server: in the
+    open experiment), before *refuse* checks them.
 
     With *long_commands*, a command marked ``long`` answers at once with its run
     and runs on, and ``GET {prefix}/{name}/run`` reads the service's latest run
@@ -541,6 +544,8 @@ def build_device_router(
         method = getattr(d, command)
         what = f"{noun} {device}.{command}"
         kwargs = run(lambda: decode_kwargs(method, body.get("kwargs", {})), what)
+        if paths is not None:
+            kwargs = paths(kwargs)
         check(d, "command", command, kwargs)
         if long_commands and d.commands[command].long:
             release = adopt_control(request) if adopt_control is not None else None
@@ -624,6 +629,8 @@ def build_device_router(
         method = getattr(d, query)
         what = f"{noun} {device}.{query}"
         kwargs = run(lambda: decode_kwargs(method, body.get("kwargs", {})), what)
+        if paths is not None:
+            kwargs = paths(kwargs)
         check(d, "query", query, kwargs)
         result = run(lambda: method(**kwargs), what)
         # A query is asked by an agent: an image (a pattern preview) comes back

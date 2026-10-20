@@ -27,6 +27,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.drivers.autoscript import recording_env
 from tests.fixtures.autoscript_recording import load
 from tests.fixtures.demoted_messages import as_logged_now
 
@@ -60,7 +61,7 @@ ANGULAR_KEYS = ["angular_correction_angle", "angular_correction_tilt_correction"
 @pytest.fixture(scope="module")
 def recording(tmp_path_factory):
     out = tmp_path_factory.mktemp("autoscript_beam") / "recording.json"
-    env = dict(os.environ, FIBSEM_SIM_NO_DELAY="1")
+    env = recording_env()
     result = subprocess.run(
         [sys.executable, str(SCRIPT), str(out)],
         env=env,

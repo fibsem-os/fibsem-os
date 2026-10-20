@@ -16,7 +16,6 @@ pytest.importorskip("fastapi")
 httpx = pytest.importorskip("httpx")
 
 from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
-from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST  # noqa: E402
 from fibsem.applications.autolamella.server.context import (  # noqa: E402
     AutoLamellaAppContext,
 )
@@ -24,6 +23,7 @@ from fibsem.server import AuthConfig  # noqa: E402
 from fibsem.server.hosting import AppServerHost  # noqa: E402
 from fibsem.structures import BeamType  # noqa: E402
 from fibsem.workflows.attention import Attention  # noqa: E402
+from fibsem.workflows.proposals import POINT_OF_INTEREST  # noqa: E402
 from fibsem.workflows.session import AppSession  # noqa: E402
 from tests.autolamella.test_select_position_asks import (  # noqa: E402, F401
     SETUP,

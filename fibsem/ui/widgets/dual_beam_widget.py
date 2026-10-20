@@ -15,6 +15,7 @@ from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.widgets.beam_widget import FibsemBeamWidget
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel
+from fibsem.workflows.actions import record_operator_action
 
 
 class FibsemDualBeamWidget(QWidget):
@@ -172,19 +173,23 @@ class FibsemDualBeamWidget(QWidget):
         bt = self.beam_type
         if self.microscope.is_on(bt):
             self.microscope.turn_off(bt)
+            what = f"Turn the {bt.name} beam off"
         else:
             self.microscope.turn_on(bt)
+            what = f"Turn the {bt.name} beam on"
         self.sync_beam_status()
-        logging.debug({"msg": "_on_beam_on_clicked", "beam_type": bt.name})
+        record_operator_action(self.microscope, what, via="Beam on/off", beam=bt.name)
 
     def _on_beam_blanked_clicked(self):
         bt = self.beam_type
         if self.microscope.is_blanked(bt):
             self.microscope.unblank(bt)
+            what = f"Unblank the {bt.name} beam"
         else:
             self.microscope.blank(bt)
+            what = f"Blank the {bt.name} beam"
         self.sync_beam_status()
-        logging.debug({"msg": "_on_beam_blanked_clicked", "beam_type": bt.name})
+        record_operator_action(self.microscope, what, via="Blank/unblank", beam=bt.name)
 
     def _on_refresh_clicked(self):
         self.sync_from_microscope()

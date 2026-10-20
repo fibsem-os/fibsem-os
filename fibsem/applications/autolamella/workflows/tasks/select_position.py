@@ -9,19 +9,30 @@ import numpy as np
 
 from fibsem import constants
 from fibsem.applications.autolamella.poses import sync_fluorescence_pose
-from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.applications.autolamella.workflows.tasks.fiducial import (
     sync_fiducial_to_alignment_area,
 )
-from fibsem.structures import BeamType, Display, ImageSettings, Point, param
+from fibsem.structures import (
+    BeamType,
+    Display,
+    FibsemStagePosition,
+    ImageSettings,
+    Point,
+    param,
+)
 from fibsem.workflows.proposals import (
     ALIGNMENT_AREA,
     DETECTION,
+    POINT_OF_INTEREST,
     STATE,
     DecisionOutcome,
 )
+
+# How far the confirmed position may be from the one imaged before the view
+# is imaged again, in metres.
+MOVED_TOL = 0.5e-6
 
 
 @dataclass
@@ -189,14 +200,27 @@ class SelectMillingPositionTask(AutoLamellaTask):
         # The position as arrived at is the proposal; the position as it stands
         # when Continue is pressed is the decision, so the move the operator
         # made is the delta.
-        self.ask(
+        asked_at = self.microscope.get_stage_position()
+        decision = self.ask(
             STATE,
-            {"stage_position": self.microscope.get_stage_position()},
+            {"stage_position": asked_at},
             image=self._last_fib_image_file(),
             message=msg,
             decided=self._stage_position_now,
             enabled=self.config.confirm_position,
         )
+        confirmed_at = decision.values.get("stage_position")
+        if isinstance(confirmed_at, FibsemStagePosition) and not confirmed_at.is_close2(
+            asked_at, tol=MOVED_TOL, axes=["x", "y", "z"]
+        ):
+            # Moved since the image was taken: the point of interest, the
+            # alignment area and the fiducial are placed on this view, not that
+            # one (FIB-1494).
+            self._acquire_reference_image(
+                image_settings=self.image_settings,
+                filename=f"ref_{self.task_name}_position",
+                field_of_view=self.config.reference_imaging.field_of_view1,
+            )
 
         self._select_poi()
 

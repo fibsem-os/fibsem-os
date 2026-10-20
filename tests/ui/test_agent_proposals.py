@@ -19,7 +19,6 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST  # noqa: E402
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
@@ -45,7 +44,12 @@ from fibsem.structures import (  # noqa: E402
 )
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.events import EventBuffer  # noqa: E402
-from fibsem.workflows.proposals import Decision, DecisionOutcome, Proposal  # noqa: E402
+from fibsem.workflows.proposals import (  # noqa: E402
+    POINT_OF_INTEREST,  # noqa: E402
+    Decision,
+    DecisionOutcome,
+    Proposal,
+)
 from fibsem.workflows.status import TaskStatus  # noqa: E402
 from tests.fixtures.main_window import close_window  # noqa: E402
 from tests.proposal_records import set_proposals  # noqa: E402

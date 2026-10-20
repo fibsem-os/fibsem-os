@@ -7,6 +7,7 @@ from fibsem.applications.volume.experiment import VolumeExperiment
 from fibsem.applications.volume.position import FIB_REFERENCE, SEM_REFERENCE
 from fibsem.applications.volume.tasks import milling as milling_module
 from fibsem.structures import BeamType, ImageSettings, Point
+from fibsem.workflows import task as task_module
 
 
 @pytest.fixture(scope="module")
@@ -43,7 +44,7 @@ def position(experiment, microscope):
 
 @pytest.fixture
 def milled(monkeypatch):
-    """The configs the milling task hands to the mill."""
+    """The configs the slice task and the shared milling loop hand to the mill."""
     configs = []
     real = milling_module.run_milling_task
 
@@ -52,4 +53,5 @@ def milled(monkeypatch):
         return real(microscope, config, **kwargs)
 
     monkeypatch.setattr(milling_module, "run_milling_task", run)
+    monkeypatch.setattr(task_module, "run_milling_task", run)
     return configs

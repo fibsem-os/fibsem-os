@@ -15,7 +15,7 @@ microscope_busy`` naming who, rather than interleaved or queued.
 import hmac
 import json
 import logging
-from typing import Any, Callable, Mapping, Optional
+from typing import Any, Callable, Dict, Mapping, Optional
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler
@@ -121,6 +121,13 @@ def _refuse(app_context) -> Callable[[Any, str, str, Mapping[str, Any]], Optiona
     return refuse
 
 
+def _in_experiment(app_context) -> Callable[[Mapping[str, Any]], Dict[str, Any]]:
+    """A command's or query's relative paths, read inside the open experiment."""
+    return lambda kwargs: allowlist.in_experiment(
+        kwargs, lambda: getattr(app_context, "experiment_path", None)
+    )
+
+
 def _not_allowed(microscope: FibsemMicroscope) -> Callable[[str, str], Optional[str]]:
     """Why a route call is on the allowlist's block list (a device or service
     write or command), or None: for a request, before it is filed. Its
@@ -197,12 +204,20 @@ async def _stop_reason(request: Request):
         body = None
     reason = body.get("reason") if isinstance(body, dict) else None
     if not isinstance(reason, str) or not reason.strip():
+        kwargs = body.get("kwargs") if isinstance(body, dict) else None
+        misplaced = isinstance(kwargs, dict) and "reason" in kwargs
         raise HTTPException(
             status_code=422,
             detail={
                 "error_type": "missing_reason",
                 "message": "Pass a reason with a stop: the operator reads why "
-                "the agent stopped it.",
+                "the agent stopped it."
+                + (
+                    ' It goes beside kwargs, not inside them: {"kwargs": {}, '
+                    '"reason": "..."}.'
+                    if misplaced
+                    else ""
+                ),
             },
         )
     own = _agents_own_action(request)
@@ -563,6 +578,7 @@ def build_server(
 
     app.include_router(base)
     refuse = _refuse(app_context)
+    paths = _in_experiment(app_context)
     # The analysis services read saved data and use no device, so they are
     # served with or without the microscope: reads and queries at Watch, a
     # command at Drive with no control taken, and the same allowlist.
@@ -574,6 +590,7 @@ def build_server(
             command=[Depends(_drive)],
             prefix=SERVICES,
             refuse=refuse,
+            paths=paths,
             noun="service",
         )
     )
@@ -591,6 +608,7 @@ def build_server(
                 command=[Depends(_device_command_gate), Depends(_stop_reason)],
                 prefix=MICROSCOPE + "/devices",
                 refuse=refuse,
+                paths=paths,
                 on_image=lambda image: _show_in_app(microscope, image),
             )
         )
@@ -605,6 +623,7 @@ def build_server(
                 command=[Depends(_device_command_gate), Depends(_stop_reason)],
                 prefix=MICROSCOPE + "/services",
                 refuse=refuse,
+                paths=paths,
                 noun="service",
                 on_image=lambda image: _show_in_app(microscope, image),
                 long_commands=True,
@@ -658,6 +677,9 @@ def build_server(
             not_allowed=_not_allowed(microscope) if serve_microscope else None,
             experiment_path=lambda: getattr(app_context, "experiment_path", None),
             experiment=getattr(app_context, "recording_experiment", None),
+            path_refused=lambda kwargs: allowlist.path_outside(
+                paths(kwargs), lambda: getattr(app_context, "experiment_path", None)
+            ),
         )
         app.include_router(build_request_router(app.state.requests))
     return app

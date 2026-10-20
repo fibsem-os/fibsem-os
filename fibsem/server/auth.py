@@ -231,13 +231,30 @@ def _dashboard_refused() -> HTTPException:
     )
 
 
-def _level_detail(auth: AuthConfig, needed: AgentLevel) -> dict:
+# A decision the agent puts to the operator at Assist, rather than in a request.
+_SUGGESTED_AT_ASSIST = "/app/workflow/decide"
+
+
+def _level_detail(auth: AuthConfig, needed: AgentLevel, path: str = "") -> dict:
     if auth.stopped:
         return {
             "error_type": "agent_stopped",
             "level": AgentLevel.WATCH.value,
             "message": "The operator stopped the agent and set it to Watch: it "
             "can look and add notes, but not act, until they raise the level.",
+        }
+    if (
+        auth.level is AgentLevel.ASSIST
+        and needed is AgentLevel.DRIVE
+        and path.endswith(_SUGGESTED_AT_ASSIST)
+    ):
+        return {
+            "error_type": "ask_first",
+            "level": AgentLevel.ASSIST.value,
+            "message": "At Assist the operator decides proposals, your own "
+            "requests included: suggest a task's decision (proposal_suggest, POST "
+            "/app/workflow/proposals/suggest) with your reason, and the operator "
+            "approves or declines it in AutoLamella.",
         }
     if auth.level is AgentLevel.ASSIST and needed is AgentLevel.DRIVE:
         return {
@@ -289,7 +306,9 @@ def require_level(needed: AgentLevel):
                 },
             )
         if not (auth.reaches(needed) or lent):
-            raise HTTPException(status_code=403, detail=_level_detail(auth, needed))
+            raise HTTPException(
+                status_code=403, detail=_level_detail(auth, needed, request.url.path)
+            )
 
     return dependency
 

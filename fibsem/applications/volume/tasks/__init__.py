@@ -14,6 +14,12 @@ from fibsem.applications.volume.tasks.milling import (
     VolumeFIBMillingTask,
     VolumeFIBMillingTaskConfig,
 )
+from fibsem.applications.volume.tasks.setup import (
+    VolumeSetupImagingTask,
+    VolumeSetupImagingTaskConfig,
+    VolumeSetupMillingTask,
+    VolumeSetupMillingTaskConfig,
+)
 from fibsem.plugins.loader import PluginRegistry, subclass_of
 from fibsem.workflows.task_config import TaskConfig, load_task_configs
 
@@ -29,6 +35,10 @@ __all__ = [
     "VolumeFIBMillingTaskConfig",
     "VolumeSEMAcquisitionTask",
     "VolumeSEMAcquisitionTaskConfig",
+    "VolumeSetupImagingTask",
+    "VolumeSetupImagingTaskConfig",
+    "VolumeSetupMillingTask",
+    "VolumeSetupMillingTaskConfig",
     "VolumeTask",
     "get_volume_tasks",
     "load_volume_task_configs",
@@ -37,7 +47,12 @@ __all__ = [
 
 BUILTIN_VOLUME_TASKS: Dict[str, Type[VolumeTask]] = {
     cls.config_cls.task_type: cls
-    for cls in (VolumeFIBMillingTask, VolumeSEMAcquisitionTask)
+    for cls in (
+        VolumeSetupMillingTask,
+        VolumeSetupImagingTask,
+        VolumeFIBMillingTask,
+        VolumeSEMAcquisitionTask,
+    )
 }
 
 VOLUME_TASK_ENTRY_POINT_GROUP = "fibsem.volume.tasks"

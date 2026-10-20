@@ -22,7 +22,6 @@ from psygnal.containers import EventedDict
 from PyQt5.QtCore import QCoreApplication, QEvent
 
 from fibsem.acting import ActorKind
-from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
@@ -39,6 +38,7 @@ from fibsem.structures import BeamType, FibsemRectangle, FibsemStagePosition
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import (
     ALIGNMENT_AREA,
+    POINT_OF_INTEREST,
     STATE,
     Decision,
     DecisionOutcome,

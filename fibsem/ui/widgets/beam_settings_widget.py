@@ -1,5 +1,3 @@
-import logging
-
 import numpy as np
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
@@ -24,6 +22,7 @@ from fibsem.ui.widgets.form_builder import (
     configure_spinbox,
     parameter_spec,
 )
+from fibsem.workflows.actions import record_operator_action
 
 # Working-distance step per Shift+scroll notch (mm). 1 um — fine focus control.
 WD_WHEEL_STEP_MM = 0.001
@@ -197,47 +196,29 @@ class FibsemBeamSettingsWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _on_hfw_changed(self, value: float):
-        self.microscope.set_field_of_view(self._to_si("hfw", value), self.beam_type)
-        logging.debug(
-            {"msg": "_on_hfw_changed", "beam_type": self.beam_type.name, "hfw": value}
-        )
+        hfw = self._to_si("hfw", value)
+        self.microscope.set_field_of_view(hfw, self.beam_type)
+        self._record("field width", "hfw", hfw)
         self.settings_changed.emit(self.get_settings())
 
     def _on_dwell_time_changed(self, value: float):
-        self.microscope.set_dwell_time(self._to_si("dwell_time", value), self.beam_type)
-        logging.debug(
-            {
-                "msg": "_on_dwell_time_changed",
-                "beam_type": self.beam_type.name,
-                "dwell_time": value,
-            }
-        )
+        dwell_time = self._to_si("dwell_time", value)
+        self.microscope.set_dwell_time(dwell_time, self.beam_type)
+        self._record("dwell time", "dwell_time", dwell_time)
         self.settings_changed.emit(self.get_settings())
 
     def _on_resolution_changed(self, index: int):
         resolution = self.resolution_combo.itemData(index)
         if resolution is not None:
             self.microscope.set_resolution(resolution, self.beam_type)
-            logging.debug(
-                {
-                    "msg": "_on_resolution_changed",
-                    "beam_type": self.beam_type.name,
-                    "resolution": resolution,
-                }
-            )
+            self._record("resolution", "resolution", list(resolution))
             self.settings_changed.emit(self.get_settings())
 
     def _on_beam_current_changed(self, index: int):
         current = self.beam_current_combo.itemData(index)
         if current is not None:
             self.microscope.set_beam_current(current, self.beam_type)
-            logging.debug(
-                {
-                    "msg": "_on_beam_current_changed",
-                    "beam_type": self.beam_type.name,
-                    "current": current,
-                }
-            )
+            self._record("beam current", "current", current)
             self.settings_changed.emit(self.get_settings())
 
     def _on_beam_voltage_changed(self, index: int):
@@ -245,13 +226,7 @@ class FibsemBeamSettingsWidget(QWidget):
         if voltage is not None:
             self.microscope.set_beam_voltage(voltage, self.beam_type)
             self._populate_currents()  # the current choices follow the voltage
-            logging.debug(
-                {
-                    "msg": "_on_beam_voltage_changed",
-                    "beam_type": self.beam_type.name,
-                    "voltage": voltage,
-                }
-            )
+            self._record("beam voltage", "voltage", voltage)
             self.settings_changed.emit(self.get_settings())
 
     def _on_preset_changed(self, index: int):
@@ -270,13 +245,7 @@ class FibsemBeamSettingsWidget(QWidget):
         worker.start()
 
     def _on_preset_applied(self, preset: str) -> None:
-        logging.debug(
-            {
-                "msg": "_on_preset_changed",
-                "beam_type": self.beam_type.name,
-                "preset": preset,
-            }
-        )
+        self._record("preset", "preset", preset)
         self.settings_changed.emit(self.get_settings())
 
     def _on_preset_failed(self, preset: str, exc: Exception) -> None:
@@ -298,13 +267,7 @@ class FibsemBeamSettingsWidget(QWidget):
     def _on_working_distance_changed(self, value: float):
         wd = self._to_si("working_distance", value)
         self.microscope.set_working_distance(wd, self.beam_type)
-        logging.debug(
-            {
-                "msg": "_on_working_distance_changed",
-                "beam_type": self.beam_type.name,
-                "working_distance": wd,
-            }
-        )
+        self._record("working distance", "working_distance", wd)
         self.settings_changed.emit(self.get_settings())
 
     # ------------------------------------------------------------------
@@ -341,18 +304,24 @@ class FibsemBeamSettingsWidget(QWidget):
         """Apply the settled Shift+scroll target to hardware. No large-change confirmation —
         WD is beam focus (lens), not a physical objective, so a big move isn't a collision risk."""
         target_m = self._to_si("working_distance", self._wd_wheel_target_mm)
-        logging.debug(
-            {
-                "msg": "_on_canvas_scroll",
-                "beam_type": self.beam_type.name,
-                "working_distance": target_m,
-            }
-        )
         self.microscope.set_working_distance(target_m, self.beam_type)
+        self._record(
+            "working distance", "working_distance", target_m, via="Shift+scroll"
+        )
         self._set_working_distance_spinbox(
             self.microscope.get_working_distance(self.beam_type)
         )
         self.settings_changed.emit(self.get_settings())
+
+    def _record(self, label: str, setting: str, value, via: str = "Beam settings"):
+        record_operator_action(
+            self.microscope,
+            f"Set the {self.beam_type.name} {label}",
+            via=via,
+            beam=self.beam_type.name,
+            setting=setting,
+            value=value,
+        )
 
     def _set_working_distance_spinbox(self, wd_m: float) -> None:
         """Set the WD spinbox from a value in metres without triggering a hardware move."""
@@ -361,40 +330,21 @@ class FibsemBeamSettingsWidget(QWidget):
         self.working_distance_spinbox.blockSignals(False)
 
     def _on_scan_rotation_changed(self, value: float):
-        self.microscope.set_scan_rotation(
-            self._to_si("scan_rotation", value), self.beam_type
-        )
-        logging.debug(
-            {
-                "msg": "_on_scan_rotation_changed",
-                "beam_type": self.beam_type.name,
-                "rotation": value,
-            }
-        )
+        rotation = self._to_si("scan_rotation", value)
+        self.microscope.set_scan_rotation(rotation, self.beam_type)
+        self._record("scan rotation", "scan_rotation", rotation)
         self.settings_changed.emit(self.get_settings())
 
     def _on_shift_changed(self):
         shift = self._read_point("shift")
         self.microscope.set_beam_shift(shift, self.beam_type)
-        logging.debug(
-            {
-                "msg": "_on_shift_changed",
-                "beam_type": self.beam_type.name,
-                "shift": shift,
-            }
-        )
+        self._record("beam shift", "shift", shift.to_dict())
         self.settings_changed.emit(self.get_settings())
 
     def _on_stigmation_changed(self):
         stigmation = self._read_point("stigmation")
         self.microscope.set_stigmation(stigmation, self.beam_type)
-        logging.debug(
-            {
-                "msg": "_on_stigmation_changed",
-                "beam_type": self.beam_type.name,
-                "stigmation": stigmation,
-            }
-        )
+        self._record("stigmation", "stigmation", stigmation.to_dict())
         self.settings_changed.emit(self.get_settings())
 
     # ------------------------------------------------------------------

@@ -12,13 +12,14 @@ from fibsem.applications.autolamella.workflows.tasks.base import (
     ALIGNMENT_REFERENCE_IMAGE_FILENAME,
     AutoLamellaTask,
 )
-from fibsem.applications.autolamella.workflows.ui import (
-    INSTRUCTION_TIMEOUT_S,
-    _abort_requested,
-)
 from fibsem.imaging.spot import SpotBurnSettings, run_spot_burn, show_after_burn
 from fibsem.structures import BeamType, Display, Point, param
-from fibsem.workflows.interaction import ClearSpotBurn, ask
+from fibsem.workflows.interaction import (
+    INSTRUCTION_TIMEOUT_S,
+    ClearSpotBurn,
+    _abort_requested,
+    ask,
+)
 from fibsem.workflows.proposals import (
     ACTION_ACCEPT,
     ACTION_EDIT,

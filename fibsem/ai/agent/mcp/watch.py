@@ -16,7 +16,8 @@ cancelled, FIB-1283), ``COMMAND ENDED``, ``MILL STAGE STARTED`` and
 ``MILL ENDED`` (every mill, whoever started it), ``MILL READING`` (a milling
 monitor's trigger or error), task ``EVENT`` lines,
 ``WORKFLOW STARTED``, ``WORKFLOW ENDED``, ``MESSAGE`` (the operator wrote to
-the agent from its card, FIB-1423), ``GAP``, ``RESTARTED`` and
+the agent from its card, FIB-1423), ``NOTE`` (the operator kept a note on a
+grid), ``GAP``, ``RESTARTED`` and
 ``AGENT OFF``/``AGENT BACK``.
 
 It follows the whole session, not one workflow: the agent starts and stops
@@ -203,6 +204,10 @@ def _print_events(events, since, out):
             line = _reading_line(data)
             if line:
                 out(line)
+        elif kind == "note" and event.get("actor") == "operator" and not data.get("id"):
+            # A note the operator kept on an item (a grid's note), not to the agent.
+            text = " ".join(str(data.get("text", "")).split())
+            out(f"NOTE from the operator on {data.get('item_name')}: {text}")
         elif kind == "operator_message" or (
             kind == "note" and event.get("actor") == "operator"
         ):

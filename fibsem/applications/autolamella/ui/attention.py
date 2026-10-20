@@ -13,9 +13,8 @@ from typing import Callable, Optional
 from PyQt5.QtCore import QObject
 from PyQt5.QtWidgets import QApplication
 
-from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.ui.loop_proposal import LOOP_KINDS
-from fibsem.workflows.proposals import ALIGNMENT_AREA, DETECTION
+from fibsem.workflows.proposals import ALIGNMENT_AREA, DETECTION, POINT_OF_INTEREST
 
 # The kinds a task asks whose value is edited on a widget of its own.
 WIDGET_KINDS = (DETECTION, ALIGNMENT_AREA, POINT_OF_INTEREST)
@@ -128,6 +127,16 @@ class AttentionRouter(QObject):
         if hold is None:
             self._controls.set_attention(None)
             self._sounded = False
+            return
+        if getattr(hold, "agent_deciding", False):
+            # The agent at Drive decides it; it turns to Attention Required
+            # if the agent goes quiet or is stopped.
+            self._controls.set_attention(
+                "Agent deciding",
+                f"The agent is deciding: {hold.releases}. You can decide it "
+                "yourself at any time.",
+                agent=True,
+            )
             return
         self._controls.set_attention(
             "Attention Required", f"The run is waiting on you: {hold.releases}."

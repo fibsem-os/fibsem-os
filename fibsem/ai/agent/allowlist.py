@@ -108,6 +108,27 @@ def path_outside(
     return None
 
 
+def in_experiment(
+    kwargs: Mapping[str, Any], experiment_path: Callable[[], Optional[str]]
+) -> Dict[str, Any]:
+    """*kwargs* with each relative ``path`` or ``*_path`` read inside the open
+    experiment: "overviews" is the experiment's overviews folder, never one
+    beside the app. Unchanged with no experiment open."""
+    root = experiment_path()
+    kwargs = dict(kwargs)
+    if root is None:
+        return kwargs
+    for name, value in kwargs.items():
+        if (
+            (name == "path" or name.endswith("_path"))
+            and isinstance(value, str)
+            and value
+            and not os.path.isabs(value)
+        ):
+            kwargs[name] = os.path.join(root, value)
+    return kwargs
+
+
 def image_refusal(
     image: Any, experiment_path: Callable[[], Optional[str]]
 ) -> Optional[Tuple[int, str, str]]:

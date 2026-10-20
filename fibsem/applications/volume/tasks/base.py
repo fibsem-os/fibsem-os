@@ -5,17 +5,22 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING, Any, ClassVar, Optional, Type
 
+from fibsem import acquire
 from fibsem.alignment import ALIGNMENT_SUBDIR, multi_step_alignment_v2
 from fibsem.applications.volume.position import VolumePosition
-from fibsem.structures import FibsemImage
+from fibsem.structures import BeamType, FibsemImage, ImageSettings
 from fibsem.util.timestamps import now
 from fibsem.workflows.attention import Attention
+from fibsem.workflows.proposals import STATE
 from fibsem.workflows.task import BaseTask, run_folder
 from fibsem.workflows.task_config import TaskConfig
 
 if TYPE_CHECKING:
     from fibsem.applications.volume.experiment import VolumeExperiment
     from fibsem.microscope import FibsemMicroscope
+
+# The output role a task's reference images are recorded under.
+REFERENCE_ROLE = "reference"
 
 
 class VolumeTask(BaseTask):
@@ -25,6 +30,8 @@ class VolumeTask(BaseTask):
     config_cls: ClassVar[Type[TaskConfig]]
     config: TaskConfig
     item_type: ClassVar[str] = "position"
+    # False for a task run once on a position, before its slices (its setup).
+    per_slice: ClassVar[bool] = True
 
     def __init__(
         self,
@@ -76,6 +83,33 @@ class VolumeTask(BaseTask):
         self.log_status_message("MOVE_TO_POSE", f"Moving to the {name} pose.")
         self.microscope.set_microscope_state(self.position.pose(name))
         self._check_for_abort()
+
+    def _acquire_reference(
+        self, beam_type: BeamType, filename: str, field_of_view: float
+    ) -> FibsemImage:
+        """Save a reference image of the position into this run's folder."""
+        settings = ImageSettings(
+            beam_type=beam_type,
+            hfw=field_of_view,
+            path=self.output_dir,
+            filename=filename,
+            save=True,
+            autocontrast=True,
+        )
+        image = acquire.acquire_image(self.microscope, settings)
+        if beam_type is BeamType.ION:
+            self._last_fib_image = image
+        self.record_output(REFERENCE_ROLE, image)
+        return image
+
+    def _confirm_position(self, message: str) -> None:
+        """Ask the position to be confirmed as it stands, or moved first."""
+        self.ask(
+            STATE,
+            {"stage_position": self.microscope.get_stage_position()},
+            message=message,
+            decided=lambda: {"stage_position": self.microscope.get_stage_position()},
+        )
 
     def _align_to_reference(self, filename: str) -> None:
         """Align to the position's reference ``filename``. A position without

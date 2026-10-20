@@ -175,6 +175,16 @@ lists where each key went.
   `agent_stop`, `agent_stopped`, `request_applied`, `workflow_stop`,
   `agent_note` and `operator_message` are no longer written; old logs still
   read in the card, the watcher and the dashboards.
+- **The operator's beam settings and grid notes are on the record.** A change
+  at the beam and detector settings (field width, dwell time, resolution,
+  current, voltage, preset, working distance, scan rotation, shift,
+  stigmation, detector type, mode, brightness, contrast) and the beam on/off
+  and blank buttons are `action` events by the operator; they were debug log
+  lines. A grid's note, kept by the operator or the agent, is a `note` event on
+  the grid: the watcher says `NOTE from the operator on <grid>` and the
+  dashboards show it as a note, not a message to the agent. The debug log
+  lines for proposals decided, recorded Unreviewed and withdrawn are gone:
+  `proposal_decided` has them.
 - **The agent shows its evidence.** Every acting agent tool takes an optional
   `evidence`: the image it judged from, one of the experiment's or one it drew
   itself (uploaded, saved under `<experiment>/evidence/`, at most 2048 px), with

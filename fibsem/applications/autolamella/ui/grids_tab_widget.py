@@ -36,6 +36,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.acting import OPERATOR, acting
 from fibsem.applications.autolamella.structures import Experiment, Lamella
 from fibsem.applications.autolamella.tools.grid_report_pdf import (
     generate_grid_report,
@@ -52,6 +53,7 @@ from fibsem.ui.qt.threading import thread_worker
 from fibsem.ui.tokens import ERROR_COLOR, NEUTRAL_200, PANEL_COLOR, TEXT_MUTED_COLOR
 from fibsem.ui.widgets.overview_widget import MODALITY_CHIP_STYLE, VIEW_CHIP_SPACING
 from fibsem.ui.widgets.sample_loader_widget import _ICON_BTN_STYLE, ICON_INVENTORY
+from fibsem.workflows.actions import NOTE
 from fibsem.workflows.grid.naming import grid_rename_refusal, rename_grid
 from fibsem.workflows.grids import GridRecord
 
@@ -400,9 +402,13 @@ class GridsTabWidget(QWidget):
     def _on_note(self, grid: GridRecord, note: str) -> None:
         """Keep the operator's note on the record. An empty note clears it. The
         record's own field, apart from the verdict, so judging a grid again does
-        not wipe what was written about it."""
-        grid.description = note
+        not wipe what was written about it. A note (not a clearing) goes on the
+        session's record as the operator's."""
+        record = grid.set_note(note)
         self._save()
+        if record is not None and self._microscope is not None:
+            with acting(OPERATOR):
+                self._microscope.record_event(NOTE, record)
         self.refresh()
         self.experiment_changed.emit()
 
