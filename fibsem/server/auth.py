@@ -41,6 +41,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Iterator, List, Optional
 
 from fastapi import HTTPException, Request
+from starlette.requests import HTTPConnection
 
 from fibsem.acting import AGENT, current_actor
 from fibsem.ai.agent.calls import current_call
@@ -206,7 +207,7 @@ def drive_is_lent() -> bool:
     return _lent.get()
 
 
-def _bearer_token(request: Request) -> Optional[str]:
+def _bearer_token(request: HTTPConnection) -> Optional[str]:
     header = request.headers.get("Authorization")
     if header is None or not header.startswith("Bearer "):
         return None
@@ -262,7 +263,7 @@ def _dashboard_refused() -> HTTPException:
     )
 
 
-def _app_name(request: Request) -> str:
+def _app_name(request: HTTPConnection) -> str:
     """The app the operator works in, as its window names it."""
     return getattr(request.app.state, "app_name", None) or "fibsemOS"
 
@@ -320,7 +321,7 @@ def require_level(needed: AgentLevel):
     """
     needed = AgentLevel(needed)
 
-    def dependency(request: Request) -> None:
+    def dependency(request: HTTPConnection) -> None:
         auth: AuthConfig = request.app.state.auth
         token = _bearer_token(request)
         if not _matches(token, auth.token):

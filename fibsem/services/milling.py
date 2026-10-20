@@ -420,6 +420,8 @@ class Milling(Service):
     # monitor reads.
     rtm_frame = Signal(object)
 
+    remote_signals = ("notable_reading", "patterns_changed")
+
     # How often `run` looks at the instrument, in seconds.
     poll_interval: float = 1.0
     # How long after the start an idle instrument still means "not running yet"

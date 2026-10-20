@@ -17,7 +17,7 @@ import json
 import logging
 from typing import Any, Callable, Dict, Mapping, Optional
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, WebSocket
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import JSONResponse, Response
 from fastapi.routing import APIRoute
@@ -48,7 +48,12 @@ from fibsem.server.auth import (
     require_monitoring,
     take_control,
 )
-from fibsem.server.devices import ERROR_STATUS, build_device_router, refusal
+from fibsem.server.devices import (
+    ERROR_STATUS,
+    build_device_router,
+    refusal,
+    stream_events,
+)
 from fibsem.server.discovery import fibsem_folder
 from fibsem.server.models import MicroscopeStateRequest
 from fibsem.server.operator import build_operator_router
@@ -589,6 +594,25 @@ def build_server(
     @whole.get("/state", dependencies=[Depends(_watch)])
     def get_microscope_state():
         return {"microscope_state": microscope.get_microscope_state().to_dict()}
+
+    # Every device's and service's changes as they happen, in the Device Server's
+    # shape: a read, at Watch, until the level drops below it. A browser page is
+    # refused, since a websocket gets no CORS.
+    @whole.websocket("/events", dependencies=[Depends(_watch)])
+    async def microscope_events(websocket: WebSocket):
+        if "origin" in websocket.headers:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error_type": "browser_refused",
+                    "message": "The events socket refuses a browser page.",
+                },
+            )
+        await stream_events(
+            websocket,
+            {"device": microscope.devices, "service": microscope.services},
+            allowed=lambda: auth.reaches(AgentLevel.WATCH),
+        )
 
     # Restores beams and stage in their set order: Drive, and control of the
     # microscope, like any command.

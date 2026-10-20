@@ -80,6 +80,7 @@ import numpy as np
 import requests
 from psygnal import Signal
 
+from fibsem.client.events import HEARTBEAT, EventStream
 from fibsem.codec import decode
 from fibsem.devices.beam import Beam
 from fibsem.devices.chamber import Chamber
@@ -119,7 +120,6 @@ if TYPE_CHECKING:
     from fibsem.structures import DeviceEntry
 
 READ_TIMEOUT = 5.0
-HEARTBEAT = 5.0  # seconds between pings; a server silent for as long again is gone
 # Commands that stop something, which carry a reason (fibsem.server.server).
 _STOPS = frozenset(("stop", "stop_live", "cancel"))
 WRITE_TIMEOUT = 60.0  # a plasma gas change takes a while
@@ -186,34 +186,40 @@ class DeviceClient:
     ):
         """*token*, when given, goes on every HTTP request as a bearer token, for
         the App Server, which serves the same routes behind one under *root*
-        (``"/microscope"``, ``fibsem.server.server``); the event stream carries
-        none.
+        (``"/microscope"``, ``fibsem.server.server``), and on opening its event
+        stream at ``{root}/events``.
 
-        *events* False never opens the event stream, for a server that has none
-        (the App Server). Reads, writes and commands work the same; but nothing
-        signals a change made on the far side, ``cached`` is only as current as
-        this client's last read or write, metadata (limits, choices) only as
-        current as its last ``refresh_metadata()``, and ``connected``,
-        ``disconnected`` and ``reconnected`` never change or fire.
+        *events* False never opens the event stream. Reads, writes and commands
+        work the same; but nothing signals a change made on the far side,
+        ``cached`` is only as current as this client's last read or write,
+        metadata (limits, choices) only as current as its last
+        ``refresh_metadata()``, and ``connected``, ``disconnected`` and
+        ``reconnected`` never change or fire.
         """
-        self.heartbeat = heartbeat
         self.base_url = f"http://{host}:{port}{root}"
-        self.events_url = f"ws://{host}:{port}/events"
         self.events = events
         self._session = requests.Session()
         if token is not None:
             self._session.headers["Authorization"] = f"Bearer {token}"
         self._devices: Dict[str, Device] = {}
-        self._events: Optional[threading.Thread] = None
-        self._ready = threading.Event()
-        self._socket: Any = None
-        self._closing = threading.Event()
+        self._events = EventStream(
+            f"ws://{host}:{port}{root}/events",
+            self._dispatch,
+            on_open=self._opened,
+            on_lost=self.disconnected.emit,
+            headers=None if token is None else {"Authorization": f"Bearer {token}"},
+            heartbeat=heartbeat,
+        )
         # Values this client wrote whose change event hasn't come back yet. The
         # event can arrive before or after the write returns, so it is matched by
         # value, once, rather than by timing.
         self._echoes: Dict[Tuple[str, str], List[Any]] = {}
         self._echoes_lock = threading.Lock()
-        self.connected = False
+
+    @property
+    def connected(self) -> bool:
+        """The event stream is open."""
+        return self._events.connected
 
     # -- requests -------------------------------------------------------------------
 
@@ -271,53 +277,16 @@ class DeviceClient:
         """Follow the device's events. The first device starts the event stream; with
         ``wait``, until it is open, so no change is missed from here on."""
         self._devices[device.name] = device
-        if self.events and self._events is None:
-            self._events = threading.Thread(target=self._listen, daemon=True)
-            self._events.start()
-            if wait:
-                self._ready.wait(READ_TIMEOUT)
+        if self.events:
+            self._events.start(wait=READ_TIMEOUT if wait else None)
 
-    def _listen(self) -> None:
-        """Hold the event stream open; when it drops, retry until the server is back."""
-        delay, first = 0.5, True
-        while not self._closing.is_set():
-            try:
-                self._stream(resync=not first)
-                delay = 0.5  # it was up: retry quickly next time
-            except Exception as error:  # refused, dropped or timed out: all the same
-                if self.connected or first:
-                    logging.warning(f"device events from {self.base_url}: {error}")
-            finally:
-                first = False
-                if self.connected:
-                    self.connected = False
-                    self.disconnected.emit()
-                self._ready.set()
-            if self._closing.wait(delay):
-                return
-            delay = min(delay * 2, self.heartbeat)
-
-    def _stream(self, resync: bool) -> None:
-        from websockets.sync.client import connect
-
-        with connect(
-            self.events_url,
-            open_timeout=READ_TIMEOUT,
-            ping_interval=self.heartbeat,
-            ping_timeout=self.heartbeat,
-            close_timeout=self.heartbeat,  # a silent server won't answer the close
-        ) as socket:
-            self._socket = socket
-            bound = self._bind_offline()
-            if resync:
-                self._resync()
-            self.connected = True
-            self._ready.set()
-            if resync or bound:
-                logging.info(f"device events from {self.base_url} resumed")
-                self.reconnected.emit()
-            for message in socket:
-                self._dispatch(json.loads(message))
+    def _opened(self, first: bool) -> None:
+        bound = self._bind_offline()
+        if not first:
+            self._resync()
+        if not first or bound:
+            logging.info(f"device events from {self.base_url} resumed")
+            self.reconnected.emit()
 
     def _bind_offline(self) -> bool:
         """Bind the devices built while the server was down. True if there were any.
@@ -358,7 +327,7 @@ class DeviceClient:
                     )
 
     def _dispatch(self, event: Dict[str, Any]) -> None:
-        device = self._devices.get(event["device"])
+        device = self._devices.get(event.get("device"))
         param = device.parameters.get(event["parameter"]) if device else None
         if param is None:
             return
@@ -385,9 +354,7 @@ class DeviceClient:
             return False
 
     def close(self) -> None:
-        self._closing.set()
-        if self._socket is not None:
-            self._socket.close()
+        self._events.close()
         self._session.close()
 
 

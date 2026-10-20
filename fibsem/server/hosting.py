@@ -198,6 +198,7 @@ class AppServerHost:
 
         from fibsem.ai.agent.levels import AgentLevel
         from fibsem.server import AuthConfig, build_server
+        from fibsem.server.devices import WS_PROTOCOL
         from fibsem.server.discovery import (
             read_discovery_file,
             remove_discovery_file,
@@ -266,10 +267,7 @@ class AppServerHost:
             host=self._host,
             port=self._port,
             log_level="warning",
-            # No websocket support: nothing serves WS, and uvicorn's WS protocol
-            # import warns via websockets.legacy — which the test suite's
-            # warnings-as-errors policy would turn fatal inside this thread.
-            ws="none",
+            ws=WS_PROTOCOL,  # for /microscope/events
         )
         self._server = uvicorn.Server(config)
         # Signal handlers belong to the main thread, which belongs to Qt.

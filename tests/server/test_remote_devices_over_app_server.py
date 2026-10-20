@@ -113,4 +113,4 @@ def test_the_devices_send_the_token(beams, remote, port):
 
 def test_no_event_stream_is_opened(beams, remote):
     beams["electron"].parameters["hfw"].get_value()
-    assert remote._events is None
+    assert not remote._events.started

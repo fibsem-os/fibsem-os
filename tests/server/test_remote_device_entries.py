@@ -164,8 +164,8 @@ def test_disconnecting_the_microscope_closes_its_remote_clients(server, tmp_path
     microscope, _ = utils.setup_session(setup_logging=False, config_path=str(path))
     client = microscope.beams[BeamType.ELECTRON].client
     try:
-        assert not client._closing.is_set()
+        assert not client._events.closing.is_set()
         microscope.disconnect()
-        assert client._closing.is_set()
+        assert client._events.closing.is_set()
     finally:
         client.close()

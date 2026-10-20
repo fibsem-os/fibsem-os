@@ -111,6 +111,11 @@ class Transport:
         return self._resolved[0]
 
     @property
+    def bearer(self) -> str:
+        """The ``Authorization`` header's value."""
+        return f"Bearer {self._resolved[1]}"
+
+    @property
     def user_agent(self) -> str:
         return self._user_agent
 
@@ -121,9 +126,8 @@ class Transport:
         self._http.headers["User-Agent"] = user_agent
 
     def _connect(self) -> httpx.Client:
-        url, token = self._resolved
-        headers = {"Authorization": f"Bearer {token}", "User-Agent": self._user_agent}
-        return self._client(url, headers)
+        headers = {"Authorization": self.bearer, "User-Agent": self._user_agent}
+        return self._client(self.url, headers)
 
     def _client(self, url: str, headers: Dict[str, str]) -> httpx.Client:
         """The HTTP client for *url*; a test's sends to its app in process."""

@@ -716,6 +716,10 @@ class _Controllable:
     metadata_changed = Signal(str, object)
     """(parameter name, ParameterMetadata) when a parameter's metadata was refreshed."""
 
+    remote_signals: Tuple[str, ...] = ()
+    """The other signals a remote client hears, by name (``WS /events``). None that
+    carries an image or a frame."""
+
     def __init__(
         self,
         name: str,
