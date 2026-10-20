@@ -506,6 +506,29 @@ def test_the_milling_service_s_stop_ends_the_whole_task(tmp_path):
     assert [s["status"] for s in run["stages"]] == ["cancelled", "skipped", "skipped"]
 
 
+@pytest.mark.parametrize("ends", ["stopped", "failed", "finished"])
+def test_the_final_image_is_taken_only_when_the_task_finished(
+    tmp_path, monkeypatch, ends
+):
+    """No beam after a stop or a failure (FIB-1430, FIB-1508)."""
+    stages = [FibsemMillingStage(name="one")]
+    microscope, task = _task(tmp_path, stages=stages, acquire_final_image=True)
+    task.config.acquisition.acquire_sem = task.config.acquisition.acquire_fib = False
+    if ends == "stopped":
+        microscope.run_milling = lambda *a, **k: microscope.milling.stop()
+    elif ends == "failed":
+        _reject_milling(microscope)
+    images = []
+    monkeypatch.setattr(
+        "fibsem.milling.tasks.acquire.acquire_current_image",
+        lambda *a, **k: images.append(1),
+    )
+
+    task.run()
+
+    assert len(images) == (1 if ends == "finished" else 0)
+
+
 def test_the_microscope_s_stop_milling_stops_only_the_pattern(tmp_path):
     """A strategy that ends a mill on purpose (coincidence milling) stops the
     pattern through the microscope; the task goes on to its next stage."""

@@ -325,6 +325,32 @@ def test_an_agent_note_about_an_item_is_filed_under_that_item(tmp_path, microsco
     assert unnamed["item"] == {"id": "L1", "name": "01-lamella"}
 
 
+def test_a_proposal_is_filed_under_its_own_item_not_the_running_task(
+    tmp_path, microscope
+):
+    """An agent's request is the experiment's: deciding it while 01's task
+    waits does not make it 01's (FIB-1510)."""
+    ref = microscope.experiment
+    recorder = EventRecorder(microscope, experiment_path=tmp_path)
+    other = {"id": "L2", "name": "02-other"}
+    this = {"id": "L1", "name": "01-lamella"}
+    try:
+        ref.set_workflow_metadata(
+            item_id="L1", item_name="01-lamella", task_id="T1", task_name="Setup"
+        )
+        for item in (None, other, this):
+            recorder.buffer.append(
+                "proposal_decided", {"item": item, "task": "Setup"}, actor="agent"
+            )
+    finally:
+        ref.clear_workflow_metadata()
+        recorder.close()
+    request, beside, own = _written(tmp_path / EVENTS_FILENAME)
+    assert request["item"] is None and request["task"] is None
+    assert beside["item"] == other and beside["task"] is None
+    assert own["item"] == this and own["task"] == {"id": "T1", "name": "Setup"}
+
+
 def test_the_lifecycle_hook_records_every_run_it_is_registered_for(
     tmp_path, microscope
 ):
