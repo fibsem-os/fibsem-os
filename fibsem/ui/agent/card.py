@@ -509,6 +509,35 @@ class _Details(QScrollArea):
         self.setFixedHeight(height + self.horizontalScrollBar().sizeHint().height())
 
 
+def drawn_picture(image: QImage, width: int, legend: Sequence = ()) -> QPixmap:
+    """*image* *width* wide with its legend, `LEGEND_PX` on screen."""
+    from fibsem.ui.agent.previews import draw_legend
+
+    pixmap = QPixmap.fromImage(image)
+    if pixmap.width() != width:
+        pixmap = pixmap.scaledToWidth(width, Qt.SmoothTransformation)  # type: ignore
+    if legend:
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        draw_legend(painter, legend, LEGEND_PX)
+        painter.end()
+    return pixmap
+
+
+def picture_png(image: QImage, legend: Sequence = (), width: int = 560) -> bytes:
+    """The card's picture as a PNG, its legend drawn on it, at most *width*
+    wide: for the chat page."""
+    from PyQt5.QtCore import QBuffer, QByteArray, QIODevice
+
+    pixmap = drawn_picture(image, max(1, min(width, image.width())), legend)
+    data = QByteArray()
+    buffer = QBuffer(data)
+    buffer.open(QIODevice.WriteOnly)
+    pixmap.save(buffer, "PNG")
+    buffer.close()
+    return bytes(data)
+
+
 class _Picture(QLabel):
     """An image scaled to its column, its legend drawn on it; a click shows it
     at full size."""
@@ -540,18 +569,7 @@ class _Picture(QLabel):
         self.setFixedHeight(pixmap.height())
 
     def _drawn(self, width: int) -> QPixmap:
-        """The image *width* wide with its legend, `LEGEND_PX` on screen."""
-        from fibsem.ui.agent.previews import draw_legend
-
-        pixmap = QPixmap.fromImage(self._image)
-        if pixmap.width() != width:
-            pixmap = pixmap.scaledToWidth(width, Qt.SmoothTransformation)  # type: ignore
-        if self._legend:
-            painter = QPainter(pixmap)
-            painter.setRenderHint(QPainter.Antialiasing)
-            draw_legend(painter, self._legend, LEGEND_PX)
-            painter.end()
-        return pixmap
+        return drawn_picture(self._image, width, self._legend)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         if event.button() == Qt.LeftButton:  # type: ignore

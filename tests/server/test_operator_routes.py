@@ -1,6 +1,7 @@
 """The operator token and the operator's routes: what the agent chip and card do,
 from the web page or a script, and nothing the agent's token can reach."""
 
+import base64
 import os
 import socket
 import time
@@ -251,6 +252,30 @@ def test_the_agent_s_state_names_the_experiment(server):
 def test_missing_evidence_is_not_found(server):
     answer = server.get("/app/agent/evidence/0123abcd", headers=server.operator)
     assert answer.status_code == 404
+
+
+def test_the_card_s_picture_as_the_window_drew_it(server):
+    # No window, no picture.
+    assert (
+        server.get("/app/agent/pictures/request", headers=server.operator).status_code
+        == 404
+    )
+    server.session.agent.set_picture("request", b"\x89PNG fake", "Ion beam")
+    state = server.get("/app/agent", headers=server.operator).json()
+    assert state["pictures"]["request"]["image"] is True
+    picture = server.get("/app/agent/pictures/request", headers=server.operator).json()
+    assert base64.b64decode(picture["image_b64_png"]) == b"\x89PNG fake"
+    assert picture["caption"] == "Ion beam"
+    # Only a caption: why there is no picture.
+    server.session.agent.set_picture("request", None, "No ion image yet")
+    state = server.get("/app/agent", headers=server.operator).json()
+    assert state["pictures"]["request"] == {
+        "caption": "No ion image yet",
+        "image": False,
+        "version": state["pictures"]["request"]["version"],
+    }
+    server.session.agent.set_picture("request", None)
+    assert server.get("/app/agent", headers=server.operator).json()["pictures"] == {}
 
 
 def test_the_chat_page_is_served(server):

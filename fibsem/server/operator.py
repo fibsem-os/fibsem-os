@@ -8,6 +8,7 @@ calls, so both record the same thing. Behind the operator token only
 approve its own request or raise its own level.
 """
 
+import base64
 import dataclasses
 import os
 from typing import Any, Dict, Optional
@@ -57,6 +58,16 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
             "request": request.to_dict() if request is not None else None,
             "suggestion": agent.suggestion(),
             "now": agent.now(),
+            # The card's pictures: what each is, and its version to fetch.
+            "pictures": {
+                kind: {
+                    "caption": picture["caption"],
+                    "image": picture["png"] is not None,
+                    "version": picture["version"],
+                }
+                for kind in ("request", "suggestion")
+                if (picture := agent.picture(kind)) is not None
+            },
             "levels": [
                 {
                     "level": level.value,
@@ -81,6 +92,19 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
         """The card's rows: the conversation and the agent's actions, oldest
         first, as the card reads them from the record."""
         return {"rows": [dataclasses.asdict(row) for row in agent.recent()]}
+
+    @router.get("/pictures/{kind}")
+    def get_picture(kind: str):
+        """The card's picture of the waiting request or the suggestion, as
+        the window drew it: a PNG with its legend, and what it is."""
+        picture = agent.picture(kind)
+        if picture is None or picture["png"] is None:
+            raise _refused(404, "not_found", f"No {kind} picture is drawn.")
+        return {
+            "image_b64_png": base64.b64encode(picture["png"]).decode("ascii"),
+            "caption": picture["caption"],
+            "version": picture["version"],
+        }
 
     @router.get("/evidence/{evidence_id}")
     def get_evidence(evidence_id: str):

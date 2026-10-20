@@ -165,6 +165,8 @@ let state = { agent: null, rows: [] };
 const halves = { conversation: true, actions: true };
 let draft = "";
 const evidenceCache = new Map();
+const pictureCache = new Map();
+let pictureAwaited = "";
 // Kept at the newest row while the operator hasn't scrolled up from it.
 let pinned = true;
 // Reject… asks why first, as the card does.
@@ -289,6 +291,16 @@ function headerHtml() {
     </span></header>${now}`;
 }
 
+// The card's picture as the window draws it (the values on the live image),
+// else *fallback*; with only a caption, the caption says why there is none.
+function pictureHtml(kind, fallback) {
+  const p = state.agent && state.agent.pictures && state.agent.pictures[kind];
+  if (!p) return fallback;
+  const caption = p.caption ? `<div class="reason muted">${esc(p.caption)}</div>` : "";
+  if (!p.image) return (fallback || "") + caption;
+  return `<div class="evidence" data-picture="${esc(kind)}" data-version="${p.version}"><div class="frame"></div></div>${caption}`;
+}
+
 function evidenceHtml(row) {
   const id = row.evidence && row.evidence.evidence_id;
   return id ? `<div class="evidence" data-evidence="${esc(id)}"><div class="frame"></div></div>` : "";
@@ -350,7 +362,7 @@ function requestHtml(request) {
   return `<div class="request" data-request="${esc(request.request_id)}">
     <div class="title">Agent asks</div><div class="steps">${steps}</div>
     <div class="reason"><span class="muted">Why:</span> ${esc(request.reason)}</div>
-    ${request.evidence ? evidenceHtml({ evidence: { evidence_id: request.evidence } }) : ""}
+    ${pictureHtml("request", request.evidence ? evidenceHtml({ evidence: { evidence_id: request.evidence } }) : "")}
     <div class="buttons">${buttons}</div></div>`;
 }
 
@@ -364,8 +376,8 @@ function detailsHtml(details) {
 // request waits: Decline… asks why first, as Reject… does.
 function suggestionHtml(suggestion) {
   if (!suggestion || (state.agent && state.agent.request && state.agent.request.status === "pending")) return "";
-  const picture = suggestion.evidence ? evidenceHtml({ evidence: suggestion.evidence })
-    : suggestion.no_evidence ? `<div class="reason muted">${esc(suggestion.no_evidence)}</div>` : "";
+  const picture = pictureHtml("suggestion", suggestion.evidence ? evidenceHtml({ evidence: suggestion.evidence })
+    : suggestion.no_evidence ? `<div class="reason muted">${esc(suggestion.no_evidence)}</div>` : "");
   return `<div class="request" data-suggestion="${esc(suggestion.proposal_id)}">
     <div class="title">Agent suggests</div>
     <div class="muted">${esc(suggestion.proposal)}</div>
@@ -413,6 +425,7 @@ function render() {
   list.onscroll = () => { pinned = list.scrollHeight - list.scrollTop - list.clientHeight < 40; };
   wire();
   for (const el of $app.querySelectorAll("[data-evidence]")) drawEvidence(el);
+  for (const el of $app.querySelectorAll("[data-picture]")) drawPicture(el);
 }
 
 function grow(el) {
@@ -552,12 +565,36 @@ async function drawEvidence(el) {
   };
 }
 
+async function drawPicture(el) {
+  const key = `${el.dataset.picture}:${el.dataset.version}`;
+  let answer = pictureCache.get(key);
+  if (answer === undefined) {
+    answer = api(`/app/agent/pictures/${encodeURIComponent(el.dataset.picture)}`).catch(() => null);
+    pictureCache.set(key, answer);
+  }
+  answer = await answer;
+  const frame = el.querySelector(".frame");
+  if (!answer || !answer.image_b64_png || !frame) { el.remove(); return; }
+  frame.innerHTML = `<img alt="What the agent asks for, on the image" src="data:image/png;base64,${answer.image_b64_png}">`;
+  el.onclick = () => el.classList.toggle("big");
+  frame.querySelector("img").onload = () => {
+    const list = $app.querySelector(".rows");
+    if (pinned && list) list.scrollTop = list.scrollHeight;
+  };
+}
+
 async function refresh() {
   try {
     const [agent, recent] = await Promise.all([api("/app/agent"), api("/app/agent/recent")]);
     state.agent = agent;
     state.rows = recent.rows || [];
     render();
+    // The window draws a new request's picture just after it is filed.
+    const shown = agent.request ? `request:${agent.request.request_id}` : "";
+    if (shown && shown !== pictureAwaited && !(agent.pictures || {}).request) {
+      pictureAwaited = shown;
+      setTimeout(refresh, 1500);
+    }
   } catch (e) { if (TOKEN) say(e.message, true); }
 }
 
