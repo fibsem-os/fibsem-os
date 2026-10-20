@@ -213,6 +213,8 @@ def test_task_is_cancellation_classifies_stop_vs_failure(tmp_path: Path):
 
     class _NoMicroscope:
         fm = None
+        milling = None
+        spot_burn = None
 
     def _manager() -> TaskManager:
         return TaskManager(

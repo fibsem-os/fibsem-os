@@ -6,7 +6,7 @@ import uuid
 from abc import ABC
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field, fields
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
 from typing import (
@@ -298,6 +298,10 @@ class AutoLamellaTaskDescription:
         return cls(**data)
 
 
+# A task may be scheduled to start up to this many days ahead.
+SCHEDULE_DAYS_AHEAD = 2
+
+
 @evented
 @dataclass
 class AutoLamellaWorkflowConfig:
@@ -426,6 +430,34 @@ class AutoLamellaWorkflowConfig:
             task.required = bool(required)
         return ""
 
+    def set_attention(self, task_name: str, attention: Attention) -> str:
+        """Set who decides *task_name*'s record. Why not, with nothing
+        changed, or "". The status bar's and the task row's chips, and the App
+        Server's supervision."""
+        task = next((t for t in self.tasks if t.name == task_name), None)
+        if task is None:
+            return f"No task named {task_name!r} in the workflow."
+        task.attention = Attention(attention)
+        return ""
+
+    def set_schedule(self, task_name: str, scheduled_at: Optional[datetime]) -> str:
+        """Set when *task_name* may start, no more than SCHEDULE_DAYS_AHEAD
+        days from now; None clears it, and a time already past starts it at
+        once. A naive time is local. Why not, with nothing changed, or "". The
+        Workflow tab's Edit Task and the App Server's schedule."""
+        task = next((t for t in self.tasks if t.name == task_name), None)
+        if task is None:
+            return f"No task named {task_name!r} in the workflow."
+        if scheduled_at is not None and scheduled_at.astimezone() - now() > timedelta(
+            days=SCHEDULE_DAYS_AHEAD
+        ):
+            return (
+                f"{task_name} can be scheduled up to {SCHEDULE_DAYS_AHEAD} days "
+                "from now."
+            )
+        task.scheduled_at = scheduled_at
+        return ""
+
     def add_task(self, task: AutoLamellaTaskConfig) -> None:
         """Add a task to the workflow configuration."""
         self.tasks.append(
@@ -494,6 +526,18 @@ class LamellaDefaultConfig(Configurable):
     )
     alignment_area: Optional[FibsemRectangle] = None
     poi: Optional[Point] = None
+
+    def why_invalid(self) -> str:
+        """Why this template can't be used, or "" when it can: the alignment
+        area must lie inside the image, as fractions of it."""
+        aa = self.alignment_area
+        if aa is not None and not aa.is_valid_reduced_area:
+            return (
+                "The alignment area must lie inside the image: a width and "
+                "height above 0, left and top from 0, and left + width and "
+                "top + height at most 1."
+            )
+        return ""
 
     def to_dict(self) -> Dict[str, Any]:
         d: Dict[str, Any] = {
@@ -1306,6 +1350,11 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
         self.landing_positions: List[FibsemStagePosition] = []
 
         self.task_protocol: AutoLamellaTaskProtocol = None  # must be set externally
+
+    @property
+    def turns_beams_off(self) -> bool:
+        protocol = self.task_protocol
+        return protocol is not None and protocol.options.turn_beams_off
 
     def to_dict(self, include_protocol: bool = False) -> dict:
 

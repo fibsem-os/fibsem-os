@@ -46,6 +46,8 @@ def _listened(manager: TaskManager) -> TaskManager:
 def manager(tmp_path: Path) -> TaskManager:
     class _NoMicroscope:
         fm = None
+        milling = None
+        spot_burn = None
 
     experiment = Experiment(path=tmp_path, name="test-exp")
     experiment.task_protocol = AutoLamellaTaskProtocol()

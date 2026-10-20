@@ -14,7 +14,12 @@ from typing import Any, Callable, Dict, List, Optional, Protocol, Set, Tuple
 from psygnal import Signal
 
 from fibsem.acting import AGENT, OPERATOR, WORKFLOW, ActorKind
-from fibsem.cancellation import AnyStopEvent, OperationCancelledError, StopEvent
+from fibsem.cancellation import (
+    AnyStopEvent,
+    NothingToStop,
+    OperationCancelledError,
+    StopEvent,
+)
 from fibsem.control import MicroscopeBusy
 from fibsem.hooks import HookEvent, HookManager, fire_event
 from fibsem.microscope import FibsemMicroscope
@@ -48,6 +53,9 @@ class WorkflowExperiment(Protocol):
     def save(self) -> None: ...
 
     def register_metadata(self, microscope: FibsemMicroscope) -> None: ...
+
+    @property
+    def turns_beams_off(self) -> bool: ...
 
 
 # Exactly one of these ends every run (FIB-1327).
@@ -382,20 +390,26 @@ class BaseTaskManager:
         """The whole run, as whoever starts one calls it; never raises.
 
         In control of the microscope for all of it (FIB-1270), the beams it
-        needs turned on, then ``run``. A failure before the run began -- someone
+        needs turned on, then ``run``, then both beams off however it ended
+        when the experiment says so. A failure before the run began -- someone
         else in control, a beam that will not come on -- still ends the run
         with an event, so whoever was told it started sees it end (FIB-1353).
         """
         try:
             with self.microscope.control.take(WORKFLOW, self.RUN_DESCRIPTION):
-                for beam in self.beams_needed():
-                    if not self.microscope.is_on(beam):
-                        self.microscope.turn_on(beam)
-                names = self._names_for_run(names)
-                logging.info(
-                    f"Starting tasks: {task_names}, for {self.ITEM_NOUN}: {names}"
-                )
-                self.run(task_names, names)
+                try:
+                    for beam in self.beams_needed():
+                        if not self.microscope.is_on(beam):
+                            self.microscope.turn_on(beam)
+                    names = self._names_for_run(names)
+                    logging.info(
+                        f"Starting tasks: {task_names}, for {self.ITEM_NOUN}: {names}"
+                    )
+                    self.run(task_names, names)
+                finally:
+                    if self.experiment.turns_beams_off:
+                        self.microscope.turn_off(BeamType.ELECTRON)
+                        self.microscope.turn_off(BeamType.ION)
         except MicroscopeBusy as e:
             logging.warning(f"Workflow not started: {e}")
             self._end_unstarted_quietly(e)
@@ -569,8 +583,9 @@ class BaseTaskManager:
             logging.exception("reporting the end of a run that never began failed")
 
     def stop(self) -> None:
-        """Signal the manager to stop after current task completes."""
+        """End the run once the task now running unwinds, and stop its mill."""
         self._stop_event.set()
+        self._stop_milling()
 
     def stop_task(self) -> None:
         """Abandon the task now running and carry on with the rest of the queue.
@@ -584,6 +599,20 @@ class BaseTaskManager:
         is discarded rather than killing the next one.
         """
         self._task_stop_event.set()
+        self._stop_milling()
+
+    def _stop_milling(self) -> None:
+        """Stop a mill or spot burn now, through its service, rather than at
+        its next look at the task's stop."""
+        for service in (self.microscope.milling, self.microscope.spot_burn):
+            if service is None:
+                continue
+            try:
+                service.stop()
+            except NothingToStop:
+                pass
+            except Exception:
+                logging.exception("Stopping %s failed", type(service).__name__)
 
     def deciders(self) -> Tuple[ActorKind, ...]:
         """Who can decide this run's proposals now: the session's surfaces
@@ -606,7 +635,7 @@ class BaseTaskManager:
         """Whether the task now running should unwind.
 
         For the callers with no token to poll: the helpers in
-        autolamella/workflows/ui.py, which get the manager. Everything task-side
+        fibsem.workflows.status, which get the manager. Everything task-side
         reads `abort_token` instead, which answers the same question.
         """
         return self.abort_token.is_set()

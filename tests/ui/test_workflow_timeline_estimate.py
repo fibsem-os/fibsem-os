@@ -400,6 +400,9 @@ class _ParentUI(QObject):
 class _NoMicroscope:
     """Enough microscope for TaskManager's constructor; nothing is executed here."""
 
+    milling = None
+    spot_burn = None
+
     fm = None
 
 

@@ -15,7 +15,6 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.applications.autolamella.ui.grid_results_widget import (
     GridResultsWidget,
     image_for,
-    latest_runs,
     thumbnail_for,
 )
 from fibsem.applications.autolamella.ui.grids_tab_widget import GridsTabWidget
@@ -83,14 +82,14 @@ def grid(experiment):
     return grid
 
 
-def test_latest_run_per_task_leaves_the_load_out(grid):
-    assert list(latest_runs(grid)) == ["overview_sem", "overview_fm"]
+def _run(grid, task_name):
+    return next(s for s in grid.task_history if s.name == task_name)
 
 
 def test_thumbnail_is_read_off_the_recorded_outputs(experiment, grid):
-    sem = latest_runs(grid)["overview_sem"]
+    sem = _run(grid, "overview_sem")
     assert thumbnail_for(experiment, grid, sem).endswith("overview-thumbnail.png")
-    assert thumbnail_for(experiment, grid, latest_runs(grid)["overview_fm"]) is None
+    assert thumbnail_for(experiment, grid, _run(grid, "overview_fm")) is None
 
 
 def test_the_image_is_the_stitch_not_a_tile(experiment, grid):
@@ -98,7 +97,7 @@ def test_the_image_is_the_stitch_not_a_tile(experiment, grid):
     root = experiment.grid_path(grid)
     (root / "overview_sem" / "overview").mkdir()
     (root / "overview_sem" / "overview" / "tile_0_0.tif").write_bytes(b"")
-    sem = latest_runs(grid)["overview_sem"]
+    sem = _run(grid, "overview_sem")
     thumbnail = sem.outputs.pop("overview_sem_thumbnail")
     sem.outputs["overview_sem_tiles"] = ["overview_sem/overview/tile_0_0.tif"]
     sem.outputs["overview_sem_thumbnail"] = thumbnail

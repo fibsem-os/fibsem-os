@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import os
 from collections import OrderedDict
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
-import numpy as np
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtWidgets import (
@@ -20,7 +19,7 @@ from PyQt5.QtWidgets import (
 )
 from superqt import ensure_main_thread
 
-from fibsem.applications.autolamella.structures import DefectState, DefectType, Lamella
+from fibsem.applications.autolamella.structures import Lamella
 from fibsem.applications.autolamella.ui.lamella_list_widget import (
     DETAIL_FONT_PX,
     NAME_FONT_PX,
@@ -633,10 +632,6 @@ class LamellaCardContainer(QWidget):
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
-
-    def set_columns(self, n: int) -> None:
-        self._n_cols = max(1, n)
-        self._rebuild_grid()
 
     def _on_card_clicked(self, lamella: Lamella) -> None:
         prev_id = self._selected_id

@@ -18,7 +18,6 @@ from __future__ import annotations
 import logging
 import os
 from copy import deepcopy
-from datetime import datetime
 from functools import partial
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional
 
@@ -33,9 +32,9 @@ from PyQt5.QtWidgets import (
 
 from fibsem.applications.autolamella.poses import (
     FLUORESCENCE_ORIENTATION,
-    build_lamella_poses,
+    fluorescence_move,
+    move_lamella,
     remove_lamella,
-    sync_fluorescence_pose,
 )
 from fibsem.applications.autolamella.structures import (
     Experiment,
@@ -231,11 +230,6 @@ class GridPositionsWidget(QWidget):
         if not same:
             self.canvas.clear()
             self._paths = {}
-        self.refresh()
-
-    def set_stage_state(self, loaded: bool, can_load: bool) -> None:
-        self._loaded = loaded
-        self._can_load = can_load
         self.refresh()
 
     @property
@@ -452,18 +446,8 @@ class GridPositionsWidget(QWidget):
             )
             return
         if self.canvas.view == VIEW_FM:
-            if lamella.milling_pose is None:
-                notification_service.show_toast(
-                    f"{name} has no milling pose to move.", "warning"
-                )
-                return
             try:
-                poses = build_lamella_poses(
-                    microscope=microscope,
-                    position=position,
-                    state=lamella.milling_pose,
-                    marked_at=FLUORESCENCE_ORIENTATION,
-                )
+                poses = fluorescence_move(microscope, lamella, position)
             except Exception as e:  # noqa: BLE001 - said to the user, not raised
                 notification_service.show_toast(str(e), "error")
                 return
@@ -474,22 +458,9 @@ class GridPositionsWidget(QWidget):
                 f"{poses.beam.stage_position.pretty_string}.",
             ):
                 return
-            lamella.stage_position = poses.beam.stage_position
-            lamella.update_milling_angle(microscope)
-            if lamella.fluorescence_pose is None:
-                lamella.fluorescence_pose = poses.fluorescence
-            else:
-                lamella.fluorescence_pose.stage_position = (
-                    poses.fluorescence.stage_position
-                )
+            move_lamella(experiment, microscope, lamella, poses=poses)
         else:
-            lamella.stage_position = position
-            lamella.update_milling_angle(microscope)
-            sync_fluorescence_pose(microscope, lamella)
-        experiment.save()
-        # A pose written in place emits nothing on its own; the window re-marks
-        # the Overview tabs off this.
-        experiment.positions.events.changed.emit()
+            move_lamella(experiment, microscope, lamella, position)
         self.refresh()
         notification_service.show_toast(f"Moved {name}.", "info")
 

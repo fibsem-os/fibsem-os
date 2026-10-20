@@ -67,6 +67,8 @@ class _Recorder:
 
 class NoMicroscope:
     """Enough microscope to construct a TaskManager and retract the objective.
+    milling = None
+    spot_burn = None
 
     Experiment.register_metadata stamps the user and experiment ref onto it, so
     it has to be something attributes can be set on — None will not do.

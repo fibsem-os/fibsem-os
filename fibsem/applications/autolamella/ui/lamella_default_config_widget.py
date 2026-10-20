@@ -373,14 +373,8 @@ class LamellaDefaultConfigWidget(QWidget):
         )
 
     def is_valid(self) -> bool:
-        """Return False if the alignment area values are invalid."""
-        aa = FibsemRectangle(
-            left=self.aa_left.value(),
-            top=self.aa_top.value(),
-            width=self.aa_width.value(),
-            height=self.aa_height.value(),
-        )
-        return aa.is_valid_reduced_area
+        """Whether the template as entered can be used: the template's rule."""
+        return not self.get_template().why_invalid()
 
     # ------------------------------------------------------------------
     # Internal

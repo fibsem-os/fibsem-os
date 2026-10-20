@@ -111,6 +111,7 @@ def test_a_decision_runs_where_the_session_edits_the_experiment(tmp_path):
         return locked(call)
 
     session = AppSession(executor=executor)
+    Path(experiment.path).mkdir(parents=True, exist_ok=True)
     session.adopt(experiment)
     decided = []
     experiment.decided.connect(lambda *args: decided.append(args))

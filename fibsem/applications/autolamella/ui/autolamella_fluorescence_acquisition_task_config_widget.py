@@ -13,7 +13,6 @@ from fibsem.fm.structures import (
 )
 from fibsem.ui.fm.widgets import (
     AutofocusWidget,
-    ChannelSettingsWidget,
     ZParametersWidget,
 )
 from fibsem.ui.widgets.custom_widgets import TitledPanel, ValueComboBox
@@ -24,8 +23,6 @@ if TYPE_CHECKING:
 
 class AutoLamellaFluorescenceAcquisitionTaskConfigWidget(QWidget):
     channel_settings_changed = pyqtSignal(list)
-    z_parameters_changed = pyqtSignal(ZParameters)
-    autofocus_settings_changed = pyqtSignal(AutoFocusSettings)
     settings_changed = pyqtSignal(AcquireFluorescenceImageConfig)
 
     def __init__(
@@ -153,13 +150,11 @@ class AutoLamellaFluorescenceAcquisitionTaskConfigWidget(QWidget):
     def _on_z_parameters_changed(self, zparams: ZParameters):
         """Relay z-parameter updates."""
         self.config.zparams = zparams
-        self.z_parameters_changed.emit(zparams)
         self._emit_settings_changed()
 
     def _on_autofocus_settings_changed(self, autofocus_settings: AutoFocusSettings):
         """Relay autofocus settings updates."""
         self.config.autofocus_settings = autofocus_settings
-        self.autofocus_settings_changed.emit(autofocus_settings)
         self._emit_settings_changed()
 
     def _emit_settings_changed(self):

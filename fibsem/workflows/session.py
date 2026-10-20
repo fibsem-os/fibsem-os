@@ -210,14 +210,17 @@ class AppSession:
         return self.executor(call)
 
     def adopt(self, experiment: Any) -> None:
-        """Open ``experiment``: the session's, and the one its events are
-        recorded to from now on. The correlation belongs to the experiment it
-        was made in, so the next one asked for is a fresh one."""
+        """Open ``experiment``: the session's, the one its events are recorded
+        to and the one the process logs to from now on. The correlation belongs
+        to the experiment it was made in, so the next one asked for is a fresh
+        one."""
         with self._correlation_lock:
             self._correlation = None
         if self.recorder is not None:
             self.recorder.set_experiment(experiment.path, experiment)
         self.experiment = experiment
+        experiment.configure_logging()
+        logging.info(f"Logging to experiment {experiment.name} at {experiment.path}")
         self.changed.emit(EXPERIMENT)
 
     def recording_experiment(self) -> Any:
@@ -236,6 +239,23 @@ class AppSession:
                     self.plain_experiment.path, self.plain_experiment
                 )
         return self.plain_experiment
+
+    @property
+    def event_buffer(self) -> Optional[Any]:
+        """The session's event stream: the App Server's when one is hosted
+        (the recorder's, or its own without one), else the recorder's."""
+        host = self.app_server
+        if host is not None and getattr(host, "event_buffer", None) is not None:
+            return host.event_buffer
+        recorder = self.recorder
+        return recorder.buffer if recorder is not None else None
+
+    def record_event(self, kind: str, payload: Dict[str, Any]) -> None:
+        """Put an event on the session's record, as whoever marked this
+        thread; nothing without a stream."""
+        buffer = self.event_buffer
+        if buffer is not None:
+            buffer.append(kind, payload)
 
     def start_recording(self) -> None:
         """Record events for the connected microscope.

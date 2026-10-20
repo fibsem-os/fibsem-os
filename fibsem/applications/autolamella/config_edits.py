@@ -1,8 +1,9 @@
-"""An agent's edits to an experiment's configs and items, with no window.
+"""Edits to an experiment's configs and items, with no window.
 
 The App Server's config edits: patch an item's task config, the protocol's,
 or the item's own fields; reorder a milling config's stages; re-copy the
-protocol onto an item. Each runs where the experiment is edited
+protocol onto an item. The editors' copy onto other lamellae and global edit
+of the reference imaging are here too, beside the agent's. Each runs where the experiment is edited
 (``session.run_edit``), checks the version it was written against beside the
 apply, saves, and is recorded as the agent's edit (FIB-1034, FIB-1062). A
 window, when one is attached, only flushes its editors first and redraws
@@ -14,8 +15,9 @@ Each returns a plain dict: the applied changes, or a structured refusal.
 
 from __future__ import annotations
 
+import copy
 import logging
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from fibsem.acting import AGENT, acting
 from fibsem.applications.autolamella.edit_recording import (
@@ -24,6 +26,7 @@ from fibsem.applications.autolamella.edit_recording import (
 )
 from fibsem.server.config_patch import PatchError, apply_patch, check_patch
 from fibsem.workflows.events import to_plain
+from fibsem.workflows.status import TaskStatus
 
 # The item-document fields an agent may patch: what a lamella IS — geometry,
 # verdict, notes. Everything else on the object (poses, ids, paths, history)
@@ -393,11 +396,90 @@ def apply_protocol_to_item(
             "error": f"Not in the protocol: {unknown!r}.",
             "task_names": list(config_map.keys()),
         }
-    experiment.apply_lamella_config([lamella.name], names)
-    saved = _save(experiment, "protocol apply")
+    _, saved = copy_task_configs(experiment, [lamella.name], names)
     return {
         "applied": True,
         "saved": saved,
         "item_name": item_name,
         "task_names": names,
     }
+
+
+def copy_task_configs(
+    experiment,
+    lamella_names: List[str],
+    task_names: List[str],
+    source_name: Optional[str] = None,
+    update_base_protocol: bool = False,
+) -> Tuple[int, bool]:
+    """Copy *task_names*' configs onto *lamella_names*, from the protocol or
+    from lamella *source_name*, each keeping its milling pattern positions
+    (``Experiment.apply_lamella_config``), and onto the protocol too when
+    *update_base_protocol*; saved. How many lamellae were updated, and whether
+    it saved. The lamella editor's Apply to other lamellae and the App
+    Server's apply_protocol."""
+    count = experiment.apply_lamella_config(
+        lamella_names=lamella_names,
+        task_names=task_names,
+        source_lamella_name=source_name,
+        update_base_protocol=update_base_protocol,
+    )
+    return count, _save(experiment, "config apply", update_base_protocol)
+
+
+def set_reference_imaging(
+    experiment,
+    task_names: Sequence[str],
+    reference_imaging: Any,
+    milling_fov: float,
+    lamellae: Sequence[Any] = (),
+) -> Tuple[int, List[Tuple[str, str]]]:
+    """Global edit: set the reference imaging and each milling config's field
+    of view on *task_names*, the protocol's and those of each of *lamellae*
+    that has the task; saved with the protocol. Only these two settings: a
+    lamella keeps everything else it was tuned to (FIB-1071).
+
+    A lamella's task that is running is left alone: the task holds that config
+    object, so an edit would change its settings mid-run. Returns how many of
+    the protocol's tasks have milling, and the (lamella, task) pairs skipped
+    as running."""
+    milling = 0
+    skipped: List[Tuple[str, str]] = []
+    for task_name in task_names:
+        task_config = experiment.task_protocol.task_config.get(task_name)
+        if not task_config:
+            continue
+        if _set_imaging(task_config, reference_imaging, milling_fov):
+            milling += 1
+        for lamella in lamellae:
+            lamella_config = lamella.task_config.get(task_name)
+            if lamella_config is None:
+                continue
+            if _is_running(lamella, task_name):
+                skipped.append((lamella.name, task_name))
+                continue
+            _set_imaging(lamella_config, reference_imaging, milling_fov)
+    _save(experiment, "global edit", save_protocol=True)
+    return milling, skipped
+
+
+def _set_imaging(task_config: Any, reference_imaging: Any, milling_fov: float) -> bool:
+    """Set a task's reference imaging, and each milling config's field of view;
+    whether it has milling. The save path is kept: the dialog's settings carry
+    none, and a None path fails the next image saved with them."""
+    path = task_config.reference_imaging.imaging.path
+    task_config.reference_imaging = copy.deepcopy(reference_imaging)
+    task_config.reference_imaging.imaging.path = path
+    for milling_config in (task_config.milling or {}).values():
+        milling_config.field_of_view = milling_fov
+    return bool(task_config.milling)
+
+
+def _is_running(lamella: Any, task_name: str) -> bool:
+    """Whether *task_name* is the task running on *lamella* now."""
+    state = getattr(lamella, "task_state", None)
+    return (
+        state is not None
+        and state.name == task_name
+        and state.status == TaskStatus.InProgress
+    )

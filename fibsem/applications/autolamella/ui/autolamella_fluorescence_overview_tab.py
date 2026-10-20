@@ -26,7 +26,8 @@ from PyQt5.QtWidgets import QWidget
 
 from fibsem.applications.autolamella.poses import (
     FLUORESCENCE_ORIENTATION,
-    build_lamella_poses,
+    fluorescence_move,
+    move_lamella,
 )
 from fibsem.applications.autolamella.ui.overview_tab_base import (
     AutoLamellaOverviewTabBase,
@@ -133,9 +134,6 @@ class AutoLamellaFluorescenceOverviewTab(AutoLamellaOverviewTabBase):
         where the beam was going to mill it. That is usually the point -- the two describe
         one piece of sample -- but it is not visible from this canvas, which shows only
         the fluorescence side, so it gets said rather than assumed.
-
-        Not shared with the beam tab, which writes the milling pose directly and syncs
-        this one after it. See `overview_tab_base`.
         """
         experiment = self.experiment
         if experiment is None:
@@ -144,24 +142,9 @@ class AutoLamellaFluorescenceOverviewTab(AutoLamellaOverviewTabBase):
         if lamella is None:
             logger.debug(f"Cannot move {name!r}: no such lamella in the experiment.")
             return
-        if lamella.milling_pose is None:
-            notification_service.show_toast(
-                f"{name} has no milling pose to move.", "warning"
-            )
-            return
-
         try:
-            poses = build_lamella_poses(
-                microscope=self.microscope,
-                position=position,
-                objective_position=self._objective_position(),
-                # Only reaches the result in one case, and it is worth it for that one:
-                # a lamella with no fluorescence pose yet gets a whole new one below, and
-                # it should be built on what this lamella recorded rather than on
-                # whatever the microscope happens to be set to now. Everywhere else only
-                # the stage positions are read, and those come from `position`.
-                state=lamella.milling_pose,
-                marked_at=FLUORESCENCE_ORIENTATION,
+            poses = fluorescence_move(
+                self.microscope, lamella, position, self._objective_position()
             )
         except Exception as e:
             logger.error(f"Could not move {name} from the FM overview: {e}")
@@ -185,17 +168,6 @@ class AutoLamellaFluorescenceOverviewTab(AutoLamellaOverviewTabBase):
         ):
             return
 
-        # Only the stage positions are replaced, so anything else the poses carry --
-        # notably the objective position on a lamella that was focused by hand -- is
-        # kept. `stage_position` is the milling pose's, via the property.
-        lamella.stage_position = poses.beam.stage_position
-        lamella.update_milling_angle(self.microscope)
-        if lamella.fluorescence_pose is None:
-            lamella.fluorescence_pose = poses.fluorescence
-        else:
-            lamella.fluorescence_pose.stage_position = poses.fluorescence.stage_position
-
-        experiment.save()
+        move_lamella(experiment, self.microscope, lamella, poses=poses)
         self.refresh_positions()
-        experiment.positions.events.changed.emit()
         notification_service.show_toast(f"Moved {name}.", "info")

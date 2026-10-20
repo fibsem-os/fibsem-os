@@ -20,9 +20,10 @@ from typing import List, Tuple
 
 import pytest
 
-from fibsem.applications.autolamella.workflows import ui as workflow_ui
+from fibsem.applications.autolamella.workflows import tasks as autolamella_tasks
+from fibsem.workflows import status as workflow_ui
 
-# Helpers worth checking: module-level functions in workflows/ui.py that tasks call with
+# Helpers worth checking: module-level functions in workflows/status.py that tasks call with
 # keywords. Resolved dynamically so a new helper is covered without touching this test.
 _HELPERS = {
     name: obj
@@ -32,11 +33,11 @@ _HELPERS = {
     and obj.__module__ == workflow_ui.__name__
 }
 
-_TASKS_DIR = Path(workflow_ui.__file__).parent / "tasks"
+_TASKS_DIR = Path(autolamella_tasks.__file__).parent
 
 
 def _call_sites() -> List[Tuple[Path, int, str, ast.Call]]:
-    """Every call to a workflows.ui helper made from a workflow task module."""
+    """Every call to a workflows.status helper made from a workflow task module."""
     sites = []
     for path in sorted(_TASKS_DIR.rglob("*.py")):
         try:
@@ -112,7 +113,7 @@ def test_which_tasks_ask_their_detections_on_the_record():
     """Every workflow detection is asked on the record: the undercut's three
     go through ``AutoLamellaTask.detect``, and the two in
     ``align_feature_coincident`` through the ``detect`` it is handed."""
-    undercut = Path(workflow_ui.__file__).parent / "tasks" / "undercut.py"
+    undercut = _TASKS_DIR / "undercut.py"
     tree = ast.parse(undercut.read_text(encoding="utf-8"))
     asks = [
         node

@@ -1,4 +1,5 @@
 import gc
+import logging
 import os
 
 import pytest
@@ -136,6 +137,20 @@ def _isolate_plain_experiments(tmp_path_factory, monkeypatch):
     monkeypatch.setattr(
         session, "SESSIONS_PATH", str(tmp_path_factory.mktemp("sessions"))
     )
+
+
+@pytest.fixture(autouse=True)
+def _restore_root_logger():
+    """Adopting an experiment points the root logger at its logfile; put the
+    handlers back after each test and close the ones it added."""
+    root = logging.getLogger()
+    saved, level = list(root.handlers), root.level
+    yield
+    for handler in list(root.handlers):
+        if handler not in saved:
+            handler.close()
+    root.handlers = saved
+    root.setLevel(level)
 
 
 @pytest.fixture(autouse=True)

@@ -294,25 +294,92 @@ def add_lamella(
 
 
 def set_lamella_pose(
-    microscope: "FibsemMicroscope", lamella, pose_name: str, state: MicroscopeState
+    experiment,
+    microscope: "FibsemMicroscope",
+    lamella,
+    pose_name: str,
+    state: MicroscopeState,
 ) -> bool:
-    """Set *state* as the lamella's pose *pose_name*. Returns whether the
-    fluorescence pose was moved to follow it (only ever for MILLING).
+    """Set *state* as the lamella's pose *pose_name*, and save *experiment* when
+    there is one. Returns whether the fluorescence pose was moved to follow it
+    (only ever for MILLING). The Experiment tab's and the coincidence viewer's
+    Set pose, and the App Server's.
 
     The objective position of an existing pose is kept: the microscope state does
     not capture it, so replacing the pose outright would wipe its focus. Replacing
     the milling pose moves the lamella, so what derives from it follows: the
     milling angle, and the fluorescence pose of the same piece of sample. The
-    caller saves.
+    experiment's positions emit changed: the overview canvases draw the poses
+    themselves, and a pose written in place emits nothing on its own.
     """
     existing = lamella.poses.get(pose_name)
     if existing is not None and existing.objective_position is not None:
         state.objective_position = existing.objective_position
     lamella.poses[pose_name] = state
-    if pose_name != "MILLING":
-        return False
-    lamella.update_milling_angle(microscope)
-    return sync_fluorescence_pose(microscope, lamella)
+    followed = False
+    if pose_name == "MILLING":
+        lamella.update_milling_angle(microscope)
+        followed = sync_fluorescence_pose(microscope, lamella)
+    if experiment is not None:
+        experiment.save()
+        experiment.positions.events.changed.emit()
+    return followed
+
+
+def fluorescence_move(
+    microscope: "FibsemMicroscope",
+    lamella,
+    position: FibsemStagePosition,
+    objective_position: Optional[float] = None,
+) -> ItemPoses:
+    """The poses moving *lamella* to *position*, a point marked on the
+    fluorescence side, gives it, for :func:`move_lamella`; built on what the
+    lamella recorded. Ask before moving: it moves the milling pose too.
+
+    Raises:
+        ValueError: the lamella has no milling pose, or the point cannot be
+            converted to a beam orientation.
+    """
+    if lamella.milling_pose is None:
+        raise ValueError(f"{lamella.name} has no milling pose to move.")
+    return build_lamella_poses(
+        microscope=microscope,
+        position=position,
+        objective_position=objective_position,
+        state=lamella.milling_pose,
+        marked_at=FLUORESCENCE_ORIENTATION,
+    )
+
+
+def move_lamella(
+    experiment,
+    microscope: "FibsemMicroscope",
+    lamella,
+    position: Optional[FibsemStagePosition] = None,
+    poses: Optional[ItemPoses] = None,
+) -> None:
+    """Move *lamella* to a point marked on an overview, and save.
+
+    On the beam side, *position* is the new milling pose and the fluorescence
+    pose follows it; from the fluorescence side, *poses* (:func:`fluorescence_move`)
+    gives both. Only the stage positions are replaced, so what else the poses
+    carry -- the objective position of a lamella focused by hand -- is kept.
+    The experiment's positions emit changed: a pose written in place emits
+    nothing on its own.
+    """
+    if poses is None:
+        lamella.stage_position = position
+        lamella.update_milling_angle(microscope)
+        sync_fluorescence_pose(microscope, lamella)
+    else:
+        lamella.stage_position = poses.beam.stage_position
+        lamella.update_milling_angle(microscope)
+        if lamella.fluorescence_pose is None:
+            lamella.fluorescence_pose = poses.fluorescence
+        else:
+            lamella.fluorescence_pose.stage_position = poses.fluorescence.stage_position
+    experiment.save()
+    experiment.positions.events.changed.emit()
 
 
 def remove_lamella(experiment, lamella) -> bool:

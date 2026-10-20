@@ -336,45 +336,13 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
         self._update_warning_visibility()
 
     def _on_ok_clicked(self):
-        """Handle OK button click - validate and return protocol."""
-        # Validate protocol
+        """Accept the chosen protocol. The window adopts and saves it; the
+        dialog saves nothing itself."""
         if self.protocol is None:
             QtWidgets.QMessageBox.warning(
                 self, ERROR_NO_PROTOCOL_TITLE, ERROR_NO_PROTOCOL_MSG
             )
             return
-
-        protocol_save_path = os.path.join(self.experiment.path, "protocol.yaml")
-        should_save = self._protocol_changed or not os.path.exists(protocol_save_path)
-
-        if should_save:
-            try:
-                self.experiment.task_protocol.save(protocol_save_path)
-                logging.info(f"Protocol saved to {protocol_save_path}")
-            except Exception as e:
-                logging.error(f"Failed to save protocol: {e}")
-                QtWidgets.QMessageBox.critical(
-                    self,
-                    "Error Saving Protocol",
-                    f"Failed to save protocol to experiment directory:\n\n{e}",
-                )
-                return
-        else:
-            logging.info("Protocol unchanged; skipping save.")
-            if self._initial_protocol_path:
-                self.protocol_path = self._initial_protocol_path
-
-        # Update internal state to match saved protocol
-        self._initial_protocol_data = self.protocol.to_dict()
-        self._initial_protocol_path = (
-            protocol_save_path if should_save else self._initial_protocol_path
-        )
-        self._protocol_changed = False
-        if should_save:
-            self.protocol_path = protocol_save_path
-        elif self._initial_protocol_path:
-            self.protocol_path = self._initial_protocol_path
-        self._update_protocol_display()
 
         logging.info(
             f"Protocol '{self.protocol.name}' loaded into experiment '{self.experiment.name}'"

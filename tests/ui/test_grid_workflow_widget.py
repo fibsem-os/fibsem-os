@@ -23,6 +23,10 @@ from fibsem.applications.autolamella.ui.grid_workflow_widget import (
     GridRunPreflightDialog,
     GridWorkflowWidget,
 )
+from fibsem.applications.autolamella.workflows.estimate import (
+    exchange_seconds,
+    exchanges_for,
+)
 from fibsem.services.sample_handling import bind_sample_handling
 from fibsem.structures import (
     BeamType,
@@ -132,7 +136,8 @@ class TestSelection:
         arctis.sample_handling.ensure_loaded("Grid-02")
         view.refresh()
         view.grid_header.checkbox_all.setChecked(True)
-        assert view.exchanges_for(view.get_selected_grids()) == 2
+        names = [g.name for g in view.get_selected_grids()]
+        assert exchanges_for(arctis.sample_handling, names) == 2
         row = view._grid_rows["Grid-02"]
         assert [c.text() for c in row._chip_widgets] == ["Loaded"]
         assert row.slot_label.text() == "slot 02"
@@ -318,10 +323,6 @@ def test_the_preflight_says_what_a_run_does(qapp):
         ["overview_sem", "overview_fib"], ["Grid-01", "Grid-02"], 2, "/exp"
     )
     assert dialog.windowTitle() == "Run grid workflow"
-    dialog = GridRunPreflightDialog(
-        ["overview_sem"], ["Grid-01"], 1, "/exp", screen_all=True
-    )
-    assert dialog.windowTitle() == "Screen all grids"
 
 
 def test_the_preflight_names_the_grids_whose_names_it_will_fix(qapp):
@@ -344,14 +345,6 @@ def test_the_preflight_names_the_grids_whose_names_it_will_fix(qapp):
         "Grid-01 (default name), grid-aspen. Rename on the Grids tab first if "
         "needed."
     ) in labels
-
-    dialog = GridRunPreflightDialog(
-        ["overview_sem"], [], 0, "/exp", screen_all=True, first_run=["Grid-02"]
-    )
-    labels = [w.text() for w in dialog.findChildren(QLabel)]
-    assert any(
-        "Grid-02 (default name), and any grid the inventory adds" in t for t in labels
-    )
 
 
 def test_the_preflight_says_which_beams_are_off(qapp):
@@ -624,9 +617,7 @@ def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeyp
     # said it would be.
     microscope.turn_off(BeamType.ION)
     assert main_ui.workflow_tab._beams_off() == [BeamType.ION]
-    main_ui.workflow_tab._start_grid_run(
-        ["overview_sem"], ["grid-aspen"], inventory_first=False
-    )
+    main_ui.workflow_tab._start_grid_run(["overview_sem"], ["grid-aspen"])
     assert ui.session.runner.is_running
     assert not main_ui.grids_tab.btn_inventory.isEnabled()  # locked during the run
     _wait_for_run(ui)
@@ -814,9 +805,7 @@ def test_run_and_screen_all_name_the_grids_running_for_the_first_time(
     # the run ends as the Grids page's ⚙ says, and the dialog says so (FIB-1133)
     ending = main_ui.workflow_tab._end_of_run()
     assert told == [(ending["unload_at_end"], ending["report_at_end"])]
-    assert started == [
-        ((["overview_sem"], ["grid-birch"]), dict(inventory_first=False, **ending))
-    ]
+    assert started == [((["overview_sem"], ["grid-birch"]), ending)]
 
 
 def _labels(dialog) -> list:
@@ -838,16 +827,15 @@ def test_the_preflight_quotes_the_time_per_task_and_the_finish(
     view.grid_header.checkbox_all.setChecked(True)
     grids = view.get_selected_grids()
     names = [g.name for g in grids]
-    exchanges = view.exchanges_for(grids)
-    assert (
-        view.exchange_seconds() == arctis.sample_handling.magazine.exchange_seconds > 0
-    )
+    stage = arctis.sample_handling
+    exchanges = exchanges_for(stage, names)
+    assert exchange_seconds(stage) == stage.magazine.exchange_seconds > 0
     estimate = estimate_grid_run(
         experiment,
         ["overview_sem", "overview_fm"],
         names,
         exchanges,
-        view.exchange_seconds(),
+        exchange_seconds(stage),
         now=datetime(2026, 10, 5, 14, 0),
     )
     dialog = GridRunPreflightDialog(
@@ -864,12 +852,6 @@ def test_the_preflight_quotes_the_time_per_task_and_the_finish(
     ]
     assert all("×3" in r for r in rows)
     assert "Estimates round up." in labels
-
-    # Screen all grids quotes the grids known before the inventory, and says so
-    dialog = GridRunPreflightDialog(
-        ["overview_sem"], names, 3, "/exp", screen_all=True, estimate=estimate
-    )
-    assert any("Quoted for the 3 grids known now" in t for t in _labels(dialog))
 
     # no estimate, no time: what a caller that could not price gets
     dialog = GridRunPreflightDialog(["overview_sem"], names, 3, "/exp")

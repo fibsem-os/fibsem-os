@@ -198,6 +198,14 @@ def test_lamella_defaults_change_only_what_is_given(driving):
     assert protocol.lamella_defaults.name_prefix == "Lyso"
     bad = driving.post("/app/experiment/protocol/lamella_defaults", json={"colour": 1})
     assert bad.status_code == 422
+    outside = _call(
+        driving,
+        "protocol_set_lamella_defaults",
+        alignment_area={"left": 0.8, "top": 0.0, "width": 0.5, "height": 0.5},
+    )
+    assert outside.status_code == 422
+    assert "inside the image" in outside.text
+    assert protocol.lamella_defaults.alignment_area is None
 
 
 def test_the_protocol_is_saved_to_the_protocol_folder(driving, tmp_path, monkeypatch):

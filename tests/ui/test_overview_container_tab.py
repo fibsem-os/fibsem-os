@@ -138,8 +138,8 @@ def test_a_system_with_no_camera_still_has_a_usable_tab(qapp):
 
     assert tab.is_available, "the tab is dead on a system that has beams"
     assert tab.available_modalities() == [MODALITY_FIBSEM]
-    assert not tab.modality_chip(MODALITY_FLUORESCENCE).isEnabled()
-    assert tab.modality_chip(MODALITY_FIBSEM).isEnabled()
+    assert not tab._chips[MODALITY_FLUORESCENCE].isEnabled()
+    assert tab._chips[MODALITY_FIBSEM].isEnabled()
 
     _teardown(tab)
 
@@ -314,8 +314,8 @@ def test_a_disabled_chip_does_not_look_like_a_live_one(qapp):
     dead = _tab(_plain_microscope())
     dead.refresh_microscope()
 
-    enabled = live.modality_chip(MODALITY_FLUORESCENCE)
-    disabled = dead.modality_chip(MODALITY_FLUORESCENCE)
+    enabled = live._chips[MODALITY_FLUORESCENCE]
+    disabled = dead._chips[MODALITY_FLUORESCENCE]
     assert enabled.isEnabled() and not disabled.isEnabled()
 
     enabled.resize(120, 24)
@@ -356,7 +356,7 @@ def test_every_chip_says_something(qapp):
         tab = _tab(microscope)
         tab.refresh_microscope()
         for modality in (MODALITY_FIBSEM, MODALITY_FLUORESCENCE):
-            chip = tab.modality_chip(modality)
+            chip = tab._chips[modality]
             assert chip.toolTip(), f"{modality} chip is silent"
         _teardown(tab)
 
@@ -371,7 +371,7 @@ def test_the_checked_chip_is_the_page_on_screen(qapp):
         checked = [
             m
             for m in (MODALITY_FIBSEM, MODALITY_FLUORESCENCE)
-            if tab.modality_chip(m).isChecked()
+            if tab._chips[m].isChecked()
         ]
         assert checked == [modality]
 

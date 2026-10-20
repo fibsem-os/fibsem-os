@@ -5,15 +5,12 @@ import os
 import sys
 import threading
 import warnings
-from dataclasses import replace
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
 try:
     sys.modules.pop("PySide6.QtCore")
 except Exception:
     pass
-
-from datetime import datetime
 
 from psygnal import EmissionInfo
 from PyQt5.QtCore import Qt, pyqtSignal
@@ -23,13 +20,11 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QSplitter,
     QTabWidget,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 from superqt import ensure_main_thread
 
-import fibsem
 import fibsem.config as fibsem_cfg
 from fibsem.acting import OPERATOR
 from fibsem.applications.autolamella import config as cfg
@@ -77,9 +72,10 @@ from fibsem.applications.autolamella.ui.workflow_controls import (
     WorkflowControls,
 )
 from fibsem.applications.autolamella.ui.workflow_tab import WorkflowTab
+from fibsem.applications.autolamella.workflow_edits import set_supervision
 from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamType, MicroscopeSettings
+from fibsem.structures import MicroscopeSettings
 from fibsem.ui import FibsemSystemSetupWidget, notification_service
 from fibsem.ui import utils as fui
 from fibsem.ui.agent.chip_host import AgentChipHost
@@ -88,7 +84,6 @@ from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.stylesheets import (
     GRAY_ICON_COLOR,
     NAPARI_STYLE,
-    STATUS_BAR_STYLESHEET,
     border_stylesheet,
 )
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
@@ -101,7 +96,11 @@ from fibsem.ui.widgets.workflow_summary_dialog import (
 )
 from fibsem.versioning import get_version_string
 from fibsem.workflows.attention import Attention
-from fibsem.workflows.grid.naming import grid_rename_refusal, rename_grid
+from fibsem.workflows.grid.naming import (
+    grid_rename_refusal,
+    record_inventoried_grids,
+    rename_and_save_grid,
+)
 from fibsem.workflows.runner import GRIDS, RunRequest
 from fibsem.workflows.session import EXPERIMENT, MICROSCOPE, AppSession
 from fibsem.workflows.status import (
@@ -233,9 +232,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.create_tabs()
         self._apply_preferences()
         self._update_instructions()
-
-        # Connect tab change to status bar update
-        self.tab_widget.currentChanged.connect(self._on_tab_changed)
 
     def _on_preferences_saved(self, preferences) -> None:
         self._preferences = preferences
@@ -429,20 +425,23 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         return supervised
 
     def _on_supervised_status_clicked(self):
-        """Toggle supervision for the current task in the protocol."""
+        """Toggle supervision for the current task, as the agent's
+        ``set_supervision`` does: saved and on the record."""
         if self._current_task_name is None:
             return
         protocol = self.protocol
         if protocol is None:
             return
-        for task in protocol.workflow_config.tasks:
-            if task.name == self._current_task_name:
-                task.attention = (
-                    Attention.automated
-                    if task.attention is Attention.supervised
-                    else Attention.supervised
-                )
-                break
+        supervised = (
+            protocol.workflow_config.get_attention(self._current_task_name)
+            is Attention.supervised
+        )
+        set_supervision(
+            self.experiment,
+            self._current_task_name,
+            not supervised,
+            self.session.record_event,
+        )
         self._update_supervised_status()
         if self.session.runner.is_running:
             self.run_border.set_state(
@@ -522,10 +521,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._refresh_header()
         self._update_instructions()
 
-    def _on_tab_changed(self, index: int):
-        """Handle tab change and update status bar."""
-        self.status_bar.setStyleSheet(STATUS_BAR_STYLESHEET)
-
     def _create_panel(self):
         """The right-hand panel, and the session's run, responder and executor."""
         self.panel = MicroscopePanel(
@@ -576,10 +571,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
-
-        # Viewer-less: the quad-view controller is the display, so no napari viewer is
-        # created here.
-        self.main_viewer = None
 
         self._create_panel()
 
@@ -862,17 +853,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if self.experiment is None or stage is None:
             return
         try:
-            added = self.experiment.sync_grids_from_inventory(stage)
+            added = record_inventoried_grids(
+                self.experiment, stage, self.session.record_event
+            )
         except Exception as e:  # noqa: BLE001 - the inventory still shows
             logging.warning(f"Could not record the inventoried grids: {e}")
             return
-        if not added:
-            return
-        logging.info(f"Recorded {len(added)} grid(s) from the inventory.")
-        try:
-            self.experiment.save()
-        except Exception as e:  # noqa: BLE001 - recorded; saved next time
-            logging.warning(f"Could not save the experiment: {e}")
+        if added:
+            logging.info(f"Recorded {len(added)} grid(s) from the inventory.")
 
     def _refresh_grids_tab_microscope(self):
         if getattr(self, "grids_tab", None) is None:
@@ -931,9 +919,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # The Grids tab's and the App Server's rename. The slot already has the
         # new name, so only the record changes here.
         stage = getattr(self.microscope, "sample_handling", None)
-        rename_grid(experiment, stage, old, new)
         try:
-            experiment.save()
+            rename_and_save_grid(experiment, stage, old, new, self.session.record_event)
         except Exception as e:  # noqa: BLE001 - renamed in memory; saved next time
             logging.warning(f"Could not save the experiment after a rename: {e}")
         self.grids_tab.refresh()
@@ -992,7 +979,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         )
         self.run_relay.queue_changed.connect(self.workflow_tab.on_queue_changed)
         lamella = self.workflow_tab.lamella_workflow_widget
-        lamella.lamella_move_to_requested.connect(self._on_lamella_move_to)
         lamella.lamella_edit_requested.connect(self._on_lamella_edit)
         lamella.lamella_remove_requested.connect(self._on_lamella_remove_requested)
         lamella.lamella_defect_changed.connect(self._on_lamella_defect_changed)
@@ -1658,27 +1644,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         )
 
     def adopt_experiment(self, experiment: Experiment) -> None:
-        """Make ``experiment`` the current one, and point logging at its logfile.
-
-        The single place the app takes ownership of an experiment, whether it was
-        just created or loaded from disk. Logging is configured here rather than in
-        Experiment.load/create because those are also called to *read* an
-        experiment -- the load dialog calls load() on every single click to preview
-        a recent entry, which previously repointed the app's root logger at each one
-        in turn, and closed the previous handler, even when the dialog was then
-        cancelled. See FIB-421.
-        """
+        """Make ``experiment`` the current one through the session, which also
+        points logging at its logfile, and wire the window to it."""
         # The window hears the new experiment once this is set up.
         with self.session.changed.paused():
             # Disconnect existing event subscribers if there's an existing experiment
             self._disconnect_experiment_events()
 
             self.session.adopt(experiment)
-
-            experiment.configure_logging()
-            logging.info(
-                f"Logging to experiment {experiment.name} at {experiment.path}"
-            )
 
             # Setup experiment connections and update UI
             self._setup_experiment_connections()
@@ -1818,8 +1791,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         dialog.exec_()
 
         return
-
-    #### PROTOCOL EDITOR
 
     def open_information_dialog(self) -> None:
         # No connection guard: checking which version you are running is exactly
@@ -2037,23 +2008,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             logging.exception("editor refresh after agent config patch failed")
 
     def stop_task_workflow(self, actor=None, via: str = "") -> None:
-        """Stop the run and bring the hardware to a halt; ``actor`` and ``via``
-        say who stopped it and from where, for the record (``runner.stop``)."""
+        """Stop the run; ``actor`` and ``via`` say who stopped it and from
+        where, for the record (``runner.stop``)."""
         if not self.session.runner.is_running:
             return
         self.session.runner.stop(actor=actor, via=via)
-        self.panel.stop_current_operations()
         self.run_relay.stopping.emit()
 
     def stop_current_task(self, actor=None, via: str = "", **details) -> None:
-        """Abandon the task now running and carry on with the rest of the queue.
-
-        Stop Task's two halves, as Stop Workflow has them: tell the queue this
-        task is being abandoned, and bring the hardware to a halt. Without the
-        second, the task stops waiting for the mill but the mill keeps going.
-        """
+        """Abandon the task now running and carry on with the rest of the
+        queue (``runner.stop_task``)."""
         self.session.runner.stop_task(actor=actor, via=via, **details)
-        self.panel.stop_current_operations()
 
     def _refresh_panel(self):
         """Redraw the panel for the current state of the application."""
@@ -2140,7 +2105,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         )
 
     def _workflow_finished(self):
-        """The panel's half of a run ending, then the beams and the summary."""
+        """The panel's half of a run ending, then the summary."""
         logging.info("Workflow finished.")
         if self.panel.image_widget is None:
             return
@@ -2154,11 +2119,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         self.panel.reset_after_run(str(self.experiment.path))
         self._refresh_panel()
-
-        # optionally turn off the beams when finished
-        if self.protocol.options.turn_beams_off:
-            self.microscope.turn_off(BeamType.ELECTRON)
-            self.microscope.turn_off(BeamType.ION)
 
         self.panel.set_current_workflow_message(msg=None, show=False)
 

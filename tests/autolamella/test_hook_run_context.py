@@ -40,6 +40,8 @@ def experiment(tmp_path: Path) -> Experiment:
 def _manager(experiment: Experiment, hook_manager: HookManager) -> TaskManager:
     class _NoMicroscope:
         fm = None
+        milling = None
+        spot_burn = None
 
     return TaskManager(
         microscope=_NoMicroscope(),

@@ -197,10 +197,10 @@ class TestShowingAGrid:
         assert widget._chips[VIEW_FM].isChecked()
 
     def test_the_banner_says_when_the_grid_is_on_the_stage(self, widget):
-        widget.set_stage_state(loaded=True, can_load=True)
+        widget.set_grid(widget.grid, loaded=True, can_load=True)
         assert widget.state_label.text() == "Stored overview · on the stage"
         assert not widget.btn_load.isVisible()
-        widget.set_stage_state(loaded=False, can_load=True)
+        widget.set_grid(widget.grid, loaded=False, can_load=True)
         assert widget.btn_load.isVisible()
         assert widget.btn_load.text() == "Load grid-oak"
 

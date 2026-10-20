@@ -31,7 +31,6 @@ def main():
     # Enable toolbuttons
     widget.enable_add_button(True)
     widget.enable_defect_button(True)
-    widget.enable_actions_button(True)
     widget.enable_move_to_action(True)
     widget.enable_edit_action(True)
     widget.enable_update_action(True)

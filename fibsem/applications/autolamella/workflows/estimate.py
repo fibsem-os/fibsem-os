@@ -8,11 +8,17 @@ tasks have a schedule. See FIB-666.
 
 import logging
 from datetime import datetime
-from typing import TYPE_CHECKING, Dict, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence
 
 from fibsem.util.timestamps import now
-from fibsem.workflows.estimate import AdditionEstimate, StepSeconds, estimate_addition
-from fibsem.workflows.grid.estimate import grid_item_seconds
+from fibsem.workflows.estimate import (
+    AdditionEstimate,
+    RunEstimate,
+    StepSeconds,
+    estimate_addition,
+    estimate_run,
+)
+from fibsem.workflows.grid.estimate import estimate_grid_run, grid_item_seconds
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
@@ -72,6 +78,13 @@ def step_seconds(
     return seconds_for
 
 
+def estimate_lamella_run(experiment: "Experiment", pairs: Sequence) -> RunEstimate:
+    """What a lamella run over *pairs* (``(lamella, task)``, as its queue lays
+    them out) takes: each step from its lamella's own task config, holding for
+    each task's schedule."""
+    return estimate_run(pairs, step_seconds(experiment), task_schedule(experiment))
+
+
 def _active_elapsed(experiment: "Experiment", queue: "TaskQueue") -> Optional[float]:
     """Wall-clock since the running task started, which is what the recorded
     duration measures too; None when nothing runs."""
@@ -111,3 +124,62 @@ def estimate_queue_addition(
         schedule=task_schedule(experiment),
         active_elapsed=_active_elapsed(experiment, queue),
     )
+
+
+# -- the grids on the stage: what a grid run's exchanges cost ------------------
+# Read from the stage's last inventory read (``grid_inventory``): no hardware.
+
+
+def exchange_seconds(stage: Any) -> float:
+    """What one exchange costs on *stage*'s loader; nothing on a fixed holder,
+    or with no sample handling."""
+    if stage is None or stage.magazine is None:
+        return 0.0
+    return stage.magazine.exchange_seconds
+
+
+def loaded_grid_names(stage: Any) -> List[str]:
+    """The grids on the stage now, which a load step does not exchange."""
+    if stage is None:
+        return []
+    try:
+        return [e.name for e in stage.grid_inventory() if e.name and e.loaded]
+    except Exception as e:  # noqa: BLE001 - priced as nothing loaded
+        logging.warning(f"Could not read the grid inventory: {e}")
+        return []
+
+
+def exchanges_for(stage: Any, grid_names: Sequence[str]) -> int:
+    """How many of *grid_names* are not on the stage now: the exchanges a run
+    over them makes on a loader; zero on a fixed holder."""
+    if stage is None or stage.magazine is None:
+        return 0
+    loaded = set(loaded_grid_names(stage))
+    return sum(1 for name in grid_names if name not in loaded)
+
+
+def run_step_seconds(experiment: "Experiment", stage: Any) -> StepSeconds:
+    """:func:`step_seconds` with *stage*'s exchange and the grids on it."""
+    return step_seconds(experiment, exchange_seconds(stage), loaded_grid_names(stage))
+
+
+def grid_run_estimate(
+    experiment: "Experiment",
+    stage: Any,
+    task_names: List[str],
+    grid_names: List[str],
+    exchanges: Optional[int] = None,
+) -> Optional[RunEstimate]:
+    """What a grid run of *task_names* over *grid_names* takes, with the
+    exchanges *stage* makes for it unless *exchanges* says (a scan that has
+    not named its grids yet); None when it cannot say, since a figure is not
+    worth losing the confirmation over."""
+    if exchanges is None:
+        exchanges = exchanges_for(stage, grid_names)
+    try:
+        return estimate_grid_run(
+            experiment, task_names, grid_names, exchanges, exchange_seconds(stage)
+        )
+    except Exception:
+        logging.warning("Could not estimate the grid run.", exc_info=True)
+        return None

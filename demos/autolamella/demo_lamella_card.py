@@ -10,7 +10,6 @@ from PyQt5.QtWidgets import (
     QLabel,
     QPushButton,
     QScrollArea,
-    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -93,13 +92,6 @@ class TestWindow(QWidget):
 
         btn_row.addStretch()
 
-        btn_row.addWidget(QLabel("Columns:"))
-        self._col_spin = QSpinBox()
-        self._col_spin.setRange(1, 8)
-        self._col_spin.setValue(4)
-        self._col_spin.setFixedWidth(50)
-        btn_row.addWidget(self._col_spin)
-
         self._selected_label = QLabel("Selected: —")
         self._selected_label.setStyleSheet("color: #909090; font-size: 12px;")
         btn_row.addWidget(self._selected_label)
@@ -114,7 +106,6 @@ class TestWindow(QWidget):
         # rewire refresh button now that container exists
         btn_refresh.clicked.disconnect()
         btn_refresh.clicked.connect(self._container.refresh_all)
-        self._col_spin.valueChanged.connect(self._container.set_columns)
 
         scroll = QScrollArea()
         scroll.setWidget(self._container)

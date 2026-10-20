@@ -38,6 +38,8 @@ def _manager(experiment: Experiment, hook_manager: HookManager) -> TaskManager:
     # drains; None would raise, so a stand-in with fm=None is enough.
     class _NoMicroscope:
         fm = None
+        milling = None
+        spot_burn = None
 
     return TaskManager(
         microscope=_NoMicroscope(),

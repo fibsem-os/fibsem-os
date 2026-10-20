@@ -93,8 +93,6 @@ def test_a_schedule_shares_the_dependency_column(qapp):
     task.requires = []
     row.refresh()
     assert row.requires_label.text() == "at 15 Sep 21:30"
-    row.set_schedule_visible(False)
-    assert row.requires_label.text() == ""
     row.deleteLater()
     qapp.processEvents()
 

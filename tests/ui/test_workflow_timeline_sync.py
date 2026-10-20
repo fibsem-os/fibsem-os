@@ -388,6 +388,8 @@ class _ParentUI(QObject):
 
 class _NoMicroscope:
     """Enough microscope for TaskManager's constructor and its objective retract.
+    milling = None
+    spot_burn = None
 
     Experiment.register_metadata stamps the user and experiment ref onto it, so
     it has to be something attributes can be set on. Same stand-in as

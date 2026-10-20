@@ -88,7 +88,7 @@ def test_the_closing_line_gets_out_after_a_stop(ui):
     """After Stop the abort predicate is true, and a status point raises on it:
     that is what kept "Workflow cancelled by user." off the label. The manager's closing
     line asks for no abort check, and reaches the signal."""
-    from fibsem.applications.autolamella.workflows.ui import update_status_ui
+    from fibsem.workflows.status import update_status_ui
 
     seen = []
     ui.run_relay.status.connect(lambda event: seen.append(event.workflow_info))

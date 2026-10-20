@@ -21,14 +21,13 @@ landed cannot tell them apart, and a canvas marking the wrong one looks entirely
 plausible while putting every lamella on the far side of the grid. Anything checking this
 has to assert the tilt (FIB-709).
 
-# What is deliberately still written twice
+# What each tab says for itself
 
-`_on_move_requested` -- dragging a marked lamella to a new point. The beam tab writes the
-milling pose and syncs the fluorescence one after it; the fluorescence tab derives both
-through `build_lamella_poses`, and asks first, because from a canvas showing only the
-fluorescence side it is not visible that the milling pose moves too. Those are different
-operations that happen to share a name, and folding them together behind a hook would
-hide the one part a reader most needs to see.
+`_on_move_requested` -- dragging a marked lamella to a new point, through
+`poses.move_lamella`. The beam tab moves the milling pose and the fluorescence one
+follows; the fluorescence tab derives both (`poses.fluorescence_move`) and asks first,
+because from a canvas showing only the fluorescence side it is not visible that the
+milling pose moves too.
 
 # The contract
 
@@ -43,7 +42,7 @@ from __future__ import annotations
 
 import logging
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QVBoxLayout, QWidget
@@ -112,7 +111,6 @@ class AutoLamellaOverviewTabBase(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
 
         self.lamella_list = LamellaNameListWidget()
-        self.lamella_list.enable_actions_button(True)
         self.lamella_list.enable_move_to_action(True)
         self.lamella_list.enable_remove_button(True)
         self.lamella_list.lamella_selected.connect(self._on_list_selection)
@@ -163,8 +161,7 @@ class AutoLamellaOverviewTabBase(QWidget):
         return {}
 
     def _on_move_requested(self, name: str, position) -> None:
-        """A user dragged a marked lamella to a new point. See the module docstring for
-        why this one is not shared."""
+        """A user dragged a marked lamella to a new point. See the module docstring."""
         raise NotImplementedError
 
     def _restore_overlays(self) -> None:

@@ -63,7 +63,6 @@ class ExperimentTab(QWidget):
         self.lamella_list = LamellaNameListWidget()
         self.lamella_list.enable_add_button(True)
         self.lamella_list.enable_defect_button(True)
-        self.lamella_list.enable_actions_button(True)
         self.lamella_list.enable_move_to_action(True)
         self.lamella_list.enable_update_action(True)
         self.lamella_list.enable_remove_button(True)
@@ -315,6 +314,7 @@ class ExperimentTab(QWidget):
         # As Set pose does: the stored objective position is kept, and the
         # milling angle and fluorescence pose follow the new milling pose.
         set_lamella_pose(
+            self.experiment,
             self.microscope,
             lamella,
             "MILLING",
@@ -323,8 +323,6 @@ class ExperimentTab(QWidget):
 
         self.update_lamella_combobox()
         self.refresh()
-        self.experiment.save()
-        self.experiment.positions.events.changed.emit()
 
     def _set_current_position_as_pose(self, pose_name: str):
         """Set the current stage position as the given pose for the current lamella."""
@@ -361,16 +359,13 @@ class ExperimentTab(QWidget):
         if ret != QMessageBox.Yes:
             return
 
-        if set_lamella_pose(self.microscope, lamella, pose_name, state):
+        if set_lamella_pose(
+            self.experiment, self.microscope, lamella, pose_name, state
+        ):
             self.selected_lamella_widget.refresh_pose(
                 "FLUORESCENCE", lamella.fluorescence_pose
             )
-
-        self.experiment.save()
         self.selected_lamella_widget.refresh_pose(pose_name, state)
-        # The FM overview canvas draws these positions itself rather than reading them
-        # back, so a pose that moved here is one it only hears about by being told.
-        self.experiment.positions.events.changed.emit()
         notification_service.show_toast(
             f"Set current position as pose '{pose_name}' for {lamella.name}.", "info"
         )

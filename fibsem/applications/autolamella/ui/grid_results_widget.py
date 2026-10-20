@@ -13,7 +13,6 @@ on it, never by globbing the grid's directory.
 from __future__ import annotations
 
 import os
-from datetime import datetime
 from typing import List, Optional
 
 from PyQt5.QtCore import Qt, pyqtSignal
@@ -98,16 +97,6 @@ def image_for(
     experiment: Experiment, grid: GridRecord, state: TaskState
 ) -> Optional[str]:
     return _recorded(experiment, grid, state, thumbnail=False)
-
-
-def latest_runs(grid: GridRecord) -> dict:
-    """The most recent history entry per task, in first-run order; the load
-    and unload steps are not tasks."""
-    latest = {}
-    for state in grid.task_history:
-        if state.name not in _EXCHANGE_ENTRY_NAMES:
-            latest[state.name] = state
-    return latest
 
 
 class _HistoryRow(QWidget):

@@ -133,10 +133,16 @@ def test_dragging_a_lamella_on_the_overview_moves_its_fluorescence_pose(tmp_path
         def refresh_positions(self):
             pass
 
-    _Tab()._on_move_requested(
+    tab = _Tab()
+    changed = []
+    tab.experiment.positions.events.changed.connect(lambda *a: changed.append(a))
+    tab._on_move_requested(
         lamella.name, _at(microscope, MILLING_ORIENTATION, 400e-6, -200e-6)
     )
 
+    # One rule for every move (`poses.move_lamella`): saved, and changed emitted
+    # so the other views re-mark it.
+    assert tab.experiment.saves == 1 and len(changed) == 1
     assert lamella.milling_pose.stage_position.x == pytest.approx(400e-6)
     assert lamella.fluorescence_pose.stage_position.x == pytest.approx(400e-6)
     assert lamella.fluorescence_pose.stage_position.x != pytest.approx(before)
@@ -307,6 +313,7 @@ def test_setting_the_milling_pose_from_the_pose_rows_moves_the_fluorescence_pose
         == FLUORESCENCE_ORIENTATION
     )
     assert "FLUORESCENCE" in ui.selected_lamella_widget.refreshed
+    assert ui.experiment.saves == 1
 
 
 def test_setting_the_fluorescence_pose_from_the_pose_rows_is_not_undone(
@@ -364,7 +371,7 @@ def test_setting_the_milling_pose_in_the_coincidence_viewer_moves_it_too(
     tmp_path, monkeypatch
 ):
     """`FluorescenceCoincidenceViewerWidget._on_slw_pose_update` -- the same panel, in
-    the other window, with its own copy of the handler."""
+    the other window, through the same `poses.set_lamella_pose`."""
     from fibsem.applications.autolamella.ui import (
         fluorescence_coincidence_viewer_widget as module,
     )
@@ -402,6 +409,7 @@ def test_setting_the_milling_pose_in_the_coincidence_viewer_moves_it_too(
         == FLUORESCENCE_ORIENTATION
     )
     assert "FLUORESCENCE" in viewer.selected_lamella_widget.refreshed
+    assert viewer.experiment.saves == 1
     # this copy never recomputed the milling angle either, so the lamella went on
     # reporting the angle it was marked at rather than the one it now sits at
     assert lamella.milling_angle is not None

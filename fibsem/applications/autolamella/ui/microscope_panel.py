@@ -390,22 +390,6 @@ class MicroscopePanel(QWidget):
         if ddict.get("finished", False):
             self.experiment_tab.update_lamella_ui()
 
-    def stop_current_operations(self) -> None:
-        """Interrupt whatever the microscope is doing right now.
-
-        Shared by Stop Workflow and Stop Task, which have to bring the hardware to
-        a halt identically and differ only in what the queue does afterwards.
-
-        A task raising is not enough on its own: milling runs on its own thread
-        with its own stop event, owned by the milling widget, and the task merely
-        waits for it. Unwinding the task without this stops the waiting, not the
-        mill.
-        """
-        if self.milling_task_config_widget is not None:
-            self.milling_task_config_widget.milling_widget.stop_milling()
-        if self.spot_burn_widget is not None:
-            self.spot_burn_widget.cancel_spot_burn()
-
     def handle_workflow_status(self, event: "WorkflowStatusEvent") -> None:
         """Show a fire-and-forget status update. GUI thread, via the run relay.
 

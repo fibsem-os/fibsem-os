@@ -26,7 +26,10 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.acting import OPERATOR
-from fibsem.applications.autolamella.structures import Experiment
+from fibsem.applications.autolamella.structures import (
+    AutoLamellaTaskDescription,
+    Experiment,
+)
 from fibsem.applications.autolamella.ui.grid_workflow_widget import (
     GridRunPreflightDialog,
     GridWorkflowWidget,
@@ -45,8 +48,11 @@ from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
     WorkflowProgressWidget,
 )
 from fibsem.applications.autolamella.workflows.estimate import (
+    estimate_lamella_run,
     estimate_queue_addition,
-    step_seconds,
+    exchanges_for,
+    grid_run_estimate,
+    run_step_seconds,
     task_schedule,
 )
 from fibsem.applications.autolamella.workflows.tasks.attendance import (
@@ -62,8 +68,7 @@ from fibsem.ui.stylesheets import (
 from fibsem.ui.tokens import SURFACE_COLOR
 from fibsem.ui.widgets import preflight
 from fibsem.util.durations import format_duration_rounded
-from fibsem.workflows.estimate import AdditionEstimate, estimate_run
-from fibsem.workflows.grid.estimate import estimate_grid_run
+from fibsem.workflows.estimate import AdditionEstimate
 from fibsem.workflows.grid.manager import plan_grid_run
 from fibsem.workflows.grid.naming import grid_has_run
 from fibsem.workflows.queue import QUEUE_ACTIONS
@@ -87,9 +92,7 @@ def confirm_run_workflow_dialog(
     selection the user had just made; see WorkflowPreflightDialog. The estimate
     walks the pairs the run will queue, priced from each lamella's task configs.
     """
-    estimate = estimate_run(
-        item_task_pairs(request), step_seconds(experiment), task_schedule(experiment)
-    )
+    estimate = estimate_lamella_run(experiment, item_task_pairs(request))
     attendance = run_attendance(experiment.task_protocol, request.task_names)
     dlg = WorkflowPreflightDialog(estimate, attendance, parent=parent)
     return dlg.exec_() == QDialog.Accepted
@@ -292,7 +295,6 @@ class WorkflowTab(QWidget):
         # Each task or workflow change is saved to the experiment's protocol.
         for signal in (
             self.lamella_workflow_widget.task_attention_changed,
-            self.lamella_workflow_widget.task_edited,
             self.lamella_workflow_widget.task_remove_requested,
             self.lamella_workflow_widget.task_added,
             self.lamella_workflow_widget.workflow_name_changed,
@@ -300,6 +302,7 @@ class WorkflowTab(QWidget):
             self.lamella_workflow_widget.workflow_options_changed,
         ):
             signal.connect(self._save_workflow_config)
+        self.lamella_workflow_widget.task_edited.connect(self._on_task_edited)
         self.lamella_workflow_widget.task_order_changed.connect(
             self._on_workflow_task_order_changed
         )
@@ -426,7 +429,7 @@ class WorkflowTab(QWidget):
         if not grids or not task_names or ui.experiment is None:
             return
         grid_names = [g.name for g in grids]
-        exchanges = self.grid_workflow_widget.exchanges_for(grids)
+        exchanges = exchanges_for(self._stage(), grid_names)
         ending = self._end_of_run()
         dialog = GridRunPreflightDialog(
             task_names,
@@ -435,7 +438,9 @@ class WorkflowTab(QWidget):
             str(ui.experiment.path),
             beams_off=self._beams_off(),
             first_run=[g.name for g in grids if not grid_has_run(g)],
-            estimate=self._grid_run_estimate(task_names, grid_names, exchanges),
+            estimate=grid_run_estimate(
+                ui.experiment, self._stage(), task_names, grid_names, exchanges
+            ),
             attendance=self._grid_run_attendance(task_names),
             **ending,
             parent=self,
@@ -445,7 +450,6 @@ class WorkflowTab(QWidget):
         self._start_grid_run(
             task_names,
             grid_names,
-            inventory_first=False,
             **ending,
         )
 
@@ -477,8 +481,8 @@ class WorkflowTab(QWidget):
             str(ui.experiment.path),
             beams_off=self._beams_off(),
             # priced on the grids the scan found, not the ones known before it
-            estimate=lambda names, exchanges: self._grid_run_estimate(
-                task_names, names, exchanges
+            estimate=lambda names, exchanges: grid_run_estimate(
+                ui.experiment, self._stage(), task_names, names, exchanges
             ),
             **ending,
             parent=self,
@@ -492,7 +496,6 @@ class WorkflowTab(QWidget):
         self._start_grid_run(
             task_names,
             dialog.grid_names,
-            inventory_first=False,
             **ending,
         )
 
@@ -528,7 +531,6 @@ class WorkflowTab(QWidget):
         self,
         task_names: list,
         grid_names,
-        inventory_first: bool,
         unload_at_end: bool = False,
         report_at_end: bool = False,
     ) -> None:
@@ -540,7 +542,6 @@ class WorkflowTab(QWidget):
                 task_names=tuple(task_names),
                 names=tuple(grid_names) if grid_names is not None else None,
                 options={
-                    "inventory_first": inventory_first,
                     "unload_at_end": unload_at_end,
                     "report_at_end": report_at_end,
                 },
@@ -637,6 +638,27 @@ class WorkflowTab(QWidget):
             return
         protocol.workflow_config.tasks[:] = self.lamella_workflow_widget.get_tasks()
         self._on_config_changed(protocol.workflow_config)
+
+    def _on_task_edited(self, edited: AutoLamellaTaskDescription) -> None:
+        """Edit Task's Apply: into the protocol through the workflow config's
+        rules, as the App Server's requirements and schedule are. A refused
+        part is said, and the rest is kept."""
+        experiment = self._session.experiment
+        if experiment is None or experiment.task_protocol is None:
+            return
+        config = experiment.task_protocol.workflow_config
+        refusals = [
+            why
+            for why in (
+                config.set_requirements(edited.name, edited.requires, edited.required),
+                config.set_schedule(edited.name, edited.scheduled_at),
+            )
+            if why
+        ]
+        if refusals:
+            notification_service.show_toast(" ".join(refusals), "warning")
+        self.lamella_workflow_widget.workflow.refresh_all()
+        self._on_config_changed(config)
 
     def _on_workflow_task_order_changed(self, tasks) -> None:
         """A drag put the workflow's tasks in a new order: into the protocol
@@ -736,7 +758,7 @@ class WorkflowTab(QWidget):
         dialog = GridRunPreflightDialog(
             task_names,
             grid_names,
-            self.grid_workflow_widget.exchanges_for(grids),
+            exchanges_for(self._stage(), grid_names),
             str(experiment.path) if experiment is not None else "",
             adding=True,
             first_run=[g.name for g in grids if not grid_has_run(g)],
@@ -768,34 +790,16 @@ class WorkflowTab(QWidget):
         if experiment is None:
             return None
         return estimate_queue_addition(
-            experiment, manager.queue, pairs, run_next, self._step_seconds(experiment)
+            experiment,
+            manager.queue,
+            pairs,
+            run_next,
+            run_step_seconds(experiment, self._stage()),
         )
 
-    def _step_seconds(self, experiment):
-        """What a step costs, with the loader's exchange and the grids on the
-        stage as the Grids view knows them."""
-        view = self.grid_workflow_widget
-        return step_seconds(
-            experiment, view.exchange_seconds(), view.loaded_grid_names()
-        )
-
-    def _grid_run_estimate(self, task_names: list, grid_names: list, exchanges: int):
-        """What a grid run will take, for its confirmation; None if it cannot say.
-        A figure is not worth losing the dialog over (see `_push_timeline_estimates`)."""
-        experiment = self._session.experiment
-        if experiment is None:
-            return None
-        try:
-            return estimate_grid_run(
-                experiment,
-                task_names,
-                grid_names,
-                exchanges,
-                self.grid_workflow_widget.exchange_seconds(),
-            )
-        except Exception:
-            logging.warning("Could not estimate the grid run.", exc_info=True)
-            return None
+    def _stage(self):
+        """The sample handling the grid figures are read from; None without."""
+        return getattr(self._session.microscope, "sample_handling", None)
 
     def _grid_run_attendance(self, task_names: list):
         experiment = self._session.experiment
@@ -818,7 +822,7 @@ class WorkflowTab(QWidget):
 
         # A step with no config for the task, or one that cannot be priced, has
         # no duration to offer, and the column leaves it empty (see step_seconds).
-        seconds_for = self._step_seconds(experiment)
+        seconds_for = run_step_seconds(experiment, self._stage())
         estimates = {}
         for item_name, task_name in pairs:
             seconds = seconds_for(item_name, task_name)

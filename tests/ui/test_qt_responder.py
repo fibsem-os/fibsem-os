@@ -25,10 +25,10 @@ pytest.importorskip("PyQt5")
 from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
     AutoLamellaSingleWindowUI,
 )
-from fibsem.applications.autolamella.workflows import ui as workflow_ui
-from fibsem.applications.autolamella.workflows.ui import set_images_ui
 from fibsem.structures import BeamType
+from fibsem.workflows import status as workflow_status
 from fibsem.workflows.interaction import ask
+from fibsem.workflows.status import set_images_ui
 from tests.fixtures.main_window import close_window
 from tests.run_state import Stopped
 
@@ -225,7 +225,7 @@ def test_a_stop_interrupts_the_wait(ui):
 
 
 def test_a_wedged_gui_thread_times_out_instead_of_hanging_forever(ui, monkeypatch):
-    monkeypatch.setattr(workflow_ui, "INSTRUCTION_TIMEOUT_S", 0.4)
+    monkeypatch.setattr(workflow_status, "INSTRUCTION_TIMEOUT_S", 0.4)
     sem = deepcopy(ui.panel.image_widget.eb_image)
     started = time.monotonic()
 
