@@ -6,7 +6,7 @@ stage without importing them.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict, Type, TypeVar
 
 from fibsem.structures import Configurable, param
@@ -46,10 +46,14 @@ class MillingMonitorConfig(Configurable):
         return self.monitor_class.name
 
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        from fibsem.codec import encode
+
+        return encode(self)
 
     @classmethod
     def from_dict(
         cls: Type[TMillingMonitorConfig], d: Dict[str, Any]
     ) -> TMillingMonitorConfig:
-        return cls(**d)
+        from fibsem.codec import decode
+
+        return decode(cls, d)

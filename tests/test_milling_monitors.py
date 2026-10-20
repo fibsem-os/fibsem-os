@@ -277,6 +277,20 @@ def test_a_plain_stage_reports_no_readings(scripted):
     assert service.follow_readings(since=0)["readings"] == []
 
 
+def test_a_plain_stage_after_a_monitored_one_shows_no_readings(scripted, registered):
+    registered(Watch)
+    service = scripted([RUNNING] * 4)
+    _mill(service, _stage(MillingMonitorConfig().made_for(Watch)))
+    assert service.readings.get_value()["monitors"]
+
+    plain = _stage()
+    plain.name = "plain"
+    _mill(service, plain)
+
+    snapshot = service.readings.get_value()
+    assert snapshot["stage"] == "plain" and snapshot["monitors"] == {}
+
+
 def test_a_follow_waits_for_the_next_reading():
     from fibsem.milling.readings import MillingReadings
 
@@ -400,7 +414,7 @@ def test_a_live_monitor_gets_its_view_back_after_a_pause_and_resume(
     assert status == "completed"
     pauses = service.steps.count("pause")
     assert pauses == service.steps.count("resume") >= 1
-    assert LiveLook.restored == 2 * pauses, "after each pause, and each resume"
+    assert LiveLook.restored == 1 + 2 * pauses, "after the start, each pause and resume"
     last_resume = len(service.steps) - 1 - service.steps[::-1].index("resume")
     assert (
         last_resume < service.steps.index("poll") and service.steps.count("poll") == 1
@@ -451,3 +465,88 @@ def test_a_stream_monitor_reads_frames_until_the_step_ends(scripted, registered)
 
     assert step.to_dict()["monitors"] == [{"name": "Bright", "facts": {"Frames": 1}}]
     assert len(FRAMES.frame) == 0, "it let go of the source"
+
+
+class BrightThenBroken(Bright):
+    name = "Bright then broken"
+
+    def on_frame(self, frame):
+        raise RuntimeError("no frame")
+
+
+def test_a_monitor_that_fails_mid_mill_still_lets_go_of_its_source(
+    scripted, registered
+):
+    registered(BrightThenBroken)
+    service = scripted([IDLE], estimate=2.0)
+    _, step = _mill(service, _stage(MillingMonitorConfig().made_for(BrightThenBroken)))
+
+    (record,) = step.to_dict()["monitors"]
+    assert record["error"] == "RuntimeError: no frame"
+    assert len(FRAMES.frame) == 0, "it let go of the source"
+
+
+class Recording:
+    """A milling service's pause and resume, recorded."""
+
+    def __init__(self):
+        self.calls = []
+
+    def _pause(self):
+        self.calls.append("pause")
+
+    def _resume(self):
+        self.calls.append("resume")
+
+
+def _step():
+    from fibsem.milling.steps import MillingStep
+
+    milling = Recording()
+    return MillingStep(milling=milling), milling
+
+
+def test_the_operator_s_pause_during_a_monitor_s_pause_keeps_the_mill_paused():
+    step, milling = _step()
+    with step.paused("look"):
+        step.hold(milling._pause)
+        assert milling.calls == ["pause"], "already paused: no second pause"
+    assert milling.calls == ["pause"], "the look does not resume the operator's pause"
+    assert step.held and not step.pausing.is_set()
+
+    step.release(milling._resume)
+    assert milling.calls == ["pause", "resume"]
+
+
+def test_the_operator_s_resume_during_a_monitor_s_pause_waits_for_the_monitor():
+    step, milling = _step()
+    step.hold(milling._pause)
+    with step.paused("look"):
+        assert milling.calls == ["pause"], "paused by the operator already"
+        step.release(milling._resume)
+        assert milling.calls == ["pause"], "not resumed under the monitor's look"
+    assert milling.calls == ["pause", "resume"]
+    assert not step.held and not step.pausing.is_set()
+
+
+def test_milled_time_is_measured_with_its_pauses_left_out(monkeypatch):
+    now = [100.0]
+    monkeypatch.setattr(time, "monotonic", lambda: now[0])
+    step, milling = _step()
+
+    step.count_milled_time(True)
+    now[0] += 3
+    assert step.milled_time() == 3
+    with step.paused("look"):
+        now[0] += 5
+    assert step.milled_time() == 3, "a monitor's pause is not milled"
+    now[0] += 2
+    step.hold(milling._pause)
+    now[0] += 7
+    step.release(milling._resume)
+    now[0] += 1
+    assert step.milled_time() == 6, "nor the operator's"
+
+    step.count_milled_time(False)
+    now[0] += 4
+    assert step.milled_time() == 6

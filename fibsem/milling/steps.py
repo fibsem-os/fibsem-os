@@ -96,6 +96,10 @@ class MillingStep:
         self.pauses: List[Dict[str, Any]] = []
         self.notable: List[Dict[str, Any]] = []
         self._milled = 0.0
+        # The step's own watch, for a mill the instrument is not looked at
+        # (`count_milled_time`): whether it counts, and since when it runs.
+        self._counting = False
+        self._since: Optional[float] = None
         # Numbers each reading; the service's numbers run on across steps.
         self._next_seq = seq or itertools.count(1).__next__
         # The live monitors (those with a view) and the view they share.
@@ -107,6 +111,8 @@ class MillingStep:
         self._beam_stopped = False
         self._lock = threading.Lock()
         self._pause_lock = threading.Lock()
+        # Pausing and resuming the pattern, between a monitor and the operator.
+        self._hold_lock = threading.Lock()
         # A monitor holds a pause: the state monitor does not look meanwhile.
         self.pausing = threading.Event()
 
@@ -124,21 +130,55 @@ class MillingStep:
 
     def milled_time(self) -> float:
         """Seconds milled so far in this step, paused time left out."""
-        return self._milled
+        with self._hold_lock:
+            if self._since is None:
+                return self._milled
+            return self._milled + time.monotonic() - self._since
 
     def set_milled_time(self, seconds: float) -> None:
+        """*seconds* milled, as the instrument says."""
         self._milled = float(seconds)
 
-    def hold(self) -> None:
-        """The pattern is paused: no milled time until ``release``."""
-        self._held = True
+    def count_milled_time(self, on: bool) -> None:
+        """Measure the milled time on the step's own watch from now (*on*), or
+        stop: the time it runs while the pattern mills, pauses left out."""
+        with self._hold_lock:
+            self._counting = on
+            self._tick()
 
-    def release(self) -> None:
-        self._held = False
+    def _tick(self) -> None:
+        """Take the time run so far into the milled time, and run on from now
+        while the pattern mills. Under ``_hold_lock``."""
+        now = time.monotonic()
+        if self._since is not None:
+            self._milled += now - self._since
+        milling = not (self._held or self.pausing.is_set() or self.ending.is_set())
+        self._since = now if self._counting and milling else None
+
+    def hold(self, pause: Callable[[], None]) -> None:
+        """The operator's (or agent's) Pause: the pattern is paused with
+        *pause*, unless a monitor has it paused already, and stays paused
+        after the monitor is done, until ``release``."""
+        with self._hold_lock:
+            self._held = True
+            self._tick()
+            if not self.pausing.is_set():
+                pause()
+        self.restore_view()
+
+    def release(self, resume: Callable[[], None]) -> None:
+        """The operator's Resume: the pattern resumes with *resume*, or, while
+        a monitor has it paused, once the monitor is done."""
+        with self._hold_lock:
+            self._held = False
+            if not self.pausing.is_set():
+                resume()
+            self._tick()
+        self.restore_view()
 
     @property
     def held(self) -> bool:
-        """Whether the pattern is paused now."""
+        """Whether the operator has the pattern paused now."""
         return self._held
 
     def restore_view(self) -> None:
@@ -162,7 +202,7 @@ class MillingStep:
         entry = {
             "monitor": monitor,
             "seq": seq,
-            "milled_time": round(self._milled, 3),
+            "milled_time": round(self.milled_time(), 3),
             "notable": notable,
             "reading": reading,
         }
@@ -199,9 +239,12 @@ class MillingStep:
             if self.ending.is_set():
                 yield
                 return
-            self.milling._pause()
-            self.hold()
-            self.pausing.set()
+            with self._hold_lock:
+                # Set first: the state monitor does not look from here on.
+                self.pausing.set()
+                self._tick()
+                if not self._held:
+                    self.milling._pause()
             self.restore_view()
             self.report(
                 {"paused": reason, "by": by}, notable=True, monitor="step", keep=False
@@ -228,13 +271,17 @@ class MillingStep:
                         "seconds": round(time.monotonic() - began, 3),
                     }
                 )
-                try:
-                    if not self.ending.is_set():
-                        self.milling._resume()
-                        self.restore_view()
-                finally:
-                    self.release()
-                    self.pausing.clear()
+                with self._hold_lock:
+                    # Paused by the operator meanwhile: it stays paused.
+                    resume = not self.ending.is_set() and not self._held
+                    try:
+                        if resume:
+                            self.milling._resume()
+                    finally:
+                        self.pausing.clear()
+                        self._tick()
+                if resume:
+                    self.restore_view()
 
     def end_as(self, end: MillingStepEnd) -> bool:
         """End the step, unless it has already ended; whether this end won."""
@@ -243,6 +290,8 @@ class MillingStep:
                 return False
             self._end = end
         self.ending.set()
+        with self._hold_lock:
+            self._tick()
         return True
 
     def stop_beam(self, stop: Callable[[], None]) -> bool:

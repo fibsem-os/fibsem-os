@@ -10,6 +10,7 @@ import os
 import threading
 import time
 
+import numpy as np
 import pytest
 import yaml
 
@@ -218,3 +219,79 @@ def test_milling_task_cancels_by_the_stop_event_it_is_given(fm_microscope):
     assert task._stop_event is explicit
     task = FibsemMillingTask(fm_microscope, config)
     assert task._stop_event is None
+
+
+def _old_drop_stats(values, elapsed, settings):
+    """Coincidence milling's drop detection as it was before the rule was
+    shared (FIB-1482), reading the settings at every frame."""
+    peak, below, warm, seen, out = 0.0, 0, False, [], []
+    for i, (value, t) in enumerate(zip(values, elapsed)):
+        drop_fraction, window, warmup, consecutive = settings(i)
+        seen.append(value)
+        rolling = float(np.mean(seen[-int(window) :]))
+        if not warm:
+            if t >= warmup:
+                warm = True
+            out.append((rolling, peak, 0.0, False, False))
+            continue
+        peak = max(peak, rolling)
+        threshold = (1.0 - drop_fraction) * peak
+        below = below + 1 if rolling < threshold else 0
+        drop = below >= int(consecutive)
+        if drop:
+            below = 0
+        out.append((rolling, peak, threshold, True, drop))
+    return out
+
+
+def test_the_shared_drop_rule_detects_as_the_strategy_did_with_live_edits(
+    monkeypatch,
+):
+    """The viewer's drop threshold changes the running strategy's config; the
+    shared rule takes it at the next frame, as the strategy's own code did."""
+    from types import SimpleNamespace
+
+    strategy = CoincidenceMillingStrategy(
+        config=CoincidenceMillingStrategyConfig(
+            save_fm_images=False,
+            rolling_window=3,
+            warmup_duration=2.0,
+            consecutive_triggers=2,
+        )
+    )
+    strategy.microscope = SimpleNamespace(fm=object())
+    strategy.camera_resolution = (8, 8)
+    strategy._acquisition_start_time = 1000.0
+    rng = np.random.default_rng(1)
+    values = list(rng.normal(1000, 30, 20)) + list(rng.normal(500, 30, 20))
+    values += list(rng.normal(1000, 30, 10)) + list(rng.normal(700, 30, 20))
+    fractions = [0.4] * 45 + [0.2] * 25  # the operator lowers the threshold
+
+    stats = []
+    strategy.intensity_stats_signal.connect(stats.append)
+    for i, value in enumerate(values):
+        strategy.config.intensity_drop_fraction = fractions[i]
+        monkeypatch.setattr(time, "time", lambda now=1000.0 + i: now)
+        strategy.on_fm_acquisition_signal(SimpleNamespace(data=np.full((8, 8), value)))
+
+    expected = _old_drop_stats(
+        values,
+        list(range(len(values))),
+        lambda i: (fractions[i], 3, 2.0, 2),
+    )
+    got = [
+        (
+            s["rolling_mean"],
+            s["peak_rolling_mean"],
+            s["threshold_value"],
+            s["warmup_complete"],
+            s.get("drop_detected", False),
+        )
+        for s in stats
+    ]
+    assert [row[3:] for row in got] == [row[3:] for row in expected]
+    assert [v for row in got for v in row[:3]] == pytest.approx(
+        [v for row in expected for v in row[:3]]
+    )
+    drops = [i for i, row in enumerate(expected) if row[4]]
+    assert drops and any(i >= 45 for i in drops), "the lowered threshold fires"

@@ -588,21 +588,23 @@ class Milling(Service):
 
     @command
     def pause(self) -> None:
-        """Pause milling."""
-        self._pause()
+        """Pause milling. While a monitor has the pattern paused (an SEM
+        peek), it stays paused when the monitor is done."""
         step = self._step
-        if step is not None:
-            step.hold()
-            step.restore_view()
+        if step is None:
+            self._pause()
+        else:
+            step.hold(self._pause)
 
     @command
     def resume(self) -> None:
-        """Resume paused milling."""
-        self._resume()
+        """Resume paused milling. While a monitor has the pattern paused, it
+        resumes when the monitor is done."""
         step = self._step
-        if step is not None:
-            step.release()
-            step.restore_view()
+        if step is None:
+            self._resume()
+        else:
+            step.release(self._resume)
 
     @query
     def follow_readings(self, since: int = 0, timeout: float = 0.0) -> Dict[str, Any]:
@@ -866,8 +868,9 @@ class Milling(Service):
         step.view = views[0] if views else None
         if stage_run is not None:
             stage_run.steps.append(step)
+        # The `readings` parameter shows this step's, none for a plain step.
+        self._readings.start_step(getattr(stage, "name", None), index)
         if monitors:
-            self._readings.start_step(getattr(stage, "name", None), index)
             step.readings.connect(self._on_reading)
         self._step = step
         self._before_run()
@@ -878,6 +881,8 @@ class Milling(Service):
                 monitor.start(step)
             if not step.ending.is_set():
                 self._start()
+                # Starting may select the milling view (AutoScript).
+                step.restore_view()
                 milled = 0.0
                 if step.view not in (None, "fib"):
                     # A live monitor holds another view: no looks at the
@@ -1134,11 +1139,11 @@ class MillingStateMonitor:
 
 
 class MillingClock:
-    """Counts the milled time while a live monitor holds a view other than the
-    milling one, so the instrument is not looked at: one ``poll_interval`` per
-    wait while the pattern is not paused. Ends when the milling time is milled,
-    or the step ends; the state monitor then sees the pattern out (a pattern is
-    never cut off). Pauses made outside fibsem are not seen."""
+    """Measures the milled time while a live monitor holds a view other than
+    the milling one, so the instrument is not looked at: the time the pattern
+    mills, on the step's own watch, its pauses left out. Ends when the milling
+    time is milled, or the step ends; the state monitor then sees the pattern
+    out (a pattern is never cut off). Pauses made outside fibsem are not seen."""
 
     def __init__(
         self,
@@ -1151,31 +1156,32 @@ class MillingClock:
         self.stop_event = stop_event
 
     def watch(self, total: float) -> float:
-        """Count until the step is over or *total* seconds are milled; the
+        """Measure until the step is over or *total* seconds are milled; the
         seconds milled."""
         milling, step = self.milling, self.step
         start_time = time.time()
-        milled = 0.0
-        while not step.ending.is_set():
-            if self.stop_event is not None and self.stop_event.is_set():
-                step.end_as(MillingStepEnd(STOPPED, reason="Milling stopped."))
-                break
-            held = step.held or step.pausing.is_set()
-            milling._report(
-                progress_update(
-                    state=MillingState.PAUSED if held else MillingState.RUNNING,
-                    start_time=start_time,
-                    total=total,
-                    remaining=max(0.0, total - milled),
+        step.count_milled_time(True)
+        try:
+            while not step.ending.is_set():
+                if self.stop_event is not None and self.stop_event.is_set():
+                    step.end_as(MillingStepEnd(STOPPED, reason="Milling stopped."))
+                    break
+                milled = step.milled_time()
+                held = step.held or step.pausing.is_set()
+                milling._report(
+                    progress_update(
+                        state=MillingState.PAUSED if held else MillingState.RUNNING,
+                        start_time=start_time,
+                        total=total,
+                        remaining=max(0.0, total - milled),
+                    )
                 )
-            )
-            if milled >= total:
-                break
-            milling._wait(milling.poll_interval)
-            if not (step.held or step.pausing.is_set()):
-                milled += milling.poll_interval
-                step.set_milled_time(milled)
-        return milled
+                if milled >= total:
+                    break
+                milling._wait(milling.poll_interval)
+        finally:
+            step.count_milled_time(False)
+        return step.milled_time()
 
 
 class _Drawn:
