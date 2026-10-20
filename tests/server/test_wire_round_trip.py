@@ -168,6 +168,14 @@ def test_every_served_result_type_reads_back_from_its_path():
         assert type_path(type_from_path(path)) == path
 
 
+def test_every_served_parameter_type_reads_back_from_its_path():
+    """A description names each parameter's type by path; a client reads it."""
+    for cls in _classes():
+        for spec in cls.declared_parameters().values():
+            path = type_path(spec.type)
+            assert type_path(type_from_path(path)) == path
+
+
 def test_a_type_path_imports_only_fibsem():
     with pytest.raises(ValueError):
         type_from_path("os.system")

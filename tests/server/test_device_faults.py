@@ -100,7 +100,7 @@ def test_a_remote_copy_raises_the_fault_again():
 
 
 def test_a_resource_held_elsewhere_is_a_409_and_stays_busy_remotely(client):
-    from fibsem.drivers.remote.devices import error_from
+    from fibsem.devices.errors import error_from
 
     r = client.post("/devices/unit/commands/busy", json={"kwargs": {}})
     assert r.status_code == 409

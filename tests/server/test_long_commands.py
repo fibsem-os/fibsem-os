@@ -20,12 +20,13 @@ from fastapi.testclient import TestClient  # noqa: E402
 from fibsem import utils  # noqa: E402
 from fibsem.acting import OPERATOR  # noqa: E402
 from fibsem.cancellation import OperationCancelledError  # noqa: E402
+from fibsem.client import ServerError  # noqa: E402
 from fibsem.control import MicroscopeBusy  # noqa: E402
 from fibsem.devices.core import DeviceFault  # noqa: E402
 from fibsem.imaging.spot import SpotBurnSettings  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.client import FibsemClient  # noqa: E402
 from fibsem.structures import Point  # noqa: E402
+from tests.server.test_client import in_process  # noqa: E402
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -48,8 +49,14 @@ def microscope():
 
 
 @pytest.fixture(scope="module")
-def client(microscope):
-    app = build_server(microscope, auth=AuthConfig.generate(level="drive", token=TOKEN))
+def app(microscope):
+    return build_server(
+        microscope, auth=AuthConfig.generate(level="drive", token=TOKEN)
+    )
+
+
+@pytest.fixture(scope="module")
+def client(app):
     with TestClient(app, raise_server_exceptions=False) as client:
         client.headers.update(AUTH)
         yield client
@@ -177,31 +184,11 @@ def test_the_listing_marks_long_commands(client):
     assert "long" not in services["milling"]["commands"]["prepare"]
 
 
-class _Session:
-    """requests' Session API over a TestClient, which refuses per-call timeouts."""
-
-    def __init__(self, client):
-        self._client = client
-
-    def __getattr__(self, method):
-        call = getattr(self._client, method)
-        return lambda url, timeout=None, **kwargs: call(url, **kwargs)
-
-
-def _fibsem_client(client):
-    fibsem_client = FibsemClient.__new__(FibsemClient)
-    fibsem_client.base_url = ""
-    fibsem_client._session = _Session(client)
-    return fibsem_client
-
-
-def test_the_client_waits_for_the_run(client, held):
-    fibsem_client = _fibsem_client(client)
+def test_the_client_waits_for_the_run(app, held):
     held["go"].set()
-    run = fibsem_client.call_service_command("spot_burn", "run", settings=SETTINGS)
-    assert fibsem_client.wait_for_run("spot_burn", run["run_id"], timeout=10) == (
-        "finished"
-    )
+    run = in_process(app).services["spot_burn"].run(settings=SETTINGS)
+    assert run.wait(timeout=10) == "finished"
+    assert run.state == "done"
 
 
 @pytest.mark.parametrize(
@@ -209,13 +196,23 @@ def test_the_client_waits_for_the_run(client, held):
     [
         (OperationCancelledError("stopped"), OperationCancelledError),
         (DeviceFault("the beam would not blank"), DeviceFault),
-        (KeyError("nothing here"), RuntimeError),
+        (KeyError("nothing here"), ServerError),
     ],
 )
-def test_the_client_raises_what_the_run_raised(client, held, outcome, raised):
-    fibsem_client = _fibsem_client(client)
+def test_the_client_raises_what_the_run_raised(app, held, outcome, raised):
     held["outcome"] = outcome
     held["go"].set()
-    run = fibsem_client.call_service_command("spot_burn", "run", settings=SETTINGS)
+    run = in_process(app).services["spot_burn"].run(settings=SETTINGS)
     with pytest.raises(raised):
-        fibsem_client.wait_for_run("spot_burn", run["run_id"], timeout=10)
+        run.wait(timeout=10)
+
+
+def test_the_client_reads_the_latest_run(app, held):
+    client = in_process(app)
+    assert client.services["imaging"].latest_run() is None
+    run = client.services["spot_burn"].run(settings=SETTINGS)
+    assert client.services["spot_burn"].latest_run().run_id == run.run_id
+    with pytest.raises(TimeoutError):
+        run.wait(timeout=0.1)
+    held["go"].set()
+    assert run.wait(timeout=10) == "finished"
