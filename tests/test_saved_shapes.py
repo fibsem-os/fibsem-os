@@ -565,10 +565,11 @@ def _stage(**overrides):
 
 
 def _patterns():
-    from fibsem.milling.patterning import get_patterns
+    from fibsem.milling.patterning import BUILTIN_PATTERNS
     from fibsem.milling.patterning.patterns.polygon import PolygonPattern
 
-    patterns = {name: cls() for name, cls in get_patterns().items()}
+    # Built-in only: a test may register its own pattern in the same process.
+    patterns = {name: cls() for name, cls in BUILTIN_PATTERNS.items()}
     # Not registered, so read back by its class.
     patterns["PolygonPattern"] = PolygonPattern(
         vertices=np.array([[0.0, 0.0], [1e-6, 0.0], [0.0, 1e-6]])
