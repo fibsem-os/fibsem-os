@@ -915,22 +915,20 @@ The server has no authentication yet. Keep it on the microscope's private networ
 
 ### Over the App Server
 
-`fibsem.server.client.FibsemClient` reaches a microscope through the App Server, with
-its token. `client.devices` gives the served beams and FM parts as live devices by
-name, as `microscope.devices` does:
+`fibsem.client.FibsemClient` reaches a microscope's devices and services through the
+App Server, with its token, by name and from the server's own descriptions:
 
 <!-- not run -->
 ```python
-from fibsem.server.client import FibsemClient
+from fibsem.client import FibsemClient
 
-with FibsemClient("localhost", 8001, token="...") as client:
-    ion = client.devices["ion"]
-    ion.current.get_value()       # a live read through the App Server
-    client.call_service_query("milling", "estimate")
+with FibsemClient("http://localhost:8001", "...") as client:
+    client.devices["ion"].get("current")         # a live read through the App Server
+    client.services["milling"].estimate_time()
 ```
 
-The App Server has no event stream for devices, so these are not told of changes made
-elsewhere: `cached` and the metadata are as current as this client's last read. The
-other devices and the services are reached by name: `get_parameter`/`set_parameter`,
-`get_values`, `call_command`/`call_query`, and `get_service_parameter`,
-`set_service_parameter`, `call_service_command` and `call_service_query`.
+Values and results are read as the types the server declares. The App Server has no
+event stream for devices yet, so nothing tells the client of a change made elsewhere.
+
+The remote driver's devices also work over the App Server's `/microscope` routes:
+`DeviceClient(host, port, token=..., events=False, root="/microscope")`.

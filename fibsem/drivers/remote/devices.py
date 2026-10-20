@@ -80,25 +80,21 @@ import numpy as np
 import requests
 from psygnal import Signal
 
-from fibsem.cancellation import OperationCancelledError
 from fibsem.codec import decode
 from fibsem.devices.beam import Beam
 from fibsem.devices.chamber import Chamber
 from fibsem.devices.chamber_camera import ChamberCamera
 from fibsem.devices.core import (
     Device,
-    DeviceFault,
     ParameterMetadata,
-    ParameterReadOnly,
-    ParameterUnavailable,
-    ResourceBusy,
     command,
 )
 from fibsem.devices.entries import REMOTE_DRIVER
+from fibsem.devices.errors import error_from
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
-from fibsem.devices.manipulator import Manipulator, ManipulatorLimitError
+from fibsem.devices.manipulator import Manipulator
 from fibsem.devices.scanner import Scanner
-from fibsem.devices.stage import Stage, StageLimitError
+from fibsem.devices.stage import Stage
 from fibsem.devices.wire import (
     FRAME_METADATA_HEADER,
     FRAMES_MEDIA_TYPE,
@@ -138,41 +134,6 @@ class RemoteDeviceError(RuntimeError):
 
 class RemoteDeviceUnreachable(ConnectionError):
     """The server could not be reached. Nothing about the device is known right now."""
-
-
-_ERRORS: Dict[str, Callable[[str], Exception]] = {
-    "ParameterUnavailable": ParameterUnavailable,
-    "ParameterReadOnly": ParameterReadOnly,
-    "TypeError": TypeError,
-    "ValueError": ValueError,
-    "NotImplementedError": NotImplementedError,
-    "StageLimitError": StageLimitError,
-    "ManipulatorLimitError": ManipulatorLimitError,
-    "OperationCancelledError": OperationCancelledError,
-}
-
-
-def error_from(
-    detail: Dict[str, Any], status: Optional[int] = None
-) -> Optional[Exception]:
-    """The local exception a server's error *detail* names, or None when it has
-    no local meaning. *status* is the answer's HTTP status, when there was one.
-
-    The detail has error_type and message; a server from before FIB-1377 sends
-    error and detail. A long command's failed run carries the same detail
-    (``fibsem.server.client.FibsemClient.wait_for_run``).
-    """
-    kind = detail.get("error_type", detail.get("error"))
-    message = detail.get("message", detail.get("detail"))
-    if kind == "DeviceFault" or status == 502:
-        # the hardware refused on the far side: a driver's own subclass arrives
-        # as the fault it is
-        return DeviceFault(message, device=detail.get("device"))
-    if kind == "ResourceBusy":
-        return ResourceBusy(detail.get("resource"), detail.get("holder"), message)
-    if kind in _ERRORS:
-        return _ERRORS[kind](message)
-    return None
 
 
 def _range(payload: Dict[str, Any]) -> RangeLimit:
