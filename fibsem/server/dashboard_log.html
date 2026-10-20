@@ -6,7 +6,7 @@
 <title>App Server Event Log</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='4' fill='%231e2027'/%3E%3Cpath d='M8 10h16M8 16h16M8 22h10' stroke='%2350a6ff' stroke-width='2.5'/%3E%3C/svg%3E">
 <style>
-  /* napari-dark, from fibsem/ui/tokens.py, as dashboard.html has it. */
+  /* napari-dark, from fibsem/ui/tokens.py. */
   :root {
     --surface:#262930; --panel:#1e2027; --row-alt:#2b2f38; --canvas:#1e2124;
     --border:#3d4251; --text:#d6d6d6; --strong:#f0f1f2; --muted:#868e93;
@@ -79,10 +79,9 @@
 <div id="app"></div>
 <script>
 "use strict";
-/* The session's event stream as one filterable table, over the same
-   /app/events long-poll as the dashboard's feed. Read-only. The token
-   arrives as it does for the dashboard: in the URL fragment, then kept for
-   the tab's session. */
+/* The session's event stream as one filterable table, over the /app/events
+   long-poll. Read-only. The token arrives in the URL fragment, then is kept
+   for the tab's session. */
 
 const $app = document.getElementById("app");
 const TOKEN_KEY = "fibsem_dashboard_token";
@@ -514,7 +513,7 @@ async function liveLoop() {
 /* ── boot ──────────────────────────────────────────────────────────── */
 
 async function boot() {
-  if (!TOKEN) { gate("Open the event log from the dashboard, or paste the dashboard's token from Copy link in Tools → App Server."); return; }
+  if (!TOKEN) { gate("Open the event log from Tools → App Server, or paste its link from Copy link there."); return; }
   let caps;
   try { caps = await api("/capabilities"); }
   catch (e) { gate("That token was refused. Copy a fresh link from Tools → App Server."); return; }
@@ -528,8 +527,7 @@ async function boot() {
   $app.innerHTML = `
     <header class="panel">
       <span class="exp" id="exp"></span>
-      <span class="right"><span id="state"></span>
-        <a href="/dashboard#token=${encodeURIComponent(TOKEN)}">Dashboard</a></span>
+      <span class="right"><span id="state"></span></span>
     </header>
     <div class="bar">
       <span id="who" class="bar"></span><span class="sep"></span>

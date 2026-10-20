@@ -290,13 +290,13 @@ class MainMenuBar(QObject):
         )
 
         # The embedded App Server's dialog: whether it runs, its services, the
-        # dashboard. The agent's level and connecting one are the agent chip's
+        # event log. The agent's level and connecting one are the agent chip's
         # (FIB-1035). Always visible: it is where the server is turned on. Next
         # to Scripts (FIB-863).
         self.action_app_server = QAction("App Server...", self._window)
         self.action_app_server.setMenuRole(QAction.NoRole)
         self.action_app_server.setToolTip(
-            "The App Server: whether it is running, its services, and the dashboard"
+            "The App Server: whether it is running, its services, and the event log"
         )
         self.action_app_server.triggered.connect(self._on_app_server_dialog)
         tools_menu.addAction(self.action_app_server)
