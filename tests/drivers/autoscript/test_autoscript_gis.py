@@ -113,18 +113,21 @@ def _build(microscope, **options):
 
 
 # ---------------------------------------------------------------------------
-# Arctis only
+# Arctis and Hydra Bio only
 # ---------------------------------------------------------------------------
 
 
-class TestArctisOnly:
+class TestWhereItIsBuilt:
     def test_the_driver_has_a_gis_builder(self):
         assert device_builder("thermofisher", "gis") is not None
 
     def test_built_by_default_on_an_arctis_with_a_port(self):
         assert autoscript_devices.gis_fitted(_microscope(FakeGas()))
 
-    @pytest.mark.parametrize("model", ["Hydra Bio", "Aquilos 2", "Helios 5", ""])
+    def test_built_by_default_on_a_hydra_bio_with_a_port(self):
+        assert autoscript_devices.gis_fitted(_microscope(FakeGas(), model="Hydra Bio"))
+
+    @pytest.mark.parametrize("model", ["Aquilos 2", "Helios 5", ""])
     def test_not_built_by_default_on_another_instrument(self, model):
         assert not autoscript_devices.gis_fitted(_microscope(FakeGas(), model=model))
 
@@ -132,8 +135,27 @@ class TestArctisOnly:
         assert not autoscript_devices.gis_fitted(_microscope(FakeGas(ports=())))
 
     def test_a_configured_gis_is_refused_on_another_instrument(self):
-        with pytest.raises(ValueError, match="Arctis only"):
-            _build(_microscope(FakeGas(), model="Hydra Bio"))
+        with pytest.raises(ValueError, match="Arctis or a Hydra Bio only"):
+            _build(_microscope(FakeGas(), model="Aquilos 2"))
+
+    def test_an_entry_forces_the_variant_on_a_bench(self):
+        gis = _build(_microscope(FakeGas(), model="Aquilos 2"), variant="hydra_bio")
+        assert gis.port == "Pt dep"
+
+    def test_an_unknown_variant_is_refused(self):
+        with pytest.raises(ValueError, match="variant is one of"):
+            _build(_microscope(FakeGas()), variant="helios")
+
+    def test_a_hydra_bio_deposits_from_the_cryo_platinum_port(self):
+        gas = FakeGas(ports=("C dep", "Pt dep Cryo"), multichem=True)
+        gis = _build(_microscope(gas, model="Hydra Bio"))
+        assert isinstance(gis, autoscript_devices.AutoscriptGisPort)
+        assert gis.gas.get_value() == "Pt dep Cryo"
+
+    def test_an_arctis_keeps_the_multichem_first(self):
+        gas = FakeGas(ports=("C dep", "Pt dep Cryo"), multichem=True)
+        gis = _build(_microscope(gas))
+        assert isinstance(gis, autoscript_devices.AutoscriptMultichem)
 
     def test_a_port_the_instrument_does_not_list_is_refused(self):
         with pytest.raises(ValueError, match="no GIS port"):

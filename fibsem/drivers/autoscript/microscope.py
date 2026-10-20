@@ -406,8 +406,15 @@ _STAGE_TYPES = ("stage",)
 _PART_TYPES = ("chamber", "chamber_camera", "manipulator")
 _LOADER_TYPES = ("sample_loader",)
 _GIS_TYPES = ("gis",)
+_SPUTTER_COATER_TYPES = ("sputter_coater",)
 _OWN_TYPES = (
-    _BEAM_TYPES + _STAGE_TYPES + _PART_TYPES + _LOADER_TYPES + _GIS_TYPES + ("fm",)
+    _BEAM_TYPES
+    + _STAGE_TYPES
+    + _PART_TYPES
+    + _LOADER_TYPES
+    + _GIS_TYPES
+    + _SPUTTER_COATER_TYPES
+    + ("fm",)
 )
 
 
@@ -699,7 +706,8 @@ class ThermoMicroscope(FibsemMicroscope):
 
     def _build_parts(self) -> None:
         """Build the chamber, its camera and the manipulator, and keep the
-        manipulator only when it says it is fitted; then the GIS, on an Arctis. Then
+        manipulator only when it says it is fitted; then the GIS and the sputter
+        coater, on an Arctis or a Hydra Bio. Then
         build any other device the configuration adds.
 
         ``pump``, ``vent`` and the manipulator's raw moves then go through the
@@ -716,13 +724,14 @@ class ThermoMicroscope(FibsemMicroscope):
         )
         self._keep_if_fitted("manipulator")
         self._build_gis()
+        self._build_sputter_coater()
 
         # whatever else the configuration adds, such as a device on its own PC
         self._build_devices([], exclude_types=_OWN_TYPES)
 
     def _build_gis(self) -> None:
-        """The ``gis`` device, built on an Arctis that lists a GIS port or a
-        multichem, unless the configuration switches it off. No other Thermo
+        """The ``gis`` device, built on an Arctis or a Hydra Bio that lists a GIS port
+        or a multichem, unless the configuration switches it off. No other Thermo
         instrument gets one; a configuration that names one there fails to build it."""
         from fibsem.drivers.autoscript.devices import gis_fitted
 
@@ -730,6 +739,18 @@ class ThermoMicroscope(FibsemMicroscope):
         if gis_fitted(self):
             fitted.append(DeviceEntry(name="gis", type="gis"))
         self._build_devices(fitted, _GIS_TYPES)
+
+    def _build_sputter_coater(self) -> None:
+        """The ``sputter_coater`` device, built on an Arctis or a Hydra Bio whose
+        coater reports installed, unless the configuration switches it off. No other
+        Thermo instrument gets one; a configuration that names one there fails to
+        build it."""
+        from fibsem.drivers.autoscript.devices import sputter_coater_fitted
+
+        fitted = []
+        if sputter_coater_fitted(self):
+            fitted.append(DeviceEntry(name="sputter_coater", type="sputter_coater"))
+        self._build_devices(fitted, _SPUTTER_COATER_TYPES)
 
     def _build_sample_handling(self) -> None:
         """The sample handling service, after the ``sample_loader`` device on a
