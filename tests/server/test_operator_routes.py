@@ -260,3 +260,59 @@ def test_the_connect_text_is_the_card_s(server):
     answer = server.get("/app/agent/connect", headers=server.operator)
     assert answer.json()["text"] == setup_text(server.session.app_server.url)
     assert server.get("/app/agent/connect", headers=server.agent).status_code == 403
+
+
+def _suggested(server):
+    from fibsem.structures import Point
+    from fibsem.workflows.proposals import POINT_OF_INTEREST, Proposal, Suggestion
+    from fibsem.workflows.status import TaskStatus
+
+    experiment = server.session.experiment
+    lamella = experiment.positions[0]
+    lamella.task_state.name = SETUP
+    lamella.task_state.task_id = "run-1"
+    lamella.task_state.status = TaskStatus.InProgress
+    proposal = Proposal(
+        kind=POINT_OF_INTEREST,
+        values={"poi": Point(0.0, 0.0)},
+        provenance={"task_id": "run-1"},
+    )
+    assert experiment.ask_proposal(lamella.id, SETUP, proposal)
+    suggestion = Suggestion(
+        actor="agent:claude", reason="1 µm right", values={"poi": Point(1e-6, 0.0)}
+    )
+    assert experiment.suggest(lamella.id, SETUP, proposal.id, suggestion).applied
+    shown = server.get("/app/agent", headers=server.operator).json()["suggestion"]
+    assert shown["proposal_id"] == proposal.id and shown["reason"] == "1 µm right"
+    return proposal, suggestion
+
+
+def test_the_operator_approves_the_agent_s_suggestion(server):
+    from fibsem.workflows.proposals import DecisionOutcome
+
+    proposal, suggestion = _suggested(server)
+    path = f"/app/agent/suggestions/{proposal.id}/approve"
+    assert server.post(path, headers=server.agent).status_code == 403
+    answer = server.post(path, headers=server.operator)
+    assert answer.status_code == 200, answer.text
+    decision = proposal.current
+    assert decision.outcome is DecisionOutcome.Confirmed
+    assert decision.actor.kind.value == "operator"
+    assert decision.suggestion_id == suggestion.id
+    assert (
+        server.get("/app/agent", headers=server.operator).json()["suggestion"] is None
+    )
+    # Approving it twice is refused, as the card's would be.
+    assert server.post(path, headers=server.operator).status_code == 409
+
+
+def test_the_operator_declines_the_agent_s_suggestion(server):
+    proposal, _ = _suggested(server)
+    answer = server.post(
+        f"/app/agent/suggestions/{proposal.id}/decline",
+        headers=server.operator,
+        json={"reason": "that is the trench"},
+    )
+    assert answer.status_code == 200, answer.text
+    assert proposal.pending
+    assert proposal.suggestion.declined_reason == "that is the trench"

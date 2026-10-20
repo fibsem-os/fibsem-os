@@ -142,7 +142,7 @@ class AgentChipHost(QObject):
     def _show_suggestion(self) -> None:
         """The card shows the agent's suggestion on a pending proposal, until
         it is approved, declined or the proposal is decided otherwise."""
-        from fibsem.ui.agent.suggestions import (
+        from fibsem.ai.agent.suggestions import (
             front_suggestion,
             suggestion_card,
             suggestion_request,
@@ -167,12 +167,9 @@ class AgentChipHost(QObject):
     def _on_approve_suggestion(self) -> None:
         """Approve on the card: the proposal is decided as suggested, as the
         operator's decision, naming the suggestion."""
-        experiment = self._experiment
-        if self._suggested is None or experiment is None:
+        if self._suggested is None:
             return
-        result = experiment.approve_suggestion(
-            *self._suggested, actor=experiment.actor(), via="workflow"
-        )
+        result = self._agent.approve_suggestion(self._suggested[2])
         if not result.applied:
             notification_service.show(
                 f"Could not approve the agent's suggestion: {result.reason}", "info"
@@ -182,10 +179,9 @@ class AgentChipHost(QObject):
     def _on_decline_suggestion(self, reason: str) -> None:
         """Decline on the card: the suggestion is dropped, with the reason
         for the agent; the proposal stays pending."""
-        experiment = self._experiment
-        if self._suggested is None or experiment is None:
+        if self._suggested is None:
             return
-        experiment.decline_suggestion(*self._suggested, reason=reason.strip())
+        self._agent.decline_suggestion(self._suggested[2], reason)
         self._show_suggestion()
 
     def _follow_requests(self) -> None:

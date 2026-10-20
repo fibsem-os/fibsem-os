@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import TYPE_CHECKING, Any, Callable, List, Optional, Set
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set
 
 from fibsem.acting import OPERATOR
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.workflows.actions import ACTION, NOTE, action_record, note_record
+from fibsem.workflows.proposals import DecisionResult
 
 if TYPE_CHECKING:
     from fibsem.workflows.session import AppSession
@@ -23,6 +24,14 @@ if TYPE_CHECKING:
 OPEN = ("pending", "applying")
 # The longest message to the agent, in characters (FIB-1423).
 MESSAGE_LIMIT = 2000
+
+
+def _no_suggestion(verb: str) -> DecisionResult:
+    return DecisionResult(
+        applied=False,
+        error_type="stale_proposal",
+        reason=f"There is no suggestion to {verb}.",
+    )
 
 
 class AgentSession:
@@ -181,6 +190,54 @@ class AgentSession:
             request_id,
             "approved" if approve else "rejected",
         )
+
+    # --- its suggestion on a pending proposal --------------------------------
+
+    def suggestion(self) -> Optional[Dict[str, Any]]:
+        """The suggestion the card shows (``suggestions.suggestion_card``),
+        with the ``proposal_id`` it is on; None when there is none."""
+        from fibsem.ai.agent.suggestions import front_suggestion, suggestion_card
+
+        experiment = self._session.experiment
+        front = front_suggestion(experiment)
+        if front is None:
+            return None
+        item, task_name, proposal = front
+        card = suggestion_card(item, task_name, proposal, str(experiment.path))
+        return {"proposal_id": proposal.id, **card}
+
+    def approve_suggestion(self, proposal_id: str) -> DecisionResult:
+        """Decide the proposal as the agent suggested, as the operator's
+        decision, naming the suggestion."""
+        front = self._front(proposal_id)
+        if front is None:
+            return _no_suggestion("approve")
+        experiment, item, task_name = front
+        return experiment.approve_suggestion(
+            item.id, task_name, proposal_id, actor=experiment.actor(), via="workflow"
+        )
+
+    def decline_suggestion(self, proposal_id: str, reason: str = "") -> DecisionResult:
+        """Drop the suggestion, with the reason for the agent; the proposal
+        stays pending."""
+        front = self._front(proposal_id)
+        if front is None:
+            return _no_suggestion("decline")
+        experiment, item, task_name = front
+        return experiment.decline_suggestion(
+            item.id, task_name, proposal_id, reason=reason.strip()
+        )
+
+    def _front(self, proposal_id: str):
+        """``(experiment, item, task_name)`` while the suggestion shown is on
+        ``proposal_id``, else None."""
+        from fibsem.ai.agent.suggestions import front_suggestion
+
+        experiment = self._session.experiment
+        front = front_suggestion(experiment)
+        if front is None or front[2].id != proposal_id:
+            return None
+        return experiment, front[0], front[1]
 
     # --- what the agent hears ------------------------------------------------
 

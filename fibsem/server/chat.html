@@ -77,6 +77,7 @@
   .request .title { font-size:11.5px; color:var(--agent); margin-bottom:4px; }
   .request ul { padding-left:18px; color:var(--strong); }
   .request .reason { margin-top:6px; }
+  .request .decision { margin-top:4px; color:var(--strong); }
   .request .buttons { display:flex; gap:8px; margin-top:10px; justify-content:flex-end; }
   .request input { flex:1; min-width:0; background:var(--canvas); border:1px solid var(--border);
     border-radius:3px; padding:4px 8px; color:var(--text); font:inherit; font-size:12px; }
@@ -275,6 +276,22 @@ function requestHtml(request) {
       : `<button class="btn" id="reject-start">Reject…</button><button class="btn primary" id="approve">Approve</button>`}</div></div>`;
 }
 
+// The agent's suggestion on a pending proposal, as the card shows it when no
+// request waits: Decline… asks why first, as Reject… does.
+function suggestionHtml(suggestion) {
+  if (!suggestion || (state.agent && state.agent.request && state.agent.request.status === "pending")) return "";
+  const picture = suggestion.evidence ? evidenceHtml({ evidence: suggestion.evidence })
+    : suggestion.no_evidence ? `<div class="reason muted">${esc(suggestion.no_evidence)}</div>` : "";
+  return `<div class="request" data-suggestion="${esc(suggestion.proposal_id)}">
+    <div class="title">Agent suggests</div>
+    <div class="muted">${esc(suggestion.proposal)}</div>
+    <div class="decision">${esc(suggestion.decision)}</div>
+    <div class="reason"><span class="muted">Why:</span> ${esc(suggestion.reason)}</div>${picture}
+    <div class="buttons">${rejecting
+      ? `<input id="reject-reason" placeholder="Tell the agent why (optional)"><button class="btn" id="back">Back</button><button class="btn primary" id="decline">Decline</button>`
+      : `<button class="btn" id="reject-start">Decline…</button><button class="btn primary" id="approve-suggestion">Approve</button>`}</div></div>`;
+}
+
 function rowsHtml() {
   const out = [];
   for (const row of state.rows) {
@@ -282,6 +299,7 @@ function rowsHtml() {
     else if (halves.conversation) out.push(messageHtml(row));
   }
   out.push(requestHtml(state.agent && state.agent.request));
+  out.push(suggestionHtml(state.agent && state.agent.suggestion));
   if (!out.join("").trim()) {
     return `<div class="empty">No messages yet. What you write here waits for the agent: it reads it on its next turn, or when one connects.</div>`;
   }
@@ -346,6 +364,19 @@ function wire() {
   click("#connect", openConnect);
   click("#connect-close", () => { connecting = false; render(); });
   click("#copy-setup", copySetup);
+  const suggestion = $app.querySelector("[data-suggestion]");
+  if (suggestion) {
+    const id = encodeURIComponent(suggestion.dataset.suggestion);
+    click("#approve-suggestion", () => act(api(`/app/agent/suggestions/${id}/approve`, { method: "POST" })));
+    click("#reject-start", () => { rejecting = true; render(); $app.querySelector("#reject-reason").focus(); });
+    click("#back", () => { rejecting = false; render(); });
+    click("#decline", () => {
+      rejecting = false;
+      act(api(`/app/agent/suggestions/${id}/decline`, {
+        method: "POST", body: JSON.stringify({ reason: $app.querySelector("#reject-reason").value }),
+      }));
+    });
+  }
   const request = $app.querySelector("[data-request]");
   if (request) {
     const id = encodeURIComponent(request.dataset.request);
