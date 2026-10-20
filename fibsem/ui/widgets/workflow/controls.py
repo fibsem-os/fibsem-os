@@ -48,6 +48,11 @@ _SUPERVISION = {
         "{task} is running in automated mode. Click to toggle.",
     ),
 }
+# Supervised while the agent decides at Drive: the run still stops, for it.
+_AGENT_DECIDES = (
+    "{task} stops at each decision, and the agent decides it. You can decide "
+    "it yourself at any time. Click to toggle."
+)
 
 
 class WorkflowControls(QWidget):
@@ -120,10 +125,12 @@ class WorkflowControls(QWidget):
         self.run_btn.setEnabled(enabled)
         self.run_btn.setToolTip(tooltip)
 
-    def set_supervision(self, mode: str, task_name: str) -> None:
+    def set_supervision(self, mode: str, task_name: str, agent: bool = False) -> None:
         """Show the chip for *task_name* in *mode*: `SUPERVISED` or
-        `AUTOMATED`."""
+        `AUTOMATED`. *agent*: the agent decides what a supervised task asks."""
         icon, text, style, tooltip = _SUPERVISION[mode]
+        if agent and mode == SUPERVISED:
+            tooltip = _AGENT_DECIDES
         self.supervision_btn.setIcon(fibsem_icon(icon, color="white"))
         self.supervision_btn.setText(text)
         self.supervision_btn.setToolTip(tooltip.format(task=task_name))

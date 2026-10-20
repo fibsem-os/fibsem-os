@@ -26,7 +26,7 @@ from PyQt5.QtWidgets import (
 from superqt import ensure_main_thread
 
 import fibsem.config as fibsem_cfg
-from fibsem.acting import OPERATOR
+from fibsem.acting import AGENT, OPERATOR
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.experiment_setup import load_for_adoption
 from fibsem.applications.autolamella.poses import remove_lamella
@@ -411,7 +411,8 @@ class AutoLamellaWindow(QMainWindow):
             mode = SUPERVISED
         else:
             mode = AUTOMATED
-        self.workflow_controls.set_supervision(mode, task_name)
+        agent = AGENT in self.session.deciders()
+        self.workflow_controls.set_supervision(mode, task_name, agent=agent)
 
         return supervised
 
