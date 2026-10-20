@@ -8,6 +8,7 @@ from typing import (
 
 import numpy as np
 
+from fibsem.codec import Array
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
     distance_param,
@@ -17,9 +18,9 @@ from fibsem.structures import Display, FibsemPolygonSettings, param
 
 @dataclass
 class PolygonPattern(BasePattern):
-    vertices: np.ndarray[float] = param(
+    vertices: Array = param(
         display=Display(hidden=True), default_factory=lambda: np.array([])
-    )  # type: ignore[type-arg]
+    )
     depth: float = param(1.0e-6, distance_param("Depth", "Depth of the polygon."))
     is_exclusion: bool = param(
         False,

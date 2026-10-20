@@ -7,7 +7,6 @@ points. To add a plugin monitor, add to your package's pyproject.toml:
     my_monitor = "my_package.monitors:MyMonitor"
 """
 
-import logging
 import typing
 
 from fibsem.milling.monitors.base import (
@@ -35,7 +34,6 @@ __all__ = [
     "MillingPeriodicMonitor",
     "MillingPeriodicMonitorConfig",
     "MillingStreamMonitor",
-    "get_monitor_config",
     "get_monitors",
     "monitor_class_for",
     "register_monitor",
@@ -82,19 +80,3 @@ def monitor_class_for(
         f"No milling monitor is configured by {config_class.__name__}; "
         "register the monitor it belongs to."
     )
-
-
-def get_monitor_config(
-    saved: typing.Dict[str, typing.Any],
-) -> typing.Optional[MillingMonitorConfig]:
-    """The config of a saved ``{name, config}`` monitor; None, with a warning,
-    for a monitor not installed here (it is dropped from the stage)."""
-    name = saved.get("name")
-    monitor = get_monitors().get(name)
-    if monitor is None:
-        logging.warning(
-            f"No milling monitor is called {name!r} (a plugin not installed "
-            "here?); the stage mills without it."
-        )
-        return None
-    return monitor.config_class.from_dict(saved.get("config") or {}).made_for(monitor)

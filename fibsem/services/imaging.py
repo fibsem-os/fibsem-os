@@ -644,15 +644,21 @@ class Imaging(Service):
         """What an `fm_acquire_overview` with these arguments would do: the tiles,
         the images it takes (channels x z planes per tile), and how long it runs
         in seconds, the stage and objective moves and focus sweeps counted
-        (`fibsem.fm.timing.estimate_fm_overview_time`)."""
+        (`fibsem.fm.timing.estimate_fm_overview_time`). Also the tiles the stage
+        can't reach from where it is now, ``unreachable`` as [row, col], as
+        `estimate_overview`'s."""
         from fibsem.fm.timing import (
             calculate_total_images_count,
             estimate_fm_overview_time,
         )
+        from fibsem.imaging.tiling.reach import reachable_fluorescence_overview
 
         autofocus_settings = _fm_overview_focus(parameters, autofocus_settings)
         zparams = zparams if parameters.use_zstack else None
         tiles = parameters.n_enabled_tiles
+        _, unreachable = reachable_fluorescence_overview(
+            self.parent, parameters, self.parent.get_stage_position()
+        )
         return {
             "tiles": tiles,
             "nrows": parameters.rows,
@@ -661,6 +667,7 @@ class Imaging(Service):
             "duration": estimate_fm_overview_time(
                 channels, parameters, zparams, autofocus_settings
             ),
+            "unreachable": [list(tile) for tile in unreachable],
         }
 
     @contextmanager

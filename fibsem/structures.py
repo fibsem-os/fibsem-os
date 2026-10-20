@@ -2250,48 +2250,11 @@ class FibsemMillingSettings(Configurable):
         # assert isinstance(self.preset,(str)), f"invalid type for value for preset, must be str, currently {type(self.preset)}"
 
     def to_dict(self) -> dict:
-        settings_dict = {
-            "milling_current": self.milling_current,
-            "spot_size": self.spot_size,
-            "rate": self.rate,
-            "dwell_time": self.dwell_time,
-            "hfw": self.hfw,
-            "patterning_mode": self.patterning_mode,
-            "application_file": self.application_file,
-            "preset": self.preset,
-            "spacing": self.spacing,
-            "milling_voltage": self.milling_voltage,
-            "milling_channel": self.milling_channel.name,
-            "acquire_images": self.acquire_images,
-        }
+        return encode(self)
 
-        return settings_dict
-
-    @staticmethod
-    def from_dict(settings: dict) -> "FibsemMillingSettings":
-        # fall back to the dataclass field defaults rather than repeating them here,
-        # so there is a single source of truth for every default
-        defaults = FibsemMillingSettings()
-        milling_settings = FibsemMillingSettings(
-            milling_current=settings.get("milling_current", defaults.milling_current),
-            spot_size=settings.get("spot_size", defaults.spot_size),
-            rate=settings.get("rate", defaults.rate),
-            dwell_time=settings.get("dwell_time", defaults.dwell_time),
-            hfw=float(settings.get("hfw", defaults.hfw)),
-            patterning_mode=settings.get("patterning_mode", defaults.patterning_mode),
-            application_file=settings.get(
-                "application_file", defaults.application_file
-            ),
-            preset=settings.get("preset", defaults.preset),
-            spacing=settings.get("spacing", defaults.spacing),
-            milling_voltage=settings.get("milling_voltage", defaults.milling_voltage),
-            milling_channel=BeamType[
-                settings.get("milling_channel", defaults.milling_channel.name)
-            ],
-            acquire_images=settings.get("acquire_images", defaults.acquire_images),
-        )
-
-        return milling_settings
+    @classmethod
+    def from_dict(cls, settings: dict) -> "FibsemMillingSettings":
+        return decode(cls, settings)
 
     @property
     def advanced_attributes(self) -> Set[str]:

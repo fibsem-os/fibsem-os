@@ -81,6 +81,7 @@ import requests
 from psygnal import Signal
 
 from fibsem.cancellation import OperationCancelledError
+from fibsem.codec import decode
 from fibsem.devices.beam import Beam
 from fibsem.devices.chamber import Chamber
 from fibsem.devices.chamber_camera import ChamberCamera
@@ -104,7 +105,6 @@ from fibsem.devices.wire import (
     NPY_MEDIA_TYPE,
     Frame,
     frames_from_bytes,
-    from_wire,
     to_wire,
 )
 from fibsem.drivers.registry import DeviceBuilder, get_driver
@@ -196,7 +196,7 @@ def _metadata(payload: Dict[str, Any], type_: type) -> ParameterMetadata:
     choices = payload.get("choices")
     return ParameterMetadata(
         limits=_limits(payload.get("limits")),
-        choices=None if choices is None else [from_wire(type_, c) for c in choices],
+        choices=None if choices is None else [decode(type_, c) for c in choices],
         settable=payload.get("settable", True),
         native_max=payload.get("native_max"),
         native_unit=payload.get("native_unit"),
@@ -404,7 +404,7 @@ class DeviceClient:
         if event["kind"] == "changed":
             if self._take_echo((event["device"], event["parameter"]), event["value"]):
                 return  # our own write: its write path signals it
-            param.report(from_wire(param.type, event["value"]))  # only if news
+            param.report(decode(param.type, event["value"]))  # only if news
         elif event["kind"] == "metadata":
             param.refresh_metadata()
 
@@ -522,7 +522,7 @@ class RemoteDevice(Device):
     def _reader(self, name: str) -> Callable[[], Any]:
         path = f"devices/{self.name}/{name}"
         type_ = self.declared_parameters()[name].type
-        return lambda: from_wire(
+        return lambda: decode(
             type_, self.client.request("GET", path, READ_TIMEOUT)["value"]
         )
 

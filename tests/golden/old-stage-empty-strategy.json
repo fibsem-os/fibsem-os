@@ -1,0 +1,91 @@
+{
+  "alignment": {
+    "enabled": false,
+    "full_frame_below": 0.0,
+    "imaging": {
+      "autocontrast": false,
+      "beam_type": "ELECTRON",
+      "drift_correction": false,
+      "dwell_time": 1e-06,
+      "filename": "default_image",
+      "frame_integration": null,
+      "hfw": 0.00015,
+      "line_integration": null,
+      "path": null,
+      "reduced_area": null,
+      "resolution": [
+        1536,
+        1024
+      ],
+      "save": false,
+      "scan_interlacing": null
+    },
+    "interval": 30,
+    "interval_enabled": false,
+    "rect": {
+      "height": 0.4,
+      "left": 0.7,
+      "top": 0.3,
+      "width": 0.25
+    },
+    "steps": 3,
+    "use_autocontrast": true,
+    "use_autofocus": false
+  },
+  "enabled": true,
+  "imaging": {
+    "autocontrast": false,
+    "beam_type": "ELECTRON",
+    "drift_correction": false,
+    "dwell_time": 1e-06,
+    "filename": "default_image",
+    "frame_integration": null,
+    "hfw": 0.00015,
+    "line_integration": null,
+    "path": null,
+    "reduced_area": null,
+    "resolution": [
+      1536,
+      1024
+    ],
+    "save": false,
+    "scan_interlacing": null
+  },
+  "milling": {
+    "acquire_images": false,
+    "application_file": "Si",
+    "dwell_time": 1e-06,
+    "hfw": 0.00015,
+    "milling_channel": "ION",
+    "milling_current": 2e-11,
+    "milling_voltage": 30000.0,
+    "patterning_mode": "Serial",
+    "preset": "30 keV; 2nA",
+    "rate": 1.3e-08,
+    "spacing": 0.005,
+    "spot_size": 1e-06
+  },
+  "monitors": [],
+  "name": "Mill",
+  "num": 0,
+  "pattern": {
+    "cross_section": "Rectangle",
+    "depth": 1e-06,
+    "height": 5e-06,
+    "name": "Rectangle",
+    "passes": 0,
+    "point": {
+      "name": null,
+      "x": 0.0,
+      "y": 0.0
+    },
+    "rotation": 0.0,
+    "scan_direction": "TopToBottom",
+    "time": 0.0,
+    "width": 1e-05
+  },
+  "strategy": {
+    "config": {},
+    "name": "Standard"
+  }
+}

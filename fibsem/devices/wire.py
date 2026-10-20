@@ -1,8 +1,9 @@
-"""How parameter values cross the network between a device server and a remote device.
+"""How values cross the network between a server and its clients.
 
-JSON has no tuple, enum or dataclass. Both sides encode with ``to_wire`` and decode with
-``from_wire`` against the parameter's declared type, so a remote read returns what the
-local read returns: a tuple stays a tuple, a ``Point`` stays a ``Point``.
+Values are written with ``to_wire`` and read with ``fibsem.codec.decode`` against the
+declared type, so a remote read returns what the local read returns: a tuple stays a
+tuple, a ``Point`` a ``Point``. A command's arguments are read strictly
+(``decode_kwargs``): a key its structure doesn't have is refused, not dropped.
 """
 
 from __future__ import annotations
@@ -10,12 +11,17 @@ from __future__ import annotations
 import collections.abc
 import dataclasses
 import difflib
+import importlib
 import inspect
 import logging
 import types
 import typing
-from enum import Enum
-from typing import Any, Callable, Dict, List, NamedTuple, Union
+from typing import Any, Callable, Dict, List, NamedTuple, Optional, Tuple, Union
+
+import numpy as np
+from pydantic import PydanticSchemaGenerationError, ValidationError
+
+from fibsem.codec import Tagged, decode, encode
 
 # How the server sends an array (a camera frame) and the remote driver recognises one.
 NPY_MEDIA_TYPE = "application/x-npy"
@@ -38,7 +44,7 @@ class Frame(NamedTuple):
     `fibsem.devices.fm.FM.acquire_frame` lists its keys.
     """
 
-    data: Any  # np.ndarray; Any so this module doesn't import numpy
+    data: Any  # np.ndarray
     metadata: Dict[str, Any]
 
 
@@ -70,83 +76,25 @@ def frames_from_bytes(content: bytes) -> List[Frame]:
 
 
 def to_wire(value: Any) -> Any:
-    """A JSON-ready form: a structure with ``to_dict`` sends that, an enum its value,
-    a tuple a list."""
-    if isinstance(value, Enum):
-        return value.value
-    if hasattr(value, "to_dict") and not isinstance(value, type):
-        return value.to_dict()
-    if isinstance(value, tuple):
-        return [to_wire(item) for item in value]
-    return value
+    """``value`` as JSON-ready data, as ``fibsem.codec.encode`` writes it: an enum by
+    name or value as it declares, a tuple as a list.
 
-
-# The origins of the sequence hints ``from_wire`` decodes element by element.
-_SEQUENCES = (list, tuple, collections.abc.Sequence)
-
-
-def from_wire(type_: type, value: Any) -> Any:
-    """The inverse of ``to_wire`` for a parameter declared as ``type_``.
-
-    A ``Sequence[X]``, ``List[X]`` or ``Tuple[X, ...]`` decodes each element as X, so
-    a list of pattern dicts arrives as patterns.
-
-    A number or bool may arrive as its text, ``"4.0"``: an agent's MCP client sends a
-    value whose schema names no type as a string. It is read as the declared type,
-    and a whole float (``4.0``) as an int where the type is int. Text that doesn't
-    parse passes as it came, for the parameter's own check to refuse.
+    One of several classes saved under a name (a pattern's shape) is written as
+    its base writes it, with the name, so it reads back where the base is declared.
+    A result assembled with its images (an autofocus result) has no codec form; it
+    writes its own ``to_dict``, which leaves the images out.
     """
-    if type_ in (int, float, bool) and not isinstance(value, bool):
-        if isinstance(value, str):
-            return _scalar_from_text(type_, value)
-        if type_ is int and isinstance(value, float) and value.is_integer():
-            return int(value)
-    if type_ is tuple and isinstance(value, list):
-        return tuple(value)
-    origin = typing.get_origin(type_)
-    if origin in _SEQUENCES and isinstance(value, list):
-        args = typing.get_args(type_)
-        if origin is tuple and args and args[-1] is not Ellipsis:  # Tuple[X, Y]
-            return tuple(from_wire(arg, item) for arg, item in zip(args, value))
-        items = [from_wire(args[0], item) if args else item for item in value]
-        return tuple(items) if origin is tuple else items
-    if isinstance(type_, type) and issubclass(type_, Enum) and value is not None:
-        return value if isinstance(value, type_) else _enum_member(type_, value)
-    if isinstance(value, dict) and hasattr(type_, "from_dict"):
-        return type_.from_dict(value)
-    return value
-
-
-def _scalar_from_text(type_: type, text: str) -> Any:
-    """``text`` read as an int, float or bool, or ``text`` itself if it isn't one."""
-    word = text.strip()
-    if type_ is bool:
-        return {"true": True, "false": False}.get(word.lower(), text)
     try:
-        number = float(word)
-    except ValueError:
-        return text
-    if type_ is float:
-        return number
-    return int(number) if number.is_integer() else text
-
-
-def _enum_member(type_: type, value: Any) -> Any:
-    """The member with this value, or with this name: an agent reading
-    ``<BeamType.ELECTRON: 1>`` in a signature sends ``"ELECTRON"``, or its value as
-    text, ``"1"``."""
-    try:
-        return type_(value)
-    except ValueError:
-        if isinstance(value, str) and value in type_.__members__:
-            return type_.__members__[value]
-        number = _scalar_from_text(int, value) if isinstance(value, str) else value
-        if isinstance(number, int):
-            try:
-                return type_(number)
-            except ValueError:
-                pass
+        return encode(value, _tagged_base(type(value)))
+    except PydanticSchemaGenerationError:
+        if hasattr(value, "to_dict"):
+            return value.to_dict()
         raise
+
+
+def _tagged_base(cls: type) -> Optional[type]:
+    """The class that saves ``cls`` under its name (`Tagged`), or None."""
+    return next((base for base in cls.__mro__ if Tagged in base.__bases__), None)
 
 
 class ArgumentError(ValueError):
@@ -155,15 +103,6 @@ class ArgumentError(ValueError):
     def __init__(self, parameter: str, error: Exception):
         super().__init__(f"{parameter}: {error}")
         self.parameter = parameter
-
-
-def _declared_type(hint: Any) -> Any:
-    """``Optional[X]`` is X; any other hint is itself."""
-    if typing.get_origin(hint) is Union:
-        args = [arg for arg in typing.get_args(hint) if arg is not type(None)]
-        if len(args) == 1:
-            return args[0]
-    return hint
 
 
 def type_hints(func: Callable[..., Any]) -> Dict[str, Any]:
@@ -187,57 +126,94 @@ def type_hints(func: Callable[..., Any]) -> Dict[str, Any]:
     return hints
 
 
-def decode_kwargs(func: Callable[..., Any], kwargs: Dict[str, Any]) -> Dict[str, Any]:
-    """A command's arguments as its signature declares them: a ``Point`` argument
-    sent as a dict arrives as a ``Point``. Arguments without a usable hint pass as
-    they came.
-
-    A structure sent as a dict must name only keys it has, at any depth: its
-    ``from_dict`` would drop any other without a word and use the default in its
-    place (`refuse_unknown_keys`).
+def decode_argument(name: str, hint: Any, value: Any) -> Any:
+    """``value`` read as ``hint``, strictly: a key its structure doesn't have is
+    refused at any depth, since a default in its place would hide the mistake.
 
     Raises:
-        ArgumentError: an argument does not decode, or names a key its structure
-            doesn't have; it names which (``settings.hfw``).
+        ArgumentError: it does not decode; it names where (``settings.hfw``) and,
+            for an unknown key, where that key belongs or the closest one there is.
     """
+    try:
+        return decode(hint, value, strict=True)
+    except ValidationError as error:
+        raise _argument_error(name, hint, value, error) from None
+    except PydanticSchemaGenerationError:
+        return value  # a type with no codec form (an in-process stop event)
+
+
+def decode_kwargs(func: Callable[..., Any], kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    """A command's arguments as its signature declares them (`decode_argument`): a
+    ``Point`` argument sent as a dict arrives as a ``Point``. Arguments without a
+    usable hint pass as they came."""
     hints = type_hints(func)
-    decoded = {}
-    for name, value in kwargs.items():
-        if name not in hints:
-            decoded[name] = value
-            continue
+    return {
+        name: decode_argument(name, hints[name], value) if name in hints else value
+        for name, value in kwargs.items()
+    }
+
+
+def _argument_error(
+    name: str, hint: Any, sent: Any, error: ValidationError
+) -> ArgumentError:
+    first = error.errors()[0]
+    loc = tuple(first["loc"])
+    if first["type"] in ("unexpected_keyword_argument", "extra_forbidden"):
         try:
-            decoded[name] = from_wire(_declared_type(hints[name]), value)
-        except Exception as error:
-            raise ArgumentError(name, error) from error
-        refuse_unknown_keys(name, value, decoded[name])
-    return decoded
+            decoded = decode(hint, sent)
+        except ValidationError:
+            decoded = None
+        path, holder = _walk(name, decoded, loc[:-1])
+        key = str(loc[-1])
+        path = f"{path}.{key}"
+        known = _known_keys(holder)
+        where = _home_of(key, holder, path.rsplit(".", 1)[0]) if known else None
+        if where is None and known:
+            close = difflib.get_close_matches(key, known, n=1)
+            where = f"{path.rsplit('.', 1)[0]}.{close[0]}" if close else None
+        message = f"{type(holder).__name__} has no '{key}'"
+        message += "." if where is None else f"; did you mean {where}?"
+        if known:
+            message += f" It takes: {', '.join(known)}."
+        return ArgumentError(path, ValueError(message))
+    try:
+        decoded = decode(hint, sent)
+    except ValidationError:
+        decoded = None
+    path, _ = _walk(name, decoded, loc)
+    message = first["msg"].removeprefix("Value error, ")
+    if first["type"] != "value_error":
+        message += f", not {first['input']!r}"
+    return ArgumentError(path, ValueError(message))
 
 
-def _is_structure(value: Any) -> bool:
-    """A decoded structure: a dataclass, or anything else that writes ``to_dict``."""
-    if isinstance(value, type):
-        return False
-    return dataclasses.is_dataclass(value) or hasattr(value, "to_dict")
+def _walk(name: str, decoded: Any, loc: Tuple[Any, ...]) -> Tuple[str, Any]:
+    """The path ``loc`` names, as it was sent (``stage.monitors[0].config``), and
+    the structure at its end. A structure saved with its fields under a key
+    (``{name, config}``) adds that key to the path."""
+    path, node = name, decoded
+    for key in loc:
+        if isinstance(key, int):
+            path += f"[{key}]"
+            node = node[key] if isinstance(node, (list, tuple)) else None
+            continue
+        if isinstance(node, Tagged) and node.SAVED_UNDER is not None:
+            path += f".{node.SAVED_UNDER}"
+        path += f".{key}"
+        node = getattr(node, str(key), None)
+    if isinstance(node, Tagged) and node.SAVED_UNDER is not None:
+        path += f".{node.SAVED_UNDER}"
+    return path, node
 
 
 def _known_keys(structure: Any) -> List[str]:
-    """The keys ``structure`` reads from a dict: its dataclass fields, the keys its
-    ``to_dict`` writes (so what it sends comes back in), and any it names in
-    ``FROM_DICT_KEYS`` (a pattern's ``type``, which picks its class)."""
-    keys = set(getattr(type(structure), "FROM_DICT_KEYS", ()))
-    if dataclasses.is_dataclass(structure):
-        keys.update(f.name for f in dataclasses.fields(structure))
-    try:
-        written = structure.to_dict()
-    except Exception:  # a structure that can't write itself is checked by fields
-        written = None
-    if isinstance(written, dict):
-        keys.update(written)
-    return sorted(keys)
+    """The keys ``structure`` reads: its dataclass's fields."""
+    if not dataclasses.is_dataclass(structure) or isinstance(structure, type):
+        return []
+    return sorted(f.name for f in dataclasses.fields(structure) if f.init)
 
 
-def _home_of(key: str, structure: Any, path: str, depth: int = 3) -> Any:
+def _home_of(key: str, structure: Any, path: str, depth: int = 3) -> Optional[str]:
     """Where ``key`` belongs when it was sent one or more levels too high: the path
     of the nearest structure inside ``structure`` that has it, else None."""
     if depth == 0:
@@ -245,7 +221,7 @@ def _home_of(key: str, structure: Any, path: str, depth: int = 3) -> Any:
     children = []
     for name in _known_keys(structure):
         child = getattr(structure, name, None)
-        if _is_structure(child):
+        if _known_keys(child):
             if key in _known_keys(child):
                 return f"{path}.{name}.{key}"
             children.append((name, child))
@@ -256,44 +232,77 @@ def _home_of(key: str, structure: Any, path: str, depth: int = 3) -> Any:
     return None
 
 
-def refuse_unknown_keys(path: str, sent: Any, decoded: Any) -> None:
-    """Raise `ArgumentError` for the first key in ``sent``, at any depth, that the
-    structure it decoded into doesn't have. The error names the key's path
-    (``settings.hfw``) and, when a structure inside has that key, where it belongs
-    (``settings.image_settings.hfw``), else the closest key it does have.
+# The generic forms `type_path` writes and `type_from_path` reads.
+_GENERICS = {
+    "List": typing.List,
+    "Tuple": typing.Tuple,
+    "Dict": typing.Dict,
+    "Optional": typing.Optional,
+    "Union": typing.Union,
+    "Sequence": typing.Sequence,
+}
+_PLAIN = {"int": int, "float": float, "str": str, "bool": bool, "None": type(None)}
+_PLAIN.update({"Any": Any, "dict": dict, "list": list, "tuple": tuple})
+_PLAIN["numpy.ndarray"] = np.ndarray  # a command's array, sent as npy bytes
 
-    Checked against what was decoded, not the declared type, so a list of patterns
-    is checked against each pattern's own class.
+
+def type_path(hint: Any) -> str:
+    """A type as text a client can read back (`type_from_path`): fibsem classes by
+    their full path, ``fibsem.structures.FibsemStagePosition``, inside the
+    generics they're declared with, ``List[fibsem.structures.GridSlot]``."""
+    origin, args = typing.get_origin(hint), typing.get_args(hint)
+    if origin is Union:
+        rest = [arg for arg in args if arg is not type(None)]
+        if len(rest) == 1 and len(args) == 2:
+            return f"Optional[{type_path(rest[0])}]"
+        return f"Union[{', '.join(type_path(arg) for arg in args)}]"
+    if origin is not None:
+        name = {list: "List", tuple: "Tuple", dict: "Dict"}.get(origin)
+        if name is None and origin is collections.abc.Sequence:
+            name = "Sequence"
+        if name is None:
+            raise ValueError(f"no path for {hint!r}")
+        parts = ["..." if arg is Ellipsis else type_path(arg) for arg in args]
+        return f"{name}[{', '.join(parts)}]"
+    for name, plain in _PLAIN.items():
+        if hint is plain:
+            return name
+    if isinstance(hint, type) and hint.__module__.startswith("fibsem."):
+        return f"{hint.__module__}.{hint.__qualname__}"
+    raise ValueError(f"no path for {hint!r}")
+
+
+def type_from_path(path: str) -> Any:
+    """The type `type_path` wrote. Only fibsem's own classes are imported.
+
+    Raises:
+        ValueError: ``path`` names anything else.
     """
-    if isinstance(sent, list) and isinstance(decoded, (list, tuple)):
-        for index, (item, structure) in enumerate(zip(sent, decoded)):
-            refuse_unknown_keys(f"{path}[{index}]", item, structure)
-        return
-    if not isinstance(sent, dict) or not _is_structure(decoded):
-        return
-    saved_under = getattr(type(decoded), "SAVED_UNDER", None)
-    if saved_under in sent:
-        # Saved as `{name, <saved_under>: fields}` (a stage's monitor): the
-        # fields are checked under that key.
-        sent = {k: v for k, v in sent.items() if k != "name"}
-        if set(sent) == {saved_under}:
-            refuse_unknown_keys(f"{path}.{saved_under}", sent[saved_under], decoded)
-            return
-    known = _known_keys(decoded)
-    if not known:
-        return
-    for key, value in sent.items():
-        if key not in known:
-            where = _home_of(key, decoded, path)
-            if where is None:
-                close = difflib.get_close_matches(str(key), known, n=1)
-                where = f"{path}.{close[0]}" if close else None
-            message = f"{type(decoded).__name__} has no '{key}'"
-            message += "." if where is None else f"; did you mean {where}?"
-            message += f" It takes: {', '.join(known)}."
-            raise ArgumentError(f"{path}.{key}", UnknownKeyError(message))
-        refuse_unknown_keys(f"{path}.{key}", value, getattr(decoded, key, None))
+    path = path.strip()
+    if "[" in path:
+        name, inner = path.split("[", 1)
+        if name not in _GENERICS or not inner.endswith("]"):
+            raise ValueError(f"not a type path: {path!r}")
+        args = tuple(
+            Ellipsis if part == "..." else type_from_path(part)
+            for part in _split_args(inner[:-1])
+        )
+        return _GENERICS[name][args if len(args) > 1 else args[0]]
+    if path in _PLAIN:
+        return _PLAIN[path]
+    module, _, qualname = path.rpartition(".")
+    if not module.startswith("fibsem.") or not qualname.isidentifier():
+        raise ValueError(f"not a fibsem type: {path!r}")
+    return getattr(importlib.import_module(module), qualname)
 
 
-class UnknownKeyError(ValueError):
-    """A key in a structure's dict that the structure doesn't have."""
+def _split_args(text: str) -> List[str]:
+    """``text``'s top-level comma-separated parts, generics kept whole."""
+    parts, depth, start = [], 0, 0
+    for index, char in enumerate(text):
+        depth += {"[": 1, "]": -1}.get(char, 0)
+        if char == "," and depth == 0:
+            parts.append(text[start:index])
+            start = index + 1
+    parts.append(text[start:])
+    return [part.strip() for part in parts]

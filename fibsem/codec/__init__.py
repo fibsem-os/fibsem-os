@@ -18,6 +18,7 @@ What the generic codec can't know, a type or a mixin here says:
 - `NamedEnum`: an enum written by name, and read by name or by value.
 - `Tagged`: a base class whose subclasses are saved with a ``type`` key naming which.
 - `Array`: a numpy array, written as nested lists.
+- `NotSaved`: a field that belongs to the running object, never written.
 - `Timestamp`: a time, read from any form ``fibsem.util.timestamps`` reads and
   written as ISO 8601 with its offset.
 - `saved`: a field saved under another key, read as something other than its
@@ -36,6 +37,7 @@ from typing import (
     Annotated,
     Any,
     Callable,
+    ClassVar,
     Mapping,
     Optional,
     Sequence,
@@ -44,7 +46,13 @@ from typing import (
 )
 
 import numpy as np
-from pydantic import BeforeValidator, PlainSerializer, PlainValidator, TypeAdapter
+from pydantic import (
+    BeforeValidator,
+    Field,
+    PlainSerializer,
+    PlainValidator,
+    TypeAdapter,
+)
 from pydantic_core import core_schema
 
 from fibsem.util.timestamps import to_aware, to_datetime, to_iso
@@ -158,14 +166,24 @@ class Tagged:
     The class that lists ``Tagged`` among its bases is the one that dispatches.
     A subclass declared by name reads and writes as a plain dataclass, without the
     key. ``type_name`` and ``subclass_named`` are the class name and a search of the
-    subclasses; a base with a registry (plugins) overrides them.
+    subclasses; a base with a registry (plugins) overrides them, or ``read_tagged``
+    to decide what a name it has no class for reads as.
+
+    ``TYPE_KEY`` is the key that names the class. With ``SAVED_UNDER`` set, the
+    fields are saved under that key beside it (``{name, config}``) rather than
+    beside the name.
     """
 
-    TYPE_KEY = "type"
+    TYPE_KEY: ClassVar[str] = "type"
+    SAVED_UNDER: ClassVar[Optional[str]] = None
 
     @classmethod
     def type_name(cls) -> str:
         return cls.__name__
+
+    def tagged_name(self) -> str:
+        """The name this value is saved under: its class's, unless the value says."""
+        return type(self).type_name()
 
     @classmethod
     def subclass_named(cls, name: str) -> type:
@@ -183,6 +201,13 @@ class Tagged:
         raise ValueError(f"no {cls.__name__} named {name!r}")
 
     @classmethod
+    def read_tagged(cls, name: Optional[str], data: Any, strict: bool) -> Any:
+        """The value saved as ``data`` under ``name`` (None when the key is absent)."""
+        if name is None:
+            raise ValueError(f"a {cls.__name__} needs a {cls.TYPE_KEY!r} key")
+        return decode(cls.subclass_named(name), data, strict=strict)
+
+    @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
         if source is not cls or Tagged not in cls.__bases__:
             return handler(source)
@@ -190,14 +215,25 @@ class Tagged:
         def read(value: Any, info: Any) -> Any:
             if isinstance(value, cls):
                 return value
-            if not isinstance(value, dict) or cls.TYPE_KEY not in value:
-                raise ValueError(f"a {cls.__name__} needs a {cls.TYPE_KEY!r} key")
-            sub = cls.subclass_named(value[cls.TYPE_KEY])
+            if not isinstance(value, dict):
+                raise ValueError(f"a {cls.__name__} is saved as a dict")
+            strict = _strict(info)
             rest = {k: v for k, v in value.items() if k != cls.TYPE_KEY}
-            return decode(sub, rest, strict=_strict(info))
+            if cls.SAVED_UNDER is not None:
+                if strict and set(rest) - {cls.SAVED_UNDER}:
+                    extra = ", ".join(sorted(set(rest) - {cls.SAVED_UNDER}))
+                    raise ValueError(
+                        f"a {cls.__name__} takes {cls.TYPE_KEY!r} and "
+                        f"{cls.SAVED_UNDER!r}, not {extra}"
+                    )
+                rest = rest.get(cls.SAVED_UNDER) or {}
+            return cls.read_tagged(value.get(cls.TYPE_KEY), rest, strict)
 
         def write(value: Any) -> Any:
-            return {cls.TYPE_KEY: type(value).type_name(), **encode(value)}
+            fields = encode(value)
+            if cls.SAVED_UNDER is not None:
+                return {cls.TYPE_KEY: value.tagged_name(), cls.SAVED_UNDER: fields}
+            return {cls.TYPE_KEY: value.tagged_name(), **fields}
 
         return core_schema.with_info_plain_validator_function(
             read,
@@ -306,3 +342,23 @@ AwareTimestamp = Annotated[
     BeforeValidator(to_aware),
     PlainSerializer(to_iso, when_used="json"),
 ]
+
+
+class _NotRead:
+    """Reads any value as None (on the wire, refuses it), without looking at the
+    field's type, which may be one the codec can't read (an image)."""
+
+    def __get_pydantic_core_schema__(self, source: Any, handler: Any) -> Any:
+        def read(value: Any, info: Any) -> None:
+            if _strict(info):
+                raise ValueError("is not sent; it belongs to the running object")
+            return None
+
+        return core_schema.with_info_plain_validator_function(read)
+
+
+# A field that belongs to the running object (an image, a path for one run, what
+# a pattern computed), not to its saved form: never written, and read as None (on
+# the wire, refused). Only for a field whose default is None.
+NotSaved = Field(exclude=True)
+NotSaved.metadata.append(_NotRead())

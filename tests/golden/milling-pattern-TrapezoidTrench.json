@@ -1,0 +1,13 @@
+{
+  "angle": 60,
+  "depth": 1e-06,
+  "name": "TrapezoidTrench",
+  "point": {
+    "name": null,
+    "x": 0.0,
+    "y": 0.0
+  },
+  "spacing": 5e-06,
+  "trench_height": 5e-06,
+  "trench_width": 1e-05
+}

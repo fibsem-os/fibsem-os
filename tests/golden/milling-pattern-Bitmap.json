@@ -1,0 +1,17 @@
+{
+  "depth": 1e-06,
+  "height": 1e-05,
+  "interpolation": null,
+  "name": "Bitmap",
+  "passes": 0,
+  "path": "",
+  "point": {
+    "name": null,
+    "x": 0.0,
+    "y": 0.0
+  },
+  "rotation": 0.0,
+  "scan_direction": "TopToBottom",
+  "time": 0.0,
+  "width": 1e-05
+}

@@ -11,6 +11,13 @@ from fibsem.ai.agent.catalog.spec import (
 )
 from fibsem.util import wording
 
+# What an overview covers, for both overview tools.
+_OVERVIEW_RULE = (
+    " An overview the operator asks for is the whole grid, from its centre "
+    "(grid_move_to first) with the tiles the stage can't reach turned off; a "
+    "tile set (e.g. 3 x 3 at 500 um) is where the stage is, at the size given."
+)
+
 # A fresh image's settings when the agent leaves one out: the tool's defaults,
 # not the beam's current values (catalog: beam_acquire_image).
 _IMAGE_DEFAULTS = {"hfw": 150e-6, "resolution": [1536, 1024], "dwell_time": 1e-6}
@@ -419,7 +426,9 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "stage is: tiles of "
             "image_settings (hfw is one tile's field of view, beam_type the beam) "
             "in nrows x ncols, stitched into one image. The stage moves to each "
-            "tile and comes back after. path must be a folder inside the open "
+            "tile and comes back after."
+            + _OVERVIEW_RULE
+            + " path must be a folder inside the open "
             "experiment. beam_estimate_overview first: a big grid at a long dwell runs "
             "for hours. A long command: it answers with its run at once; "
             "service_wait_for_run imaging gives the stitched image (summary, path, "
@@ -596,7 +605,10 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "camera fields in each of the channels, stitched into one mosaic. The "
             "stage moves to each tile, and it and the objective come back after. "
             "The objective must be in, at the FM pose; refused while the FM is in "
-            "use." + NEAR_FOCUS + " path must be a folder inside the open experiment. "
+            "use."
+            + NEAR_FOCUS
+            + _OVERVIEW_RULE
+            + " path must be a folder inside the open experiment. "
             "fm_estimate_overview first: tiles take seconds to minutes each. A "
             "long command: it answers with its run at once; service_wait_for_run imaging "
             "gives the mosaic's path and summary, the tiles' paths and the overview, "
@@ -642,7 +654,9 @@ TOOLS: Tuple[ToolSpec, ...] = (
         description=(
             "What fm_acquire_overview with these arguments would do: how many "
             "tiles and images, and how long it runs in seconds, stage and "
-            "objective moves and focus sweeps counted. Moves nothing." + NEAR_FOCUS
+            "objective moves and focus sweeps counted, and the tiles the stage "
+            "can't reach from where it is (unreachable, [row, col]: turn them off "
+            "in parameters.tile_mask). Moves nothing." + NEAR_FOCUS
         ),
         method="POST",
         path="/microscope/services/imaging/queries/fm_estimate_overview",

@@ -35,7 +35,7 @@ fibsem/                     the instrument library (no application logic)
   ui/                       shared Qt widgets, stylesheets, canvases
   theme/                    the palette (tokens.py), importable without Qt
   server/                   the App Server for agents (build_server)
-  ai/agent/                 the agent: levels, allowlist, tool catalog
+  ai/agent/                 the agent: levels, blocklist, tool catalog
                             (each tool with its request line),
                             AgentSession (session.agent),
                             and mcp/, the fibsem-mcp sidecar (MCP to HTTP)

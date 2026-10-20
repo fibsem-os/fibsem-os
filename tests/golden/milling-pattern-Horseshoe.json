@@ -1,0 +1,17 @@
+{
+  "cross_section": "Rectangle",
+  "depth": 1e-05,
+  "inverted": false,
+  "lower_trench_height": 1e-05,
+  "name": "Horseshoe",
+  "point": {
+    "name": null,
+    "x": 0.0,
+    "y": 0.0
+  },
+  "scan_direction": "TopToBottom",
+  "side_width": 5e-06,
+  "spacing": 1e-05,
+  "upper_trench_height": 1e-05,
+  "width": 4e-05
+}

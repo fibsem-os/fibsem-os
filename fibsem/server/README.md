@@ -28,7 +28,7 @@ level the operator sets from the Agent chip: reads at Watch, asking first at
 Assist (a request the operator approves), acting at Drive; at Off everything is
 refused. A refusal is a structured 403
 naming why (`level`, `ask_first`, `agent_off`, `agent_stopped`, `not_allowed`).
-Separate from the level, an allowlist (`fibsem/ai/agent/allowlist.py`) names what
+Separate from the level, a blocklist (`fibsem/ai/agent/blocklist.py`) names what
 the agent may never write or run, at any level and in an approved request too:
 a beam's `on`, `angular_correction`, `tilt_correction` and `plasma_gas`; the
 stage's `home`, `link` and raw `move_absolute` (stage_movement's too: the agent moves with `safe_absolute_stage_movement`); every chamber and manipulator write and command; the
@@ -115,7 +115,7 @@ from fibsem.structures import FibsemStagePosition, BeamType
 pos = microscope.get_stage_position()
 
 # Move to an absolute position (metres / radians). The raw move: the App
-# Server's allowlist refuses it to an agent token; use the safe move below.
+# Server's blocklist refuses it to an agent token; use the safe move below.
 pos = microscope.move_stage_absolute(
     FibsemStagePosition(x=0.001, y=0.0, z=0.004, r=0.0, t=0.0, coordinate_system="RAW")
 )
@@ -188,7 +188,7 @@ Every device the microscope built (`microscope.devices`: `electron`, `ion`,
 `stage`, `chamber`, `manipulator`, FM parts) is served generically, the same
 routes the device server (`fibsem/server/devices.py`) serves. The chamber's
 `state` and `pressure` are reads; pumping and venting are the operator's, at the
-microscope, so the allowlist refuses them.
+microscope, so the blocklist refuses them.
 
 ```python
 microscope.list_devices()                               # parameters + commands per device

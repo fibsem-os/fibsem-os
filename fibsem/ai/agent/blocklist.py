@@ -1,14 +1,15 @@
-"""What the agent may never touch on the App Server, at any level.
+"""The App Server's blocklist: what the agent may never touch, at any level.
 
 Two separate questions (Patrick, 2026-10-14). The level says how the agent may
-act right now: Watch reads, Assist asks, Drive acts. This list says whether it
-may ever touch an entry: a blocked write or command is refused (403
+act right now: Watch reads, Assist asks, Drive acts. This blocklist names what
+it may never touch: a blocked write or command is refused (403
 ``not_allowed``) at every level, an approved Assist request included, since a
 request runs its actions through the same routes. Its value stays readable.
+Everything not listed is allowed, and the level guards it.
 
 The test for a block is "never, whatever the level", like venting. Risky but
 legitimate actions (an absolute stage move, a grid exchange, the beam voltage)
-are allowed, and the level guards them.
+stay off the list.
 """
 
 import os
