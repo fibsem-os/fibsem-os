@@ -65,6 +65,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.ai.agent.levels import AgentLevel
+from fibsem.ai.agent.session import MESSAGE_LIMIT
 from fibsem.ui.agent.style import (
     LEVEL_MENU,
     LEVEL_NAMES,
@@ -119,8 +120,6 @@ _TONES = {
 STACK_BELOW = 600
 # The narrowest the stacked card goes.
 NARROWEST = 360
-# The longest message to the agent, in characters (FIB-1423).
-MESSAGE_LIMIT = 2000
 # The message box grows to this many lines, then scrolls.
 MESSAGE_LINES = 6
 # A message longer than this many lines, or characters, folds, with "more".

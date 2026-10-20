@@ -31,6 +31,7 @@ import logging
 import os
 import threading
 import time
+from pathlib import Path
 from typing import Any, Callable, List, Optional
 
 from fibsem.acting import AGENT
@@ -93,6 +94,13 @@ class AppServerHost:
         self._host = host
         self._port = port
         self._discovery_path = discovery_path
+        # The operator token's file sits beside a given discovery file (tests),
+        # else in ~/.fibsem.
+        self._operator_token_path = (
+            Path(discovery_path).parent / "operator-token.json"
+            if discovery_path is not None
+            else None
+        )
         self._server = None
         # The running app: the window reads the agent's requests from it.
         self._app = None
@@ -129,6 +137,17 @@ class AppServerHost:
         if not self.running or self.auth is None:
             return None
         return self.auth.agent_client
+
+    def new_operator_token(self) -> Optional[str]:
+        """Replace the operator token, on disk and on the running server: the
+        old one stops working at once. None while the server isn't running."""
+        from fibsem.server.operator_token import new_operator_token
+
+        if self.auth is None:
+            return None
+        self.auth.operator_token = new_operator_token(self._operator_token_path)
+        logging.info("New operator token made; the old one no longer works")
+        return self.auth.operator_token
 
     def stop_agent(self, microscope) -> Optional[str]:
         """The operator's Stop agent (FIB-1267): down to Watch at once, and stop
@@ -219,6 +238,10 @@ class AppServerHost:
                 level=AgentLevel.DRIVE if arm_control else AgentLevel.WATCH
             )
         self.auth = session.agent_auth
+        if self.auth.operator_token is None:
+            from fibsem.server.operator_token import load_operator_token
+
+            self.auth.operator_token = load_operator_token(self._operator_token_path)
         recorder = session.recorder
         if recorder is not None:
             # The app's stream: already fed, and not ours to detach on stop.
@@ -235,6 +258,7 @@ class AppServerHost:
             auth=self.auth,
             serve_microscope=self.serve_microscope,
             services=session.analysis_services,
+            operator=getattr(session, "agent", None),
         )
         self._app = app
         config = uvicorn.Config(

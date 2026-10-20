@@ -26,7 +26,7 @@ from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from fibsem import __version__
-from fibsem.acting import AGENT, acting
+from fibsem.acting import AGENT, OPERATOR, acting
 from fibsem.ai.agent import blocklist
 from fibsem.ai.agent.calls import calling, current_call, from_headers
 from fibsem.microscope import FibsemMicroscope
@@ -43,6 +43,7 @@ from fibsem.server.auth import (
     action_name,
     adopt_control,
     drive_is_lent,
+    is_operator_token,
     require_level,
     require_monitoring,
     take_control,
@@ -50,6 +51,7 @@ from fibsem.server.auth import (
 from fibsem.server.devices import ERROR_STATUS, build_device_router, refusal
 from fibsem.server.discovery import fibsem_folder
 from fibsem.server.models import MicroscopeStateRequest
+from fibsem.server.operator import build_operator_router
 from fibsem.server.parts import served_parts
 from fibsem.server.requests import RequestStore, build_request_router
 from fibsem.structures import BeamType, MicroscopeState
@@ -353,6 +355,15 @@ class _AgentActs:
         if scope["type"] not in ("http", "websocket"):
             await self.app(scope, receive, send)
             return
+        auth = getattr(getattr(scope.get("app"), "state", None), "auth", None)
+        if auth is not None and is_operator_token(
+            auth, Headers(scope=scope).get("authorization")
+        ):
+            # The operator from outside the window: their own record, not the
+            # agent's call.
+            with acting(OPERATOR):
+                await self.app(scope, receive, send)
+            return
         lent = current_call() if drive_is_lent() else None
         if scope["type"] != "http" or scope.get("method") == "GET" or lent:
             with acting(AGENT):
@@ -451,6 +462,7 @@ def build_server(
     auth: Optional[AuthConfig] = None,
     serve_microscope: bool = True,
     services: Optional[Mapping[str, Any]] = None,
+    operator=None,
 ) -> FastAPI:
     """Build the server app around an already-connected microscope.
 
@@ -467,6 +479,9 @@ def build_server(
     ``services`` are the analysis services (`fibsem.services.analysis`), served
     under ``/services`` whatever ``serve_microscope`` is, since they use no
     device: by default a new copy of each.
+
+    ``operator`` is the session's ``AgentSession``: passing one mounts the
+    operator's routes (`fibsem.server.operator`), behind the operator token.
     """
     if auth is None:
         auth = AuthConfig.generate()
@@ -686,6 +701,8 @@ def build_server(
             ),
         )
         app.include_router(build_request_router(app.state.requests))
+    if operator is not None:
+        app.include_router(build_operator_router(operator))
     return app
 
 

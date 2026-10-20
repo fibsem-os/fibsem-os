@@ -36,6 +36,13 @@ objective's `limit_position`; the FM's `cancel` (the agent stops a z-stack with
 `agent: false`. A command's `path` argument must be inside the open experiment. A hardware
 command takes control of the microscope while it runs: when a workflow, a script or
 another command is in control it gets `409 microscope_busy`, naming who.
+The **operator token** (Tools → App Server → Copy operator token; one per
+install, kept in `~/.fibsem/operator-token.json`) is the operator from outside
+the window. It reads what the dashboard reads and reaches the operator's routes,
+whatever the level: `GET /app/agent` (level, last heard, the waiting request),
+`POST /app/agent/messages` `{"text"}`, `PUT /app/agent/level` `{"level"}`,
+`POST /app/agent/stop`, and `POST /app/agent/requests/{id}/approve` or
+`/reject` `{"reason"}`. The agent's token gets `403 operator_only` there.
 A long service command (marked `long: true` in the listing: milling's `run`,
 `run_task` and `run_stage`; imaging's `acquire_focus_stack`, `acquire_overview`,
 `fm_auto_focus`, `fm_acquire_image` and `fm_acquire_overview`; alignment's

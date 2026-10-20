@@ -9,7 +9,8 @@ refused exactly as the same call made at Drive would be, and a refusal comes
 back as the route's own error.
 
 The agent files and reads requests over HTTP (:func:`build_request_router`).
-Approve and Reject are not routes: only the app calls them, so the agent cannot
+Approve and Reject are the operator's: the window, or the operator's routes
+behind the operator token (`fibsem.server.operator`), so the agent cannot
 approve its own request.
 
 One request is pending at a time; a batch covers "several things at once".

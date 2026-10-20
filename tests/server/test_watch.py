@@ -258,6 +258,38 @@ def test_the_operator_s_note_is_a_message(app):
     assert not any("my own note" in line for line in lines)
 
 
+def test_a_message_sent_before_the_watch_waits_for_it(app):
+    # Messages sent while no agent watched: the unanswered one is said first.
+    app.buffer.append("note", {"text": "answered", "id": "aa11"}, actor="operator")
+    app.buffer.append("note", {"text": "on it", "reply_to": "aa11"}, actor="agent")
+    app.buffer.append("note", {"text": "skip 03", "id": "ab12"}, actor="operator")
+    app.buffer.append(
+        "note",
+        {"text": "thin ice", "item_id": "g1", "item_name": "G1"},
+        actor="operator",
+    )
+
+    def run():
+        app.buffer.append("workflow_completed", {})
+
+    code, lines = _watch({2: run})
+
+    assert lines[0].startswith("MESSAGE id=ab12 from the operator: skip 03 --")
+    assert not any("answered" in line or "thin ice" in line for line in lines)
+
+
+def test_a_resumed_watch_says_no_message_twice(app):
+    app.buffer.append("note", {"text": "skip 03", "id": "ab12"}, actor="operator")
+    resume = app.buffer.events_since(0)["latest_seq"]
+
+    def run():
+        app.buffer.append("workflow_completed", {})
+
+    code, lines = _watch({2: run}, since=resume)
+
+    assert not any(line.startswith("MESSAGE") for line in lines)
+
+
 def test_the_operator_s_grid_note_is_a_note_not_a_message(app):
     def run():
         app.buffer.append(
