@@ -5223,3 +5223,125 @@ def test_positions_written_to_the_session_are_drawn(widget):
     )
     widget.session.set_positions([marked])
     assert widget.position_overlay._points or widget.selected_position_overlay._points
+
+
+class TestTheLimitsBoxIsWhereClicksAreRefused:
+    """The edge of the drawn travel envelope is where a click starts being refused.
+
+    The box and the refusal are two answers to one question: the refusal checks the
+    stage position a click resolves to, and the box has to be drawn where those
+    positions are. Reported on an Arctis as a box shifted by hundreds of microns in y
+    and milling locations refused inside it: the corners were drawn at z = 0, and a
+    tilted view sees height, so away from z = 0 the box slid off the clicks.
+
+    Each case clicks just inside and just outside the top and bottom edges. At the
+    anchor's height when it is not 0 (where AutoLamella launched), and with the stage
+    lifted off the anchor's plane (after a coincidence correction).
+    """
+
+    VIEWS = [
+        ("SEM", BeamType.ELECTRON),
+        ("SEM", BeamType.ION),
+        ("MILLING", BeamType.ELECTRON),
+        ("MILLING", BeamType.ION),
+        ("FIB", BeamType.ELECTRON),
+        ("FIB", BeamType.ION),
+    ]
+
+    @staticmethod
+    def _image(scope, beam_type, position):
+        hfw = 128 * 2e-7
+        image = FibsemImage.generate_blank_image(resolution=(128, 128), hfw=hfw)
+        image.data = (np.random.default_rng(0).random((128, 128)) * 255).astype(
+            np.uint8
+        )
+        state = scope.get_microscope_state(beam_type=beam_type)
+        state.stage_position = position
+        image.metadata.image_settings = ImageSettings(hfw=hfw, beam_type=beam_type)
+        image.metadata.microscope_state = state
+        image.metadata.system_info = scope.system.info
+        image.metadata.hardware_geometry = scope.hardware_geometry()
+        return image
+
+    @pytest.mark.parametrize("anchor_z, lift_z", [(300e-6, 0.0), (0.0, 100e-6)])
+    @pytest.mark.parametrize("orientation, beam_type", VIEWS)
+    def test_the_box_edge_is_the_refusal_edge(
+        self, widget, microscope, orientation, beam_type, anchor_z, lift_z
+    ):
+        self._check(widget, microscope, orientation, beam_type, anchor_z, lift_z)
+
+    @pytest.mark.parametrize("beam_type", [BeamType.ELECTRON, BeamType.ION])
+    def test_on_a_pretilted_shuttle(self, pretilted, beam_type):
+        """The surface climbs as the stage travels in y, so the box corners are on
+        the slope, not at the stage's z."""
+        widget = FibsemOverviewWidget(OverviewSession(pretilted))
+        widget.resize(900, 700)
+        self._check(widget, pretilted, "SEM", beam_type, 300e-6, 100e-6)
+
+    @pytest.mark.parametrize("anchor_z, lift_z", [(300e-6, 0.0), (0.0, 100e-6)])
+    @pytest.mark.parametrize("orientation, beam_type", VIEWS)
+    def test_a_click_on_the_slot_resolves_to_the_slot(
+        self, widget, microscope, orientation, beam_type, anchor_z, lift_z
+    ):
+        """The grid boundary and the slot crosshair are drawn the same way, so a
+        click on the crosshair names the slot."""
+        self._check(widget, microscope, orientation, beam_type, anchor_z, lift_z)
+        _show_holder_overlays(widget)
+        slot = next(iter(microscope.sample_handling.holder.slots.values())).position
+        crosshair = next(
+            s for s in widget.context_overlay._specs if s.kind == "crosshair"
+        )
+        resolved = widget._stage_position_at(crosshair.cx, crosshair.cy)
+        assert resolved.x == pytest.approx(slot.x, abs=1e-6)
+        assert resolved.y == pytest.approx(slot.y, abs=1e-6)
+
+    def test_with_the_stage_in_another_pose_the_box_is_on_the_anchors_plane(
+        self, widget, microscope
+    ):
+        """A view the stage is not in refuses clicks, and its box is drawn on the
+        plane its images were taken on, not at z = 0."""
+        self._check(widget, microscope, "MILLING", BeamType.ION, 300e-6, 0.0)
+        widget._on_stage_moved(microscope.get_orientation("SEM"))
+        widget._refresh_context_overlays()
+        frame = widget._frame()
+        box = next(
+            s for s in widget.context_overlay._specs if s.label == "Stage Limits"
+        )
+        origin = frame.origin
+        top = frame.to_canvas(
+            FibsemStagePosition(
+                x=0.0,
+                y=microscope.stage.position.limits["y"].max,
+                z=origin.z,
+                r=origin.r,
+                t=origin.t,
+            )
+        )
+        assert abs(top[1] - box.cy) == pytest.approx(box.height / 2, rel=1e-6)
+
+    def _check(self, widget, microscope, orientation, beam_type, anchor_z, lift_z):
+        pose = microscope.get_orientation(orientation)
+        anchor = FibsemStagePosition(x=0.0, y=0.0, z=anchor_z, r=pose.r, t=pose.t)
+        widget.set_image(self._image(microscope, beam_type, anchor))
+        # Through the stage poll, at the anchor's height and then lifted: a lift has
+        # to redraw the box on its own.
+        for z in (anchor_z, anchor_z + lift_z):
+            widget._on_stage_moved(
+                FibsemStagePosition(x=0.0, y=100e-6, z=z, r=pose.r, t=pose.t)
+            )
+
+        box = next(
+            s for s in widget.context_overlay._specs if s.label == "Stage Limits"
+        )
+        step = box.height * 0.01
+        for edge in (box.cy - box.height / 2, box.cy + box.height / 2):
+            towards_centre = step if edge < box.cy else -step
+            inside = widget._stage_position_at(box.cx, edge + towards_centre)
+            outside = widget._stage_position_at(box.cx, edge - towards_centre)
+            assert inside is not None, (
+                f"a click just inside the drawn box at {edge:.1f} px was refused"
+            )
+            assert outside is None, (
+                f"a click just outside the drawn box at {edge:.1f} px was accepted, "
+                f"at y = {outside.y * 1e6:.1f} um"
+            )
