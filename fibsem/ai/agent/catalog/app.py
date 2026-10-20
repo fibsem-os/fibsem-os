@@ -482,7 +482,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="experiment_list_files",
-        description="One folder of the open experiment: its folders, then its files, each with name, path (relative to the experiment), kind (folder, text, image, other), size and modified time. Start at the top (no dir) and go down one folder at a time.",
+        description="One folder of the open experiment: its folders, then its files, each with name, path (relative to the experiment), kind (folder, text, image, other), size and modified time; a folder also says how many images it holds at any depth. Start at the top (no dir) and go down one folder at a time.",
         method="GET",
         path="/app/experiment/files",
         level="watch",

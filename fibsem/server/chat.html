@@ -176,6 +176,10 @@
   .pills button { background:none; border:1px solid var(--border); border-radius:10px; padding:1px 8px;
     font-size:11px; color:var(--muted); cursor:pointer; }
   .pills button.on { color:var(--strong); border-color:var(--accent); }
+  .shelf .crumb { background:none; border:0; padding:0; color:var(--accent); cursor:pointer; font:inherit; }
+  .shelf .group { display:block; background:none; border:0; padding:0; margin:12px 0 6px; color:var(--muted);
+    font:inherit; font-size:12px; cursor:pointer; }
+  .shelf .group:hover, .shelf .crumb:hover { text-decoration:underline; }
   .thumbs { display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); gap:8px; }
   .thumb { background:none; border:1px solid var(--border); border-radius:3px; padding:0; cursor:pointer;
     text-align:left; overflow:hidden; }
@@ -511,12 +515,19 @@ function render() {
   if (newReason) newReason.value = rejectDraft;
   if (focused === "msg") msg.focus();
   else if (focused === "reject-reason" && newReason) newReason.focus();
-  const list = $app.querySelector(".rows");
-  list.scrollTop = pinned ? list.scrollHeight : scrolled;
-  list.onscroll = () => { pinned = list.scrollHeight - list.scrollTop - list.clientHeight < 40; };
-  wire();
   for (const el of $app.querySelectorAll("[data-evidence]")) drawEvidence(el);
   for (const el of $app.querySelectorAll("[data-picture]")) drawPicture(el);
+  const list = $app.querySelector(".rows");
+  list.scrollTop = pinned ? list.scrollHeight : scrolled;
+  // Only the reader scrolling up unpins: a picture growing the rows below
+  // (scrollTop unchanged) leaves the newest in view once it loads.
+  let last = list.scrollTop;
+  list.onscroll = () => {
+    if (list.scrollHeight - list.scrollTop - list.clientHeight < 40) pinned = true;
+    else if (list.scrollTop < last) pinned = false;
+    last = list.scrollTop;
+  };
+  wire();
 }
 
 function grow(el) {
@@ -627,14 +638,24 @@ async function send() {
   } catch (e) { say(e.message, true); }
 }
 
-async function drawEvidence(el) {
+// Read once: the promise until it lands, then the answer itself, so a redraw
+// fills its rows at once and they keep their height (the reader's place too).
+function once(cache, key, read, draw) {
+  const known = cache.get(key);
+  if (known === undefined) {
+    const pending = read().catch(() => null).then(answer => { cache.set(key, answer); return answer; });
+    cache.set(key, pending);
+    pending.then(draw);
+  } else if (known instanceof Promise) known.then(draw);
+  else draw(known);
+}
+
+function drawEvidence(el) {
   const id = el.dataset.evidence;
-  let answer = evidenceCache.get(id);
-  if (answer === undefined) {
-    answer = api(`/app/agent/evidence/${encodeURIComponent(id)}`).catch(() => null);
-    evidenceCache.set(id, answer);
-  }
-  answer = await answer;
+  once(evidenceCache, id, () => api(`/app/agent/evidence/${encodeURIComponent(id)}`), answer => fillEvidence(el, answer));
+}
+
+function fillEvidence(el, answer) {
   const frame = el.querySelector(".frame");
   if (!answer || !answer.preview || !frame) { el.remove(); return; }
   const p = answer.preview;
@@ -661,14 +682,12 @@ async function drawEvidence(el) {
   };
 }
 
-async function drawPicture(el) {
+function drawPicture(el) {
   const key = `${el.dataset.picture}:${el.dataset.version}`;
-  let answer = pictureCache.get(key);
-  if (answer === undefined) {
-    answer = api(`/app/agent/pictures/${encodeURIComponent(el.dataset.picture)}`).catch(() => null);
-    pictureCache.set(key, answer);
-  }
-  answer = await answer;
+  once(pictureCache, key, () => api(`/app/agent/pictures/${encodeURIComponent(el.dataset.picture)}`), answer => fillPicture(el, answer));
+}
+
+function fillPicture(el, answer) {
   const frame = el.querySelector(".frame");
   if (!answer || !answer.image_b64_png || !frame) { el.remove(); return; }
   frame.innerHTML = `<img alt="What the agent asks for, on the image" src="data:image/png;base64,${answer.image_b64_png}">`;
@@ -820,6 +839,12 @@ async function readItems() {
   } catch (e) { files.items = {}; }
 }
 
+// A folder and each folder under it that holds images: what its shelf shows.
+async function listTree(dir) {
+  const entries = await listDir(dir);
+  await Promise.all(entries.filter(e => e.kind === "folder" && e.images).map(e => listTree(e.path)));
+}
+
 async function openExperiment() {
   try {
     await Promise.all([listDir(""), readItems()]);
@@ -832,7 +857,7 @@ async function openExperiment() {
 
 async function pickDir(dir) {
   files.dir = dir; files.picked = null;
-  try { await listDir(dir); drawFiles(); } catch (e) { drawFiles(e.message); }
+  try { await listTree(dir); drawFiles(); } catch (e) { drawFiles(e.message); }
 }
 
 async function showInFiles(path) {
@@ -864,19 +889,37 @@ function folderState(name) {
 }
 
 const isIon = name => /(^|[_-])ib([_.-]|$)|ion/i.test(name);
-function images() {
-  return (files.dirs[files.dir] || []).filter(e => e.kind === "image"
-    && (files.beam === "all" || (files.beam === "ib") === isIon(e.name)));
+// The open folder's images and its sub-folders', a group per folder.
+function groups(beam = files.beam) {
+  const out = [];
+  const walk = dir => {
+    const entries = files.dirs[dir] || [];
+    const shown = entries.filter(e => e.kind === "image" && (beam === "all" || (beam === "ib") === isIon(e.name)));
+    if (shown.length) out.push({ dir, images: shown });
+    for (const e of entries) if (e.kind === "folder" && e.images) walk(e.path);
+  };
+  walk(files.dir);
+  return out;
 }
+const images = () => groups().flatMap(g => g.images);
+const known = () => Object.fromEntries(Object.values(files.dirs).flat().map(e => [e.path, e]));
 
 function treeHtml() {
   return (files.dirs[""] || []).filter(e => e.kind === "folder").map(e => {
     const st = folderState(e.name);
-    const listed = files.dirs[e.path];
-    const count = listed ? listed.filter(f => f.kind === "image").length : "";
-    return `<button data-dir="${esc(e.path)}" class="${files.dir === e.path ? "sel" : ""}" title="${esc(st ? st[1] : e.name)}">
-      <span class="st ${st ? st[0] : ""}"></span><span class="name">${esc(e.name)}</span><span class="n">${count}</span></button>`;
+    const open = files.dir === e.path || (files.dir || "").startsWith(e.path + "/");
+    return `<button data-dir="${esc(e.path)}" class="${open ? "sel" : ""}" title="${esc(st ? st[1] : e.name)}">
+      <span class="st ${st ? st[0] : ""}"></span><span class="name">${esc(e.name)}</span><span class="n">${e.images ?? ""}</span></button>`;
   }).join("");
+}
+
+// Where the open folder is, each folder above it a way back up.
+function crumbsHtml() {
+  if (!files.dir) return "<b>Experiment</b>";
+  const parts = files.dir.split("/");
+  return parts.map((part, i) => i === parts.length - 1 ? `<b>${esc(part)}</b>`
+    : `<button class="crumb" data-dir="${esc(parts.slice(0, i + 1).join("/"))}">${esc(part)}</button>`)
+    .join(`<span class="muted">/</span>`);
 }
 
 function shelfHtml(error) {
@@ -892,15 +935,18 @@ function shelfHtml(error) {
       <div id="viewer"></div>`;
   }
   const st = folderState(files.dir);
-  const all = entries.filter(e => e.kind === "image").length;
-  const folders = entries.filter(e => e.kind === "folder");
+  const all = groups("all").reduce((n, g) => n + g.images.length, 0);
+  const folders = entries.filter(e => e.kind === "folder" && e.images);
   const pill = (key, word) => `<button data-beam="${key}" class="${files.beam === key ? "on" : ""}">${word}</button>`;
-  const grid = shown.map(e => `<button class="thumb" data-pick="${esc(e.path)}" title="${esc(e.name)}">
-      <img data-thumb="${esc(e.path)}" alt=""><div class="cap">${esc(e.name.replace(/\.(tiff?|png|jpe?g)$/i, ""))}</div></button>`).join("");
-  return `<div class="head"><b>${esc(files.dir || "Experiment")}</b><span class="muted">${st ? esc(st[1]) + " · " : ""}${all} image${all === 1 ? "" : "s"}</span></div>
-    ${folders.length ? `<div class="pills">${folders.map(f => `<button data-dir="${esc(f.path)}">${esc(f.name)}/</button>`).join("")}</div>` : ""}
+  const thumb = e => `<button class="thumb" data-pick="${esc(e.path)}" title="${esc(e.name)}">
+      <img data-thumb="${esc(e.path)}" alt=""><div class="cap">${esc(e.name.replace(/\.(tiff?|png|jpe?g)$/i, ""))}</div></button>`;
+  const below = dir => dir.slice((files.dir ? files.dir.length + 1 : 0));
+  const grid = groups().map(g => `${g.dir !== files.dir ? `<button class="group" data-dir="${esc(g.dir)}">${esc(below(g.dir))}/</button>` : ""}
+    <div class="thumbs">${g.images.map(thumb).join("")}</div>`).join("");
+  return `<div class="head">${crumbsHtml()}<span class="muted">${st ? esc(st[1]) + " · " : ""}${all} image${all === 1 ? "" : "s"}</span></div>
+    ${folders.length ? `<div class="pills">${folders.map(f => `<button data-dir="${esc(f.path)}">${esc(f.name)}/ <span class="muted">${f.images}</span></button>`).join("")}</div>` : ""}
     ${all ? `<div class="pills">${pill("all", "All")}${pill("eb", "Electron")}${pill("ib", "Ion")}</div>` : ""}
-    ${shown.length ? `<div class="thumbs">${grid}</div>` : `<div class="muted">No images here.</div>`}`;
+    ${shown.length ? grid : `<div class="muted">No images here.</div>`}`;
 }
 
 function drawFiles(error) {
@@ -915,16 +961,18 @@ function drawFiles(error) {
   for (const el of $files.querySelectorAll("[data-dir]")) el.onclick = () => pickDir(el.dataset.dir);
   for (const el of $files.querySelectorAll("[data-beam]")) el.onclick = () => { files.beam = el.dataset.beam; drawFiles(); };
   for (const el of $files.querySelectorAll("[data-pick]")) el.onclick = () => { files.picked = el.dataset.pick; drawFiles(); };
-  const byPath = Object.fromEntries((files.dirs[files.dir] || []).map(e => [e.path, e]));
-  for (const img of $files.querySelectorAll("[data-thumb]")) {
-    preview(byPath[img.dataset.thumb], THUMB)
-      .then(a => { img.src = `data:image/jpeg;base64,${a.preview.image_b64_jpeg}`; })
-      .catch(() => { img.alt = "Can't read"; });
-  }
-  // Each folder's count, once it is listed.
-  for (const e of files.dirs[""] || []) {
-    if (e.kind === "folder" && !files.dirs[e.path]) listDir(e.path).then(() => drawFiles()).catch(() => {});
-  }
+  // A folder can hold hundreds: each thumbnail is read once it scrolls into view.
+  const byPath = known();
+  const seen = new IntersectionObserver(found => {
+    for (const { isIntersecting, target: img } of found) {
+      if (!isIntersecting) continue;
+      seen.unobserve(img);
+      preview(byPath[img.dataset.thumb], THUMB)
+        .then(a => { img.src = `data:image/jpeg;base64,${a.preview.image_b64_jpeg}`; })
+        .catch(() => { img.alt = "Can't read"; });
+    }
+  }, { root: $files.querySelector(".shelf"), rootMargin: "200px" });
+  for (const img of $files.querySelectorAll("[data-thumb]")) seen.observe(img);
   const back = $files.querySelector("#back-folder");
   if (back) back.onclick = () => { files.picked = null; drawFiles(); };
   const prev = $files.querySelector("#prev"), next = $files.querySelector("#next");
@@ -949,7 +997,7 @@ document.addEventListener("keydown", e => {
 
 async function drawViewer(path) {
   const el = $files.querySelector("#viewer");
-  const entry = (files.dirs[files.dir] || []).find(e => e.path === path) || { path, modified: "" };
+  const entry = known()[path] || { path, modified: "" };
   let answer;
   try { answer = await preview(entry, VIEW); } catch (e) {
     if (el) el.innerHTML = `<div class="muted">${esc(e.message)}</div>`;
@@ -998,9 +1046,9 @@ function enlarge(entry, answer) {
 // While Files is open, what changed on the record may be new images.
 async function refreshFiles() {
   if (panel !== "experiment" || files.dir === null) return;
-  const before = JSON.stringify([files.dirs[""], files.dirs[files.dir], files.items]);
-  try { await Promise.all([listDir(""), listDir(files.dir), readItems()]); } catch (e) { return; }
-  if (JSON.stringify([files.dirs[""], files.dirs[files.dir], files.items]) !== before) drawFiles();
+  const before = JSON.stringify([files.dirs, files.items]);
+  try { await Promise.all([listDir(""), listTree(files.dir), readItems()]); } catch (e) { return; }
+  if (JSON.stringify([files.dirs, files.items]) !== before) drawFiles();
 }
 
 async function refresh() {
