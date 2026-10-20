@@ -89,6 +89,7 @@
   .act .when { font-size:11px; color:var(--muted); padding-top:1px; font-variant-numeric:tabular-nums; }
   .act .outcome { font-size:11px; padding-top:1px; }
   .act .why { grid-column:2 / 4; font-size:11px; color:var(--muted); }
+  .act .evlink { background:none; border:0; padding:0 0 0 6px; font-size:11px; color:var(--accent); cursor:pointer; }
   .halves { display:flex; gap:6px; margin-left:12px; font-size:11.5px; color:var(--muted); }
   .halves button { background:none; border:0; border-bottom:1px solid transparent; padding:0 0 1px;
     cursor:pointer; color:var(--muted); }
@@ -414,7 +415,10 @@ function actionHtml(row, quiet) {
   // it ended and at which level.
   const level = row.level ? `at ${row.level[0].toUpperCase()}${row.level.slice(1)}` : "";
   const tip = [row.why ? `${row.outcome}: ${row.why}` : row.outcome, [level, row.when].filter(Boolean).join(" · ")].join("\n");
-  return `<div class="act${quiet ? " quiet" : ""}"><span class="when">${esc(row.when)}</span><button class="what" data-log title="Open the event log">${esc(row.text)}</button>
+  // As the card's: the image the agent judged from, opened large.
+  const id = row.evidence && row.evidence.evidence_id;
+  const link = id ? ` <button class="evlink" data-open-evidence="${esc(id)}" title="Open the image the agent judged from">evidence</button>` : "";
+  return `<div class="act${quiet ? " quiet" : ""}"><span class="when">${esc(row.when)}</span><span><button class="what" data-log title="Open the event log">${esc(row.text)}</button>${link}</span>
     <span class="outcome tone-${esc(row.tone)}" title="${esc(tip)}">${esc(row.outcome)}</span>${why}</div>`;
 }
 
@@ -457,6 +461,7 @@ function requestHtml(request) {
   return `<div class="request" data-request="${esc(request.request_id)}">
     <div class="title">Agent asks</div><div class="steps">${steps}</div>
     <div class="reason"><span class="muted">Why:</span> ${esc(request.reason)}</div>
+    ${request.evidence ? "" : `<div class="reason muted">No evidence</div>`}
     ${pictureHtml("request", request.evidence ? evidenceHtml({ evidence: { evidence_id: request.evidence } }) : "")}
     <div class="buttons">${buttons}</div></div>`;
 }
@@ -471,8 +476,9 @@ function detailsHtml(details) {
 // request waits: Decline… asks why first, as Reject… does.
 function suggestionHtml(suggestion) {
   if (!suggestion || (state.agent && state.agent.request && state.agent.request.status === "pending")) return "";
-  const picture = pictureHtml("suggestion", suggestion.evidence ? evidenceHtml({ evidence: suggestion.evidence })
-    : suggestion.no_evidence ? `<div class="reason muted">${esc(suggestion.no_evidence)}</div>` : "");
+  // As the card: "No evidence" (or why there is none) under Why.
+  const none = suggestion.evidence ? "" : `<div class="reason muted">${esc(suggestion.no_evidence || "No evidence")}</div>`;
+  const picture = none + pictureHtml("suggestion", suggestion.evidence ? evidenceHtml({ evidence: suggestion.evidence }) : "");
   return `<div class="request" data-suggestion="${esc(suggestion.proposal_id)}">
     <div class="title">Agent suggests</div>
     <div class="muted">${esc(suggestion.proposal)}</div>
@@ -516,6 +522,7 @@ function render() {
   if (focused === "msg") msg.focus();
   else if (focused === "reject-reason" && newReason) newReason.focus();
   for (const el of $app.querySelectorAll("[data-evidence]")) drawEvidence(el);
+  for (const el of $app.querySelectorAll("[data-open-evidence]")) el.onclick = () => openEvidence(el.dataset.openEvidence);
   for (const el of $app.querySelectorAll("[data-picture]")) drawPicture(el);
   const list = $app.querySelector(".rows");
   list.scrollTop = pinned ? list.scrollHeight : scrolled;
@@ -683,6 +690,17 @@ function fillEvidence(el, answer) {
     const list = $app.querySelector(".rows");
     if (pinned && list) list.scrollTop = list.scrollHeight;
   };
+}
+
+// An action row's evidence, large over the page; a click closes it.
+function openEvidence(id) {
+  const el = document.createElement("div");
+  el.className = "evidence big";
+  el.dataset.evidence = id;
+  el.innerHTML = `<div class="frame"></div>`;
+  document.body.appendChild(el);
+  el.addEventListener("click", () => el.remove());
+  drawEvidence(el);
 }
 
 function drawPicture(el) {

@@ -946,3 +946,24 @@ def test_an_image_the_agent_made_is_the_picture_as_it_is(tmp_path):
     assert image.width() == 200
     # The area's outline is the agent's purple, not the grey it was.
     assert image.pixelColor(10, 30) != QColor("grey")
+
+
+def test_a_picture_the_agent_rendered_is_shown_as_it_is(tmp_path):
+    """Evidence cited by path that is no beam image (a markers PNG the agent
+    rendered on an overview) is the agent's own picture, not a frame to draw
+    the request's values on (round 11 R4)."""
+    from PyQt5.QtGui import QColor, QImage
+
+    path = tmp_path / "markers" / "overview.png"
+    path.parent.mkdir()
+    made = QImage(200, 100, QImage.Format_RGB32)
+    made.fill(QColor("grey"))
+    made.save(str(path))
+    evidence = {"evidence_id": "ab12cd35", "image": str(path)}
+    card = _Card()
+    previews = AgentPreviews(lambda: None, show_picture=card)
+    request = _one("stage_move_relative", {"dx": 1e-6})
+    request["evidence"] = evidence
+    previews.show_request(request)
+    assert previews.request_picture == (evidence, [])
+    assert card.shown[1] == "The agent's image"

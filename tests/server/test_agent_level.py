@@ -413,6 +413,10 @@ def test_a_direct_call_is_described_and_recorded(client, auth, microscope):
         assert client.get("/app/workflow/status", headers=AGENT).status_code == 200
         query = "/microscope/services/stage_movement/queries/geometry"
         assert client.post(query, headers=AGENT, json={"kwargs": {}}).status_code < 500
+        # Nor the experiment image routes: drawing the items on an image is a
+        # read the agent cites (round 11 R11).
+        markers = "/app/experiment/images/markers"
+        assert client.post(markers, headers=AGENT, json={}).status_code < 500
     finally:
         microscope.session.record_signal.disconnect(record)
         microscope.control.changed.disconnect(control)
