@@ -385,30 +385,18 @@ def move_lamella(
 
 def remove_lamella(experiment, lamella) -> bool:
     """Remove *lamella* from *experiment* and save; its files stay on disk,
-    and its directory goes only when it holds no files. False when it was
+    and its directory goes only when it is empty. False when it was
     not there."""
     try:
         experiment.positions.remove(lamella)
     except ValueError:
         return False
     experiment.save()
-    _remove_empty_dirs(lamella.path)
+    try:
+        os.rmdir(lamella.path)  # refuses unless the directory is empty
+    except (OSError, TypeError):
+        pass
     return True
-
-
-def _remove_empty_dirs(path) -> None:
-    """Remove *path* when no file is under it at any depth, else leave it all.
-    rmdir refuses a directory with anything in it, so no file is ever deleted."""
-    if not path or not os.path.isdir(path):
-        return
-    walk = list(os.walk(path, topdown=False))
-    if any(files for _, _, files in walk):
-        return
-    for root, _, _ in walk:
-        try:
-            os.rmdir(root)
-        except OSError:
-            pass
 
 
 def set_objective_position(experiment, lamella, value: float) -> None:

@@ -1,4 +1,4 @@
-"""Removing a lamella removes its directory only when it holds no files."""
+"""Removing a lamella removes its directory only when it is empty."""
 
 from pathlib import Path
 
@@ -18,8 +18,6 @@ def _experiment_with_lamella(tmp_path):
 
 def test_an_empty_directory_goes(tmp_path):
     experiment, lamella = _experiment_with_lamella(tmp_path)
-    (lamella.path / "empty" / "deeper").mkdir(parents=True)
-
     assert remove_lamella(experiment, lamella)
 
     assert not lamella.path.exists()
@@ -44,3 +42,12 @@ def test_a_missing_directory_is_fine(tmp_path):
     lamella.path.rmdir()
 
     assert remove_lamella(experiment, lamella)
+
+
+def test_a_directory_with_only_empty_folders_stays(tmp_path):
+    experiment, lamella = _experiment_with_lamella(tmp_path)
+    (lamella.path / "empty").mkdir()
+
+    assert remove_lamella(experiment, lamella)
+
+    assert (lamella.path / "empty").exists()
