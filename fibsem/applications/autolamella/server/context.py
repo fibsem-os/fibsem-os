@@ -900,6 +900,10 @@ class AutoLamellaAppContext:
             }
         return None
 
+    def _busy(self, why: str) -> Optional[Dict[str, Any]]:
+        """A run_edits refusal as the routes answer it, or None."""
+        return {"error_type": "task_running", "error": why} if why else None
+
     def _no_microscope(self) -> Optional[Dict[str, Any]]:
         if self._microscope is None:
             return {"error_type": "not_found", "error": "No microscope is connected."}
@@ -1200,14 +1204,18 @@ class AutoLamellaAppContext:
 
     def remove_item(self, item_name: str) -> Dict[str, Any]:
         """Remove a lamella from the experiment, as its row's Remove does. Its
-        files stay on disk. Refused while a workflow runs."""
+        files stay on disk. Refused for the lamella a run is working on."""
+        from fibsem.applications.autolamella.run_edits import lamella_edit_refusal
+
         experiment, _, refusal = self._editable()
         if refusal:
             return refusal
         lamella, refusal = find_item(experiment, item_name)
         if refusal:
             return {"error_type": "not_found", **refusal}
-        refusal = self._not_while_running("remove items")
+        refusal = self._busy(
+            lamella_edit_refusal(self._runner, experiment, lamella, "remove it")
+        )
         if refusal:
             return refusal
 
@@ -1253,7 +1261,9 @@ class AutoLamellaAppContext:
     def rename_grid(self, grid_name: str, name: str) -> Dict[str, Any]:
         """Rename a grid as the Grids tab's Rename does: the slot that holds it
         first, then its record. Refused for a grid that has run, a name another
-        grid has, and while a workflow runs (its queue holds grids by name)."""
+        grid has, and while a run is on it or has it queued (its queue holds
+        grids by name)."""
+        from fibsem.applications.autolamella.run_edits import grid_edit_refusal
         from fibsem.workflows.grid.naming import (
             grid_rename_refusal,
             rename_and_save_grid,
@@ -1265,7 +1275,11 @@ class AutoLamellaAppContext:
         experiment, microscope, refusal = self._editable()
         if refusal:
             return refusal
-        refusal = self._not_while_running("rename grids")
+        refusal = self._busy(
+            grid_edit_refusal(
+                self._runner, experiment, grid_name, "rename it", renaming=True
+            )
+        )
         if refusal:
             return refusal
         stage = getattr(microscope, "sample_handling", None)
@@ -1381,12 +1395,16 @@ class AutoLamellaAppContext:
 
     def remove_grid(self, grid_name: str) -> Dict[str, Any]:
         """Stop tracking a grid, as the Grids tab's Remove does: its files stay,
-        its lamellae stay with no grid. Refused while a workflow runs (its queue
-        holds grids by name). Saved."""
+        its lamellae stay with no grid. Refused while a run is on it or one of
+        its lamellae. Saved."""
+        from fibsem.applications.autolamella.run_edits import grid_edit_refusal
+
         experiment, grid, refusal = self._grid_record(grid_name)
         if refusal:
             return refusal
-        refusal = self._not_while_running("remove grids")
+        refusal = self._busy(
+            grid_edit_refusal(self._runner, experiment, grid_name, "remove it")
+        )
         if refusal:
             return refusal
 
@@ -1468,8 +1486,11 @@ class AutoLamellaAppContext:
     def set_item_objective_position(self, item_name: str) -> Dict[str, Any]:
         """Store the FM objective's position now on a lamella's fluorescence pose,
         as the tab's Use current does: where it is if inserted, else its focus
-        position. Saved."""
+        position. Saved. Not while a run is on: the run moves the objective."""
         experiment, microscope, refusal = self._editable()
+        if refusal:
+            return refusal
+        refusal = self._not_while_running("store the objective position")
         if refusal:
             return refusal
         lamella, refusal = find_item(experiment, item_name)
@@ -1507,12 +1528,13 @@ class AutoLamellaAppContext:
         stage_position, or under a point of a grid overview. A point on the
         fluorescence side moves its fluorescence pose and the milling pose
         follows; otherwise the other way round. The stage doesn't move. Saved.
-        Refused while a workflow runs."""
+        Refused for the lamella a run is working on."""
         from fibsem.applications.autolamella.poses import (
             FLUORESCENCE_ORIENTATION,
             fluorescence_move,
             move_lamella,
         )
+        from fibsem.applications.autolamella.run_edits import lamella_edit_refusal
 
         experiment, microscope, refusal = self._editable()
         if refusal:
@@ -1522,12 +1544,14 @@ class AutoLamellaAppContext:
                 "error_type": "invalid",
                 "error": "Give stage_position or overview: where to move it to.",
             }
-        refusal = self._not_while_running("move items")
-        if refusal:
-            return refusal
         lamella, refusal = find_item(experiment, item_name)
         if refusal:
             return {"error_type": "not_found", **refusal}
+        refusal = self._busy(
+            lamella_edit_refusal(self._runner, experiment, lamella, "move it")
+        )
+        if refusal:
+            return refusal
         if lamella.milling_pose is None:
             return {
                 "error_type": "invalid",
@@ -1549,8 +1573,10 @@ class AutoLamellaAppContext:
 
     def set_objective_position_on_all(self, item_name: str) -> Dict[str, Any]:
         """Store a lamella's objective position on every lamella with a
-        fluorescence pose, as its Apply to All Lamella does. Saved."""
+        fluorescence pose, as its Apply to All Lamella does, except the one a
+        run is working on. Saved."""
         from fibsem.applications.autolamella.poses import set_objective_position_on_all
+        from fibsem.applications.autolamella.run_edits import busy_lamellae
 
         experiment, _, refusal = self._editable()
         if refusal:
@@ -1565,10 +1591,16 @@ class AutoLamellaAppContext:
                 "error_type": "not_found",
                 "error": f"{item_name} has no objective position stored.",
             }
+        skipped = busy_lamellae(self._runner, experiment)
         count = self._agent_call(
-            lambda: set_objective_position_on_all(experiment, value)
+            lambda: set_objective_position_on_all(experiment, value, skip=skipped)
         )
-        return {"applied": True, "objective_position": value, "items": count}
+        return {
+            "applied": True,
+            "objective_position": value,
+            "items": count,
+            "skipped": skipped,
+        }
 
     def move_objective_to_item(self, item_name: str) -> Dict[str, Any]:
         """Move the FM objective to the position stored on a lamella's

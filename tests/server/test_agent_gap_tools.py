@@ -81,7 +81,13 @@ def test_the_agent_judges_notes_and_removes_a_grid(driving):
     missing = _call(driving, "grid_set_note", grid_name="G9", note="x")
     assert missing.status_code == 404
 
-    removed = _ok(_call(driving, "grid_remove", grid_name="G2"))
+    from tests.run_state import run_working_on
+
+    with run_working_on(driving.host.runner, "G2"):
+        busy = _call(driving, "grid_remove", grid_name="G2")
+    assert busy.status_code == 409
+    with run_working_on(driving.host.runner, "G1"):
+        removed = _ok(_call(driving, "grid_remove", grid_name="G2"))
     assert removed["items_without_grid"] == []
     assert experiment.get_grid_by_name("G2") is None
 

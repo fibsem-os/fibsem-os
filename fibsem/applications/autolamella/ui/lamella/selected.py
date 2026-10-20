@@ -211,6 +211,13 @@ class SelectedLamellaWidget(QWidget):
         """Update one pose row in place, without rebuilding the list."""
         self.pose_list.refresh_pose(pose_name, state)
 
+    def set_instrument_actions_enabled(self, enabled: bool) -> None:
+        """Whether the actions that move or read the stage and objective are on:
+        off while a run, which owns them, is on."""
+        self._action_move_to_obj_pos.setEnabled(enabled)
+        self._action_use_current_obj_pos.setEnabled(enabled)
+        self.pose_list.set_stage_actions_enabled(enabled)
+
     def objective_value_um(self) -> float:
         """Current objective spinbox value, in µm."""
         return self.spinbox_objective_position.value()
@@ -336,6 +343,10 @@ class LamellaPoseRowWidget(QWidget):
         if self._popup is not None and self._popup.isVisible():
             self._popup.set_state(self.pose_name, state)
 
+    def set_stage_actions_enabled(self, enabled: bool) -> None:
+        self.btn_move_to.setEnabled(enabled)
+        self.btn_update.setEnabled(enabled)
+
     def _show_details(self) -> None:
         if self._state is None:
             return
@@ -456,6 +467,7 @@ class LamellaPoseListWidget(QWidget):
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._list.setFocusPolicy(Qt.NoFocus)
         layout.addWidget(self._list)
+        self._stage_actions = True
 
     # ------------------------------------------------------------------
     # Public API
@@ -468,6 +480,14 @@ class LamellaPoseListWidget(QWidget):
             return
         for pose_name in self._sorted_pose_names(lamella.poses):
             self._add_row(pose_name, lamella.poses[pose_name])
+
+    def set_stage_actions_enabled(self, enabled: bool) -> None:
+        """Whether each row's Move to and Update are on."""
+        self._stage_actions = enabled
+        for i in range(self._list.count()):
+            row = self._list.itemWidget(self._list.item(i))
+            if isinstance(row, LamellaPoseRowWidget):
+                row.set_stage_actions_enabled(enabled)
 
     def refresh_pose(self, pose_name: str, state: Optional[MicroscopeState]) -> None:
         """Update an existing pose row in place, from the record itself.
@@ -505,6 +525,7 @@ class LamellaPoseListWidget(QWidget):
         self, pose_name: str, state: Optional[MicroscopeState]
     ) -> LamellaPoseRowWidget:
         row = LamellaPoseRowWidget(pose_name, state)
+        row.set_stage_actions_enabled(self._stage_actions)
         item = QListWidgetItem()
         item.setSizeHint(QSize(0, _ROW_HEIGHT))
         self._list.addItem(item)

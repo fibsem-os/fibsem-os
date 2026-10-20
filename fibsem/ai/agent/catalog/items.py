@@ -336,7 +336,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="item_remove",
-        description="Remove a lamella from the experiment, as its row's Remove does. Its files stay on disk. Refused while a workflow runs.",
+        description="Remove a lamella from the experiment, as its row's Remove does. Its files stay on disk. Refused for the lamella a run is working on.",
         method="DELETE",
         path="/app/experiment/items/{item_name}",
         level="drive",
@@ -385,7 +385,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="item_set_objective_position",
-        description="Store the FM objective's position now on a lamella's fluorescence pose, as the tab's Use current does: where it is when inserted, else its focus position. Saved.",
+        description="Store the FM objective's position now on a lamella's fluorescence pose, as the tab's Use current does: where it is when inserted, else its focus position. Saved. Refused while a workflow runs, since the run moves the objective.",
         method="POST",
         path="/app/experiment/items/{item_name}/objective_position",
         level="drive",
@@ -396,7 +396,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="item_set_objective_position_on_all",
-        description="Store a lamella's stored objective position on every lamella with a fluorescence pose, as its Apply to All Lamella does. Refused when it has none stored. Saved; answers with how many it was stored on.",
+        description="Store a lamella's stored objective position on every lamella with a fluorescence pose, as its Apply to All Lamella does, except the lamella a run is working on (answered as skipped). Refused when it has none stored. Saved; answers with how many it was stored on.",
         method="POST",
         path="/app/experiment/items/{item_name}/objective_position/apply_to_all",
         level="drive",
@@ -407,7 +407,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="item_set_position",
-        description="Move a lamella to a point, as moving it on an overview does: to stage_position, or under a point of a recorded grid overview (overview = {grid_name, filename, px: [x, y] source pixels or fraction: [x, y] 0-1}). A point on the fluorescence side moves its fluorescence pose and the milling pose follows; otherwise its milling pose moves, with its milling angle, and the fluorescence pose follows. The stage does not move. Refused while a workflow runs. Saved; answers with the item.",
+        description="Move a lamella to a point, as moving it on an overview does: to stage_position, or under a point of a recorded grid overview (overview = {grid_name, filename, px: [x, y] source pixels or fraction: [x, y] 0-1}). A point on the fluorescence side moves its fluorescence pose and the milling pose follows; otherwise its milling pose moves, with its milling angle, and the fluorescence pose follows. The stage does not move. Refused for the lamella a run is working on. Saved; answers with the item.",
         method="POST",
         path="/app/experiment/items/{item_name}/position",
         level="drive",

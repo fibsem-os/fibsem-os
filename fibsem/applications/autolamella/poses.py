@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 from copy import deepcopy
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Sequence
 
 from fibsem.structures import (
     FibsemStagePosition,
@@ -402,12 +402,14 @@ def set_objective_position(experiment, lamella, value: float) -> None:
         experiment.save()
 
 
-def set_objective_position_on_all(experiment, value: float) -> int:
-    """Store *value* on every lamella with a fluorescence pose, saved: Apply to
-    All. How many it was stored on."""
+def set_objective_position_on_all(
+    experiment, value: float, skip: Sequence[str] = ()
+) -> int:
+    """Store *value* on every lamella with a fluorescence pose but those named
+    in *skip*, saved: Apply to All. How many it was stored on."""
     count = 0
     for lamella in experiment.positions:
-        if lamella.fluorescence_pose is not None:
+        if lamella.fluorescence_pose is not None and lamella.name not in skip:
             lamella.fluorescence_pose.objective_position = value
             count += 1
     if count:

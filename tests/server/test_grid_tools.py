@@ -449,12 +449,19 @@ def test_a_rename_the_grids_tab_would_refuse_is_refused(recording, arctis):
     assert missing.status_code == 404
     assert missing.json()["detail"]["grid_names"] == ["G1", "G2", "Grid-03"]
 
-    recording.host.runner.is_running = True
-    try:
+    from tests.run_state import run_working_on
+
+    runner = recording.host.runner
+    with run_working_on(runner, "G2"):
         running = _call(recording, "grid_rename", grid_name="G2", name="Lyso-2")
-    finally:
-        recording.host.runner.is_running = False
     assert running.status_code == 409
+    with run_working_on(runner, "G1", queued=("G2",)):
+        queued = _call(recording, "grid_rename", grid_name="G2", name="Lyso-2")
+    assert queued.status_code == 409
+    assert "queued" in queued.json()["detail"]["message"]
+    with run_working_on(runner, "G1"):
+        renamed = _call(recording, "grid_rename", grid_name="G2", name="Lyso-2")
+    assert renamed.status_code == 200, renamed.text
 
 
 def test_the_record_lines_say_which_grids_and_what_changes():

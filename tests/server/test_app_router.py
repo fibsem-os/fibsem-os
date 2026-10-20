@@ -22,7 +22,7 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
 )
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.structures import MicroscopeState  # noqa: E402
-from tests.run_state import stub_session
+from tests.run_state import run_working_on, stub_session
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -1186,15 +1186,14 @@ def test_an_item_is_moved_to_a_point_and_the_stage_stays(driver, host, microscop
 
     nowhere = driver.post(f"/app/experiment/items/{name}/position", json={})
     assert nowhere.status_code == 422
-    host.runner.is_running = True
-    try:
-        refused = driver.post(
-            f"/app/experiment/items/{name}/position",
-            json={"stage_position": {"x": 0, "y": 0, "z": 0, "r": 0, "t": 0}},
-        )
+    there = {"stage_position": {"x": 0, "y": 0, "z": 0, "r": 0, "t": 0}}
+    with run_working_on(host.runner, name):
+        refused = driver.post(f"/app/experiment/items/{name}/position", json=there)
         assert refused.status_code == 409
-    finally:
-        host.runner.is_running = False
+        assert f"working on {name}" in refused.json()["detail"]["message"]
+    with run_working_on(host.runner, "another"):
+        moved = driver.post(f"/app/experiment/items/{name}/position", json=there)
+        assert moved.status_code == 200, moved.text
 
 
 def test_an_item_s_objective_position_is_applied_to_all(driver, host):
@@ -1202,21 +1201,30 @@ def test_an_item_s_objective_position_is_applied_to_all(driver, host):
     lamella with a fluorescence pose."""
     from fibsem.structures import MicroscopeState
 
+    host.experiment.add_new_lamella(MicroscopeState(), EventedDict(), name="second")
     positions = host.experiment.positions
     for lamella in positions[:2]:
         lamella.fluorescence_pose = MicroscopeState()
     with_pose = [p for p in positions if p.fluorescence_pose is not None]
     source = with_pose[0]
     source.fluorescence_pose.objective_position = 1.25e-3
-    resp = driver.post(
-        f"/app/experiment/items/{source.name}/objective_position/apply_to_all"
-    )
+    route = f"/app/experiment/items/{source.name}/objective_position/apply_to_all"
+    resp = driver.post(route)
     assert resp.status_code == 200, resp.text
     assert resp.json()["items"] == len(with_pose)
     assert all(
         p.fluorescence_pose.objective_position == pytest.approx(1.25e-3)
         for p in with_pose
     )
+
+    # The lamella a run is on is left as it is.
+    busy = with_pose[-1]
+    busy.fluorescence_pose.objective_position = 2e-3
+    source.fluorescence_pose.objective_position = 1.5e-3
+    with run_working_on(host.runner, busy.name):
+        resp = driver.post(route)
+    assert resp.json()["skipped"] == [busy.name]
+    assert busy.fluorescence_pose.objective_position == pytest.approx(2e-3)
 
 
 def test_a_pose_is_not_set_from_the_stage_while_a_run_is_on(driver, host):
@@ -1233,15 +1241,14 @@ def test_a_pose_is_not_set_from_the_stage_while_a_run_is_on(driver, host):
     assert host.experiment.get_lamella_by_name(name).milling_pose is before
 
 
-def test_an_item_is_removed_but_not_while_a_run_is_on(driver, host):
+def test_an_item_is_removed_but_not_the_one_a_run_is_on(driver, host):
     host.experiment.add_new_lamella(MicroscopeState(), EventedDict(), name="spare")
-    host.runner.is_running = True
-    try:
+    with run_working_on(host.runner, "spare"):
         refused = driver.delete("/app/experiment/items/spare")
         assert refused.status_code == 409
-    finally:
-        host.runner.is_running = False
-    removed = driver.delete("/app/experiment/items/spare")
+        assert refused.json()["detail"]["error_type"] == "task_running"
+    with run_working_on(host.runner, host.experiment.positions[0].name):
+        removed = driver.delete("/app/experiment/items/spare")
     assert removed.status_code == 200
     assert host.experiment.get_lamella_by_name("spare") is None
 

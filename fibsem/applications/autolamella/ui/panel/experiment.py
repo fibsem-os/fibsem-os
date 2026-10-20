@@ -22,6 +22,10 @@ from fibsem.applications.autolamella.poses import (
     set_objective_position_on_all,
     stored_objective_position,
 )
+from fibsem.applications.autolamella.run_edits import (
+    busy_lamellae,
+    lamella_edit_refusal,
+)
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
@@ -121,7 +125,7 @@ class ExperimentTab(QWidget):
     def refresh(self) -> None:
         """Enable the list and the selected lamella for the session's state."""
         if self.session.runner.is_running:
-            self.selected_lamella_widget.setEnabled(False)
+            self.refresh_run_edits()
             return
 
         is_experiment_loaded = bool(self.experiment is not None)
@@ -134,8 +138,7 @@ class ExperimentTab(QWidget):
         if not has_lamella:
             self.selected_lamella_widget.set_lamella(None)
 
-        # disable lamella controls while workflow is running
-        self.selected_lamella_widget.setEnabled(not self.session.runner.is_running)
+        self.refresh_run_edits()
 
         # Current Lamella Status
         if has_lamella and self.experiment is not None:
@@ -165,9 +168,6 @@ class ExperimentTab(QWidget):
         if self.protocol is None:
             return
 
-        if self.session.runner.is_running:
-            return
-
         idx = self.lamella_list.selected_index
         if idx == -1:
             return
@@ -177,6 +177,21 @@ class ExperimentTab(QWidget):
 
         # refresh objective position + pose display for the selected lamella
         self.selected_lamella_widget.set_lamella(lamella)
+        self.refresh_run_edits()
+
+    def refresh_run_edits(self) -> None:
+        """While a run is on, the selected lamella stays editable unless the run
+        is working on it; the stage and objective are the run's."""
+        runner = self.session.runner
+        lamella = self.get_selected_lamella()
+        busy = bool(
+            lamella is not None
+            and lamella_edit_refusal(runner, self.experiment, lamella, "edit it")
+        )
+        self.selected_lamella_widget.setEnabled(not busy)
+        self.selected_lamella_widget.set_instrument_actions_enabled(
+            not runner.is_running
+        )
 
     def move_to_lamella_position(self):
         """Move the stage to the position of the selected lamella."""
@@ -269,6 +284,16 @@ class ExperimentTab(QWidget):
         Confirmation is already handled by the row widget.
         """
         if self.experiment is None:
+            return
+        why = lamella_edit_refusal(
+            self.session.runner, self.experiment, lamella, "remove it"
+        )
+        if why:
+            # The row has gone already: put it back.
+            self.lamella_list.set_lamella(
+                self.experiment.positions, preferred_name=lamella.name
+            )
+            notification_service.show_toast(why, "warning")
             return
         if not remove_lamella(self.experiment, lamella):
             return
@@ -503,7 +528,9 @@ class ExperimentTab(QWidget):
             return
         value_um = self.selected_lamella_widget.objective_value_um()
         count = set_objective_position_on_all(
-            self.experiment, value_um * MICRON_TO_METRE
+            self.experiment,
+            value_um * MICRON_TO_METRE,
+            skip=busy_lamellae(self.session.runner, self.experiment),
         )
         if count:
             notification_service.show_toast(
