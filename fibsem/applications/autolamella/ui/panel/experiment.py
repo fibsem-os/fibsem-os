@@ -15,12 +15,8 @@ from PyQt5.QtWidgets import (
 
 from fibsem.applications.autolamella.poses import (
     add_lamella,
-    current_objective_position,
     remove_lamella,
     set_lamella_pose,
-    set_objective_position,
-    set_objective_position_on_all,
-    stored_objective_position,
 )
 from fibsem.applications.autolamella.run_edits import (
     busy_lamellae,
@@ -32,8 +28,10 @@ from fibsem.applications.autolamella.structures import (
     Lamella,
 )
 from fibsem.applications.autolamella.ui.lamella.rows import LamellaNameListWidget
-from fibsem.applications.autolamella.ui.lamella.selected import SelectedLamellaWidget
-from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
+from fibsem.applications.autolamella.ui.lamella.selected import (
+    SelectedLamellaController,
+    SelectedLamellaWidget,
+)
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import FibsemStagePosition
 from fibsem.ui import notification_service
@@ -90,23 +88,15 @@ class ExperimentTab(QWidget):
         # handler, because nothing else is listening for them (FIB-564).
         self.lamella_list.lamella_selected.connect(self.update_lamella_ui)
 
-        self.selected_lamella_widget.objective_position_changed.connect(
-            self.update_lamella_objective_position
-        )
-        self.selected_lamella_widget.use_current_objective_requested.connect(
-            self._use_current_objective_position
-        )
-        self.selected_lamella_widget.apply_objective_to_all_requested.connect(
-            self._apply_objective_position_to_all
-        )
-        self.selected_lamella_widget.move_objective_requested.connect(
-            self._move_objective_to_lamella_position
-        )
-        self.selected_lamella_widget.pose_update_requested.connect(
-            self._set_current_position_as_pose
-        )
-        self.selected_lamella_widget.pose_move_to_requested.connect(
-            self._move_to_lamella_pose
+        self.selected_lamella = SelectedLamellaController(
+            self.selected_lamella_widget,
+            experiment=lambda: self.experiment,
+            microscope=lambda: self.microscope,
+            lamella=self.get_selected_lamella,
+            move_stage=lambda position: self._movement_widget().move_to_position(
+                position
+            ),
+            busy=lambda: busy_lamellae(self.session.runner, self.experiment),
         )
 
     @property
@@ -344,199 +334,6 @@ class ExperimentTab(QWidget):
 
         self.update_lamella_combobox()
         self.refresh()
-
-    def _set_current_position_as_pose(self, pose_name: str):
-        """Set the current stage position as the given pose for the current lamella."""
-
-        if self.microscope is None:
-            notification_service.show_toast("No microscope connected.", "warning")
-            return
-        if self.experiment is None or self.experiment.positions == []:
-            notification_service.show_toast("No lamella available.", "warning")
-            return
-        idx = self.lamella_list.selected_index
-        if idx == -1:
-            notification_service.show_toast("No lamella selected.", "warning")
-            return
-        lamella: Lamella = self.experiment.positions[idx]
-        if pose_name == "":
-            notification_service.show_toast("No pose selected.", "warning")
-            return
-        state = self.microscope.get_microscope_state()
-
-        if state is None or state.stage_position is None:
-            notification_service.show_toast(
-                "Failed to get microscope state.", "warning"
-            )
-            return
-
-        # confirmation dialog
-        ret = QMessageBox.question(
-            self,
-            "Set Pose Confirmation",
-            f"Set current position as pose '{pose_name}' for {lamella.name}?\n{state.stage_position.pretty}",
-            QMessageBox.Yes | QMessageBox.No,
-        )
-        if ret != QMessageBox.Yes:
-            return
-
-        if set_lamella_pose(
-            self.experiment, self.microscope, lamella, pose_name, state
-        ):
-            self.selected_lamella_widget.refresh_pose(
-                "FLUORESCENCE", lamella.fluorescence_pose
-            )
-        self.selected_lamella_widget.refresh_pose(pose_name, state)
-        notification_service.show_toast(
-            f"Set current position as pose '{pose_name}' for {lamella.name}.", "info"
-        )
-
-    def _move_to_lamella_pose(self, pose_name: str):
-        """Move the stage to the given pose for the current lamella."""
-
-        if self.microscope is None:
-            notification_service.show_toast("No microscope connected.", "warning")
-            return
-        if self.experiment is None or self.experiment.positions == []:
-            notification_service.show_toast("No lamella available.", "warning")
-            return
-        if self._movement_widget() is None:
-            notification_service.show_toast("No movement widget available", "warning")
-            return
-        idx = self.lamella_list.selected_index
-        if idx == -1:
-            notification_service.show_toast("No lamella selected.", "warning")
-            return
-        lamella: Lamella = self.experiment.positions[idx]
-        if pose_name == "":
-            notification_service.show_toast("No pose selected.", "warning")
-            return
-        if pose_name not in lamella.poses:
-            notification_service.show_toast(
-                f"Pose '{pose_name}' not found for {lamella.name}.", "warning"
-            )
-            return
-        pose = lamella.poses[pose_name]
-        if pose.stage_position is None:
-            notification_service.show_toast(
-                f"Pose '{pose_name}' has no stage position.", "warning"
-            )
-            return
-
-        # confirmation dialog
-        ret = QMessageBox.question(
-            self,
-            "Move to Pose Confirmation",
-            f"Move to pose '{pose_name}' for {lamella.name}?\n{pose.stage_position.pretty}",
-            QMessageBox.Yes | QMessageBox.No,
-        )
-        if ret != QMessageBox.Yes:
-            return
-
-        logging.info(f"Moving to pose '{pose_name}' for {lamella.name}.")
-        self._movement_widget().move_to_position(pose.stage_position)
-        notification_service.show_toast(
-            f"Moved to pose '{pose_name}' for {lamella.name}.", "info"
-        )
-
-    def _use_current_objective_position(self):
-        """Read the current FM objective position and apply it to the selected lamella."""
-        if self.microscope is None or self.microscope.fm is None:
-            notification_service.show_toast("No microscope connected.", "warning")
-            return
-        lamella = self.get_selected_lamella()
-        if lamella is None or lamella.fluorescence_pose is None:
-            notification_service.show_toast("No lamella selected.", "warning")
-            return
-        value_m = current_objective_position(self.microscope.fm)
-        if value_m is None:
-            notification_service.show_toast(
-                "Objective position unavailable.", "warning"
-            )
-            return
-        set_objective_position(self.experiment, lamella, value_m)
-        # full refresh so the objective value shows and "Apply to All" re-enables
-        self.selected_lamella_widget.set_lamella(lamella)
-        notification_service.show_toast(
-            f"Set objective position to {value_m * METRE_TO_MICRON:.1f} µm for {lamella.name}.",
-            "info",
-        )
-
-    def _move_objective_to_lamella_position(self):
-        """Move the FM objective to the selected lamella's stored objective position.
-
-        Independent of the stage move-to: this only drives the objective.
-        """
-        if self.microscope is None or self.microscope.fm is None:
-            notification_service.show_toast("No microscope connected.", "warning")
-            return
-        lamella = self.get_selected_lamella()
-        if lamella is None or lamella.fluorescence_pose is None:
-            notification_service.show_toast("No lamella selected.", "warning")
-            return
-        try:
-            objective_position = stored_objective_position(self.microscope.fm, lamella)
-        except ValueError as e:
-            notification_service.show_toast(str(e), "warning")
-            return
-        obj = self.microscope.fm.objective
-
-        # confirmation dialog
-        ret = QMessageBox.question(
-            self,
-            "Move Objective",
-            f"Move objective to {objective_position * METRE_TO_MICRON:.1f} µm "
-            f"for {lamella.name}?",
-            QMessageBox.Yes | QMessageBox.No,
-        )
-        if ret != QMessageBox.Yes:
-            return
-
-        try:
-            logging.info(
-                f"Moving objective to {objective_position * METRE_TO_MICRON:.1f} µm "
-                f"for {lamella.name}."
-            )
-            obj.move_absolute(objective_position)
-            notification_service.show_toast(
-                f"Moved objective to {objective_position * METRE_TO_MICRON:.1f} µm "
-                f"for {lamella.name}.",
-                "info",
-            )
-        except Exception as e:
-            logging.error(f"Failed to move objective: {e}", exc_info=e)
-            notification_service.show_toast(f"Failed to move objective: {e}", "warning")
-
-    def update_lamella_objective_position(self, value: float):
-        """Update the objective position of the current lamella."""
-
-        # get current lamella
-        idx = self.lamella_list.selected_index
-        if idx == -1 or self.experiment is None:
-            notification_service.show_toast("No lamella selected.", "warning")
-            return
-
-        lamella = self.experiment.positions[idx]
-        if lamella.fluorescence_pose is None:
-            return
-        # convert from µm to m
-        set_objective_position(self.experiment, lamella, value * MICRON_TO_METRE)
-
-    def _apply_objective_position_to_all(self):
-        """Copy the current spinbox objective position to all lamella that have a fluorescence pose."""
-        if self.experiment is None:
-            return
-        value_um = self.selected_lamella_widget.objective_value_um()
-        count = set_objective_position_on_all(
-            self.experiment,
-            value_um * MICRON_TO_METRE,
-            skip=busy_lamellae(self.session.runner, self.experiment),
-        )
-        if count:
-            notification_service.show_toast(
-                f"Applied objective position ({value_um:.1f} µm) to {count} lamella.",
-                "info",
-            )
 
     def get_selected_lamella(self) -> Optional[Lamella]:
         """Get the currently selected lamella from the combobox.
