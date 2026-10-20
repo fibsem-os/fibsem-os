@@ -203,6 +203,19 @@ def test_the_operator_s_message_is_a_line_that_says_how_to_answer(app):
     )
 
 
+def test_a_level_change_names_the_skill_to_work_by(app):
+    def run():
+        app.buffer.append("agent_level_set", {"previous": "watch", "level": "drive"})
+        app.buffer.append("workflow_completed", {})
+
+    code, lines = _watch({2: run})
+
+    assert lines[0] == (
+        "LEVEL drive (was watch): the operator set the agent level; work by the "
+        "supervise-autolamella skill"
+    )
+
+
 def test_the_agent_s_request_is_followed_to_its_end(app):
     def run():
         app.buffer.append(

@@ -31,3 +31,11 @@ class AgentLevel(str, Enum):
 # event stream, so a connected one is heard every few seconds; past this it has
 # gone, and a held question waits for it to come back.
 AGENT_LISTENING_S = 120.0
+
+# The skill an agent works by at each level, after the base autolamella-agent
+# skill. Off has none: the agent is refused everything.
+LEVEL_SKILLS = {
+    AgentLevel.WATCH: "observe-autolamella",
+    AgentLevel.ASSIST: "assist-autolamella",
+    AgentLevel.DRIVE: "supervise-autolamella",
+}

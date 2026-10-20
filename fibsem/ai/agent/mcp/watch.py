@@ -17,8 +17,8 @@ cancelled, FIB-1283), ``COMMAND ENDED``, ``MILL STAGE STARTED`` and
 monitor's trigger or error), task ``EVENT`` lines,
 ``WORKFLOW STARTED``, ``WORKFLOW ENDED``, ``MESSAGE`` (the operator wrote to
 the agent from its card, FIB-1423), ``NOTE`` (the operator kept a note on a
-grid), ``GAP``, ``RESTARTED`` and
-``AGENT OFF``/``AGENT BACK``.
+grid), ``GAP``, ``RESTARTED``, ``LEVEL`` (the operator changed the agent level)
+and ``AGENT OFF``/``AGENT BACK``.
 
 It follows the whole session, not one workflow: the agent starts and stops
 workflows itself, and between them it still has to hear the app (FIB-1431). A
@@ -42,6 +42,8 @@ import time
 import urllib.error
 import urllib.request
 from http.client import HTTPException
+
+from fibsem.ai.agent.levels import LEVEL_SKILLS, AgentLevel
 
 # Kinds that end a workflow: report it, and keep watching. A stalled workflow
 # drained with decisions pending; a failed one died outside a task (FIB-1037).
@@ -218,6 +220,10 @@ def _print_events(events, since, out):
                 f"experiment_add_note (reply_to={message_id}). It is not an "
                 "approval: your level still decides what you may do"
             )
+        elif kind == "agent_level_set":
+            line = _level_line(data)
+            if line:
+                out(line)
         elif kind == "workflow_started":
             out("WORKFLOW STARTED")
             running = True
@@ -232,6 +238,22 @@ def _print_events(events, since, out):
             reason = _skip_reason(data) if kind == "task_skipped" else None
             out(f"{line} ({reason})" if reason else line)
     return since, running
+
+
+def _level_line(data):
+    """The operator changed the level, with the skill to work by at it. Off
+    has no line here: the agent is refused, and the watch says AGENT OFF."""
+    try:
+        level = AgentLevel(data.get("level"))
+    except ValueError:
+        return None
+    skill = LEVEL_SKILLS.get(level)
+    if skill is None:
+        return None
+    return (
+        f"LEVEL {level.value} (was {data.get('previous')}): the operator set the "
+        f"agent level; work by the {skill} skill"
+    )
 
 
 def _item_of(event):

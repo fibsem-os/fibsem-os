@@ -1,6 +1,6 @@
 ---
 name: autolamella-agent
-description: The ground every agent working with a running AutoLamella stands on — connecting to the App Server, the levels and their refusals, the watcher, writing down why, reading the experiment and using the microscope. Read it first whenever you connect to AutoLamella, then the role skill for your level (observe, assist or supervise).
+description: The ground every agent working with a running AutoLamella stands on — connecting to the App Server, the levels and their refusals, the watcher, writing down why, reading the experiment and using the microscope. Read it first whenever you connect to AutoLamella, then the skill for your level (observe at Watch, assist at Assist, supervise at Drive).
 ---
 
 # Working with AutoLamella
@@ -102,7 +102,7 @@ fibsem-mcp watch
 ```
 
 It comes with fibsem and finds the app the way the MCP tools do. Where
-`fibsem-mcp` is not on your PATH, run `python -m fibsem.mcp.sidecar watch` with
+`fibsem-mcp` is not on your PATH, run `python -m fibsem.ai.agent.mcp.sidecar watch` with
 the Python fibsem is installed in, from a folder that holds no other fibsem
 checkout (the current folder is searched first). Check it is the fibsem the
 app runs: a watcher from before Assist prints no `REQUEST` lines and has no
@@ -156,6 +156,8 @@ Its lines:
   `/app/workflow/status`. `RESTARTED`: the app restarted, and the watcher
   reads it from the start.
 - `AGENT OFF` and `AGENT BACK`: the operator set the level to Off and back.
+- `LEVEL <level> (was <level>)`: the operator changed your level. Re-read
+  `server_get_capabilities` and work by the skill the line names.
 - `MESSAGE id=…`: the operator wrote to you from the Agent card. See
   *Messages from the operator*.
 - `NOTE from the operator on <grid>`: the operator kept a note on a grid.
