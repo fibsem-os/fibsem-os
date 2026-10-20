@@ -68,3 +68,41 @@ def latest_item_output(
             if os.path.isfile(path):
                 return path
     return None
+
+
+def files_by_run(root: Any, runs: Iterable[TaskState]) -> List[dict]:
+    """Each run in order, with its existing recorded files by role, as
+    basenames: which run produced which file."""
+    entries = []
+    for run in runs:
+        files = {}
+        for role, relpaths in dict(run.outputs).items():
+            names = [
+                os.path.basename(rp)
+                for rp in relpaths
+                if os.path.isfile(os.path.join(root, rp))
+            ]
+            if names:
+                files[role] = names
+        entries.append({"name": run.name, "status": run.status.name, "files": files})
+    return entries
+
+
+def all_item_outputs(experiment: "BaseExperiment", item: Any) -> List[str]:
+    """Every existing file an item's runs recorded, under any role."""
+    roles = {role for run in item.task_history for role in run.outputs}
+    return item_outputs(experiment, item, *sorted(roles))
+
+
+def item_output_named(
+    experiment: "BaseExperiment", item: Any, filename: str
+) -> Optional[str]:
+    """The file an item's runs recorded with basename *filename*, or None."""
+    return next(
+        (
+            path
+            for path in all_item_outputs(experiment, item)
+            if os.path.basename(path) == filename
+        ),
+        None,
+    )

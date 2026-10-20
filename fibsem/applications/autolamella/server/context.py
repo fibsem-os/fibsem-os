@@ -28,7 +28,6 @@ protocol, its hardware stops, and the config edits it still applies.
 """
 
 import logging
-import math
 import os
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Protocol
@@ -44,13 +43,20 @@ from fibsem.applications.autolamella.config_edits import (
     item_patch_refusal,
     item_pose_positions,
 )
+from fibsem.geometry.saved_images import image_point_to_stage_position, stage_projector
 from fibsem.server.files import jpeg_preview
 from fibsem.structures import BeamType
+from fibsem.util.records import dataframe_records
 from fibsem.util.timestamps import to_iso, wall_time_of
 from fibsem.workflows.actions import NOTE, note_record
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.evidence import EVIDENCE, frame_path
-from fibsem.workflows.outputs import item_outputs, latest_item_output
+from fibsem.workflows.outputs import (
+    all_item_outputs,
+    files_by_run,
+    item_output_named,
+    latest_item_output,
+)
 from fibsem.workflows.runner import GRIDS, ITEMS, RunRequest
 from fibsem.workflows.status import TaskStatus
 
@@ -63,159 +69,28 @@ __all__ = [
 ]
 
 
-def _json_safe(value: Any) -> Any:
-    """Coerce one cell of a dataframe/record into something JSON can carry."""
-    if isinstance(value, datetime):
-        # pandas' NaT is a datetime too: a time not yet known, as NaN is for a number
-        return None if value != value else value.isoformat()
-    if isinstance(value, float) and math.isnan(value):
-        return None
-    if hasattr(value, "item") and not isinstance(value, str):
-        # numpy scalars → native python
-        try:
-            return _json_safe(value.item())
-        except (AttributeError, ValueError):
-            pass
-    if hasattr(value, "isoformat"):
-        # pandas.Timestamp and friends
-        return value.isoformat()
-    if isinstance(value, (str, int, bool)) or value is None:
-        return value
-    if isinstance(value, float):
-        return value
-    return str(value)
-
-
-def _records(df) -> List[Dict[str, Any]]:
-    return [
-        {key: _json_safe(val) for key, val in record.items()}
-        for record in df.to_dict(orient="records")
-    ]
-
-
 # The overview roles the grid tasks record (imaging.py ROLE_BY_BEAM, the FM
 # task). Listed here so a summary can say which overviews a grid has without
 # a client knowing the role vocabulary.
 GRID_OVERVIEW_ROLES = ("overview_sem", "overview_fib", "overview_fm")
 
 
-def _trench_window(lamella):
-    """The window to measure a lamella's band in, from its own trench patterns
-    (those that follow its POI): along the lamella, nine tenths of the
-    narrowest pattern, so the trench ends stay out; across it, the widest
-    gap between trenches (the rough slab) and half a micron into each trench.
-    None when it has no trench pattern."""
-    widths, gaps = [], []
-    for config in lamella.task_config.values():
-        if not getattr(config, "sync_to_poi", False):
-            continue
-        for milling in (getattr(config, "milling", None) or {}).values():
-            for stage in milling.stages:
-                pattern = stage.pattern
-                if hasattr(pattern, "spacing") and hasattr(pattern, "width"):
-                    widths.append(pattern.width)
-                    gaps.append(pattern.spacing)
-    if not widths:
-        return None
-    return 0.9 * min(widths), max(gaps) + 1e-6
+def _basenames(paths: List[str]) -> List[str]:
+    return [os.path.basename(p) for p in paths]
 
 
-def _overview_point_to_stage(path: str, px=None, fraction=None):
-    """The stage position under a point of a recorded overview, as the stored
-    overview canvas resolves a click (`fibsem.geometry.projection.image_point_to_stage`)."""
-    from fibsem.fm.preview import is_fluorescence_image
-    from fibsem.geometry.projection import image_point_to_stage
-
-    if (px is None) == (fraction is None):
-        raise ValueError("Give exactly one of px ([x, y] source pixels) or fraction.")
-    point = px if px is not None else fraction
-    if not (isinstance(point, (list, tuple)) and len(point) == 2):
-        raise ValueError("The point is [x, y].")
-    x, y = float(point[0]), float(point[1])
-
-    if is_fluorescence_image(path):
-        from fibsem.fm.structures import FluorescenceImage
-
-        image = FluorescenceImage.load(path)
-    else:
-        from fibsem.structures import FibsemImage
-
-        image = FibsemImage.load(path)
-    height, width = image.data.shape[-2:]
-    if fraction is not None:
-        x, y = x * width, y * height
-    if not (0 <= x <= width and 0 <= y <= height):
-        raise ValueError(f"The point is outside the {width} x {height} image.")
-    try:
-        return image_point_to_stage(image, x, y)
-    except ValueError:
-        raise ValueError(
-            "The overview has no stage geometry to convert from."
-        ) from None
-
-
-def _overview_projector(path: str):
-    """Open a recorded overview and return its scale block plus a projector.
-
-    The projector maps one stage position to a source-pixel Point through the
-    canvas's own reprojection for that kind of image: beam overviews
-    (FibsemImage) through ``reproject_stage_positions_onto_image2``,
-    fluorescence overviews (OME-TIFF) through
-    ``reproject_stage_positions_onto_fm_image``. Both raise, per position, when
-    the image lacks the metadata a projection needs; the caller records the
-    reason against the item rather than guessing. The scale block is what a
-    client needs to place the points on its rendition: source size, pixel size
-    (m), field width (m), the acquisition's stage position.
-    """
-    from fibsem.fm.preview import is_fluorescence_image
-
-    if is_fluorescence_image(path):
-        from fibsem.fm.reprojection import reproject_stage_positions_onto_fm_image
-        from fibsem.fm.structures import FluorescenceImage
-
-        image = FluorescenceImage.load(path)
-        height, width = image.data.shape[-2:]
-        metadata = image.metadata
-        stage = getattr(metadata, "stage_position", None)
-        block = {
-            "width": int(width),
-            "height": int(height),
-            "pixel_size": metadata.pixel_size_x if metadata else None,
-            "hfw": metadata.pixel_size_x * width if metadata else None,
-            "beam_type": "FM",
-            "stage_position": stage.to_dict() if stage is not None else None,
-        }
-
-        def project(position):
-            (point,) = reproject_stage_positions_onto_fm_image(image, [position])
-            return point
-
-        return block, project
-
-    from fibsem.imaging.tiling.reprojection import (
-        reproject_stage_positions_onto_image2,
-    )
-    from fibsem.structures import FibsemImage
-
-    image = FibsemImage.load(path)
-    height, width = image.data.shape[:2]
-    metadata = image.metadata
-    state = getattr(metadata, "microscope_state", None) if metadata else None
-    stage = state.stage_position if state is not None else None
-    block = {
-        "width": int(width),
-        "height": int(height),
-        "pixel_size": metadata.pixel_size.x if metadata else None,
-        "hfw": metadata.image_settings.hfw if metadata else None,
-        "beam_type": metadata.image_settings.beam_type.name if metadata else None,
-        "stage_position": stage.to_dict() if stage is not None else None,
+def _recorded_item_file(lamella, filename: str):
+    """The path of the output ``task_outputs`` lists as *filename*, and None;
+    or None and the refusal naming the valid ones. Only a listed basename
+    resolves, so no client reaches outside the item's outputs."""
+    paths = _task_outputs.recorded_files(lamella)
+    match = next((p for p in paths if os.path.basename(p) == filename), None)
+    if match is not None:
+        return match, None
+    return None, {
+        "error": f"No output named {filename!r} for {lamella.name!r}.",
+        "filenames": _basenames(paths),
     }
-
-    def project(position):
-        (point,) = reproject_stage_positions_onto_image2(image, [position])
-        return point
-
-    return block, project
 
 
 def _attendance_line(task_protocol: Any, task_name: str) -> str:
@@ -326,7 +201,7 @@ class AutoLamellaAppContext:
         if refusal:
             return refusal
         try:
-            position = _overview_point_to_stage(target, px=px, fraction=fraction)
+            position = image_point_to_stage_position(target, px=px, fraction=fraction)
         except ValueError as exc:
             return {"error_type": "invalid", "message": str(exc)}
         return {"path": path, "stage_position": position.to_dict()}
@@ -346,7 +221,7 @@ class AutoLamellaAppContext:
             positions = [FibsemStagePosition.from_dict(p) for p in stage_positions]
         except (TypeError, KeyError, AttributeError) as exc:
             return {"error_type": "invalid", "message": f"Not a stage position: {exc}"}
-        block, project = _overview_projector(target)
+        block, project = stage_projector(target)
         points = []
         for position in positions:
             try:
@@ -457,7 +332,7 @@ class AutoLamellaAppContext:
             return {"available": False, "items": []}
         return {
             "available": True,
-            "items": _records(experiment.experiment_summary_dataframe()),
+            "items": dataframe_records(experiment.experiment_summary_dataframe()),
         }
 
     def task_history(self) -> Dict[str, Any]:
@@ -472,7 +347,9 @@ class AutoLamellaAppContext:
             start = to_datetime(record.get("start_timestamp"))
             return start.timestamp() if start is not None else float("inf")
 
-        items = sorted(_records(experiment.task_history_dataframe()), key=started)
+        items = sorted(
+            dataframe_records(experiment.task_history_dataframe()), key=started
+        )
         return {"available": True, "items": items}
 
     def run_summary(self) -> Dict[str, Any]:
@@ -481,12 +358,12 @@ class AutoLamellaAppContext:
         if manager is not None:
             return {
                 "available": True,
-                "items": _records(manager.build_run_summary_dataframe()),
+                "items": dataframe_records(manager.build_run_summary_dataframe()),
             }
         runner = self._runner
         last = runner.last_summary if runner is not None else None
         if last is not None:
-            return {"available": True, "items": _records(last)}
+            return {"available": True, "items": dataframe_records(last)}
         return {"available": False, "items": []}
 
     def log(
@@ -615,8 +492,6 @@ class AutoLamellaAppContext:
         (basenames, servable through :meth:`output_image`). That is the review
         story: which task produced which image.
         """
-        import os
-
         experiment = self._experiment
         if experiment is None:
             return {"available": False, "item_name": item_name}
@@ -624,27 +499,13 @@ class AutoLamellaAppContext:
         if refusal:
             return {"available": False, "item_name": item_name, **refusal}
         history = list(lamella.task_history)
-        tasks = []
-        for state in history:
-            files: Dict[str, List[str]] = {}
-            for role, relpaths in dict(state.outputs).items():
-                names = [
-                    os.path.basename(rp)
-                    for rp in relpaths
-                    if os.path.isfile(os.path.join(lamella.path, rp))
-                ]
-                if names:
-                    files[role] = names
-            tasks.append(
-                {"name": state.name, "status": state.status.name, "files": files}
-            )
         return {
             "available": True,
             "item_name": item_name,
             "completed_tasks": [
                 state.name for state in history if state.status is TaskStatus.Completed
             ],
-            "tasks": tasks,
+            "tasks": files_by_run(lamella.path, history),
             "final_reference_images": [
                 str(p) for p in _task_outputs.final_reference_images(lamella, *history)
             ],
@@ -652,26 +513,6 @@ class AutoLamellaAppContext:
                 str(p) for p in _task_outputs.fluorescence_images(lamella, *history)
             ],
         }
-
-    @staticmethod
-    def _recorded_item_paths(lamella) -> List[str]:
-        """Every file :meth:`task_outputs` lists for ``lamella``, as paths."""
-        import os
-
-        history = list(lamella.task_history)
-        paths = [
-            os.path.join(lamella.path, rp)
-            for state in history
-            for relpaths in dict(state.outputs).values()
-            for rp in relpaths
-            if os.path.isfile(os.path.join(lamella.path, rp))
-        ]
-        for path in _task_outputs.final_reference_images(
-            lamella, *history
-        ) + _task_outputs.fluorescence_images(lamella, *history):
-            if str(path) not in paths:
-                paths.append(str(path))
-        return paths
 
     def output_image(
         self, item_name: str, filename: str, max_width: int = 768
@@ -691,26 +532,10 @@ class AutoLamellaAppContext:
         lamella, refusal = find_item(experiment, item_name)
         if refusal:
             return {"available": False, "jpeg": None, **refusal}
-        match, refusal = self._recorded_item_file(lamella, filename)
+        match, refusal = _recorded_item_file(lamella, filename)
         if refusal:
             return {"available": True, "jpeg": None, **refusal}
         return jpeg_preview(match, filename, max_width)
-
-    @classmethod
-    def _recorded_item_file(cls, lamella, filename: str):
-        """The path of the output :meth:`task_outputs` lists as *filename*, and
-        None; or None and the refusal naming the valid ones. Only a listed
-        basename resolves, so no client reaches outside the item's outputs."""
-        import os
-
-        paths = cls._recorded_item_paths(lamella)
-        match = next((p for p in paths if os.path.basename(p) == filename), None)
-        if match is not None:
-            return match, None
-        return None, {
-            "error": f"No output named {filename!r} for {lamella.name!r}.",
-            "filenames": [os.path.basename(p) for p in paths],
-        }
 
     def measure_thickness(
         self,
@@ -725,7 +550,7 @@ class AutoLamellaAppContext:
         its peak brightness (:func:`fibsem.imaging.thickness.measure_lamella_band`)
         in a window around the item's POI: ``width_um`` along the lamella,
         ``height_um`` across it, each by default from the item's own trench
-        patterns (:func:`_trench_window`). Nothing moves; the result is saved
+        patterns (``Lamella.trench_window``). Nothing moves; the result is saved
         in a ``thickness`` folder beside the image. The answer carries the
         result's diagnostic plot.
         """
@@ -741,7 +566,7 @@ class AutoLamellaAppContext:
         lamella, refusal = find_item(experiment, item_name)
         if refusal:
             return {"error_type": "not_found", **refusal}
-        path, refusal = self._recorded_item_file(lamella, filename)
+        path, refusal = _recorded_item_file(lamella, filename)
         if refusal:
             return {"error_type": "not_found", **refusal}
         try:
@@ -754,7 +579,7 @@ class AutoLamellaAppContext:
                 "error_type": "invalid",
                 "error": f"{filename!r} is an SEM image; the band is read off a FIB image.",
             }
-        default, source = _trench_window(lamella), "patterns"
+        default, source = lamella.trench_window(), "patterns"
         if default is None:
             default, source = DEFAULT_WINDOW, "default"
         window = (
@@ -817,35 +642,14 @@ class AutoLamellaAppContext:
         grid (``Lamella.grid_id``); an experiment made before grids existed has
         none, which is a fact about the data, not a failure.
         """
-        import os
-
         experiment = self._experiment
         if experiment is None:
             return {"available": False, "grid_name": grid_name}
         grid = experiment.get_grid_by_name(grid_name)
         if grid is None:
             return self._no_such_grid(experiment, grid_name)
-        root = experiment.grid_path(grid)
-        tasks = []
-        for state in grid.task_history:
-            files: Dict[str, List[str]] = {}
-            for role, relpaths in dict(state.outputs).items():
-                names = [
-                    os.path.basename(rp)
-                    for rp in relpaths
-                    if os.path.isfile(os.path.join(root, rp))
-                ]
-                if names:
-                    files[role] = names
-            tasks.append(
-                {
-                    "name": state.name,
-                    "status": state.status.name,
-                    "files": files,
-                }
-            )
         detail = self._grid_summary(experiment, grid)
-        detail["tasks"] = tasks
+        detail["tasks"] = files_by_run(experiment.grid_path(grid), grid.task_history)
         detail["items"] = [p.name for p in experiment.get_lamellae_for_grid(grid)]
         return detail
 
@@ -864,13 +668,13 @@ class AutoLamellaAppContext:
         grid = experiment.get_grid_by_name(grid_name)
         if grid is None:
             return dict(self._no_such_grid(experiment, grid_name), jpeg=None)
-        match = self.recorded_grid_file(experiment, grid, filename)
+        match = item_output_named(experiment, grid, filename)
         if match is None:
             return {
                 "available": True,
                 "jpeg": None,
                 "error": f"No output named {filename!r} for grid {grid_name!r}.",
-                "filenames": self._recorded_grid_basenames(experiment, grid),
+                "filenames": _basenames(all_item_outputs(experiment, grid)),
             }
         return jpeg_preview(match, filename, max_width)
 
@@ -900,17 +704,17 @@ class AutoLamellaAppContext:
         grid = experiment.get_grid_by_name(grid_name)
         if grid is None:
             return dict(self._no_such_grid(experiment, grid_name), markers=[])
-        match = self.recorded_grid_file(experiment, grid, filename)
+        match = item_output_named(experiment, grid, filename)
         if match is None:
             return {
                 "available": True,
                 "grid_name": grid_name,
                 "markers": [],
                 "error": f"No output named {filename!r} for grid {grid_name!r}.",
-                "filenames": self._recorded_grid_basenames(experiment, grid),
+                "filenames": _basenames(all_item_outputs(experiment, grid)),
             }
         try:
-            image_block, project = _overview_projector(match)
+            image_block, project = stage_projector(match)
         except Exception as exc:  # noqa: BLE001 - a broken file is a data fact
             return {
                 "available": True,
@@ -1004,30 +808,6 @@ class AutoLamellaAppContext:
             "error": f"No grid named {grid_name!r} in this experiment.",
             "grid_names": [g.name for g in experiment.grids],
         }
-
-    @staticmethod
-    def _recorded_grid_paths(experiment, grid) -> List[str]:
-        roles = {role for state in grid.task_history for role in state.outputs}
-        return item_outputs(experiment, grid, *sorted(roles))
-
-    @classmethod
-    def _recorded_grid_basenames(cls, experiment, grid) -> List[str]:
-        import os
-
-        return [os.path.basename(p) for p in cls._recorded_grid_paths(experiment, grid)]
-
-    @classmethod
-    def recorded_grid_file(cls, experiment, grid, filename: str) -> Optional[str]:
-        import os
-
-        return next(
-            (
-                p
-                for p in cls._recorded_grid_paths(experiment, grid)
-                if os.path.basename(p) == filename
-            ),
-            None,
-        )
 
     # --- experiments and protocols: the File menu, for an agent at Drive ---------
     #
@@ -1261,15 +1041,15 @@ class AutoLamellaAppContext:
         if grid is None:
             refusal = self._no_such_grid(experiment, grid_name)
             return {"error_type": "not_found", **refusal}
-        path = self.recorded_grid_file(experiment, grid, filename)
+        path = item_output_named(experiment, grid, filename)
         if path is None:
             return {
                 "error_type": "not_found",
                 "error": f"No output named {filename!r} for grid {grid_name!r}.",
-                "filenames": self._recorded_grid_basenames(experiment, grid),
+                "filenames": _basenames(all_item_outputs(experiment, grid)),
             }
         try:
-            position = _overview_point_to_stage(path, px=px, fraction=fraction)
+            position = image_point_to_stage_position(path, px=px, fraction=fraction)
         except ValueError as exc:
             return {"error_type": "invalid", "error": str(exc)}
         return {
