@@ -21,16 +21,15 @@ Vocabulary: the surface speaks ``item_name`` throughout.
 
 The facade reads the session (``fibsem.workflows.session.AppSession``): the
 experiment, the microscope, the runner, the responder and the latest images,
-and starts and stops runs through its runner, so it serves with no window.
-A window (:class:`AppWindow`, ``AutoLamellaWindow`` in production) adds what only
-it has: its redraws after an agent's edit, its adoption of an experiment or
-protocol, its hardware stops, and the config edits it still applies.
+and starts and stops runs through its runner. It never talks to a window: an
+edit runs where the session edits the experiment, and a window redraws on the
+experiment's events and ``session.changed``.
 """
 
 import logging
 import os
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Protocol
+from typing import Any, Dict, List, Optional
 
 import fibsem.config as fibsem_cfg
 from fibsem.acting import Actor
@@ -58,10 +57,10 @@ from fibsem.workflows.outputs import (
     latest_item_output,
 )
 from fibsem.workflows.runner import GRIDS, RunRequest
+from fibsem.workflows.session import CONFIG, GRID_RECORDS, PROTOCOL
 from fibsem.workflows.status import TaskStatus
 
 __all__ = [
-    "AppWindow",
     "AutoLamellaAppContext",
     "ITEM_PATCH_FIELDS",
     "config_version",
@@ -121,40 +120,10 @@ def _attendance_line(task_protocol: Any, task_name: str) -> str:
     return att.line if att is not None else ""
 
 
-class AppWindow(Protocol):
-    """The window side of the context: what a window attached to the session
-    does that the session cannot. Every method runs where the experiment is
-    edited (``session.run_edit``) except the two stops, which run anywhere."""
-
-    # an agent changed the grid records, or the experiment's protocol
-    grids_changed: Any
-    experiment_update_signal: Any
-
-    def after_agent_edit(self, select_latest: bool = False) -> None: ...
-
-    def adopt_experiment(self, experiment: Any) -> None: ...
-
-    def adopt_protocol(self, protocol: Any) -> None: ...
-
-    # Stop Workflow and Stop Task: the run's stop, and the hardware's halt
-    def stop_task_workflow(self) -> None: ...
-
-    def stop_current_task(self) -> None: ...
-
-    # Around an agent's config edit (``config_edits``): flush what the
-    # editors hold first, then redraw and tell the operator what changed.
-    def before_config_edit(self) -> None: ...
-
-    def after_config_edit(
-        self, level: str, item_name: str, task_name: str, result
-    ) -> None: ...
-
-
 class AutoLamellaAppContext(AppContext):
     """Read-only facade over a running (or resting) AutoLamella session."""
 
     app_name = "AutoLamella"
-    _window: Optional[AppWindow]
 
     # --- experiment record ----------------------------------------------------
 
@@ -684,14 +653,7 @@ class AutoLamellaAppContext(AppContext):
 
     def _adopt(self, experiment) -> None:
         """Make *experiment* the open one, as the dialogs' OK does."""
-
-        def adopt():
-            if self._window is not None:
-                self._window.adopt_experiment(experiment)
-            else:
-                self._session.adopt(experiment)
-
-        self._agent_call(adopt)
+        self._agent_call(lambda: self._session.adopt(experiment))
 
     def create_experiment(
         self,
@@ -791,14 +753,9 @@ class AutoLamellaAppContext(AppContext):
         if refusal:
             return refusal
 
-        def attach():
-            if self._window is not None:
-                self._window.adopt_protocol(task_protocol)
-            else:
-                experiment.task_protocol = task_protocol
-                experiment.save_protocol()
+        from fibsem.applications.autolamella.experiment_setup import adopt_protocol
 
-        self._agent_call(attach)
+        self._agent_call(lambda: adopt_protocol(self._session, task_protocol))
         return {"applied": True, "protocol": self.protocol()}
 
     # --- lamella positions: the Lamella tab's buttons, for an agent at Drive ------
@@ -807,16 +764,13 @@ class AutoLamellaAppContext(AppContext):
         self, level, item_name, task_name, patch, version, timeout: float, shown=None
     ) -> Dict[str, Any]:
         """An agent's config edit (``config_edits``) where the session edits
-        the experiment, between the window's flush and redraw when one is
-        attached; *shown* is the level the window redraws, when not *level*."""
+        the experiment, said on ``session.changed`` when applied; *shown* is the
+        level said, when not *level*."""
         from fibsem.applications.autolamella.config_edits import apply_agent_edit
 
-        window = self._window
         session = self._session
 
         def edit():
-            if window is not None:
-                window.before_config_edit()
             result = apply_agent_edit(
                 session.experiment,
                 lambda: session.microscope,
@@ -826,8 +780,16 @@ class AutoLamellaAppContext(AppContext):
                 patch,
                 version,
             )
-            if window is not None and result.get("applied"):
-                window.after_config_edit(shown or level, item_name, task_name, result)
+            if result.get("applied"):
+                session.changed.emit(
+                    CONFIG,
+                    {
+                        "level": shown or level,
+                        "item_name": item_name,
+                        "task_name": task_name,
+                        "result": result,
+                    },
+                )
             return result
 
         result = session.run_edit(edit).result(timeout=timeout)
@@ -923,7 +885,7 @@ class AutoLamellaAppContext(AppContext):
             return lamella.name
 
         try:
-            added = self._agent_call(add, select_latest=True)
+            added = self._agent_call(add)
         except ValueError as exc:
             return {"error_type": "invalid", "error": str(exc)}
         return {"applied": True, "item": self.item_detail(added)}
@@ -983,9 +945,8 @@ class AutoLamellaAppContext(AppContext):
     # -- grid records: the Grids tab's inventory read and Rename ----------------
 
     def _grids_changed(self) -> None:
-        """Tell the app's grid views an agent changed the records."""
-        if self._window is not None:
-            self._window.grids_changed.emit()
+        """Tell whoever draws the grid records they changed."""
+        self._session.changed.emit(GRID_RECORDS)
 
     def add_grids(self) -> Dict[str, Any]:
         """Record every grid in the inventory that the experiment has no record
@@ -1271,7 +1232,12 @@ class AutoLamellaAppContext(AppContext):
 
         from fibsem.applications.autolamella.poses import set_objective_position
 
-        self._agent_call(lambda: set_objective_position(experiment, lamella, value))
+        def store():
+            set_objective_position(experiment, lamella, value)
+            # A stored objective position emits nothing of its own.
+            experiment.positions.events.changed.emit()
+
+        self._agent_call(store)
         return {"applied": True, "item_name": item_name, "objective_position": value}
 
     def move_item(
@@ -1348,9 +1314,14 @@ class AutoLamellaAppContext(AppContext):
                 "error": f"{item_name} has no objective position stored.",
             }
         skipped = busy_lamellae(self._runner, experiment)
-        count = self._agent_call(
-            lambda: set_objective_position_on_all(experiment, value, skip=skipped)
-        )
+
+        def store():
+            count = set_objective_position_on_all(experiment, value, skip=skipped)
+            # A stored objective position emits nothing of its own.
+            experiment.positions.events.changed.emit()
+            return count
+
+        count = self._agent_call(store)
         return {
             "applied": True,
             "objective_position": value,
@@ -2019,12 +1990,6 @@ class AutoLamellaAppContext(AppContext):
     # -- the workflow's tasks: the Workflow tab's task list and the protocol
     # editor's Add and Remove. Refused while a workflow runs: the run reads them.
 
-    def _experiment_changed(self) -> None:
-        """Tell the app's views an agent changed the experiment's protocol, so
-        no editor writes back a list it drew before the change."""
-        if self._window is not None:
-            self._window.experiment_update_signal.emit()
-
     def _workflow_edit(self, what: str):
         """The experiment and its workflow config for an edit, or a refusal."""
         experiment = self._experiment
@@ -2041,15 +2006,16 @@ class AutoLamellaAppContext(AppContext):
         return experiment, protocol.workflow_config, None
 
     def _protocol_changed(self, experiment, change: Dict[str, Any]) -> bool:
-        """Save the protocol after an edit (GUI thread), redraw, and put it on
-        the record. Whether it saved."""
+        """Save the protocol after an edit, say it changed, so no editor writes
+        back a list it drew before the change, and put it on the record.
+        Whether it saved."""
         saved = True
         try:
             experiment.save(save_protocol=True)
         except Exception:
             saved = False
             logging.exception("save after a protocol change failed; applied in memory")
-        self._experiment_changed()
+        self._session.changed.emit(PROTOCOL)
         self.record_event("workflow_changed", change)
         return saved
 

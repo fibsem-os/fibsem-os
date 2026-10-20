@@ -1,7 +1,7 @@
 """The Load Protocol dialog's OK hands the chosen protocol back and writes
 nothing. It used to save ``experiment.task_protocol`` -- still the old protocol
 at that point -- over protocol.yaml, just before the window adopted and saved
-the new one. The window's ``adopt_protocol`` is the one save."""
+the new one. ``experiment_setup.adopt_protocol`` is the one save."""
 
 import os
 

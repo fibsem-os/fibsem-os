@@ -94,14 +94,6 @@ class RunView(QObject):
         # Red while a stop unwinds, whoever asked for it (the agent's too).
         relay.stopping.connect(self._on_stopping)
 
-    def stop(self, actor=None, via: str = "") -> None:
-        """Stop the run; ``actor`` and ``via`` say who stopped it and from
-        where, for the record (``runner.stop``)."""
-        if not self._session.runner.is_running:
-            return
-        self._session.runner.stop(actor=actor, via=via)
-        self._relay.stopping.emit()
-
     def _on_stop_workflow_clicked(self):
         """Handle stop workflow button click with confirmation."""
         reply = QMessageBox.question(
@@ -113,7 +105,7 @@ class RunView(QObject):
         )
         if reply == QMessageBox.Yes:
             # The border goes red on the run relay's stopping, as for any stop.
-            self.stop(actor=OPERATOR, via="Stop")
+            self._session.runner.stop(actor=OPERATOR, via="Stop")
 
     def confirm_close(self) -> bool:
         """Ask before closing ends a workflow in progress; True to go ahead.
@@ -137,7 +129,7 @@ class RunView(QObject):
         box.setDefaultButton(QMessageBox.No)
         if box.exec_() != QMessageBox.Yes:
             return False
-        self.stop(actor=OPERATOR, via="closing the window")
+        self._session.runner.stop(actor=OPERATOR, via="closing the window")
         return True
 
     def _on_stopping(self) -> None:

@@ -83,7 +83,7 @@ def editor(window, experiment):
 
 @pytest.fixture
 def context(window):
-    return AutoLamellaAppContext(window.session, window=window)
+    return AutoLamellaAppContext(window.session)
 
 
 @pytest.fixture

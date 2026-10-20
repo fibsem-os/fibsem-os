@@ -33,9 +33,14 @@ EditExecutor = Callable[[Callable[[], Any]], "Future[Any]"]
 # Where a session's plain experiments go, one folder per session that needed one.
 SESSIONS_PATH = os.path.join(cfg.LOG_PATH, "sessions")
 
-# What `AppSession.changed` names.
+# What `AppSession.changed` names. The last three are the open experiment
+# edited where no widget drew the edit (the App Server): whoever draws it redraws.
 MICROSCOPE = "microscope"
 EXPERIMENT = "experiment"
+PROTOCOL = "protocol"
+GRID_RECORDS = "grid_records"
+# With what the edit was: its level, item_name, task_name and result.
+CONFIG = "config"
 
 
 class LockedExecutor:
@@ -59,11 +64,13 @@ class AppSession:
     """The microscope, the open experiment and the connection's event stream.
 
     ``changed`` fires with ``MICROSCOPE`` when another microscope (or none) is
-    connected and with ``EXPERIMENT`` when an experiment is opened
-    (:meth:`adopt`), on the thread that changed it.
+    connected, with ``EXPERIMENT`` when an experiment is opened
+    (:meth:`adopt`), and with ``PROTOCOL``, ``GRID_RECORDS`` or ``CONFIG`` (and
+    what the edit was) when the open experiment is edited from elsewhere, on
+    the thread that changed it.
     """
 
-    changed = Signal(str)
+    changed = Signal(str, object)
 
     def __init__(
         self,

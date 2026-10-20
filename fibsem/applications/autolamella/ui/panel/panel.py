@@ -30,6 +30,7 @@ from fibsem.ui.FibsemSampleWidget import FibsemSampleWidget
 from fibsem.ui.widgets.custom_widgets import scrollable
 from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
 from fibsem.ui.widgets.workflow.prompt_bar import PromptBar
+from fibsem.workflows.session import EXPERIMENT, MICROSCOPE
 
 if DETECTION_AVAILABLE:  # ml dependencies are optional
     from fibsem.ui.FibsemEmbeddedDetectionWidget import (
@@ -115,14 +116,15 @@ class MicroscopePanel(QWidget):
         # a running workflow is asking, which the Yes/No buttons below it answer.
         self.prompt_bar.clear()
 
-    def _on_session_changed(self, _what: str) -> None:
-        """Another microscope or experiment: follow it and redraw."""
+    def _on_session_changed(self, what: str) -> None:
+        """Another microscope or experiment: follow it, redraw and show it. An
+        edit to the open one from elsewhere: redraw."""
         experiment = self.session.experiment
         self._follow_experiment(experiment)
         if experiment is not None:
             self.experiment_tab.update_lamella_combobox()
         self.refresh()
-        if experiment is not None:
+        if experiment is not None and what in (MICROSCOPE, EXPERIMENT):
             self.show_experiment_tab()
 
     def _follow_experiment(self, experiment: Optional["Experiment"]) -> None:
@@ -141,10 +143,13 @@ class MicroscopePanel(QWidget):
 
     @ensure_main_thread
     def _on_experiment_event(self, evt: EmissionInfo) -> None:
-        """A position added, removed or changed (the minimap, a task, an edit)."""
+        """A position added (and selected), removed or changed (the minimap, a
+        task, an edit)."""
         if evt.signal.name not in ["inserted", "removed", "changed"]:
             return
-        self.experiment_tab.update_lamella_combobox()
+        self.experiment_tab.update_lamella_combobox(
+            latest=evt.signal.name == "inserted"
+        )
         self.refresh()
 
     def show_experiment_tab(self) -> None:
