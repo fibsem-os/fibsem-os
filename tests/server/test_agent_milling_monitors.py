@@ -93,6 +93,8 @@ def test_the_agent_lists_the_monitors_with_their_config(driving):  # noqa: F811
     fm = options["monitors"]["FM Intensity"]["properties"]
     assert {"drop_fraction", "on_trigger", "warmup_duration"} <= set(fm)
     assert "interval" in options["monitors"]["SEM Peek"]["properties"]
+    # the Demo reads RTM
+    assert options["monitors"]["RTM"]["properties"]["mode"]["enum"] == ["low", "high"]
 
 
 def test_a_protocol_stage_s_monitor_config_is_patched_as_it_is_saved():

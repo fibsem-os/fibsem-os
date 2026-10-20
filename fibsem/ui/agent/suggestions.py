@@ -5,7 +5,7 @@ as a request, for the previews to draw on the proposal's image."""
 import os
 from typing import Any, Dict, Optional, Tuple
 
-from fibsem.ai.agent.request_text import _stage_place, _values_text
+from fibsem.util import wording
 from fibsem.workflows.evidence import find as find_evidence
 from fibsem.workflows.proposals import (
     ACTION_ACCEPT,
@@ -49,7 +49,7 @@ def decision_text(proposal: Proposal) -> str:
     else:
         text = str(proposal.provenance.get("positive") or "Continue")
     if suggestion.patch:
-        text += f", setting {_values_text(suggestion.patch)}"
+        text += f", setting {wording.values_text(suggestion.patch)}"
     elif suggestion.values:
         values = _encode_values(suggestion.values)
         place = values.get("stage_position") if len(values) == 1 else None
@@ -57,10 +57,8 @@ def decision_text(proposal: Proposal) -> str:
             # A position kept or moved to, not "Continue with stage position
             # name none, ..., coordinate system RAW" (FIB-1492).
             kept = values == _encode_values(proposal.values)
-            return (
-                f"{'Keep the position' if kept else 'Move to'}: {_stage_place(place)}"
-            )
-        text += f" with {_values_text(values)}"
+            return f"{'Keep the position' if kept else 'Move to'}: {wording.stage_place(place)}"
+        text += f" with {wording.values_text(values)}"
     return text
 
 

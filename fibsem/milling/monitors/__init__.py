@@ -20,11 +20,13 @@ from fibsem.milling.monitors.base import (
     MillingStreamMonitor,
 )
 from fibsem.milling.monitors.fm_intensity import FmIntensityMonitor
+from fibsem.milling.monitors.rtm import RtmMonitor
 from fibsem.milling.monitors.sem_peek import SemPeekMonitor
 from fibsem.plugins.loader import PluginRecord, PluginRegistry, subclass_of
 
 __all__ = [
     "FmIntensityMonitor",
+    "RtmMonitor",
     "SemPeekMonitor",
     "ON_TRIGGER_END",
     "ON_TRIGGER_SUGGEST",
@@ -43,6 +45,7 @@ MONITOR_ENTRY_POINT_GROUP = "fibsem.milling.monitors"
 BUILTIN_MONITORS: typing.Dict[str, typing.Type[MillingMonitor[typing.Any]]] = {
     FmIntensityMonitor.name: FmIntensityMonitor,
     SemPeekMonitor.name: SemPeekMonitor,
+    RtmMonitor.name: RtmMonitor,
 }
 
 MONITOR_PLUGINS: PluginRegistry[typing.Type[MillingMonitor[typing.Any]]] = (

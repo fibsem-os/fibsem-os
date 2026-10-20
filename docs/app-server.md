@@ -28,7 +28,7 @@ observer with a doorbell, not a second driver.
 2. Connect a microscope. The server starts with the session and stops with it.
 3. **Tools → App Server** also shows the server: whether it is running, which
    services it serves, when the agent was last heard from, and the
-   dashboard. *Serve the microscope* there also serves the routes that
+   event log. *Serve the microscope* there also serves the routes that
    reach the instrument, everything under `/microscope`: who it is, its
    state, its devices and its services (milling, stage movement, spot burn,
    sample handling, imaging, alignment), reads included. It is saved too, and changing
@@ -199,25 +199,21 @@ agent as the one who suggested it; Decline drops the suggestion, with an
 optional reason that goes back to the agent, and the proposal stays up for
 you. At Drive it may decide it.
 
-## The dashboard
+## The event log
 
-**Open Dashboard** in Tools → App Server opens a read-only monitor page in
-your browser — the same session the agent sees, for human eyes: experiment
-and workflow state, a card per item with its latest recorded image, a review
-strip of each completed task's final image, and progress through the tasks,
-plus the live workflow queue and event feed while a run is up. It updates
-itself from the event stream; there is nothing to refresh.
+**Open Event Log** in Tools → App Server opens a read-only page in your
+browser: what the agent, the operator and the run did, as one filterable
+table that follows the event stream live.
 
-It is a monitor, not a second cockpit: proposals are decided in AutoLamella.
 The page is served by the App Server itself, so it exists wherever the
-server does — on this machine by default. The button hands the page the
-dashboard's own token in the URL fragment, which stays in the browser
-(fragments are never sent over the network or written to server logs). That
-token is read-only: it reads the session's monitoring routes and nothing
-else, so the link can't be used to act on the session or reach the
-microscope, and it is never written to the discovery file the agent uses.
-*Copy link* beside the button copies the same link, to open the page in
-another browser. The agent's level doesn't affect the dashboard.
+server does — on this machine by default. The button hands the page its own
+token in the URL fragment, which stays in the browser (fragments are never
+sent over the network or written to server logs). That token is read-only:
+it reads the session's monitoring routes and nothing else, so the link can't
+be used to act on the session or reach the microscope, and it is never
+written to the discovery file the agent uses. *Copy link* beside the button
+copies the same link, to open the page in another browser. The agent's
+level doesn't affect it.
 
 ## Connecting an agent
 
@@ -255,7 +251,7 @@ bearer token — the sidecar is convenience, not a requirement.
 ## The security model, briefly
 
 - **Two tokens per session**, generated fresh at server start: the agent's,
-  shown only in *Connect an agent…*, and the dashboard's, which reads the
+  shown only in *Connect an agent…*, and the event log's, which reads the
   monitoring routes and nothing else. No token, no access.
 - **Access fails closed.** Reading needs a valid token and a level above Off;
   acting needs Drive; using the microscope needs Drive and the microscope

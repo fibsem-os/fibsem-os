@@ -153,6 +153,9 @@ class AppWindow(Protocol):
 class AutoLamellaAppContext:
     """Read-only facade over a running (or resting) AutoLamella session."""
 
+    # The app the operator works in, as the App Server names it to the agent.
+    app_name = "AutoLamella"
+
     def __init__(self, session, window: Optional[AppWindow] = None, event_buffer=None):
         self._session = session
         self._window = window
@@ -1600,7 +1603,7 @@ class AutoLamellaAppContext:
         """A config edit in an agent's request, as the config's form names it
         (FIB-1403): each setting in display units, old -> new. None for any
         other action, or a config this experiment doesn't have."""
-        from fibsem.ai.agent.request_text import describe_patch
+        from fibsem.util.wording import describe_patch
 
         config = self._edited_task_config(tool, arguments)
         if config is None:

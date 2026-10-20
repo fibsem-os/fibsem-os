@@ -463,6 +463,7 @@ def command(
     *,
     available: Optional[Callable[[Any], bool]] = None,
     long: bool = False,
+    line: Optional[Callable[..., Dict[str, Any]]] = None,
 ) -> Any:
     """Mark a device method as a command. It stays a plain method.
 
@@ -471,7 +472,8 @@ def command(
     ``long`` marks a command that runs for minutes (a mill, a spot burn): each
     call is one run on its device or service, ``self.runs``, whoever made it
     (`fibsem.devices.runs`), and the App Server answers a call to it at once
-    with the run's id and lets it run on.
+    with the run's id and lets it run on. ``line`` says a call to it in an
+    agent's request, as the operator approves it (`fibsem.util.wording.Line`).
     """
 
     def mark(method: Callable) -> Callable:
@@ -479,6 +481,8 @@ def command(
             method = _tracked(method)
             method.__device_long__ = True  # type: ignore[attr-defined]
         method.__device_command__ = available  # type: ignore[attr-defined]
+        if line is not None:
+            method.__command_line__ = line  # type: ignore[attr-defined]
         return method
 
     return mark(fn) if fn is not None else mark

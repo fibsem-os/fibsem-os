@@ -69,6 +69,17 @@ def test_capabilities_reports_the_app_router(client):
     body = client.get("/capabilities", headers=AUTH).json()
     assert body["routers"] == {"microscope": True, "services": True, "app": True}
     assert body["parts"] == ["items", "poses", "grids", "milling_stages", "lamellae"]
+    assert body["app_name"] == "AutoLamella"
+
+
+def test_a_refusal_names_the_app_the_operator_works_in(client):
+    """The agent is told where the operator acts: the app's own name."""
+    from fibsem.ai.agent.levels import AgentLevel
+
+    client.app.state.auth.set_level(AgentLevel.ASSIST)
+    asked = client.post("/app/workflow/stop", headers=AUTH, json={"reason": "x"})
+    assert asked.status_code == 403
+    assert "in AutoLamella." in asked.json()["detail"]["message"]
 
 
 class _CoreOnly:
