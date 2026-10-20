@@ -319,14 +319,6 @@ def build_app_router(context: Any) -> APIRouter:
     def grid_markers(grid_name: str, filename: str):
         return context.grid_markers(grid_name, filename)
 
-    @router.post(
-        "/experiment/grids/{grid_name}/outputs/{filename}/markers/image", tags=[GRIDS]
-    )
-    def grid_render_markers(grid_name: str, filename: str):
-        # A POST because the picture is saved beside the overview, as a
-        # thickness result is.
-        return _answer_or_refusal(context.grid_render_markers(grid_name, filename))
-
     @router.get("/experiment/grid_protocol/task_config/{task_name}", tags=[GRIDS])
     def grid_task_config(task_name: str):
         return _answer_or_refusal(context.grid_task_config(task_name))
@@ -365,6 +357,23 @@ def build_app_router(context: Any) -> APIRouter:
         px = None if x is None or y is None else [x, y]
         fraction = None if fx is None or fy is None else [fx, fy]
         return _answer_or_refusal(context.image_stage_position(path, px, fraction))
+
+    @router.post("/experiment/images/markers", tags=[LAMELLAE])
+    def render_markers(body: Dict[str, Any]):
+        # A POST because the picture is saved beside the image, as a thickness
+        # result is.
+        path, grid_name = body.get("path"), body.get("grid_name")
+        if not isinstance(path, str) or not path:
+            raise HTTPException(
+                status_code=422,
+                detail={"error_type": "missing_field", "message": "path is required"},
+            )
+        if grid_name is not None and not isinstance(grid_name, str):
+            raise HTTPException(
+                status_code=422,
+                detail={"error_type": "invalid", "message": "grid_name is a string"},
+            )
+        return _answer_or_refusal(context.render_markers(path, grid_name))
 
     @router.post("/experiment/images/pixels")
     def image_pixels(body: Dict[str, Any]):

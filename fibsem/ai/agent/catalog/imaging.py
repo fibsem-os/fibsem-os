@@ -431,9 +431,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "tile and comes back after."
             + _OVERVIEW_RULE
             + " path must be a folder inside the open "
-            "experiment. The overview is saved there, not on a grid's record: to "
-            "draw the items on a grid's overview (grid_render_markers), take it with "
-            "the grid's overview task (workflow_start_grids) instead. "
+            "experiment. experiment_render_markers draws the items on it. "
             "beam_estimate_overview first: a big grid at a long dwell runs "
             "for hours. A long command: it answers with its run at once; "
             "service_wait_for_run imaging gives the stitched image (summary, path, "
