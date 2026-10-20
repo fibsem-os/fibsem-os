@@ -34,8 +34,10 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.ui.grids.run import GridRunPreflightDialog
-from fibsem.applications.autolamella.ui.workflow.preflight import task_block
+from fibsem.applications.autolamella.ui.workflow.preflight import (
+    grid_run_summary,
+    run_ending,
+)
 from fibsem.applications.autolamella.workflows.tasks.attendance import (
     grid_run_attendance,
 )
@@ -53,15 +55,11 @@ from fibsem.ui.widgets.preflight import (
     BACKGROUND,
     ON_PANEL,
     TEXT_STRONG,
-    detail_block,
-    meta_label,
-    metric,
     warning_label,
 )
 from fibsem.ui.widgets.sample_holder_widget import _NAME_FIELD_STYLE
 from fibsem.workflows.estimate import RunEstimate
-from fibsem.workflows.grid.manager import LOAD_ENTRY_NAME, plan_grid_run
-from fibsem.workflows.grid.naming import beam_name, grid_has_run, is_default_grid_name
+from fibsem.workflows.grid.naming import grid_has_run, is_default_grid_name
 from fibsem.workflows.grid.screening import (
     GridNamingError,
     name_and_record_grids,
@@ -75,7 +73,6 @@ NOT_SCANNED = "not_scanned"
 SCANNING = "scanning"
 REVIEW = "review"
 
-_STEPS_SHOWN = 12
 _NOTE_STYLE = f"color: {TEXT_MUTED_COLOR}; font-size: 11px; {ON_PANEL}"
 _WARN_NOTE_STYLE = f"color: {stylesheets.SEMANTIC_WARNING_COLOR}; font-size: 11px;"
 _LINK_STYLE = f"color: {ACCENT_COLOR}; text-decoration: none;"
@@ -139,14 +136,7 @@ class ScreenGridsDialog(QDialog):
         self.grid_names: List[str] = []
         self._beams_off = list(beams_off)
         # How the run ends, from the Grids page's ⚙ (FIB-1133): said, not chosen.
-        self._ending = [
-            said
-            for said, on in (
-                ("unload the last grid", unload_at_end),
-                ("write the grid screening report", report_at_end),
-            )
-            if on
-        ]
+        self._ending = run_ending(unload_at_end, report_at_end)
         # Prices a run of these tasks over (grid names, exchanges); asked at the
         # review, so the quote is for the grids the scan found (FIB-1134).
         self._estimate = estimate
@@ -517,51 +507,7 @@ class ScreenGridsDialog(QDialog):
             if self.has_loader
             else 0
         )
-        metrics = QHBoxLayout()
-        metrics.addWidget(metric("Grids", str(len(names))))
-        metrics.addWidget(metric("Tasks per grid", str(len(self.task_names))))
-        metrics.addWidget(
-            metric("Exchanges", str(exchanges), "" if exchanges else "all loaded")
-        )
-        box = QWidget()
-        box.setLayout(metrics)
-        self.summary_layout.addWidget(box)
-        self._add_estimate(names, exchanges)
-
-        plan = plan_grid_run(self.task_names, names)
-        lines = [
-            f"{grid}  ·  {'load' if step == LOAD_ENTRY_NAME else step}"
-            for grid, step in plan[:_STEPS_SHOWN]
-        ]
-        if len(plan) > _STEPS_SHOWN:
-            lines.append(f"… and {len(plan) - _STEPS_SHOWN} more steps")
-        rows = (
-            [("Plan", lines[0])] + [("", line) for line in lines[1:]]
-            if lines
-            else [("Plan", "no grids found")]
-        )
-        self.summary_layout.addWidget(detail_block(rows))
-        self.summary_layout.addWidget(
-            meta_label(f"Output: {self.experiment.path}/grids/<grid>/")
-        )
-        self.summary_layout.addWidget(
-            meta_label(
-                f"When the run ends: {' and '.join(self._ending)}."
-                if self._ending
-                else "When the run ends: nothing more. Set on the ⚙."
-            )
-        )
-
-        if self._beams_off:
-            beams = " and ".join(beam_name(b) for b in self._beams_off)
-            plural = len(self._beams_off) > 1
-            self.summary_layout.addWidget(
-                warning_label(
-                    f"The {beams} beam{'s are' if plural else ' is'} off. The run "
-                    f"turns {'them' if plural else 'it'} on when it starts."
-                )
-            )
-        first = [
+        first_run = [
             name
             for name in names
             if not (
@@ -569,16 +515,21 @@ class ScreenGridsDialog(QDialog):
                 and grid_has_run(record)
             )
         ]
-        if first:
-            listed = ", ".join(
-                f"{n} (default name)" if is_default_grid_name(n) else n for n in first
-            )
-            self.summary_layout.addWidget(
-                warning_label(
-                    f"Names are fixed once a grid has run. Running for the first "
-                    f"time: {listed}. This is the last chance to change them."
-                )
-            )
+        for widget in grid_run_summary(
+            self.task_names,
+            names,
+            exchanges,
+            str(self.experiment.path),
+            estimate=self._price(names, exchanges),
+            attendance=grid_run_attendance(
+                self.experiment.grid_protocol, self.task_names
+            ),
+            beams_off=self._beams_off,
+            first_run=first_run,
+            rename_hint="This is the last chance to change them.",
+            ending=self._ending,
+        ):
+            self.summary_layout.addWidget(widget)
         for problem in naming_problems(self.experiment, self._inventory, self.names()):
             label = QLabel(problem)
             label.setStyleSheet(f"color: {ERROR_COLOR}; font-size: 11px;")
@@ -594,29 +545,6 @@ class ScreenGridsDialog(QDialog):
         if self._priced is None or self._priced[0] != key:
             self._priced = (key, self._estimate(list(names), exchanges))
         return self._priced[1]
-
-    def _add_estimate(self, names: List[str], exchanges: int) -> None:
-        """The duration, the finish and the per-task block, laid out as the run
-        confirmation lays them out."""
-        estimate = self._price(names, exchanges)
-        if estimate is None:
-            return
-        for widget in GridRunPreflightDialog._time_figures(estimate, None):
-            self.summary_layout.addWidget(widget)
-        attendance = grid_run_attendance(self.experiment.grid_protocol, self.task_names)
-        if estimate.tasks:
-            self.summary_layout.addWidget(
-                task_block(estimate.tasks, estimate.started_at, attendance)
-            )
-        note = "Estimates round up."
-        if attendance.waits_for_a_human:
-            note += " Time spent waiting for you is not included."
-        footnote = QLabel(note)
-        footnote.setStyleSheet(
-            f"color: {TEXT_MUTED_COLOR}; font-size: 10px; {ON_PANEL}"
-        )
-        footnote.setWordWrap(True)
-        self.summary_layout.addWidget(footnote)
 
     def _apply_buttons(self) -> None:
         stage = self._stage_name

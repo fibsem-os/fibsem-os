@@ -19,9 +19,9 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.ui.grids.run import (
+from fibsem.applications.autolamella.ui.grids.run import GridWorkflowWidget
+from fibsem.applications.autolamella.ui.workflow.preflight import (
     GridRunPreflightDialog,
-    GridWorkflowWidget,
 )
 from fibsem.applications.autolamella.workflows.estimate import (
     exchange_seconds,
@@ -647,7 +647,6 @@ def test_adding_grids_to_a_running_queue_appends_their_blocks(
 ):
     """The Grids view's selection goes onto the end of a grid run's queue as
     load-plus-tasks blocks, after a confirmation; a lamella run refuses it."""
-    from fibsem.applications.autolamella.ui.grids import run as view_module
     from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
     from fibsem.workflows.grid.manager import (
         GridTaskManager,
@@ -679,9 +678,7 @@ def test_adding_grids_to_a_running_queue_appends_their_blocks(
     main_ui.workflow_tab.left_tabs.setCurrentWidget(
         main_ui.workflow_tab.grid_workflow_widget
     )
-    monkeypatch.setattr(
-        view_module.GridRunPreflightDialog, "exec_", lambda self: QDialog.Accepted
-    )
+    monkeypatch.setattr(GridRunPreflightDialog, "exec_", lambda self: QDialog.Accepted)
 
     # a grid run under way on grid-aspen, with the manager where the window looks
     manager = GridTaskManager(microscope, exp)

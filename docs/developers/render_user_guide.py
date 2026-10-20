@@ -2059,7 +2059,9 @@ def render_grid_workflow(h: Harness) -> None:
         add_verdict_actions,
         mark_current_verdict,
     )
-    from fibsem.applications.autolamella.ui.grids import run as gww
+    from fibsem.applications.autolamella.ui.workflow import (
+        preflight as preflight_module,
+    )
     from fibsem.ui.widgets.workflow.timeline import StepStatus
     from fibsem.ui.widgets.workflow_summary_dialog import WorkflowSummaryDialog
     from fibsem.workflows.grid.imaging import (
@@ -2230,8 +2232,7 @@ def render_grid_workflow(h: Harness) -> None:
         dialog.hide()
         return QDialog.Rejected if screen_all else QDialog.Accepted
 
-    gww.GridRunPreflightDialog.exec_ = preflight
-    main_module.GridRunPreflightDialog.exec_ = preflight
+    preflight_module.GridRunPreflightDialog.exec_ = preflight
     h.ui._show_workflow_summary = lambda: None
     h.window.run_workflow_btn.click()
     h.pump(1500)
