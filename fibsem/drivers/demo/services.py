@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Tuple
+
+import numpy as np
 
 from fibsem._timing import sim_sleep
 from fibsem.devices.core import ParameterMetadata
@@ -28,12 +30,16 @@ from fibsem.drivers.demo.simulator import (
 )
 from fibsem.milling.base import estimate_volume_time
 from fibsem.milling.progress import MillingProgress
+from fibsem.milling.rtm import RTM_MODES
 from fibsem.services.milling import Milling, bind_milling, progress_update
 from fibsem.services.spot_burn import SpotBurn, bind_spot_burn
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
+    FibsemCircleSettings,
+    FibsemLineSettings,
     FibsemMillingSettings,
     FibsemPatternSettings,
+    FibsemPolygonSettings,
     MillingState,
 )
 
@@ -62,6 +68,7 @@ class DemoMilling(Milling):
         "patterning_mode",
     )
     scan_directions = tuple(SIMULATOR_SCAN_DIRECTIONS)
+    rtm_modes = RTM_MODES
 
     def __init__(self, connection: DemoSimulator, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -73,6 +80,9 @@ class DemoMilling(Milling):
         # Whether the mill running now was started by `start`, which never ends on
         # its own here; its estimate adds `SIM_ASYNC_MILLING_EXTRA_TIME`.
         self._open_ended = False
+        # The RTM mode reading now, None when RTM is off.
+        self._rtm_mode: Optional[str] = None
+        self._rtm_rng = np.random.default_rng(0)
 
     def _setting_metadata(self, name: str) -> ParameterMetadata:
         if name == "application_file":
@@ -183,6 +193,72 @@ class DemoMilling(Milling):
 
     def _clear(self) -> None:
         self.connection.milling_system.patterns = []
+
+    def _start_rtm(self, mode: str) -> None:
+        self._rtm_mode = mode
+
+    def _read_rtm(self):
+        """Points over each monitored pattern's box, in the milling beam's field,
+        whose values fall as the run mills."""
+        if self._rtm_mode is None:
+            return None
+        beam = self.beam(self.parent.milling_channel)
+        width, height = _resolution(beam)
+        pixel = float(beam.hfw.get_value()) / width
+        side = _RTM_SIDE[self._rtm_mode]
+        milled = self._run_elapsed / self._run_total if self._run_total else 0.0
+        values, positions = {}, {}
+        for index, pattern in self.rtm_patterns().items():
+            cx, cy, w, h = _box(pattern)
+            xs = np.linspace(cx - w / 2, cx + w / 2, side)
+            ys = np.linspace(cy - h / 2, cy + h / 2, side)
+            x, y = np.meshgrid(xs, ys)
+            points = np.stack(
+                [width / 2 + x.ravel() / pixel, height / 2 - y.ravel() / pixel], axis=1
+            )
+            positions[index] = np.round(points).astype(int)
+            noise = self._rtm_rng.normal(0.0, 5.0, side * side)
+            values[index] = 200.0 * (1.0 - 0.7 * min(milled, 1.0)) + noise
+        return (width, height), values, positions
+
+    def _stop_rtm(self) -> None:
+        self._rtm_mode = None
+
+
+# Points along each side of a pattern's box, per RTM mode.
+_RTM_SIDE = {"low": 8, "high": 24}
+
+
+def _resolution(beam) -> Tuple[int, int]:
+    try:
+        width, height = beam.resolution.get_value()
+        return int(width), int(height)
+    except Exception:  # noqa: BLE001 - a beam without a resolution
+        return 1536, 1024
+
+
+def _box(pattern: FibsemPatternSettings) -> Tuple[float, float, float, float]:
+    """The centre and size of *pattern*'s bounding box, in metres."""
+    if isinstance(pattern, FibsemCircleSettings):
+        return (
+            pattern.centre_x,
+            pattern.centre_y,
+            2 * pattern.radius,
+            2 * pattern.radius,
+        )
+    if isinstance(pattern, FibsemLineSettings):
+        xs, ys = (pattern.start_x, pattern.end_x), (pattern.start_y, pattern.end_y)
+    elif isinstance(pattern, FibsemPolygonSettings):
+        vertices = np.asarray(pattern.vertices, dtype=float).reshape(-1, 2)
+        xs, ys = vertices[:, 0], vertices[:, 1]
+    else:  # a rectangle or a bitmap
+        return pattern.centre_x, pattern.centre_y, pattern.width, pattern.height
+    return (
+        (min(xs) + max(xs)) / 2,
+        (min(ys) + max(ys)) / 2,
+        max(xs) - min(xs),
+        max(ys) - min(ys),
+    )
 
 
 def _mill_scale() -> float:

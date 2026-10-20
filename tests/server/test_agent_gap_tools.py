@@ -15,7 +15,7 @@ pytest.importorskip("httpx")  # TestClient transport
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from fibsem.ai.agent.request_text import describe_action  # noqa: E402
+from fibsem.ai.agent.catalog.describe import describe_action  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from tests.run_state import stub_session  # noqa: E402
 from tests.server.test_agent_requests import RecordingContext  # noqa: E402

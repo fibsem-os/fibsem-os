@@ -57,7 +57,6 @@ def test_the_dialog_shows_status_services_and_the_agent(qapp):
     assert dialog._status_label.text() == "Running on http://127.0.0.1:8001"
     assert dialog._services_label.text() == "Services: monitoring · microscope on"
     assert dialog._agent_label.text() == "Agent · last heard 5 s ago"
-    assert dialog._btn_dashboard.isEnabled()
     assert dialog._btn_event_log.isEnabled()
     dialog.deleteLater()
 
@@ -186,20 +185,12 @@ def test_the_dialog_has_no_token_and_no_arming(qapp, host):
     dialog.deleteLater()
 
 
-def test_no_server_disables_the_dashboard(qapp):
+def test_no_server_disables_the_event_log(qapp):
     dialog = AppServerDialog(lambda: None)
-    assert not dialog._btn_dashboard.isEnabled()
     assert not dialog._btn_event_log.isEnabled()
     assert not dialog._btn_copy_link.isEnabled()
     assert "Not running" in dialog._status_label.text()
     dialog.deleteLater()
-
-
-def test_the_dashboard_link_carries_the_dashboard_token(qapp, host):
-    # The fragment never leaves the browser — no server log, no referrer.
-    url = AppServerDialog.dashboard_url(host)
-    assert url == f"http://127.0.0.1:8001/dashboard#token={host.auth.dashboard_token}"
-    assert host.auth.dashboard_token not in (None, "tok")
 
 
 def test_the_event_log_link_carries_the_dashboard_token(qapp, host):

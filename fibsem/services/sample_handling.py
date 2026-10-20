@@ -57,6 +57,7 @@ from fibsem.structures import (
     SlotCalibration,
     default_sample_holder,
 )
+from fibsem.util import wording
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
@@ -368,6 +369,114 @@ def _slot_name(index: int) -> str:
     return f"Slot-{index + 1:02d}"
 
 
+# --- A command as the operator reads it, in an agent's request (wording) ---
+
+
+def _loaded(inventory: List[Dict[str, Any]]) -> Optional[str]:
+    """The grid on the stage now, by name."""
+    return next((e.get("name") for e in inventory if e.get("state") == "loaded"), None)
+
+
+# A load the inventory does not hold: an agent's request for it is refused.
+NOT_IN_INVENTORY = ": it is not in the inventory"
+
+
+def _grid_load(name: str, inventory: Any) -> str:
+    """``Load grid 'G2' from Slot-02 (unloads 'G1' first)``: the exchange the
+    loader will make, from the inventory as it reads now."""
+    change = f"Load grid '{name}'"
+    if not isinstance(inventory, list) or not inventory:
+        return change
+    entry = next((e for e in inventory if e.get("name") == name), None)
+    if entry is None:
+        return change + NOT_IN_INVENTORY
+    if entry.get("source") != "magazine":
+        return change + f": it is in {entry.get('slot_name')} already, nothing moves"
+    if entry.get("state") == "loaded":
+        return change + ": it is on the stage already, nothing moves"
+    change += f" from {entry.get('slot_name')}"
+    current = _loaded(inventory)
+    return change + (f" (unloads '{current}' first)" if current else "")
+
+
+def _grid_unload(inventory: Any) -> str:
+    if not isinstance(inventory, list) or not inventory:
+        return "Return the grid on the stage to the magazine"
+    if inventory[0].get("source") != "magazine":
+        return "Unload: nothing to do on a fixed holder"
+    current = _loaded(inventory)
+    if current is None:
+        return "Unload: no grid is on the stage"
+    return f"Return grid '{current}' to the magazine"
+
+
+def _slot_move(change: str, slot: Optional[Dict[str, Any]], now: Any) -> str:
+    """A move to a holder slot, with where that is and where the stage is now."""
+    target = slot.get("position") if slot else None
+    if target:
+        change += f": {wording.position_text(target)}"
+    elif slot is not None:
+        change += ": the slot is not calibrated, so it will be refused"
+    if target and now:
+        change += f"\nfrom {wording.position_text(now)}"
+    return change
+
+
+def _queried(ctx: wording.ActionContext, query: str) -> Any:
+    return wording.result_of(
+        ctx.get(f"/microscope/services/sample_handling/queries/{query}")
+    )
+
+
+def _load_line(kwargs: Dict[str, Any], ctx: wording.ActionContext) -> Dict[str, Any]:
+    inventory = _queried(ctx, "get_inventory")
+    return {
+        "what": "Grids",
+        "change": _grid_load(str(kwargs.get("grid_name")), inventory),
+    }
+
+
+def _unload_line(kwargs: Dict[str, Any], ctx: wording.ActionContext) -> Dict[str, Any]:
+    return {"what": "Grids", "change": _grid_unload(_queried(ctx, "get_inventory"))}
+
+
+def _inventory_line(
+    kwargs: Dict[str, Any], ctx: wording.ActionContext
+) -> Dict[str, Any]:
+    return {
+        "what": "Grids",
+        "change": "Scan the magazine slot by slot, to read which grids it holds",
+    }
+
+
+def _slots(ctx: wording.ActionContext) -> List[Dict[str, Any]]:
+    slots = _queried(ctx, "holder_slots")
+    return slots if isinstance(slots, list) else []
+
+
+def _to_grid_line(kwargs: Dict[str, Any], ctx: wording.ActionContext) -> Dict[str, Any]:
+    slots = _slots(ctx)
+    name = str(kwargs.get("grid_name"))
+    change = f"Move to grid '{name}'"
+    slot = next(
+        (s for s in slots if (s.get("loaded_grid") or {}).get("name") == name),
+        None,
+    )
+    if slot is not None:
+        change += f", in {slot.get('name')}"
+    elif slots:
+        # As of now: an earlier step of the same request may load it.
+        change += " (not on the stage yet)"
+    return {"what": "Stage", "change": _slot_move(change, slot, ctx.stage_now())}
+
+
+def _to_slot_line(kwargs: Dict[str, Any], ctx: wording.ActionContext) -> Dict[str, Any]:
+    name = str(kwargs.get("slot_name"))
+    slot = next((s for s in _slots(ctx) if s.get("name") == name), None)
+    change = _slot_move(f"Move to slot '{name}'", slot, ctx.stage_now())
+    return {"what": "Stage", "change": change}
+
+
 class SampleHandling(Service):
     """Which grid is where, and making a grid reachable.
 
@@ -550,7 +659,7 @@ class SampleHandling(Service):
             )
         return entries
 
-    @command
+    @command(line=_to_slot_line)
     def move_to_slot(self, slot_name: str) -> FibsemStagePosition:
         """Move the stage to a specific slot. Refuses a slot that is not calibrated."""
         if self.holder is None:
@@ -570,7 +679,7 @@ class SampleHandling(Service):
             return BUILTIN_SLOT_NAME
         return slot_name
 
-    @command
+    @command(line=_to_grid_line)
     def move_to_grid(self, grid_name: str) -> FibsemStagePosition:
         """Move the stage to the holder slot that holds this grid."""
         slot = self.holder.find_slot_by_grid_name(grid_name)
@@ -585,7 +694,7 @@ class SampleHandling(Service):
         """The grids loaded right now, read from the holder every time."""
         return [s.loaded_grid for s in self.holder.occupied_slots]  # type: ignore[misc]
 
-    @command(long=True)
+    @command(long=True, line=_load_line)
     def ensure_loaded(self, grid_name: str) -> GridSlot:
         """Make a grid reachable, and return the working slot it occupies.
 
@@ -619,7 +728,7 @@ class SampleHandling(Service):
         self.magazine.load_grid(home.name)
         return self.magazine.working_slot
 
-    @command(long=True)
+    @command(long=True, line=_unload_line)
     def unload(self) -> None:
         """Retract the working slot. Nothing to do on a fixed holder."""
         if self.magazine is None:
@@ -671,7 +780,7 @@ class SampleHandling(Service):
         occupied = [s for s in calibrated if s.loaded_grid is not None]
         return occupied or calibrated
 
-    @command(long=True)
+    @command(long=True, line=_inventory_line)
     def run_inventory(self) -> List[GridInventoryEntry]:
         """Scan the magazine and return the inventory: the slow one.
 

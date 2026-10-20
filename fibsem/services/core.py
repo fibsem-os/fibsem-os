@@ -12,8 +12,9 @@ through roles (``beam = Role(Beam)``), so it doesn't care which driver's device 
 them.
 """
 
+import importlib
 import logging
-from typing import Any, Dict, Sequence
+from typing import Any, Callable, Dict, Optional, Sequence
 
 from fibsem.devices.core import _Controllable
 
@@ -38,3 +39,26 @@ def save_beam_conditions(beam: Any, names: Sequence[str]) -> Dict[str, Any]:
                 saved[name] = value
     logging.debug({"msg": "saved the beam", "beam": beam.name, "saved": saved})
     return saved
+
+
+# Each service the microscope hosts, by the name it serves it under: where its
+# class is, for what is declared on it without a microscope (a command's line).
+_CLASSES = {
+    "milling": "fibsem.services.milling:Milling",
+    "stage_movement": "fibsem.services.stage_movement:StageMovement",
+    "spot_burn": "fibsem.services.spot_burn:SpotBurn",
+    "sample_handling": "fibsem.services.sample_handling:SampleHandling",
+    "imaging": "fibsem.services.imaging:Imaging",
+    "alignment": "fibsem.services.alignment:Alignment",
+}
+
+
+def command_line(service: str, command: str) -> Optional[Callable[..., Dict[str, Any]]]:
+    """The line a service's command declares (``command(line=...)``), to say a
+    call to it in an agent's request; None for a command with none."""
+    where = _CLASSES.get(str(service))
+    if where is None:
+        return None
+    module, _, name = where.partition(":")
+    cls = getattr(importlib.import_module(module), name)
+    return getattr(getattr(cls, str(command), None), "__command_line__", None)

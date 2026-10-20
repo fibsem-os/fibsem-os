@@ -38,8 +38,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fibsem.acting import AGENT, Actor, acting
 from fibsem.ai.agent.calls import AgentCall, calling, current_call, join_line
 from fibsem.ai.agent.catalog import CATALOG, ToolSpec, route_call
+from fibsem.ai.agent.catalog.describe import (
+    Describer,
+    describe_action,
+    describe_actions,
+)
 from fibsem.ai.agent.levels import AgentLevel
-from fibsem.ai.agent.request_text import Describer, describe_action, describe_actions
 from fibsem.server.auth import AuthConfig, lending_drive, require_level
 from fibsem.workflows.actions import ACTION, action_record
 from fibsem.workflows.evidence import EvidenceRefused, frame_path
@@ -80,7 +84,7 @@ class Action:
     method: str
     path: str
     body: Optional[Dict[str, Any]]
-    # The operator's two lines for it, written by the server (request_text).
+    # The operator's two lines for it, written by the server (catalog.describe).
     what: str = ""
     change: str = ""
     # Every value, for the operator's "Show details": {columns, rows}, or None.

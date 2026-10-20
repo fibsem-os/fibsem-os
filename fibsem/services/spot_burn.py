@@ -44,8 +44,48 @@ from fibsem.devices.core import DeviceParameter, ParameterMetadata, Role, comman
 from fibsem.imaging.spot import SpotBurnProgress, SpotBurnSettings, SpotBurnStatus
 from fibsem.services.core import Service, save_beam_conditions
 from fibsem.structures import BeamType, Point
+from fibsem.util import wording
 
 _S = TypeVar("_S", bound="SpotBurn")
+
+
+# --- A command as the operator reads it, in an agent's request (wording) ---
+
+_ESTIMATE = "/microscope/services/spot_burn/queries/estimate"
+
+
+def _run_line(kwargs: Dict[str, Any], ctx: wording.ActionContext) -> Dict[str, Any]:
+    """ "Burn 2 spots (01 centre, edge), 60 pA for 5 s each, about 10 s"."""
+    settings = kwargs.get("settings")
+    if not isinstance(settings, dict):
+        return {"what": "Spot burn", "change": "Burn the spots"}
+    points = [p for p in settings.get("coordinates") or [] if isinstance(p, dict)]
+    change = f"Burn {wording.plural(len(points), 'spot')}"
+    names = [str(p["name"]) for p in points if p.get("name")]
+    if names:
+        change += f" ({wording.names_cut(names)})"
+    if settings.get("milling_current") is not None:
+        change += f", {wording.current(settings['milling_current'])}"
+    if settings.get("exposure_time") is not None:
+        each = " each" if len(points) > 1 else ""
+        change += f" for {wording.seconds(float(settings['exposure_time']))}{each}"
+    if len(points) > 1:
+        change += wording.about(
+            wording.result_of(ctx.get(_ESTIMATE, {"settings": settings}))
+        )
+    table = [
+        (
+            str(p.get("name") or i + 1),
+            f"{wording.number(float(p.get('x', 0)) * 100)}%, "
+            f"{wording.number(float(p.get('y', 0)) * 100)}% of the frame",
+        )
+        for i, p in enumerate(points)
+    ]
+    return {
+        "what": "Spot burn",
+        "change": change,
+        "details": wording.table(("Spot", "Where"), table) if table else None,
+    }
 
 
 class SpotBurn(Service):
@@ -108,7 +148,7 @@ class SpotBurn(Service):
 
     # -- commands ----------------------------------------------------------------
 
-    @command(long=True)
+    @command(long=True, line=_run_line)
     def run(
         self,
         settings: SpotBurnSettings,

@@ -228,6 +228,13 @@ lists where each key went.
   milling stages and lamellae (`fibsem.server.parts`). `/capabilities` lists them
   under `parts`, and the agent is offered only the tools of those parts. AutoLamella
   serves all five, so its routes are unchanged.
+- **For developers: a tool's request line lives with the tool.** The line an agent's
+  request shows the operator for an action is now `ToolSpec.line`, next to the tool,
+  and a service command's is `command(line=...)` on the command, whichever tool calls
+  it. The catalog is a package of modules by group (`fibsem.ai.agent.catalog`), each
+  tool carrying its route call (`ToolSpec.call`); `fibsem/ai/agent/request_text.py`
+  is gone. Adding a tool is one entry in one module. A test fails for an acting tool
+  with no line.
 
 ### Fluorescence
 
