@@ -193,6 +193,23 @@ def test_the_log_never_shows_a_secret():
     assert "Bearer [redacted]" in shown
 
 
+def test_a_traceback_in_the_log_never_shows_a_secret(tmp_path):
+    path = tmp_path / "agent.log"
+    runner_mod._log_to(path, "t0k")
+    try:
+        try:
+            raise RuntimeError("refused with Bearer t0k")
+        except RuntimeError:
+            runner_mod.log.exception("The agent failed")
+    finally:
+        for handler in list(runner_mod.log.handlers):
+            runner_mod.log.removeHandler(handler)
+            handler.close()
+        runner_mod.log.filters.clear()
+    text = path.read_text(encoding="utf-8")
+    assert "RuntimeError" in text and "t0k" not in text
+
+
 def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path):
     pytest.importorskip("claude_agent_sdk")
     checkout = runner_mod.find_checkout()
@@ -218,10 +235,9 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
     assert list(options.mcp_servers) == ["fibsem"]
     server = options.mcp_servers["fibsem"]
     assert os.path.isabs(server["command"])
-    assert server["env"] == {
-        "FIBSEM_SERVER_URL": "http://127.0.0.1:9",
-        "FIBSEM_SERVER_TOKEN": "t0k",
-    }
+    # Not in the server entry, which goes on the CLI's command line: in the
+    # CLI's environment, which the sidecar inherits.
+    assert "env" not in server
     assert options.cwd == str(checkout)
     assert options.resume == "abc"
     assert options.verbatim_prompts
@@ -231,6 +247,8 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
     assert options.env == {
         "CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1",
         "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
+        "FIBSEM_SERVER_URL": "http://127.0.0.1:9",
+        "FIBSEM_SERVER_TOKEN": "t0k",
     }
 
     # And what the CLI is told, as the SDK builds its command line.
@@ -247,6 +265,7 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
     allowed = command[command.index("--allowedTools") + 1].split(",")
     assert "Skill(autolamella-agent)" in allowed and "mcp__fibsem__*" in allowed
     assert "bypassPermissions" not in command
+    assert not any("t0k" in part for part in command), "the token is in argv"
 
 
 # --- turning lines into turns -------------------------------------------------

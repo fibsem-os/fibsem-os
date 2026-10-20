@@ -755,13 +755,13 @@ def build_options(
 
     command = sidecar_command()
     server = {"type": "stdio", "command": command[0], "args": command[1:]}
-    env = {}
+    # In the CLI's environment, which the sidecar inherits: the server entry
+    # goes on the CLI's command line, where anyone can list it.
+    env = dict(CLI_ENV)
     if url:
         env["FIBSEM_SERVER_URL"] = url
     if token:
         env["FIBSEM_SERVER_TOKEN"] = token
-    if env:
-        server["env"] = env
     return ClaudeAgentOptions(
         cwd=str(checkout),
         # The checkout's .claude/skills and CLAUDE.md, and none of
@@ -773,7 +773,7 @@ def build_options(
         disallowed_tools=list(DENIED_TOOLS),
         permission_mode=PERMISSION_MODE,
         mcp_servers={SERVER: server},
-        env=dict(CLI_ENV),
+        env=env,
         # Only the server above: not a `fibsem` registered in ~/.claude.json.
         strict_mcp_config=True,
         system_prompt={
@@ -817,6 +817,12 @@ class _Redact(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         record.msg = redact(record.getMessage(), *self._known)
         record.args = None
+        if record.exc_info:
+            # The traceback too: format it here, redacted, for the handlers.
+            record.exc_text = redact(
+                logging.Formatter().formatException(record.exc_info), *self._known
+            )
+            record.exc_info = None
         return True
 
 
