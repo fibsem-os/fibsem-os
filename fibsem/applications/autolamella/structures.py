@@ -1307,6 +1307,11 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
 
         self.task_protocol: AutoLamellaTaskProtocol = None  # must be set externally
 
+    @property
+    def turns_beams_off(self) -> bool:
+        protocol = self.task_protocol
+        return protocol is not None and protocol.options.turn_beams_off
+
     def to_dict(self, include_protocol: bool = False) -> dict:
 
         state_dict = {

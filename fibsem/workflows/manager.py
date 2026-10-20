@@ -49,6 +49,9 @@ class WorkflowExperiment(Protocol):
 
     def register_metadata(self, microscope: FibsemMicroscope) -> None: ...
 
+    @property
+    def turns_beams_off(self) -> bool: ...
+
 
 # Exactly one of these ends every run (FIB-1327).
 _RUN_ENDS = frozenset(
@@ -382,20 +385,26 @@ class BaseTaskManager:
         """The whole run, as whoever starts one calls it; never raises.
 
         In control of the microscope for all of it (FIB-1270), the beams it
-        needs turned on, then ``run``. A failure before the run began -- someone
+        needs turned on, then ``run``, then both beams off however it ended
+        when the experiment says so. A failure before the run began -- someone
         else in control, a beam that will not come on -- still ends the run
         with an event, so whoever was told it started sees it end (FIB-1353).
         """
         try:
             with self.microscope.control.take(WORKFLOW, self.RUN_DESCRIPTION):
-                for beam in self.beams_needed():
-                    if not self.microscope.is_on(beam):
-                        self.microscope.turn_on(beam)
-                names = self._names_for_run(names)
-                logging.info(
-                    f"Starting tasks: {task_names}, for {self.ITEM_NOUN}: {names}"
-                )
-                self.run(task_names, names)
+                try:
+                    for beam in self.beams_needed():
+                        if not self.microscope.is_on(beam):
+                            self.microscope.turn_on(beam)
+                    names = self._names_for_run(names)
+                    logging.info(
+                        f"Starting tasks: {task_names}, for {self.ITEM_NOUN}: {names}"
+                    )
+                    self.run(task_names, names)
+                finally:
+                    if self.experiment.turns_beams_off:
+                        self.microscope.turn_off(BeamType.ELECTRON)
+                        self.microscope.turn_off(BeamType.ION)
         except MicroscopeBusy as e:
             logging.warning(f"Workflow not started: {e}")
             self._end_unstarted_quietly(e)

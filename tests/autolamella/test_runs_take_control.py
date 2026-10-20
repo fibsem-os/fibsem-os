@@ -69,3 +69,23 @@ def test_a_headless_run_is_refused_while_someone_else_is_in_control(
         assert microscope.control.current.by == "agent"
 
     assert not ran
+
+
+@pytest.mark.parametrize("turn_beams_off", [True, False])
+@pytest.mark.parametrize(
+    "manager", [TaskManager, GridTaskManager], ids=["lamella", "grid"]
+)
+def test_a_headless_run_turns_the_beams_off_when_the_protocol_says_so(
+    microscope, experiment, monkeypatch, manager, turn_beams_off
+):
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
+    from fibsem.structures import BeamType
+
+    experiment.task_protocol = AutoLamellaTaskProtocol()
+    experiment.task_protocol.options.turn_beams_off = turn_beams_off
+    monkeypatch.setattr(manager, "run", lambda self, *a, **k: None)
+
+    manager(microscope, experiment).execute([])
+
+    for beam in (BeamType.ELECTRON, BeamType.ION):
+        assert microscope.is_on(beam) is not turn_beams_off

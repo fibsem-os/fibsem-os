@@ -101,6 +101,11 @@ class BaseExperiment:
         """The directory an item's recorded outputs are relative to."""
         return Path(item.path)
 
+    @property
+    def turns_beams_off(self) -> bool:
+        """Whether a run over this experiment turns the beams off as it ends."""
+        return False
+
     def record_proposal(self, proposal: Proposal) -> Proposal:
         """Put ``proposal``, about the experiment itself, on the record. It
         says who asked it (``asked_by``)."""

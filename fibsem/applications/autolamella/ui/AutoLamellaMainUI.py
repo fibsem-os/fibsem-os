@@ -79,7 +79,7 @@ from fibsem.applications.autolamella.ui.workflow_controls import (
 from fibsem.applications.autolamella.ui.workflow_tab import WorkflowTab
 from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamType, MicroscopeSettings
+from fibsem.structures import MicroscopeSettings
 from fibsem.ui import FibsemSystemSetupWidget, notification_service
 from fibsem.ui import utils as fui
 from fibsem.ui.agent.chip_host import AgentChipHost
@@ -2140,7 +2140,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         )
 
     def _workflow_finished(self):
-        """The panel's half of a run ending, then the beams and the summary."""
+        """The panel's half of a run ending, then the summary."""
         logging.info("Workflow finished.")
         if self.panel.image_widget is None:
             return
@@ -2154,11 +2154,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         self.panel.reset_after_run(str(self.experiment.path))
         self._refresh_panel()
-
-        # optionally turn off the beams when finished
-        if self.protocol.options.turn_beams_off:
-            self.microscope.turn_off(BeamType.ELECTRON)
-            self.microscope.turn_off(BeamType.ION)
 
         self.panel.set_current_workflow_message(msg=None, show=False)
 
