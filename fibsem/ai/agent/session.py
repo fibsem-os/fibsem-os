@@ -454,6 +454,17 @@ class AgentSession:
         except Exception:
             return None
 
+    def reported_session(self) -> Optional[dict]:
+        """The agent's session as it reported it: model, goal, budget and
+        spend (``fibsem.server.agent_session``), or None."""
+        host = self._session.app_server
+        if host is None:
+            return None
+        try:
+            return host.agent_session()
+        except Exception:
+            return None
+
     def client(self) -> Optional[str]:
         """The MCP client the agent's sidecar named, or None."""
         host = self._session.app_server

@@ -170,6 +170,13 @@ class AppServerHost:
         logging.info("New operator token made; the old one no longer works")
         return self.auth.operator_token
 
+    def agent_session(self) -> Optional[dict]:
+        """The agent's session as its harness last reported it (model, goal,
+        budget, spend), or None if the server isn't running or none reported."""
+        if not self.running or self.auth is None:
+            return None
+        return self.auth.agent_session
+
     def stop_agent(self, microscope) -> Optional[str]:
         """The operator's Stop agent (FIB-1267): down to Watch at once, and stop
         what the agent is doing on the microscope.

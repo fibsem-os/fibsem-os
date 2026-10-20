@@ -30,6 +30,7 @@ from fibsem.acting import AGENT, OPERATOR, acting, current_actor
 from fibsem.ai.agent import blocklist
 from fibsem.ai.agent.calls import calling, current_call, from_headers
 from fibsem.microscope import FibsemMicroscope
+from fibsem.server.agent_session import build_agent_session_router
 from fibsem.server.app_routes import (
     build_app_config_router,
     build_app_control_router,
@@ -777,6 +778,10 @@ def build_server(
             ),
         )
         app.include_router(build_request_router(app.state.requests))
+        # The agent's own report of its session: model, goal, budget, spend.
+        app.include_router(
+            build_agent_session_router(getattr(app_context, "record_event", None))
+        )
     if operator is not None:
         app.include_router(build_operator_router(operator))
     return app

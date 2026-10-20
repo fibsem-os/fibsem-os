@@ -531,20 +531,36 @@ TOOLS: Tuple[ToolSpec, ...] = (
         level="watch",
         router="app",
         params={
-            "dir": "a folder path from an earlier listing, relative to the experiment (default: the top)"
+            "dir": "a folder path from an earlier listing, relative to the experiment (default: the top)",
+            "experiment": "optional: a past experiment to read instead of the open one, by its path from experiment_list_recent or experiment_list_all; only one the operator named. Every read of it goes on the record",
         },
-        optional=("dir",),
+        optional=("dir", "experiment"),
     ),
     ToolSpec(
         name="experiment_read_file",
-        description="One file of the open experiment: text (yaml, json, log, md, csv) as text, up to 512 KB; an image (tif, png, jpg) as a 768 px preview you can look at, with its metadata block; a folder as its listing. Previews and metadata only, never the raw file. For detail in part of an image, experiment_crop_image. Paths outside the experiment are refused.",
+        description="One file of the open experiment: text (yaml, json, log, md, csv) as text, up to 512 KB; an image (tif, png, jpg) as a 768 px preview you can look at, with its metadata block; a folder as its listing. Previews and metadata: for detail in part of an image, experiment_crop_image; for the file itself, to work on with your own code, experiment_fetch_file. Paths outside the experiment are refused.",
         method="GET",
         path="/app/experiment/files/{path}",
         level="watch",
         router="app",
         params={
-            "path": "a path from experiment_list_files, or an image path an image answer gave"
+            "path": "a path from experiment_list_files, or an image path an image answer gave",
+            "experiment": "optional: a past experiment to read instead of the open one, by its path from experiment_list_recent or experiment_list_all; only one the operator named. Every read of it goes on the record",
         },
+        optional=("experiment",),
+    ),
+    ToolSpec(
+        name="experiment_fetch_file",
+        description="Fetch one file of the open experiment as it is (a tif with its full data and metadata, a log, a yaml) and save it on the machine you run on, for your own code to read. Answers where it saved it: a folder named for the experiment, under fetched/ in your working folder, the file at its path in the experiment. The fetch goes on the record. A folder is refused: fetch its files one at a time.",
+        method="GET",
+        path="/app/experiment/files/{path}",
+        level="watch",
+        router="app",
+        params={
+            "path": "a path from experiment_list_files, or an image path an image answer gave",
+            "experiment": "optional: a past experiment to read instead of the open one, by its path from experiment_list_recent or experiment_list_all; only one the operator named. Every read of it goes on the record",
+        },
+        optional=("experiment",),
     ),
     ToolSpec(
         name="experiment_crop_image",
@@ -557,8 +573,9 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "path": "an image path from experiment_list_files, or one an image answer gave",
             "box": "[x, y, width, height] in source pixels (instead of fraction)",
             "fraction": "[left, top, width, height] as fractions of the image, 0 to 1 (instead of box)",
+            "experiment": "optional: a past experiment to read instead of the open one, by its path from experiment_list_recent or experiment_list_all; only one the operator named. Every read of it goes on the record",
         },
-        optional=("box", "fraction"),
+        optional=("box", "fraction", "experiment"),
     ),
     ToolSpec(
         name="protocol_get_task_config",

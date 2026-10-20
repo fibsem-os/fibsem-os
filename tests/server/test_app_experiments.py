@@ -4,6 +4,7 @@ folder."""
 
 import os
 import shutil
+from pathlib import Path
 
 import pytest
 
@@ -189,3 +190,126 @@ def test_experiment_changes_need_drive(host, places):
         assert (
             client.post("/app/experiment/create", json={"name": "x"}).status_code == 403
         )
+
+
+@pytest.fixture
+def reads(host, places):
+    """A client at Watch over a context whose record is kept in a list."""
+    context = AutoLamellaAppContext(host)
+    recorded = []
+    context.record_event = lambda kind, payload, actor=None: recorded.append(
+        (kind, payload)
+    )
+    app = build_server(
+        host.microscope,
+        app_context=context,
+        auth=AuthConfig.generate(level="watch", token=TOKEN),
+    )
+    with TestClient(app, raise_server_exceptions=False) as client:
+        client.headers["Authorization"] = f"Bearer {TOKEN}"
+        yield client, recorded
+
+
+def _two_experiments(driver):
+    driver.post("/app/experiment/create", json={"name": "lab/first"})
+    driver.post("/app/experiment/create", json={"name": "second"})
+    return next(
+        e["path"]
+        for e in driver.get("/app/experiment/all").json()["items"]
+        if e["name"] == "first"
+    )
+
+
+def test_a_file_is_fetched_raw_and_the_fetch_is_recorded(driver, host, reads):
+    _two_experiments(driver)
+    client, recorded = reads
+    (Path(host.experiment.path) / "data").mkdir()
+    (Path(host.experiment.path) / "data" / "raw.bin").write_bytes(b"\x00\x01\xff")
+    resp = client.get("/app/experiment/files/data/raw.bin", params={"raw": True})
+    assert resp.status_code == 200, resp.text
+    assert resp.content == b"\x00\x01\xff"
+    assert resp.headers["X-Experiment"] == "second"
+    assert resp.headers["X-Experiment-Path"] == "data/raw.bin"
+    assert recorded == [
+        (
+            "experiment_file_read",
+            {"experiment": None, "path": "data/raw.bin", "raw": True},
+        )
+    ]
+    # A preview read of the open experiment is not recorded.
+    client.get("/app/experiment/files/experiment.yaml")
+    assert len(recorded) == 1
+    folder = client.get("/app/experiment/files/data", params={"raw": True})
+    assert folder.status_code == 422
+    for path in ("..%2Felsewhere", "/etc/hostname"):
+        refused = client.get(f"/app/experiment/files/{path}", params={"raw": True})
+        assert refused.status_code in (403, 404), path
+
+
+def test_a_past_experiment_is_read_by_its_path_and_every_read_recorded(
+    driver, host, places, reads
+):
+    first = _two_experiments(driver)
+    assert host.experiment.name == "second"
+    client, recorded = reads
+    for name in (first, os.path.dirname(first), "lab/first"):
+        listed = client.get("/app/experiment/files", params={"experiment": name})
+        assert listed.status_code == 200, (name, listed.text)
+        assert "experiment.yaml" in [e["name"] for e in listed.json()["entries"]]
+    text = client.get(
+        "/app/experiment/files/experiment.yaml", params={"experiment": first}
+    ).json()
+    assert "first" in text["text"]
+    raw = client.get(
+        "/app/experiment/files/experiment.yaml",
+        params={"experiment": first, "raw": True},
+    )
+    assert raw.headers["X-Experiment"] == "first"
+    assert [kind for kind, _ in recorded] == ["experiment_file_read"] * 5
+    assert recorded[-1][1] == {
+        "experiment": first,
+        "path": "experiment.yaml",
+        "raw": True,
+    }
+    # Nothing that is not an experiment the app knows.
+    (places / "loose").mkdir()
+    for name in ("/etc", "..", "loose", str(places.parent)):
+        refused = client.get("/app/experiment/files", params={"experiment": name})
+        assert refused.status_code == 404, name
+    # Its files stay inside it.
+    escape = client.get(
+        "/app/experiment/files/..%2F..%2Fsecond%2Fexperiment.yaml",
+        params={"experiment": first},
+    )
+    assert escape.status_code == 403
+
+
+def test_the_sidecar_fetches_a_file_into_the_working_folder(
+    driver, host, reads, tmp_path, monkeypatch
+):
+    pytest.importorskip("mcp")
+    import asyncio
+    import json
+
+    from fibsem.ai.agent.mcp.sidecar import build_sidecar
+
+    first = _two_experiments(driver)
+    client, recorded = reads
+    work = tmp_path / "work"
+    monkeypatch.setenv("FIBSEM_AGENT_WORKDIR", str(work))
+    sidecar = build_sidecar(client, client.get("/capabilities").json())
+
+    def fetch(arguments):
+        result = asyncio.run(sidecar.call_tool("experiment_fetch_file", arguments))
+        if isinstance(result, tuple):
+            result = result[0]
+        return json.loads(list(getattr(result, "content", result))[0].text)
+
+    answer = fetch({"path": "experiment.yaml", "experiment": first})
+    saved = work / "fetched" / "first" / "experiment.yaml"
+    assert answer["saved"] == str(saved.resolve())
+    assert saved.read_bytes() == (Path(first)).read_bytes()
+    absolute = os.path.join(host.experiment.path, "protocol.yaml")
+    answer = fetch({"path": absolute})
+    assert answer["path"] == "protocol.yaml"
+    assert (work / "fetched" / "second" / "protocol.yaml").is_file()

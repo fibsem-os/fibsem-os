@@ -614,19 +614,6 @@ class AutoLamellaAppContext(AppContext):
             "items": [self.experiment_entry(s) for s in discover_experiments(folder)],
         }
 
-    def _under_experiments_folder(self, path: str) -> Optional[str]:
-        """*path* (relative to the experiments folder, or absolute) when it is
-        inside that folder, links followed; else None."""
-        import os
-
-        folder = os.path.realpath(self._experiments_folder())
-        target = os.path.realpath(os.path.join(folder, path))
-        try:
-            inside = os.path.commonpath([target, folder]) == folder
-        except ValueError:  # another drive
-            return None
-        return target if inside and target != folder else None
-
     def protocols(self) -> Dict[str, Any]:
         """The protocol files an agent may load or create an experiment with."""
         from fibsem.applications.autolamella import experiment_setup

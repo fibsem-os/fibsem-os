@@ -13,9 +13,12 @@ tagged with it and served only when the context implements that part.
 """
 
 import json
+import os
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi.responses import FileResponse
 
 from fibsem.ai.agent.calls import current_call
 from fibsem.server import files
@@ -393,17 +396,27 @@ def build_app_router(context: Any) -> APIRouter:
             )
         return _answer_or_refusal(context.image_pixels(path, positions))
 
-    # -- the experiment's own files: previews and text, never raw bytes --------
+    # -- an experiment's files: the open one's, or a past one's, read only ------
 
-    def _files_answer(read, *args, **kwargs):
+    def _files_answer(experiment, read, *args, **kwargs):
         try:
-            return read(context.experiment_path, *args, **kwargs)
+            return read(context.experiment_root(experiment), *args, **kwargs)
         except files.FileRefusal as refusal:
             raise HTTPException(status_code=refusal.status, detail=refusal.detail)
 
+    def _record_read(experiment, path, raw):
+        # A past experiment's every read, and every raw file, go on the record.
+        if experiment is not None or raw:
+            context.record_event(
+                "experiment_file_read",
+                {"experiment": experiment, "path": path, "raw": raw},
+            )
+
     @router.get("/experiment/files")
-    def list_files(dir: str = ""):
-        return _files_answer(files.list_folder, dir)
+    def list_files(dir: str = "", experiment: Optional[str] = None):
+        answer = _files_answer(experiment, files.list_folder, dir)
+        _record_read(experiment, dir, False)
+        return answer
 
     @router.get("/experiment/files/{path:path}")
     def read_file(
@@ -411,16 +424,34 @@ def build_app_router(context: Any) -> APIRouter:
         box: Optional[str] = None,
         fraction: Optional[str] = None,
         width: Optional[int] = None,
+        raw: bool = False,
+        experiment: Optional[str] = None,
     ):
+        if raw:
+            # The file as it is, its experiment's folder name and its path in
+            # it in the headers: where a fetch keeps it.
+            root = _files_answer(experiment, lambda root: root)
+            target, relative = _files_answer(experiment, files.raw_file, path)
+            _record_read(experiment, relative, True)
+            return FileResponse(
+                target,
+                headers={
+                    "X-Experiment": quote(os.path.basename(os.path.normpath(root))),
+                    "X-Experiment-Path": quote(relative),
+                },
+            )
         # A region is "x,y,width,height": source pixels (box) or 0-1 (fraction).
         # width: the preview's at most, for a thumbnail or a full-size view.
-        return _files_answer(
+        answer = _files_answer(
+            experiment,
             files.read,
             path,
             box=_numbers(box),
             fraction=_numbers(fraction),
             max_width=files.preview_width(width),
         )
+        _record_read(experiment, path, False)
+        return answer
 
     @router.get("/workflow/proposals")
     def proposals():

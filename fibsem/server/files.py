@@ -3,8 +3,8 @@
 One folder listed at a time; a text file (yaml, json, log, md, csv) as text; an
 image as a preview with its metadata, the shape every image answer has
 (:func:`fibsem.server.images.image_answer`), or one region of it at native
-resolution. Previews and metadata only: no file's raw bytes (Patrick,
-2026-10-14).
+resolution. A file's raw bytes too (:func:`raw_file`), for an agent whose code
+runs on another machine (Patrick, 2026-10-21; previews only before).
 
 Every path resolves inside the experiment folder, symlinks followed, so ``..``,
 an absolute path elsewhere and a link out of the folder are refused alike
@@ -311,3 +311,15 @@ def read(
                 422, "unreadable", f"Could not read {path} as an image: {exc}"
             ) from exc
     return entry
+
+
+def raw_file(root: Optional[str], path: str) -> Tuple[str, str]:
+    """One file of the experiment to send as it is: its real path and its path
+    relative to the experiment, or the :class:`FileRefusal` saying why not."""
+    target = resolve(root, path)
+    if os.path.isdir(target):
+        raise FileRefusal(
+            422, "invalid", f"{path} is a folder: fetch its files one at a time."
+        )
+    relative = os.path.relpath(target, os.path.realpath(root)).replace(os.sep, "/")
+    return target, relative
