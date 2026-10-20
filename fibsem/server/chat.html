@@ -37,13 +37,16 @@
   .btn:disabled { opacity:.5; cursor:default; }
   .btn:focus-visible, select:focus-visible, textarea:focus-visible { outline:2px solid var(--accent); }
 
-  .rows { flex:1; min-height:0; overflow-y:auto; padding:12px 16px; display:flex; flex-direction:column; gap:10px; }
-  .row { display:grid; grid-template-columns:44px 1fr; gap:8px; }
-  .row .when { font-size:11px; color:var(--muted); padding-top:2px; font-variant-numeric:tabular-nums; }
-  .row .who { font-size:11.5px; color:var(--muted); }
-  .row.you .who { color:var(--warn); }
-  .row.reply .who, .row.note .who { color:var(--agent); }
-  .row .body { color:var(--strong); overflow-wrap:anywhere; }
+  /* As the card's Recent: the conversation as blocks, yours a shade lighter,
+     the actions one line each, quieter between the messages. */
+  .rows { flex:1; min-height:0; overflow-y:auto; margin:0 16px; background:var(--panel);
+    border-radius:3px; display:flex; flex-direction:column; }
+  .rows > * + .msg, .rows > * + .act { border-top:1px solid var(--border); }
+  .msg { padding:8px 10px 9px; }
+  .msg.you { background:var(--row-alt); }
+  .msg .head { display:flex; gap:6px; font-size:11.5px; color:var(--muted); font-variant-numeric:tabular-nums; }
+  .msg .head b { color:var(--strong); font-weight:600; }
+  .msg .body { margin-top:3px; color:var(--text); overflow-wrap:anywhere; }
   .body p + p, .body p + ul, .body ul + p { margin-top:6px; }
   .body ul { padding-left:18px; }
   .body code { font-family:var(--mono); font-size:12px; background:var(--panel); padding:0 3px; border-radius:2px; }
@@ -56,12 +59,17 @@
   .evidence.big img { max-height:92vh; max-width:96vw; }
   .frame { position:relative; }
 
-  .act { display:grid; grid-template-columns:44px 1fr auto; gap:8px; font-size:12px; color:var(--text); }
+  .act { display:grid; grid-template-columns:40px 1fr auto; column-gap:12px; padding:6px 10px;
+    font-size:12px; color:var(--text); }
+  .act.quiet { padding:4px 10px; font-size:11.5px; color:var(--muted); }
   .act .when { font-size:11px; color:var(--muted); padding-top:1px; font-variant-numeric:tabular-nums; }
-  .act .why { grid-column:2 / 4; font-size:11.5px; color:var(--muted); }
-  .halves { display:flex; gap:14px; padding:6px 16px 0; font-size:11.5px; }
-  .halves button { background:none; border:0; padding:0; cursor:pointer; color:var(--muted); }
-  .halves button.on { color:var(--strong); font-weight:600; }
+  .act .outcome { font-size:11px; padding-top:1px; }
+  .act .why { grid-column:2 / 4; font-size:11px; color:var(--muted); }
+  .halves { display:flex; gap:6px; padding:10px 16px 8px; font-size:11.5px; color:var(--muted); }
+  .halves button { background:none; border:0; border-bottom:1px solid transparent; padding:0 0 1px;
+    cursor:pointer; color:var(--muted); }
+  .halves button.on { color:var(--strong); font-weight:600; border-bottom-color:var(--strong); }
+  .rows > .request { margin:10px; }
   .tone-ok { color:var(--ok); } .tone-error { color:var(--err); }
   .tone-waiting, .tone-running { color:var(--warn); } .tone-muted { color:var(--muted); }
 
@@ -75,7 +83,7 @@
 
   .empty { margin:auto; text-align:center; color:var(--muted); max-width:360px; }
 
-  .composer { border-top:1px solid var(--border); padding:10px 16px 12px; }
+  .composer { padding:12px 16px; }
   .composer textarea { width:100%; resize:none; background:var(--panel); border:1px solid var(--border);
     border-radius:3px; padding:8px 10px; min-height:38px; max-height:150px; line-height:1.4; }
   .composer .foot { display:flex; align-items:center; gap:10px; margin-top:6px; font-size:11.5px; color:var(--muted); }
@@ -215,20 +223,21 @@ function evidenceHtml(row) {
 }
 
 function messageHtml(row) {
-  const who = { you: "You", reply: "Agent · reply", note: "Agent · note" }[row.kind] || "Agent";
-  return `<div class="row ${row.kind}"><span class="when">${esc(row.when)}</span>
-    <div><div class="who">${who}</div><div class="body">${markdown(row.text)}</div>${evidenceHtml(row)}</div></div>`;
+  const who = { you: "You", reply: "Agent" }[row.kind] || "Agent · note";
+  const body = row.kind === "you" ? `<p>${esc(row.text).replace(/\n/g, "<br>")}</p>` : markdown(row.text);
+  return `<div class="msg ${row.kind}"><div class="head"><b>${who}</b><span>${esc(row.when)}</span></div>
+    <div class="body">${body}</div>${evidenceHtml(row)}</div>`;
 }
 
-function actionHtml(row) {
-  return `<div class="act"><span class="when">${esc(row.when)}</span><span>${esc(row.text)}</span>
-    <span class="tone-${esc(row.tone)}">${esc(row.outcome)}</span>
-    ${row.why ? `<span class="why">${esc(row.why)}</span>` : ""}</div>`;
+function actionHtml(row, quiet) {
+  const why = row.why && row.tone === "error" ? `<span class="why">${esc(row.why)}</span>` : "";
+  return `<div class="act${quiet ? " quiet" : ""}"><span class="when">${esc(row.when)}</span><span>${esc(row.text)}</span>
+    <span class="outcome tone-${esc(row.tone)}" title="${esc(row.why || "")}">${esc(row.outcome)}</span>${why}</div>`;
 }
 
 function halvesHtml() {
   const b = (key, word) => `<button data-half="${key}" class="${halves[key] ? "on" : ""}">${word}</button>`;
-  return `<div class="halves">${b("conversation", "Conversation")}${b("actions", "Actions")}</div>`;
+  return `<div class="halves">${b("conversation", "Conversation")}<span>·</span>${b("actions", "Actions")}</div>`;
 }
 
 function requestHtml(request) {
@@ -246,7 +255,7 @@ function requestHtml(request) {
 function rowsHtml() {
   const out = [];
   for (const row of state.rows) {
-    if (row.kind === "action") { if (halves.actions) out.push(actionHtml(row)); }
+    if (row.kind === "action") { if (halves.actions) out.push(actionHtml(row, halves.conversation)); }
     else if (halves.conversation) out.push(messageHtml(row));
   }
   out.push(requestHtml(state.agent && state.agent.request));
