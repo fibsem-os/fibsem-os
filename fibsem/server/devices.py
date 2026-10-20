@@ -387,7 +387,7 @@ def build_device_router(
     *on_image* is given each image a command acquired, before it is answered: the
     App Server shows it in the app's views (FIB-1375). *refuse* says why a write
     or a command is never allowed here (403 ``not_allowed``), and the listings
-    mark those (``agent: false``): the App Server's allowlist. *paths* reads a
+    mark those (``agent: false``): the App Server's blocklist. *paths* reads a
     command's or query's relative paths where they belong (the App Server: in the
     open experiment), before *refuse* checks them.
 

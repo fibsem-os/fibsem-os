@@ -307,12 +307,12 @@ class RequestStore:
         self._experiment_path = experiment_path or (lambda: None)
         self._describe = describe
         # Why the app would refuse an action when it runs (a config edit that
-        # does not apply), or None: refused at filing, as the allowlist is.
+        # does not apply), or None: refused at filing, as the blocklist is.
         self._check = check
         self._auth = auth
         self._mounted = mounted
         self._emit_fn = emit
-        # Why a route call is never the agent's (the allowlist), or None: refused
+        # Why a route call is never the agent's (the blocklist), or None: refused
         # at filing, so the operator is never asked about what cannot run.
         self._not_allowed = not_allowed
         self._lock = threading.Lock()
