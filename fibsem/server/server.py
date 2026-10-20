@@ -27,7 +27,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from fibsem import __version__
 from fibsem.acting import AGENT, acting
-from fibsem.ai.agent import allowlist
+from fibsem.ai.agent import blocklist
 from fibsem.ai.agent.calls import calling, current_call, from_headers
 from fibsem.microscope import FibsemMicroscope
 from fibsem.server.app_routes import (
@@ -105,7 +105,7 @@ _drive = require_level(AgentLevel.DRIVE)
 
 
 def _refuse(app_context) -> Callable[[Any, str, str, Mapping[str, Any]], Optional[str]]:
-    """The App Server's allowlist (`fibsem.ai.agent.allowlist`): what the agent may
+    """The App Server's blocklist (`fibsem.ai.agent.blocklist`): what the agent may
     never touch, and a path it may only give inside the open experiment, to a
     command or a query."""
 
@@ -113,8 +113,8 @@ def _refuse(app_context) -> Callable[[Any, str, str, Mapping[str, Any]], Optiona
         return getattr(app_context, "experiment_path", None)
 
     def refuse(device, kind: str, name: str, kwargs: Mapping[str, Any]):
-        return allowlist.blocked(device, kind, name) or (
-            allowlist.path_outside(kwargs, experiment_path)
+        return blocklist.blocked(device, kind, name) or (
+            blocklist.path_outside(kwargs, experiment_path)
             if kind in ("command", "query")
             else None
         )
@@ -124,13 +124,13 @@ def _refuse(app_context) -> Callable[[Any, str, str, Mapping[str, Any]], Optiona
 
 def _in_experiment(app_context) -> Callable[[Mapping[str, Any]], Dict[str, Any]]:
     """A command's or query's relative paths, read inside the open experiment."""
-    return lambda kwargs: allowlist.in_experiment(
+    return lambda kwargs: blocklist.in_experiment(
         kwargs, lambda: getattr(app_context, "experiment_path", None)
     )
 
 
 def _not_allowed(microscope: FibsemMicroscope) -> Callable[[str, str], Optional[str]]:
-    """Why a route call is on the allowlist's block list (a device or service
+    """Why a route call is on the blocklist (a device or service
     write or command), or None: for a request, before it is filed. Its
     arguments are checked when it runs, as for any call."""
 
@@ -151,7 +151,7 @@ def _not_allowed(microscope: FibsemMicroscope) -> Callable[[str, str], Optional[
         else:
             return None
         device = devices.get(parts[2])
-        return None if device is None else allowlist.blocked(device, kind, name)
+        return None if device is None else blocklist.blocked(device, kind, name)
 
     return why
 
@@ -271,7 +271,7 @@ _REFUSED_ACTIONS = {
 
 
 # The refusals of the agent's permissions: its level, Assist's ask-first, Off,
-# a stop, and the allowlist. The 409s and 422s are the call's own trouble, and
+# a stop, and the blocklist. The 409s and 422s are the call's own trouble, and
 # the routes log those (``devices.refusal``).
 AGENT_REFUSALS = ("level", "ask_first", "agent_off", "agent_stopped", "not_allowed")
 
@@ -584,7 +584,7 @@ def build_server(
     paths = _in_experiment(app_context)
     # The analysis services read saved data and use no device, so they are
     # served with or without the microscope: reads and queries at Watch, a
-    # command at Drive with no control taken, and the same allowlist.
+    # command at Drive with no control taken, and the same blocklist.
     app.include_router(
         build_device_router(
             lambda: services,
@@ -602,7 +602,7 @@ def build_server(
         # Every device's parameters and commands, as the device server serves
         # them: reads at Watch, writes and commands at Drive with control of the
         # microscope. The chamber's state and pressure are read here; pumping
-        # and venting are the operator's, so the allowlist refuses them.
+        # and venting are the operator's, so the blocklist refuses them.
         app.include_router(
             build_device_router(
                 lambda: microscope.devices,
@@ -682,7 +682,7 @@ def build_server(
             not_allowed=_not_allowed(microscope) if serve_microscope else None,
             experiment_path=lambda: getattr(app_context, "experiment_path", None),
             experiment=getattr(app_context, "recording_experiment", None),
-            path_refused=lambda kwargs: allowlist.path_outside(
+            path_refused=lambda kwargs: blocklist.path_outside(
                 paths(kwargs), lambda: getattr(app_context, "experiment_path", None)
             ),
         )

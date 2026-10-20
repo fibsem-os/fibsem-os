@@ -1,6 +1,6 @@
-"""The App Server's allowlist: what the agent may never touch, at any level
-(Patrick, 2026-10-14). The level decides how it acts; the allowlist whether it
-ever may.
+"""The App Server's blocklist: what the agent may never touch, at any level
+(Patrick, 2026-10-14). The level decides how it acts; the blocklist names what
+it never may, and allows everything else.
 
 Skipped when the [server] extra is not installed.
 """
@@ -15,7 +15,7 @@ pytest.importorskip("httpx")  # TestClient transport
 from fastapi.testclient import TestClient  # noqa: E402
 
 from fibsem import utils  # noqa: E402
-from fibsem.ai.agent.allowlist import blocked, path_outside  # noqa: E402
+from fibsem.ai.agent.blocklist import blocked, path_outside  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 
 TOKEN = "test-token"
