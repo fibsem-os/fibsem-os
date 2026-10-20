@@ -27,13 +27,14 @@ def connect(args: argparse.Namespace) -> Any:
     return microscope
 
 
-def open_session(microscope, experiment) -> AppSession:
-    """A session on *microscope* with *experiment* open and its events
-    recorded."""
+def open_session(microscope, experiment=None) -> AppSession:
+    """A session on *microscope* with *experiment* open (when given) and its
+    events recorded."""
     session = AppSession()
     session.microscope = microscope
     session.start_recording()
-    session.adopt(experiment)
+    if experiment is not None:
+        session.adopt(experiment)
     return session
 
 
@@ -49,7 +50,9 @@ def serve_until_stopped(
         print("error: the App Server did not start; see the log.")
         return 1
     host = session.app_server
-    print(f"Serving {session.experiment.name} at {host.url} (agent at Watch).")
+    experiment = session.experiment
+    what = experiment.name if experiment is not None else "no experiment"
+    print(f"Serving {what} at {host.url} (agent at Watch).")
     print(f"Chat and level controls: {chat_url(host)}")
     print(setup_text(host.url) or "fibsem-mcp is not installed beside this Python.")
     stop = stop or threading.Event()

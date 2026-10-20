@@ -430,23 +430,25 @@ class AppContext:
 
     # --- discovery --------------------------------------------------------------
 
+    @staticmethod
+    def experiment_entry(summary) -> Dict[str, Any]:
+        """One experiment in a listing, from its ``ExperimentSummary``."""
+        return {
+            "name": summary.name,
+            "path": summary.path,
+            "app": summary.app,
+            "created_at": to_iso(summary.created_at),
+            "num_items": summary.num_lamella,
+            "available": summary.available,
+            "instrument_model": summary.instrument_model,
+            "software_version": summary.software_version,
+        }
+
     def recent_experiments(self) -> List[Dict[str, Any]]:
         """The recents list, via the never-raising peek layer."""
         from fibsem.config import get_recent_experiments
 
-        return [
-            {
-                "name": summary.name,
-                "path": summary.path,
-                "app": summary.app,
-                "created_at": to_iso(summary.created_at),
-                "num_items": summary.num_lamella,
-                "available": summary.available,
-                "instrument_model": summary.instrument_model,
-                "software_version": summary.software_version,
-            }
-            for summary in get_recent_experiments()
-        ]
+        return [self.experiment_entry(s) for s in get_recent_experiments()]
 
     def _not_while_running(self, what: str) -> Optional[Dict[str, Any]]:
         """The refusal while a workflow runs (*what* to do when it has

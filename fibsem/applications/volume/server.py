@@ -111,6 +111,9 @@ class VolumeAppContext(AppContext):
     def protocols(self) -> Dict[str, Any]:
         return {"folder": None, "protocols": []}
 
+    def saved_experiments(self):
+        return {"folder": None, "items": []}
+
     def create_experiment(self, name, protocol=None, description=None):
         return _not_served("create experiments over the App Server")
 

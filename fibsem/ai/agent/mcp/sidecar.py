@@ -1207,6 +1207,9 @@ def build_sidecar(client, capabilities):
     def experiment_list_recent():
         return _app_get("/app/experiment/recent")
 
+    def experiment_list_all():
+        return _app_get("/app/experiment/all")
+
     def protocol_list():
         return _app_get("/app/experiment/protocols")
 
@@ -1598,6 +1601,7 @@ def build_sidecar(client, capabilities):
             item_reorder_milling_stages,
             protocol_reorder_milling_stages,
             experiment_list_recent,
+            experiment_list_all,
             protocol_list,
             experiment_create,
             experiment_load,
