@@ -635,7 +635,7 @@ class BaseTaskManager:
         """Whether the task now running should unwind.
 
         For the callers with no token to poll: the helpers in
-        autolamella/workflows/ui.py, which get the manager. Everything task-side
+        fibsem.workflows.status, which get the manager. Everything task-side
         reads `abort_token` instead, which answers the same question.
         """
         return self.abort_token.is_set()

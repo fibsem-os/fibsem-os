@@ -2,13 +2,13 @@
 
 There are two `_check_for_abort` functions at different layers: the method on
 AutoLamellaTask, which has a task to ask, and the module-level one in
-workflows.ui, which has the run's manager. They previously reached for raw state
+workflows.status, which has the run's manager. They previously reached for raw state
 by two different routes — `self._stop_event` and `task_manager.is_stopped` — and
 so could disagree about what counts as cancelled.
 
 Both now answer from `TaskManager`: the task side polls `abort_token` (which is
 also what milling, autofocus and the inline checks in the fluorescence,
-coincidence-milling and grid tasks already read), and workflows.ui asks
+coincidence-milling and grid tasks already read), and workflows.status asks
 `should_abort` because it has no token to poll. Today both are the run-wide stop
 event, so this is a no-op; the point is that adding a per-task stop has exactly
 one place to change.
@@ -23,11 +23,12 @@ import pytest
 
 from fibsem.applications.autolamella.structures import Experiment, Lamella
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
-from fibsem.applications.autolamella.workflows.ui import _check_for_abort
+from fibsem.workflows.status import _check_for_abort
 
 
 class NoMicroscope:
     fm = None
+    milling = None
 
 
 @pytest.fixture

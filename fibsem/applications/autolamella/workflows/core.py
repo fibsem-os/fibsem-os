@@ -3,10 +3,6 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from fibsem import acquire
 from fibsem import config as fcfg
-from fibsem.applications.autolamella.workflows.ui import (
-    set_images_ui,
-    update_status_ui,
-)
 from fibsem.detection.detection import (
     DetectedFeatures,
     Feature,
@@ -17,6 +13,7 @@ from fibsem.structures import (
     BeamType,
     ImageSettings,
 )
+from fibsem.workflows.status import set_images_ui, update_status_ui
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Lamella

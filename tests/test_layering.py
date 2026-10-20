@@ -118,7 +118,6 @@ def test_app_servers_import_no_ui():
         ("PyQt5.QtCore", True),
         ("napari", True),
         ("fibsem.applications.autolamella.ui.AutoLamellaMainUI", True),
-        ("fibsem.applications.autolamella.workflows.ui", False),
         ("fibsem.uiutils", False),
         ("fibsem.services.milling", False),
     ],
