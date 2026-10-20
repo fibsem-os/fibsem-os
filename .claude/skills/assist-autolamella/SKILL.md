@@ -172,7 +172,8 @@ to check coincidence), file them and the `proposal_decide` call together as
 one request instead.
 
 Two playbook rules hold at Assist too. Before you put forward a Setup
-position or a POI, check coincidence as *Before a position or a POI* says:
+position or a POI, check focus, contrast and coincidence as *Before a position or
+a POI* says:
 the fresh SEM and FIB images and any `stage_stable_move` or
 `stage_vertical_move` go in one request, and you file the decision only once
 both beams agree. And *When to propose auto*: propose switching the milling

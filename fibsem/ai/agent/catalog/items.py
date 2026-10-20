@@ -467,7 +467,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="item_update_task_config",
-        description="Patch an item's task config with dotted-path edits (e.g. {'milling.mill_rough.stages.0.pattern.depth': 2e-6}). Echo the version from item_get_task_config — a mismatch is refused (409 stale_config): re-read and re-patch. A task currently running for that item is refused (it already copied its config); pending tasks pick the change up at start. Values are validated against the live field's type and declared bounds; the response echoes every change old -> new.",
+        description="Patch an item's task config with dotted-path edits (e.g. {'milling.mill_rough.stages.0.pattern.depth': 2e-6}). Echo the version from item_get_task_config — a mismatch is refused (409 stale_config): re-read and re-patch. A task currently running for that item is refused (it already copied its config); pending tasks pick the change up at start. Values are validated against the live field's type and declared bounds; the response echoes every change old -> new. Some tasks edit other configs as they run: Setup moves the fiducial to the centre of the alignment area (sync_fiducial_position), Rough Milling moves the Polishing patterns to its own position (sync_polishing_position); turn the sync off in that task's config to keep a hand edit.",
         method="POST",
         path="/app/experiment/items/{item_name}/task_config/{task_name}",
         level="drive",
