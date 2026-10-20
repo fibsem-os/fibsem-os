@@ -8,13 +8,16 @@ from typing import Dict, Optional, Tuple
 
 from PyQt5.QtWidgets import QAction, QLabel, QMenu
 
+from fibsem.applications.autolamella.config_edits import (
+    edit_item_fields,
+    item_fields_version,
+)
 from fibsem.applications.autolamella.structures import Lamella
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import ACCENT_COLOR, NEUTRAL_550
 from fibsem.ui.widgets.preflight import format_clock
-from fibsem.util.timestamps import now
-from fibsem.workflows.quality import QualityRecord, Verdict
+from fibsem.workflows.quality import Verdict
 from fibsem.workflows.status import TaskState, TaskStatus
 
 # What the lamella displays know about grids: `GridRecord.id` -> (name, loaded).
@@ -149,8 +152,8 @@ def add_defect_menu(menu: QMenu, lamella, on_changed) -> QMenu:
     no way to mark a lamella good. Good, rework and failed are offered now, with
     "Not assessed" to take a judgement back.
 
-    The record is replaced rather than edited in place: every display of the
-    verdict redraws off `lamella.events.defect`, which only a replacement raises.
+    Written as the App Server's item patch writes it (`edit_item_fields`): a new
+    record, so every display of the verdict redraws off `lamella.events.defect`.
     Who set it is filled in by whatever saves the change, from the experiment's
     operator; this menu has no experiment to ask.
     """
@@ -163,11 +166,13 @@ def add_defect_menu(menu: QMenu, lamella, on_changed) -> QMenu:
             if verdict is lamella.defect.verdict:
                 _show_current()  # re-tick: choosing the current one changes nothing
                 return
-            lamella.defect = QualityRecord(
-                verdict=verdict,
-                updated_at=None if verdict is Verdict.UNASSESSED else now(),
+            edited = edit_item_fields(
+                lamella,
+                {"defect.verdict": verdict.name},
+                item_fields_version(lamella),
             )
-            on_changed()
+            if edited["applied"]:
+                on_changed()
 
         action.triggered.connect(_set)
 

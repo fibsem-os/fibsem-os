@@ -448,7 +448,7 @@ class AutoLamellaOverviewTabBase(QWidget):
     def _on_remove_requested(self, lamella) -> None:
         """Remove a lamella from the experiment.
 
-        The row's own button already asked -- `_LamellaRow._on_remove_clicked` puts up
+        The row's own button already asked -- `LamellaRow._on_remove_clicked` puts up
         the confirmation before it emits -- so this does not ask twice.
 
         Re-marks the canvas afterwards. The window rebuilds displays off the experiment's

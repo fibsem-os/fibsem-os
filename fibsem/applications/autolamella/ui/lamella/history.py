@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 from PyQt5.QtCore import QSize, Qt, QThread, QTimer, QUrl, pyqtSignal
-from PyQt5.QtGui import QDesktopServices, QImage, QImageReader, QPixmap
+from PyQt5.QtGui import QDesktopServices, QImageReader, QPixmap
 from PyQt5.QtWidgets import (
     QAction,
     QFrame,
@@ -43,6 +43,7 @@ from fibsem.applications.autolamella.ui.common.thumbnails import (
     PLACEHOLDER_HEIGHT,
     TARGET_WIDTH,
     ClickableLabel,
+    file_stamp,
     load_and_resize,
 )
 from fibsem.cancellation import CANCELLED, COMPLETED, FAILED, SKIPPED
@@ -63,6 +64,7 @@ from fibsem.ui.tokens import (
     PANEL_COLOR,
     SURFACE_COLOR,
 )
+from fibsem.ui.utils import arr_to_qimage
 from fibsem.ui.widgets.custom_widgets import ElidedLabel
 from fibsem.ui.widgets.image_viewer_dialog import ViewerItem, open_image_viewer
 from fibsem.ui.widgets.task_summary_formatting import STATUS_BADGE_COLORS
@@ -86,30 +88,6 @@ _CAPTION_STYLE = (
     f"color: {NEUTRAL_550}; font-family: {NUMBER_FONT}; font-size: 11px;"
     " background: transparent;"
 )
-
-
-def _arr_to_pixmap(arr: np.ndarray, w: int, h: int) -> QPixmap:
-    """Convert a numpy array to a QPixmap scaled to (w, h)."""
-    if arr.ndim == 2:
-        arr = np.stack([arr, arr, arr], axis=2)
-    arr = np.ascontiguousarray(arr, dtype=np.uint8)
-    ih, iw, c = arr.shape
-    qimg = QImage(arr.data, iw, ih, iw * c, QImage.Format_RGB888)
-    return QPixmap.fromImage(qimg).scaled(
-        w,
-        h,
-        Qt.AspectRatioMode.KeepAspectRatio,
-        Qt.TransformationMode.SmoothTransformation,
-    )
-
-
-def _stamp(path: str) -> Optional[Tuple[int, int]]:
-    """The file's modification time and size, or None when it cannot be read."""
-    try:
-        st = os.stat(path)
-    except OSError:
-        return None
-    return st.st_mtime_ns, st.st_size
 
 
 class _ClickableRow(QWidget):
@@ -525,7 +503,7 @@ class LamellaTaskImageWidget(QWidget):
             return
         self._cancel_worker()
         for path in list(self._pixmap_cache):
-            if _stamp(path) != self._stamps.get(path):
+            if file_stamp(path) != self._stamps.get(path):
                 self._forget_image(path)
         self._rebuild()
 
@@ -687,7 +665,7 @@ class LamellaTaskImageWidget(QWidget):
                 self._show_caption(fpath)
             else:
                 to_load.append(fpath)
-                self._stamps[fpath] = _stamp(fpath)
+                self._stamps[fpath] = file_stamp(fpath)
 
         if to_load:
             self._worker = _ImageLoaderWorker(to_load, self._thumb_width)
@@ -1165,9 +1143,9 @@ class LamellaTaskImageWidget(QWidget):
             self._kinds[filepath] = info.kind
         self._captions[filepath] = (image_caption(info), image_summary(info))
         self._show_caption(filepath)
-        arr = draw_image_overlays(arr, pixel_size_x)
-        h, w = arr.shape[:2]
-        pixmap = _arr_to_pixmap(arr, w, h)
+        pixmap = QPixmap.fromImage(
+            arr_to_qimage(draw_image_overlays(arr, pixel_size_x))
+        )
         self._pixmap_cache[filepath] = pixmap
 
         label = self._placeholder_labels.get(filepath)

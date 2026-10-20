@@ -39,7 +39,7 @@ def widget(qapp):
         view_controller=lambda: host.view_controller,
     )
     w.fm.objective.insert()
-    w.channelSettingsWidget.channel_settings = [
+    w.acquisitionSettingsWidget.channel_settings = [
         ChannelSettings(name="one", excitation_wavelength=365.0),
         ChannelSettings(name="two", excitation_wavelength=450.0),
         ChannelSettings(name="three", excitation_wavelength=550.0),
@@ -91,8 +91,8 @@ def test_the_live_view_still_streams_the_selected_channel(widget, monkeypatch):
         "start_acquisition",
         lambda channel_settings: streamed.append(channel_settings),
     )
-    channels = widget.channelSettingsWidget.channel_settings
-    widget.channelSettingsWidget._list._set_selected(channels[1])
+    channels = widget.acquisitionSettingsWidget.channel_settings
+    widget.acquisitionSettingsWidget.channels_widget._list._set_selected(channels[1])
     widget.toggle_acquisition()
     assert [c.name for c in streamed] == ["two"]
 
@@ -109,7 +109,10 @@ def test_an_image_is_acquired_and_saved_through_the_imaging_service(
     widget.acquisition_finished_signal.connect(lambda: finished.append(True))
 
     widget._image_acquistion_worker(
-        widget.channelSettingsWidget.channel_settings[:1], None, str(tmp_path), "image"
+        widget.acquisitionSettingsWidget.channel_settings[:1],
+        None,
+        str(tmp_path),
+        "image",
     )
 
     assert [p.name for p in tmp_path.glob("image-*.ome.tiff")]

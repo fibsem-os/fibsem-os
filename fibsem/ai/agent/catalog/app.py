@@ -240,12 +240,41 @@ def _workflow_start_grids(
         )
         if a.get(key)
     ]
-    return {
-        "what": "Grids",
-        "change": f"Run {wording.names_text(a.get('task_names'), 'no tasks')} on "
+    change = (
+        f"Run {wording.names_text(a.get('task_names'), 'no tasks')} on "
         f"{wording.names_text(a.get('grid_names'), 'every grid')}"
-        + (f", then {' and '.join(ends)}" if ends else ""),
-    }
+        + (f", then {' and '.join(ends)}" if ends else "")
+    )
+    plan = ctx.get(
+        "/app/workflow/grids/plan",
+        {
+            key: a[key]
+            for key in ("task_names", "grid_names", "screen_all")
+            if a.get(key) is not None
+        },
+    )
+    estimate = plan.get("estimate") if isinstance(plan, dict) else None
+    if isinstance(estimate, dict):
+        change += wording.about(estimate.get("seconds"))
+        for task in estimate.get("tasks") or []:
+            overview = task.get("overview")
+            if isinstance(overview, dict):
+                change += f"\n{task.get('task_name')}: {_grid_overview_text(overview)}"
+    return {"what": "Grids", "change": change}
+
+
+def _grid_overview_text(overview: Dict[str, Any]) -> str:
+    """A grid overview task's tiles and size: "3 × 3 tiles of 500 µm, about
+    1.4 × 0.93 mm"."""
+    text = f"{overview.get('nrows')} × {overview.get('ncols')} tiles"
+    if overview.get("tile_hfw"):
+        text += f" of {wording.distance(overview['tile_hfw'])}"
+    if overview.get("width") and overview.get("height"):
+        text += (
+            f", about {wording.distance(overview['width'])} × "
+            f"{wording.distance(overview['height'])}"
+        )
+    return text
 
 
 def _workflow_queue_grids(
@@ -453,6 +482,20 @@ TOOLS: Tuple[ToolSpec, ...] = (
         },
     ),
     ToolSpec(
+        name="experiment_render_markers",
+        description="Any saved SEM or FIB image in the experiment (an overview, yours or a grid task's, or a single image) with the experiment's items drawn on it, as the overview plot dialog draws them: each item's number, green, red for a failed one, and a scale bar. grid_name draws only that grid's items; without it, every item with a pose. Saved beside the image as markers/<image>.png (replaced when drawn again): cite that path as evidence ({image: path}) when you report on the items, so the operator sees it in your note. Answers the path, the items drawn and a preview. Fluorescence images are refused.",
+        method="POST",
+        path="/app/experiment/images/markers",
+        level="watch",
+        router="app",
+        part=LAMELLAE,
+        params={
+            "path": "a beam image file path inside the experiment folder",
+            "grid_name": "draw only this grid's items",
+        },
+        optional=("grid_name",),
+    ),
+    ToolSpec(
         name="experiment_get_image_stage_position",
         description="The stage position under a point of any saved image in the experiment, beam or FM, from the image's own metadata, so it holds wherever the stage is now. Give x, y in source pixels, or fx, fy from 0 to 1 for a point read off a preview. Nothing moves.",
         method="GET",
@@ -482,7 +525,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="experiment_list_files",
-        description="One folder of the open experiment: its folders, then its files, each with name, path (relative to the experiment), kind (folder, text, image, other), size and modified time. Start at the top (no dir) and go down one folder at a time.",
+        description="One folder of the open experiment: its folders, then its files, each with name, path (relative to the experiment), kind (folder, text, image, other), size and modified time; a folder also says how many images it holds at any depth. Start at the top (no dir) and go down one folder at a time.",
         method="GET",
         path="/app/experiment/files",
         level="watch",
@@ -990,6 +1033,14 @@ TOOLS: Tuple[ToolSpec, ...] = (
         router="app",
     ),
     ToolSpec(
+        name="experiment_list_all",
+        description="Every experiment under the experiments folder (up to 3 folders deep), newest first, without loading them: where experiment_create puts a new one, and what experiment_load can open.",
+        method="GET",
+        path="/app/experiment/all",
+        level="watch",
+        router="app",
+    ),
+    ToolSpec(
         name="protocol_list",
         description="The protocol files in the protocol folder, by name, with the default marked: what experiment_create and protocol_load take.",
         method="GET",
@@ -999,13 +1050,13 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="experiment_create",
-        description="Create an experiment in the default experiments folder and open it in place of the current one, with a protocol from protocol_list (the default when omitted). An existing name is refused, never overwritten. Refused while a workflow runs.",
+        description="Create an experiment under the experiments folder and open it in place of the current one, with a protocol from protocol_list (the default when omitted). name is a folder, or a path of up to 3 folders (e.g. 2026-10-20/grid-a), made as needed; an existing folder is refused, never overwritten. Refused while a workflow runs.",
         method="POST",
         path="/app/experiment/create",
         level="drive",
         router="app",
         params={
-            "name": "the new experiment's folder name",
+            "name": "the new experiment's folder under the experiments folder: a name, or a relative path of folders",
             "protocol": "optional protocol name from protocol_list",
             "description": "optional one-line description",
         },
@@ -1014,12 +1065,12 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="experiment_load",
-        description="Open one of the recent experiments (a path from experiment_list_recent) in place of the current one. Any other experiment is the operator's to open. Refused while a workflow runs.",
+        description="Open an experiment in place of the current one: a path from experiment_list_recent or experiment_list_all. Any other experiment is the operator's to open. Refused while a workflow runs.",
         method="POST",
         path="/app/experiment/load",
         level="drive",
         router="app",
-        params={"path": "a path from experiment_list_recent"},
+        params={"path": "a path from experiment_list_recent or experiment_list_all"},
         line=_experiment_load,
     ),
     ToolSpec(

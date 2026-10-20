@@ -546,8 +546,7 @@ class RequestStore:
                 raise RequestRefused(
                     403,
                     "not_allowed",
-                    f"Action {index + 1}: the agent may not use {tool} this way, "
-                    f"at any level: {why}.",
+                    f"Action {index + 1}: {why}",
                     call=_call_named(spec, tool, arguments),
                 )
             kwargs = body.get("kwargs") if isinstance(body, dict) else None
@@ -821,9 +820,13 @@ class RequestStore:
         """Read a route in this process: the document a config edit patches, or
         a service query's answer with *kwargs* (a query moves nothing), such as
         which grid an exchange unloads or how long an overview takes."""
-        method, body = (
-            ("POST", {"kwargs": kwargs or {}}) if "/queries/" in path else ("GET", None)
-        )
+        if "/queries/" in path:
+            method, body = "POST", {"kwargs": kwargs or {}}
+        elif path.endswith("/workflow/grids/plan"):
+            # The grid run's plan: a POST that only reads, its body the run's.
+            method, body = "POST", dict(kwargs or {})
+        else:
+            method, body = "GET", None
         code, answer = asyncio.run(
             _asgi_call(self._app, method, path, body, self._auth.token)
         )

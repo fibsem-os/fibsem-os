@@ -44,7 +44,7 @@ from PyQt5.QtWidgets import QApplication
 from fibsem.applications.autolamella.structures import Lamella
 from fibsem.applications.autolamella.ui.lamella.rows import (
     LamellaNameListWidget,
-    _LamellaRow,
+    LamellaRow,
 )
 from fibsem.workflows.status import TaskState, TaskStatus
 
@@ -76,7 +76,7 @@ class TestItDoesNotSubscribeAcrossThreads:
         is pinned is the absence of the subscription, since that is what makes the state
         unreachable however it would otherwise have been arrived at.
         """
-        source = textwrap.dedent(inspect.getsource(_LamellaRow.__init__))
+        source = textwrap.dedent(inspect.getsource(LamellaRow.__init__))
         connects = []
         for node in ast.walk(ast.parse(source)):
             if not (
@@ -160,7 +160,7 @@ class TestWhatItStillFollows:
         widget.set_lamella(lamellae)
         refreshed: list = []
         monkeypatch.setattr(
-            _LamellaRow, "refresh", lambda self: refreshed.append(self.lamella.name)
+            LamellaRow, "refresh", lambda self: refreshed.append(self.lamella.name)
         )
 
         widget.refresh_lamella(lamellae[1])

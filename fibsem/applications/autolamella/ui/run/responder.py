@@ -162,4 +162,4 @@ class QtResponder(QObject):
         widget = self._panel.fm_control_widget
         if widget is None:
             return
-        widget.channelSettingsWidget.channel_settings = request.channels
+        widget.acquisitionSettingsWidget.channel_settings = request.channels

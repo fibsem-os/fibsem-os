@@ -3,12 +3,15 @@ microscope's tabs, the workflow line and the prompt bar.
 
 The microscope's tabs (Image, Movement, Milling, Sample, Fluorescence,
 Detection, Spot Burn) are built when a microscope connects and dropped when it
-goes, by `show_microscope`.
+goes, by `show_microscope`. The panel redraws itself when the session changes
+and when the open experiment's positions do.
 """
 
 import logging
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
+from psygnal import EmissionInfo
+from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QGridLayout, QLabel, QTabWidget, QWidget
 from superqt import ensure_main_thread
 
@@ -27,6 +30,7 @@ from fibsem.ui.FibsemSampleWidget import FibsemSampleWidget
 from fibsem.ui.widgets.custom_widgets import scrollable
 from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
 from fibsem.ui.widgets.workflow.prompt_bar import PromptBar
+from fibsem.workflows.session import EXPERIMENT, MICROSCOPE
 
 if DETECTION_AVAILABLE:  # ml dependencies are optional
     from fibsem.ui.FibsemEmbeddedDetectionWidget import (
@@ -34,6 +38,7 @@ if DETECTION_AVAILABLE:  # ml dependencies are optional
     )
 
 if TYPE_CHECKING:
+    from fibsem.applications.autolamella.structures import Experiment
     from fibsem.workflows.session import AppSession
     from fibsem.workflows.status import WorkflowStatusEvent
 
@@ -41,6 +46,9 @@ __all__ = ["MicroscopePanel"]
 
 
 class MicroscopePanel(QWidget):
+    # The session's `changed`, carried to the GUI thread.
+    _session_changed = pyqtSignal(str)
+
     def __init__(
         self,
         session: "AppSession",
@@ -57,6 +65,8 @@ class MicroscopePanel(QWidget):
         self._overview_acquiring = overview_acquiring
         # the microscope whose moves the stage readout follows
         self._stage_followed: Optional[FibsemMicroscope] = None
+        # the experiment whose position events the panel follows
+        self._experiment_followed: Optional["Experiment"] = None
 
         self.image_widget: Optional[FibsemImageSettingsWidget] = None
         self.movement_widget: Optional[FibsemMovementWidget] = None
@@ -85,6 +95,62 @@ class MicroscopePanel(QWidget):
         self.label_workflow_information.setWordWrap(True)
 
         session.runner.starting.connect(self._on_run_starting)
+        self._session_changed.connect(self._on_session_changed)
+        session.changed.connect(self._hear_session)
+
+    def _hear_session(self, what: str) -> None:
+        self._session_changed.emit(what)
+
+    def refresh(self) -> None:
+        """Redraw for the current state of the session."""
+        self.experiment_tab.refresh()
+        if self.session.runner.is_running:
+            return
+
+        # force order: connect -> experiment -> protocol
+        self.refresh_tabs()
+
+        # Nothing to say while idle. The same guidance is in the window's status
+        # bar, which is where it belongs -- shown in both places it read as two
+        # different messages that happened to agree. This label is for the question
+        # a running workflow is asking, which the Yes/No buttons below it answer.
+        self.prompt_bar.clear()
+
+    def _on_session_changed(self, what: str) -> None:
+        """Another microscope or experiment: follow it, redraw and show it. An
+        edit to the open one from elsewhere: redraw."""
+        experiment = self.session.experiment
+        self._follow_experiment(experiment)
+        if experiment is not None:
+            self.experiment_tab.update_lamella_combobox()
+        self.refresh()
+        if experiment is not None and what in (MICROSCOPE, EXPERIMENT):
+            self.show_experiment_tab()
+
+    def _follow_experiment(self, experiment: Optional["Experiment"]) -> None:
+        """Redraw on ``experiment``'s position events, and stop for the last's."""
+        followed = self._experiment_followed
+        if followed is experiment:
+            return
+        if followed is not None:
+            try:
+                followed.events.disconnect(self._on_experiment_event)  # type: ignore
+            except Exception as e:
+                logging.debug(f"Could not disconnect experiment events: {e}")
+        if experiment is not None:
+            experiment.events.connect(self._on_experiment_event)  # type: ignore
+        self._experiment_followed = experiment
+
+    @ensure_main_thread
+    def _on_experiment_event(self, evt: EmissionInfo) -> None:
+        """A position added (and selected), removed or changed (the minimap, a
+        task, an edit)."""
+        if evt.signal.name not in ["inserted", "removed", "changed"]:
+            return
+        self.experiment_tab.update_lamella_combobox(
+            latest=evt.signal.name == "inserted"
+        )
+        self.refresh()
 
     def show_experiment_tab(self) -> None:
         self.tabWidget.setCurrentWidget(self.experiment_tab)

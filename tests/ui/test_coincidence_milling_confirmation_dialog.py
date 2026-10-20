@@ -21,6 +21,10 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QApplication, QPushButton
 
+from fibsem.applications.autolamella.ui.coincidence.confirmation import (
+    CoincidenceMillingConfirmationDialog,
+    _pattern_summary,
+)
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning.patterns import RectanglePattern, TrenchPattern
 from fibsem.milling.strategy.coincidence import (
@@ -29,10 +33,6 @@ from fibsem.milling.strategy.coincidence import (
 )
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import FibsemMillingSettings
-from fibsem.ui.widgets.coincidence_milling_confirmation_dialog import (
-    CoincidenceMillingConfirmationDialog,
-    _pattern_summary,
-)
 
 _app = QApplication.instance() or QApplication(sys.argv)
 

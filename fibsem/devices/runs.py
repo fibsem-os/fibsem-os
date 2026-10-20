@@ -82,6 +82,9 @@ class Run:
     exception: Optional[BaseException] = field(default=None, repr=False)
     # What its starter says about it on its events (the agent's action and level).
     labels: Dict[str, Any] = field(default_factory=dict, repr=False)
+    # Set by a stop asked of it, which it takes as soon as it can: before it
+    # starts milling, a stop has nothing else to set.
+    stop: threading.Event = field(default_factory=threading.Event, repr=False)
 
     def to_dict(self) -> Dict[str, Any]:
         return {

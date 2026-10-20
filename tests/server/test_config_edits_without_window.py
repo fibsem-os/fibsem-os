@@ -259,3 +259,30 @@ def test_the_editors_values_refuse_an_unknown_task(tmp_path):
     )
     assert result["applied"] is False
     assert result["task_names"] == [TASK]
+
+
+def test_the_running_task_s_config_is_refused_at_filing_and_at_apply(tmp_path):
+    """Only the running task's own config waits (FIB-1505): a request to edit
+    it is refused when it is filed, not after the operator approves it."""
+    from types import SimpleNamespace
+
+    from fibsem.workflows.queue import TaskQueue
+
+    context, experiment, scope = _context(tmp_path)
+    lamella = experiment.positions[0]
+    queue = TaskQueue()
+    queue.build_from_pairs([(lamella.name, TASK)])
+    queue.next()
+    context._session.runner.manager = SimpleNamespace(queue=queue)
+    context._session.runner.is_running = True
+    arguments = {"item_name": lamella.name, "task_name": TASK, "patch": {DEPTH: 2.5e-6}}
+
+    why = context.check_action("item_update_task_config", arguments)
+    assert why and "is running for" in why
+    refused = context.apply_item_task_config_patch(
+        lamella.name, TASK, {DEPTH: 2.5e-6}, config_version(lamella.task_config[TASK])
+    )
+    assert refused["applied"] is False and refused["error"] == why
+
+    other = dict(arguments, task_name="Setup Lamella Position")
+    assert context.check_action("item_update_task_config", other) is None

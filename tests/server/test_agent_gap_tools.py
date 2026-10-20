@@ -568,3 +568,54 @@ def test_alignment_methods_are_compared_on_saved_images(driving, arctis):  # noq
 def test_the_operator_reads_each_new_action_plainly(tool, arguments, change):
     line = describe_action(tool, arguments, "")
     assert change in line["change"]
+
+
+def test_a_grid_run_line_gives_its_time_and_overview_size():
+    """The grid run's card says what the confirmation does (FIB-1504)."""
+    from fibsem.ai.agent.catalog.app import _workflow_start_grids
+    from fibsem.util import wording
+
+    plan = {
+        "estimate": {
+            "seconds": 150,
+            "tasks": [
+                {
+                    "task_name": "SEM Overview",
+                    "overview": {
+                        "nrows": 3,
+                        "ncols": 3,
+                        "tile_hfw": 500e-6,
+                        "width": 1.4e-3,
+                        "height": 0.93e-3,
+                    },
+                }
+            ],
+        }
+    }
+    read = lambda route, kwargs=None: plan  # noqa: E731
+    line = _workflow_start_grids(
+        {"task_names": ["SEM Overview"], "grid_names": ["Grid-01"]},
+        wording.ActionContext(read=read),
+    )
+    first, overview = line["change"].split("\n")
+    assert first.endswith(", about 2 min")
+    assert overview.startswith("SEM Overview: 3 × 3 tiles of 500 µm, about 1.4 mm")
+
+
+def test_a_masked_overview_line_counts_the_tiles_it_takes():
+    """15 of 25 tiles, not a plain 5 × 5 (round 11 R3)."""
+    from fibsem.ai.agent.catalog.imaging import _beam_acquire_overview
+    from fibsem.util import wording
+
+    mask = [[r in (1, 2, 3) for _ in range(5)] for r in range(5)]
+    line = _beam_acquire_overview(
+        {"settings": {"nrows": 5, "ncols": 5, "tile_mask": mask}},
+        wording.ActionContext(),
+    )
+    assert line["change"].startswith(
+        "Take a 5 × 5 SEM overview with 15 of its 25 tiles"
+    )
+    whole = _beam_acquire_overview(
+        {"settings": {"nrows": 5, "ncols": 5}}, wording.ActionContext()
+    )
+    assert "tiles," not in whole["change"].split(",")[0]

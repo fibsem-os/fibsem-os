@@ -574,7 +574,7 @@ def test_a_run_that_fails_a_task_leaves_a_line_until_the_next_run(
     )
     assert window.status_bar.text == "02-civil-cub › Polishing failed: no focus peak"
 
-    window._on_workflow_finished()
+    window.run_relay.finished.emit(False)
     bar = window.status_bar
     assert bar.showing == "failure"
     assert bar.text == (
@@ -592,7 +592,7 @@ def test_a_run_that_fails_a_task_leaves_a_line_until_the_next_run(
 
     signal.emit(_report(TaskStatus.InProgress, item="01-fancy-mite"))
     assert bar.failure is None, "the next run starts clean"
-    window._on_workflow_finished()
+    window.run_relay.finished.emit(False)
     assert bar.failure is None
     assert toasts[-1] == "Workflow finished."
 
@@ -605,7 +605,7 @@ def test_a_run_that_fails_a_task_leaves_a_line_until_the_next_run(
     )
     before = len(toasts)
     signal.emit(_report(TaskStatus.InProgress, item="01-fancy-mite"))
-    window._on_workflow_finished()
+    window.run_relay.finished.emit(False)
     assert toasts[before:] == []
     window.microscope.disconnect()
     _close(window, qapp)

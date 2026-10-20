@@ -123,7 +123,7 @@ def _reconnect(editor, session, microscope):
 
 
 def _channel_list(editor):
-    return editor.task_editor.fluorescence.channelSettingsWidget
+    return editor.task_editor.fluorescence.acquisition_settings.channels_widget
 
 
 def _references_to(editor, *targets):
@@ -219,7 +219,9 @@ def _fluorescence_widget(microscope):
     widget = AutoLamellaFluorescenceAcquisitionTaskConfigWidget(
         microscope=microscope, config=config
     )
-    assert widget.channelSettingsWidget._list._list.count() == len(_channels())
+    assert widget.acquisition_settings.channels_widget._list._list.count() == len(
+        _channels()
+    )
     return widget
 
 
@@ -231,7 +233,7 @@ def test_every_channel_row_offers_the_new_filters(qapp):
     have, that rebuild ran over zero rows and proved nothing.
     """
     widget = _fluorescence_widget(_microscope_without_fm())
-    rows = widget.channelSettingsWidget._list
+    rows = widget.acquisition_settings.channels_widget._list
 
     new = _microscope_with_fm()
     widget.set_microscope(new)
@@ -251,7 +253,7 @@ def test_reconnect_keeps_the_very_same_channel_objects(qapp):
     editor writing to objects the experiment no longer holds.
     """
     widget = _fluorescence_widget(_microscope_without_fm())
-    rows = widget.channelSettingsWidget._list
+    rows = widget.acquisition_settings.channels_widget._list
     before = list(rows.channel_settings)
 
     widget.set_microscope(_microscope_with_fm())

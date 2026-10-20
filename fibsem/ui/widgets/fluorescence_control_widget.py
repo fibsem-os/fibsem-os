@@ -36,13 +36,11 @@ from fibsem.session_state import session_state_for
 from fibsem.structures import DeviceImagingState, Point
 from fibsem.ui import notification_service
 from fibsem.ui.fm.widgets import (
-    AutofocusWidget,
     CameraWidget,
-    FluorescenceMultiChannelWidget,
     HistogramWidget,
     ObjectiveControlWidget,
-    ZParametersWidget,
 )
+from fibsem.ui.fm.widgets.acquisition_settings import FMAcquisitionSettingsWidget
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
@@ -55,7 +53,6 @@ from fibsem.ui.widgets.custom_widgets import (
 )
 
 if TYPE_CHECKING:
-    from fibsem.applications.autolamella.structures import Lamella
     from fibsem.fm.progress import FluorescenceAcquisitionProgress
 
 
@@ -145,32 +142,14 @@ class FMControlWidget(QWidget):
         )
         self.cameraPanel.collapse()
 
-        # create channel settings widget
-        self.channelSettingsWidget = FluorescenceMultiChannelWidget(
-            fm=self.fm, channel_settings=[self.channel_settings], parent=self
+        self.acquisitionSettingsWidget = FMAcquisitionSettingsWidget(
+            fm=self.fm,
+            channel_settings=[self.channel_settings],
+            z_parameters=ZParameters(),
+            z_title="Z-Stack Parameters",
+            autofocus_before_z=True,
+            parent=self,
         )
-        self.channelPanel = TitledPanel(
-            "Channel Settings", content=self.channelSettingsWidget, collapsible=True
-        )
-        self.channelPanel.expand()  # expand channel settings by default
-
-        # create z parameters widget
-        self.zParametersWidget = ZParametersWidget(
-            z_parameters=ZParameters(), parent=self
-        )
-        self.zParametersPanel = TitledPanel(
-            "Z-Stack Parameters", content=self.zParametersWidget, collapsible=True
-        )
-        self.zParametersPanel.collapse()
-
-        # Create autofocus widget
-        self.autofocusWidget = AutofocusWidget(
-            channel_settings=self.channelSettingsWidget.channel_settings, parent=self
-        )
-        self.autofocusPanel = TitledPanel(
-            "Autofocus Settings", content=self.autofocusWidget, collapsible=True
-        )
-        self.autofocusPanel.collapse()
 
         # image histogram
         self.histogramWidget = HistogramWidget(parent=self)
@@ -232,9 +211,7 @@ class FMControlWidget(QWidget):
         scroll_layout = QVBoxLayout(scroll_content)
         scroll_layout.addWidget(self.objectivePanel)
         scroll_layout.addWidget(self.cameraPanel)
-        scroll_layout.addWidget(self.channelPanel)
-        scroll_layout.addWidget(self.autofocusPanel)
-        scroll_layout.addWidget(self.zParametersPanel)
+        scroll_layout.addWidget(self.acquisitionSettingsWidget)
         scroll_layout.addWidget(self.histogramPanel)
         scroll_layout.addStretch()
 
@@ -290,16 +267,16 @@ class FMControlWidget(QWidget):
             Dictionary containing all current settings for acquisitions
         """
         # Get channel settings (always a list now)
-        channel_settings = self.channelSettingsWidget.channel_settings
+        channel_settings = self.acquisitionSettingsWidget.channel_settings
 
         # Get selected channel for live acquisition
-        selected_channel_settings = self.channelSettingsWidget.selected_channel
+        selected_channel_settings = self.acquisitionSettingsWidget.selected_channel
 
         return {
             "channel_settings": channel_settings,
             "selected_channel_settings": selected_channel_settings,
-            "z_parameters": self.zParametersWidget.z_parameters,
-            "autofocus_settings": self.autofocusWidget.autofocus_settings,
+            "z_parameters": self.acquisitionSettingsWidget.z_parameters,
+            "autofocus_settings": self.acquisitionSettingsWidget.autofocus_settings,
             "camera_settings": self.cameraWidget.camera_settings,
         }
 
@@ -328,7 +305,7 @@ class FMControlWidget(QWidget):
         self.fm.acquiring_changed.connect(self._on_fm_acquiring_changed)
 
         # live parameter updates from channel list
-        self.channelSettingsWidget.channel_field_changed.connect(
+        self.acquisitionSettingsWidget.channels_widget.channel_field_changed.connect(
             self._on_channel_field_changed
         )
 
@@ -339,12 +316,10 @@ class FMControlWidget(QWidget):
         self._autosave_fm_configuration = qdebounced(
             self.save_fm_configuration, timeout=1000
         )
-        self.channelSettingsWidget.settings_changed.connect(
+        self.acquisitionSettingsWidget.settings_changed.connect(
             self._on_fm_settings_changed
         )
         self.cameraWidget.settings_changed.connect(self._on_fm_settings_changed)
-        self.autofocusWidget.settings_changed.connect(self._on_fm_settings_changed)
-        self.zParametersWidget.settings_changed.connect(self._on_fm_settings_changed)
         self.comboBox_default_orientation.currentTextChanged.connect(
             self._on_fm_settings_changed
         )
@@ -516,7 +491,7 @@ class FMControlWidget(QWidget):
         """Update a single microscope parameter during live acquisition."""
         if not self.fm.is_streaming:
             return
-        if channel is not self.channelSettingsWidget.selected_channel:
+        if channel is not self.acquisitionSettingsWidget.selected_channel:
             return
         logging.info(f"Channel field changed: {field} -> {value}")
         if field == "excitation_wavelength":
@@ -800,7 +775,7 @@ class FMControlWidget(QWidget):
 
         return str(path), f"{lamella_prefix}{name}"
 
-    def _validate_lamella_selection(self, lamella: "Lamella") -> None:
+    def _validate_lamella_selection(self, lamella: Any) -> None:
         # Check if current position is close to lamella fluorescence pose
         if (
             lamella.fluorescence_pose is None
@@ -975,7 +950,7 @@ class FMControlWidget(QWidget):
             button.setEnabled(may_start)
 
         # Parameters for the *next* run, so they follow the same rule.
-        self.zParametersWidget.setEnabled(may_start)
+        self.acquisitionSettingsWidget.z_parameters_widget.setEnabled(may_start)
 
         # The FM panel's own green border + "LIVE" badge, the chrome the beam panels have
         # had all along. Driven from `is_streaming` rather than inferred from a button or
@@ -993,7 +968,7 @@ class FMControlWidget(QWidget):
         # so another tab's tileset left the position spinbox live against a runner that
         # was stepping the objective per z-level.
         self.objectiveControlWidget.setEnabled(may_touch)
-        self.channelSettingsWidget.setEnabled(may_touch)
+        self.acquisitionSettingsWidget.channels_widget.setEnabled(may_touch)
 
     def run_autofocus(self):
         """Start threaded auto-focus using the current channel settings and Z parameters."""
@@ -1147,12 +1122,14 @@ class FMControlWidget(QWidget):
         """Apply a FluorescenceConfiguration to the widget settings."""
         self._loading_config = True
         try:
-            self.channelSettingsWidget.channel_settings = config.channel_settings
-            self.zParametersWidget.z_parameters = config.z_parameters
+            self.acquisitionSettingsWidget.channel_settings = config.channel_settings
+            self.acquisitionSettingsWidget.z_parameters = config.z_parameters
             if config.camera_settings is not None:
                 self.cameraWidget.camera_settings = config.camera_settings
             if config.autofocus_settings is not None:
-                self.autofocusWidget.set_autofocus_settings(config.autofocus_settings)
+                self.acquisitionSettingsWidget.autofocus_settings = (
+                    config.autofocus_settings
+                )
             # The working file's positions apply only while the microscope
             # configuration is silent. When it states a value, the objective was
             # already set from it at connect, and a working file rewritten every

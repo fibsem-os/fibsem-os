@@ -128,6 +128,27 @@ def test_drive_reads_the_chamber_but_cannot_vent_or_pump_it(client, auth):
         assert read.status_code == 200, parameter
 
 
+@pytest.mark.parametrize("level", [AgentLevel.WATCH, AgentLevel.ASSIST])
+def test_what_is_never_allowed_says_so_below_drive(client, auth, level):
+    """Not "ask first" for a request that is then refused (round 11 F4): the
+    blocklist answers before the level, at every level."""
+    auth.set_level(level)
+    vent = client.post(
+        "/microscope/devices/chamber/commands/vent", headers=AGENT, json={}
+    )
+    assert vent.status_code == 403
+    assert _error(vent) == "not_allowed"
+    assert "may not run chamber.vent, at any level" in vent.json()["detail"]["message"]
+    off = client.put(
+        "/microscope/devices/electron/on", headers=AGENT, json={"value": False}
+    )
+    assert _error(off) == "not_allowed"
+    assert "may not set electron.on" in off.json()["detail"]["message"]
+    # What the blocklist allows is still the level's.
+    moved = client.post(MOVE_RELATIVE, headers=AGENT, json=_NUDGE)
+    assert _error(moved) == ("level" if level is AgentLevel.WATCH else "ask_first")
+
+
 def test_watch_refuses_a_hardware_command_naming_the_level(client, auth):
     moved = client.post(MOVE_RELATIVE, headers=AGENT, json=_NUDGE)
     assert moved.status_code == 403
@@ -392,6 +413,10 @@ def test_a_direct_call_is_described_and_recorded(client, auth, microscope):
         assert client.get("/app/workflow/status", headers=AGENT).status_code == 200
         query = "/microscope/services/stage_movement/queries/geometry"
         assert client.post(query, headers=AGENT, json={"kwargs": {}}).status_code < 500
+        # Nor the experiment image routes: drawing the items on an image is a
+        # read the agent cites (round 11 R11).
+        markers = "/app/experiment/images/markers"
+        assert client.post(markers, headers=AGENT, json={}).status_code < 500
     finally:
         microscope.session.record_signal.disconnect(record)
         microscope.control.changed.disconnect(control)

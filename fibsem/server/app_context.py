@@ -64,9 +64,8 @@ class AppContext:
     # The app the operator works in, as the App Server names it to the agent.
     app_name = "fibsemOS"
 
-    def __init__(self, session, window: Any = None, event_buffer=None):
+    def __init__(self, session, event_buffer=None):
         self._session = session
-        self._window = window
         self._event_buffer = event_buffer
 
     # --- call-time resolution: never cache what the app rebinds ---------------
@@ -430,23 +429,25 @@ class AppContext:
 
     # --- discovery --------------------------------------------------------------
 
+    @staticmethod
+    def experiment_entry(summary) -> Dict[str, Any]:
+        """One experiment in a listing, from its ``ExperimentSummary``."""
+        return {
+            "name": summary.name,
+            "path": summary.path,
+            "app": summary.app,
+            "created_at": to_iso(summary.created_at),
+            "num_items": summary.num_lamella,
+            "available": summary.available,
+            "instrument_model": summary.instrument_model,
+            "software_version": summary.software_version,
+        }
+
     def recent_experiments(self) -> List[Dict[str, Any]]:
         """The recents list, via the never-raising peek layer."""
         from fibsem.config import get_recent_experiments
 
-        return [
-            {
-                "name": summary.name,
-                "path": summary.path,
-                "app": summary.app,
-                "created_at": to_iso(summary.created_at),
-                "num_items": summary.num_lamella,
-                "available": summary.available,
-                "instrument_model": summary.instrument_model,
-                "software_version": summary.software_version,
-            }
-            for summary in get_recent_experiments()
-        ]
+        return [self.experiment_entry(s) for s in get_recent_experiments()]
 
     def _not_while_running(self, what: str) -> Optional[Dict[str, Any]]:
         """The refusal while a workflow runs (*what* to do when it has
@@ -471,18 +472,9 @@ class AppContext:
         """Why the open experiment cannot be replaced now, or None."""
         return self._not_while_running("change experiments") or self._no_microscope()
 
-    def _agent_call(self, call, select_latest: bool = False, timeout: float = 30.0):
-        """``call()`` where the session edits the experiment, then the window's
-        redraw when one is attached."""
-        window = self._window
-
-        def edit():
-            result = call()
-            if window is not None:
-                window.after_agent_edit(select_latest)
-            return result
-
-        return self._session.run_edit(edit).result(timeout=timeout)
+    def _agent_call(self, call, timeout: float = 30.0):
+        """``call()`` where the session edits the experiment."""
+        return self._session.run_edit(call).result(timeout=timeout)
 
     def proposals(self) -> Dict[str, Any]:
         """Every pending proposal, derived from the experiment, with the
@@ -771,10 +763,7 @@ class AppContext:
                 "stopped": False,
                 "reason": "no workflow is running",
             }
-        if self._window is not None:
-            self._window.stop_task_workflow()
-        else:
-            self._runner.stop()
+        self._runner.stop()
         return {"available": True, "stopped": True}
 
     def stop_task(self, item_name: str, task_name: str) -> Dict[str, Any]:
@@ -799,10 +788,7 @@ class AppContext:
                     else None
                 ),
             }
-        if self._window is not None:
-            self._window.stop_current_task()
-        else:
-            self._runner.stop_task()
+        self._runner.stop_task()
         return {"stopped": True, "item_name": item_name, "task_name": task_name}
 
     def _start_run(self, request: RunRequest, timeout: float) -> Dict[str, Any]:

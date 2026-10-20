@@ -422,7 +422,7 @@ def test_a_global_edit_records_the_protocol_and_each_lamella(
     window, protocol_editor, experiment, edits, monkeypatch
 ):
     def accept(dialog):  # every task, a wider milling field of view, lamellae too
-        dialog._select_all_tasks()
+        dialog.task_checklist.set_all_checked(True)
         dialog.spinbox_milling_fov.setValue(dialog.spinbox_milling_fov.value() + 10)
         dialog.checkbox_update_existing.setChecked(True)
         return protocol_editor_module.QDialog.Accepted
@@ -693,7 +693,9 @@ def test_a_correlation_that_cannot_be_recorded_is_still_applied(
     def _broken(*args, **kwargs):
         raise RuntimeError("cannot describe it")
 
-    monkeypatch.setattr(lamella_editor_module, "correlation_record", _broken)
+    import fibsem.correlation.history as history
+
+    monkeypatch.setattr(history, "correlation_record", _broken)
     lamella = experiment.positions[0]
 
     _accept_correlation(editor, monkeypatch, _correlation_result(Point(x=1e-6, y=1e-6)))
@@ -757,11 +759,11 @@ def test_the_replay_shows_a_correlation_before_the_point_it_moved(
 
 
 def _agent_edit(window, level, item_name, task_name, patch, version):
-    """An agent's config edit as the App Server makes it, with this window."""
+    """An agent's config edit as the App Server makes it, beside this window."""
     from fibsem.applications.autolamella.server import AutoLamellaAppContext
 
     ui = window
-    context = AutoLamellaAppContext(ui.session, window=ui)
+    context = AutoLamellaAppContext(ui.session)
     return context._config_edit(level, item_name, task_name, patch, version, 10.0)
 
 

@@ -99,6 +99,64 @@ watched, and otherwise runs until it is stopped. It needs only fibsem, not the `
 `fibsem-mcp` is not on the PATH, `python -m fibsem.ai.agent.mcp.sidecar watch` is the
 same thing.
 
+## 5. Or run it with nobody at a terminal: `fibsem-agent`
+
+Everything above is Claude Code in a terminal, kept awake by a person.
+`fibsem-agent` is a second way to run the same agent, on the
+[Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk): one long
+session with this sidecar as its only MCP server, and the watcher run for it,
+so each batch of watcher lines is the agent's next turn. It reads the same
+skills, from this checkout's `.claude/skills`. The Claude Code path is
+unchanged.
+
+```bash
+pip install -e ".[server,agent]"
+export ANTHROPIC_API_KEY=...       # a Claude API key
+fibsem-agent
+```
+
+- **The level decides.** The agent works by the skill for its level
+  (observe at Watch, assist at Assist, supervise at Drive), and the watcher
+  prints a `LEVEL` line when the operator changes it. The level is set from
+  the Agent chip, the server still refuses what it doesn't allow, and the
+  runner never sets it.
+- **Tools.** The `mcp__fibsem__*` tools run without a prompt, since the
+  server decides what they may do. The agent also has the Skill tool, and
+  ToolSearch to find the fibsem tools, and nothing else: no shell, no file
+  reads or writes, no web. Nothing waits on a
+  permission prompt; anything else is denied. So the offline
+  `read_record.py` reader stays with Claude Code.
+- **Your Claude Code config stays out.** The session loads this checkout's
+  project settings and skills, not `~/.claude`, and only this sidecar, not a
+  `fibsem` server you registered with `claude mcp add`.
+- **Signing in.** Set `ANTHROPIC_API_KEY` to a Claude API key in its
+  environment, or configure Amazon Bedrock or Google Vertex as the Agent SDK
+  documents. Not a claude.ai login: products built on the Agent SDK use API
+  keys. If the model refuses the sign-in, the runner stops with exit code 1
+  rather than wait. Its log never shows a bearer token or an API key.
+- **Instructions.** It reads this checkout's skills and nothing else: not the
+  checkout's `CLAUDE.md` (developer guidance) and not Claude Code's auto memory.
+- **What it says.** The agent's replies and tool calls go to the console and
+  to `~/.fibsem/agent/fibsem-agent-<time>.log` (`--log` to choose). What the
+  operator must see in the app, it puts in a note (`experiment_add_note`),
+  answering a message from the Agent card with its `reply_to`.
+- **Waking.** Lines are held while the level is Off, and come as one turn
+  once it is back; started at Off, the agent's first turn waits for it too. A `GAP`, a restart or the level coming back tells the
+  agent to re-read the status. If the app can't be watched, the runner waits
+  up to `--server-wait` seconds (default 600) for it to answer again, then
+  stops with exit code 1.
+- **Limits.** `--max-turns` (default 40) caps the tool calls in one
+  wake-up; the next wake-up starts a fresh count. `--max-budget-usd`
+  (default 5) caps what one run of `fibsem-agent` spends, and reaching it
+  stops the runner with exit code 2. `--model` picks the model.
+  The SDK compacts a long session's context by itself, and the log says when.
+- **Stopping and resuming.** Ctrl-C interrupts the agent's turn and ends the
+  session cleanly; a second Ctrl-C ends it at once. The log names the session
+  id, and `--resume <id>` carries it on after a restart. The watcher starts
+  again from then, so the agent is told to re-read where things stand.
+- **From another machine**, pass `--url` and put the token in
+  `FIBSEM_SERVER_TOKEN`, never on the command line.
+
 ## Order and troubleshooting
 
 - **Order doesn't matter**: the sidecar answers the MCP client at once, even

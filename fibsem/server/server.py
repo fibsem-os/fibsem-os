@@ -52,6 +52,7 @@ from fibsem.server.devices import (
     ERROR_STATUS,
     build_device_router,
     live_source,
+    never_allowed,
     refusal,
     stream_events,
     stream_live,
@@ -138,10 +139,13 @@ def _in_experiment(app_context) -> Callable[[Mapping[str, Any]], Dict[str, Any]]
     )
 
 
-def _not_allowed(microscope: FibsemMicroscope) -> Callable[[str, str], Optional[str]]:
-    """Why a route call is on the blocklist (a device or service
-    write or command), or None: for a request, before it is filed. Its
-    arguments are checked when it runs, as for any call."""
+def _blocked_route(
+    microscope: FibsemMicroscope,
+) -> Callable[[str, str], Optional[str]]:
+    """Why the agent may never make a route call (a device or service write or
+    command on the blocklist), or None: for a request, before it is filed, and
+    before the level gate, so it says so at every level. Its arguments are
+    checked when it runs, as for any call."""
 
     def why(method: str, path: str) -> Optional[str]:
         parts = path.strip("/").split("/")
@@ -160,7 +164,8 @@ def _not_allowed(microscope: FibsemMicroscope) -> Callable[[str, str], Optional[
         else:
             return None
         device = devices.get(parts[2])
-        return None if device is None else blocklist.blocked(device, kind, name)
+        reason = None if device is None else blocklist.blocked(device, kind, name)
+        return None if reason is None else never_allowed(device, kind, name, reason)
 
     return why
 
@@ -341,9 +346,9 @@ _RECORDS_ITSELF = (
     "/app/experiment/evidence",
     "/app/workflow/proposals/suggest",
 )
-# POST routes that only read: a query, and the grid run's plan. Not the agent
-# acting, and the request store reads them to describe each request.
-_POSTED_READS = ("/queries/", "/app/workflow/grids/plan")
+# POST routes that only read: a query, the grid run's plan, and the experiment
+# image routes (points on an image, the items drawn on one). Not the agent acting.
+_POSTED_READS = ("/queries/", "/app/workflow/grids/plan", "/app/experiment/images/")
 
 
 class _AgentActs:
@@ -511,6 +516,8 @@ def build_server(
 
         services = analysis_services()
     app.state.services = services
+    # What the agent may never do here, answered before its level (auth.py).
+    app.state.blocked_route = _blocked_route(microscope) if serve_microscope else None
 
     @app.exception_handler(StarletteHTTPException)
     async def _refused(request: Request, exc: StarletteHTTPException) -> Response:
@@ -761,7 +768,7 @@ def build_server(
             emit=getattr(app_context, "record_event", None),
             describe=getattr(app_context, "describe_action", None),
             check=getattr(app_context, "check_action", None),
-            not_allowed=_not_allowed(microscope) if serve_microscope else None,
+            not_allowed=app.state.blocked_route,
             experiment_path=lambda: getattr(app_context, "experiment_path", None),
             experiment=getattr(app_context, "recording_experiment", None),
             path_refused=lambda kwargs: blocklist.path_outside(

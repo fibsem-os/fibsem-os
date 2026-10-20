@@ -97,6 +97,13 @@ mcp = [
     "mcp>=2,<3",
 ]
 
+# The headless agent (fibsem-agent): the Claude Agent SDK, which bundles the
+# Claude Code CLI, running the sidecar above. Nothing else imports it.
+agent = [
+    "fibsem[mcp]",
+    "claude-agent-sdk>=0.2.168,<0.3",
+]
+
 # Test tooling. Install with `pip install .[test]` (CI does this).
 test = [
     "pytest>=7.2.2",
@@ -118,6 +125,9 @@ fm-image-viewer-ui = "fibsem.ui.fm.widgets.fm_image_viewer_widget:main"
 fibsem-correlation-ui = "fibsem.ui.correlation.widgets.correlation_tab_widget:main"
 fibsem-cli = "fibsem.cli:main"
 fibsem-mcp = "fibsem.ai.agent.mcp.sidecar:main"
+fibsem-volume = "fibsem.applications.volume.launch:main"
+fibsem-autolamella-server = "fibsem.applications.autolamella.launch:main"
+fibsem-agent = "fibsem.ai.agent.runner:main"
 
 # Recursive by design. A bare `packages = ["fibsem"]` is NOT recursive: it ships
 # only the top-level fibsem/*.py and none of fibsem/ui, fibsem/milling, etc. That

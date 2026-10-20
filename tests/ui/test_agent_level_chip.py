@@ -18,7 +18,6 @@ from fibsem.ui.agent.level_chip import (  # noqa: E402
     last_heard_text,
     request_outcome,
 )
-from tests.run_state import StubRunner
 
 
 def _labels(widget):
@@ -1348,36 +1347,47 @@ def test_a_card_with_no_picture_keeps_no_empty_column(qapp):
     card.deleteLater()
 
 
-def test_a_new_request_opens_the_card_floating(qapp):
-    """The card opens itself for something new waiting for the operator, in its
-    own window; closed, it stays closed until the next one."""
-    from PyQt5.QtWidgets import QMainWindow
+def test_a_new_request_asks_for_attention_and_opens_nothing(qapp, monkeypatch):
+    """FIB-1501: the card opening itself brought the window forward and took
+    focus from the operator's browser. A new request or suggestion asks the
+    system for attention instead, once per new one."""
+    from PyQt5.QtWidgets import QApplication, QMainWindow
 
+    alerts = []
+    monkeypatch.setattr(
+        QApplication, "alert", lambda widget, ms=0: alerts.append(widget)
+    )
     window = QMainWindow()
     chip = AgentLevelChip()
     window.statusBar().addPermanentWidget(chip)
     window.show()
     chip.set_level(AgentLevel.ASSIST)
-    assert not chip.floating
 
     chip.set_request(_request())
-    assert chip.floating and not chip.popup.isVisible()
-    chip.panel.close()
-    # The same request again (the window refreshes it) leaves it closed.
+    assert not chip.floating and not chip.popup.isVisible()
+    assert alerts == [window]
+    # The same request again (the window refreshes it) asks nothing more.
     chip.set_request(_request())
     chip.set_request(_request(status="applying"))
-    assert not chip.floating
+    assert alerts == [window]
 
     chip.set_request(_request(request_id="cd34"))
-    assert chip.floating
+    assert len(alerts) == 2 and not chip.floating
     window.close()
 
 
-def test_a_hidden_chip_opens_no_card(qapp):
+def test_a_hidden_chip_asks_for_nothing(qapp, monkeypatch):
+    from PyQt5.QtWidgets import QApplication
+
+    alerts = []
+    monkeypatch.setattr(
+        QApplication, "alert", lambda widget, ms=0: alerts.append(widget)
+    )
     chip = AgentLevelChip()
     chip.set_level(AgentLevel.ASSIST)
     chip.set_request(_request())
     assert not chip.floating and not chip.popup.isVisible()
+    assert alerts == []
     chip.deleteLater()
 
 
@@ -1422,12 +1432,13 @@ def test_the_agent_s_workflow_stop_turns_the_border_red(main_ui, qapp):
     from fibsem.applications.autolamella.server import AutoLamellaAppContext
 
     ui = main_ui
-    previous = ui.session.runner
-    ui.session.runner = StubRunner(ui.session, is_running=True)
+    runner = ui.session.runner
+    # Running, as far as a stop can tell: the window hears this runner's stop.
+    runner._thread = threading.current_thread()
     main_ui.run_border.set_state("automated")
     answers = []
     try:
-        context = AutoLamellaAppContext(ui.session, window=ui)
+        context = AutoLamellaAppContext(ui.session)
         server = threading.Thread(
             target=lambda: answers.append(context.stop_workflow())
         )
@@ -1439,7 +1450,7 @@ def test_the_agent_s_workflow_stop_turns_the_border_red(main_ui, qapp):
         assert answers == [{"available": True, "stopped": True}]
         assert main_ui.run_border.shown == "stopping"
     finally:
-        ui.session.runner = previous
+        runner._thread = None
         main_ui.run_border.state = None
         main_ui.run_border.set_state("idle")
 

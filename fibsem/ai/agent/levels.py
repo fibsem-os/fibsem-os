@@ -53,3 +53,11 @@ LEVEL_TIPS = {
     AgentLevel.ASSIST: "Asks first",
     AgentLevel.DRIVE: "Full control",
 }
+
+# The skill an agent works by at each level, after the base autolamella-agent
+# skill. Off has none: the agent is refused everything.
+LEVEL_SKILLS = {
+    AgentLevel.WATCH: "observe-autolamella",
+    AgentLevel.ASSIST: "assist-autolamella",
+    AgentLevel.DRIVE: "supervise-autolamella",
+}

@@ -7,9 +7,9 @@ lamellae and global edit of the reference imaging are here too, beside the
 agent's, and the save a config edit makes (:func:`save_edits`). Each agent
 edit runs where the experiment is edited (``session.run_edit``), checks the
 version it was written against beside the apply, saves, and is recorded as the agent's edit (FIB-1034, FIB-1062). A
-window, when one is attached, only flushes its editors first and redraws
-after (``AppWindow`` in ``server/context.py``). The versions an edit is
-checked against are here too, for the server's reads to serve.
+window writes its editors' pending edits before any edit runs (its executor)
+and redraws when ``session.changed`` says the edit applied. The versions an
+edit is checked against are here too, for the server's reads to serve.
 
 Each returns a plain dict: the applied changes, or a structured refusal.
 """
@@ -311,16 +311,26 @@ def item_patch_refusal(lamella, patch: dict) -> Optional[str]:
 
 
 def patch_item_fields(experiment, item_name: str, patch: dict, version: str) -> dict:
-    """Patch the lamella's own editable fields, ITEM_PATCH_FIELDS only.
-
-    Alignment validity is checked after the apply and reverted on failure (a
-    rectangle is only judgeable whole). A defect edit stamps ``updated_at``.
-    Moving the POI moves the patterns that follow it, and moving the area
-    moves the fiducial not milled yet, as the window's own moves do.
-    """
+    """The App Server's item patch: :func:`edit_item_fields` on the item named
+    *item_name*, saved."""
     lamella, refusal = find_item(experiment, item_name)
     if refusal:
         return {"applied": False, **refusal}
+    result = edit_item_fields(lamella, patch, version)
+    if result["applied"]:
+        result["saved"] = _save(experiment, "agent item patch")
+    return result
+
+
+def edit_item_fields(lamella, patch: dict, version: str) -> dict:
+    """Patch the lamella's own editable fields, ITEM_PATCH_FIELDS only: the one
+    edit of them, the App Server's and the lamella editors'. Not saved.
+
+    Alignment validity is checked after the apply and reverted on failure (a
+    rectangle is only judgeable whole). A defect edit is a new record (see
+    :func:`_edited_defect`). Moving the POI moves the patterns that follow
+    it, and moving the area moves the fiducial not milled yet.
+    """
     for path in patch:
         why = _not_editable(path)
         if why is not None:
@@ -344,9 +354,7 @@ def patch_item_fields(experiment, item_name: str, patch: dict, version: str) -> 
         }
     fields = {p.split(".", 1)[0] for p, _o, _n in changes}
     if "defect" in fields:
-        from fibsem.util.timestamps import now
-
-        lamella.defect.updated_at = now()
+        lamella.defect = _edited_defect(lamella.defect, changes)
     synced_tasks = []
     if "poi" in fields:
         try:
@@ -363,19 +371,66 @@ def patch_item_fields(experiment, item_name: str, patch: dict, version: str) -> 
         except Exception:
             logging.exception("fiducial sync after alignment area patch failed")
     logging.info(
-        f"agent item patch applied: {item_name}: "
+        f"item patch applied: {lamella.name}: "
         + ", ".join(f"{p}: {old!r} -> {new!r}" for p, old, new in changes)
         + (f" (patterns synced: {', '.join(synced_tasks)})" if synced_tasks else "")
     )
-    saved = _save(experiment, "agent item patch")
     return {
         "applied": True,
-        "saved": saved,
-        "item_name": item_name,
+        "item_name": lamella.name,
         "synced_tasks": synced_tasks,
         "changes": _changes(changes),
         "version": item_fields_version(lamella),
     }
+
+
+def _edited_defect(record, changes) -> Any:
+    """The defect record after a patch, as a new record, so every display of
+    it redraws (they listen for its replacement). A new verdict starts afresh,
+    keeping only the fields the patch names; it is stamped when judged and
+    unstamped when taken back."""
+    from fibsem.util.timestamps import now
+    from fibsem.workflows.quality import Verdict
+
+    named = {
+        p.split(".", 1)[1]: new for p, _o, new in changes if p.startswith("defect.")
+    }
+    old_verdict = next(
+        (old for p, old, _n in changes if p == "defect.verdict"), record.verdict
+    )
+    if record.verdict is not old_verdict:
+        record = type(record)(**named)
+    else:
+        record = copy.copy(record)
+    record.updated_at = None if record.verdict is Verdict.UNASSESSED else now()
+    return record
+
+
+def poi_patch(point) -> dict:
+    """The item patch that moves an item's point of interest to *point*."""
+    return {"poi.x": float(point.x), "poi.y": float(point.y)}
+
+
+def apply_correlation(
+    result,
+    lamella,
+    run_folder: Optional[str],
+    root: Any,
+    move_poi: Callable[[Any], dict],
+    record: Callable[[str, Dict[str, Any]], None],
+) -> dict:
+    """Record correlation *result* with *record*, then move *lamella*'s point of
+    interest to its target with *move_poi* (an item patch of ``poi``): the
+    correlation dialog's Continue and the App Server's apply_item_correlation.
+    Recorded first, so the record reads the correlation before the point it
+    moved. *result* has a fitted point."""
+    from fibsem.correlation.history import correlation_record
+
+    try:
+        record("correlation", correlation_record(result, lamella, run_folder, root))
+    except Exception:  # noqa: BLE001 - recording must not matter
+        logging.debug("could not record the correlation", exc_info=True)
+    return move_poi(result.poi[0].px_m)
 
 
 def reorder_milling_stages(
