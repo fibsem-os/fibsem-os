@@ -31,18 +31,17 @@ agent level at Off the app refuses the agent, but it is still running: the
 watch says so once and waits for the level to come back (FIB-1429).
 
 It finds the server the way the sidecar does (``--url``/``--token``, the
-environment, the discovery file) and follows a restarted server the same way
-(FIB-1269). Standard library only: watching needs nothing but HTTP, so it
-works wherever fibsem is installed, without the [mcp] extra.
+environment, the discovery file) and follows a restarted server the same way,
+on the same transport (`fibsem.client.transport`, FIB-1269). It works wherever
+fibsem is installed, without the [mcp] extra.
 """
 
 import argparse
 import json
 import sys
 import time
-import urllib.error
-import urllib.request
-from http.client import HTTPException
+
+from fibsem.client.transport import Transport
 
 # Kinds that end a workflow: report it, and keep watching. A stalled workflow
 # drained with decisions pending; a failed one died outside a task (FIB-1037).
@@ -90,50 +89,6 @@ AGENT_BACK_LINE = (
 )
 
 
-class _Response:
-    """The few httpx.Response members the sidecar's helpers read."""
-
-    def __init__(self, status_code, content):
-        self.status_code = status_code
-        self.content = content
-        self.text = content.decode("utf-8", errors="replace")
-
-    def json(self):
-        return json.loads(self.text)
-
-
-class _UrllibClient:
-    """An httpx-style client over urllib, so the sidecar's reconnecting client
-    can wrap it. An HTTP status comes back as a response, as httpx's does;
-    only a failure to talk to the server raises."""
-
-    def __init__(self, base_url, token):
-        self.base_url = base_url.rstrip("/")
-        self._headers = {"Authorization": f"Bearer {token}"}
-
-    def request(self, method, path, json=None, timeout=10.0):
-        data = None
-        headers = dict(self._headers)
-        if json is not None:
-            data = _json_bytes(json)
-            headers["Content-Type"] = "application/json"
-        request = urllib.request.Request(
-            self.base_url + path, data=data, headers=headers, method=method
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
-                return _Response(response.status, response.read())
-        except urllib.error.HTTPError as error:
-            return _Response(error.code, error.read())
-
-    def close(self):
-        pass
-
-
-def _json_bytes(payload):
-    return json.dumps(payload).encode()
-
-
 def _poll(client, since, timeout):
     """One long-poll: (payload, None), or (None, why it failed)."""
     try:
@@ -142,7 +97,7 @@ def _poll(client, since, timeout):
             f"/app/events?since={since}&timeout={timeout}",
             timeout=timeout + 10.0,
         )
-    except (OSError, HTTPException, ValueError) as error:
+    except (OSError, ValueError) as error:
         return None, f"unreachable ({error})"
     if response.status_code >= 400:
         if _error_type(response) == AGENT_OFF:
@@ -409,7 +364,7 @@ def _held_proposals(client):
         if response.status_code >= 400:
             return []
         asking = response.json()["workflow"].get("asking") or []
-    except (OSError, HTTPException, ValueError, KeyError, AttributeError, TypeError):
+    except (OSError, ValueError, KeyError, AttributeError, TypeError):
         return []
     return [
         (q.get("item_name"), q.get("task_name")) for q in asking if isinstance(q, dict)
@@ -423,7 +378,7 @@ def _run_is_live(client):
         if response.status_code >= 400:
             return None
         return bool(response.json()["workflow"]["running"])
-    except (OSError, HTTPException, ValueError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError, TypeError):
         return None
 
 
@@ -435,9 +390,9 @@ def watch(client, out=None, sleep_fn=None, poll_s=POLL_S, clock=None, since=None
     last one returned misses nothing in between; None starts at the tail.
 
     ``client`` is httpx-style (``request(method, path, timeout=...)``), in
-    practice the sidecar's reconnecting client: a 401 or a lost connection
-    re-reads the discovery file once per request, so a restarted app is
-    followed without this loop knowing.
+    practice a `Transport`: a 401 or a refused connection re-reads the
+    discovery file once per request, so a restarted app is followed without
+    this loop knowing.
     """
     out = out or _print_line
     sleep_fn = sleep_fn or time.sleep
@@ -558,17 +513,12 @@ def _print_line(line):
     print(line, flush=True)
 
 
-def connect(url=None, token=None, client_factory=_UrllibClient):
-    """The sidecar's reconnecting client over ``client_factory``, or None when
-    no server is known."""
-    from fibsem.ai.agent.mcp.sidecar import _ReconnectingClient, _try_resolve
-
-    resolved = _try_resolve(url, token)
-    if resolved is None:
+def connect(url=None, token=None, transport=Transport):
+    """A *transport* to the server, or None when no server is known."""
+    try:
+        return transport(url, token)
+    except OSError:  # ServerUnreachable: none found
         return None
-    return _ReconnectingClient(
-        client_factory, url, token, client_factory(*resolved), resolved
-    )
 
 
 def main(argv=None):
@@ -604,3 +554,5 @@ def main(argv=None):
         return watch(client, since=args.since)
     except KeyboardInterrupt:
         return 1
+    finally:
+        client.close()

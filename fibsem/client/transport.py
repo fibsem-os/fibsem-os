@@ -102,7 +102,7 @@ class Transport:
         if resolved is None:
             raise ServerUnreachable(NO_SERVER)
         self._resolved = resolved
-        self.user_agent = user_agent or f"fibsem-client/{__version__}"
+        self._user_agent = user_agent or f"fibsem-client/{__version__}"
         self._timeout = timeout
         self._http = self._connect()
 
@@ -110,9 +110,19 @@ class Transport:
     def url(self) -> str:
         return self._resolved[0]
 
+    @property
+    def user_agent(self) -> str:
+        return self._user_agent
+
+    @user_agent.setter
+    def user_agent(self, user_agent: str) -> None:
+        """Sent from the next request on, through a reconnect too."""
+        self._user_agent = user_agent
+        self._http.headers["User-Agent"] = user_agent
+
     def _connect(self) -> httpx.Client:
         url, token = self._resolved
-        headers = {"Authorization": f"Bearer {token}", "User-Agent": self.user_agent}
+        headers = {"Authorization": f"Bearer {token}", "User-Agent": self._user_agent}
         return self._client(url, headers)
 
     def _client(self, url: str, headers: Dict[str, str]) -> httpx.Client:
@@ -128,8 +138,9 @@ class Transport:
         self._http = self._connect()
         return True
 
-    def send(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
-        """The server's answer, whatever its status; `request` reads it."""
+    def request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
+        """The server's answer whatever its status, as httpx's ``request``
+        answers it; `fetch` reads it as data."""
         try:
             return self._attempt(method, path, kwargs)
         except httpx.TimeoutException:
@@ -154,7 +165,7 @@ class Transport:
             return self._http.request(method, path, **kwargs)
         return response
 
-    def request(
+    def fetch(
         self,
         method: str,
         path: str,
@@ -167,7 +178,7 @@ class Transport:
         `Frame` with its metadata) or a list of frames. An error answer raises
         (`error_for`)."""
         extra: Dict[str, Any] = {} if timeout is None else {"timeout": timeout}
-        response = self.send(
+        response = self.request(
             method, path, json=body, params=params, headers=headers, **extra
         )
         if response.is_success:
