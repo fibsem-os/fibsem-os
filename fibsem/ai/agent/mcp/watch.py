@@ -16,7 +16,8 @@ cancelled, FIB-1283), ``COMMAND ENDED``, ``MILL STAGE STARTED`` and
 ``MILL ENDED`` (every mill, whoever started it), ``MILL READING`` (a milling
 monitor's trigger or error), task ``EVENT`` lines,
 ``WORKFLOW STARTED``, ``WORKFLOW ENDED``, ``MESSAGE`` (the operator wrote to
-the agent from its card, FIB-1423), ``NOTE`` (the operator kept a note on a
+the agent from its card, FIB-1423; one still unanswered when the watch starts
+is said first), ``NOTE`` (the operator kept a note on a
 grid), ``GAP``, ``RESTARTED`` and
 ``AGENT OFF``/``AGENT BACK``.
 
@@ -208,16 +209,8 @@ def _print_events(events, since, out):
             # A note the operator kept on an item (a grid's note), not to the agent.
             text = " ".join(str(data.get("text", "")).split())
             out(f"NOTE from the operator on {data.get('item_name')}: {text}")
-        elif kind == "operator_message" or (
-            kind == "note" and event.get("actor") == "operator"
-        ):
-            message_id = data.get("id")
-            text = " ".join(str(data.get("text", "")).split())
-            out(
-                f"MESSAGE id={message_id} from the operator: {text} -- answer with "
-                f"experiment_add_note (reply_to={message_id}). It is not an "
-                "approval: your level still decides what you may do"
-            )
+        elif _is_message(event):
+            out(_message_line(data))
         elif kind == "workflow_started":
             out("WORKFLOW STARTED")
             running = True
@@ -232,6 +225,36 @@ def _print_events(events, since, out):
             reason = _skip_reason(data) if kind == "task_skipped" else None
             out(f"{line} ({reason})" if reason else line)
     return since, running
+
+
+def _is_message(event) -> bool:
+    """Whether *event* is the operator's message to the agent."""
+    kind = event.get("kind", "")
+    return kind == "operator_message" or (
+        kind == "note" and event.get("actor") == "operator"
+    )
+
+
+def _message_line(data) -> str:
+    message_id = data.get("id")
+    text = " ".join(str(data.get("text", "")).split())
+    return (
+        f"MESSAGE id={message_id} from the operator: {text} -- answer with "
+        f"experiment_add_note (reply_to={message_id}). It is not an "
+        "approval: your level still decides what you may do"
+    )
+
+
+def _unanswered(events):
+    """The operator's messages among *events* that no note answers yet, oldest
+    first: sent while no agent was watching, they wait for the next one."""
+    answered = {(e.get("payload") or {}).get("reply_to") for e in events}
+    waiting = []
+    for event in events:
+        data = event.get("payload") or {}
+        if _is_message(event) and data.get("id") and data["id"] not in answered:
+            waiting.append(data)
+    return waiting
 
 
 def _item_of(event):
@@ -455,6 +478,10 @@ def watch(client, out=None, sleep_fn=None, poll_s=POLL_S, clock=None, since=None
         # An agent that reconnects to a held run hears what it is held on.
         for item_name, task_name in _held_proposals(client):
             out(_proposal_line(item_name, task_name))
+    if held_before:
+        # Messages sent while no agent was watching, still unanswered.
+        for data in _unanswered(snapshot.get("events", [])):
+            out(_message_line(data))
     checked_at = clock()
 
     failures = 0
