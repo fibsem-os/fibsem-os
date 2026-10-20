@@ -39,7 +39,6 @@ from fibsem.applications.autolamella.tools.grid_report_pdf import (
     report_unavailable_reason,
 )
 from fibsem.applications.autolamella.ui.grids.card import grid_headline
-from fibsem.applications.autolamella.ui.workflow.preflight import task_block
 from fibsem.applications.autolamella.ui.workflow.task_list import (
     ATTENTION_LABELS,
     BTN_SIZE,
@@ -49,8 +48,7 @@ from fibsem.applications.autolamella.ui.workflow.task_list import (
     requires_phrase,
 )
 from fibsem.applications.autolamella.workflows.estimate import exchanges_for
-from fibsem.applications.autolamella.workflows.tasks.attendance import RunAttendance
-from fibsem.structures import BeamType, GridInventoryEntry, GridSlotState
+from fibsem.structures import GridInventoryEntry, GridSlotState
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import (
     DRAG_HANDLE_HEIGHT,
@@ -85,29 +83,12 @@ from fibsem.ui.widgets.lists import (
     help_button,
     row_chip,
 )
-from fibsem.ui.widgets.preflight import (
-    BACKGROUND,
-    ON_PANEL,
-    TEXT_MUTED,
-    TEXT_STRONG,
-    detail_block,
-    format_clock,
-    meta_label,
-    metric,
-    warning_label,
-)
-from fibsem.util.durations import format_duration_rounded
+from fibsem.ui.widgets.preflight import TEXT_STRONG
 from fibsem.workflows.attention import Attention
-from fibsem.workflows.estimate import AdditionEstimate, RunEstimate
 from fibsem.workflows.grid import (
     FluorescenceOverviewGridTaskConfig,
     GridTaskConfig,
 )
-from fibsem.workflows.grid.manager import (
-    LOAD_ENTRY_NAME,
-    plan_grid_run,
-)
-from fibsem.workflows.grid.naming import beam_name, is_default_grid_name
 from fibsem.workflows.grids import GridRecord
 
 # The lamella list's metrics, so the two run views read alike.
@@ -964,202 +945,3 @@ class GridWorkflowWidget(QWidget):
         self._save_protocol()
         self._rebuild()
         self.protocol_changed.emit()
-
-
-# ---------------------------------------------------------------------------
-# The confirmation
-# ---------------------------------------------------------------------------
-
-
-class GridRunPreflightDialog(QDialog):
-    """What a grid run is about to do: how many grids and tasks, how many
-    exchanges, how long and when it is done, where the files go, and the first
-    steps of the plan.
-
-    Its own dialog rather than the lamella preflight, which confirms lamellae
-    and schedules; the time figures and the per-task block are the same pieces,
-    laid out the same way.
-    """
-
-    _STEPS_SHOWN = 12
-
-    def __init__(
-        self,
-        task_names: List[str],
-        grid_names: List[str],
-        exchanges: int,
-        output_root: str,
-        adding: bool = False,
-        beams_off: Sequence[BeamType] = (),
-        first_run: Sequence[str] = (),
-        estimate: Optional[RunEstimate] = None,
-        addition: Optional[AdditionEstimate] = None,
-        attendance: Optional[RunAttendance] = None,
-        unload_at_end: bool = False,
-        report_at_end: bool = False,
-        parent: Optional[QWidget] = None,
-    ) -> None:
-        """``adding``: the same plan, going onto the end of a running queue
-        rather than starting one. ``beams_off``: beams that are off now; the
-        run turns them on when it starts, and the dialog says so first.
-        ``first_run``: grids in the plan that have never run, whose names this
-        run will fix. ``estimate``: what the run will take, task by task
-        (``estimate_grid_run``); ``addition``: what adding it to the running
-        queue costs, and how much later the queue now finishes. Without
-        either, no time is quoted. ``attendance``: the tasks that wait for a
-        person (``grid_run_attendance``). ``unload_at_end``, ``report_at_end``: how
-        the run ends, from the Grids page's ⚙; said, not chosen, here."""
-        super().__init__(parent)
-        self.setWindowTitle("Add to the queue" if adding else "Run grid workflow")
-        self.setMinimumWidth(460)
-        self.setStyleSheet(f"background: {BACKGROUND};")
-        layout = QVBoxLayout(self)
-        layout.setSpacing(10)
-
-        title = QLabel(
-            "Add the tasks on the selected grids after everything queued"
-            if adding
-            else "Run the tasks on the selected grids"
-        )
-        title.setStyleSheet(
-            f"font-size: 14px; font-weight: bold; color: {TEXT_STRONG}; {ON_PANEL}"
-        )
-        layout.addWidget(title)
-
-        metrics = QHBoxLayout()
-        metrics.addWidget(metric("Grids", str(len(grid_names))))
-        metrics.addWidget(metric("Tasks per grid", str(len(task_names))))
-        metrics.addWidget(
-            metric("Exchanges", str(exchanges), "" if exchanges else "all loaded")
-        )
-        layout.addLayout(metrics)
-
-        for widget in self._time_figures(estimate, addition):
-            layout.addWidget(widget)
-        if estimate is not None and estimate.tasks:
-            layout.addWidget(
-                task_block(estimate.tasks, estimate.started_at, attendance)
-            )
-        if estimate is not None or (addition is not None and addition.is_priced):
-            note = "Estimates round up."
-            if attendance is not None and attendance.waits_for_a_human:
-                note += " Time spent waiting for you is not included."
-            footnote = QLabel(note)
-            footnote.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 10px; {ON_PANEL}")
-            footnote.setWordWrap(True)
-            layout.addWidget(footnote)
-
-        plan = plan_grid_run(task_names, grid_names)
-        lines = [
-            f"{grid}  ·  {'load' if step == LOAD_ENTRY_NAME else step}"
-            for grid, step in plan[: self._STEPS_SHOWN]
-        ]
-        if len(plan) > self._STEPS_SHOWN:
-            lines.append(f"… and {len(plan) - self._STEPS_SHOWN} more steps")
-        rows = [("Plan", lines[0])] + [("", line) for line in lines[1:]]
-        layout.addWidget(detail_block(rows if lines else [("Plan", "nothing yet")]))
-        layout.addWidget(meta_label(f"Output: {output_root}/grids/<grid>/"))
-        layout.addWidget(
-            meta_label(
-                "A grid that will not load is skipped and the run continues. "
-                "Stop ends the run at the next step; during an exchange, before "
-                "the load."
-            )
-        )
-
-        # Screening starts on an empty stage, so the beams are off more often
-        # than not. The run turns them on; said here so it is no surprise, and
-        # so an operator who does not want that can cancel.
-        if beams_off:
-            names = " and ".join(beam_name(b) for b in beams_off)
-            plural = len(beams_off) > 1
-            layout.addWidget(
-                warning_label(
-                    f"The {names} beam{'s are' if plural else ' is'} off. The run "
-                    f"turns {'them' if plural else 'it'} on when it starts."
-                )
-            )
-
-        # A grid's name is fixed once it has run: its folder and images carry it.
-        # This is the last point to change it, so the grids about to run for the
-        # first time are named, and nothing is said when there are none.
-        if first_run:
-            first = ", ".join(
-                f"{n} (default name)" if is_default_grid_name(n) else n
-                for n in first_run
-            )
-            layout.addWidget(
-                warning_label(
-                    f"Names are fixed once a grid has run. Running for the first "
-                    f"time: {first}. Rename on the Grids tab first if needed."
-                )
-            )
-
-        # How the run ends is set on the Grids page's ⚙; said here so it is no
-        # surprise. Not when adding: the added work ends the way the run it
-        # joins was started.
-        if not adding:
-            ending = [
-                said
-                for said, on in (
-                    ("unload the last grid", unload_at_end),
-                    ("write the grid screening report", report_at_end),
-                )
-                if on
-            ]
-            layout.addWidget(
-                meta_label(
-                    f"When the run ends: {' and '.join(ending)}."
-                    if ending
-                    else "When the run ends: nothing more. Set on the ⚙."
-                )
-            )
-
-        buttons = QHBoxLayout()
-        buttons.addStretch(1)
-        self.btn_cancel = QPushButton("Cancel")
-        self.btn_cancel.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-        self.btn_cancel.clicked.connect(self.reject)
-        self.btn_run = QPushButton("Add" if adding else "Run")
-        self.btn_run.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
-        self.btn_run.clicked.connect(self.accept)
-        self.btn_run.setDefault(True)
-        buttons.addWidget(self.btn_cancel)
-        buttons.addWidget(self.btn_run)
-        layout.addLayout(buttons)
-
-    @staticmethod
-    def _time_figures(
-        estimate: Optional[RunEstimate], addition: Optional[AdditionEstimate]
-    ) -> List[QWidget]:
-        """The duration and the finish, as the lamella preflight and Add to queue
-        quote them: a run's own, or what an addition adds and moves the finish to."""
-        if estimate is not None:
-            first = metric(
-                "Estimated duration",
-                format_duration_rounded(estimate.work_seconds, pad=True),
-            )
-            second = metric(
-                "Expected finish",
-                format_clock(estimate.expected_finish, estimate.started_at),
-            )
-        elif addition is not None and addition.is_priced:
-            before = addition.finish_before
-            first = metric(
-                "Adds", format_duration_rounded(addition.work_seconds, pad=True)
-            )
-            second = metric(
-                "Expected finish",
-                format_clock(addition.finish_after, before),
-                f"was {format_clock(before, before)}",
-            )
-        else:
-            return []
-        row = QWidget()
-        row.setStyleSheet("background: transparent;")
-        figures = QHBoxLayout(row)
-        figures.setContentsMargins(0, 0, 0, 0)
-        figures.setSpacing(10)
-        figures.addWidget(first)
-        figures.addWidget(second)
-        return [row]

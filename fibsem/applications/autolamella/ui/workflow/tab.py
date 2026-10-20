@@ -24,10 +24,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem.acting import OPERATOR
 from fibsem.applications.autolamella.structures import AutoLamellaTaskDescription
-from fibsem.applications.autolamella.ui.grids.run import (
-    GridRunPreflightDialog,
-    GridWorkflowWidget,
-)
+from fibsem.applications.autolamella.ui.grids.run import GridWorkflowWidget
 from fibsem.applications.autolamella.ui.grids.screen import (
     ScreenGridsDialog,
     scan_in_progress,
@@ -36,6 +33,7 @@ from fibsem.applications.autolamella.ui.workflow.lamella_run import (
     LamellaWorkflowWidget,
 )
 from fibsem.applications.autolamella.ui.workflow.preflight import (
+    GridRunPreflightDialog,
     confirm_add_to_queue_dialog,
     confirm_run_workflow_dialog,
 )
