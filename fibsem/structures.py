@@ -2822,61 +2822,42 @@ class StageSystemSettings(Configurable):
         if holder is not None:
             holder.pre_tilt = value
 
-    def to_dict(self):
-        ddict = {
-            "rotation_reference": self.rotation_reference,
-            "enabled": self.enabled,
-            "rotation": self.rotation,
-            "milling_angle": self.milling_angle,
-            # `include_grids=False`: which grid is in which slot is session state and
-            # has its own file. Writing it here would make the configuration go stale
-            # every time someone swapped a grid.
-            "holders": {
-                name: holder.to_dict(include_grids=False)
-                for name, holder in self.holders.items()
-            },
-            "active_holder": self.active_holder,
-        }
-        # Written only once measured, so a file that never calibrated it stays as it was.
-        if any(self.rotation_centre_correction):
-            ddict["rotation_centre_correction"] = list(self.rotation_centre_correction)
-        # The pre-tilt has one home in the file. Once a holder is named it lives on
-        # the holder, and writing it here as well would be a second copy that a hand
-        # edit could put out of step -- silently, in the term every projection uses.
-        # Until then (a record loaded from an old file and not yet connected) the
-        # stage-level key is the only place the value has, so it is kept.
+    def to_dict(self) -> dict:
+        data = encode(self)
+        del data["_shuttle_pre_tilt"]  # written as shuttle_pre_tilt, below
+        # Each device's position is written on its own entry (`SystemSettings`).
+        del data["devices"]
+        # The configuration names the holders; what is loaded is the holder file's.
+        for holder in data["holders"].values():
+            for slot in holder["slots"].values():
+                slot["loaded_grid"] = None
+        if not any(self.rotation_centre_correction):
+            del data["rotation_centre_correction"]
+        # The pre-tilt has one home: the holder once one is named, this key until then.
         if not self.holders:
-            ddict["shuttle_pre_tilt"] = self.shuttle_pre_tilt
-        return ddict
+            data["shuttle_pre_tilt"] = self.shuttle_pre_tilt
+        return data
 
-    @staticmethod
-    def from_dict(settings: dict):
+    @classmethod
+    def from_dict(cls, settings: dict) -> "StageSystemSettings":
         holders = {
             name: _configured_holder_from(name, holder)
             for name, holder in (settings.get("holders") or {}).items()
         }
-        active_holder = settings.get("active_holder", "")
-        # Once a holder is named the file states the pre-tilt only on the holder,
-        # so the stage's fallback is seeded from it. Left at 0.0 it changed nothing
-        # anyone reads -- the holder answers -- but a record no longer equalled its
-        # own round trip, which is exactly what the round-trip tests compare.
-        active = holders.get(active_holder)
-        fallback = settings.get(
-            "shuttle_pre_tilt", active.pre_tilt if active is not None else 0.0
-        )
-        return StageSystemSettings(
-            rotation_reference=settings.get("rotation_reference", 0.0),
-            shuttle_pre_tilt=fallback,
-            enabled=settings.get("enabled", True),
-            rotation=settings.get("rotation", True),
-            milling_angle=settings.get("milling_angle", 15.0),
-            devices=deepcopy(DEFAULT_STAGE_DEVICES),
-            holders=holders,
-            active_holder=active_holder,
-            rotation_centre_correction=_parse_rotation_centre(
-                settings.get("rotation_centre_correction")
-            )
-            or (0.0, 0.0),
+        active = holders.get(settings.get("active_holder", ""))
+        return decode(
+            cls,
+            {
+                "rotation_reference": 0.0,
+                "shuttle_pre_tilt": active.pre_tilt if active is not None else 0.0,
+                **settings,
+                "devices": deepcopy(DEFAULT_STAGE_DEVICES),
+                "holders": holders,
+                "rotation_centre_correction": _parse_rotation_centre(
+                    settings.get("rotation_centre_correction")
+                )
+                or (0.0, 0.0),
+            },
         )
 
 
@@ -2957,60 +2938,35 @@ class BeamSystemSettings:
         """Whether this is a plasma column. Derived: a plasma column has a gas."""
         return self.plasma_gas is not None
 
-    def to_dict(self):
-        ddict = {
-            "beam_type": self.beam_type.value,
-            "enabled": self.enabled,
-            "eucentric_height": self.eucentric_height,
-            "column_tilt": self.column_tilt,
-        }
-        # Written for the ion column only. One class serves both columns, so the
-        # fields exist on the electron one too, and writing them there put
-        # `electron.plasma` into any configuration saved from the application --
-        # a key no shipped file has ever carried and nothing reads. An electron
-        # column has no plasma source.
-        if self.beam_type is BeamType.ION:
-            ddict["plasma_gas"] = self.plasma_gas
-        ddict.update(self.beam.to_dict())
-        ddict.update(self.detector.to_dict())
+    def to_dict(self) -> dict:
+        """The configuration's flat beam block: the beam and detector settings sit
+        beside the column's own keys, the detector's with a ``detector_`` prefix."""
+        data = encode(self)
+        data.update(data.pop("beam"))
+        data["current"] = data.pop("beam_current")
+        data.update({f"detector_{k}": v for k, v in data.pop("detector").items()})
+        # An electron column has no plasma source; no shipped file carries the key.
+        if self.beam_type is not BeamType.ION:
+            del data["plasma_gas"]
+        return data
 
-        # rename keys to match config
-        ddict["detector_mode"] = ddict.pop("mode")
-        ddict["detector_type"] = ddict.pop("type")
-        ddict["detector_brightness"] = ddict.pop("brightness")
-        ddict["detector_contrast"] = ddict.pop("contrast")
-        ddict["current"] = ddict.pop("beam_current")
-
-        return ddict
-
-    @staticmethod
-    def from_dict(settings: dict) -> "BeamSystemSettings":
+    @classmethod
+    def from_dict(cls, settings: dict) -> "BeamSystemSettings":
         beam_type = BeamType[settings.get("beam_type", "ELECTRON")]
-
-        # The default depends on which column this is, so it cannot be a single
-        # number: an absent electron column tilt is 0, an absent ion column tilt is
-        # not. Taken from `FibsemHardwareGeometry`, which already declares both --
-        # the alternative is two independent defaults for one physical constant,
-        # which is how a config missing its `ion:` block came to load with a 52
-        # degree column recorded as 0.
-        default_column_tilt = (
-            DEFAULT_FIB_COLUMN_TILT if beam_type is BeamType.ION else 0.0
-        )
-
-        return BeamSystemSettings(
-            beam_type=beam_type,
-            enabled=settings.get("enabled", True),
-            beam=BeamSettings.from_dict(settings),
-            # The file spells the detector keys with a `detector_` prefix -- that is
-            # what `to_dict` writes -- and `FibsemDetectorSettings.from_dict` reads
-            # the bare names, so for as long as both existed every shipped
-            # `detector_type: ETD` loaded as "Unknown", and a saved file lost its
-            # detector on the next load. Mapped here, at the one seam where the
-            # prefixed spelling meets the record.
-            detector=FibsemDetectorSettings.from_dict(_detector_block_from(settings)),
-            eucentric_height=settings.get("eucentric_height", 0.0),
-            column_tilt=settings.get("column_tilt", default_column_tilt),
-            plasma_gas=settings.get("plasma_gas"),
+        # An absent column tilt depends on the column: `FibsemHardwareGeometry`'s
+        # 52 degrees for the ion column, 0 for the electron one.
+        column_tilt = DEFAULT_FIB_COLUMN_TILT if beam_type is BeamType.ION else 0.0
+        return decode(
+            cls,
+            {
+                "enabled": True,
+                "eucentric_height": 0.0,
+                "column_tilt": column_tilt,
+                **settings,
+                "beam_type": beam_type,
+                "beam": settings,
+                "detector": _detector_block_from(settings),
+            },
         )
 
 
@@ -3163,20 +3119,18 @@ class FluorescenceSystemSettings:
 
     def to_dict(self) -> dict:
         """The fm entry's own keys, as the configuration writes them and as every FM
-        binder receives them (``config``)."""
-        settings = {
-            "enabled": self.enabled,
-            "driver": self.driver,
-            "address": self.address,
-            "port": self.port,
-            "required": self.required,
-        }
-        # Written only when stated, so a file that never named it is saved unchanged.
-        if self.mount_transform is not CameraImageTransform.NONE:
-            settings["mount_transform"] = self.mount_transform.value
-        if self.camera_tilt is not None:
-            settings["camera_tilt"] = self.camera_tilt
-        return settings
+        binder receives them (``config``). The objective positions are written under
+        ``calibration.objective`` (`objective_to_dict`)."""
+        data = encode(self)
+        del data["focus_position"], data["limit_position"]
+        # By value (`flip-x`), the spelling Odemis' --mount-transform takes too.
+        if self.mount_transform is CameraImageTransform.NONE:
+            del data["mount_transform"]
+        else:
+            data["mount_transform"] = self.mount_transform.value
+        if self.camera_tilt is None:
+            del data["camera_tilt"]
+        return data
 
     def objective_to_dict(self) -> dict:
         return {
@@ -3184,31 +3138,11 @@ class FluorescenceSystemSettings:
             "limit_position": self.limit_position,
         }
 
-    @staticmethod
-    def from_dict(settings: dict) -> "FluorescenceSystemSettings":
-        settings = settings or {}
-        port = settings.get("port")
-        return FluorescenceSystemSettings(
-            enabled=(
-                bool(settings["enabled"])
-                if settings.get("enabled") is not None
-                else None
-            ),
-            driver=settings.get("driver"),
-            address=settings.get("address"),
-            port=int(port) if port is not None else None,
-            required=(
-                bool(settings["required"])
-                if settings.get("required") is not None
-                else None
-            ),
-            mount_transform=_mount_transform(settings.get("mount_transform")),
-            camera_tilt=(
-                float(settings["camera_tilt"])
-                if settings.get("camera_tilt") is not None
-                else None
-            ),
-        )
+    @classmethod
+    def from_dict(cls, settings: dict) -> "FluorescenceSystemSettings":
+        settings = dict(settings or {})
+        settings["mount_transform"] = _mount_transform(settings.get("mount_transform"))
+        return decode(cls, settings)
 
 
 def _mount_transform(name: Optional[str]) -> "CameraImageTransform":
