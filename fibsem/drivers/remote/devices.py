@@ -74,8 +74,8 @@ from typing import (
     Tuple,
 )
 
-import numpy as np
 import httpx
+import numpy as np
 from psygnal import Signal
 
 from fibsem.client.events import HEARTBEAT, EventStream
