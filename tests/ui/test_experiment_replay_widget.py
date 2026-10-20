@@ -9,7 +9,7 @@ pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is delibe
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 
 from fibsem.applications.autolamella.tools.replay import EventKind  # noqa: E402
-from fibsem.applications.autolamella.tools.replay_viewer import (
+from fibsem.applications.autolamella.ui.tools.replay_viewer import (
     ExperimentReplayWidget,  # noqa: E402
 )
 from tests.autolamella._replay_experiment import (  # noqa: E402
