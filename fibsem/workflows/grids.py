@@ -18,6 +18,7 @@ from psygnal import evented
 
 from fibsem.util.timestamps import now, to_datetime, to_iso
 from fibsem.utils import _plain
+from fibsem.workflows.actions import note_record
 from fibsem.workflows.item import ExperimentItem
 from fibsem.workflows.proposals import Proposal, proposals_from_dict, proposals_to_dict
 from fibsem.workflows.quality import QualityRecord
@@ -163,6 +164,15 @@ class GridRecord(ExperimentItem):
                 self.overlays[index] = record
                 return
         self.overlays.append(record)
+
+    def set_note(self, note: str, **fields: Any) -> Optional[Dict[str, Any]]:
+        """Keep *note* as the grid's note (an empty one clears it) and answer
+        its note record (with *fields*, as ``note_record``) for whoever wrote
+        it, or None when it was cleared."""
+        self.description = note
+        if not note:
+            return None
+        return note_record(note, item_id=self.id, item_name=self.name, **fields)
 
     @property
     def is_failure(self) -> bool:

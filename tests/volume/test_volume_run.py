@@ -112,10 +112,14 @@ def test_a_failed_slice_stops_its_position_and_not_the_others(
 
     aspen, birch = positions
     assert all(aspen.iteration_completed(n, TASKS) for n in range(3))
-    assert [(s.name, s.iteration, s.status) for s in birch.task_history][:1] == [
-        (MILL, 0, TaskStatus.Failed)
+    # the uncut face is not imaged: the image needs the cut
+    assert _slices(birch) == [(MILL, 0, TaskStatus.Failed)]
+    assert [
+        (i.task_name, i.status) for i in manager.queue.items if i.item_name == "birch"
+    ] == [
+        (MILL, TaskStatus.Failed),
+        (IMAGE, TaskStatus.Skipped),
     ]
-    assert not any(i.item_name == "birch" and i.iteration for i in manager.queue.items)
     assert "1 task failed" in manager._completion_message()
 
 

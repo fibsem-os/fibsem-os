@@ -33,6 +33,7 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
 )
 from fibsem.milling import FibsemMillingStage
 from fibsem.milling.tasks import FibsemMillingTaskConfig
+from fibsem.workflows import task as task_module
 from fibsem.workflows.proposals import (
     ACTION_ACCEPT,
     ACTION_EDIT,
@@ -80,7 +81,7 @@ def ui(qapp, monkeypatch, tmp_path):
         return SimpleNamespace(error=failures.pop(0) if failures else None)
 
     on_mill = []
-    monkeypatch.setattr(base, "run_milling_task", fake_run_milling_task)
+    monkeypatch.setattr(task_module, "run_milling_task", fake_run_milling_task)
     monkeypatch.setattr(
         base, "get_task_supervision", lambda *_: supervision["supervised"]
     )

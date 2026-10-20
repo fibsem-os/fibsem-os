@@ -20,6 +20,7 @@ from PyQt5.QtWidgets import QHBoxLayout, QPushButton, QWidget
 
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.stylesheets import (
+    AGENT_ATTENTION_BUTTON_STYLESHEET,
     DANGER_BUTTON_STYLESHEET,
     PRIMARY_BUTTON_STYLESHEET,
     SUPERVISION_STATUS_AUTOMATED_STYLESHEET,
@@ -129,12 +130,20 @@ class WorkflowControls(QWidget):
         self.supervision_btn.setStyleSheet(style)
         self.supervision_btn.show()
 
-    def set_attention(self, label: Optional[str], tooltip: str = "") -> None:
+    def set_attention(
+        self, label: Optional[str], tooltip: str = "", agent: bool = False
+    ) -> None:
         """Show Attention Required -- or *label*, "Review Required (2)" -- while the
-        run waits on someone; None hides it."""
+        run waits on someone; None hides it. *agent*: the agent is the one
+        deciding, in its purple."""
         if not label:
             self.attention_btn.hide()
             return
+        self.attention_btn.setStyleSheet(
+            AGENT_ATTENTION_BUTTON_STYLESHEET
+            if agent
+            else USER_ATTENTION_BUTTON_STYLESHEET
+        )
         self.attention_btn.setText(label)
         self.attention_btn.setToolTip(tooltip)
         self.attention_btn.show()

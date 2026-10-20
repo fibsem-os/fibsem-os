@@ -274,6 +274,9 @@ class Hold:
     releases: str
     # the lamella/task pairs waiting, when there are some
     items: Tuple[str, ...] = ()
+    # an agent at Drive is listening and expected to decide it: the operator
+    # is not needed unless it goes quiet or is stopped (FIB-1498)
+    agent_deciding: bool = False
 
 
 def take_back_finish(item: Any, task_id: str, status: TaskStatus, message: str) -> None:

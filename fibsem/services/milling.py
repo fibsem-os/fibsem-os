@@ -133,6 +133,9 @@ _RUN_CONTEXT = (
     "total_stages",
 )
 
+# A run outside a task that ``setup`` gave no name.
+UNNAMED_RUN = "Prepared patterns"
+
 # How a run outside a task ended, as the terminal report that ends its progress.
 _ENDED_AS = {
     COMPLETED: MillingProgressStatus.TASK_FINISHED,
@@ -799,17 +802,22 @@ class Milling(Service):
         """A run outside a milling task (an agent's ``prepare`` and ``run``, or a
         script's): its stage updates carry the name it was set up with, and it
         records one ``milling`` event with how it ended, as a task's run does
-        (FIB-1257, FIB-1377)."""
+        (FIB-1257, FIB-1377). It starts as a task does, so the milling panel's
+        Stop and the progress bars follow it (FIB-1496)."""
         payload: Dict[str, Any] = {
             # The id of its run on this service (`fibsem.devices.runs`), so
             # its events and its run share one id.
             "milling_run_id": current_run_id(self.name) or str(uuid.uuid4()),
-            "milling_task_name": self._name,
+            "milling_task_name": self._name or UNNAMED_RUN,
             "started_at": now_iso(),
         }
-        self._run_context = {
-            name: value for name, value in payload.items() if name in _RUN_CONTEXT
-        }
+        self._report(
+            MillingProgress(
+                status=MillingProgressStatus.TASK_STARTED,
+                milling_run_id=payload["milling_run_id"],
+                milling_task_name=payload["milling_task_name"],
+            )
+        )
         try:
             status = self._run(stop_event)
         except BaseException as error:
@@ -918,11 +926,21 @@ class Milling(Service):
             logging.warning(f"Error stopping milling after a failure: {e}")
 
     @query
-    def estimate_time(self) -> Dict[str, Any]:
+    def estimate_time(
+        self, stages: Optional[List[FibsemMillingStage]] = None
+    ) -> Dict[str, Any]:
         """How long milling what is drawn takes: ``seconds``, with the current it
         mills at and any warning about it (`_milling_current`, from what the
-        setup wrote, not read again). Moves nothing, so a query."""
-        return {"seconds": self._estimate(), **self._milling_current()}
+        setup wrote, not read again). With *stages*, how long they would take
+        before anything is drawn (``estimate_stage``): ``seconds`` in all and each
+        stage's. Moves nothing, so a query."""
+        if stages is None:
+            return {"seconds": self._estimate(), **self._milling_current()}
+        each = [
+            {"name": stage.name, "seconds": float(self.estimate_stage(stage))}
+            for stage in stages
+        ]
+        return {"seconds": sum(s["seconds"] for s in each), "stages": each}
 
     @classmethod
     def estimate_stage(cls, stage: FibsemMillingStage) -> float:

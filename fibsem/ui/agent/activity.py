@@ -8,7 +8,9 @@ and this follows it:
 * the status bar's line says "**Agent** focus sweep · 12s" while it holds control;
 * an action still going after `ANNOUNCE_MS` gets a toast, and one more when it
   ends. Quick ones (an image, a stage move) get none: a toast for each of those
-  would bury the window during a session;
+  would bury the window during a session. A long command the agent started (a
+  mill, an FM overview) gets its end toast when its run ends, from the record,
+  whether or not it held control to the end;
 * the patterns the agent draws for a mill are drawn on the FIB view, labelled
   "Agent" in the agent's purple, until they are removed (the run ends, or the next setup). The milling
   service announces what is drawn (``patterns_changed``); they are the agent's
@@ -54,6 +56,13 @@ if TYPE_CHECKING:
 
 # How long an agent's action runs before the window says so with a toast.
 ANNOUNCE_MS = 3000
+
+# How close together two ends of one action are the same end: its control let
+# go and its run's ``command_ended``.
+SAME_END_S = 5.0
+
+# How a long command's run ended, in the toast.
+_ENDED = {"done": "finished", "failed": "failed", "cancelled": "was stopped"}
 
 # The FIB view's overlay for the agent's patterns, beside the milling panel's own.
 OVERLAY_ID = "agent_milling"
@@ -116,6 +125,8 @@ class AgentActivity(QObject):
         self._unsubscribe: Optional[Callable[[], None]] = None
         self._recent = RecentActions()
         self._seen = 0
+        # The last action an end toast was shown for, and when.
+        self._ended: Tuple[Optional[str], float] = (None, 0.0)
         self._record_received.connect(self._on_record, Qt.QueuedConnection)  # type: ignore
 
     @property
@@ -157,8 +168,33 @@ class AgentActivity(QObject):
         self.recent_changed.emit(self._recent.rows)
 
     def _on_record(self, record: object) -> None:
-        if isinstance(record, dict) and self._take(record):
+        if not isinstance(record, dict):
+            return
+        fresh = (record.get("seq") or 0) > self._seen
+        if self._take(record):
             self.recent_changed.emit(self._recent.rows)
+        if fresh and record.get("kind") == "command_ended":
+            self._command_ended(record)
+
+    def _command_ended(self, record: dict) -> None:
+        """The agent's long command ended: say so, once."""
+        if record.get("actor") != AGENT:
+            return
+        p = record.get("payload") or {}
+        action = p.get("action") or f"{p.get('service')} {p.get('command')}"
+        ended = _ENDED.get(str(p.get("state")), "ended")
+        text = f"Agent: {action} {ended}"
+        if p.get("error"):
+            text += f": {p['error']}"
+        self._toast_end(action, text, "error" if ended == "failed" else "info")
+
+    def _toast_end(self, action: str, text: str, kind: str = "info") -> None:
+        last, at = self._ended
+        now = time.monotonic()
+        if last == action and now - at < SAME_END_S:
+            return
+        self._ended = (action, now)
+        notification_service.show_toast(text, kind)
 
     def _take(self, record: dict) -> bool:
         seq = record.get("seq") or 0
@@ -215,9 +251,7 @@ class AgentActivity(QObject):
             return
         if self._action is not None and self._announced:
             took = format_duration_rounded(time.monotonic() - self._since)
-            notification_service.show_toast(
-                f"Agent: {self._action} ended after {took}", "info"
-            )
+            self._toast_end(self._action, f"Agent: {self._action} ended after {took}")
         self._action = action
         self._since = time.monotonic()
         self._announced = False

@@ -119,6 +119,18 @@ USER_ATTENTION_BUTTON_STYLESHEET = f"""
             }}
         """
 
+# Attention Required's shape, in the agent's purple: the agent is deciding.
+AGENT_ATTENTION_BUTTON_STYLESHEET = f"""
+            QPushButton {{
+                background-color: {PURPLE_COLOR};
+                color: white;
+                border: none;
+                padding: 4px 12px;
+                border-radius: 3px;
+                font-weight: bold;
+            }}
+        """
+
 # TODO: no token -- #2e7d32, #388e3c
 CONFIRM_BUTTON_STYLESHEET = f"""
             QPushButton {{

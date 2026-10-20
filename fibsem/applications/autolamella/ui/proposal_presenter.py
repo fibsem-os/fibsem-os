@@ -249,8 +249,11 @@ class ProposalPresenter:
         message and Continue, which records the decision through
         ``Experiment.decide`` with the widget's value. Without the widget the
         Continue confirms the value as proposed."""
-        from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
-        from fibsem.workflows.proposals import ALIGNMENT_AREA, DETECTION
+        from fibsem.workflows.proposals import (
+            ALIGNMENT_AREA,
+            DETECTION,
+            POINT_OF_INTEREST,
+        )
         from fibsem.workflows.status import WorkflowStatusEvent
 
         message = str(proposal.provenance.get("message") or "")
@@ -309,7 +312,7 @@ class ProposalPresenter:
         self._poi_frames_followed = self._panel.image_widget
 
     def _sync_poi_proposal(self, *_args) -> None:
-        from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
+        from fibsem.workflows.proposals import POINT_OF_INTEREST
 
         shown = self._widget_proposal
         if shown is not None and shown[2].kind == POINT_OF_INTEREST:
@@ -322,8 +325,11 @@ class ProposalPresenter:
         shown = self._widget_proposal
         if shown is None or shown[:2] != (item_id, task_name):
             return
-        from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
-        from fibsem.workflows.proposals import ALIGNMENT_AREA, DETECTION
+        from fibsem.workflows.proposals import (
+            ALIGNMENT_AREA,
+            DETECTION,
+            POINT_OF_INTEREST,
+        )
         from fibsem.workflows.status import WorkflowStatusEvent
 
         self._widget_proposal = None
@@ -340,9 +346,12 @@ class ProposalPresenter:
     def _widget_value(self, proposal) -> Dict[str, Any]:
         """What the widget holds for ``proposal``'s kind; empty (as proposed)
         when the widget was not there to edit it on."""
-        from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
         from fibsem.detection.decided import detection_values
-        from fibsem.workflows.proposals import ALIGNMENT_AREA, DETECTION
+        from fibsem.workflows.proposals import (
+            ALIGNMENT_AREA,
+            DETECTION,
+            POINT_OF_INTEREST,
+        )
 
         if proposal.kind == DETECTION and self._detection_shown():
             return detection_values(self._panel.det_widget._get_detected_features())

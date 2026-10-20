@@ -350,15 +350,6 @@ class ProposalDecisions:
             # asker clears this too on its way out; here it is closed the
             # instant the answer lands, leaving no window in between.
             proposal.asking = False
-            logging.debug(
-                {
-                    "msg": "proposal_decided",
-                    "item": item.name,
-                    "task_name": task_name,
-                    "outcome": decision.outcome.name,
-                    "actor": str(decision.actor),
-                }
-            )
             # Saved here, so no decider can forget to: the prompt bar, the
             # App Server and a task's own decision all land on disk. A save
             # that fails leaves the decision in memory, and says so.
@@ -646,16 +637,6 @@ class ProposalDecisions:
                     ),
                 )
             )
-        logging.debug(
-            {
-                "msg": "proposal_unreviewed",
-                "lamella": item.name,
-                "task_name": task_name,
-                "kind": proposal.kind,
-                "proposal_id": proposal.id,
-                "reason": reason,
-            }
-        )
         try:
             self._notify(self.decided, item_id, task_name)
         except Exception:
@@ -680,6 +661,8 @@ class ProposalDecisions:
                 None,
             )
             decision = proposal.current if proposal is not None else None
+            if proposal is not None:
+                proposal.filling_in = False
             if (
                 decision is None
                 or decision.outcome is not DecisionOutcome.Confirmed
@@ -719,14 +702,6 @@ class ProposalDecisions:
                         )
                     )
                     withdrawn += 1
-                    logging.debug(
-                        {
-                            "msg": "proposal_withdrawn",
-                            "item": item.name,
-                            "asked_by": str(proposal.asked_by),
-                            "reason": reason,
-                        }
-                    )
         return withdrawn
 
     def withdraw_proposal(
@@ -782,14 +757,6 @@ class ProposalDecisions:
                     task_id=proposal.task_id,
                     proposal_id=proposal.id,
                 )
-            )
-            logging.debug(
-                {
-                    "msg": "proposal_withdrawn",
-                    "item": item.name,
-                    "task_name": task_name,
-                    "reason": reason,
-                }
             )
         try:
             self._notify(self.decided, item_id, task_name)

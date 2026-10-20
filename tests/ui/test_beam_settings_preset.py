@@ -86,6 +86,9 @@ class FakeTescan:
         self.activated.append(preset)
         self.current_preset = preset
 
+    def record_event(self, kind, payload):
+        pass
+
 
 def make_widget(beam_type, presets, current_preset="A", fail_activation=False):
     microscope = FakeTescan(presets, current_preset, fail_activation)

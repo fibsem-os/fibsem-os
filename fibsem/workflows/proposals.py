@@ -11,16 +11,18 @@ The records, the kinds and the value registries are here, for any
 application's workflow. An application registers its own kinds
 (``register_proposal_kind``) and, for each value they carry, how it is stored
 (``register_value_codec``) and how confirming writes it to an item
-(``register_value_writer``). AutoLamella's are in
-``fibsem.applications.autolamella.proposals``.
+(``register_value_writer``).
 """
 
 from __future__ import annotations
 
 import contextlib
 import hashlib
+import logging
+import math
 import threading
 import uuid
+from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, auto
@@ -65,6 +67,10 @@ ALIGNMENT_AREA = "alignment_area"
 # is written nowhere: the task runs what it is handed.
 MILLING = "milling"
 SPOT_BURN = "spot_burn"
+# A point on an image: the point of interest the tasks that follow it sync to.
+# Confirming writes it to the item, which says what follows it
+# (``poi_sync_plan``): a lamella's milling patterns, a volume position's slice.
+POINT_OF_INTEREST = "point_of_interest"
 # What an agent at Assist asks to do: its tool calls, run in order once the
 # operator approves (FIB-1283). About the experiment, not an item; the value
 # is the calls with the operator's lines for each, written nowhere.
@@ -192,6 +198,9 @@ register_proposal_kind(
     )
 )
 register_proposal_kind(
+    ProposalKind(name=POINT_OF_INTEREST, values=("poi",), label="Point of interest")
+)
+register_proposal_kind(
     ProposalKind(name=ACTIONS, values=("actions",), label="Agent request")
 )
 
@@ -316,6 +325,7 @@ def _to_dict(value: Any) -> Any:
 
 register_value_codec("milling_config", _to_dict, _milling_config_from_dict)
 register_value_codec("spot_burn", _to_dict, _spot_burn_from_dict)
+register_value_codec("poi", _point_to_dict, _point_from_dict)
 
 
 class ValueRefused(ValueError):
@@ -517,6 +527,45 @@ def _prepare_spot_burn(experiment: Any, item: Any, value: Any) -> PreparedWrite:
 
 register_value_writer("milling_config", _prepare_milling_config)
 register_value_writer("spot_burn", _prepare_spot_burn)
+
+
+def _prepare_poi(experiment: Any, item: Any, value: Any) -> PreparedWrite:
+    """The new point, then every pattern that follows it (the item's
+    ``poi_sync_plan``), planned in full before any of it happens: a write that
+    bypassed the sync left those patterns detached from the new point."""
+    if not isinstance(value, Point):
+        raise ValueRefused(f"poi must be a Point, not {type(value).__name__}.")
+    for axis in (value.x, value.y):
+        if isinstance(axis, bool) or not isinstance(axis, (int, float)):
+            raise ValueRefused(f"poi must have numeric x and y, not {value!r}.")
+        if not math.isfinite(axis):
+            raise ValueRefused(f"poi must be finite, not {value!r}.")
+    plan = getattr(item, "poi_sync_plan", None)
+    if plan is None:
+        raise ValueRefused(f"{getattr(item, 'name', 'this item')} has no poi.")
+    synced, moves = plan(value)
+    old_poi = item.poi
+    old_points = [(pattern, pattern.point) for pattern, _ in moves]
+
+    def apply() -> List[str]:
+        item.poi = deepcopy(value)  # the record keeps its own point
+        for pattern, moved in moves:
+            pattern.point = moved
+        if synced:
+            logging.info(f"Synced tasks to POI: {synced}")
+        return list(synced)
+
+    def undo() -> None:
+        with _quietly(item):
+            item.poi = old_poi
+        for pattern, point in reversed(old_points):
+            with _quietly(pattern):
+                pattern.point = point
+
+    return PreparedWrite(apply=apply, undo=undo)
+
+
+register_value_writer("poi", _prepare_poi)
 
 
 # How a value is edited by naming fields rather than sending it whole: a
@@ -790,6 +839,10 @@ class Proposal:
     # exists while something is waiting on it, and a flag that survived a
     # reload would claim a waiter that is gone.
     asking: bool = field(default=False, compare=False, repr=False)
+    # Whether the asker fills in the values of an "as it stands" confirmation
+    # once it lands (``BaseTask.ask`` with ``decided``). Not persisted: the
+    # record holds the decision once, with its values (FIB-1491).
+    filling_in: bool = field(default=False, compare=False, repr=False)
     # This proposal's own name, minted when it is made. What a decision names
     # (``Decision.proposal_id``), and what anything outside the record -- an
     # event, a responder waiting on an answer -- points at: ``(item, task)``

@@ -1,7 +1,6 @@
 ######## TASK BASE DEFINITIONS ########
 
 
-import glob
 import logging
 import os
 import random
@@ -9,6 +8,7 @@ import time
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
+from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -49,10 +49,6 @@ from fibsem.applications.autolamella.workflows.core import (
     set_images_ui,
     update_status_ui,
 )
-from fibsem.applications.autolamella.workflows.ui import (
-    INSTRUCTION_TIMEOUT_S,
-    _abort_requested,
-)
 from fibsem.cancellation import SKIPPED
 from fibsem.detection import detection as detection_module
 from fibsem.detection.decided import (
@@ -70,16 +66,10 @@ from fibsem.detection.detection import (
     LamellaTopEdge,
     VolumeBlockCentre,
 )
-from fibsem.devices.beam import nearest_resolution
 from fibsem.fm.structures import ChannelSettings
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.patterning.utils import get_pattern_reduced_area
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
-from fibsem.milling.tasks import (
-    FibsemMillingTaskConfig,
-    record_milling_skipped,
-    run_milling_task,
-)
 from fibsem.structures import (
     DEFAULT_ALIGNMENT_AREA,
     BeamType,
@@ -93,22 +83,14 @@ from fibsem.structures import (
 from fibsem.util.timestamps import now, now_iso
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.interaction import (
-    ClearMillingConfig,
-    Responder,
+    INSTRUCTION_TIMEOUT_S,
     SetFluorescenceChannels,
-    SetMillingConfig,
     ShowDetection,
+    _abort_requested,
     ask,
 )
 from fibsem.workflows.proposals import (
-    ACTION_ACCEPT,
-    ACTION_EDIT,
-    ACTION_RUN,
-    ACTION_SKIP,
-    ALIGNMENT_AREA,
     DETECTION,
-    EXPERIMENT_WRITE_LOCK,
-    MILLING,
     DecisionOutcome,
 )
 from fibsem.workflows.status import TaskState, TaskStatus
@@ -119,6 +101,7 @@ if TYPE_CHECKING:
     from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
     from fibsem.autofunctions.autofocus import AutoFocusResult
     from fibsem.fm.structures import FluorescenceImage
+    from fibsem.milling.tasks import FibsemMillingTaskConfig
 
 TAutoLamellaTaskConfig = TypeVar(
     "TAutoLamellaTaskConfig", bound="AutoLamellaTaskConfig"
@@ -126,8 +109,6 @@ TAutoLamellaTaskConfig = TypeVar(
 
 MAX_ALIGNMENT_ATTEMPTS = 3
 ALIGNMENT_REFERENCE_IMAGE_FILENAME = "ref_alignment_ib.tif"
-# the alignment reference is taken at the listed resolution nearest this
-ALIGNMENT_REFERENCE_RESOLUTION = (1536, 1024)
 
 
 class AutoLamellaTask(BaseTask):
@@ -155,7 +136,6 @@ class AutoLamellaTask(BaseTask):
         # task's _run (FIB-1253). In __init__ rather than pre_task, so a task
         # whose _run is called directly still writes there.
         self.config.imaging.path = self.output_dir
-        self._last_fib_image: Optional[FibsemImage] = None
 
     @property
     def lamella(self) -> Lamella:
@@ -167,6 +147,11 @@ class AutoLamellaTask(BaseTask):
         self.item = lamella
 
     @property
+    def path(self) -> Path:
+        """The lamella's folder, which it knows without an experiment."""
+        return Path(self.lamella.path)
+
+    @property
     def output_dir(self) -> str:
         """Where this task's run writes what it makes: its reference images, its
         alignment and autofocus runs, its milling. Every save path a run hands on
@@ -175,12 +160,6 @@ class AutoLamellaTask(BaseTask):
         <YYYYMMDD-HHMMSS>/`` (FIB-1275), so a re-run overwrites nothing. The
         lamella's shared state is written to the lamella's folder instead."""
         return self._output_dir
-
-    @property
-    def responder(self) -> Optional[Responder]:
-        """Who answers this task's questions: the run's (the session's
-        responder), or None outside a run."""
-        return getattr(self.task_manager, "responder", None)
 
     @property
     def validate(self) -> bool:
@@ -361,151 +340,6 @@ class AutoLamellaTask(BaseTask):
             configured_objective_position
         )
 
-    def update_milling_config_ui(
-        self,
-        milling_config: FibsemMillingTaskConfig,
-        msg: str = "Mill the task.",
-        milling_enabled: bool = True,
-    ) -> FibsemMillingTaskConfig:
-        """Mill ``milling_config``, asking first when supervised; return the config
-        as last used.
-
-        The mill and its loop are the task's, on this thread (FIB-1236), headless
-        and with a window alike. Each pass is a ``milling`` question through
-        ``ask``, on the record: the config this pass would mill, decided as run
-        (mill the config as decided, then ask again with the pass counted and
-        the error, if the mill failed), edit (ask again with the config as
-        decided), skip or accept (end the loop). Whoever decides, the operator
-        at the editor or an agent, changes what is milled by deciding with it.
-        Asked of nobody, a pass is recorded as the kind's silence: the first
-        mills once, the next accepts, and a failed mill then fails the task
-        (FIB-1112).
-
-        Each run records how it ended (``FibsemMillingTask``). A task that mills
-        nothing records that too, as a skipped ``milling`` event: with milling
-        turned off, or skipped at the question (FIB-1257).
-        """
-        if not milling_enabled:
-            record_milling_skipped(
-                self.microscope, milling_config, "milling is turned off for this task"
-            )
-        responder = self.responder
-        # The task's own config until a decision replaces it: an unasked mill
-        # runs it, so what the run records on it (a strategy's end reason)
-        # stays with the task even when the run is stopped. The question only
-        # ever carries, and is decided with, copies.
-        config = milling_config
-        passes, error, watched = 0, None, None
-        try:
-            while True:
-                if not milling_enabled:
-                    actions = (ACTION_EDIT, ACTION_ACCEPT)
-                elif passes == 0:
-                    actions = (ACTION_RUN, ACTION_EDIT, ACTION_SKIP)
-                else:
-                    actions = (ACTION_RUN, ACTION_EDIT, ACTION_ACCEPT)
-                if responder is not None:
-                    # The editor shows what this pass would mill.
-                    self._set_milling_config_ui(config)
-                asked = deepcopy(config)
-                decision = self.ask(
-                    MILLING,
-                    {"milling_config": asked},
-                    image=self._last_fib_image_file(),
-                    provenance={
-                        "actions": list(actions),
-                        "passes": passes,
-                        "last_error": None if error is None else str(error),
-                        "enabled": milling_enabled,
-                    },
-                    message=msg,
-                    decided=lambda: {"milling_config": asked},
-                )
-                if decision.outcome is DecisionOutcome.Rejected:
-                    raise RuntimeError(
-                        f"{self.task_name} was rejected: "
-                        f"{decision.reason or 'no reason given'}"
-                    )
-                if decision.outcome is not DecisionOutcome.Unreviewed:
-                    watched = decision
-                if decision.action == ACTION_ACCEPT and passes:
-                    if error is not None and watched is None:
-                        # Nobody looked: the task fails, rather than recording
-                        # Completed with nothing milled (FIB-1112).
-                        raise error
-                    # The config as milled, not an edit made after it: the
-                    # protocol must not claim what never ran (FIB-580).
-                    break
-                if watched is decision:
-                    # Unreviewed, it is decided as proposed: the task's own
-                    # config is milled, not the record's copy.
-                    config = decision.values.get("milling_config", config)
-                if decision.action == ACTION_EDIT:
-                    continue
-                if decision.action != ACTION_RUN:
-                    break
-                error = self._mill(config)
-                passes += 1
-        finally:
-            if responder is not None:
-                self.clear_milling_config_ui()
-        if milling_enabled and not passes:
-            record_milling_skipped(
-                self.microscope, config, "skipped at the milling question"
-            )
-        return config
-
-    def _mill(self, config: FibsemMillingTaskConfig) -> Optional[Exception]:
-        """Run the mill once, under the task's stop; its error if it failed. A
-        Stop of the workflow during it raises once it has ended."""
-        self.log_status_message("MILLING", f"Milling {config.name}...")
-        task = run_milling_task(
-            self.microscope,
-            config,
-            stop_event=self._stop_event,
-            output_dir=self.output_dir,
-        )
-        self._check_for_abort()
-        if task.error is not None:
-            self.log_status_message(
-                "MILLING", f"Milling {config.name} Failed: {task.error}"
-            )
-        else:
-            self.log_status_message(
-                "MILLING",
-                f"Milling {config.name} Complete: "
-                f"{len(config.enabled_stages)} stages completed.",
-            )
-        return task.error
-
-    def _set_milling_config_ui(self, milling_config: FibsemMillingTaskConfig):
-        """Set the milling config in the milling widget."""
-        if self.responder is None:
-            return
-
-        self._check_for_abort()
-
-        # deepcopy kept from the signal days: the editor's copy must be the
-        # operator's to edit without the task's own config moving under it.
-        ask(
-            self.responder,
-            SetMillingConfig(config=deepcopy(milling_config)),
-            abort=lambda: _abort_requested(self.task_manager),
-            timeout=INSTRUCTION_TIMEOUT_S,
-        )
-
-    def clear_milling_config_ui(self):
-        """Clear the milling config from the milling widget."""
-        if self.responder is None:
-            return
-
-        ask(
-            self.responder,
-            ClearMillingConfig(),
-            abort=lambda: _abort_requested(self.task_manager),
-            timeout=INSTRUCTION_TIMEOUT_S,
-        )
-
     def _align_reference_image(self, filename: str) -> Optional["AlignmentResult"]:
         """Align to a reference image in the lamella's folder, saving the run
         under the task's output folder. Returns what the alignment measured, or
@@ -682,6 +516,24 @@ class AutoLamellaTask(BaseTask):
             self._record_output(f"{phase}_sem", sem_image)
             self._record_output(f"{phase}_fib", fib_image)
 
+    def _image_after_pass(
+        self, config: "FibsemMillingTaskConfig", passes: int, take: bool = True
+    ) -> str:
+        """The mill's own finished frame, else one FIB frame at the milling
+        field of view when the proposal will be asked: the decision on a pass
+        is made on what it milled (FIB-1494)."""
+        image = super()._image_after_pass(config, passes, take)
+        if image or not take:
+            return image
+        self._acquire_channels(
+            deepcopy(self.config.imaging),
+            filename=f"ref_{self.task_name}_pass_{passes}",
+            field_of_view=config.field_of_view,
+            acquire_sem=False,
+            acquire_fib=True,
+        )
+        return self._last_fib_image_file()
+
     def _acquire_channels(
         self,
         image_settings: ImageSettings,
@@ -804,115 +656,6 @@ class AutoLamellaTask(BaseTask):
         if orientation is None:
             return stage_position
         return self.microscope.get_target_position(stage_position, orientation)
-
-    def _acquire_alignment_reference_image(
-        self,
-        image_settings: ImageSettings,
-        field_of_view: float,
-        reduced_area: FibsemRectangle,
-    ) -> FibsemImage:
-        """Acquire alignment reference image with reduced area.
-        Args:
-            image_settings (ImageSettings): The image settings to use for acquisition.
-            field_of_view (float): The field of view to use for acquisition.
-            reduced_area (FibsemRectangle): The reduced area to use for acquisition.
-        Returns:
-            FibsemImage: The acquired alignment reference image.
-        """
-        self.log_status_message(
-            "ACQUIRE_ALIGNMENT_REFERENCE_IMAGE",
-            "Acquiring Alignment Reference Image...",
-        )
-        alignment_image_settings = deepcopy(image_settings)
-
-        # set reduced area for fiducial alignment
-        alignment_image_settings.reduced_area = reduced_area
-
-        # acquire reference image for alignment
-        alignment_image_settings.beam_type = BeamType.ION
-        alignment_image_settings.save = True
-        alignment_image_settings.hfw = field_of_view
-        # Lamella state, read by later tasks (FIB-1258): in the lamella's folder
-        # and overwritten each time, not in this run's own folder (FIB-1275).
-        alignment_image_settings.path = str(self.lamella.path)
-        alignment_image_settings.filename = "ref_alignment"
-        alignment_image_settings.resolution = self._alignment_resolution()
-        alignment_image_settings.dwell_time = 1e-6
-        alignment_image_settings.autocontrast = (
-            True  # enable autocontrast for alignment
-        )
-        fib_image = acquire.acquire_image(self.microscope, alignment_image_settings)
-
-        return fib_image
-
-    def _alignment_resolution(self) -> Tuple[int, int]:
-        """The ion beam's listed resolution nearest the alignment reference's
-        1536x1024, so the reference is taken at one the instrument offers."""
-        ion = self.microscope.beams.get(BeamType.ION)
-        parameter = None if ion is None else ion.parameters.get("resolution")
-        choices = None if parameter is None else parameter.choices
-        return nearest_resolution(ALIGNMENT_REFERENCE_RESOLUTION, choices)
-
-    def _last_fib_image_file(self) -> str:
-        """The last FIB reference image, relative to the lamella's folder, for
-        a question to sit on; empty when none has been saved yet."""
-        image = self._last_fib_image
-        if image is None or image.filepath is None:
-            return ""
-        return os.path.relpath(image.filepath, self.lamella.path)
-
-    def _milling_result_image_file(self, config: FibsemMillingTaskConfig) -> str:
-        """The FIB image a milling session left behind (the ``finished``
-        acquisition, when its config acquires one), relative to the lamella's
-        folder; empty when it saved none.
-
-        Looked for where the milling saved it -- its config's imaging path, the
-        run's ``Milling/<task>`` folder -- then in the lamella's folder. Only the
-        lamella's folder was searched, where the milling task never saves, so a
-        Fiducial that acquired after milling still took an extra frame to ask
-        its alignment area on."""
-        imaging = getattr(getattr(config, "acquisition", None), "imaging", None)
-        filename = str(getattr(imaging, "filename", "") or "")
-        if filename:
-            for folder in (getattr(imaging, "path", None), self.lamella.path):
-                if not folder:
-                    continue
-                for candidate in sorted(
-                    glob.glob(os.path.join(str(folder), f"{filename}*_ib.tif"))
-                ):
-                    return os.path.relpath(candidate, self.lamella.path)
-        return ""
-
-    def _validate_alignment_area(
-        self, *, image: str = "", enabled: bool = True
-    ) -> None:
-        """Check the alignment area with the operator before the alignment
-        reference is taken in it.
-
-        An ``alignment_area`` question on ``image`` -- the last FIB reference
-        image unless the caller names the frame -- answered by dragging the
-        rectangle on the Microscope tab's FIB view, then Continue; the decided
-        area is what the task acquires with. A rejection (an agent's) fails
-        the task. ``enabled`` is the task's own switch.
-        """
-        self.log_status_message(
-            "VALIDATE_ALIGNMENT_AREA", "Validating Alignment Image..."
-        )
-        decision = self.ask(
-            ALIGNMENT_AREA,
-            {"alignment_area": deepcopy(self.lamella.alignment_area)},
-            image=image or self._last_fib_image_file(),
-            message="Check the alignment area: the reference for later "
-            "alignments is taken in it. Drag it to correct it.",
-            enabled=enabled,
-        )
-        if decision.outcome is DecisionOutcome.Rejected:
-            raise RuntimeError(
-                f"{self.task_name} was rejected: {decision.reason or 'no reason given'}"
-            )
-        area = decision.values.get("alignment_area")
-        if isinstance(area, FibsemRectangle):
-            self.lamella.alignment_area = area
 
     def set_fluorescence_channels_ui(
         self, channel_settings: List[ChannelSettings]

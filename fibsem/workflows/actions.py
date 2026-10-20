@@ -15,8 +15,13 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
+from fibsem.acting import OPERATOR, acting
+
 ACTION = "action"
 NOTE = "note"
+
+# The reason on a stop nobody gave one for: the operator's buttons ask none.
+NO_REASON = "none given"
 
 
 def action_record(
@@ -31,8 +36,11 @@ def action_record(
     was done. ``stops`` names what a stop stopped (workflow, task, milling,
     agent). Other fields say how: tool, arguments, route, status, level, via,
     request_id and index for a request's step, error_type and message for one
-    that failed or was refused. Empty fields are left out."""
+    that failed or was refused. Empty fields are left out; a stop always has a
+    reason, `NO_REASON` when none was given (FIB-1495)."""
     payload: Dict[str, Any] = {"what": what, "ok": ok}
+    if stops and not reason:
+        reason = NO_REASON
     if reason:
         payload["reason"] = reason
     if stops:
@@ -55,3 +63,9 @@ def note_record(
         payload.update(item_id=item_id, item_name=item_name)
     payload.update({k: v for k, v in fields.items() if v is not None and v != ""})
     return payload
+
+
+def record_operator_action(microscope: Any, what: str, **fields: Any) -> None:
+    """The operator's act at a control, on the microscope's record."""
+    with acting(OPERATOR):
+        microscope.record_event(ACTION, action_record(what, **fields))

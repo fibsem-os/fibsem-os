@@ -151,6 +151,8 @@ Its lines:
 - `AGENT OFF` and `AGENT BACK`: the operator set the level to Off and back.
 - `MESSAGE id=…`: the operator wrote to you from the Agent card. See
   *Messages from the operator*.
+- `NOTE from the operator on <grid>`: the operator kept a note on a grid.
+  It is not to you; nothing to answer.
 
 A workflow's end is not the end of the session: the next one may start from
 the app at any time, or from you. Keep the watcher running until the operator
@@ -351,6 +353,11 @@ The other moves, by when to use them:
 - `stage_move_absolute`: go back to a saved position. It tilts flat before a
   large rotation.
 
+Retract the FM objective before any move that changes the pose
+(`item_move_to_pose`, `stage_move_to_orientation`,
+`stage_move_to_milling_angle`, `stage_move_absolute`): nothing retracts it
+for you. In a request, put the retract first.
+
 After every move, read the position back and compare it with what you asked
 for, then take a fresh image and check where the feature landed before the
 next one. A move under about 1 µm may not happen at all; the position read
@@ -473,7 +480,9 @@ view one focus can't hold. Both save into a folder you name inside the
 experiment and are long commands: `service_wait_for_run` imaging gives the
 image and its path, and `service_call_command` imaging `stop`, with a reason,
 ends either one. `fm_acquire_overview` is the fluorescence one, from the FM
-pose with the objective in; `fm_estimate_overview` gives its whole run time,
+pose with the objective in and near its focus: inserted is not enough. Go to
+the item's stored objective position (`item_move_to_objective_position`) or
+run `fm_auto_focus` first, for any FM image. `fm_estimate_overview` gives its whole run time,
 stage moves included, and the same `stop` ends it. `register_tiles`
 (experimental, off by default) places each tile where its picture says it is
 rather than where the stage step put it, when no tile moves more than 15 µm.

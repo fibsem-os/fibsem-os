@@ -19,13 +19,17 @@ import pytest
 from psygnal.containers import EventedDict
 
 from fibsem.acting import ActorKind
-from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
 from fibsem.structures import MicroscopeState, Point
-from fibsem.workflows.proposals import Decision, DecisionOutcome, Proposal
+from fibsem.workflows.proposals import (
+    POINT_OF_INTEREST,
+    Decision,
+    DecisionOutcome,
+    Proposal,
+)
 from fibsem.workflows.status import TaskStatus
 from tests.proposal_records import set_proposals
 

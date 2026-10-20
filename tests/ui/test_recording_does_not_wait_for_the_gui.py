@@ -22,13 +22,15 @@ from psygnal.containers import EventedDict
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
     Experiment,
 )
 from fibsem.structures import MicroscopeState, Point  # noqa: E402
-from fibsem.workflows.proposals import Proposal  # noqa: E402
+from fibsem.workflows.proposals import (
+    POINT_OF_INTEREST,  # noqa: E402
+    Proposal,  # noqa: E402
+)
 from fibsem.workflows.status import TaskStatus  # noqa: E402
 from tests.gui_thread import on_the_gui_thread  # noqa: E402
 

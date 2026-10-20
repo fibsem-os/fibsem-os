@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, List, Optional, Tuple
 import pandas as pd
 
 from fibsem.applications.volume.position import VolumePosition
-from fibsem.applications.volume.tasks import run_volume_task
+from fibsem.applications.volume.tasks import VOLUME_TASK_PLUGINS, run_volume_task
 from fibsem.workflows.manager import BaseTaskManager
 from fibsem.workflows.queue import WorkItem
 from fibsem.workflows.status import TaskStatus
@@ -18,13 +18,16 @@ if TYPE_CHECKING:
 
 SKIP_POSITION_NOT_FOUND = "position_not_found"
 SKIP_TASK_REMOVED = "task_removed"
+SKIP_MISSING_PREREQS = "missing_prereqs"
 
 
 class VolumeTaskManager(BaseTaskManager):
-    """Runs the volume tasks on each position once per slice.
+    """Runs the volume tasks on each position: its setup tasks once, then the
+    rest once per slice.
 
-    The queue holds one slice per position at a time; the next is queued when it
-    drains. A run starts each position at its first slice not done, with only the
+    A position's setup tasks not yet completed are queued first; it is sliced
+    only once they all have. The queue holds one slice per position at a time;
+    the next is queued when it drains. A run starts each position at its first slice not done, with only the
     tasks that slice has not completed, so a Stop between milling and imaging
     resumes at imaging and no slice is cut twice. A slice that ends with a task
     not completed stops that position for the run: the next slice would be cut
@@ -35,16 +38,24 @@ class VolumeTaskManager(BaseTaskManager):
     ITEM_NOUN = "positions"
     RUN_DESCRIPTION = "a volume run"
     CANCELLED_LINE = "Volume run cancelled by user."
-    # The tasks each slice runs, in order: set by ``run``.
+    # The tasks run once on a position, and those each slice runs, in order:
+    # set by ``run``.
+    _setup_names: Tuple[str, ...] = ()
     _task_names: Tuple[str, ...] = ()
 
     def run(self, task_names: List[str], names: Optional[List[str]] = None) -> None:
-        """Run ``task_names``, per slice, on each of ``names`` (every position
-        if None)."""
-        self._task_names = tuple(task_names)
+        """Run ``task_names`` on each of ``names`` (every position if None):
+        the setup tasks once, the others per slice."""
+        self._setup_names = tuple(t for t in task_names if not self._per_slice(t))
+        self._task_names = tuple(t for t in task_names if self._per_slice(t))
         if names is None:
             names = [p.name for p in self.experiment.positions]
         for name in names:
+            setup = self._setup_remaining(name)
+            if setup:
+                for task_name in setup:
+                    self.queue.add(name, task_name)
+                continue
             following = self._next_iteration(name, None)
             if following is None:
                 continue
@@ -53,11 +64,24 @@ class VolumeTaskManager(BaseTaskManager):
                 self.queue.add(name, task_name, iteration=iteration)
         self._run_queue()
 
+    def _per_slice(self, task_name: str) -> bool:
+        config = self.experiment.task_protocol.task_config.get(task_name)
+        task_cls = None if config is None else VOLUME_TASK_PLUGINS.get(config.task_type)
+        return task_cls is None or task_cls.per_slice
+
+    def _setup_remaining(self, item_name: str) -> List[str]:
+        """The run's setup tasks whose latest run on the position did not
+        complete, in run order."""
+        position = self.experiment.get_position_by_name(item_name)
+        if position is None:
+            return []
+        return [t for t in self._setup_names if not position.latest_run_completed(t)]
+
     def _next_iteration(
         self, item_name: str, finished: Optional[int]
     ) -> Optional[Tuple[int, List[str]]]:
         position = self.experiment.get_position_by_name(item_name)
-        if position is None:
+        if position is None or self._setup_remaining(item_name):
             return None
         if finished is not None and not position.iteration_completed(
             finished, self._task_names
@@ -89,17 +113,37 @@ class VolumeTaskManager(BaseTaskManager):
         return position
 
     def _ready(self, item: WorkItem, position: VolumePosition) -> bool:
-        if item.task_name in self.experiment.task_protocol.task_config:
-            return True
-        self._skip(
-            item,
-            position.name,
-            f"Skipping {item.task_name} on {position.name}: it is no longer in "
-            "the volume protocol.",
-            SKIP_TASK_REMOVED,
-            item_id=position.id,
-        )
-        return False
+        protocol = self.experiment.task_protocol
+        if item.task_name not in protocol.task_config:
+            self._skip(
+                item,
+                position.name,
+                f"Skipping {item.task_name} on {position.name}: it is no longer in "
+                "the volume protocol.",
+                SKIP_TASK_REMOVED,
+                item_id=position.id,
+            )
+            return False
+        missing = [
+            name
+            for name in protocol.requirements(item.task_name)
+            if not (
+                position.iteration_completed(item.iteration, [name])
+                if self._per_slice(name)
+                else position.latest_run_completed(name)
+            )
+        ]
+        if missing:
+            self._skip(
+                item,
+                position.name,
+                f"Skipping {item.task_name} on {position.name} slice "
+                f"{item.iteration}: {', '.join(missing)} did not complete.",
+                SKIP_MISSING_PREREQS,
+                item_id=position.id,
+            )
+            return False
+        return True
 
     def _skip(
         self, item: WorkItem, name: str, msg: str, reason: str, item_id: str = ""
@@ -149,9 +193,14 @@ class VolumeTaskManager(BaseTaskManager):
             for i in items
             if i.status is not TaskStatus.Completed
         }
-        slices = ran - unfinished
+        done = ran - unfinished
+        set_up = sum(1 for _, iteration in done if iteration is None)
         failed = sum(1 for i in items if i.status is TaskStatus.Failed)
-        parts = [f"{len(slices)} slices on {len(positions)} positions"]
+        parts = []
+        if set_up:
+            parts.append(f"{set_up} position{'s' if set_up != 1 else ''} set up")
+        if any(i.iteration is not None for i in items) or not set_up:
+            parts.append(f"{len(done) - set_up} slices on {len(positions)} positions")
         if failed:
             parts.append(f"{failed} task{'s' if failed != 1 else ''} failed")
         return "Volume run complete: " + ", ".join(parts) + "."
