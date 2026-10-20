@@ -401,6 +401,9 @@ class LamellaRowWidget(QWidget):
         self.checkbox.stateChanged.connect(
             lambda s: self.selection_changed.emit(self.lamella, bool(s))
         )
+        # Hovering the name shows the thumbnail; the defect icon is drawn only
+        # once there is a verdict, so it can't be the only way in.
+        self.name_label.installEventFilter(self)
         self.btn_defect.installEventFilter(self)
         self.action_edit.triggered.connect(lambda: self.edit_clicked.emit(self.lamella))
         self.action_remove.triggered.connect(self._on_remove_clicked)
@@ -432,7 +435,7 @@ class LamellaRowWidget(QWidget):
             self.remove_clicked.emit(self.lamella)
 
     def eventFilter(self, obj, event) -> bool:
-        if obj is self.btn_defect:
+        if obj is self.btn_defect or obj is self.name_label:
             if event.type() == QEvent.Enter:
                 self._hover_timer.start(400)
             elif event.type() == QEvent.Leave:
