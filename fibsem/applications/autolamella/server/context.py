@@ -2645,6 +2645,9 @@ class AutoLamellaAppContext:
                 raise ValueError("use_petname is true or false; name_prefix is text.")
         except (KeyError, TypeError, ValueError) as exc:
             return {"error_type": "invalid", "error": f"Not lamella defaults: {exc}"}
+        why = updated.why_invalid()
+        if why:
+            return {"error_type": "invalid", "error": why}
 
         def edit():
             protocol.lamella_defaults = updated

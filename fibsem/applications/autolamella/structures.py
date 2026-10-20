@@ -527,6 +527,18 @@ class LamellaDefaultConfig(Configurable):
     alignment_area: Optional[FibsemRectangle] = None
     poi: Optional[Point] = None
 
+    def why_invalid(self) -> str:
+        """Why this template can't be used, or "" when it can: the alignment
+        area must lie inside the image, as fractions of it."""
+        aa = self.alignment_area
+        if aa is not None and not aa.is_valid_reduced_area:
+            return (
+                "The alignment area must lie inside the image: a width and "
+                "height above 0, left and top from 0, and left + width and "
+                "top + height at most 1."
+            )
+        return ""
+
     def to_dict(self) -> Dict[str, Any]:
         d: Dict[str, Any] = {
             "use_petname": self.use_petname,

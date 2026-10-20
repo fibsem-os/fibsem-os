@@ -1005,7 +1005,15 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         ok_btn.setDefault(False)
         ok_btn.setAutoDefault(False)
         cancel_btn.clicked.connect(dialog.reject)
-        ok_btn.clicked.connect(dialog.accept)
+
+        def accept_if_valid():
+            why = template_widget.get_template().why_invalid()
+            if why:
+                QMessageBox.warning(dialog, "Lamella Template", why)
+                return
+            dialog.accept()
+
+        ok_btn.clicked.connect(accept_if_valid)
         btn_row.addWidget(cancel_btn)
         btn_row.addWidget(ok_btn)
         layout.addLayout(btn_row)
