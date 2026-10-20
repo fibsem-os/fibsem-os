@@ -1396,14 +1396,20 @@ class StageMovement(Service):
         self, stage_position: FibsemStagePosition
     ) -> FibsemStagePosition:
         """Move the stage to a position safely: tilted flat for a large rotation, and
-        rotated compucentrically before the rest of the move. Returns where it is,
-        as every move does."""
+        rotated compucentrically before the rest of the move. A position at another
+        device on an offset mount goes by `move_to_device`'s route. Returns where it
+        is, as every move does."""
         with recording_move(
             self.session,
             self.stage,
             "safe_absolute_stage_movement",
             stage_position=stage_position,
         ):
+            crossing = self._device_crossing(stage_position)
+            if crossing is not None:
+                self._move_across_devices(stage_position, *crossing)
+                return self._position()
+
             # Before anything moves (FIB-841).
             self._refuse_rotation_at_the_fm(stage_position)
             self._safe_rotation(stage_position)
@@ -1412,6 +1418,44 @@ class StageMovement(Service):
             self._move_stage(stage_position)
             logging.debug("safe movement complete.")
             return self._position()
+
+    def _device_crossing(
+        self, stage_position: FibsemStagePosition
+    ) -> Optional[Tuple[str, str]]:
+        """(source, target) when *stage_position* is at another device the stage
+        travels to, else None. Never on a compustage, whose devices are poses."""
+        if self.fm_is_a_pose() or self.parent.fm is None:
+            return None
+        source = self.current_device(self._position())
+        target = self.current_device(stage_position)
+        if source is None or target is None or source == target:
+            return None
+        if not _moves(self._device_translation(source, target)):
+            return None
+        return source, target
+
+    def _move_across_devices(
+        self, stage_position: FibsemStagePosition, source: str, target: str
+    ) -> None:
+        """Position at the beams with the objective out, then travel.
+
+        One absolute move would cross the chamber with the objective wherever it was,
+        and re-pose at the far end. Instead every re-pose happens at the beams and the
+        legs between devices are `move_to_device`'s pure traverses.
+        """
+        logging.info(f"{stage_position} is at {target}; moving there from {source}.")
+        if source != ROTATION_FRAME_DEVICE:
+            self.move_to_device(ROTATION_FRAME_DEVICE)
+        if target == ROTATION_FRAME_DEVICE:
+            self.safe_absolute_stage_movement(stage_position)
+            return
+        self._retract_objective_to_move(target)
+        self.safe_absolute_stage_movement(
+            self.target_position(stage_position, target_device=ROTATION_FRAME_DEVICE)
+        )
+        self.move_to_device(target)
+        # The traverse arrives where the conversion says; this takes up what is left.
+        self.safe_absolute_stage_movement(stage_position)
 
     def _safe_rotation(self, stage_position: FibsemStagePosition) -> None:
         """What comes before the move itself: on a stage with a rotation axis, tilt

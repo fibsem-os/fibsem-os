@@ -672,7 +672,7 @@ class SampleHandling(Service):
         slot = self.holder.slots[slot_name]
         if slot.position is None:
             raise ValueError(uncalibrated_message(slot_name))
-        return self.parent.move_stage_absolute(slot.position)
+        return self.parent.safe_absolute_stage_movement(slot.position)
 
     def _holder_slot_name(self, slot_name: str) -> str:
         """The shuttle's slot under the name a script written before it had its
