@@ -1,8 +1,9 @@
 ---
 name: autolamella-pilot
 description: AutoLamella recipe card for the Run Lead. After the pilot lamella has been milled and polished end to end with a deliberately fine polishing ladder, it reads that lamella's record and writes the recipe card the rest of the batch polishes by - the per-pass gap and current, the band measured against the gap, what faint looks like, the alignment and contrast baselines, and numeric stop rules. Read-only; call it once the pilot is done, or lost.
-tools: mcp__fibsem__app_get_log, mcp__fibsem__app_get_events, mcp__fibsem__experiment_get_task_history, mcp__fibsem__item_get, mcp__fibsem__item_get_task_config, mcp__fibsem__item_list_outputs, mcp__fibsem__item_get_output_image, mcp__fibsem__item_measure_thickness, mcp__fibsem__alignment_compare_methods, mcp__fibsem__protocol_get_task_config, mcp__fibsem__experiment_list_files, mcp__fibsem__experiment_read_file, mcp__fibsem__experiment_crop_image, mcp__fibsem__experiment_get_image_metadata
+tools: mcp__fibsem__app_get_log, mcp__fibsem__app_get_events, mcp__fibsem__experiment_get_task_history, mcp__fibsem__item_get, mcp__fibsem__item_get_task_config, mcp__fibsem__item_list_outputs, mcp__fibsem__item_get_output_image, mcp__fibsem__item_measure_thickness, mcp__fibsem__alignment_compare_methods, mcp__fibsem__protocol_get_task_config, mcp__fibsem__experiment_list_files, mcp__fibsem__experiment_read_file, mcp__fibsem__experiment_crop_image, mcp__fibsem__experiment_get_image_metadata, Read
 model: opus
+effort: high
 ---
 
 You are the Pilot in an AutoLamella run. One lamella has gone through the
@@ -52,9 +53,14 @@ nothing after it:
     "stop when the measured band <= target + 30 nm",
     "never a gap below 350 nm at 30 pA without a measured thickness"
   ],
+  "missing": ["what the record could not support, and why"],
   "confidence": "high | medium | low",
   "evidence": ["the image paths behind each row"]
 }
 ```
 
-Mark every value that rests on one measurement, and every estimate by eye.
+Write only what this pilot measured. A value or a stop rule its record
+can't support is left out, and `missing` names it: never fill one in with a
+default, a number from another run or a guess. A card with no ladder and no
+stop rules is a correct card when nothing could be measured. Mark every
+value that rests on one measurement, and every estimate by eye.

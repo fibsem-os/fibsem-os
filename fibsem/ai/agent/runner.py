@@ -14,6 +14,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import shutil
 import signal
 import sys
@@ -46,18 +47,22 @@ SPECIALISTS = (
 )
 # The server's level gate decides what the fibsem tools may do, so they need no
 # prompt; ToolSearch only finds them.
-ALLOWED_TOOLS = [f"mcp__{SERVER}__*", "ToolSearch"] + [
+# A tool answer too large to show, the CLI saves to a file and answers its
+# path. Read is allowed for those files; a rule's path doesn't hold Read to
+# them, so the runner's Read gate (saved_tool_answer) does.
+READ_TOOL_RESULTS = "Read(~/.claude/projects/**/tool-results/**)"
+ALLOWED_TOOLS = [f"mcp__{SERVER}__*", "ToolSearch", READ_TOOL_RESULTS] + [
     f"Agent({name})" for name in SPECIALISTS
 ]
 # The only built-in tools the agent has: reading its skills, finding the
-# sidecar's tools when the CLI defers them, and calling a specialist.
-BUILT_IN_TOOLS = ["Skill", "ToolSearch", "Agent"]
+# sidecar's tools when the CLI defers them, calling a specialist, and reading
+# a saved tool answer.
+BUILT_IN_TOOLS = ["Skill", "ToolSearch", "Agent", "Read"]
 # Named as well, so a CLI that adds one back still refuses it: a specialist
 # that lists a tool gets it unless it is denied here. The CLI's own agents
 # would carry every fibsem tool, without a specialist's limits.
 DENIED_TOOLS = [
     "Bash",
-    "Read",
     "Grep",
     "Glob",
     "Write",
@@ -78,6 +83,13 @@ PERMISSION_MODE = "dontAsk"
 # The CLI's environment. A specialist answers inside the turn that called it:
 # one the CLI ran in the background would answer after the turn had ended.
 CLI_ENV = {"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1"}
+EFFORTS = ("low", "medium", "high", "xhigh", "max")
+# The agent's own reasoning effort; each specialist sets its own.
+EFFORT = "high"
+READ_REFUSED = (
+    "Read opens only a tool answer the CLI saved to a file. Read the "
+    "experiment with the mcp__fibsem__ tools."
+)
 
 # The model can't answer until someone fixes the sign-in or the account, so
 # waiting for the next wake-up would wait for ever.
@@ -96,9 +108,10 @@ interactive Claude Code session. Nobody is at a terminal.
 arrives as your next message, starting "The watcher printed:". Don't start a \
 watcher, don't loop app_get_events, and don't wait inside a turn: do what the \
 lines call for, then end your turn.
-- Your tools are the mcp__fibsem__* tools, Skill, and Agent for the \
-autolamella-* specialists only. There is no shell, no file access and no web, \
-for you or for them. Where a skill shows curl, python or a script, use the \
+- Your tools are the mcp__fibsem__* tools, Skill, Agent for the \
+autolamella-* specialists only, and Read for a tool answer the CLI saved to a \
+file. There is no shell, no other file access and no web, for you or for \
+them. Where a skill shows curl, python or a script, use the \
 matching mcp__fibsem__ tool, or say what you can't do.
 - Your replies go to fibsem-agent's console and log, which the operator may \
 not be reading. Anything the operator must see goes on the record with \
@@ -116,6 +129,36 @@ REREAD_LEVEL = (
 )
 
 log = logging.getLogger("fibsem.agent.runner")
+
+
+def saved_tool_answer(path: str, claude_dir: Optional[str] = None) -> bool:
+    """Whether ``path`` is a tool answer the CLI saved to a file: inside a
+    ``tool-results`` folder under its ``projects``, links and ``..``
+    resolved first."""
+    if claude_dir is None:
+        claude_dir = os.environ.get("CLAUDE_CONFIG_DIR") or str(Path.home() / ".claude")
+    projects = Path(os.path.realpath(claude_dir)) / "projects"
+    real = Path(os.path.realpath(os.path.expanduser(path)))
+    try:
+        folders = real.relative_to(projects).parts[:-1]
+    except ValueError:
+        return False
+    return "tool-results" in folders
+
+
+async def _gate_read(input_data, tool_use_id, context) -> dict:
+    """The PreToolUse hook on Read, the agent's and every specialist's."""
+    path = (input_data.get("tool_input") or {}).get("file_path") or ""
+    if saved_tool_answer(str(path)):
+        return {}
+    log.warning("Read refused: %s", path)
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": READ_REFUSED,
+        }
+    }
 
 
 def kickoff(role: str, resumed: bool = False) -> str:
@@ -779,10 +822,11 @@ def build_options(
     max_turns: Optional[int] = MAX_TURNS,
     max_budget_usd: Optional[float] = MAX_BUDGET_USD,
     resume: Optional[str] = None,
+    effort: Optional[str] = EFFORT,
 ):
     """The SDK session: the sidecar as the only MCP server, the project's
     skills and nothing of the user's Claude Code config."""
-    from claude_agent_sdk import ClaudeAgentOptions
+    from claude_agent_sdk import ClaudeAgentOptions, HookMatcher
 
     command = sidecar_command()
     server = {"type": "stdio", "command": command[0], "args": command[1:]}
@@ -805,6 +849,7 @@ def build_options(
         permission_mode=PERMISSION_MODE,
         mcp_servers={SERVER: server},
         env=dict(CLI_ENV),
+        hooks={"PreToolUse": [HookMatcher(matcher="Read", hooks=[_gate_read])]},
         # Only the server above: not a `fibsem` registered in ~/.claude.json.
         strict_mcp_config=True,
         system_prompt={
@@ -817,6 +862,7 @@ def build_options(
         max_turns=max_turns,
         max_budget_usd=max_budget_usd,
         model=model,
+        effort=effort,
         resume=resume,
         stderr=lambda line: log.debug("claude: %s", line.rstrip()),
     )
@@ -863,6 +909,13 @@ def main(argv=None) -> int:
     parser.add_argument("--url", default=None, help="App Server URL")
     parser.add_argument("--token", default=None, help="the agent's bearer token")
     parser.add_argument("--model", default=None, help="model (default: the CLI's)")
+    parser.add_argument(
+        "--effort",
+        choices=EFFORTS,
+        default=EFFORT,
+        help=f"the agent's reasoning effort (default {EFFORT}); each "
+        "specialist sets its own",
+    )
     parser.add_argument(
         "--max-turns",
         type=int,
@@ -930,6 +983,7 @@ def main(argv=None) -> int:
         max_turns=args.max_turns,
         max_budget_usd=args.max_budget_usd,
         resume=args.resume,
+        effort=args.effort,
     )
     agent = SdkAgent(options)
     runner = Runner(

@@ -198,12 +198,18 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
     )
 
     assert options.permission_mode == "dontAsk"
-    assert options.allowed_tools == ["mcp__fibsem__*", "ToolSearch"] + [
-        f"Agent({name})" for name in runner_mod.SPECIALISTS
-    ]
-    assert options.tools == ["Skill", "ToolSearch", "Agent"]
-    for tool in ("Bash", "Read", "Grep", "Glob", "Write", "Edit", "WebFetch"):
+    assert options.allowed_tools == [
+        "mcp__fibsem__*",
+        "ToolSearch",
+        runner_mod.READ_TOOL_RESULTS,
+    ] + [f"Agent({name})" for name in runner_mod.SPECIALISTS]
+    assert options.tools == ["Skill", "ToolSearch", "Agent", "Read"]
+    for tool in ("Bash", "Grep", "Glob", "Write", "Edit", "WebFetch"):
         assert tool in options.disallowed_tools
+    # Read is held to saved tool answers by the runner's own gate.
+    (read,) = options.hooks["PreToolUse"]
+    assert read.matcher == "Read" and read.hooks == [runner_mod._gate_read]
+    assert options.effort == "high"
     # The CLI's own agents are refused: only the specialists are called, and
     # each answers inside the turn that called it.
     for agent in ("general-purpose", "claude", "Explore"):
@@ -301,8 +307,9 @@ def test_a_specialist_has_only_tools_that_exist_and_the_runner_can_refuse():
             if tool.startswith("mcp__fibsem__"):
                 assert tool.removeprefix("mcp__fibsem__") in catalog, (name, tool)
             else:
-                # A specialist gets a tool it lists unless the runner denies it.
-                assert tool in runner_mod.DENIED_TOOLS, (name, tool)
+                # A specialist gets a tool it lists unless the runner denies
+                # it; Read is the agent's own, behind the Read gate.
+                assert tool in runner_mod.DENIED_TOOLS or tool == "Read", (name, tool)
 
 
 def test_only_the_run_lead_decides_and_only_two_specialists_act():
@@ -321,6 +328,40 @@ def test_only_the_run_lead_decides_and_only_two_specialists_act():
         ), name
         if name not in HAS_THE_MICROSCOPE:
             assert fibsem <= read_only | MEASURES, (name, fibsem - read_only)
+
+
+def test_read_opens_only_a_saved_tool_answer(tmp_path):
+    claude = tmp_path / "claude"
+    saved = claude / "projects" / "-a-checkout" / "session" / "tool-results"
+    saved.mkdir(parents=True)
+    (saved / "answer.txt").write_text("a long log")
+    (tmp_path / "operator-token.json").write_text("{}")
+    (saved / "link.json").symlink_to(tmp_path / "operator-token.json")
+
+    def opens(path):
+        return runner_mod.saved_tool_answer(str(path), claude_dir=str(claude))
+
+    assert opens(saved / "answer.txt")
+    assert not opens(tmp_path / "operator-token.json")
+    assert not opens(claude / "projects" / "-a-checkout" / "session" / "x.jsonl")
+    assert not opens(saved / ".." / ".." / "x.jsonl")
+    assert not opens(saved / "link.json")
+    assert not opens(saved)
+
+
+def test_the_read_gate_refuses_what_is_not_a_saved_answer(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+    saved = tmp_path / "projects" / "-a" / "s" / "tool-results"
+    saved.mkdir(parents=True)
+    (saved / "a.txt").write_text("x")
+
+    def gate(path):
+        call = {"tool_name": "Read", "tool_input": {"file_path": str(path)}}
+        return asyncio.run(runner_mod._gate_read(call, "t1", None))
+
+    assert gate(saved / "a.txt") == {}
+    refused = gate(tmp_path / "elsewhere.txt")["hookSpecificOutput"]
+    assert refused["permissionDecision"] == "deny"
 
 
 # --- turning lines into turns -------------------------------------------------

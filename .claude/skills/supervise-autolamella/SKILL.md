@@ -268,7 +268,7 @@ decision: you assemble the inputs, call, apply and record.
 |---|---|---|
 | `autolamella-surveyor` | once, before Setup | lent: no workflow running |
 | `autolamella-placement` | at each Setup position question, and each Mill Fiducial alignment-area question | lent: the question holds the run |
-| `autolamella-checker` | after every Mill Fiducial and Rough Milling on auto | none |
+| `autolamella-checker` | after every Mill Fiducial and Rough Milling | none |
 | `autolamella-pilot` | once the pilot lamella is polished, or lost | none |
 | `autolamella-pass-judge` | at every polishing proposal | none |
 | `autolamella-verifier` | when the Verifier rule says (below) | none |
@@ -321,11 +321,17 @@ before you act, never from memory.
    they decide.
 2. **Setup.** Setup stays supervised. At each position question, call
    Placement (visit 1). If it flags `autofocus`, put the session's working
-   distance back (`microscope_set_state`) and ask it again; twice is an
-   escalation. Confirm the position, then decide the point of interest and
+   distance back on that beam alone (`device_set_parameter`, device
+   `electron` or `ion`, parameter `working_distance`) and ask it again; twice
+   is an escalation. Never `microscope_set_state` for it: that sets the stage
+   too. Confirm the position, then decide the point of interest and
    the alignment area with Placement's values, which places the fiducial.
    Without the placement delegation, post Placement's values and hold for
-   the operator. A `spacing` or `coincidence` flag is an escalation.
+   the operator. A `spacing` or `coincidence` flag is an escalation. With
+   the operator away, never mill a site whose beams aren't both on the
+   target: stop its Setup (`workflow_stop_task`, the flag as the reason),
+   remove its later tasks from the queue (`workflow_edit_queue`), note it
+   for the morning, and carry on with the other sites.
 3. **Pilot.** Run the best-confidence site through every task first, all
    supervised, polishing with a finer ladder than the protocol's and the
    Pass Judge and the Verifier at each pass.
@@ -337,8 +343,9 @@ before you act, never from memory.
    the intake's delegation is the operator's yes (*When to propose auto*),
    and without it you propose. Keep the Fiducial alignment-area question
    supervised, and call Placement (visit 2) at each one: apply its area, and
-   carry `alignment-risk` into the ledger. After each automatic mill, call
-   the Checker. A `spreading` finding stops the run (`workflow_stop`)
+   carry `alignment-risk` into the ledger. After every Mill Fiducial and
+   Rough Milling, supervised or on auto, call the Checker; on a supervised
+   mill, before you accept the pass. A `spreading` finding stops the run (`workflow_stop`)
    before a neighbour is milled; any other finding flags the item and its
    neighbours in the ledger. Polishing stays supervised: at each proposal,
    build the bundle, call the Pass Judge, then the Verifier when the rule
@@ -356,8 +363,9 @@ this:
 - the proposal (`proposal_id`, `values`, `provenance`) and its image;
 - the item's ledger lines;
 - the FIB after the pass and before it at the recipe card's field of view,
-  and an SEM view of the face, each with its path and time (take them if the
-  task didn't);
+  and an SEM view of the face, each with its time and the path a tool
+  answered (the proposal's image, `item_list_outputs`), never a file name
+  you built (take them if the task didn't);
 - `item_measure_thickness` on the post-pass image where it reads it;
 - the pass's alignment from the task's log (`app_get_log` with its task id,
   `level=WARNING`: `Alignment validation failed: max disagreement N px`), the
@@ -365,10 +373,10 @@ this:
   against the session's, and whether the site is `alignment-risk`;
 - the recipe card's next step and stop rules.
 
-**The Verifier rule.** Ask the Verifier before a pass at the recipe card's
-thinnest step, when the Judge's confidence is below high, when the bundle
-has an alignment, contrast or offset flag, and at every pass of an
-`alignment-risk` site. If it disagrees, don't push through: accept the pass
+**The Verifier rule.** Ask the Verifier whenever the Judge recommends
+`run`: every polishing pass that would mill. A recommendation that stops
+thinning (`accept`, `skip`) or waits (`hold`) mills nothing and needs no
+Verifier. If it disagrees, don't push through: accept the pass
 already milled, set the lamella's `defect.verdict` to `UNASSESSED` with the
 concern as its reason (`item_update`), and leave it for the morning.
 
@@ -381,10 +389,10 @@ the image and the tool saw one band.
 |---|---|---|
 | Setup position | Placement's gate and coincidence check, then you | the gate fails twice; the site looks wrong |
 | Setup point and alignment area | Placement, applied by you (by the operator without the delegation) | not delegated; the layout check fails |
-| Mill Fiducial, Rough Milling | auto after the pilot, the Checker after each | a finding; a task error |
+| Mill Fiducial, Rough Milling | auto after the pilot; the Checker after every mill | a finding; a task error |
 | Mill Fiducial alignment area | Placement (visit 2) | never: a poor test marks the site `alignment-risk` |
-| Polishing pass | the Pass Judge | low confidence; a flag |
-| Thinnest pass, `alignment-risk` site | the Pass Judge and the Verifier | never: a disagreement stops thinning |
+| Polishing pass that stops thinning or waits | the Pass Judge | low confidence; a flag |
+| Polishing pass that mills | the Pass Judge and the Verifier | never: a disagreement stops thinning |
 | Skip or fail a lamella | the Pass Judge recommends; you record `defect.verdict` | outside the delegation |
 | Recipe change | you, as `[recipe_card vN]`, old → new | outside the intake's bounds |
 | Rework, more sites | the Scheduler, within the delegation | outside it: plan it for the morning |

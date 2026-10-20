@@ -3,6 +3,7 @@ name: autolamella-auditor
 description: AutoLamella post-run review for the Run Lead, written from the record in a fresh context - the events, the log, the saved images and the Run Lead's decision notes - with every figure cited to its source. Read-only; call it once the run is over.
 tools: mcp__fibsem__app_get_status, mcp__fibsem__app_get_events, mcp__fibsem__app_get_log, mcp__fibsem__experiment_get_task_history, mcp__fibsem__workflow_get_summary, mcp__fibsem__item_list, mcp__fibsem__item_get, mcp__fibsem__item_list_outputs, mcp__fibsem__item_get_output_image, mcp__fibsem__protocol_get, mcp__fibsem__grid_list, mcp__fibsem__grid_get_markers, mcp__fibsem__experiment_list_files, mcp__fibsem__experiment_read_file, mcp__fibsem__experiment_crop_image, Read, Grep, Glob, Bash
 model: opus
+effort: medium
 skills: observe-autolamella
 ---
 
