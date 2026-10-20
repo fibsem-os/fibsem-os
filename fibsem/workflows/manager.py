@@ -602,17 +602,17 @@ class BaseTaskManager:
         self._stop_milling()
 
     def _stop_milling(self) -> None:
-        """Stop the beam of a mill now, through the milling service, rather
-        than at its next look at the task's stop."""
-        milling = self.microscope.milling
-        if milling is None:
-            return
-        try:
-            milling.stop()
-        except NothingToStop:
-            pass
-        except Exception:
-            logging.exception("Stopping the mill failed")
+        """Stop a mill or spot burn now, through its service, rather than at
+        its next look at the task's stop."""
+        for service in (self.microscope.milling, self.microscope.spot_burn):
+            if service is None:
+                continue
+            try:
+                service.stop()
+            except NothingToStop:
+                pass
+            except Exception:
+                logging.exception("Stopping %s failed", type(service).__name__)
 
     def deciders(self) -> Tuple[ActorKind, ...]:
         """Who can decide this run's proposals now: the session's surfaces
