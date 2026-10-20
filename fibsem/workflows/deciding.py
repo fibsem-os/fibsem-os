@@ -661,6 +661,8 @@ class ProposalDecisions:
                 None,
             )
             decision = proposal.current if proposal is not None else None
+            if proposal is not None:
+                proposal.filling_in = False
             if (
                 decision is None
                 or decision.outcome is not DecisionOutcome.Confirmed

@@ -20,6 +20,7 @@ from fibsem import utils
 from fibsem.drivers.tescan import connection as tescan_connection
 from fibsem.drivers.tescan import microscope as tescan_module
 from fibsem.drivers.tescan.services import TescanMilling
+from fibsem.milling.progress import MillingProgressStatus
 from fibsem.services.milling import UnsupportedPattern
 from fibsem.structures import (
     BeamType,
@@ -287,7 +288,9 @@ def test_run_milling_loads_runs_and_unloads_the_layer(connect):
     assert ["connection.Progress.SetPercents", [20.0], {}] in fake.log
     assert paths[-2:] == ["connection.Progress.Hide", "DrawBeam.UnloadLayer"]
     # and so does the progress: DrawBeam's total and elapsed, not the estimate
-    *ticks, ended = updates
+    # a run outside a task starts as a task does (FIB-1496)
+    started, *ticks, ended = updates
+    assert started.status is MillingProgressStatus.TASK_STARTED
     progress = ticks[-1]
     assert progress.milling_state is MillingState.IDLE
     assert (progress.estimated_time, progress.remaining_time) == (10.0, 4.0)

@@ -548,8 +548,8 @@ class ProposalTap:
     this is the one place they are recorded, whoever made them. Each decision
     is one ``proposal_decided`` event, with the values proposed and the values
     decided, whole: the reader compares them. A confirmation whose values the
-    task fills in afterwards (a position "as it stands") is recorded again when
-    they arrive, marked ``filled_in``.
+    task fills in afterwards (a position "as it stands") is recorded once they
+    arrive, with them (FIB-1491).
 
     The signals name only the item and the task, so what is new is found by
     what has been seen: whatever the experiment holds when it is watched counts
@@ -622,6 +622,8 @@ class ProposalTap:
             item, proposals = self._proposals(item_id, task_name)
             for proposal in proposals:
                 for index, decision in enumerate(list(proposal.decisions)):
+                    if proposal.filling_in and not decision.values:
+                        continue  # recorded when the task fills it in
                     seen = self._decided.get((proposal.id, index))
                     if seen is None or (seen is False and decision.values):
                         self._decided[(proposal.id, index)] = bool(decision.values)
@@ -699,10 +701,11 @@ def _proposal_payload(item: Any, task_name: str, proposal: Any) -> Dict[str, Any
         "proposal_id": proposal.id,
         "kind": proposal.kind,
         "proposed": _encode_values(proposal.values),
-        # the saved image the values sit on, relative to the item's folder: a
-        # point only means something on the image it was placed on
-        "image": proposal.provenance.get("reference_image") or None,
     }
+    # the saved image the values sit on, relative to the item's folder: a
+    # point only means something on the image it was placed on
+    if proposal.provenance.get("reference_image"):
+        payload["image"] = proposal.provenance["reference_image"]
     # The model a detection came from: a correction only means something
     # against the checkpoint that made the prediction (FIB-1066).
     checkpoint = proposal.provenance.get("checkpoint")

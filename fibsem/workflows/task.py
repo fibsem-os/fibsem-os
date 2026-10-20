@@ -251,6 +251,7 @@ class BaseTask(ABC):
         if reason:
             experiment.record_unasked(item.id, self.task_name, proposal, reason)
             return proposal.current
+        proposal.filling_in = decided is not None
 
         answered = StopEvent()
         # Woken by the answer or by either stop, whichever comes first.
@@ -300,9 +301,14 @@ class BaseTask(ABC):
             and decision.outcome is DecisionOutcome.Confirmed
             and not decision.values
         ):
-            experiment.fill_in_decision(
-                item.id, self.task_name, proposal.id, dict(decided())
-            )
+            values: Dict[str, Any] = {}
+            try:
+                values = dict(decided())
+            finally:
+                # Filled in or not, the decision goes on the record once.
+                experiment.fill_in_decision(
+                    item.id, self.task_name, proposal.id, values
+                )
         return decision
 
     def unasked_reason(self, kind: str, *, enabled: bool = True) -> str:
@@ -360,6 +366,8 @@ class BaseTask(ABC):
         # ever carries, and is decided with, copies.
         config = milling_config
         passes, error, watched = 0, None, None
+        # What the next pass is asked on: after a pass, the frame of its result.
+        pass_image = ""
         try:
             while True:
                 if not milling_enabled:
@@ -375,7 +383,7 @@ class BaseTask(ABC):
                 decision = self.ask(
                     MILLING,
                     {"milling_config": asked},
-                    image=self._last_fib_image_file(),
+                    image=pass_image or self._last_fib_image_file(),
                     provenance={
                         "actions": list(actions),
                         "passes": passes,
@@ -410,6 +418,9 @@ class BaseTask(ABC):
                     break
                 error = self._mill(config)
                 passes += 1
+                pass_image = self._image_after_pass(
+                    config, passes, take=not self.unasked_reason(MILLING)
+                )
         finally:
             if responder is not None:
                 self.clear_milling_config_ui()
@@ -477,6 +488,15 @@ class BaseTask(ABC):
         if image is None or image.filepath is None:
             return ""
         return os.path.relpath(image.filepath, self.path)
+
+    def _image_after_pass(
+        self, config: FibsemMillingTaskConfig, passes: int, take: bool = True
+    ) -> str:
+        """The frame the proposal after a pass sits on, relative to the item's
+        folder: the one the mill saved when it finished; empty for none. *take*
+        says the proposal will be asked, so an app that can take a frame here
+        (`AutoLamellaTask`) takes one rather than show the pre-mill image."""
+        return self._milling_result_image_file(config)
 
     def _milling_result_image_file(self, config: FibsemMillingTaskConfig) -> str:
         """The FIB image a milling session left behind (the ``finished``

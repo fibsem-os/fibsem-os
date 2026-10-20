@@ -31,8 +31,14 @@ def _elapsed(progress: MillingProgress) -> float:
 
 
 def _ticks(reports: List[MillingProgress]) -> List[MillingProgress]:
-    """The stage updates, without the report that ends a run outside a task."""
-    return [r for r in reports if not r.status.is_terminal]
+    """The stage updates, without the reports that start and end a run outside
+    a task."""
+    return [
+        r
+        for r in reports
+        if not r.status.is_terminal
+        and r.status is not MillingProgressStatus.TASK_STARTED
+    ]
 
 
 @pytest.fixture
@@ -144,10 +150,11 @@ def test_the_demo_mills_for_its_estimate_and_reports_as_it_goes(microscope):
     assert ticks[-1] == MillingProgress(
         status=MillingProgressStatus.STAGE_UPDATE,
         milling_state=IDLE,
-        start_time=reports[0].start_time,
+        start_time=ticks[0].start_time,
         estimated_time=10,
         remaining_time=0,
         milling_run_id=reports[0].milling_run_id,  # a run outside a task's own
+        milling_task_name=milling_module.UNNAMED_RUN,
     )
     assert reports[-1].status is MillingProgressStatus.TASK_FINISHED
     # the stage updates the milling widget and AutoLamella have always had
@@ -159,7 +166,7 @@ def test_a_set_stop_event_stops_the_beam_and_cancels(microscope):
     stop = threading.Event()
 
     def stop_after_two(progress):
-        if not progress.status.is_terminal and _elapsed(progress) >= 2:
+        if _ticks([progress]) and _elapsed(progress) >= 2:
             stop.set()
 
     reports = []
@@ -312,6 +319,31 @@ def test_a_mill_outside_a_task_is_on_the_record_with_its_name(microscope):
     assert event["started_at"] and event["ended_at"]
     assert {u.milling_task_name for u in updates} == {"agent trench"}
     assert {u.milling_run_id for u in updates} == {event["milling_run_id"]}
+
+
+def test_a_mill_outside_a_task_with_no_name_starts_as_a_task_does(microscope):
+    """Round 10 (FIB-1496): an agent's prepare and run with no name read
+    'None' on the record and never started, so Stop Milling stayed off."""
+    from fibsem.services.milling import UNNAMED_RUN
+
+    events = _milling_events(microscope)
+    updates = []
+    microscope.milling.progress.changed.connect(updates.append)
+    microscope.milling.prepare(
+        FibsemMillingSettings(milling_current=1e-9, milling_voltage=30e3),
+        [
+            FibsemRectangleSettings(
+                width=1e-6, height=1e-6, depth=1e-7, centre_x=0, centre_y=0
+            )
+        ],
+    )
+
+    assert microscope.milling.run() == "completed"
+
+    [event] = events
+    assert event["milling_task_name"] == UNNAMED_RUN
+    assert updates[0].status is MillingProgressStatus.TASK_STARTED
+    assert {u.milling_task_name for u in updates} == {UNNAMED_RUN}
 
 
 def test_a_stopped_or_failed_mill_outside_a_task_records_how_it_ended(scripted):

@@ -99,8 +99,11 @@ Things that don't belong together wait their turn.
 
 **Write the reason for someone deciding in a few seconds.** Say what you
 saw, where you saw it (an image, a value, an event), and what the actions
-will do. Two sentences is usually right. The reason is kept on the record
-with the request, so you don't need a separate note for it.
+will do. Two sentences is usually right. Name what you saw and where it is
+in words ("the ringed cell at the centre"), never preview pixels: the
+operator can't use "(385, 258) of 768 x 512". Points go in `marks` on the
+evidence. The reason is kept on the record with the request, so you don't
+need a separate note for it.
 
 **Show the image you mean.** When an image decided what you do, pass it as
 `evidence` on the call: `{image}` with the path the image tools answered

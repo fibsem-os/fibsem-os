@@ -617,3 +617,13 @@ def test_milling_answers_the_current_and_warns_on_one_the_beam_does_not_list(
     finally:
         microscope.milling.clear()
         microscope.milling.restore()
+
+
+def test_a_post_with_no_arguments_sends_an_empty_object():
+    """Round 10 F8: item_add with no arguments sent no body, which its route
+    refused. A GET still sends none."""
+    from fibsem.ai.agent.catalog import CATALOG, route_call
+
+    tools = {spec.name: spec for spec in CATALOG}
+    assert route_call(tools["item_add"], {}) == ("POST", "/app/experiment/items", {})
+    assert route_call(tools["workflow_get_queue"], {})[2] is None

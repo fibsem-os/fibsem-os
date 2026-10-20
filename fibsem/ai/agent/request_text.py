@@ -1143,6 +1143,9 @@ def _loaded(inventory: List[Dict[str, Any]]) -> Optional[str]:
     return next((e.get("name") for e in inventory if e.get("state") == "loaded"), None)
 
 
+_NOT_IN_INVENTORY = ": it is not in the inventory"
+
+
 def _grid_load(name: str, inventory: Any) -> str:
     """``Load grid 'G2' from Slot-02 (unloads 'G1' first)``: the exchange the
     loader will make, from the inventory as it reads now."""
@@ -1151,7 +1154,7 @@ def _grid_load(name: str, inventory: Any) -> str:
         return change
     entry = next((e for e in inventory if e.get("name") == name), None)
     if entry is None:
-        return change + ": it is not in the inventory"
+        return change + _NOT_IN_INVENTORY
     if entry.get("source") != "magazine":
         return change + f": it is in {entry.get('slot_name')} already, nothing moves"
     if entry.get("state") == "loaded":
@@ -1263,21 +1266,66 @@ def describe_actions(
 ) -> List[Dict[str, Any]]:
     """Each of a request's ``(tool, arguments, path)`` described, in order. An
     action can read what came before it: a milling run says how long the
-    patterns an earlier action prepares take."""
+    patterns an earlier action prepares take.
+
+    A line that can only fail when it runs carries ``refused``, why: a grid
+    load the inventory doesn't hold, with no inventory scan before it. The
+    request is refused at filing for it (FIB-1493)."""
     described = []
     estimate: Optional[Tuple[Optional[float], Any]] = None
-    unloaded = False
+    unloaded = inventoried = inserted = False
     for tool, arguments, path in actions:
         line = _describe(tool, arguments, path, read, describe, estimate)
         if "_estimate" in line:
             estimate = line.pop("_estimate")
-        if unloaded and _grid_tool(tool, arguments) == "grid_load":
+        grid_tool = _grid_tool(tool, arguments)
+        if unloaded and grid_tool == "grid_load":
             # An earlier step unloads it: the load's own "(unloads 'G1'
             # first)", read from the stage as it is now, says it twice.
             line["change"] = _UNLOADS_FIRST.sub("", str(line.get("change")))
-        unloaded = unloaded or _grid_tool(tool, arguments) == "grid_unload"
+        if (
+            grid_tool == "grid_load"
+            and not inventoried
+            and str(line.get("change")).endswith(_NOT_IN_INVENTORY)
+        ):
+            line["refused"] = (
+                f"grid {(arguments or {}).get('grid_name')!r} is not in the "
+                "inventory; run an inventory first (grid_run_inventory), or "
+                "load a grid it holds"
+            )
+        if tool == "fm_acquire_overview" and not inserted:
+            state = _objective_state(read)
+            if state and state != "inserted":
+                line["change"] = (
+                    f"{line.get('change')}\nThe objective is {state} now and no "
+                    "step before this inserts it, so the overview will be refused"
+                )
+        unloaded = unloaded or grid_tool == "grid_unload"
+        inventoried = inventoried or grid_tool == "grid_run_inventory"
+        inserted = inserted or _inserts_objective(tool, arguments)
         described.append(line)
     return described
+
+
+def _objective_state(read: Optional[Reader]) -> Optional[str]:
+    """The FM objective's state now ('inserted', 'retracted'), or None when it
+    can't be read (no FM)."""
+    if read is None:
+        return None
+    try:
+        answer = read("/microscope/devices/objective/state")
+    except Exception:  # noqa: BLE001 - nothing to warn about
+        return None
+    value = answer.get("value") if isinstance(answer, dict) else None
+    return str(value).lower() if value else None
+
+
+def _inserts_objective(tool: str, arguments: Dict[str, Any]) -> bool:
+    return (
+        tool == "device_call_command"
+        and (arguments or {}).get("device") == "objective"
+        and (arguments or {}).get("command") == "insert"
+    )
 
 
 _UNLOADS_FIRST = re.compile(r" \(unloads '[^']*' first\)")

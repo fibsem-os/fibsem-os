@@ -366,7 +366,9 @@ def test_assist_asks_to_stop_as_it_asks_for_the_rest(
         refused = client.post(path, headers=AGENT, json=body)
         assert refused.status_code == 403, path
         assert _detail(refused)["error_type"] == "ask_first"
-        assert "request_create" in _detail(refused)["message"]
+        # the operator decides at Assist: the agent suggests (round 10 F13)
+        asks = "proposal_suggest" if path.endswith("decide") else "request_create"
+        assert asks in _detail(refused)["message"]
     filed = _file(client, STOP_MILL)
     assert filed.status_code == 202, filed.text
     # Something to stop (FIB-1398).
@@ -438,6 +440,8 @@ def test_a_level_change_or_stop_agent_cancels_the_waiting_request(
     assert store.pending() is None
     decision = _proposal(context, filed["request_id"]).current
     assert decision.outcome.name == "Withdrawn"
+    # the operator's doing, not the workflow's (round 10 R9)
+    assert decision.actor.kind == "operator"
     assert decision.reason == (
         "the operator stopped the agent"
         if stop_agent
@@ -1312,3 +1316,53 @@ def test_a_new_lamella_s_point_of_interest_takes_a_float(client, app, context):
     done = store.wait(filed.json()["request_id"], timeout=10)
     assert done.status == "applied", done.results
     assert item.poi.x == -3e-6
+
+
+def test_a_request_can_t_decide_a_proposal(client, app):
+    """At Assist the operator decides; the agent suggests (round 10 F13)."""
+    decide = {
+        "tool": "proposal_decide",
+        "arguments": {"item_id": "x", "task_name": "t", "proposal_id": "p"},
+    }
+    refused = _file(client, NUDGE, decide)
+    assert refused.status_code == 422, refused.text
+    assert _detail(refused)["error_type"] == "not_an_action"
+    assert "proposal_suggest" in _detail(refused)["message"]
+    assert app.state.requests.pending() is None
+
+
+def test_a_relative_folder_is_read_inside_the_experiment_and_one_outside_refused(
+    client, app, context, tmp_path
+):
+    """Round 10 F11: "overviews" is the experiment's folder, never the app's,
+    and a folder outside the experiment is refused at filing, not after."""
+    store = app.state.requests
+    overview = {
+        "tool": "beam_acquire_overview",
+        "arguments": {"settings": {"nrows": 1, "ncols": 1}, "path": "overviews"},
+    }
+    filed = _file(client, overview)
+    assert filed.status_code == 202, filed.text
+    store.cancel("test")
+    outside = {
+        "tool": "beam_acquire_overview",
+        "arguments": {
+            "settings": {"nrows": 1, "ncols": 1},
+            "path": str(tmp_path / "elsewhere"),
+        },
+    }
+    refused = _file(client, outside)
+    assert refused.status_code == 403, refused.text
+    assert _detail(refused)["error_type"] == "not_allowed"
+    assert store.pending() is None
+
+
+def test_a_stop_s_reason_inside_kwargs_says_where_it_goes(client, auth):
+    auth.set_level(AgentLevel.DRIVE)
+    refused = client.post(
+        "/microscope/services/milling/commands/stop",
+        headers=AGENT,
+        json={"kwargs": {"reason": "off target"}},
+    )
+    assert refused.status_code == 422
+    assert "beside kwargs" in _detail(refused)["message"]

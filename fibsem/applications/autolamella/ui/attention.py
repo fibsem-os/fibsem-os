@@ -128,6 +128,16 @@ class AttentionRouter(QObject):
             self._controls.set_attention(None)
             self._sounded = False
             return
+        if getattr(hold, "agent_deciding", False):
+            # The agent at Drive decides it; it turns to Attention Required
+            # if the agent goes quiet or is stopped.
+            self._controls.set_attention(
+                "Agent deciding",
+                f"The agent is deciding: {hold.releases}. You can decide it "
+                "yourself at any time.",
+                agent=True,
+            )
+            return
         self._controls.set_attention(
             "Attention Required", f"The run is waiting on you: {hold.releases}."
         )

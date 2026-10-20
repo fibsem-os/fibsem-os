@@ -105,15 +105,40 @@ def _marks(marks: Any) -> Optional[Dict[str, List[Dict[str, Any]]]]:
     return {"points": points, "areas": areas} if points or areas else None
 
 
-def _inside(path: Any, root: str, name: str) -> str:
+def _found(path: str, root: str, item_name: Optional[str]) -> Optional[str]:
+    """The file *path* names: as given when absolute; a relative one (as
+    proposal_list gives a reference image) in the item's folder, then the
+    experiment's, then the one item folder that holds it (FIB-1494)."""
+    if os.path.isabs(path):
+        return path if os.path.isfile(path) else None
+    folders = [os.path.join(root, item_name)] if item_name else []
+    for candidate in [os.path.join(f, path) for f in folders + [root]]:
+        if os.path.isfile(candidate):
+            return candidate
+    if item_name:
+        return None
+    held = [
+        candidate
+        for candidate in (
+            os.path.join(root, entry, path) for entry in sorted(os.listdir(root))
+        )
+        if os.path.isfile(candidate)
+    ]
+    return held[0] if len(held) == 1 else None
+
+
+def _inside(path: Any, root: str, name: str, item_name: Optional[str] = None) -> str:
     """*path*, an image file inside the experiment at *root*, relative to it."""
-    if not isinstance(path, str) or not os.path.isfile(path):
+    found = _found(path, root, item_name) if isinstance(path, str) and path else None
+    if found is None:
         raise EvidenceRefused(
             422,
             "invalid",
             f"{name} is the path of an image file you took or read (as the image "
-            "tools answered it).",
+            "tools answered it), or one proposal_list gives, relative to its item's "
+            f"folder (pass item_name) or the experiment's: no file {path!r}.",
         )
+    path = found
     target = os.path.realpath(path)
     if os.path.commonpath([root, target]) != root:
         raise EvidenceRefused(
@@ -176,7 +201,7 @@ def save(
         raise EvidenceRefused(422, "invalid", "item_name is a string.")
     root = _root(experiment_path)
     checked_marks = _marks(marks)
-    checked_source = _inside(source, root, "source") if source else None
+    checked_source = _inside(source, root, "source", item_name) if source else None
     evidence_id = secrets.token_hex(4)
     where = folder(root)
     if upload is not None:
@@ -184,7 +209,7 @@ def save(
         _save_upload(upload, os.path.join(where, f"{evidence_id}.png"))
         path = os.path.join(FOLDER, f"{evidence_id}.png")
     else:
-        path = _inside(image, root, "image")
+        path = _inside(image, root, "image", item_name)
     record = {
         "evidence_id": evidence_id,
         "image": path,

@@ -246,6 +246,7 @@ class BaseTaskManager:
                     kind=HoldKind.proposal,
                     releases=releases,
                     items=(f"{item_name}/{task_name}",),
+                    agent_deciding=AGENT in who,
                 ),
                 note=note,
                 message=None,

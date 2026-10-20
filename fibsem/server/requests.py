@@ -140,7 +140,7 @@ class AgentRequest:
             "results": list(self.results),
             "expires_at": self.expires_at,
             "on_expiry": self.on_expiry if self.expires_at is not None else None,
-            "image": self.image,
+            **({"image": self.image} if self.image else {}),
             "evidence": self.evidence,
         }
 
@@ -294,8 +294,12 @@ class RequestStore:
         not_allowed: Optional[Callable[[str, str], Optional[str]]] = None,
         experiment_path: Optional[Callable[[], Optional[str]]] = None,
         experiment: Optional[Callable[[], Any]] = None,
+        path_refused: Optional[Callable[[Dict[str, Any]], Optional[str]]] = None,
     ) -> None:
         self._app = app
+        # Why a command's or query's path would be refused when it runs (outside
+        # the open experiment), or None: refused at filing.
+        self._path_refused = path_refused
         # The experiment a request is recorded on (``recording_experiment``).
         self._experiment = experiment or (lambda: None)
         # Why a request's image path is refused (outside the experiment), or None.
@@ -384,7 +388,14 @@ class RequestStore:
         if on_expiry not in ("approve", "reject"):
             raise ValueError("on_expiry is 'approve' or 'reject'")
         experiment = self._recording()
-        self._describe_actions(resolved)
+        for index, line in enumerate(self._describe_actions(resolved)):
+            if line.get("refused"):
+                raise RequestRefused(
+                    422,
+                    "cannot_run",
+                    f"Action {index + 1}: {line['refused']}.",
+                    tool=resolved[index].tool,
+                )
         with self._lock:
             waiting = self._pending_locked()
             if waiting is not None:
@@ -462,6 +473,14 @@ class RequestStore:
                 raise RequestRefused(
                     422, "unknown_tool", f"Action {index + 1}: no tool named {tool!r}."
                 )
+            if tool == "proposal_decide":
+                raise RequestRefused(
+                    422,
+                    "not_an_action",
+                    f"Action {index + 1}: at Assist the operator decides "
+                    "proposals, so proposal_decide can't go in a request: "
+                    "suggest the decision with proposal_suggest instead.",
+                )
             if spec.level == "assist":
                 raise RequestRefused(
                     422,
@@ -517,6 +536,21 @@ class RequestStore:
                     "not_allowed",
                     f"Action {index + 1}: the agent may not use {tool} this way, "
                     f"at any level: {why}.",
+                    call=_call_named(spec, tool, arguments),
+                )
+            kwargs = body.get("kwargs") if isinstance(body, dict) else None
+            why = (
+                self._path_refused(kwargs)
+                if self._path_refused is not None
+                and isinstance(kwargs, dict)
+                and ("/commands/" in path or "/queries/" in path)
+                else None
+            )
+            if why is not None:
+                raise RequestRefused(
+                    403,
+                    "not_allowed",
+                    f"Action {index + 1}: {tool} refused: {why}.",
                     call=_call_named(spec, tool, arguments),
                 )
             why = self._check(tool, arguments) if self._check else None
@@ -600,7 +634,10 @@ class RequestStore:
             request = self._pending_locked()
         if request is None:
             return None
-        self._close(request, CANCELLED, why)
+        # The operator's doing: they changed the level, stopped the agent or
+        # the App Server.
+        operator = request.experiment.actor() if request.experiment else None
+        self._close(request, CANCELLED, why, actor=operator)
         return request
 
     def _level_changed(self, level: AgentLevel, stopped: bool) -> None:
@@ -744,7 +781,7 @@ class RequestStore:
 
     # --- helpers ---
 
-    def _describe_actions(self, actions: List[Action]) -> None:
+    def _describe_actions(self, actions: List[Action]) -> List[Dict[str, Any]]:
         lines = describe_actions(
             [(a.tool, a.arguments, a.path) for a in actions],
             read=self._read,
@@ -753,6 +790,7 @@ class RequestStore:
         for action, line in zip(actions, lines):
             action.what, action.change = line["what"], line["change"]
             action.details = line.get("details")
+        return lines
 
     def describe_call(
         self, tool: str, arguments: Dict[str, Any], path: str

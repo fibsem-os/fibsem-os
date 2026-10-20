@@ -264,3 +264,23 @@ def test_a_suggestion_and_a_decision_keep_the_evidence_they_cite():
     assert Decision.from_dict(decision.to_dict()).evidence == "ab12cd34"
     # Saved only when there is one: old files read the same.
     assert "evidence" not in Decision(DecisionOutcome.Confirmed, "agent:x").to_dict()
+
+
+def test_a_reference_image_is_cited_as_proposal_list_gives_it(client, context):
+    """Round 10 (FIB-1494): proposal_list gives a reference image relative to
+    its item's folder, and evidence took only absolute paths."""
+    exp = context._session.experiment
+    item = exp.positions[0].name
+    folder = os.path.join(exp.path, item)
+    os.makedirs(folder, exist_ok=True)
+    Image.new("L", (16, 16)).save(os.path.join(folder, "ref_final_ib.png"))
+    for body in (
+        {"image": "ref_final_ib.png", "item_name": item},
+        {"image": "ref_final_ib.png"},  # the one item folder that holds it
+        {"image": os.path.join(item, "ref_final_ib.png")},
+    ):
+        resp = _keep(client, **body)
+        assert resp.status_code == 200, (body, resp.text)
+    missing = _keep(client, image="nowhere.png")
+    assert missing.status_code == 422
+    assert "nowhere.png" in missing.json()["detail"]["message"]

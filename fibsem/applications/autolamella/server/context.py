@@ -2072,10 +2072,12 @@ class AutoLamellaAppContext:
             evidence=(evidence or {}).get("evidence_id", ""),
         )
         result = experiment.suggest(item_id, task_name, proposal_id, suggestion)
-        doc = result.to_dict()
-        doc["available"] = True
-        if result.applied:
-            doc["suggestion_id"] = suggestion.id
+        if not result.applied:
+            return {**result.to_dict(), "available": True}
+        # Nothing was decided, so nothing ran or synced.
+        doc = {"applied": True, "available": True, "suggestion_id": suggestion.id}
+        if result.save_error:
+            doc["save_error"] = result.save_error
         return doc
 
     def add_note(
