@@ -58,6 +58,22 @@ class ProposalPresenter:
     def experiment(self) -> Optional[Experiment]:
         return self._session.experiment
 
+    def _agent_deciding(self) -> bool:
+        """The agent decides proposals now (Drive, listening): the panel shows
+        them without taking the operator's view to them."""
+        from fibsem.acting import AGENT
+
+        return AGENT in self._session.deciders()
+
+    def set_agent_deciding(self, deciding: bool) -> None:
+        """Who decides changed while a proposal is up: the prompt bar says so."""
+        self._panel.prompt_bar.set_agent_deciding(deciding)
+
+    def _ask(self, message: str, positive: str, negative=None) -> None:
+        bar = self._panel.prompt_bar
+        bar.ask(message, positive, negative)
+        bar.set_agent_deciding(self._agent_deciding())
+
     def _on_prompt_answered(self, clicked_yes: bool) -> None:
         # A click with no proposal up (a stray double-click after the
         # decision landed) means nothing.
@@ -86,7 +102,7 @@ class ProposalPresenter:
         message = str(
             proposal.provenance.get("message") or "Press Continue when ready."
         )
-        self._panel.prompt_bar.ask(
+        self._ask(
             message,
             str(proposal.provenance.get("positive") or "Continue"),
             proposal.provenance.get("negative") or None,
@@ -167,12 +183,13 @@ class ProposalPresenter:
             widget.set_workflow_mode(True)
         else:
             widget.setEnabled(True)
-            self._panel.front_tab(widget)
+            if not self._agent_deciding():
+                self._panel.front_tab(widget)
             # The task owns the mill while it asks: the editor's own Run stands down.
             widget.milling_widget.pushButton_run_milling.setVisible(False)
         self._loop_proposal = (item_id, task_name, proposal)
         prompt = loop_prompt(proposal)
-        self._panel.prompt_bar.ask(prompt.message, prompt.positive, prompt.negative)
+        self._ask(prompt.message, prompt.positive, prompt.negative)
         self._relay.status.emit(WorkflowStatusEvent())
 
     def loop_proposal_host(self):
@@ -256,11 +273,16 @@ class ProposalPresenter:
         from fibsem.workflows.status import WorkflowStatusEvent
 
         message = str(proposal.provenance.get("message") or "")
+        # The agent deciding, the values are shown where they are edited, but
+        # the operator's view stays where it is.
+        front = not self._agent_deciding()
         if proposal.kind == DETECTION and self._detection_shown():
-            self._panel.front_tab(self._panel.det_widget)
+            if front:
+                self._panel.front_tab(self._panel.det_widget)
             message = "Confirm Feature Detection. Press Continue to proceed."
         elif proposal.kind == ALIGNMENT_AREA and self._panel.image_widget is not None:
-            self._panel.show_experiment_tab()
+            if front:
+                self._panel.show_experiment_tab()
             self._panel.image_widget.toggle_alignment_area(
                 proposal.values.get("alignment_area")
             )
@@ -269,10 +291,11 @@ class ProposalPresenter:
             proposal.values.get("poi"),
             fallback=self._reference_image(item_id, proposal),
         ):
-            self._panel.show_experiment_tab()
+            if front:
+                self._panel.show_experiment_tab()
             self._follow_poi_frames()
         self._widget_proposal = (item_id, task_name, proposal)
-        self._panel.prompt_bar.ask(message or "Press Continue when ready.", "Continue")
+        self._ask(message or "Press Continue when ready.", "Continue")
         self._relay.status.emit(WorkflowStatusEvent())
 
     def _reference_image(self, item_id: str, proposal):

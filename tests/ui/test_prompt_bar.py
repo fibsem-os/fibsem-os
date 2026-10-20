@@ -43,3 +43,20 @@ def test_no_question_shows_nothing(qapp):
     assert not bar.message.isVisibleTo(bar)
     assert not bar.yes.isVisibleTo(bar)
     assert not bar.no.isVisibleTo(bar)
+
+
+def test_while_the_agent_decides_the_bar_says_so_and_keeps_its_buttons(qapp):
+    bar = PromptBar()
+    bar.ask("Run the pass?", "Run Milling", "Skip")
+    bar.set_agent_deciding(True)
+    assert bar.message.text() == "Agent deciding: Run the pass?"
+    assert bar.yes.isEnabled() and bar.no.isEnabled()
+
+    bar.set_agent_deciding(False)
+    assert bar.message.text() == "Run the pass?"
+
+
+def test_the_agent_deciding_with_nothing_asked_shows_nothing(qapp):
+    bar = PromptBar()
+    bar.set_agent_deciding(True)
+    assert bar.message.text() == ""

@@ -197,3 +197,20 @@ def test_a_proposal_elsewhere_still_lands_on_the_microscope_tab(main_ui, qapp):
     main_ui.attention.attention_clicked()
 
     assert main_ui.tab_widget.currentIndex() == 0
+
+
+def test_while_the_agent_decides_the_proposal_stays_off_the_operators_tab(ui, qapp):
+    """At Drive the agent decides: the proposal is still shown on its widget,
+    but the operator's tab is left where they put it."""
+    from fibsem.acting import AGENT
+
+    ui.session.deciders = lambda: (AGENT,)
+    ui.panel.tabWidget.setCurrentIndex(0)
+    before = ui.panel.tabWidget.currentWidget()
+
+    _put_up(ui)
+
+    assert ui.panel.tabWidget.currentWidget() is before
+    assert ui.proposals.proposal_host() is ui.panel.det_widget
+    assert ui.panel.prompt_bar.message.text().startswith("Agent deciding: ")
+    _decided(ui)

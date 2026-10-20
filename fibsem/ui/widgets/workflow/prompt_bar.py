@@ -33,6 +33,10 @@ class PromptBar(QWidget):
         layout.addWidget(self.no, 1, 1)
         self.yes.clicked.connect(lambda: self._answer(True))
         self.no.clicked.connect(lambda: self._answer(False))
+        # The question as asked, and whether the agent is deciding it (Drive).
+        self._asked = ""
+        self._positive: Optional[str] = None
+        self.agent_deciding = False
         self.ask("")
 
     def ask(
@@ -40,18 +44,32 @@ class PromptBar(QWidget):
     ) -> None:
         """Show *msg* with a button for each of *pos* and *neg* given. An empty
         message is no question: the label goes rather than reserving a line."""
-        self.message.setText(msg)
+        self._asked, self._positive = msg, pos
         self.message.setVisible(bool(msg))
         for button, text in ((self.yes, pos), (self.no, neg)):
             button.setText(text or "")
             button.setEnabled(text is not None)
             button.setVisible(text is not None)
-        self.yes.setStyleSheet(
-            stylesheets.SUPERVISION_STATUS_AUTOMATED_STYLESHEET
-            if pos in _RUN_BUTTONS
-            else stylesheets.PRIMARY_BUTTON_STYLESHEET
-        )
         self.no.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self._show()
+
+    def set_agent_deciding(self, deciding: bool) -> None:
+        """The agent decides the question up (Drive): it says so, and its
+        buttons stay, quieter, for the operator to decide it first."""
+        if deciding != self.agent_deciding:
+            self.agent_deciding = deciding
+            self._show()
+
+    def _show(self) -> None:
+        asked, deciding = self._asked, self.agent_deciding and bool(self._asked)
+        self.message.setText(f"Agent deciding: {asked}" if deciding else asked)
+        if deciding:
+            style = stylesheets.SECONDARY_BUTTON_STYLESHEET
+        elif self._positive in _RUN_BUTTONS:
+            style = stylesheets.SUPERVISION_STATUS_AUTOMATED_STYLESHEET
+        else:
+            style = stylesheets.PRIMARY_BUTTON_STYLESHEET
+        self.yes.setStyleSheet(style)
 
     def clear(self) -> None:
         self.ask("")
@@ -59,7 +77,8 @@ class PromptBar(QWidget):
     def revise(self, msg: str, *, can_continue: bool) -> None:
         """Change the message of the question up, and whether it can be
         answered yet (an alignment area outside the image cannot)."""
-        self.message.setText(msg)
+        self._asked = msg
+        self._show()
         self.yes.setEnabled(can_continue)
 
     def reopen(self) -> None:
