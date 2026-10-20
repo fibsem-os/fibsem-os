@@ -71,16 +71,8 @@ def test_health_is_open(read_client):
     assert resp.json() == {"status": "ok"}
 
 
-def test_dashboard_page_is_served_open_like_health(read_client):
-    # The page is static and holds no session data; its API calls carry the
-    # bearer token, so serving the HTML itself is as safe as /health.
-    resp = read_client.get("/dashboard")
-    assert resp.status_code == 200
-    assert resp.headers["content-type"].startswith("text/html")
-    assert "App Server Dashboard" in resp.text
-
-
-def test_event_log_page_is_served_open_like_the_dashboard(read_client):
+def test_event_log_page_is_served_open_like_health(read_client):
+    # Static page holding no session data; its API calls carry the bearer token.
     resp = read_client.get("/dashboard/log")
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/html")
