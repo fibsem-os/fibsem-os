@@ -15,11 +15,11 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.ui.grid_protocol_widget import (
+from fibsem.applications.autolamella.ui.grids.protocol import (
     AddGridTaskDialog,
     GridProtocolWidget,
 )
-from fibsem.applications.autolamella.ui.protocol_details_dialog import (
+from fibsem.applications.autolamella.ui.protocol.dialogs import (
     ProtocolDetailsDialog,
     ProtocolHeaderWidget,
 )
@@ -257,9 +257,9 @@ def test_the_header_line_and_the_details_dialog(qapp, experiment):
 
 @pytest.fixture
 def main_ui(qapp):
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import window as module
 
-    window = module.AutoLamellaSingleWindowUI()
+    window = module.AutoLamellaWindow()
     yield window
     if window.microscope is not None:
         window.microscope.disconnect()

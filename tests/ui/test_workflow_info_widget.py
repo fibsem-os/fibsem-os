@@ -11,9 +11,7 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.structures import AutoLamellaWorkflowOptions
-from fibsem.applications.autolamella.ui.workflow_info_widget import (
-    WorkflowInfoWidget,
-)
+from fibsem.applications.autolamella.ui.workflow.lamella_run import WorkflowInfoWidget
 
 
 def test_the_summary_option_is_on_by_default_and_the_checkbox_writes_it(qapp):

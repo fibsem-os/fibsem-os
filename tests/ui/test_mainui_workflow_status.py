@@ -38,9 +38,9 @@ from fibsem.workflows.status import (
 
 @pytest.fixture(scope="module")
 def main_ui(qapp):
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import window as module
 
-    window = module.AutoLamellaSingleWindowUI()
+    window = module.AutoLamellaWindow()
     # First connect builds the protocol editor's full UI (its lock path runs on
     # every lifecycle report); Demo, so no hardware.
     window.system_widget.connect_to_microscope()

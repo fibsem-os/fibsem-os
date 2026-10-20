@@ -23,10 +23,8 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaWorkflowConfig,
     Experiment,
 )
-from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
-    AutoLamellaSingleWindowUI,
-)
 from fibsem.applications.autolamella.ui.launch import _parse_args
+from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
 from fibsem.applications.autolamella.workflows.tasks.reference_image import (
     AcquireReferenceImageConfig,
 )
@@ -75,7 +73,7 @@ def remember(experiment: Experiment) -> None:
 @pytest.fixture
 def ui(qapp):
     """A real window."""
-    widget = AutoLamellaSingleWindowUI()
+    widget = AutoLamellaWindow()
     yield widget
     if widget.microscope is not None:
         widget.microscope.disconnect()

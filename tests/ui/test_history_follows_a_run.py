@@ -22,9 +22,11 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module  # noqa: E402
-from fibsem.applications.autolamella.ui.lamella_task_image_widget import (  # noqa: E402
-    LamellaTaskImageWidget,
+from fibsem.applications.autolamella.ui import (
+    window as module,  # noqa: E402  # noqa: E402
+)
+from fibsem.applications.autolamella.ui.lamella.history import (
+    LamellaTaskImageWidget,  # noqa: E402
 )
 from fibsem.structures import (  # noqa: E402
     FibsemImage,
@@ -51,7 +53,7 @@ def _preferences(tmp_path, monkeypatch):
 
 @pytest.fixture
 def main_ui(qapp):
-    window = module.AutoLamellaSingleWindowUI()
+    window = module.AutoLamellaWindow()
     ui = window
     ui.system_widget.connect_to_microscope()
     yield window

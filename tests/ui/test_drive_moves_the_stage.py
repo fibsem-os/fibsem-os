@@ -32,9 +32,9 @@ STEP = 20e-6  # metres: shows on the mm readout
 def window(qapp, tmp_path, request):
     """With an experiment open, and without one: the readout follows the
     microscope, not the experiment (FIB-1421)."""
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import window as module
 
-    win = module.AutoLamellaSingleWindowUI()
+    win = module.AutoLamellaWindow()
     win.system_widget.connect_to_microscope()
     ui = win
     if request.param:

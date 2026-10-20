@@ -19,7 +19,7 @@ Two properties, because either alone lets the bug back in:
 
 * **Populating the workflow emits no Qt warning.** Pinned at
   ``LamellaWorkflowWidget.set_workflow_config`` -- the call
-  ``AutoLamellaMainUI._on_experiment_update`` makes when an experiment is
+  ``AutoLamellaWindow._on_experiment_update`` makes when an experiment is
   adopted, which is where the four warnings came from.
 * **Every draggable row's handle actually loads.** The warning is only the
   audible half of the failure; a guard that skips the scale silences it while
@@ -53,11 +53,11 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaWorkflowConfig,
 )
-from fibsem.applications.autolamella.ui.lamella_workflow_widget import (  # noqa: E402
-    LamellaWorkflowWidget,
+from fibsem.applications.autolamella.ui.workflow.lamella_run import (
+    LamellaWorkflowWidget,  # noqa: E402
 )
-from fibsem.applications.autolamella.ui.workflow_config_widget import (  # noqa: E402
-    WorkflowTaskRowWidget,
+from fibsem.applications.autolamella.ui.workflow.task_list import (
+    WorkflowTaskRowWidget,  # noqa: E402
 )
 from fibsem.correlation.structures import Coordinate  # noqa: E402
 from fibsem.fm.structures import ChannelSettings  # noqa: E402
@@ -116,7 +116,7 @@ def _workflow_row():
 # Every module that draws a drag handle, with a builder for its row. Adding a row
 # type here is the cheap way to keep it drawing the shared, loaded asset.
 DRAG_HANDLE_ROWS = {
-    "fibsem.applications.autolamella.ui.workflow_config_widget": _workflow_row,
+    "fibsem.applications.autolamella.ui.workflow.task_list": _workflow_row,
     "fibsem.ui.widgets.milling_stage_list_widget": _milling_row,
     "fibsem.ui.fm.widgets.channel_list_widget": _channel_row,
     "fibsem.ui.correlation.widgets.coordinate_list_widget": _coordinate_row,

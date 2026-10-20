@@ -88,7 +88,7 @@ def test_an_unknown_width_seeds_as_before(widget, toasts):
 
 
 def test_the_protocol_editor_reads_the_width_of_the_burns_reference_image():
-    from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
+    from fibsem.applications.autolamella.ui.protocol.lamella_editor import (
         AutoLamellaProtocolEditorWidget,
     )
     from fibsem.applications.autolamella.workflows.tasks.spot_burn import (

@@ -36,8 +36,8 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.applications.autolamella.structures import Lamella
-from fibsem.applications.autolamella.ui import lamella_card_widget as lcw
-from fibsem.applications.autolamella.ui.lamella_card_widget import LamellaCardWidget
+from fibsem.applications.autolamella.ui.lamella import cards as lcw
+from fibsem.applications.autolamella.ui.lamella.cards import LamellaCardWidget
 from fibsem.config import MODE_COMPACT, MODE_COZY
 from fibsem.structures import FibsemImage
 

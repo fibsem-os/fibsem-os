@@ -326,9 +326,7 @@ class TestTheHostPointsImportsAtTheGrid:
         from types import SimpleNamespace
 
         from fibsem.applications.autolamella.structures import Experiment
-        from fibsem.applications.autolamella.ui.autolamella_overview_tab import (
-            AutoLamellaOverviewTab,
-        )
+        from fibsem.applications.autolamella.ui.overview.beam import BeamOverviewTab
         from fibsem.workflows.grids import GridRecord
 
         experiment = Experiment(path=tmp_path, name="import-folder-test")
@@ -336,12 +334,12 @@ class TestTheHostPointsImportsAtTheGrid:
         host = SimpleNamespace(
             current_grid=grid,
             experiment=experiment,
-            ALIGNED_IMAGES_DIR=AutoLamellaOverviewTab.ALIGNED_IMAGES_DIR,
+            ALIGNED_IMAGES_DIR=BeamOverviewTab.ALIGNED_IMAGES_DIR,
         )
-        folder = AutoLamellaOverviewTab._aligned_image_folder(host)
+        folder = BeamOverviewTab._aligned_image_folder(host)
         assert folder == os.path.join(str(experiment.grid_path(grid)), "Aligned Images")
         host.current_grid = None
-        assert AutoLamellaOverviewTab._aligned_image_folder(host) is None
+        assert BeamOverviewTab._aligned_image_folder(host) is None
 
 
 class TestTheMapIsMadeOncePerView:

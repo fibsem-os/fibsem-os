@@ -17,7 +17,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.ui.autolamella_load_task_protocol_widget import (
+from fibsem.applications.autolamella.ui.protocol.load import (
     AutoLamellaLoadTaskProtocolWidget,
 )
 

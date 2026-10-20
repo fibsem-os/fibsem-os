@@ -9,7 +9,7 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.ui.workflow_controls import (  # noqa: E402
+from fibsem.ui.widgets.workflow.controls import (  # noqa: E402
     AUTOMATED,
     SUPERVISED,
     WorkflowControls,

@@ -6,7 +6,7 @@ lamella card subscribes to `task_state.events.status`, and its handler is
 this thread carried on to write the file. The read landed inside the write:
 
     OSError: image file is truncated
-      lamella_card_widget.py:344 in refresh -> lamella.get_thumbnail()
+      lamella/cards.py:344 in refresh -> lamella.get_thumbnail()
 
 Structural rather than unlucky: it happens on the same two adjacent statements at the end
 of every task.

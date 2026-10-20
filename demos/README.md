@@ -34,7 +34,7 @@ path, so a demo named after a package it imports would shadow it.
 | `demo_lamella_task_image_widget.py` | the History tab (`LamellaTaskImageWidget`) on an experiment |
 | `demo_lamella_workflow.py` | `LamellaWorkflowWidget` |
 | `demo_selected_lamella.py` | `SelectedLamellaWidget` (objective and pose list) |
-| `demo_workflow_config.py` | `WorkflowConfigWidget` |
+| `demo_workflow_config.py` | `WorkflowTaskList` |
 | `demo_workflow_task_editor_widget.py` | `WorkflowTaskEditorWidget` |
 | `demo_workflow_timeline_animation.py` | `WorkflowProgressWidget`, animated through two levels |
 

@@ -8,5 +8,5 @@ None, so the failure surfaced as a dead application rather than a traceback.
 
 Import the window from its own module instead:
 
-    from fibsem.applications.autolamella.ui.AutoLamellaMainUI import AutoLamellaSingleWindowUI
+    from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
 """

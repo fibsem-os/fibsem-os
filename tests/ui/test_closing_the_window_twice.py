@@ -27,9 +27,9 @@ def no_quit(qapp):
 
 
 def test_closing_the_window_twice(no_quit, qapp):
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import window as module
 
-    window = module.AutoLamellaSingleWindowUI()
+    window = module.AutoLamellaWindow()
     window.system_widget.connect_to_microscope()
     microscope = window.microscope
     window.show()

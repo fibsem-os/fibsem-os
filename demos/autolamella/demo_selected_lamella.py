@@ -13,9 +13,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.structures import Lamella
-from fibsem.applications.autolamella.ui.selected_lamella_widget import (
-    SelectedLamellaWidget,
-)
+from fibsem.applications.autolamella.ui.lamella.selected import SelectedLamellaWidget
 from fibsem.structures import FibsemStagePosition, MicroscopeState
 
 

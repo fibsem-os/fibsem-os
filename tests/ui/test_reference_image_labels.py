@@ -9,7 +9,7 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (  # noqa: E402
+from fibsem.applications.autolamella.reference_images import (  # noqa: E402
     fm_stack_label,
     reference_image_label,
 )

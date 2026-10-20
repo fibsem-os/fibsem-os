@@ -19,7 +19,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.ui.grid_workflow_widget import (
+from fibsem.applications.autolamella.ui.grids.run import (
     GridRunPreflightDialog,
     GridWorkflowWidget,
 )
@@ -253,7 +253,7 @@ class TestRequiresOnTheTaskList:
         assert dialog.requires == []
 
     def test_apply_saves_and_the_row_says_after(self, view, experiment, monkeypatch):
-        import fibsem.applications.autolamella.ui.grid_workflow_widget as module
+        import fibsem.applications.autolamella.ui.grids.run as module
 
         def accept_with_fm(dialog):
             dialog.checks["overview_fm"].setChecked(True)
@@ -275,7 +275,7 @@ class TestRequiresOnTheTaskList:
         assert "Beam overview" in row.detail_label.toolTip(), "the kind is a hover away"
 
     def test_cancel_changes_nothing(self, view, experiment, monkeypatch):
-        import fibsem.applications.autolamella.ui.grid_workflow_widget as module
+        import fibsem.applications.autolamella.ui.grids.run as module
 
         def tick_then_cancel(dialog):
             dialog.checks["overview_fm"].setChecked(True)
@@ -397,9 +397,9 @@ def test_the_preflight_says_how_the_run_ends(qapp):
 
 @pytest.fixture
 def main_ui(qapp):
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import window as module
 
-    window = module.AutoLamellaSingleWindowUI()
+    window = module.AutoLamellaWindow()
     yield window
     if window.microscope is not None:
         window.microscope.disconnect()
@@ -568,7 +568,7 @@ def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeyp
     shared timeline and the record. A fixed holder, so no exchange."""
     ui = main_ui
     # The post-run summary is modal; under offscreen it would block forever.
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as ui_module
+    from fibsem.applications.autolamella.ui import window as ui_module
 
     class _NoDialog:
         def __init__(self, *args, **kwargs):
@@ -647,7 +647,7 @@ def test_adding_grids_to_a_running_queue_appends_their_blocks(
 ):
     """The Grids view's selection goes onto the end of a grid run's queue as
     load-plus-tasks blocks, after a confirmation; a lamella run refuses it."""
-    from fibsem.applications.autolamella.ui import grid_workflow_widget as view_module
+    from fibsem.applications.autolamella.ui.grids import run as view_module
     from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
     from fibsem.workflows.grid.manager import (
         GridTaskManager,
@@ -732,7 +732,7 @@ def test_run_and_screen_all_name_the_grids_running_for_the_first_time(
 ):
     """The window hands Run's confirmation the ticked grids that have never run;
     Screen all grids runs on the grids its own dialog names."""
-    from fibsem.applications.autolamella.ui import workflow_tab
+    from fibsem.applications.autolamella.ui.workflow import tab as workflow_tab
 
     ui = main_ui
     ui.system_widget.connect_to_microscope()
@@ -887,7 +887,7 @@ def test_the_window_prices_a_grid_run_for_the_confirmation_and_the_timeline(
 ):
     """On a fixed holder: no exchange is priced, each task is, and the timeline
     gets a figure for every step of the plan."""
-    from fibsem.applications.autolamella.ui import workflow_tab
+    from fibsem.applications.autolamella.ui.workflow import tab as workflow_tab
 
     ui = main_ui
     ui.system_widget.connect_to_microscope()

@@ -16,13 +16,13 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+from fibsem.applications.autolamella.ui import window as module
 from fibsem.workflows.grids import GridRecord
 
 
 @pytest.fixture
 def window(qapp):
-    window = module.AutoLamellaSingleWindowUI()
+    window = module.AutoLamellaWindow()
     ui = window
     ui.system_widget.connect_to_microscope()
     yield window

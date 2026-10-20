@@ -24,9 +24,9 @@ def qapp():
 
 @pytest.fixture(scope="module")
 def main_ui(qapp):
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import window as module
 
-    window = module.AutoLamellaSingleWindowUI()
+    window = module.AutoLamellaWindow()
     yield window
     # closeEvent ends in app.quit(); on the shared test QApplication that latches an
     # interrupt every later QEventLoop.exec_() returns from. Stub it for the close.
@@ -55,7 +55,7 @@ def test_it_opens_without_an_experiment(main_ui, qapp, monkeypatch):
     ui = main_ui
     assert ui.experiment is None
     toasts = []
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import window as module
 
     monkeypatch.setattr(
         module.notification_service, "show_toast", lambda *a, **k: toasts.append(a)

@@ -28,9 +28,7 @@ pytest.importorskip("PyQt5")
 
 from fibsem import config as cfg  # noqa: E402
 from fibsem import guided_setup  # noqa: E402
-from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (  # noqa: E402
-    AutoLamellaSingleWindowUI,
-)
+from fibsem.applications.autolamella.ui.window import AutoLamellaWindow  # noqa: E402
 from fibsem.ui.widgets.connection_dialog import ConnectionDialog  # noqa: E402
 from tests.fixtures.main_window import close_window  # noqa: E402
 
@@ -46,7 +44,7 @@ def prefs(monkeypatch, tmp_path):
     return preferences
 
 
-def _tabs(ui: AutoLamellaSingleWindowUI) -> list[str]:
+def _tabs(ui: AutoLamellaWindow) -> list[str]:
     return [ui.panel.tabWidget.tabText(i) for i in range(ui.panel.tabWidget.count())]
 
 
@@ -54,7 +52,7 @@ def test_the_tab_is_there_with_the_flag_off(qapp, prefs):
     """The shipping default. Nothing about connecting has moved."""
     prefs.features.connection_chip = False
 
-    ui = AutoLamellaSingleWindowUI()
+    ui = AutoLamellaWindow()
     try:
         assert "Connection" in _tabs(ui)
         # And it is the one the panel opens on, as it always was.
@@ -66,7 +64,7 @@ def test_the_tab_is_there_with_the_flag_off(qapp, prefs):
 def test_the_tab_is_gone_with_the_flag_on(qapp, prefs):
     prefs.features.connection_chip = True
 
-    ui = AutoLamellaSingleWindowUI()
+    ui = AutoLamellaWindow()
     try:
         assert "Connection" not in _tabs(ui)
         # The widget stays: it owns the connection, and everything in the

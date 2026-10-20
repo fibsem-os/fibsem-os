@@ -1,7 +1,7 @@
 """Headless tests for the workflow timeline reconciling against a mutable queue.
 
 The timeline used to be built exactly once per run and could only shrink to fit
-(`_workflow_timeline_initialized` in AutoLamellaMainUI, plus a `break` past the
+(`_workflow_timeline_initialized` in AutoLamellaWindow, plus a `break` past the
 initial row count in `update_from_status`), so an item added mid-run never
 appeared and a removed one left a stale row behind.
 
@@ -25,11 +25,8 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtCore import QObject, pyqtSignal
 
 from fibsem.applications.autolamella.structures import Experiment, Lamella
-from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
-    StepStatus,
-    WorkflowProgressWidget,
-)
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
+from fibsem.ui.widgets.workflow.timeline import StepStatus, WorkflowProgressWidget
 from fibsem.workflows.queue import TaskQueue
 from fibsem.workflows.status import TaskStatus as Status
 
@@ -192,7 +189,7 @@ def test_failures_and_cancellations_are_both_named(widget, queue):
 
 def test_a_cancelled_row_does_not_look_like_a_running_one(widget, queue):
     """They were #e0a030 and #ff9800 — the same colour to the eye."""
-    from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
+    from fibsem.ui.widgets.workflow.timeline import (
         _DOT_ACTIVE,
         _DOT_CANCELLED,
         StepStatus,
@@ -412,7 +409,7 @@ def _experiment(tmp_path, names=("L1", "L2")) -> Experiment:
 def manager(widget, tmp_path) -> TaskManager:
     """A real TaskManager, on a real Experiment, wired to the real widget.
 
-    The slots mirror AutoLamellaMainUI._on_workflow_update and WorkflowTab.on_queue_changed.
+    The slots mirror AutoLamellaWindow._on_workflow_update and WorkflowTab.on_queue_changed.
     Going through the real _emit_report / notify_queue_changed is what stops the
     payload contract drifting from the widget that reads it.
     """

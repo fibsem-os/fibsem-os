@@ -27,8 +27,8 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 
-from fibsem.applications.autolamella.ui import (  # noqa: E402
-    autolamella_create_experiment_widget as mod,
+from fibsem.applications.autolamella.ui.dialogs import (
+    create_experiment as mod,  # noqa: E402
 )
 from fibsem.ui.tokens import ERROR_COLOR, TEXT_MUTED_COLOR, WARN_COLOR  # noqa: E402
 from fibsem.util.system import DiskSpace, FreeSpaceLevel  # noqa: E402

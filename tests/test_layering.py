@@ -117,7 +117,7 @@ def test_app_servers_import_no_ui():
         ("fibsem.ui.notification_service", True),
         ("PyQt5.QtCore", True),
         ("napari", True),
-        ("fibsem.applications.autolamella.ui.AutoLamellaMainUI", True),
+        ("fibsem.applications.autolamella.ui.window", True),
         ("fibsem.uiutils", False),
         ("fibsem.services.milling", False),
     ],

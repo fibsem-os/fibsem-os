@@ -27,8 +27,8 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QApplication, QLabel, QToolButton  # noqa: E402
 
-from fibsem.applications.autolamella.ui.workflow_preflight_dialog import (  # noqa: E402
-    WorkflowPreflightDialog,
+from fibsem.applications.autolamella.ui.workflow.preflight import (
+    WorkflowPreflightDialog,  # noqa: E402
 )
 from fibsem.applications.autolamella.workflows.tasks.attendance import (  # noqa: E402
     RunAttendance,
@@ -262,9 +262,7 @@ def test_a_hundred_lamellae_do_not_push_the_dialog_apart(dialog):
     metrics, the note and every task row. The list truncates and says how many it did
     not show -- a selection of a hundred is confirmed by spot-checking a few and
     trusting the count."""
-    from fibsem.applications.autolamella.ui.workflow_preflight_dialog import (
-        _NAMES_SHOWN,
-    )
+    from fibsem.applications.autolamella.ui.workflow.preflight import _NAMES_SHOWN
 
     def _expanded_names(count):
         d = dialog(
@@ -411,7 +409,7 @@ def test_everything_on_a_panel_declares_itself_transparent(dialog):
 def test_it_says_who_has_to_be_there_before_the_run(qapp):
     """The pre-run sentence comes from the run's attendance; an empty one shows
     no line at all, and each task row carries its own line as a tooltip."""
-    from fibsem.applications.autolamella.ui.workflow_preflight_dialog import (
+    from fibsem.applications.autolamella.ui.workflow.preflight import (
         WorkflowPreflightDialog,
     )
 

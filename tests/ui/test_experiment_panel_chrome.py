@@ -27,9 +27,9 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
     Experiment,
     Lamella,
 )
-from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (  # noqa: E402
+from fibsem.applications.autolamella.ui.window import (  # noqa: E402
     INSTRUCTIONS,
-    AutoLamellaSingleWindowUI,
+    AutoLamellaWindow,
 )
 from fibsem.ui.widgets.status_bar import FibsemStatusBar  # noqa: E402
 from tests.fixtures.main_window import close_window  # noqa: E402
@@ -43,7 +43,7 @@ def window(qapp):
     whatever its own flag says, so every "the label is gone" assertion here would
     pass without the code doing anything.
     """
-    ui = AutoLamellaSingleWindowUI()
+    ui = AutoLamellaWindow()
     ui.show()
     yield ui
     close_window(ui)
@@ -89,7 +89,7 @@ def test_the_name_boxes_are_gone(window):
 
 
 class _StatusHost(QMainWindow):
-    _update_instructions = AutoLamellaSingleWindowUI._update_instructions
+    _update_instructions = AutoLamellaWindow._update_instructions
 
     def __init__(self):
         super().__init__()

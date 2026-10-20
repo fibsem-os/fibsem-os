@@ -454,7 +454,7 @@ def _editor_stub(config):
 def _open_dialog(host, on_exec=None):
     from PyQt5.QtWidgets import QDialog
 
-    from fibsem.applications.autolamella.ui.autolamella_task_config_editor import (
+    from fibsem.applications.autolamella.ui.protocol.protocol_tab import (
         AutoLamellaProtocolTaskConfigEditor,
     )
 
@@ -536,7 +536,7 @@ def test_button_wiring_on_the_real_editor():
         AutoLamellaTaskProtocol,
         Experiment,
     )
-    from fibsem.applications.autolamella.ui.autolamella_task_config_editor import (
+    from fibsem.applications.autolamella.ui.protocol.protocol_tab import (
         AutoLamellaProtocolTaskConfigEditor,
     )
     from fibsem.applications.autolamella.workflows.tasks.base import (

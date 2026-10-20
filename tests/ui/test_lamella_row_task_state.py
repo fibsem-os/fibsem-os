@@ -3,7 +3,7 @@
 Reported from a workflow run:
 
     RuntimeError: wrapped C/C++ object of type QLabel has been deleted
-      lamella_name_list_widget.py in refresh -> self.name_label.setText(...)
+      lamella/rows.py in refresh -> self.name_label.setText(...)
 
 FIB-565 subscribed the row to `task_state.events.name` / `.status` so it would follow a
 running workflow. Those are written from the workflow's FunctionWorker thread, so
@@ -16,7 +16,7 @@ object and beside the point: Qt's teardown does not wait for the collector, so a
 weakref over a destroyed QLabel is exactly the reachable state. Same family as FIB-550.
 
 The fix is removal rather than a disconnect. What replaces it is
-`AutoLamellaMainUI._on_workflow_update`, which already refreshed the workflow list and
+`AutoLamellaWindow._on_workflow_update`, which already refreshed the workflow list and
 the cards on every update, over a Qt signal -- and already knew *which* lamella changed,
 so the name list joins them on `refresh_lamella` rather than `refresh_all`. A workflow
 touches one lamella at a time, and `refresh_all` is O(rows) of GUI-thread work for it:
@@ -42,7 +42,7 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.applications.autolamella.structures import Lamella
-from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
+from fibsem.applications.autolamella.ui.lamella.rows import (
     LamellaNameListWidget,
     _LamellaRow,
 )
@@ -191,14 +191,12 @@ class TestWhatItStillFollows:
         one on the path a running workflow takes, `refresh_all` when the update cannot
         be tied to a lamella.
         """
-        from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
-            AutoLamellaSingleWindowUI,
-        )
+        from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
 
         # Lifecycle reports arrive on workflow_status_signal now; the refresh
         # lives in _apply_status_report, which _on_workflow_status runs for
         # every report — the same every-update cadence the dict handler had.
-        source = inspect.getsource(AutoLamellaSingleWindowUI._apply_status_report)
+        source = inspect.getsource(AutoLamellaWindow._apply_status_report)
 
         # `panel.experiment_tab.lamella_list`, not `lamella_list_widget`. Those are different
         # widgets -- `lamella_list_widget` is the *workflow* list, which was already

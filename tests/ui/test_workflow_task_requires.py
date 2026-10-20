@@ -26,7 +26,7 @@ from PyQt5.QtCore import Qt  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskDescription,
 )
-from fibsem.applications.autolamella.ui.workflow_config_widget import (  # noqa: E402
+from fibsem.applications.autolamella.ui.workflow.task_list import (  # noqa: E402
     REQUIRES_MAX_WIDTH,
     WorkflowTaskRowWidget,
 )

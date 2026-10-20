@@ -25,9 +25,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
-    AutoLamellaSingleWindowUI,
-)
+from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
 from fibsem.applications.autolamella.workflows.tasks.rough import (
     MillRoughTaskConfig,
 )
@@ -52,7 +50,7 @@ def ui(qapp, monkeypatch, tmp_path):
         "config",
         "sim-arctis-configuration.yaml",
     )
-    widget = AutoLamellaSingleWindowUI()
+    widget = AutoLamellaWindow()
     monkeypatch.setattr(
         widget.system_widget,
         "load_configuration",

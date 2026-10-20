@@ -13,9 +13,7 @@ pytest.importorskip("fastapi")
 httpx = pytest.importorskip("httpx")
 
 from fibsem import config as fibsem_cfg
-from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
-    AutoLamellaSingleWindowUI,
-)
+from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
 from fibsem.server import hosting
 from fibsem.workflows.event_recording import recorder_for
 from tests.fixtures.main_window import close_window
@@ -29,7 +27,7 @@ def _free_port() -> int:
 
 @pytest.fixture
 def ui(qapp):
-    window = AutoLamellaSingleWindowUI()
+    window = AutoLamellaWindow()
     try:
         yield window
     finally:
@@ -233,9 +231,7 @@ def test_tools_app_server_saves_both_switches(monkeypatch):
     same way, and act on the session now."""
     from types import SimpleNamespace
 
-    from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
-        AutoLamellaSingleWindowUI,
-    )
+    from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
 
     saved = fibsem_cfg.UserPreferences()
     monkeypatch.setattr(fibsem_cfg, "load_user_preferences", lambda: saved)
@@ -246,8 +242,8 @@ def test_tools_app_server_saves_both_switches(monkeypatch):
         set_app_server_microscope=lambda on: calls.append(("microscope", on)),
     )
 
-    AutoLamellaSingleWindowUI._set_app_server_microscope(window, True)
-    AutoLamellaSingleWindowUI._set_app_server_enabled(window, True)
+    AutoLamellaWindow._set_app_server_microscope(window, True)
+    AutoLamellaWindow._set_app_server_enabled(window, True)
 
     assert saved.app_server.microscope and saved.app_server.enabled
     assert window._preferences is saved

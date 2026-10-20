@@ -29,8 +29,8 @@ from PyQt5.QtWidgets import QApplication, QFileDialog  # noqa: E402
 from fibsem import utils  # noqa: E402
 from fibsem.applications.autolamella.poses import build_lamella_poses  # noqa: E402
 from fibsem.applications.autolamella.structures import Experiment, Lamella  # noqa: E402
-from fibsem.applications.autolamella.ui import (  # noqa: E402
-    autolamella_overview_image_widget as overview_dialog,
+from fibsem.applications.autolamella.ui.dialogs import (
+    overview_plot as overview_dialog,  # noqa: E402
 )
 from fibsem.structures import BeamType, FibsemImage, ImageSettings  # noqa: E402
 

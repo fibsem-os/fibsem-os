@@ -9,9 +9,7 @@ from typing import Callable, List, Optional
 from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import QApplication
 
-from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
-    AutoLamellaSingleWindowUI,
-)
+from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
 from fibsem.tools.app_identity import set_app_identity
 from fibsem.tools.apps import AUTOLAMELLA
 from fibsem.tools.launcher import Splash
@@ -106,7 +104,7 @@ def run_ui(argv: Optional[List[str]] = None, splash: Optional[Splash] = None):
     # finalizes Qt/vispy objects off the GUI thread and hard-crashes Windows GL
     # drivers (access violation in glDrawArrays). See fibsem/ui/qt/gc.py.
     gc_collector = install_main_thread_gc(parent=app)  # noqa: F841 — kept alive for app lifetime
-    window = AutoLamellaSingleWindowUI()
+    window = AutoLamellaWindow()
     window.show()
     if splash is not None:
         splash.finish(window)

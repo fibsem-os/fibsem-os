@@ -7,9 +7,9 @@ pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is delibe
 
 @pytest.fixture
 def main_ui(qapp):
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import window as module
 
-    window = module.AutoLamellaSingleWindowUI()
+    window = module.AutoLamellaWindow()
     yield window
     if window.microscope is not None:
         window.microscope.disconnect()

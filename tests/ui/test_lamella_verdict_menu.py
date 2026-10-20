@@ -25,17 +25,17 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QApplication, QMenu  # noqa: E402
 
 from fibsem.applications.autolamella.structures import Lamella  # noqa: E402
-from fibsem.applications.autolamella.ui.lamella_card_widget import (  # noqa: E402
-    LamellaCardContainer,
-)
-from fibsem.applications.autolamella.ui.lamella_list_widget import (  # noqa: E402
-    LamellaListWidget,
+from fibsem.applications.autolamella.ui.common.lamella_display import (  # noqa: E402
     add_defect_menu,
     has_defect,
     has_verdict,
 )
-from fibsem.applications.autolamella.ui.lamella_name_list_widget import (  # noqa: E402
-    LamellaNameListWidget,
+from fibsem.applications.autolamella.ui.lamella.cards import (
+    LamellaCardContainer,  # noqa: E402
+)
+from fibsem.applications.autolamella.ui.lamella.rows import (
+    LamellaListWidget,  # noqa: E402
+    LamellaNameListWidget,  # noqa: E402
 )
 from fibsem.workflows.quality import (  # noqa: E402
     QualityRecord,
@@ -157,7 +157,7 @@ class TestEveryDisplay:
 def test_a_grid_s_verdict_menu_is_a_lamella_s(lamella, monkeypatch):
     """One layout for both: they had drifted apart in labels, icons and order
     ("Unassessed" first and a wrench for rework, on the grid card)."""
-    from fibsem.applications.autolamella.ui.grid_card_widget import GridCardWidget
+    from fibsem.applications.autolamella.ui.grids.card import GridCardWidget
     from fibsem.workflows.grids import GridRecord
 
     shown = {}

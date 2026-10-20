@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PyQt5.QtWidgets import QAction, QWidget
 
-from fibsem.applications.autolamella.ui.experiment_header import ExperimentHeader
+from fibsem.applications.autolamella.ui.header import ExperimentHeader
 from fibsem.ui.widgets.notifications import ToastManager
 
 

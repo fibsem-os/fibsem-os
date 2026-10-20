@@ -41,11 +41,11 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (  # noqa: E402
-    AutoLamellaProtocolEditorWidget,
+from fibsem.applications.autolamella.ui.protocol.lamella_editor import (
+    AutoLamellaProtocolEditorWidget,  # noqa: E402
 )
-from fibsem.applications.autolamella.ui.autolamella_task_config_editor import (  # noqa: E402
-    AutoLamellaProtocolTaskConfigEditor,
+from fibsem.applications.autolamella.ui.protocol.protocol_tab import (
+    AutoLamellaProtocolTaskConfigEditor,  # noqa: E402
 )
 from fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence import (  # noqa: E402
     AcquireFluorescenceImageConfig,
@@ -209,7 +209,7 @@ def test_channel_editor_offers_the_new_microscope_filters(qapp, editor_cls):
 
 
 def _fluorescence_widget(microscope):
-    from fibsem.applications.autolamella.ui.autolamella_fluorescence_acquisition_task_config_widget import (
+    from fibsem.applications.autolamella.ui.protocol.forms import (
         AutoLamellaFluorescenceAcquisitionTaskConfigWidget,
     )
 

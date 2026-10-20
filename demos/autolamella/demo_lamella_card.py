@@ -19,7 +19,7 @@ from fibsem.applications.autolamella.structures import (
     DefectType,
     Lamella,
 )
-from fibsem.applications.autolamella.ui.lamella_card_widget import LamellaCardContainer
+from fibsem.applications.autolamella.ui.lamella.cards import LamellaCardContainer
 from fibsem.workflows.status import TaskState, TaskStatus
 
 

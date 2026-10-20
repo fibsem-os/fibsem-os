@@ -10,9 +10,10 @@ agent add records for what the inventory lists, and rename them, through
 
 from __future__ import annotations
 
+import re
 from typing import Any, Callable, Dict, List
 
-from fibsem.structures import SampleGrid
+from fibsem.structures import BeamType, SampleGrid
 from fibsem.workflows.grid.manager import EXCHANGE_ENTRY_NAMES
 from fibsem.workflows.grids import GridRecord
 
@@ -100,3 +101,16 @@ def record_inventoried_grids(experiment, stage, record: Record) -> List[GridReco
         experiment.save()
         record(GRIDS_CHANGED, {"added": [grid.name for grid in added]})
     return added
+
+
+# What the autoloader reads for a slot with no description, and what the
+# simulator names its grids: the name a grid has when nobody has named it.
+_DEFAULT_GRID_NAME = re.compile(r"Grid-\d+")
+
+
+def is_default_grid_name(name: str) -> bool:
+    return _DEFAULT_GRID_NAME.fullmatch(name) is not None
+
+
+def beam_name(beam: BeamType) -> str:
+    return "electron" if beam is BeamType.ELECTRON else "ion"

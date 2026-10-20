@@ -19,7 +19,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.ui.lamella_list_widget import (
+from fibsem.applications.autolamella.ui.lamella.rows import (
     FILTER_ALL,
     FILTER_NO_GRID,
     LamellaListWidget,

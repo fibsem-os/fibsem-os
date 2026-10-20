@@ -17,7 +17,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+from fibsem.applications.autolamella.ui import window as module
 from fibsem.structures import FibsemStagePosition
 from fibsem.workflows.status import TaskStatus, WorkflowStatusUpdate
 
@@ -26,7 +26,7 @@ from fibsem.workflows.status import TaskStatus, WorkflowStatusUpdate
 def main_ui(qapp, monkeypatch):
     import fibsem.config as fibsem_config
 
-    window = module.AutoLamellaSingleWindowUI()
+    window = module.AutoLamellaWindow()
     ui = window
     config = os.path.join(
         os.path.dirname(fibsem_config.__file__),

@@ -15,8 +15,8 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     GridQuality,
 )
-from fibsem.applications.autolamella.ui.grid_card_widget import grid_headline
-from fibsem.applications.autolamella.ui.grids_tab_widget import GridsTabWidget
+from fibsem.applications.autolamella.ui.grids.card import grid_headline
+from fibsem.applications.autolamella.ui.grids.tab import GridsTabWidget
 from fibsem.services.sample_handling import bind_sample_handling
 from fibsem.structures import SampleGrid
 from fibsem.workflows.grid.manager import (
@@ -336,9 +336,9 @@ def test_on_a_fixed_holder_there_is_nothing_to_load(qapp, experiment):
 
 @pytest.fixture
 def main_ui(qapp):
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import window as module
 
-    window = module.AutoLamellaSingleWindowUI()
+    window = module.AutoLamellaWindow()
     yield window
     if window.microscope is not None:
         window.microscope.disconnect()
@@ -596,7 +596,7 @@ class TestReport:
         assert not tab.busy
 
     def test_a_missing_reporting_extra_is_said_plainly(self, tab, monkeypatch):
-        import fibsem.applications.autolamella.ui.grids_tab_widget as module
+        import fibsem.applications.autolamella.ui.grids.tab as module
 
         tab.btn_inventory.click()
 
@@ -623,7 +623,7 @@ class TestNote:
 
     @staticmethod
     def type_note(monkeypatch, text, ok=True):
-        import fibsem.applications.autolamella.ui.grid_card_widget as module
+        import fibsem.applications.autolamella.ui.grids.card as module
 
         monkeypatch.setattr(
             module.QInputDialog,

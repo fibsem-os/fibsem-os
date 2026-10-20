@@ -21,9 +21,7 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QApplication, QWidget  # noqa: E402
 
-from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (  # noqa: E402
-    AutoLamellaSingleWindowUI,
-)
+from fibsem.applications.autolamella.ui.window import AutoLamellaWindow  # noqa: E402
 from fibsem.config import DisplayPreferences, UserPreferences  # noqa: E402
 from fibsem.ui.widgets.notifications import NotificationBell, ToastManager  # noqa: E402
 
@@ -76,7 +74,7 @@ class _Host(QWidget):
     on whether a message reaches the manager.
     """
 
-    show_toast = AutoLamellaSingleWindowUI.show_toast
+    show_toast = AutoLamellaWindow.show_toast
 
     def __init__(self):
         super().__init__()

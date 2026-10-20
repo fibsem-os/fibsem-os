@@ -21,7 +21,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskDescription
-from fibsem.applications.autolamella.ui.workflow_task_editor_widget import (
+from fibsem.applications.autolamella.ui.workflow.task_editor import (
     WorkflowTaskEditorWidget,
 )
 from fibsem.workflows.attention import Attention

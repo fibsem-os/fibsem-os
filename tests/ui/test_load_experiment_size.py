@@ -29,8 +29,8 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 
 from fibsem.applications.autolamella.structures import Experiment  # noqa: E402
-from fibsem.applications.autolamella.ui import (  # noqa: E402
-    autolamella_load_experiment_widget as mod,
+from fibsem.applications.autolamella.ui.dialogs import (
+    load_experiment as mod,  # noqa: E402
 )
 
 _app = QApplication.instance() or QApplication(sys.argv)

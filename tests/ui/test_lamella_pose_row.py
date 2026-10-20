@@ -18,7 +18,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QLabel, QPushButton
 
 from fibsem.applications.autolamella.structures import Lamella
-from fibsem.applications.autolamella.ui.lamella_pose_list_widget import (
+from fibsem.applications.autolamella.ui.lamella.selected import (
     LamellaPoseListWidget,
     LamellaPoseRowWidget,
 )

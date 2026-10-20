@@ -54,14 +54,12 @@ class _Scope:
     ],
 )
 def test_the_fm_panel_says_when_there_is_no_fm(microscope, expected):
-    from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
-        AutoLamellaSingleWindowUI,
-    )
+    from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
     from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 
-    host = AutoLamellaSingleWindowUI.__new__(AutoLamellaSingleWindowUI)
+    host = AutoLamellaWindow.__new__(AutoLamellaWindow)
     host.session = SimpleNamespace(microscope=microscope)
     host.view_controller = MicroscopeViewController()
-    AutoLamellaSingleWindowUI._refresh_fm_placeholder(host)
+    AutoLamellaWindow._refresh_fm_placeholder(host)
 
     assert _texts(host.view_controller.fm_canvas) == [expected]

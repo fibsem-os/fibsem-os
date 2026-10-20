@@ -8,7 +8,7 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.ui.prompt_bar import PromptBar  # noqa: E402
+from fibsem.ui.widgets.workflow.prompt_bar import PromptBar  # noqa: E402  # noqa: E402
 
 
 def test_an_answer_is_said_once_until_the_bar_reopens(qapp):

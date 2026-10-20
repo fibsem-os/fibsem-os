@@ -25,13 +25,15 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.ui import (  # noqa: E402
-    autolamella_lamella_protocol_editor as lamella_editor_module,
+from fibsem.applications.autolamella.ui.protocol import (
+    lamella_editor as lamella_editor_module,  # noqa: E402
 )
-from fibsem.applications.autolamella.ui import (  # noqa: E402
-    autolamella_task_config_editor as protocol_editor_module,
+from fibsem.applications.autolamella.ui.protocol import (
+    protocol_tab as protocol_editor_module,  # noqa: E402
 )
-from fibsem.applications.autolamella.ui.edit_recording import SETTLE_MS  # noqa: E402
+from fibsem.applications.autolamella.ui.protocol.edit_recording import (
+    SETTLE_MS,  # noqa: E402  # noqa: E402
+)
 from fibsem.applications.autolamella.workflows.tasks.rough import (  # noqa: E402
     MillRoughTaskConfig,
 )
@@ -48,9 +50,9 @@ SPOT = "Spot Burn Fiducial"
 
 @pytest.fixture(scope="module")
 def window(qapp):
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import window as module
 
-    win = module.AutoLamellaSingleWindowUI()
+    win = module.AutoLamellaWindow()
     win.system_widget.connect_to_microscope()
     win.run_border.set_state("idle")
     yield win
@@ -661,7 +663,7 @@ def test_the_replay_shows_a_correlation_before_the_point_it_moved(
 ):
     """From the file the app writes, through the reader, to the replay window."""
     from fibsem.applications.autolamella.tools.replay import EventKind, load_replay
-    from fibsem.applications.autolamella.ui.experiment_replay_widget import (
+    from fibsem.applications.autolamella.tools.replay_viewer import (
         ExperimentReplayWidget,
     )
 
@@ -843,7 +845,7 @@ def test_the_replay_shows_each_edit_on_the_lamella_edited(
 ):
     """From the file the app writes, through the reader, to the replay window."""
     from fibsem.applications.autolamella.tools.replay import EventKind, load_replay
-    from fibsem.applications.autolamella.ui.experiment_replay_widget import (
+    from fibsem.applications.autolamella.tools.replay_viewer import (
         ExperimentReplayWidget,
     )
 

@@ -20,14 +20,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-WINDOW = (
-    REPO_ROOT
-    / "fibsem"
-    / "applications"
-    / "autolamella"
-    / "ui"
-    / "AutoLamellaMainUI.py"
-)
+WINDOW = REPO_ROOT / "fibsem" / "applications" / "autolamella" / "ui" / "window.py"
 PREFERENCES_DIALOG = REPO_ROOT / "fibsem" / "ui" / "widgets" / "preferences_dialog.py"
 CONTAINER_SOURCE = (
     REPO_ROOT
@@ -35,7 +28,8 @@ CONTAINER_SOURCE = (
     / "applications"
     / "autolamella"
     / "ui"
-    / "overview_container_tab.py"
+    / "overview"
+    / "container.py"
 )
 
 
@@ -231,9 +225,8 @@ def test_the_window_no_longer_imports_napari(window_source):
 
 UI_DIR = REPO_ROOT / "fibsem" / "applications" / "autolamella" / "ui"
 HOST_TABS = {
-    "AutoLamellaOverviewTab": UI_DIR / "autolamella_overview_tab.py",
-    "AutoLamellaFluorescenceOverviewTab": UI_DIR
-    / "autolamella_fluorescence_overview_tab.py",
+    "BeamOverviewTab": UI_DIR / "overview/beam.py",
+    "FluorescenceOverviewTab": UI_DIR / "overview/fluorescence.py",
 }
 
 
@@ -315,7 +308,7 @@ def test_the_two_host_tabs_share_one_base():
 
 
 def test_the_base_owns_the_signals_the_window_connects_to():
-    base = _class_def(UI_DIR / "overview_tab_base.py", "AutoLamellaOverviewTabBase")
+    base = _class_def(UI_DIR / "overview/base.py", "AutoLamellaOverviewTabBase")
     assigned = {
         t.id
         for n in base.body

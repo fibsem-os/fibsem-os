@@ -20,11 +20,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
-    StepStatus,
-    WorkflowProgressWidget,
-)
 from fibsem.ui import stylesheets
+from fibsem.ui.widgets.workflow.timeline import StepStatus, WorkflowProgressWidget
 from fibsem.workflows.queue import WorkItem
 
 # ── Fake workflow data ────────────────────────────────────────────────────────

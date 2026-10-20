@@ -21,9 +21,7 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.structures import Experiment  # noqa: E402
-from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (  # noqa: E402
-    AutoLamellaSingleWindowUI,
-)
+from fibsem.applications.autolamella.ui.window import AutoLamellaWindow  # noqa: E402
 from fibsem.workflows.session import EXPERIMENT, AppSession  # noqa: E402
 
 
@@ -69,7 +67,7 @@ def test_adopting_an_experiment_points_logging_at_its_logfile(
     experiment = Experiment.create(path=tmp_path, name="exp")
     ui = _StubUI()
 
-    AutoLamellaSingleWindowUI.adopt_experiment(ui, experiment)
+    AutoLamellaWindow.adopt_experiment(ui, experiment)
 
     logfile = Path(experiment.path) / "logfile.log"
     assert logfile.is_file()
@@ -90,7 +88,7 @@ def test_adopting_an_experiment_still_does_the_rest_of_the_wiring(
     experiment = Experiment.create(path=tmp_path, name="exp")
     ui = _StubUI()
 
-    AutoLamellaSingleWindowUI.adopt_experiment(ui, experiment)
+    AutoLamellaWindow.adopt_experiment(ui, experiment)
 
     assert ui.experiment is experiment
     assert ui.disconnected == 1
@@ -107,8 +105,8 @@ def test_a_second_adoption_moves_logging_to_the_new_experiment(
     second = Experiment.create(path=tmp_path / "b", name="exp")
     ui = _StubUI()
 
-    AutoLamellaSingleWindowUI.adopt_experiment(ui, first)
-    AutoLamellaSingleWindowUI.adopt_experiment(ui, second)
+    AutoLamellaWindow.adopt_experiment(ui, first)
+    AutoLamellaWindow.adopt_experiment(ui, second)
 
     logging.info("belongs to the second experiment")
     for handler in logging.getLogger().handlers:
@@ -128,7 +126,7 @@ def test_previewing_an_experiment_leaves_logging_alone(tmp_path, quiet_root_logg
     happens to be browsing -- the bug this issue is about."""
     experiment = Experiment.create(path=tmp_path, name="exp")
     ui = _StubUI()
-    AutoLamellaSingleWindowUI.adopt_experiment(ui, experiment)
+    AutoLamellaWindow.adopt_experiment(ui, experiment)
 
     other = Experiment.create(path=tmp_path / "elsewhere", name="other")
     before = [getattr(h, "baseFilename", "") for h in logging.getLogger().handlers]

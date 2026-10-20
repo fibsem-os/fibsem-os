@@ -17,7 +17,7 @@ from PyQt5.QtWidgets import QApplication
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.structures import Experiment
-from fibsem.applications.autolamella.ui.fluorescence_coincidence_viewer_widget import (
+from fibsem.applications.autolamella.ui.coincidence.viewer import (
     open_coincidence_viewer_window,
 )
 

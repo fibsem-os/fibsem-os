@@ -28,9 +28,9 @@ TASK = "Rough Milling"
 
 @pytest.fixture(scope="module")
 def window(qapp):
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import window as module
 
-    win = module.AutoLamellaSingleWindowUI()
+    win = module.AutoLamellaWindow()
     win.system_widget.connect_to_microscope()
     win.run_border.set_state("idle")
     yield win

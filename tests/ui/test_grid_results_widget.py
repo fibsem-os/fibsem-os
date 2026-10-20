@@ -12,12 +12,12 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.ui.grid_results_widget import (
+from fibsem.applications.autolamella.ui.grids.results import (
     GridResultsWidget,
     image_for,
     thumbnail_for,
 )
-from fibsem.applications.autolamella.ui.grids_tab_widget import GridsTabWidget
+from fibsem.applications.autolamella.ui.grids.tab import GridsTabWidget
 from fibsem.imaging.thumbnail import write_thumbnail
 from fibsem.workflows.grid import (
     BeamOverviewGridTaskConfig,

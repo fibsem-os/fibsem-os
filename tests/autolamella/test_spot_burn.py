@@ -41,10 +41,8 @@ except ImportError as exc:  # pragma: no cover - exercised only in the no-UI CI 
     _MISSING_UI_DEPS = str(exc)
 else:
     _MISSING_UI_DEPS = ""
-    from fibsem.applications.autolamella.ui.autolamella_task_config_widget import (
-        AutoLamellaTaskParametersConfigWidget,
-    )
     from fibsem.ui.widgets.custom_widgets import IntegerValueSpinBox, ValueSpinBox
+    from fibsem.ui.widgets.task_config_form import AutoLamellaTaskParametersConfigWidget
 
 requires_ui = pytest.mark.skipif(
     bool(_MISSING_UI_DEPS), reason=f"UI dependencies not installed: {_MISSING_UI_DEPS}"

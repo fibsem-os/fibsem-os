@@ -18,9 +18,9 @@ from tests.run_state import StubRunner
 
 @pytest.fixture
 def main_ui(qapp):
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import window as module
 
-    window = module.AutoLamellaSingleWindowUI()
+    window = module.AutoLamellaWindow()
     yield window
     original_quit = qapp.quit
     qapp.quit = lambda: None

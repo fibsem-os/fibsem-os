@@ -44,7 +44,7 @@ class HookTestWindow(QMainWindow):
         self.bell = NotificationBell(self)
         self.toast_manager.set_notification_bell(self.bell)
 
-        # Wire signal → toast (mirrors AutoLamellaMainUI)
+        # Wire signal → toast (mirrors AutoLamellaWindow)
         self._hook_toast_signal.connect(self.toast_manager.show_toast)
 
         # Build HookManager (mirrors AutoLamellaUI.setup_hooks)

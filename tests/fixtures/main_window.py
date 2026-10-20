@@ -30,10 +30,10 @@ def main_window(
         AutoLamellaWorkflowConfig,
         Experiment,
     )
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import window as module
     from fibsem.workflows.attention import Attention
 
-    win = module.AutoLamellaSingleWindowUI()
+    win = module.AutoLamellaWindow()
     ui = win
     ui.system_widget.connect_to_microscope()
     experiment = Experiment(path=tmp_path, name=name)

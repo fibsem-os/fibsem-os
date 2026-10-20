@@ -20,8 +20,8 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
     Experiment,
     LamellaDefaultConfig,
 )
-from fibsem.applications.autolamella.ui import (  # noqa: E402
-    autolamella_task_config_editor as editor_module,
+from fibsem.applications.autolamella.ui.protocol import (
+    protocol_tab as editor_module,  # noqa: E402
 )
 from fibsem.structures import FibsemRectangle, MicroscopeState  # noqa: E402
 from tests.fixtures.app_session import app_session  # noqa: E402

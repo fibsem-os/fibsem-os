@@ -24,12 +24,10 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
 )
-from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
-    WorkflowProgressWidget,
-)
 from fibsem.applications.autolamella.workflows.tasks.reference_image import (
     AcquireReferenceImageConfig,
 )
+from fibsem.ui.widgets.workflow.timeline import WorkflowProgressWidget
 from fibsem.workflows.queue import TaskQueue
 from fibsem.workflows.status import TaskStatus as Status
 
@@ -314,7 +312,7 @@ def test_the_button_starts_disabled_with_nothing_selected(widget):
 
     assert widget._btn_add.isVisibleTo(widget)
     assert not widget._btn_add.isEnabled()
-    assert "Select a lamella and a task" in widget._btn_add.toolTip()
+    assert "Select an item and a task" in widget._btn_add.toolTip()
 
 
 def test_a_selection_enables_the_button(widget):

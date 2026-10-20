@@ -8,7 +8,7 @@ import sys
 
 from PyQt5.QtWidgets import QApplication, QHBoxLayout, QPushButton, QVBoxLayout, QWidget
 
-from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
+from fibsem.applications.autolamella.ui.workflow.preflight import (
     confirm_run_workflow_dialog,
 )
 from fibsem.ui import stylesheets

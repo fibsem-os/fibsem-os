@@ -43,10 +43,8 @@ from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.applications.autolamella.structures import Experiment
-from fibsem.applications.autolamella.ui import (
-    autolamella_lamella_protocol_editor as editor_module,
-)
-from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
+from fibsem.applications.autolamella.ui.protocol import lamella_editor as editor_module
+from fibsem.applications.autolamella.ui.protocol.lamella_editor import (
     _SAVE_DEBOUNCE_MS,
     AutoLamellaProtocolEditorWidget,
 )
@@ -66,12 +64,10 @@ def connected_ui():
     hardware in about 0.15 s. Module-scoped because that cost is per-connect, not
     per-test, and the editor is rebuilt per test anyway.
     """
-    from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
-        AutoLamellaSingleWindowUI,
-    )
+    from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
     from tests.fixtures.main_window import close_window
 
-    ui = AutoLamellaSingleWindowUI()
+    ui = AutoLamellaWindow()
     ui.system_widget.connect_to_microscope()
     assert ui.microscope is not None, "Demo connect failed; the editor cannot be built"
     yield ui
@@ -198,18 +194,16 @@ class TestTheFlushPoints:
 
 
 class TestTheWindowFlushesToo:
-    """Read off the source: `AutoLamellaSingleWindowUI` builds a vispy quad view and a
+    """Read off the source: `AutoLamellaWindow` builds a vispy quad view and a
     napari viewer, neither of which survives `QT_QPA_PLATFORM=offscreen`."""
 
     def test_a_run_flushes_before_it_starts(self):
-        from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
-            AutoLamellaSingleWindowUI,
-        )
+        from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
         from fibsem.workflows.runner import WorkflowRunner
 
         # Every start, the agent's too: the window flushes on the runner's
         # starting signal, which goes out before the run's thread starts.
-        chrome = inspect.getsource(AutoLamellaSingleWindowUI._on_run_starting)
+        chrome = inspect.getsource(AutoLamellaWindow._on_run_starting)
         assert "lamella_tab.editor.flush_pending_save()" in chrome
         source = inspect.getsource(WorkflowRunner.start)
         flush = source.index("self.starting.emit(")
@@ -221,11 +215,9 @@ class TestTheWindowFlushesToo:
         )
 
     def test_closing_the_window_flushes(self):
-        from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
-            AutoLamellaSingleWindowUI,
-        )
+        from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
 
-        source = inspect.getsource(AutoLamellaSingleWindowUI.closeEvent)
+        source = inspect.getsource(AutoLamellaWindow.closeEvent)
 
         assert "lamella_tab.editor.flush_pending_save()" in source, (
             "closing the window does not flush -- an edit made in the last "

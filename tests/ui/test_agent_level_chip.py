@@ -521,9 +521,9 @@ def test_how_a_request_ended_is_said_in_one_line():
 
 @pytest.fixture(scope="module")
 def main_ui(qapp):
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import window as module
 
-    window = module.AutoLamellaSingleWindowUI()
+    window = module.AutoLamellaWindow()
     yield window
     original_quit = qapp.quit
     qapp.quit = lambda: None
@@ -1455,7 +1455,7 @@ def test_the_coincidence_viewer_follows_the_border_switch(
     # The switch saves itself: to a file of this test's, not the user's.
     monkeypatch.setattr(cfg, "USER_PREFERENCES_PATH", str(tmp_path / "prefs.yaml"))
     from fibsem.applications.autolamella.structures import Experiment
-    from fibsem.applications.autolamella.ui.fluorescence_coincidence_viewer_widget import (
+    from fibsem.applications.autolamella.ui.coincidence.viewer import (
         FluorescenceCoincidenceViewerWidget,
     )
 

@@ -441,9 +441,9 @@ def _close(window, qapp):
 
 
 def test_autolamella_says_the_stage_move_on_the_left(no_quit, qapp):
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import window as module
 
-    window = module.AutoLamellaSingleWindowUI()
+    window = module.AutoLamellaWindow()
     slot = window.status_bar
     assert window.statusBar() is slot, "the window's own bar, not a second one"
     assert slot.showing == "instruction", "the setup ladder is on the line"
@@ -456,14 +456,14 @@ def test_autolamella_says_the_stage_move_on_the_left(no_quit, qapp):
 
 
 def test_a_queue_confirmation_is_a_toast_not_the_line(no_quit, qapp, monkeypatch):
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import window as module
     from fibsem.ui import notification_service
 
     shown = []
     monkeypatch.setattr(
         notification_service, "show_toast", lambda msg, *a, **k: shown.append(msg)
     )
-    window = module.AutoLamellaSingleWindowUI()
+    window = module.AutoLamellaWindow()
     window.status_bar.set_run("lamella-02 › Polishing", None, "3 of 4")
     window.workflow_tab._show_queue_message("Moved lamella-03 up.")
     assert shown == ["Moved lamella-03 up."]
@@ -486,9 +486,9 @@ def test_fibsem_says_the_stage_move_too(qapp):
 def test_autolamella_shows_milling_from_its_microscope(no_quit, qapp):
     """Through the microscope's milling service, which the bar subscribes to itself;
     and a disconnect lets it go."""
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import window as module
 
-    window = module.AutoLamellaSingleWindowUI()
+    window = module.AutoLamellaWindow()
     window.system_widget.connect_to_microscope()
     microscope = window.microscope
     microscope.milling.report(_tick())
@@ -538,7 +538,7 @@ def _report(
 def test_a_run_that_fails_a_task_leaves_a_line_until_the_next_run(
     no_quit, qapp, monkeypatch
 ):
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import window as module
     from fibsem.ui import notification_service
     from fibsem.workflows.status import TaskStatus
 
@@ -546,7 +546,7 @@ def test_a_run_that_fails_a_task_leaves_a_line_until_the_next_run(
     monkeypatch.setattr(
         notification_service, "show_toast", lambda msg, *a, **k: toasts.append(msg)
     )
-    window = module.AutoLamellaSingleWindowUI()
+    window = module.AutoLamellaWindow()
     # A report locks the protocol editor, whose UI the first connect builds.
     window.system_widget.connect_to_microscope()
     signal = window.run_relay.status
@@ -612,7 +612,7 @@ def test_a_run_that_fails_a_task_leaves_a_line_until_the_next_run(
 
 
 def test_a_held_run_says_so_on_the_line(no_quit, qapp):
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import window as module
     from fibsem.workflows.status import (
         Hold,
         HoldKind,
@@ -620,7 +620,7 @@ def test_a_held_run_says_so_on_the_line(no_quit, qapp):
         WorkflowStatusEvent,
     )
 
-    window = module.AutoLamellaSingleWindowUI()
+    window = module.AutoLamellaWindow()
     ui = window
     ui.system_widget.connect_to_microscope()
     ui.run_relay.status.emit(_report(TaskStatus.InProgress))
@@ -639,7 +639,7 @@ def test_a_held_run_says_so_on_the_line(no_quit, qapp):
 
 
 def test_the_timeline_shows_its_first_failed_row(qapp):
-    from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
+    from fibsem.ui.widgets.workflow.timeline import (
         StepStatus,
         TimelineStep,
         WorkflowTimelineWidget,
@@ -667,9 +667,9 @@ def test_a_long_failure_elides_rather_than_widening_the_window(no_quit, qapp):
     Measured against a short failure, not against no failure: the failure line's
     Show and Dismiss have widths of their own, which differ by platform font. What
     must not move the window is the length of the message."""
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import window as module
 
-    window = module.AutoLamellaSingleWindowUI()
+    window = module.AutoLamellaWindow()
     window.resize(1200, 800)
     window.show()
     window.status_bar.show_failure("Run finished", "1 of 5 failed · no peak")

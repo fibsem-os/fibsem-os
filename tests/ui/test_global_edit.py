@@ -24,8 +24,8 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.ui import (  # noqa: E402
-    autolamella_task_config_editor as protocol_editor_module,
+from fibsem.applications.autolamella.ui.protocol import (
+    protocol_tab as protocol_editor_module,  # noqa: E402
 )
 from fibsem.applications.autolamella.workflows.tasks.polishing import (  # noqa: E402
     MillPolishingTaskConfig,
@@ -43,9 +43,9 @@ KEY = "mill_rough"
 
 @pytest.fixture(scope="module")
 def window(qapp):
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import window as module
 
-    win = module.AutoLamellaSingleWindowUI()
+    win = module.AutoLamellaWindow()
     win.system_widget.connect_to_microscope()
     yield win
     if win.microscope is not None:

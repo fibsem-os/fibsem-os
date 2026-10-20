@@ -35,9 +35,9 @@ RUN = "run-1"
 
 @pytest.fixture(scope="module")
 def window(qapp):
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import window as module
 
-    win = module.AutoLamellaSingleWindowUI()
+    win = module.AutoLamellaWindow()
     win.system_widget.connect_to_microscope()
     yield win
     if win.microscope is not None:
