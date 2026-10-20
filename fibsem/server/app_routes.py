@@ -396,10 +396,20 @@ def build_app_router(context: Any) -> APIRouter:
         return _files_answer(files.list_folder, dir)
 
     @router.get("/experiment/files/{path:path}")
-    def read_file(path: str, box: Optional[str] = None, fraction: Optional[str] = None):
+    def read_file(
+        path: str,
+        box: Optional[str] = None,
+        fraction: Optional[str] = None,
+        width: Optional[int] = None,
+    ):
         # A region is "x,y,width,height": source pixels (box) or 0-1 (fraction).
+        # width: the preview's at most, for a thumbnail or a full-size view.
         return _files_answer(
-            files.read, path, box=_numbers(box), fraction=_numbers(fraction)
+            files.read,
+            path,
+            box=_numbers(box),
+            fraction=_numbers(fraction),
+            max_width=files.preview_width(width),
         )
 
     @router.get("/workflow/proposals")

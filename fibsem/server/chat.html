@@ -143,10 +143,65 @@
     header .controls { margin-left:0; width:100%; }
     .row, .actions .act { grid-template-columns:38px 1fr; }
   }
+
+  /* Files: the experiment's images, in a panel beside the chat. */
+  body { display:flex; overflow:hidden; }
+  #app { flex:1; min-width:0; }
+  .btn.on { border-color:var(--accent); color:var(--strong); }
+  #files { width:0; flex:none; overflow:hidden; background:var(--panel);
+    border-left:1px solid transparent; transition:width .2s ease; }
+  #files.open { width:min(520px, 46vw); border-left-color:var(--border); }
+  #files .inner { width:min(520px, 46vw); height:100%; display:flex; flex-direction:column; }
+  #files .bar { display:flex; align-items:center; gap:8px; padding:10px 12px; border-bottom:1px solid var(--border); }
+  #files .bar b { color:var(--strong); }
+  #files .bar .x { margin-left:auto; background:none; border:0; color:var(--muted); cursor:pointer; font-size:16px; padding:0 4px; }
+  #files .bar .x:hover { color:var(--strong); }
+  #files .split { flex:1; min-height:0; display:grid; grid-template-columns:170px 1fr; }
+  .tree { overflow:auto; border-right:1px solid var(--border); padding:6px 0; }
+  .tree button { display:flex; align-items:center; gap:6px; width:100%; text-align:left; background:none;
+    border:0; padding:3px 10px; cursor:pointer; color:var(--text); font-size:12px; white-space:nowrap; }
+  .tree button:hover { background:var(--row-alt); }
+  .tree button.sel { background:rgba(80,166,255,.16); color:var(--strong); }
+  .tree .name { overflow:hidden; text-overflow:ellipsis; }
+  .tree .n { margin-left:auto; color:var(--muted); font-size:11px; }
+  .tree .st { width:7px; height:7px; border-radius:50%; flex:none; background:var(--border); }
+  .st.done { background:var(--ok); } .st.failed { background:var(--err); } .st.going { background:var(--accent); }
+  .shelf { overflow:auto; padding:10px; }
+  .shelf .head { display:flex; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
+  .shelf .head b { color:var(--strong); }
+  .shelf .turn { margin-left:auto; display:flex; gap:4px; }
+  .pills { display:flex; gap:4px; flex-wrap:wrap; margin-bottom:10px; }
+  .pills button { background:none; border:1px solid var(--border); border-radius:10px; padding:1px 8px;
+    font-size:11px; color:var(--muted); cursor:pointer; }
+  .pills button.on { color:var(--strong); border-color:var(--accent); }
+  .thumbs { display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); gap:8px; }
+  .thumb { background:none; border:1px solid var(--border); border-radius:3px; padding:0; cursor:pointer;
+    text-align:left; overflow:hidden; }
+  .thumb:hover { border-color:var(--accent); }
+  .thumb img { display:block; width:100%; aspect-ratio:3/2; object-fit:cover; background:var(--canvas); }
+  .thumb .cap { padding:3px 6px; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .viewer .name { font-family:var(--mono); font-size:12px; color:var(--strong); margin-bottom:6px; word-break:break-all; }
+  .viewer img { display:block; width:100%; background:var(--canvas); cursor:zoom-in; border-radius:2px; }
+  .viewer dl { display:grid; grid-template-columns:auto 1fr; gap:2px 12px; margin-top:8px; font-size:12px; }
+  .viewer dt { color:var(--muted); }
+  .viewer .buttons { justify-content:flex-start; }
+  .big-shot { position:fixed; inset:0; z-index:9; background:rgba(15,16,19,.92); display:flex;
+    align-items:center; justify-content:center; cursor:zoom-out; }
+  .big-shot img { max-width:96vw; max-height:92vh; }
+  .evidence .infiles { position:absolute; right:6px; bottom:6px; font-size:11px; background:rgba(30,32,39,.85);
+    border:1px solid var(--border); border-radius:3px; padding:1px 6px; color:var(--accent); cursor:pointer; }
+  .evidence.big .infiles { display:none; }
+  @media (max-width:760px) {
+    #files.open { position:fixed; inset:0; width:100%; z-index:8; }
+    #files .inner { width:100%; }
+    #files .split { grid-template-columns:1fr; grid-template-rows:auto 1fr; }
+    .tree { max-height:30vh; border-right:0; border-bottom:1px solid var(--border); }
+  }
 </style>
 </head>
 <body>
 <div id="app"></div>
+<aside id="files" aria-label="The experiment's files"></aside>
 <script>
 "use strict";
 /* The operator's chat with the agent, over the App Server. It reads the agent
@@ -286,6 +341,7 @@ function headerHtml() {
   return `<header>
     <span class="exp">${esc(a.experiment || "Agent chat")}</span>${halvesHtml()}
     <span class="controls">
+      <button class="btn${filesOpen ? " on" : ""}" id="files-toggle" title="The experiment's images">Files</button>
       <span class="level-wrap"><button class="chip ${esc(level)}" id="level" aria-haspopup="menu"${off}>${esc(shown.word)}</button>${menu}</span>
       <button class="chip stop" id="stop"${off}>Stop agent</button>
     </span></header>${now}`;
@@ -445,6 +501,7 @@ function wire() {
   msg.oninput = () => { draft = msg.value; grow(msg); };
   msg.onkeydown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } };
   $app.querySelector("#send").onclick = send;
+  $app.querySelector("#files-toggle").onclick = () => toggleFiles();
   $app.querySelector("#level").onclick = () => { levelOpen = !levelOpen; render(); };
   for (const el of $app.querySelectorAll("[data-level]")) {
     el.onclick = () => {
@@ -557,6 +614,10 @@ async function drawEvidence(el) {
   ].join("");
   frame.innerHTML = `<img alt="Agent's evidence" src="data:image/jpeg;base64,${p.image_b64_jpeg}">
     <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${shapes}</svg>`;
+  if (answer.path) {
+    frame.insertAdjacentHTML("beforeend", `<button class="infiles" title="Show it in Files">In files</button>`);
+    frame.querySelector(".infiles").onclick = e => { e.stopPropagation(); showInFiles(answer.path); };
+  }
   el.onclick = () => el.classList.toggle("big");
   // The picture lands after the rows are drawn: keep the newest in view.
   frame.querySelector("img").onload = () => {
@@ -583,12 +644,223 @@ async function drawPicture(el) {
   };
 }
 
+/* --- Files: the experiment's folders and images, beside the chat ---------- */
+// Read through /app/experiment/files, as the agent reads them: one folder at a
+// time, each image as a preview with its metadata.
+const $files = document.getElementById("files");
+const THUMB = 280, VIEW = 768, FULL = 3072;
+let filesOpen = false;
+const files = { dirs: {}, dir: null, picked: null, beam: "all", items: {} };
+const previews = new Map();
+
+async function listDir(dir) {
+  files.dirs[dir] = (await api(`/app/experiment/files?dir=${encodeURIComponent(dir)}`)).entries;
+  return files.dirs[dir];
+}
+
+// Each position's state, for its folder's dot.
+async function readItems() {
+  try {
+    const answer = await api("/app/experiment");
+    files.items = {};
+    for (const i of answer.items || []) files.items[i.lamella_name] = i;
+  } catch (e) { files.items = {}; }
+}
+
+async function toggleFiles(to) {
+  filesOpen = to ?? !filesOpen;
+  $files.classList.toggle("open", filesOpen);
+  render();
+  if (!filesOpen) return;
+  try {
+    await Promise.all([listDir(""), readItems()]);
+    if (files.dir === null) {
+      const first = files.dirs[""].find(e => e.kind === "folder");
+      await pickDir(first ? first.path : "");
+    } else drawFiles();
+  } catch (e) { drawFiles(e.message); }
+}
+
+async function pickDir(dir) {
+  files.dir = dir; files.picked = null;
+  try { await listDir(dir); drawFiles(); } catch (e) { drawFiles(e.message); }
+}
+
+async function showInFiles(path) {
+  const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+  if (!filesOpen) await toggleFiles(true);
+  files.beam = "all";
+  await pickDir(dir);
+  files.picked = path;
+  drawFiles();
+}
+
+// Newer files leave the old previews behind: keyed by when the file changed.
+function preview(entry, width) {
+  const key = `${entry.path}@${entry.modified}@${width}`;
+  if (!previews.has(key)) {
+    previews.set(key, api(`/app/experiment/files/${entry.path.split("/").map(encodeURIComponent).join("/")}?width=${width}`)
+      .catch(e => { previews.delete(key); throw e; }));
+  }
+  return previews.get(key);
+}
+
+function folderState(name) {
+  const item = files.items[name];
+  if (!item) return null;
+  if (item.is_failure) return ["failed", `Failed${item.last_completed_task ? " after " + item.last_completed_task : ""}`];
+  if (item.is_completed) return ["done", "Finished"];
+  if (item.last_completed_task) return ["going", `Done: ${item.last_completed_task}`];
+  return ["new", "Not started"];
+}
+
+const isIon = name => /(^|[_-])ib([_.-]|$)|ion/i.test(name);
+function images() {
+  return (files.dirs[files.dir] || []).filter(e => e.kind === "image"
+    && (files.beam === "all" || (files.beam === "ib") === isIon(e.name)));
+}
+
+function treeHtml() {
+  return (files.dirs[""] || []).filter(e => e.kind === "folder").map(e => {
+    const st = folderState(e.name);
+    const listed = files.dirs[e.path];
+    const count = listed ? listed.filter(f => f.kind === "image").length : "";
+    return `<button data-dir="${esc(e.path)}" class="${files.dir === e.path ? "sel" : ""}" title="${esc(st ? st[1] : e.name)}">
+      <span class="st ${st ? st[0] : ""}"></span><span class="name">${esc(e.name)}</span><span class="n">${count}</span></button>`;
+  }).join("");
+}
+
+function shelfHtml(error) {
+  if (error) return `<div class="muted">${esc(error)}</div>`;
+  const entries = files.dirs[files.dir] || [];
+  const shown = images();
+  if (files.picked) {
+    const i = shown.findIndex(e => e.path === files.picked);
+    return `<div class="head"><button class="btn" id="back-folder">← ${esc(files.dir || "Experiment")}</button>
+      ${i >= 0 ? `<span class="muted">${i + 1} of ${shown.length}</span>` : ""}
+      <span class="turn"><button class="btn" id="prev"${i <= 0 ? " disabled" : ""}>‹</button>
+      <button class="btn" id="next"${i < 0 || i >= shown.length - 1 ? " disabled" : ""}>›</button></span></div>
+      <div id="viewer"></div>`;
+  }
+  const st = folderState(files.dir);
+  const all = entries.filter(e => e.kind === "image").length;
+  const folders = entries.filter(e => e.kind === "folder");
+  const pill = (key, word) => `<button data-beam="${key}" class="${files.beam === key ? "on" : ""}">${word}</button>`;
+  const grid = shown.map(e => `<button class="thumb" data-pick="${esc(e.path)}" title="${esc(e.name)}">
+      <img data-thumb="${esc(e.path)}" alt=""><div class="cap">${esc(e.name.replace(/\.(tiff?|png|jpe?g)$/i, ""))}</div></button>`).join("");
+  return `<div class="head"><b>${esc(files.dir || "Experiment")}</b><span class="muted">${st ? esc(st[1]) + " · " : ""}${all} image${all === 1 ? "" : "s"}</span></div>
+    ${folders.length ? `<div class="pills">${folders.map(f => `<button data-dir="${esc(f.path)}">${esc(f.name)}/</button>`).join("")}</div>` : ""}
+    ${all ? `<div class="pills">${pill("all", "All")}${pill("eb", "Electron")}${pill("ib", "Ion")}</div>` : ""}
+    ${shown.length ? `<div class="thumbs">${grid}</div>` : `<div class="muted">No images here.</div>`}`;
+}
+
+function drawFiles(error) {
+  if (!filesOpen) return;
+  const scroll = $files.querySelector(".shelf");
+  const top = scroll ? scroll.scrollTop : 0;
+  $files.innerHTML = `<div class="inner"><div class="bar"><b>Files</b><span class="muted">${esc((state.agent || {}).experiment || "")}</span>
+      <button class="x" id="files-close" title="Close">×</button></div>
+    <div class="split"><div class="tree">${treeHtml()}</div><div class="shelf">${shelfHtml(error)}</div></div></div>`;
+  $files.querySelector(".shelf").scrollTop = files.picked ? 0 : top;
+  $files.querySelector("#files-close").onclick = () => toggleFiles(false);
+  for (const el of $files.querySelectorAll("[data-dir]")) el.onclick = () => pickDir(el.dataset.dir);
+  for (const el of $files.querySelectorAll("[data-beam]")) el.onclick = () => { files.beam = el.dataset.beam; drawFiles(); };
+  for (const el of $files.querySelectorAll("[data-pick]")) el.onclick = () => { files.picked = el.dataset.pick; drawFiles(); };
+  const byPath = Object.fromEntries((files.dirs[files.dir] || []).map(e => [e.path, e]));
+  for (const img of $files.querySelectorAll("[data-thumb]")) {
+    preview(byPath[img.dataset.thumb], THUMB)
+      .then(a => { img.src = `data:image/jpeg;base64,${a.preview.image_b64_jpeg}`; })
+      .catch(() => { img.alt = "Can't read"; });
+  }
+  // Each folder's count, once it is listed.
+  for (const e of files.dirs[""] || []) {
+    if (e.kind === "folder" && !files.dirs[e.path]) listDir(e.path).then(() => drawFiles()).catch(() => {});
+  }
+  const back = $files.querySelector("#back-folder");
+  if (back) back.onclick = () => { files.picked = null; drawFiles(); };
+  const prev = $files.querySelector("#prev"), next = $files.querySelector("#next");
+  if (prev) prev.onclick = () => step(-1);
+  if (next) next.onclick = () => step(1);
+  if (files.picked) drawViewer(files.picked);
+}
+
+function step(by) {
+  const shown = images(), i = shown.findIndex(e => e.path === files.picked) + by;
+  if (i >= 0 && i < shown.length) { files.picked = shown[i].path; drawFiles(); }
+}
+
+document.addEventListener("keydown", e => {
+  if (!filesOpen || /TEXTAREA|INPUT/.test(document.activeElement.tagName)) return;
+  if (document.querySelector(".big-shot")) { if (e.key === "Escape") document.querySelector(".big-shot").remove(); return; }
+  if (!files.picked) return;
+  if (e.key === "ArrowLeft") step(-1);
+  else if (e.key === "ArrowRight") step(1);
+  else if (e.key === "Escape") { files.picked = null; drawFiles(); }
+});
+
+async function drawViewer(path) {
+  const el = $files.querySelector("#viewer");
+  const entry = (files.dirs[files.dir] || []).find(e => e.path === path) || { path, modified: "" };
+  let answer;
+  try { answer = await preview(entry, VIEW); } catch (e) {
+    if (el) el.innerHTML = `<div class="muted">${esc(e.message)}</div>`;
+    return;
+  }
+  if (!el || files.picked !== path) return;
+  const m = answer.summary || {}, beam = m.beam || {};
+  const fixed = (v, scale, unit) => v == null ? "–" : `${+(v * scale).toPrecision(3)} ${unit}`;
+  const beamWords = [m.beam_type ? m.beam_type[0] + m.beam_type.slice(1).toLowerCase() : null,
+    beam.voltage != null ? fixed(beam.voltage, 1e-3, "kV") : null,
+    beam.current != null ? (beam.current < 1e-9 ? fixed(beam.current, 1e12, "pA") : fixed(beam.current, 1e9, "nA")) : null]
+    .filter(Boolean).join(" · ");
+  const taken = m.acquired_at ? new Date(m.acquired_at).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : null;
+  const rows = [["Beam", beamWords], ["Field width", m.hfw != null ? fixed(m.hfw, 1e6, "µm") : null],
+    ["Pixel size", m.pixel_size != null ? fixed(m.pixel_size, 1e9, "nm") : null], ["Taken", taken],
+    ["Size", m.shape ? `${m.shape[1]} × ${m.shape[0]}` : null]].filter(r => r[1]);
+  el.innerHTML = `<div class="viewer"><div class="name">${esc(path)}</div>
+    <img src="data:image/jpeg;base64,${answer.preview.image_b64_jpeg}" alt="${esc(path)}" title="Click to enlarge">
+    <dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl>
+    <div class="buttons"><button class="btn" id="ask-about">Ask the agent about this</button></div></div>`;
+  el.querySelector("img").onclick = () => enlarge(entry, answer);
+  el.querySelector("#ask-about").onclick = () => {
+    draft = `${draft ? draft + "\n" : ""}About ${path}: `;
+    render();
+    const msg = $app.querySelector("#msg");
+    msg.focus();
+    msg.setSelectionRange(msg.value.length, msg.value.length);
+  };
+}
+
+// The whole window, at full resolution once it has loaded.
+function enlarge(entry, answer) {
+  const big = document.createElement("div");
+  big.className = "big-shot";
+  big.innerHTML = `<img src="data:image/jpeg;base64,${answer.preview.image_b64_jpeg}" alt="">`;
+  big.onclick = () => big.remove();
+  document.body.appendChild(big);
+  if ((answer.preview.full_width || 0) > answer.preview.width) {
+    preview(entry, FULL).then(full => {
+      const img = big.querySelector("img");
+      if (img) img.src = `data:image/jpeg;base64,${full.preview.image_b64_jpeg}`;
+    }).catch(() => {});
+  }
+}
+
+// While Files is open, what changed on the record may be new images.
+async function refreshFiles() {
+  if (!filesOpen || files.dir === null) return;
+  const before = JSON.stringify([files.dirs[""], files.dirs[files.dir], files.items]);
+  try { await Promise.all([listDir(""), listDir(files.dir), readItems()]); } catch (e) { return; }
+  if (JSON.stringify([files.dirs[""], files.dirs[files.dir], files.items]) !== before) drawFiles();
+}
+
 async function refresh() {
   try {
     const [agent, recent] = await Promise.all([api("/app/agent"), api("/app/agent/recent")]);
     state.agent = agent;
     state.rows = recent.rows || [];
     render();
+    refreshFiles();
     // The window draws a new request's picture just after it is filed.
     const shown = agent.request ? `request:${agent.request.request_id}` : "";
     if (shown && shown !== pictureAwaited && !(agent.pictures || {}).request) {

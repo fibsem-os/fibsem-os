@@ -1332,6 +1332,11 @@ def test_experiment_files_read_text_and_image_previews(
     assert (preview["width"], preview["full_width"]) == (128, 128)
     assert preview["image_b64_jpeg"]
     assert preview["preview_pixelsize"] == pytest.approx(200e-6 / 128)
+    # A thumbnail: the preview at most this wide.
+    small = client.get(
+        f"/app/experiment/files/{OVERVIEW}", params={"width": 64}, headers=AUTH
+    ).json()["preview"]
+    assert (small["width"], small["full_width"]) == (64, 128)
     # An absolute path inside the experiment, as an image answer gives it, too.
     absolute = os.path.join(str(host.experiment.path), OVERVIEW)
     served = client.get("/app/experiment/files/" + absolute, headers=AUTH)

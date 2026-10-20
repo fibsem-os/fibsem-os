@@ -121,7 +121,11 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
             answer = files.read(root, relative)
         except (TypeError, ValueError, files.FileRefusal) as exc:
             raise _refused(404, "not_found", f"The evidence image is missing: {exc}")
-        return {"preview": answer.get("preview"), "marks": record.get("marks")}
+        return {
+            "preview": answer.get("preview"),
+            "marks": record.get("marks"),
+            "path": relative.replace(os.sep, "/"),
+        }
 
     @router.post("/messages", status_code=201)
     def send_message(body: Dict[str, Any]):
