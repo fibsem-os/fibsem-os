@@ -287,7 +287,9 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "(a folder inside the open experiment; left out, the app's data "
             "folder). A long command: it answers "
             "with its run at once; service_wait_for_run milling gives how it "
-            "ended and the folder it saved to; milling_stop ends it."
+            "ended and the folder it saved to; milling_stop stops it, and "
+            "milling_end ends it keeping what it milled. A stage can list "
+            "monitors (milling_list_options)."
         ),
         method="POST",
         path="/microscope/services/milling/commands/run_stage",
@@ -361,7 +363,13 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="milling_list_options",
-        description="The pattern names a stage's pattern.name takes and the strategy names its strategy.name takes.",
+        description=(
+            "The pattern names a stage's pattern.name takes, the strategy names its "
+            "strategy.name takes, and the monitors a stage can list: each name with "
+            "its config's fields. A stage lists a monitor in its monitors as "
+            "{name, config}; a protocol stage's monitor config is patched as "
+            "stages.<stage>.monitors.<i>.config.<field>."
+        ),
         method="POST",
         path="/microscope/services/milling/queries/list_options",
         level="watch",
@@ -557,6 +565,40 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "run_path": "a correlation run folder inside the open experiment",
             "fm_points": "[[x, y, z], ...] FM pixels and slices",
         },
+    ),
+    ToolSpec(
+        name="milling_end",
+        description=(
+            "End the milling stage now running, completed, keeping what it milled: "
+            "the pattern stops, the stage starts no further step and a milling task "
+            "goes on to its next stage. For a monitor's suggestion (a "
+            "MILL READING line with on_trigger=suggest) you agree with. "
+            "milling_stop instead stops the whole task. Refused 409 NothingToStop "
+            "when nothing is milling."
+        ),
+        method="POST",
+        path="/microscope/services/milling/commands/end",
+        level="drive",
+        params={"reason": "why you are ending it, for the operator (required)"},
+        note="As milling_stop: a mill the agent started itself it can end at Assist or Drive, never at Watch; anyone else's needs Drive, and at Assist goes in request_create for the operator to approve.",
+    ),
+    ToolSpec(
+        name="milling_follow_readings",
+        description=(
+            "The readings of the running mill's monitors, numbered after since, "
+            "waiting up to timeout seconds (at most 30) for one: {seq, readings, "
+            "missed}. Pass the answer's seq as the next since to follow along. "
+            "Notable readings (a drop, an error) also come as MILL READING lines; "
+            "this gives every reading, to judge for yourself."
+        ),
+        method="POST",
+        path="/microscope/services/milling/queries/follow_readings",
+        level="watch",
+        params={
+            "since": "the seq of the last reading you have (0 for all kept)",
+            "timeout": "seconds to wait for a new reading, at most 30",
+        },
+        optional=("since", "timeout"),
     ),
     ToolSpec(
         name="milling_stop",
@@ -2372,6 +2414,14 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
     "beam_auto_brightness_contrast": lambda a: ({}, _kwargs(**_beam(a))),
     # A service command or query with no arguments still sends its kwargs.
     "milling_stop": lambda a: ({}, _stop(_kwargs(), a)),
+    "milling_end": lambda a: (
+        {},
+        _stop(_kwargs(reason=str(a.get("reason") or ""), by="agent"), a),
+    ),
+    "milling_follow_readings": lambda a: (
+        {},
+        _kwargs(since=int(a.get("since") or 0), timeout=float(a.get("timeout") or 0.0)),
+    ),
     "milling_estimate_time": lambda a: ({}, _kwargs(stages=a.get("stages"))),
     "alignment_align_to_reference": lambda a: (
         {},

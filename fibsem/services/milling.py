@@ -521,7 +521,8 @@ class Milling(Service):
             task_stop.set()
         self._end_step(MillingStepEnd(STOPPED, reason="Milling stopped."))
 
-    def end(self, reason: str, by: str) -> None:
+    @command
+    def end(self, reason: str, by: Optional[str] = None) -> None:
         """End this stage, completed: the mill step now stops, and its stage run
         starts no further step. A run in progress answers ``completed``; the
         milling task goes on to its next stage. Only a stage that mills
@@ -770,12 +771,21 @@ class Milling(Service):
         return checked
 
     @query
-    def list_options(self) -> Dict[str, List[str]]:
-        """The names a stage's ``pattern.name`` and ``strategy.name`` take."""
+    def list_options(self) -> Dict[str, Any]:
+        """The names a stage's ``pattern.name`` and ``strategy.name`` take, and
+        its monitors: each name with its config's fields."""
+        from fibsem.milling.monitors import get_monitors
         from fibsem.milling.patterning import get_pattern_names
         from fibsem.milling.strategy import get_strategy_names
 
-        return {"patterns": get_pattern_names(), "strategies": get_strategy_names()}
+        return {
+            "patterns": get_pattern_names(),
+            "strategies": get_strategy_names(),
+            "monitors": {
+                name: monitor.config_class.describe()
+                for name, monitor in get_monitors().items()
+            },
+        }
 
     @contextmanager
     def part_of(

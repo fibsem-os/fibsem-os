@@ -89,8 +89,9 @@ class _RefusingRoute(APIRoute):
 
 
 # Device and service commands that stop something (an FM z-stack stops through
-# `imaging.stop`). No control taken, so never refused by the running move or mill.
-STOP_COMMANDS = frozenset(("stop", "stop_live"))
+# `imaging.stop`; milling's `end` ends the stage keeping what it milled). No
+# control taken, so never refused by the running move or mill.
+STOP_COMMANDS = frozenset(("stop", "stop_live", "end"))
 
 # The instrument half of the API; /app is the application's.
 MICROSCOPE = "/microscope"
@@ -230,10 +231,13 @@ async def _stop_reason(request: Request):
         call.recorded = True
     owner = request.path_params.get("service") or request.path_params.get("device")
     target = _STOPPED.get(owner or "workflow", f"the {_words(owner)}")
+    verb = "Stop"
+    if command == "end":
+        target, verb = "the milling stage", "End"
     request.app.state.microscope.record_event(
         ACTION,
         action_record(
-            f"Stop {target}",
+            f"{verb} {target}",
             reason=reason.strip(),
             stops=action,
             target=target,
