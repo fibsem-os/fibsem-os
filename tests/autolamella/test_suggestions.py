@@ -218,8 +218,8 @@ def test_a_suggestion_to_keep_a_position_reads_in_words(experiment):
     ..., coordinate system RAW", under the task's prompt to the operator."""
     pytest.importorskip("PyQt5")
     from fibsem.ai.agent.recent import RecentActions
+    from fibsem.ai.agent.suggestions import suggestion_card
     from fibsem.structures import FibsemStagePosition
-    from fibsem.ui.agent.suggestions import suggestion_card
 
     lamella = experiment.positions[0]
     lamella.task_state.name = TASK

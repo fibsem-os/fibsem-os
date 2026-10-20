@@ -55,6 +55,7 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
             "last_heard_s": agent.seconds_since_seen(),
             "client": agent.client(),
             "request": request.to_dict() if request is not None else None,
+            "suggestion": agent.suggestion(),
         }
 
     @router.get("/connect")
@@ -150,4 +151,23 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
             raise HTTPException(status_code=refusal.status_code, detail=refusal.detail)
         return {"id": request_id, "approved": False}
 
+    @router.post("/suggestions/{proposal_id}/approve")
+    def approve_suggestion(proposal_id: str):
+        """Decide the proposal as the agent suggested, as the card's Approve."""
+        return _decided(agent.approve_suggestion(proposal_id), proposal_id)
+
+    @router.post("/suggestions/{proposal_id}/decline")
+    def decline_suggestion(proposal_id: str, body: Optional[Dict[str, Any]] = None):
+        """Drop the suggestion with the operator's reason, as the card's
+        Decline; the proposal stays pending."""
+        reason = _text(body or {}, "reason", required=False)
+        return _decided(agent.decline_suggestion(proposal_id, reason), proposal_id)
+
     return router
+
+
+def _decided(result: Any, proposal_id: str) -> Dict[str, Any]:
+    if not result.applied:
+        status = 422 if result.error_type == "invalid_value" else 409
+        raise _refused(status, result.error_type or "not_decided", result.reason)
+    return {"proposal_id": proposal_id, "applied": True}

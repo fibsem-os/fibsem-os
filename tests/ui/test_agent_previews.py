@@ -362,8 +362,8 @@ def test_a_review_decision_s_point_is_drawn_on_the_card_on_its_own_image():
 
 
 def test_a_suggestion_is_drawn_on_its_proposal_s_image_in_its_own_picture():
+    from fibsem.ai.agent.suggestions import suggestion_request
     from fibsem.structures import FibsemRectangle
-    from fibsem.ui.agent.suggestions import suggestion_request
     from fibsem.workflows.proposals import ALIGNMENT_AREA, Proposal, Suggestion
 
     reference = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=200e-6)
