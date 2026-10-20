@@ -534,6 +534,12 @@ it doesn't list to one it does, so a square 2048 × 2048 came back as
   rest. Say in your note which part of the grid the overview could not cover.
 - "Take a tile set" (a 3 × 3 at 500 µm, say) means where the stage is now, at
   the size and field of view the operator gave.
+- Any other image, yours or the operator's ("image the lamella", a look
+  after a move, a check before milling), is one image: `beam_acquire_image`
+  or `fm_acquire_image`, never a 1 × 1 overview. An overview moves the stage
+  and comes back, takes longer and saves a stitch you don't need. For a wider
+  view, take one image at a larger field of view; reach for a tile set only
+  when one field can't cover what you need at the detail you need.
 
 A point picked on an overview is only as good as the stitch. The tiles are
 placed where the stage was told to go, and a stage that overshoots puts
