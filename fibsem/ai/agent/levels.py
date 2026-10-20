@@ -31,3 +31,25 @@ class AgentLevel(str, Enum):
 # event stream, so a connected one is heard every few seconds; past this it has
 # gone, and a held question waits for it to come back.
 AGENT_LISTENING_S = 120.0
+
+
+# Each level as the operator reads it: its name, the chip's word, and what it
+# allows. The window's chip and menu and the chat page's say the same.
+LEVEL_NAMES = {
+    AgentLevel.OFF: "Off",
+    AgentLevel.WATCH: "Watch",
+    AgentLevel.ASSIST: "Assist",
+    AgentLevel.DRIVE: "Drive",
+}
+LEVEL_WORDS = {
+    AgentLevel.OFF: "Agent: Off",
+    AgentLevel.WATCH: "Agent: Watching",
+    AgentLevel.ASSIST: "Agent: Assisting",
+    AgentLevel.DRIVE: "Agent: Driving",
+}
+LEVEL_TIPS = {
+    AgentLevel.OFF: "No access",
+    AgentLevel.WATCH: "Read only",
+    AgentLevel.ASSIST: "Asks first",
+    AgentLevel.DRIVE: "Full control",
+}

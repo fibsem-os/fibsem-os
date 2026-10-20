@@ -240,6 +240,12 @@ def test_the_agent_s_state_names_the_experiment(server):
     state = server.get("/app/agent", headers=server.operator).json()
     assert state["experiment"] == os.path.basename(server.session.experiment.path)
     assert state["request"] is None
+    # Doing nothing on the microscope, and the levels as the card's menu has them.
+    assert state["now"] is None
+    assert [(level["name"], level["tip"]) for level in state["levels"]][1:3] == [
+        ("Watch", "Read only"),
+        ("Assist", "Asks first"),
+    ]
 
 
 def test_missing_evidence_is_not_found(server):

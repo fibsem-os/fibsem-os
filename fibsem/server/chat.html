@@ -33,7 +33,31 @@
     padding:4px 12px; font-size:12px; cursor:pointer; }
   .btn:hover { border-color:var(--muted); }
   .btn.primary { background:var(--primary); border-color:var(--primary); color:#fff; }
-  .btn.stop { color:var(--err); }
+  /* The level and Stop agent, drawn as the window's chip draws them. */
+  .chip { font:inherit; font-size:12px; font-weight:700; padding:4px 10px; border-radius:3px;
+    cursor:pointer; color:var(--strong); background:transparent; border:1px solid var(--agent); }
+  .chip.off { color:var(--muted); border-color:transparent; }
+  .chip.assist { background:rgba(157,120,232,.35); }
+  .chip.drive { background:var(--agent); }
+  .chip.stop { border-color:var(--err); }
+  .chip.stop:hover { background:rgba(208,64,64,.25); }
+  .chip:disabled { opacity:.5; cursor:default; }
+  .level-wrap { position:relative; }
+  .level-menu { position:absolute; right:0; top:calc(100% + 4px); z-index:4; min-width:190px; padding:4px 0;
+    background:var(--panel); border:1px solid var(--border); border-radius:3px; box-shadow:0 6px 18px rgba(0,0,0,.4); }
+  .level-menu button { display:grid; grid-template-columns:18px 1fr; width:100%; text-align:left; padding:6px 12px;
+    background:none; border:0; cursor:pointer; }
+  .level-menu button:hover { background:var(--row-alt); }
+  .level-menu .dot { color:var(--agent); }
+  .level-menu b { color:var(--strong); }
+  .level-menu small { grid-column:2; color:var(--muted); font-size:11.5px; }
+  .now { margin:0 16px 8px; font-size:12px; color:var(--strong); display:flex; gap:8px; align-items:center; }
+  .now::before { content:""; width:7px; height:7px; border-radius:50%; background:var(--agent);
+    animation:pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity:.3; } }
+  .act .what { background:none; border:0; padding:0; text-align:left; color:inherit; font:inherit; cursor:pointer; }
+  .act .what:hover { color:var(--strong); }
+  .halves .log { margin-left:10px; color:var(--accent); text-decoration:none; }
   .btn:disabled { opacity:.5; cursor:default; }
   .btn:focus-visible, select:focus-visible, textarea:focus-visible { outline:2px solid var(--accent); }
 
@@ -75,7 +99,15 @@
 
   .request { border:1px solid var(--border); border-radius:3px; padding:10px 12px; background:var(--panel); }
   .request .title { font-size:11.5px; color:var(--agent); margin-bottom:4px; }
-  .request ul { padding-left:18px; color:var(--strong); }
+  .steps { border:1px solid var(--border); border-radius:3px; padding:8px 10px; display:flex; flex-direction:column; gap:8px; }
+  .step { display:grid; grid-template-columns:16px 1fr; gap:8px; }
+  .step .what { display:flex; gap:8px; font-size:11.5px; color:var(--muted); }
+  .step .what .link { margin-left:auto; font-size:11.5px; }
+  .step .change { color:var(--strong); }
+  .details { margin-top:6px; max-height:220px; overflow:auto; background:var(--canvas); border-radius:3px; padding:6px 8px; }
+  .details table { border-collapse:collapse; font-size:11.5px; }
+  .details th { color:var(--muted); font-weight:400; text-align:left; padding:0 16px 2px 0; }
+  .details td { padding:1px 16px 1px 0; font-variant-numeric:tabular-nums; }
   .request .reason { margin-top:6px; }
   .request .decision { margin-top:4px; color:var(--strong); }
   .request .buttons { display:flex; gap:8px; margin-top:10px; justify-content:flex-end; }
@@ -125,7 +157,6 @@
 
 const $app = document.getElementById("app");
 const KEY = "fibsem-operator-token";
-const LEVELS = ["off", "watch", "assist", "drive"];
 const LIMIT = 2000;
 let TOKEN = null;
 let since = 0;
@@ -138,6 +169,17 @@ const evidenceCache = new Map();
 let pinned = true;
 // Reject… asks why first, as the card does.
 let rejecting = false;
+// "Show details" on the request, open or not.
+let detailsOpen = false;
+// The level menu, open or not.
+let levelOpen = false;
+// A click elsewhere or Escape closes it, as a menu does.
+document.addEventListener("click", e => {
+  if (levelOpen && !e.target.closest(".level-wrap")) { levelOpen = false; render(); }
+});
+document.addEventListener("keydown", e => {
+  if (levelOpen && e.key === "Escape") { levelOpen = false; render(); }
+});
 // "Connect an agent…": open, and its text once read ({text} or null).
 let connecting = false, connectAnswer = null;
 
@@ -231,14 +273,20 @@ function connectHtml() {
 function headerHtml() {
   const a = state.agent || {};
   const level = a.level || "watch";
-  const options = LEVELS.map(l =>
-    `<option value="${l}"${l === level ? " selected" : ""}>${l[0].toUpperCase() + l.slice(1)}</option>`).join("");
+  const levels = a.levels || [];
+  const shown = levels.find(l => l.level === level) || { word: "Agent" };
+  const off = a.level == null ? " disabled" : "";
+  // The menu as the card's: each level with what it allows.
+  const menu = levelOpen ? `<div class="level-menu" role="menu">${levels.map(l =>
+    `<button role="menuitemradio" data-level="${esc(l.level)}" aria-checked="${l.level === level}">
+      <span class="dot">${l.level === level ? "●" : "○"}</span><b>${esc(l.name)}</b><small>${esc(l.tip)}</small></button>`).join("")}</div>` : "";
+  const now = a.now ? `<div class="now">${esc(a.now)}</div>` : "";
   return `<header>
     <span class="exp">${esc(a.experiment || "Agent chat")}</span>${halvesHtml()}
     <span class="controls">
-      <select id="level" aria-label="Agent level"${a.level == null ? " disabled" : ""}>${options}</select>
-      <button class="btn stop" id="stop"${a.level == null ? " disabled" : ""}>Stop agent</button>
-    </span></header>`;
+      <span class="level-wrap"><button class="chip ${esc(level)}" id="level" aria-haspopup="menu"${off}>${esc(shown.word)}</button>${menu}</span>
+      <button class="chip stop" id="stop"${off}>Stop agent</button>
+    </span></header>${now}`;
 }
 
 function evidenceHtml(row) {
@@ -255,25 +303,61 @@ function messageHtml(row) {
 
 function actionHtml(row, quiet) {
   const why = row.why && row.tone === "error" ? `<span class="why">${esc(row.why)}</span>` : "";
-  return `<div class="act${quiet ? " quiet" : ""}"><span class="when">${esc(row.when)}</span><span>${esc(row.text)}</span>
-    <span class="outcome tone-${esc(row.tone)}" title="${esc(row.why || "")}">${esc(row.outcome)}</span>${why}</div>`;
+  // As the card's: a click opens the event log; the word's tooltip says why
+  // it ended and at which level.
+  const level = row.level ? `at ${row.level[0].toUpperCase()}${row.level.slice(1)}` : "";
+  const tip = [row.why ? `${row.outcome}: ${row.why}` : row.outcome, [level, row.when].filter(Boolean).join(" · ")].join("\n");
+  return `<div class="act${quiet ? " quiet" : ""}"><span class="when">${esc(row.when)}</span><button class="what" data-log title="Open the event log">${esc(row.text)}</button>
+    <span class="outcome tone-${esc(row.tone)}" title="${esc(tip)}">${esc(row.outcome)}</span>${why}</div>`;
 }
 
 function halvesHtml() {
   const b = (key, word) => `<button data-half="${key}" class="${halves[key] ? "on" : ""}">${word}</button>`;
-  return `<div class="halves">${b("conversation", "Conversation")}<span>·</span>${b("actions", "Actions")}</div>`;
+  return `<div class="halves">${b("conversation", "Conversation")}<span>·</span>${b("actions", "Actions")}<a class="log" href="${logUrl()}" target="_blank" rel="noopener">Event log</a></div>`;
 }
 
+// The event log page, with this page's token: it reads what this page reads.
+function logUrl() {
+  return `/dashboard/log#token=${encodeURIComponent(TOKEN || "")}`;
+}
+
+// The agent's request as the card shows it: each action a numbered step, what
+// it does and the change, "Show details" for every value; while an approved
+// request runs, how far each step got.
 function requestHtml(request) {
-  if (!request || request.status !== "pending") return "";
-  const actions = (request.actions || []).map(a => `<li>${esc(a.what)}${a.change ? ` <span class="muted">${esc(a.change)}</span>` : ""}</li>`).join("");
+  if (!request || !["pending", "applying"].includes(request.status)) return "";
+  const applying = request.status === "applying";
+  const actions = request.actions || [], results = request.results || [];
+  const anyDetails = actions.some(a => a.details);
+  const steps = actions.map((a, i) => {
+    let mark = `<span class="muted">${i + 1}</span>`;
+    if (applying) {
+      if (i < results.length) mark = results[i].ok ? `<span class="tone-ok">✓</span>` : `<span class="tone-error">✕</span>`;
+      else mark = i === results.length ? `<span>…</span>` : `<span class="muted">○</span>`;
+    }
+    const link = i === 0 && anyDetails ? `<button class="link" id="details">${detailsOpen ? "Hide details" : "Show details"}</button>` : "";
+    return `<div class="step"><span class="mark">${mark}</span><div>
+      <div class="what"><span>${esc(a.what || a.tool)}</span>${link}</div>
+      ${a.change ? `<div class="change">${esc(a.change)}</div>` : ""}
+      ${detailsOpen && a.details ? detailsHtml(a.details) : ""}</div></div>`;
+  }).join("");
+  const n = actions.length;
+  const buttons = applying
+    ? `<span class="muted">Approved by you. Running ${Math.min(results.length + 1, n)} of ${n}…</span>`
+    : rejecting
+      ? `<input id="reject-reason" placeholder="Tell the agent why (optional)"><button class="btn" id="back">Back</button><button class="btn primary" id="reject">Reject</button>`
+      : `<button class="btn" id="reject-start">Reject…</button><button class="btn primary" id="approve">Approve</button>`;
   return `<div class="request" data-request="${esc(request.request_id)}">
-    <div class="title">Agent asks</div><ul>${actions}</ul>
+    <div class="title">Agent asks</div><div class="steps">${steps}</div>
     <div class="reason"><span class="muted">Why:</span> ${esc(request.reason)}</div>
     ${request.evidence ? evidenceHtml({ evidence: { evidence_id: request.evidence } }) : ""}
-    <div class="buttons">${rejecting
-      ? `<input id="reject-reason" placeholder="Tell the agent why (optional)"><button class="btn" id="back">Back</button><button class="btn primary" id="reject">Reject</button>`
-      : `<button class="btn" id="reject-start">Reject…</button><button class="btn primary" id="approve">Approve</button>`}</div></div>`;
+    <div class="buttons">${buttons}</div></div>`;
+}
+
+function detailsHtml(details) {
+  const head = (details.columns || []).map(c => `<th>${esc(c)}</th>`).join("");
+  const rows = (details.rows || []).map(r => `<tr>${r.map(v => `<td>${esc(v)}</td>`).join("")}</tr>`).join("");
+  return `<div class="details"><table><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 // The agent's suggestion on a pending proposal, as the card shows it when no
@@ -348,8 +432,14 @@ function wire() {
   msg.oninput = () => { draft = msg.value; grow(msg); };
   msg.onkeydown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } };
   $app.querySelector("#send").onclick = send;
-  $app.querySelector("#level").onchange = e => act(
-    api("/app/agent/level", { method: "PUT", body: JSON.stringify({ level: e.target.value }) }));
+  $app.querySelector("#level").onclick = () => { levelOpen = !levelOpen; render(); };
+  for (const el of $app.querySelectorAll("[data-level]")) {
+    el.onclick = () => {
+      levelOpen = false;
+      act(api("/app/agent/level", { method: "PUT", body: JSON.stringify({ level: el.dataset.level }) }));
+    };
+  }
+  for (const el of $app.querySelectorAll("[data-log]")) el.onclick = () => window.open(logUrl(), "_blank", "noopener");
   $app.querySelector("#stop").onclick = () => act(api("/app/agent/stop", { method: "POST" }));
   for (const el of $app.querySelectorAll("[data-half]")) {
     el.onclick = () => {
@@ -364,6 +454,7 @@ function wire() {
   click("#connect", openConnect);
   click("#connect-close", () => { connecting = false; render(); });
   click("#copy-setup", copySetup);
+  click("#details", () => { detailsOpen = !detailsOpen; render(); });
   const suggestion = $app.querySelector("[data-suggestion]");
   if (suggestion) {
     const id = encodeURIComponent(suggestion.dataset.suggestion);

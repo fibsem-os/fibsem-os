@@ -44,6 +44,10 @@ class AgentSession:
         self._unsubscribe: Optional[Callable[[], None]] = None
         # Requests whose ending has been said, so each is said once.
         self._said: Set[str] = set()
+        # The Now line, following the session's microscope.
+        self._now: Optional[Any] = None
+        self._now_microscope: Optional[Any] = None
+        self._stop_now: Optional[Callable[[], None]] = None
 
     @property
     def host(self) -> Optional[Any]:
@@ -253,6 +257,20 @@ class AgentSession:
         logging.info("Operator message to the agent (%s): %s", message_id, text)
         recorder.buffer.append(NOTE, note_record(text, id=message_id), actor=OPERATOR)
         return message_id
+
+    def now(self) -> Optional[str]:
+        """What the agent is doing on the microscope, as the card's Now line
+        says it; None when it does nothing."""
+        from fibsem.ai.agent.now import AgentNow, follow
+
+        microscope = self._session.microscope
+        if microscope is not self._now_microscope:
+            if self._stop_now is not None:
+                self._stop_now()
+            self._now = AgentNow()
+            self._stop_now = follow(self._now, microscope) if microscope else None
+            self._now_microscope = microscope
+        return self._now.text if self._now is not None else None
 
     def recent(self) -> List[Any]:
         """The agent card's rows (`recent.RecentRow`), read from the session's

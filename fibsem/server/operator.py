@@ -14,7 +14,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from fibsem.ai.agent.levels import AgentLevel
+from fibsem.ai.agent.levels import LEVEL_NAMES, LEVEL_TIPS, LEVEL_WORDS, AgentLevel
 from fibsem.ai.agent.session import MESSAGE_LIMIT, AgentSession
 from fibsem.server import files
 from fibsem.server.agent_setup import setup_text
@@ -56,6 +56,16 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
             "client": agent.client(),
             "request": request.to_dict() if request is not None else None,
             "suggestion": agent.suggestion(),
+            "now": agent.now(),
+            "levels": [
+                {
+                    "level": level.value,
+                    "name": LEVEL_NAMES[level],
+                    "word": LEVEL_WORDS[level],
+                    "tip": LEVEL_TIPS[level],
+                }
+                for level in AgentLevel
+            ],
         }
 
     @router.get("/connect")
