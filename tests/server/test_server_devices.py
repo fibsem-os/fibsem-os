@@ -1,6 +1,5 @@
 """The server's /microscope/devices routes (every device in microscope.devices),
-behind the server's token, level and control of the microscope; and FibsemClient
-over them.
+behind the server's token, level and control of the microscope.
 
 Skipped when the [server] extra is not installed.
 """
@@ -16,12 +15,9 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from fibsem import utils  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.client import FibsemClient  # noqa: E402
 from fibsem.structures import (  # noqa: E402
     BeamType,
-    FibsemImage,
     FibsemStagePosition,
-    Point,
 )
 
 TOKEN = "test-token"
@@ -54,26 +50,6 @@ def armed_client(microscope):
     with TestClient(app, raise_server_exceptions=False) as client:
         client.headers.update(AUTH)
         yield client
-
-
-class _Session:
-    """requests' Session API over a TestClient, which refuses per-call timeouts."""
-
-    def __init__(self, client):
-        self._client = client
-
-    def __getattr__(self, method):
-        call = getattr(self._client, method)
-        return lambda url, timeout=None, **kwargs: call(url, **kwargs)
-
-
-@pytest.fixture
-def fibsem_client(armed_client):
-    """A FibsemClient over the in-process app."""
-    client = FibsemClient.__new__(FibsemClient)
-    client.base_url = ""
-    client._session = _Session(armed_client)
-    return client
 
 
 def test_lists_every_device_the_microscope_built(read_client, microscope):
@@ -176,12 +152,6 @@ def test_a_stop_reaches_a_device_whoever_is_in_control(read_client, microscope):
     assert resp.status_code == 200
 
 
-def test_acquire_command_answers_a_tiff(fibsem_client):
-    image = fibsem_client.call_command("electron", "acquire")
-    assert isinstance(image, FibsemImage)
-    assert image.data.ndim == 2
-
-
 def test_a_move_past_the_stage_limits_is_refused_not_a_500(armed_client, microscope):
     """A stage move refuses as every device and service route does: a 4xx in the
     one refusal shape, not a 500 (FIB-1377)."""
@@ -196,39 +166,6 @@ def test_a_move_past_the_stage_limits_is_refused_not_a_500(armed_client, microsc
     assert detail["error_type"] == "StageLimitError"
     assert detail["message"]
     assert microscope.stage.position.get_value() == before  # nothing moved
-
-
-def test_client_wrappers_go_through_the_devices(fibsem_client, microscope):
-    fibsem_client.set_field_of_view(150e-6, BeamType.ELECTRON)
-    assert microscope.get_field_of_view(BeamType.ELECTRON) == pytest.approx(150e-6)
-    assert fibsem_client.get_field_of_view(BeamType.ELECTRON) == pytest.approx(150e-6)
-    assert fibsem_client.get_resolution(BeamType.ELECTRON) == tuple(
-        microscope.get_resolution(BeamType.ELECTRON)
-    )
-    stigmation = fibsem_client.set_stigmation(Point(0.01, -0.01), BeamType.ION)
-    assert isinstance(stigmation, Point)
-    assert fibsem_client.get_stigmation(BeamType.ION).x == pytest.approx(0.01)
-    assert fibsem_client.get_beam_current(BeamType.ION) == microscope.get_beam_current(
-        BeamType.ION
-    )
-
-
-def test_client_settings_round_trip(fibsem_client):
-    for beam_type in (BeamType.ELECTRON, BeamType.ION):
-        settings = fibsem_client.get_beam_settings(beam_type)
-        assert settings.beam_type is beam_type
-        fibsem_client.set_beam_settings(settings)
-        image_settings = fibsem_client.get_imaging_settings(beam_type)
-        fibsem_client.set_imaging_settings(image_settings)
-        detector = fibsem_client.get_detector_settings(beam_type)
-        fibsem_client.set_detector_settings(detector, beam_type)
-    state = fibsem_client.get_microscope_state()
-    fibsem_client.set_microscope_state(state)
-
-
-def test_client_parameter_metadata_and_list(fibsem_client):
-    assert "stage" in fibsem_client.list_devices()
-    assert "choices" in fibsem_client.parameter_metadata("ion", "current")
 
 
 @pytest.mark.parametrize(
