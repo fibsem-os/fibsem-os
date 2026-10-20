@@ -14,6 +14,9 @@ Devices and services are reached by name from the server's descriptions. With no
 url and token it finds the App Server on this machine (`transport.resolve`). What a
 call may do is what its token may: the agent token's level gates it.
 
+``client.app`` is the session of the app the server hosts, its calls the agent's
+tools by the parts it serves: ``client.app.proposal_list()``.
+
 `FibsemClient.follow` opens the microscope's events, and each device and service
 signals its changes::
 
@@ -23,6 +26,7 @@ signals its changes::
 
 from typing import Any, Dict, Optional
 
+from fibsem.client.app import App
 from fibsem.client.events import EventStream
 from fibsem.client.microscope import Remote, Remotes, Run
 from fibsem.client.transport import ServerError, ServerUnreachable, Transport
@@ -31,6 +35,7 @@ from fibsem.structures import MicroscopeState, SystemSettings
 MICROSCOPE_EVENTS = "/microscope/events"
 
 __all__ = [
+    "App",
     "FibsemClient",
     "Remote",
     "Run",
@@ -43,7 +48,8 @@ __all__ = [
 class FibsemClient:
     """The App Server's microscope: ``devices``, the microscope's ``services``
     (milling, stage movement, imaging, ...) and the ``analysis`` services, which
-    read saved data and are served with or without a microscope."""
+    read saved data and are served with or without a microscope; and the ``app``
+    it hosts."""
 
     def __init__(
         self,
@@ -58,6 +64,7 @@ class FibsemClient:
         self.devices = Remotes(self.transport, "/microscope/devices")
         self.services = Remotes(self.transport, "/microscope/services")
         self.analysis = Remotes(self.transport, "/services")
+        self.app = App(self.transport)
         self._system: Optional[SystemSettings] = None
         self._events: Optional[EventStream] = None
 

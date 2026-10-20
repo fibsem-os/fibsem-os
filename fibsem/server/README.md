@@ -124,6 +124,15 @@ with FibsemClient("http://192.168.1.100:8001", "<token>") as client:
     client.analysis["correlation"]               # the analysis services (/services)
     client.state()                               # MicroscopeState
     client.system                                # SystemSettings
+
+    # The app the server hosts: the agent's tools, by the parts it serves.
+    client.app.parts                             # ["items", "poses", "grids", ...]
+    client.app.app_get_status()
+    client.app.item_get(item_name="01-rested-goblin")
+    client.app.app_get_events(since=0)
+
+    client.follow()                              # WS /microscope/events
+    client.devices["stage"].changed.connect(print)
 ```
 
 A command or query is a method (`electron.acquire(...)`), or `call(name, ...)` and
