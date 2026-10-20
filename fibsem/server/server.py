@@ -51,9 +51,11 @@ from fibsem.server.auth import (
 from fibsem.server.devices import (
     ERROR_STATUS,
     build_device_router,
+    live_source,
     never_allowed,
     refusal,
     stream_events,
+    stream_live,
 )
 from fibsem.server.discovery import fibsem_folder
 from fibsem.server.models import MicroscopeStateRequest
@@ -619,6 +621,23 @@ def build_server(
         await stream_events(
             websocket,
             {"device": microscope.devices, "service": microscope.services},
+            allowed=lambda: auth.reaches(AgentLevel.WATCH),
+        )
+
+    # A beam's live frames, opened by a client that shows them: a read, at Watch.
+    @whole.websocket("/devices/{device}/live", dependencies=[Depends(_watch)])
+    async def microscope_live(websocket: WebSocket, device: str):
+        if "origin" in websocket.headers:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error_type": "browser_refused",
+                    "message": "The live socket refuses a browser page.",
+                },
+            )
+        await stream_live(
+            websocket,
+            live_source(microscope.devices, device),
             allowed=lambda: auth.reaches(AgentLevel.WATCH),
         )
 

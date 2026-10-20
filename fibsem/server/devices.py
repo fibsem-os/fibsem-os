@@ -20,6 +20,9 @@ The far side of a remote device (the METEOR PC, say). It wraps any
                                                a read that moves nothing
     WS   /events                               {"device", "parameter", "kind", "value"},
                                                with pings as a heartbeat
+    WS   /devices/{beam}/live                  each live frame the beam acquires, as
+                                               ``frames_to_bytes`` writes one: the
+                                               latest, a slow client skipping frames
 
 The coordinator side is ``fibsem.drivers.remote.devices``. A write runs the device's
 ``set_value``, so the server checks every value itself, whatever the client did.
@@ -436,6 +439,63 @@ async def stream_events(
             signal.disconnect(callback)
 
 
+async def stream_live(
+    websocket: WebSocket, beam: Any, allowed: Callable[[], bool] = lambda: True
+) -> None:
+    """Send *websocket* each frame *beam*'s live view acquires (``live_frame``),
+    raw, with its metadata (`live_frame_bytes`), until it closes. Only the latest
+    frame waits: one that arrives while the last is sending replaces any waiting,
+    so a slow client gets fewer frames, never older ones. It closes once
+    *allowed* answers False."""
+    loop = asyncio.get_running_loop()
+    latest: List[Any] = [None]
+    fresh = asyncio.Event()
+
+    def take(image: Any) -> None:
+        latest[0] = image
+        loop.call_soon_threadsafe(fresh.set)
+
+    beam.live_frame.connect(take)
+    await websocket.accept()
+    closed = asyncio.ensure_future(_until_closed(websocket))
+    try:
+        while allowed():
+            waiting = asyncio.ensure_future(fresh.wait())
+            await asyncio.wait(
+                {waiting, closed}, timeout=1.0, return_when=asyncio.FIRST_COMPLETED
+            )
+            if closed.done():
+                waiting.cancel()
+                return
+            if not waiting.done():
+                waiting.cancel()
+                continue
+            fresh.clear()
+            image, latest[0] = latest[0], None
+            if image is None:
+                continue
+            sending = asyncio.ensure_future(
+                websocket.send_bytes(live_frame_bytes(image))
+            )
+            await asyncio.wait({sending, closed}, return_when=asyncio.FIRST_COMPLETED)
+            if closed.done():
+                sending.cancel()
+                return
+            sending.result()  # a disconnect raises here
+        await websocket.close(code=1008)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        closed.cancel()
+        beam.live_frame.disconnect(take)
+
+
+def live_frame_bytes(image: FibsemImage) -> bytes:
+    """A live frame as one ``frames_to_bytes`` frame: its data and its metadata."""
+    metadata = image.metadata.to_dict() if image.metadata is not None else {}
+    return frames_to_bytes([Frame(image.data, metadata)])
+
+
 def _signal_value(*args: Any) -> Any:
     return to_wire(args[0] if len(args) == 1 else list(args))
 
@@ -736,6 +796,14 @@ def _images_in(result: Any) -> List[FibsemImage]:
     return []
 
 
+def live_source(devices: Mapping[str, Device], name: str) -> Any:
+    """The device *name* names, if it has a live view; else 404."""
+    device = devices.get(name)
+    if device is None or not hasattr(device, "live_frame"):
+        raise HTTPException(404, f"no beam '{name}' with a live view")
+    return device
+
+
 def build_device_app(devices: Iterable[Device]) -> FastAPI:
     """The server's routes over these devices, looked up by ``device.name``."""
     by_name: Dict[str, Device] = {device.name: device for device in devices}
@@ -752,6 +820,10 @@ def build_device_app(devices: Iterable[Device]) -> FastAPI:
     @app.websocket("/events")
     async def events(websocket: WebSocket) -> None:
         await stream_events(websocket, {"device": by_name})
+
+    @app.websocket("/devices/{device}/live")
+    async def live(websocket: WebSocket, device: str) -> None:
+        await stream_live(websocket, live_source(by_name, device))
 
     return app
 
