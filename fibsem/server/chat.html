@@ -154,6 +154,8 @@
   #files .inner { width:min(520px, 46vw); height:100%; display:flex; flex-direction:column; }
   #files .bar { display:flex; align-items:center; gap:8px; padding:10px 12px; border-bottom:1px solid var(--border); }
   #files .bar b { color:var(--strong); }
+  #files .bar .switches { display:none; gap:4px; }
+  #files .bar .switches .btn { padding:2px 8px; font-size:11px; }
   #files .bar .x { margin-left:auto; background:none; border:0; color:var(--muted); cursor:pointer; font-size:16px; padding:0 4px; }
   #files .bar .x:hover { color:var(--strong); }
   #files .split { flex:1; min-height:0; display:grid; grid-template-columns:170px 1fr; }
@@ -197,11 +199,44 @@
     #files .split { grid-template-columns:1fr; grid-template-rows:auto 1fr; }
     .tree { max-height:30vh; border-right:0; border-bottom:1px solid var(--border); }
   }
+
+  /* The side panels' bar, down the right edge. */
+  #rail { width:44px; flex:none; display:flex; flex-direction:column; align-items:center; gap:4px;
+    padding-top:8px; background:var(--panel); border-left:1px solid var(--border); }
+  #rail button { width:34px; height:34px; display:flex; align-items:center; justify-content:center;
+    background:none; border:1px solid transparent; border-radius:4px; color:var(--muted); cursor:pointer; }
+  #rail button:hover { color:var(--strong); background:var(--row-alt); }
+  #rail button.on { color:var(--strong); border-color:var(--accent); background:rgba(80,166,255,.12); }
+  #rail svg { width:18px; height:18px; }
+  .panels-menu { display:none; }
+  .scope { padding:12px; overflow:auto; flex:1; }
+  .scope h3 { font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase;
+    letter-spacing:.04em; margin:14px 0 6px; }
+  .scope h3:first-child { margin-top:0; }
+  .scope dl { display:grid; grid-template-columns:auto 1fr; gap:2px 12px; font-size:12px; }
+  .scope dt { color:var(--muted); }
+  .scope .live { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .scope .live figure { margin:0; }
+  .scope .live img { display:block; width:100%; background:var(--canvas); cursor:zoom-in; border-radius:2px; }
+  .scope .live figcaption { font-size:11px; color:var(--muted); margin-top:3px; }
+  .scope .live .none { aspect-ratio:3/2; background:var(--canvas); display:flex; align-items:center;
+    justify-content:center; color:var(--muted); font-size:12px; border-radius:2px; }
+  .scope table { width:100%; border-collapse:collapse; font-size:12px; }
+  .scope th { text-align:left; color:var(--muted); font-weight:400; padding:2px 8px 2px 0; }
+  .scope td { padding:2px 8px 2px 0; font-variant-numeric:tabular-nums; }
+  @media (max-width:760px) {
+    #rail { display:none; }
+    .panels-menu { display:inline-block; }
+    #files .bar .switches { display:flex; margin-left:auto; }
+    #files .bar .switches + .x { margin-left:0; }
+    .scope .live { grid-template-columns:1fr; }
+  }
 </style>
 </head>
 <body>
 <div id="app"></div>
-<aside id="files" aria-label="The experiment's files"></aside>
+<aside id="files" aria-label="Side panel"></aside>
+<nav id="rail" aria-label="Panels"></nav>
 <script>
 "use strict";
 /* The operator's chat with the agent, over the App Server. It reads the agent
@@ -341,7 +376,7 @@ function headerHtml() {
   return `<header>
     <span class="exp">${esc(a.experiment || "Agent chat")}</span>${halvesHtml()}
     <span class="controls">
-      <button class="btn${filesOpen ? " on" : ""}" id="files-toggle" title="The experiment's images">Files</button>
+      <button class="btn panels-menu" id="panels-menu" title="Panels">☰</button>
       <span class="level-wrap"><button class="chip ${esc(level)}" id="level" aria-haspopup="menu"${off}>${esc(shown.word)}</button>${menu}</span>
       <button class="chip stop" id="stop"${off}>Stop agent</button>
     </span></header>${now}`;
@@ -501,7 +536,7 @@ function wire() {
   msg.oninput = () => { draft = msg.value; grow(msg); };
   msg.onkeydown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } };
   $app.querySelector("#send").onclick = send;
-  $app.querySelector("#files-toggle").onclick = () => toggleFiles();
+  $app.querySelector("#panels-menu").onclick = () => openPanel(panel ? null : "experiment");
   $app.querySelector("#level").onclick = () => { levelOpen = !levelOpen; render(); };
   for (const el of $app.querySelectorAll("[data-level]")) {
     el.onclick = () => {
@@ -644,12 +679,117 @@ async function drawPicture(el) {
   };
 }
 
-/* --- Files: the experiment's folders and images, beside the chat ---------- */
+/* --- The side panels: Experiment and Microscope, from the bar on the right - */
+const ICONS = {
+  experiment: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3 6.5h6l2 2h10v10.5H3z"/><path d="M3 6.5V5h6l2 2"/></svg>`,
+  microscope: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h4l-1 7h-2z"/><path d="M11 10v2"/><circle cx="11" cy="14" r="2"/><path d="M5 21h14"/><path d="M15 9a6 6 0 0 1 1 11"/><path d="M8 18h5"/></svg>`,
+};
+const PANELS = [["experiment", "Experiment: its folders and images"], ["microscope", "Microscope: what it is and what it shows"]];
+let panel = null;
+
+function drawRail() {
+  document.getElementById("rail").innerHTML = PANELS.map(([name, tip]) =>
+    `<button data-panel="${name}" class="${panel === name ? "on" : ""}" title="${tip}" aria-pressed="${panel === name}">${ICONS[name]}</button>`).join("");
+  for (const el of document.querySelectorAll("#rail [data-panel]")) el.onclick = () => openPanel(el.dataset.panel);
+}
+
+// The panel named, or none; its own button again closes it.
+async function openPanel(name) {
+  panel = name === panel ? null : name;
+  $files.classList.toggle("open", !!panel);
+  drawRail();
+  render();
+  if (panel === "experiment") await openExperiment();
+  else if (panel === "microscope") await readMicroscope(true);
+}
+
+function panelBar(title, detail) {
+  const others = PANELS.filter(([n]) => n !== panel).map(([n]) =>
+    `<button class="btn panel-switch" data-switch="${n}">${n[0].toUpperCase() + n.slice(1)}</button>`).join("");
+  return `<div class="bar"><b>${esc(title)}</b><span class="muted">${esc(detail || "")}</span>
+    <span class="switches">${others}</span><button class="x" id="panel-close" title="Close">×</button></div>`;
+}
+
+function wirePanelBar() {
+  for (const el of $files.querySelectorAll("[data-switch]")) el.onclick = () => openPanel(el.dataset.switch);
+}
+
+/* Microscope: read only. What it is, the latest image of each beam, and the
+   stage and beams now. */
+const scope = { info: null, state: null, images: null, status: null, error: null };
+
+async function readMicroscope(first) {
+  if (panel !== "microscope") return;
+  const take = path => api(path).catch(() => null);
+  const [info, state, images, status] = await Promise.all([
+    first || !scope.info ? take("/microscope") : Promise.resolve(scope.info),
+    take("/microscope/state"), take("/app/experiment/images"), take("/app/workflow/status")]);
+  const before = JSON.stringify([scope.info, scope.state, scope.status, imageStamp(scope.images)]);
+  Object.assign(scope, { info, state, images, status });
+  if (first || JSON.stringify([info, state, status, imageStamp(images)]) !== before) drawMicroscope();
+}
+
+const imageStamp = images => images ? ["sem", "fib"].map(k => images[k] && images[k].acquired_at) : null;
+
+function drawMicroscope() {
+  if (panel !== "microscope") return;
+  const info = scope.info, ms = scope.state && scope.state.microscope_state, st = scope.status || {};
+  const um = v => v == null ? "–" : `${+(v * 1e6).toPrecision(4)} µm`;
+  const deg = v => v == null ? "–" : `${+(v * 180 / Math.PI).toFixed(1)}°`;
+  const current = v => v == null ? "–" : v < 1e-9 ? `${+(v * 1e12).toPrecision(3)} pA` : `${+(v * 1e9).toPrecision(3)} nA`;
+  const kv = v => v == null ? "–" : `${+(v / 1e3).toPrecision(3)} kV`;
+  const when = iso => iso ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
+  const parts = [];
+  if (info) {
+    const fitted = Object.entries(info.fitted || {}).filter(([, on]) => on).map(([k]) => k);
+    parts.push(`<h3>Connected to</h3><dl>
+      <dt>Microscope</dt><dd>${esc([info.manufacturer, info.model].filter(Boolean).join(" "))}</dd>
+      ${info.serial_number ? `<dt>Serial</dt><dd>${esc(info.serial_number)}</dd>` : ""}
+      ${info.software_version ? `<dt>Software</dt><dd>${esc(info.software_version)}</dd>` : ""}
+      ${fitted.length ? `<dt>Fitted</dt><dd>${esc(fitted.join(", "))}</dd>` : ""}</dl>`);
+  }
+  const wf = st.workflow || {};
+  const doing = [];
+  if (wf.running) doing.push(`Running${wf.current_task ? ": " + esc(wf.current_task) : ""}${wf.current_item ? " on " + esc(wf.current_item) : ""}`);
+  const now = state.agent && state.agent.now;
+  if (now) doing.push(`Agent: ${esc(now)}`);
+  parts.push(`<h3>Now</h3><div>${doing.length ? doing.join("<br>") : `<span class="muted">Nothing is running.</span>`}</div>`);
+  const shot = (key, word) => {
+    const p = scope.images && scope.images[key];
+    if (!p || !p.image_b64_jpeg) return `<figure><div class="none">No ${word.toLowerCase()} image yet</div><figcaption>${word}</figcaption></figure>`;
+    return `<figure><img data-live="${key}" src="data:image/jpeg;base64,${p.image_b64_jpeg}" alt="${word}">
+      <figcaption>${word} · ${um(p.hfw)}${p.acquired_at ? " · " + when(p.acquired_at) : ""}</figcaption></figure>`;
+  };
+  parts.push(`<h3>Latest images</h3><div class="live">${shot("sem", "Electron")}${shot("fib", "Ion")}</div>`);
+  if (ms) {
+    const sp = ms.stage_position || {};
+    parts.push(`<h3>Stage</h3><table><tr><th>x</th><th>y</th><th>z</th><th>Rotation</th><th>Tilt</th></tr>
+      <tr><td>${um(sp.x)}</td><td>${um(sp.y)}</td><td>${um(sp.z)}</td><td>${deg(sp.r)}</td><td>${deg(sp.t)}</td></tr></table>`);
+    const row = (word, b) => b ? `<tr><td>${word}</td><td>${kv(b.voltage)}</td><td>${current(b.beam_current)}</td><td>${um(b.hfw)}</td><td>${b.working_distance == null ? "–" : `${+(b.working_distance * 1e3).toPrecision(3)} mm`}</td></tr>` : "";
+    parts.push(`<h3>Beams</h3><table><tr><th></th><th>Voltage</th><th>Current</th><th>Field width</th><th>WD</th></tr>
+      ${row("Electron", ms.electron_beam)}${row("Ion", ms.ion_beam)}</table>`);
+  }
+  if (!info && !ms) parts.push(`<p class="muted" style="margin-top:12px">The microscope's details aren't readable from this page.</p>`);
+  const name = info ? [info.manufacturer, info.model].filter(Boolean).join(" ") : "";
+  $files.innerHTML = `<div class="inner">${panelBar("Microscope", name)}<div class="scope">${parts.join("")}</div></div>`;
+  $files.querySelector("#panel-close").onclick = () => openPanel(null);
+  wirePanelBar();
+  for (const img of $files.querySelectorAll("[data-live]")) {
+    img.onclick = () => {
+      const big = document.createElement("div");
+      big.className = "big-shot";
+      big.innerHTML = `<img src="${img.src}" alt="">`;
+      big.onclick = () => big.remove();
+      document.body.appendChild(big);
+    };
+  }
+}
+
+/* --- Experiment: its folders and images ---------------------------------- */
 // Read through /app/experiment/files, as the agent reads them: one folder at a
 // time, each image as a preview with its metadata.
 const $files = document.getElementById("files");
 const THUMB = 280, VIEW = 768, FULL = 3072;
-let filesOpen = false;
 const files = { dirs: {}, dir: null, picked: null, beam: "all", items: {} };
 const previews = new Map();
 
@@ -667,11 +807,7 @@ async function readItems() {
   } catch (e) { files.items = {}; }
 }
 
-async function toggleFiles(to) {
-  filesOpen = to ?? !filesOpen;
-  $files.classList.toggle("open", filesOpen);
-  render();
-  if (!filesOpen) return;
+async function openExperiment() {
   try {
     await Promise.all([listDir(""), readItems()]);
     if (files.dir === null) {
@@ -688,7 +824,7 @@ async function pickDir(dir) {
 
 async function showInFiles(path) {
   const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
-  if (!filesOpen) await toggleFiles(true);
+  if (panel !== "experiment") await openPanel("experiment");
   files.beam = "all";
   await pickDir(dir);
   files.picked = path;
@@ -755,14 +891,14 @@ function shelfHtml(error) {
 }
 
 function drawFiles(error) {
-  if (!filesOpen) return;
+  if (panel !== "experiment") return;
   const scroll = $files.querySelector(".shelf");
   const top = scroll ? scroll.scrollTop : 0;
-  $files.innerHTML = `<div class="inner"><div class="bar"><b>Files</b><span class="muted">${esc((state.agent || {}).experiment || "")}</span>
-      <button class="x" id="files-close" title="Close">×</button></div>
+  $files.innerHTML = `<div class="inner">${panelBar("Experiment", (state.agent || {}).experiment)}
     <div class="split"><div class="tree">${treeHtml()}</div><div class="shelf">${shelfHtml(error)}</div></div></div>`;
   $files.querySelector(".shelf").scrollTop = files.picked ? 0 : top;
-  $files.querySelector("#files-close").onclick = () => toggleFiles(false);
+  $files.querySelector("#panel-close").onclick = () => openPanel(null);
+  wirePanelBar();
   for (const el of $files.querySelectorAll("[data-dir]")) el.onclick = () => pickDir(el.dataset.dir);
   for (const el of $files.querySelectorAll("[data-beam]")) el.onclick = () => { files.beam = el.dataset.beam; drawFiles(); };
   for (const el of $files.querySelectorAll("[data-pick]")) el.onclick = () => { files.picked = el.dataset.pick; drawFiles(); };
@@ -790,7 +926,7 @@ function step(by) {
 }
 
 document.addEventListener("keydown", e => {
-  if (!filesOpen || /TEXTAREA|INPUT/.test(document.activeElement.tagName)) return;
+  if (panel !== "experiment" || /TEXTAREA|INPUT/.test(document.activeElement.tagName)) return;
   if (document.querySelector(".big-shot")) { if (e.key === "Escape") document.querySelector(".big-shot").remove(); return; }
   if (!files.picked) return;
   if (e.key === "ArrowLeft") step(-1);
@@ -848,7 +984,7 @@ function enlarge(entry, answer) {
 
 // While Files is open, what changed on the record may be new images.
 async function refreshFiles() {
-  if (!filesOpen || files.dir === null) return;
+  if (panel !== "experiment" || files.dir === null) return;
   const before = JSON.stringify([files.dirs[""], files.dirs[files.dir], files.items]);
   try { await Promise.all([listDir(""), listDir(files.dir), readItems()]); } catch (e) { return; }
   if (JSON.stringify([files.dirs[""], files.dirs[files.dir], files.items]) !== before) drawFiles();
@@ -861,6 +997,7 @@ async function refresh() {
     state.rows = recent.rows || [];
     render();
     refreshFiles();
+    readMicroscope(false);
     // The window draws a new request's picture just after it is filed.
     const shown = agent.request ? `request:${agent.request.request_id}` : "";
     if (shown && shown !== pictureAwaited && !(agent.pictures || {}).request) {
@@ -894,6 +1031,7 @@ async function start(token) {
   setInterval(() => { if (TOKEN && !document.hidden) refresh(); }, 10000);
 }
 
+drawRail();
 (function boot() {
   const fragment = new URLSearchParams(location.hash.slice(1));
   let token = fragment.get("token");
