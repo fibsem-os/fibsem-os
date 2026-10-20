@@ -1302,9 +1302,11 @@ def test_experiment_files_list_one_folder_at_watch(client, host, grid_with_overv
     assert top.status_code == 200
     entries = {e["name"]: e for e in top.json()["entries"]}
     assert entries["grids"]["kind"] == "folder"
+    assert entries["grids"]["images"] == 1  # the overview, three folders down
     notes = entries["notes.md"]
     assert (notes["kind"], notes["size"], notes["path"]) == ("text", 8, "notes.md")
     assert notes["modified"]
+    assert "images" not in notes
     below = client.get(
         "/app/experiment/files",
         params={"dir": "grids/grid-aspen/overview_sem"},
