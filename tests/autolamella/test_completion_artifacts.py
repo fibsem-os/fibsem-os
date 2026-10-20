@@ -283,6 +283,8 @@ def _manager_with_summary_hook(experiment: Experiment) -> TaskManager:
 
     class _NoMicroscope:
         fm = None
+        milling = None
+        spot_burn = None
 
     hooks = HookManager()
     hooks.register(
@@ -349,6 +351,8 @@ def test_a_failing_artifact_does_not_break_the_run(experiment, caplog):
 
     class _NoMicroscope:
         fm = None
+        milling = None
+        spot_burn = None
 
     hooks = HookManager()
     hooks.register(

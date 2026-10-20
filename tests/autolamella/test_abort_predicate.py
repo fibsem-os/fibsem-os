@@ -29,6 +29,7 @@ from fibsem.workflows.status import _check_for_abort
 class NoMicroscope:
     fm = None
     milling = None
+    spot_burn = None
 
 
 @pytest.fixture

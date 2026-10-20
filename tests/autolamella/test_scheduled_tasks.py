@@ -35,6 +35,8 @@ TASKS = ["Trench", "Undercut"]
 
 class NoMicroscope:
     fm = None
+    milling = None
+    spot_burn = None
 
 
 @pytest.fixture
