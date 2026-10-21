@@ -562,6 +562,25 @@ def test_the_session_is_reported_to_the_app_after_each_turn_and_at_the_end(sessi
     assert kinds.count("agent_session_ended") == 1
 
 
+def test_the_runner_reports_the_goal_once_and_leaves_later_ones_to_the_agent():
+    class Client:
+        def __init__(self):
+            self.bodies = []
+
+        def request(self, method, path, json=None, timeout=None):
+            self.bodies.append(json)
+
+    runner = Runner(ScriptedAgent(), lambda: None, goal="Mill 01")
+    runner._client = client = Client()
+    asyncio.run(runner._report())
+    asyncio.run(runner._report())
+    asyncio.run(runner._report(ended=True))
+    assert client.bodies[0]["goal"] == "Mill 01"
+    # A goal the operator explicitly gives later is the agent's to report.
+    assert all("goal" not in body for body in client.bodies[1:])
+    assert "explicitly" in runner_mod.RUNNER_PROMPT
+
+
 # --- ending -------------------------------------------------------------------
 
 

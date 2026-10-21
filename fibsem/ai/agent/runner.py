@@ -86,6 +86,9 @@ lines call for, then end your turn.
 - Your replies go to fibsem-agent's console and log, which the operator may \
 not be reading. Anything the operator must see goes on the record with \
 experiment_add_note; answer a MESSAGE with its reply_to.
+- Your goal changes only when the operator's MESSAGE explicitly gives you a \
+new one. Then call server_report_session with just goal, so the app shows \
+it, and say back the goal you took.
 - The operator sets your level in the app. Work by the skill for your level: \
 observe-autolamella at Watch, assist-autolamella at Assist, \
 supervise-autolamella at Drive. A LEVEL line means it changed: read that \
@@ -372,6 +375,7 @@ class Runner:
     ) -> None:
         self._agent = agent
         self._goal = goal
+        self._goal_sent = False
         self._budget_usd = budget_usd
         # The App Server's client, once one answers: the session is reported on it.
         self._client = None
@@ -546,7 +550,9 @@ class Runner:
         body = {
             "session_id": getattr(self._agent, "session_id", None),
             "model": getattr(self._agent, "model", None),
-            "goal": self._goal,
+            # Once: after that the goal is the agent's to report, when the
+            # operator explicitly gives it a new one.
+            "goal": None if self._goal_sent else self._goal,
             "budget_usd": self._budget_usd,
             "spent_usd": self._spent_usd,
             "turns": self._turns,
@@ -554,6 +560,7 @@ class Runner:
         body = {key: value for key, value in body.items() if value is not None}
         if ended:
             body.update(ended=True, reason=self._end_reason)
+        self._goal_sent = True
 
         def post():
             try:
