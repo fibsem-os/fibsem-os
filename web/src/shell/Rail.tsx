@@ -7,7 +7,7 @@ import type { AgentState } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const tab =
-  "relative flex flex-1 cursor-pointer flex-col items-center justify-center gap-1 rounded-md border-0 bg-transparent px-1 py-2.5 text-xs text-muted-foreground no-underline hover:bg-accent hover:text-foreground md:flex-none";
+  "relative flex min-w-0 flex-1 cursor-pointer flex-col items-center justify-center gap-1 rounded-md border-0 bg-transparent px-0.5 py-2.5 text-[10.5px] text-muted-foreground min-[400px]:px-1 min-[400px]:text-xs no-underline hover:bg-accent hover:text-foreground md:flex-none";
 
 function Tab({ on, icon, label, ...props }: { on?: boolean; icon: ReactNode; label: ReactNode } & (
   | { href: string; onClick?: undefined }

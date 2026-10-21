@@ -80,7 +80,7 @@ export interface DisplayImages {
 export interface PairedComputer {
   id: string;
   name: string;
-  paired_at: string;
+  paired_at: number; // Unix seconds
   role: "operator" | "agent";
 }
 
@@ -119,7 +119,7 @@ export interface AgentRequest {
   reason: string;
   actions: RequestAction[];
   results: { ok?: boolean }[];
-  evidence?: string | null;
+  evidence?: Evidence | null;
 }
 
 export interface Suggestion {

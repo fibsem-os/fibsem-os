@@ -1,4 +1,4 @@
-import { Check, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, X } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { AgentRequest, AgentState, RequestAction, Suggestion } from "@/lib/types";
@@ -76,6 +76,22 @@ function Decide({
   );
 }
 
+/** The card's title; clicking it folds the card to one line, keeping its buttons. */
+function Header({ text, summary, folded, fold }: { text: string; summary: string; folded: boolean; fold: () => void }) {
+  const Chevron = folded ? ChevronRight : ChevronDown;
+  return (
+    <button
+      className="flex min-w-0 cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-left"
+      aria-expanded={!folded}
+      onClick={fold}
+    >
+      <Chevron size={14} className="shrink-0 text-[#c4b5fd]" />
+      <span className={title}>{text}</span>
+      {folded && <span className="min-w-0 truncate text-[13px] text-muted-foreground">{summary}</span>}
+    </button>
+  );
+}
+
 function Why({ reason }: { reason: string }) {
   return (
     <div className="text-[13px]">
@@ -94,52 +110,61 @@ export function RequestCard({ request, agent }: { request: AgentRequest; agent: 
   const n = request.actions.length;
   const id = encodeURIComponent(request.request_id);
   const picture = agent.pictures.request;
+  const [folded, setFolded] = useState(false);
+  const summary = request.actions.map((a) => a.what || a.tool).join(", ");
   return (
     <article aria-label="Waiting on you" className={card}>
-      <div className={title}>Agent asks</div>
-      <ol className="m-0 flex list-none flex-col gap-2 p-0">
-        {request.actions.map((a, i) => (
-          <li key={i} className="flex gap-2.5 text-[13px]">
-            <span className="w-4 shrink-0 text-center text-muted-foreground">
-              {!applying ? (
-                i + 1
-              ) : i < results.length ? (
-                results[i].ok ? (
-                  <Check size={14} className="text-[var(--fibsem-ok-color)]" />
-                ) : (
-                  <X size={14} className="text-destructive" />
-                )
-              ) : i === results.length ? (
-                "…"
-              ) : (
-                "○"
-              )}
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-baseline gap-2">
-                <span className="font-semibold">{a.what || a.tool}</span>
-                {i === 0 && request.actions.some((x) => x.details) && (
-                  <button className="cursor-pointer border-0 bg-transparent p-0 text-[12px] text-link" onClick={() => setDetails(!details)}>
-                    {details ? "Hide details" : "Show details"}
-                  </button>
-                )}
-              </div>
-              {a.change && <div className="font-mono text-[12px] text-[var(--fibsem-text-color)]">{a.change}</div>}
-              {details && a.details && <Details details={a.details} />}
-            </div>
-          </li>
-        ))}
-      </ol>
-      <Why reason={request.reason} />
-      {picture?.image ? (
-        <CardPicture kind="request" version={picture.version} />
-      ) : request.evidence ? (
-        <EvidenceImage id={request.evidence} />
-      ) : null}
-      {picture?.caption ? (
-        <div className="text-[12px] text-muted-foreground">{picture.caption}</div>
-      ) : (
-        !request.evidence && <div className="text-[12px] text-muted-foreground">No evidence</div>
+      <Header text="Agent asks" summary={summary} folded={folded} fold={() => setFolded(!folded)} />
+      {!folded && (
+        <>
+          <ol className="m-0 flex list-none flex-col gap-2 p-0">
+            {request.actions.map((a, i) => (
+              <li key={i} className="flex gap-2.5 text-[13px]">
+                <span className="w-4 shrink-0 text-center text-muted-foreground">
+                  {!applying ? (
+                    i + 1
+                  ) : i < results.length ? (
+                    results[i].ok ? (
+                      <Check size={14} className="text-[var(--fibsem-ok-color)]" />
+                    ) : (
+                      <X size={14} className="text-destructive" />
+                    )
+                  ) : i === results.length ? (
+                    "…"
+                  ) : (
+                    "○"
+                  )}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-baseline gap-2">
+                    <span className="font-semibold">{a.what || a.tool}</span>
+                    {i === 0 && request.actions.some((x) => x.details) && (
+                      <button
+                        className="cursor-pointer border-0 bg-transparent p-0 text-[12px] text-link"
+                        onClick={() => setDetails(!details)}
+                      >
+                        {details ? "Hide details" : "Show details"}
+                      </button>
+                    )}
+                  </div>
+                  {a.change && <div className="font-mono text-[12px] text-[var(--fibsem-text-color)]">{a.change}</div>}
+                  {details && a.details && <Details details={a.details} />}
+                </div>
+              </li>
+            ))}
+          </ol>
+          <Why reason={request.reason} />
+          {request.evidence ? (
+            <EvidenceImage id={request.evidence.evidence_id} />
+          ) : picture?.image ? (
+            <CardPicture kind="request" version={picture.version} />
+          ) : null}
+          {picture?.caption ? (
+            <div className="text-[12px] text-muted-foreground">{picture.caption}</div>
+          ) : (
+            !request.evidence && <div className="text-[12px] text-muted-foreground">No evidence</div>
+          )}
+        </>
       )}
       {applying ? (
         <div className="text-[13px] text-muted-foreground">
@@ -150,7 +175,10 @@ export function RequestCard({ request, agent }: { request: AgentRequest; agent: 
           refuseWord="Reject"
           approve={() => act(`/app/agent/requests/${id}/approve`)}
           refuse={(reason) =>
-            act(`/app/agent/requests/${id}/reject`, { method: "POST", body: JSON.stringify({ reason }) })
+            act(`/app/agent/requests/${id}/reject`, {
+              method: "POST",
+              body: JSON.stringify({ reason }),
+            })
           }
         />
       )}
@@ -164,26 +192,34 @@ export function SuggestionCard({ suggestion, agent }: { suggestion: Suggestion; 
   const { act, error } = useAct();
   const id = encodeURIComponent(suggestion.proposal_id);
   const picture = agent.pictures.suggestion;
+  const [folded, setFolded] = useState(false);
   return (
     <article aria-label="Waiting on you" className={card}>
-      <div className={title}>Agent suggests</div>
-      <div className="text-[13px] text-muted-foreground">{suggestion.proposal}</div>
-      <div className="font-semibold">{suggestion.decision}</div>
-      <Why reason={suggestion.reason} />
-      {!suggestion.evidence && (
-        <div className="text-[12px] text-muted-foreground">{suggestion.no_evidence || "No evidence"}</div>
+      <Header text="Agent suggests" summary={suggestion.decision} folded={folded} fold={() => setFolded(!folded)} />
+      {!folded && (
+        <>
+          <div className="text-[13px] text-muted-foreground">{suggestion.proposal}</div>
+          <div className="font-semibold">{suggestion.decision}</div>
+          <Why reason={suggestion.reason} />
+          {!suggestion.evidence && (
+            <div className="text-[12px] text-muted-foreground">{suggestion.no_evidence || "No evidence"}</div>
+          )}
+          {suggestion.evidence ? (
+            <EvidenceImage id={suggestion.evidence.evidence_id} />
+          ) : picture?.image ? (
+            <CardPicture kind="suggestion" version={picture.version} />
+          ) : null}
+          {picture?.caption && <div className="text-[12px] text-muted-foreground">{picture.caption}</div>}
+        </>
       )}
-      {picture?.image ? (
-        <CardPicture kind="suggestion" version={picture.version} />
-      ) : suggestion.evidence ? (
-        <EvidenceImage id={suggestion.evidence.evidence_id} />
-      ) : null}
-      {picture?.caption && <div className="text-[12px] text-muted-foreground">{picture.caption}</div>}
       <Decide
         refuseWord="Decline"
         approve={() => act(`/app/agent/suggestions/${id}/approve`)}
         refuse={(reason) =>
-          act(`/app/agent/suggestions/${id}/decline`, { method: "POST", body: JSON.stringify({ reason }) })
+          act(`/app/agent/suggestions/${id}/decline`, {
+            method: "POST",
+            body: JSON.stringify({ reason }),
+          })
         }
       />
       {error && <div className="text-[13px] text-destructive">{error}</div>}

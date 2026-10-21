@@ -27,3 +27,31 @@ export function usePage(): [Page, Go] {
   };
   return [page, go];
 }
+
+const SETTINGS = "/ui/settings";
+const atSettings = () => location.pathname.replace(/\/$/, "") === SETTINGS;
+
+/** Settings is a dialog over the page with its own path, so a link or a reload keeps it open. */
+export function useSettingsPath(page: Page): [boolean, (open: boolean) => void] {
+  const [open, setOpen] = useState(atSettings);
+  const [pushed, setPushed] = useState(false);
+  useEffect(() => {
+    const back = () => setOpen(atSettings());
+    addEventListener("popstate", back);
+    return () => removeEventListener("popstate", back);
+  }, []);
+  const set = (next: boolean) => {
+    if (next === open) return;
+    if (next) {
+      history.pushState(null, "", SETTINGS);
+      setPushed(true);
+    } else if (pushed) {
+      history.back();
+      setPushed(false);
+    } else {
+      history.replaceState(null, "", `/ui/${page}`);
+    }
+    setOpen(next);
+  };
+  return [open, set];
+}
