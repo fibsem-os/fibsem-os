@@ -86,7 +86,9 @@ def agent_setup_text(
         f'"fibsem": {entry} under "mcpServers" in '
         f"{desktop_config_path(platform)}. Merge it into the servers already "
         "there; don't replace the file.)\n"
-        f'2. Check the connection: {check} should print "connected to {url}".\n'
+        f"2. Check the connection: {check} asks the app to let you connect. "
+        f'Tell me to click Allow on the agent card; then it prints "connected '
+        f'to {url}".\n'
         "3. Tell me to start a new session, or reconnect fibsem in /mcp, so the "
         "tools load.\n"
         "4. Then call server_get_capabilities and tell me your agent level. I set it "

@@ -15,7 +15,7 @@ pip install -e .[server]
 The App Server runs inside AutoLamella: turn it on in Tools → App Server,
 which also shows its address and the event log. With
 *Serve the microscope* on, it also serves the `/microscope` routes below. While it runs it writes `~/.fibsem/app-server.json` (url and
-token), so local clients connect without copying anything.
+a connect token), so local clients find it without copying anything.
 
 The Swagger UI is available at `http://<host>:8001/docs`.
 
@@ -79,6 +79,16 @@ code only when the chat page asks for one (`POST /pair/request`). An agent pairs
 the same way: *Pair an agent* (`POST /pairing` `{"role": "agent"}`) gives a code
 for `fibsem-mcp pair`, and that computer's token is an agent's, gated by the
 level, with its name on the agent's records.
+
+An agent on this PC asks instead (`fibsem/server/connections.py`): the
+discovery file's connect token reaches only `POST /connect` (anything else is
+`403 connect_first`), which waits up to 25 s for the operator and answers
+`{"state": "waiting" | "allowed" | "denied"}`. The card shows the ask (`asking`
+on `GET /app/agent`); the operator's `POST
+/app/agent/connections/{id}/allow` pairs it as an agent, and `/deny`
+`{"reason"}` refuses it for a minute. The client keeps the token in
+`~/.fibsem/agent/` (`fibsem.client.pairing.ask_to_connect`); the transport asks
+by itself on `connect_first`, and drops a kept token the server refuses.
 A long service command (marked `long: true` in the listing: milling's `run`,
 `run_task` and `run_stage`; imaging's `acquire_focus_stack`, `acquire_overview`,
 `fm_auto_focus`, `fm_acquire_image` and `fm_acquire_overview`; alignment's

@@ -8,7 +8,9 @@ httpx = pytest.importorskip("httpx")
 
 from fibsem.applications.volume import launch  # noqa: E402
 from fibsem.applications.volume.experiment import VolumeExperiment  # noqa: E402
+from fibsem.server.operator_token import load_operator_token  # noqa: E402
 from tests.fixtures.headless import (  # noqa: E402
+    allowed_agent,
     confine_host,
     run_in_background,
     serving,
@@ -25,9 +27,10 @@ def test_a_new_experiment_is_served_until_stopped(discovery, tmp_path, capsys):
     stop, worker, result = run_in_background(launch.main, [str(folder), "--create"])
     try:
         found = serving(discovery)
+        operator_token = load_operator_token(discovery.parent / "operator-token.json")
         capabilities = httpx.get(
             f"{found['url']}/capabilities",
-            headers={"Authorization": f"Bearer {found['token']}"},
+            headers={"Authorization": f"Bearer {allowed_agent(found, operator_token)}"},
         ).json()
         assert capabilities["app_name"] == "Volume"
         assert capabilities["parts"] == ["items"]

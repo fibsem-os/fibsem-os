@@ -571,6 +571,8 @@ class AgentCard(QFrame):
     connect_clicked = pyqtSignal()
     approve_clicked = pyqtSignal(str)  # request id
     reject_clicked = pyqtSignal(str, str)  # request id, the operator's reason
+    allow_clicked = pyqtSignal(str)  # the ask to connect's id
+    deny_clicked = pyqtSignal(str, str)  # its id, the operator's reason
     suggestion_approved = pyqtSignal()  # the suggestion shown
     suggestion_declined = pyqtSignal(str)  # the suggestion shown, the operator's why
     float_clicked = pyqtSignal()  # float the card, or put it back on the chip
@@ -584,6 +586,10 @@ class AgentCard(QFrame):
         self.setStyleSheet(_CARD)
         self._request: Optional[Dict[str, Any]] = None
         self._suggestion: Optional[Dict[str, str]] = None
+        # An agent on this PC asking to connect: shown before anything else.
+        self._asking: Optional[Dict[str, Any]] = None
+        self.allow_button: Optional[QPushButton] = None
+        self.deny_button: Optional[QPushButton] = None
         self.approve_suggestion_button: Optional[QPushButton] = None
         self.decline_button: Optional[QPushButton] = None
         self._now: Optional[str] = None
@@ -849,6 +855,21 @@ class AgentCard(QFrame):
         self._render()
 
     @property
+    def asking(self) -> Optional[Dict[str, Any]]:
+        return self._asking
+
+    def set_asking(self, asking: Optional[Dict[str, Any]]) -> None:
+        """An agent on this PC asking to connect (``AgentSession.asking``),
+        or None for none."""
+        asking = dict(asking) if asking is not None else None
+        if asking == self._asking:
+            return
+        if (asking or {}).get("id") != (self._asking or {}).get("id"):
+            self._rejecting = False
+        self._asking = asking
+        self._render()
+
+    @property
     def suggestion(self) -> Optional[Dict[str, str]]:
         return self._suggestion
 
@@ -995,6 +1016,16 @@ class AgentCard(QFrame):
         self.approve_button = self.reject_button = None
         self.confirm_reject_button = self.back_button = None
         self.reason_edit = None
+        self.allow_button = self.deny_button = None
+        if self._asking is not None:
+            self._dot.setStyleSheet(f"color: {WAITING_COLOR};")
+            self._paint_now()
+            self._title.setText("Agent wants to connect")
+            left, right = self._asking_columns(self._asking)
+            self._body.addLayout(left, 1)
+            self._body.addLayout(right)
+            self.updateGeometry()
+            return
         if request is None and self._suggestion is None:
             self._dot.setStyleSheet(f"color: {PURPLE_COLOR};")
             self._title.setText("Agent")
@@ -1203,6 +1234,65 @@ class AgentCard(QFrame):
         self.approve_suggestion_button.clicked.connect(self.suggestion_approved)
         buttons.addWidget(self.decline_button)
         buttons.addWidget(self.approve_suggestion_button)
+        right.addLayout(buttons)
+        return left, right
+
+    def _asking_columns(self, asking: Dict[str, Any]):
+        """Who asks to connect, what allowing it means, and Deny… / Allow."""
+        left = QVBoxLayout()
+        left.setSpacing(6)
+        box = QFrame()
+        box.setObjectName("agentActions")
+        rows = QVBoxLayout(box)
+        rows.setContentsMargins(10, 8, 10, 8)
+        rows.setSpacing(2)
+        for heading, value in (
+            ("Agent", f"{asking.get('client', '')}, as it names itself"),
+            ("From", asking.get("origin", "")),
+            ("Runs as", asking.get("user", "")),
+        ):
+            if heading != "Agent":
+                rows.addSpacing(6)
+            rows.addWidget(_label(heading, TEXT_MUTED_COLOR, small=True))
+            rows.addWidget(_label(value, TEXT_STRONG_COLOR))
+        left.addWidget(box)
+        left.addWidget(_label("If you allow it", TEXT_MUTED_COLOR, small=True))
+        left.addWidget(_label(asking.get("if_allowed", ""), TEXT_COLOR, wrap=True))
+
+        right = QVBoxLayout()
+        right.setContentsMargins(0, 0, 0, 0)
+        right.setSpacing(8)
+        right.addStretch(1)
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        ask_id = asking.get("id", "")
+        if self._rejecting:
+            self.reason_edit = QLineEdit()
+            self.reason_edit.setPlaceholderText("Tell the agent why (optional)")
+            right.addWidget(self.reason_edit)
+            self.back_button = _button("Back")
+            self.back_button.clicked.connect(lambda: self._set_rejecting(False))
+            self.deny_button = _button("Deny", primary=True)
+            self.deny_button.clicked.connect(
+                lambda: self.deny_clicked.emit(
+                    ask_id, self.reason_edit.text() if self.reason_edit else ""
+                )
+            )
+            buttons.addWidget(self.back_button)
+            buttons.addWidget(self.deny_button)
+        else:
+            self.deny_button = _button("Deny…")
+            self.deny_button.setToolTip(
+                "Refuse it, and tell it why if you like. It can ask again in a minute."
+            )
+            self.deny_button.clicked.connect(lambda: self._set_rejecting(True))
+            self.allow_button = _button("Allow", primary=True)
+            self.allow_button.setToolTip(
+                "Give it a token of its own, listed in Connect an agent with Unpair."
+            )
+            self.allow_button.clicked.connect(lambda: self.allow_clicked.emit(ask_id))
+            buttons.addWidget(self.deny_button)
+            buttons.addWidget(self.allow_button)
         right.addLayout(buttons)
         return left, right
 

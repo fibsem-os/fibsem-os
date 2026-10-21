@@ -17,7 +17,12 @@ import httpx
 import numpy as np
 
 from fibsem import __version__
-from fibsem.client.pairing import DEFAULT_URL, agent_token
+from fibsem.client.pairing import (
+    DEFAULT_URL,
+    agent_token,
+    ask_to_connect,
+    forget_agent_token,
+)
 from fibsem.devices.errors import error_from
 from fibsem.devices.wire import (
     FRAME_METADATA_HEADER,
@@ -78,9 +83,10 @@ def resolve(
 ) -> Optional[Tuple[str, str]]:
     """The server's url and token: as given, else from the environment, else the
     agent token this computer was paired with there (`fibsem.client.pairing`),
-    else from the discovery file the App Server on this machine writes, else
-    the agent token paired at the SSH tunnel's end. None when none is known
-    (yet). Never an operator's paired token."""
+    else from the discovery file the App Server on this machine writes (the
+    agent token this agent was allowed, else the file's connect token, which
+    asks to be allowed), else the agent token paired at the SSH tunnel's end.
+    None when none is known (yet). Never an operator's paired token."""
     url = url or os.environ.get("FIBSEM_SERVER_URL")
     token = token or os.environ.get("FIBSEM_SERVER_TOKEN")
     if url and not token:
@@ -89,7 +95,14 @@ def resolve(
         return url, token
     found = read_discovery_file()
     if found is not None:
-        return url or found["url"], token or found["token"]
+        url = url or found["url"]
+        token = (
+            token
+            or agent_token(url)
+            or found.get("token")
+            or found.get("connect_token")
+        )
+        return url, token
     if not url and (paired := agent_token(DEFAULT_URL)) is not None:
         return DEFAULT_URL, token or paired
     return None
@@ -142,7 +155,14 @@ class Transport:
 
     With ``discover=False`` it is the server at *url* and nothing else, with
     *token* or none: a Device Server, which has no token and no discovery file.
+
+    Holding the discovery file's connect token, its first request asks the
+    operator to allow this agent (`ask_to_connect`, up to ``connect_wait_s``)
+    and carries on with the token an Allow answers. ``asks = False`` answers
+    the refusal instead (a probe that mustn't wait).
     """
+
+    asks = True
 
     def __init__(
         self,
@@ -151,6 +171,7 @@ class Transport:
         user_agent: Optional[str] = None,
         timeout: httpx.Timeout = TIMEOUT,
         discover: bool = True,
+        connect_wait_s: float = 120.0,
     ):
         self._asked = (url, token)
         self._discover = discover
@@ -160,6 +181,7 @@ class Transport:
         self._resolved = resolved
         self._user_agent = user_agent or f"fibsem-client/{__version__}"
         self._timeout = timeout
+        self._connect_wait_s = connect_wait_s
         self._http = self._connect()
 
     @property
@@ -231,10 +253,48 @@ class Transport:
         except httpx.ConnectError:  # nothing was sent
             if not self._reresolve():
                 raise
-            return self._http.request(method, path, **kwargs)
-        if response.status_code == 401 and self._reresolve():
+            response = self._http.request(method, path, **kwargs)
+        if response.status_code == 401:
+            self._forget_unpaired()
+            if self._reresolve():
+                response = self._http.request(method, path, **kwargs)
+        if self.asks and _error_type(response) == "connect_first":
+            refused = self._ask_to_connect(response)
+            if refused is not None:
+                return refused
             return self._http.request(method, path, **kwargs)
         return response
+
+    def _forget_unpaired(self) -> None:
+        """A kept agent token the server refuses was unpaired: drop it, so
+        the next resolve asks to connect again."""
+        if self._discover and self._resolved[1] == agent_token(self.url):
+            forget_agent_token(self.url)
+
+    def _ask_to_connect(self, response: httpx.Response) -> Optional[httpx.Response]:
+        """Ask the operator to allow this agent; on Allow, carry on with its
+        token and answer None. Otherwise the refusal to answer: still waiting,
+        or denied."""
+        try:
+            token = ask_to_connect(
+                self.url,
+                self._resolved[1],
+                self._user_agent,
+                wait_s=self._connect_wait_s,
+            )
+        except PermissionError as denied:
+            return _refusal(response, "connect_denied", str(denied))
+        if token is None:
+            return _refusal(
+                response,
+                "connect_waiting",
+                "Waiting for the operator to allow this agent: they click "
+                "Allow on the agent card. Try again once they have.",
+            )
+        self._http.close()
+        self._resolved = (self.url, token)
+        self._http = self._connect()
+        return None
 
     def fetch(
         self,
@@ -268,6 +328,29 @@ class Transport:
 
     def __exit__(self, *exc_info: Any) -> None:
         self.close()
+
+
+def _detail(response: httpx.Response) -> dict:
+    try:
+        detail = response.json().get("detail")
+    except (ValueError, AttributeError):
+        return {}
+    return detail if isinstance(detail, dict) else {}
+
+
+def _error_type(response: httpx.Response) -> Optional[str]:
+    if response.status_code != 403:
+        return None
+    return _detail(response).get("error_type")
+
+
+def _refusal(response: httpx.Response, error_type: str, message: str) -> httpx.Response:
+    """A 403 in the server's shape, in place of *response*."""
+    return httpx.Response(
+        403,
+        json={"detail": {"error_type": error_type, "message": message}},
+        request=response.request,
+    )
 
 
 def read(response: httpx.Response) -> Any:
