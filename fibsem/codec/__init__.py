@@ -24,6 +24,9 @@ What the generic codec can't know, a type or a mixin here says:
 - `saved`: a field saved under another key, read as something other than its
   default when its key is absent, or required to be present.
 
+Each of these has a JSON schema, so ``TypeAdapter(cls).json_schema()`` describes
+what ``encode`` writes (a route's response in ``/openapi.json``).
+
 Files in older shapes are upgraded before they reach ``decode``, by the reader for
 that kind of file; nothing in a class reads an old shape.
 """
@@ -201,6 +204,19 @@ class Tagged:
         raise ValueError(f"no {cls.__name__} named {name!r}")
 
     @classmethod
+    def tagged_variants(cls) -> Mapping[str, type]:
+        """Each name a value may be saved under, with the class it reads as: what
+        the JSON schema lists. A base with a registry overrides it, as it does
+        ``subclass_named``."""
+        found, pending = {}, list(cls.__subclasses__())
+        while pending:
+            sub = pending.pop(0)
+            pending.extend(sub.__subclasses__())
+            if not getattr(sub, "__abstractmethods__", None):
+                found[sub.type_name()] = sub
+        return found
+
+    @classmethod
     def read_tagged(cls, name: Optional[str], data: Any, strict: bool) -> Any:
         """The value saved as ``data`` under ``name`` (None when the key is absent)."""
         if name is None:
@@ -240,7 +256,34 @@ class Tagged:
             serialization=core_schema.plain_serializer_function_ser_schema(
                 write, when_used="json"
             ),
+            ref=f"{cls.__module__}.{cls.__qualname__}:tagged",
         )
+
+    @classmethod
+    def __get_pydantic_json_schema__(cls, schema: Any, handler: Any) -> Any:
+        """One variant per name in ``tagged_variants``, each with its ``type`` key."""
+        if Tagged not in cls.__bases__:
+            return handler(schema)
+        variants = []
+        for type_name, sub in cls.tagged_variants().items():
+            body = handler(_adapter(sub).core_schema)
+            name = {"const": type_name}
+            if cls.SAVED_UNDER is not None:
+                body = {
+                    "type": "object",
+                    "properties": {cls.TYPE_KEY: name, cls.SAVED_UNDER: body},
+                    "required": [cls.TYPE_KEY],
+                    "title": type_name,
+                }
+            else:
+                body = handler.resolve_ref_schema(body)
+                body = {
+                    **body,
+                    "properties": {cls.TYPE_KEY: name, **body.get("properties", {})},
+                    "required": [cls.TYPE_KEY, *body.get("required", [])],
+                }
+            variants.append(body)
+        return {"oneOf": variants, "title": cls.__name__}
 
 
 def saved(
@@ -264,7 +307,8 @@ def saved(
     ``required``: fields whose key must be present, though a new instance has a
     default (a point read with no ``y`` is a mistake, not the origin).
 
-    The rules hold wherever the class is decoded, on its own or inside another.
+    The rules hold wherever the class is decoded, on its own or inside another,
+    and its JSON schema names the saved keys and, as read, the required ones.
     Old file shapes are not for this: those belong to the reader for the file.
     """
     keys = dict(keys or {})
@@ -297,12 +341,29 @@ def saved(
                 data[key] = data.pop(name)
         return data
 
+    def json_schema(schema: Any, handler: Any) -> Any:
+        found = handler(schema)
+        written = handler.resolve_ref_schema(found)
+        if "properties" in written:
+            written["properties"] = {
+                keys.get(name, name): prop
+                for name, prop in written["properties"].items()
+            }
+        needed = [keys.get(name, name) for name in written.get("required", [])]
+        if handler.mode == "validation":
+            needed += [keys.get(n, n) for n in required if keys.get(n, n) not in needed]
+        if needed:
+            written["required"] = needed
+        return found
+
     def apply(cls: type) -> type:
         previous = getattr(cls, "__get_pydantic_core_schema__", None)
 
         def schema(owner: type, source: Any, handler: Any) -> Any:
             inner = previous(source, handler) if previous else handler(source)
-            outer = core_schema.no_info_before_validator_function(before, inner)
+            outer = core_schema.no_info_before_validator_function(
+                before, inner, metadata={"pydantic_js_functions": [json_schema]}
+            )
             if keys:
                 outer["serialization"] = (
                     core_schema.wrap_serializer_function_ser_schema(write, schema=inner)
@@ -322,8 +383,10 @@ def _array(value: Any) -> np.ndarray:
 # A numpy array, written as nested lists. Its dtype is what numpy makes of the lists.
 Array = Annotated[
     np.ndarray,
-    PlainValidator(_array),
-    PlainSerializer(lambda value: np.asarray(value).tolist(), when_used="json"),
+    PlainValidator(_array, json_schema_input_type=list),
+    PlainSerializer(
+        lambda value: np.asarray(value).tolist(), return_type=list, when_used="json"
+    ),
 ]
 
 # A time, read from a POSIX float, an ISO string with or without its offset, or the
@@ -355,6 +418,9 @@ class _NotRead:
             return None
 
         return core_schema.with_info_plain_validator_function(read)
+
+    def __get_pydantic_json_schema__(self, schema: Any, handler: Any) -> Any:
+        return {}
 
 
 # A field that belongs to the running object (an image, a path for one run, what

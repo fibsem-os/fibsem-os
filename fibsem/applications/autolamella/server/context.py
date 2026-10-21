@@ -28,6 +28,7 @@ experiment's events and ``session.changed``.
 
 import logging
 import os
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 import fibsem.config as fibsem_cfg
@@ -40,12 +41,18 @@ from fibsem.applications.autolamella.config_edits import (
     item_patch_refusal,
     poi_patch,
 )
+from fibsem.codec import encode
 from fibsem.geometry.saved_images import image_point_to_stage_position, stage_projector
 from fibsem.server.app_context import AppContext, find_item, item_pose_positions
 from fibsem.server.files import jpeg_preview
+from fibsem.server.responses import (
+    ExperimentSummary,
+    ItemDetail,
+    SummaryRow,
+    TaskOutputs,
+)
 from fibsem.server.task_configs import config_version, workflow_field_refusal
 from fibsem.structures import BeamType
-from fibsem.util.records import dataframe_records
 from fibsem.workflows.actions import NOTE
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.outputs import (
@@ -71,6 +78,30 @@ __all__ = [
 # task). Listed here so a summary can say which overviews a grid has without
 # a client knowing the role vocabulary.
 GRID_OVERVIEW_ROLES = ("overview_sem", "overview_fib", "overview_fm")
+
+
+@dataclass
+class LamellaRow(SummaryRow):
+    milling_angle: Optional[float] = None
+    is_completed: bool = False
+
+
+@dataclass
+class LamellaSummary(ExperimentSummary):
+    items: List[LamellaRow] = field(default_factory=list)
+
+
+@dataclass
+class LamellaDetail(ItemDetail):
+    is_failure: bool = False
+    milling_angle: Optional[float] = None
+    defect: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class LamellaOutputs(TaskOutputs):
+    final_reference_images: List[str] = field(default_factory=list)
+    fluorescence_images: List[str] = field(default_factory=list)
 
 
 def _grid_items(experiment, grid):
@@ -145,31 +176,17 @@ class AutoLamellaAppContext(AppContext):
 
     # --- experiment record ----------------------------------------------------
 
-    def experiment_summary(self) -> Dict[str, Any]:
-        experiment = self._experiment
-        if experiment is None:
-            return {"available": False, "items": []}
-        return {
-            "available": True,
-            "items": dataframe_records(experiment.experiment_summary_dataframe()),
-        }
+    summary_type = LamellaSummary
+    item_detail_type = LamellaDetail
+    task_outputs_type = LamellaOutputs
 
-    def task_history(self) -> Dict[str, Any]:
-        experiment = self._experiment
-        if experiment is None:
-            return {"available": False, "items": []}
-        from fibsem.util.timestamps import to_datetime
-
-        def started(record):
-            # Each item's runs in turn is not the order they ran in. Through
-            # POSIX time, so old naive stamps and aware ones still compare.
-            start = to_datetime(record.get("start_timestamp"))
-            return start.timestamp() if start is not None else float("inf")
-
-        items = sorted(
-            dataframe_records(experiment.task_history_dataframe()), key=started
+    def summary_row(self, experiment, item) -> LamellaRow:
+        row = super().summary_row(experiment, item)
+        return LamellaRow(
+            **vars(row),
+            milling_angle=item.milling_angle,
+            is_completed=experiment.task_protocol.workflow_config.is_completed(item),
         )
-        return {"available": True, "items": items}
 
     def protocol(self) -> Dict[str, Any]:
         """The workflow definition with live supervision flags, schedules and
@@ -221,33 +238,56 @@ class AutoLamellaAppContext(AppContext):
             },
         }
 
-    def task_outputs(self, item_name: str) -> Dict[str, Any]:
-        """The files an item's completed tasks produced, existence-checked.
+    def outputs_of(self, experiment, item) -> LamellaOutputs:
+        outputs = super().outputs_of(experiment, item)
+        history = list(item.task_history)
+        outputs.final_reference_images = [
+            str(p) for p in _task_outputs.final_reference_images(item, *history)
+        ]
+        outputs.fluorescence_images = [
+            str(p) for p in _task_outputs.fluorescence_images(item, *history)
+        ]
+        return outputs
 
-        ``tasks`` keeps the per-run grouping the flat lists erase — one entry
-        per history entry, in run order, each with its recorded files by role
-        (basenames, servable through :meth:`output_image`). That is the review
-        story: which task produced which image.
-        """
+    def item_history(
+        self, item_name: str, flt: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """The item's History, as the Qt tab builds it: one record per task run
+        (and per session's operations outside a task), with its shown images
+        and operations, through the tab's filter. ``tasks`` names every task
+        the item ran, for a task filter; ``total`` counts the runs unfiltered."""
+        from pathlib import Path
+
+        from fibsem.applications.autolamella.history_rows import (
+            OPERATION_KINDS,
+            HistoryFilter,
+            filter_runs,
+            history_rows,
+            run_record,
+        )
+        from fibsem.workflows.event_recording import EVENTS_FILENAME, read_new_events
+
         experiment = self._experiment
         if experiment is None:
             return {"available": False, "item_name": item_name}
         lamella, refusal = find_item(experiment, item_name)
         if refusal:
             return {"available": False, "item_name": item_name, **refusal}
-        history = list(lamella.task_history)
+        path = Path(experiment.path) / EVENTS_FILENAME
+        events: List[Dict[str, Any]] = []
+        if path.is_file():
+            events, _ = read_new_events(path, 0, OPERATION_KINDS)
+        runs = history_rows(lamella, events)
+        shown = HistoryFilter.from_dict(flt)
         return {
             "available": True,
-            "item_name": item_name,
-            "completed_tasks": [
-                state.name for state in history if state.status is TaskStatus.Completed
-            ],
-            "tasks": files_by_run(lamella.path, history),
-            "final_reference_images": [
-                str(p) for p in _task_outputs.final_reference_images(lamella, *history)
-            ],
-            "fluorescence_images": [
-                str(p) for p in _task_outputs.fluorescence_images(lamella, *history)
+            "item_name": lamella.name,
+            "filter": shown.to_dict(),
+            "tasks": list(dict.fromkeys(run.task_name for run in runs)),
+            "total": len(runs),
+            "runs": [
+                run_record(run, str(experiment.path))
+                for run in filter_runs(runs, shown)
             ],
         }
 
@@ -397,7 +437,9 @@ class AutoLamellaAppContext(AppContext):
         if grid is None:
             return self._no_such_grid(experiment, grid_name)
         detail = self._grid_summary(experiment, grid)
-        detail["tasks"] = files_by_run(experiment.grid_path(grid), grid.task_history)
+        detail["tasks"] = encode(
+            files_by_run(experiment.grid_path(grid), grid.task_history)
+        )
         detail["items"] = [p.name for p in experiment.get_lamellae_for_grid(grid)]
         return detail
 
@@ -1216,44 +1258,18 @@ class AutoLamellaAppContext(AppContext):
             "objective_position": fm.objective.position,
         }
 
-    def item_detail(self, item_name: str) -> Dict[str, Any]:
-        """The durable facts about one item, as a curated snapshot.
-
-        One read for everything a supervisor judges an item by: status,
-        geometry (POI, alignment area, milling angle), and where its poses
-        put the stage. Curated rather than a ``to_dict`` dump — this payload
-        serves agents and the monitor dashboard, so every field in it is
-        wire contract; internals stay internal. Pointer facts live on their
-        own surfaces (files: task_outputs; history: task_history).
-        """
-        experiment = self._experiment
-        if experiment is None:
-            return {"available": False, "item_name": item_name}
-        lamella, refusal = find_item(experiment, item_name)
-        if refusal:
-            return {"available": False, "item_name": item_name, **refusal}
+    def detail_of(self, experiment, item) -> LamellaDetail:
         from fibsem.workflows.events import to_plain
 
-        return {
-            "available": True,
-            "item_name": lamella.name,
-            "id": lamella.id,
-            "is_failure": bool(lamella.is_failure),
-            "description": lamella.description,
-            # metres, in the milling coordinate system (+y up, origin centre)
-            "poi": lamella.poi.to_dict() if lamella.poi is not None else None,
-            # fractions of the FIB frame, origin top-left
-            "alignment_area": lamella.alignment_area.to_dict()
-            if lamella.alignment_area is not None
-            else None,
-            "milling_angle": lamella.milling_angle,
-            "defect": to_plain(lamella.defect.to_dict())
-            if getattr(lamella, "defect", None) is not None
-            else None,
-            "poses": item_pose_positions(lamella),
-            # The item document's version: patches echo it (see apply_item_patch).
-            "version": item_fields_version(lamella),
-        }
+        detail = super().detail_of(experiment, item)
+        detail.is_failure = bool(item.is_failure)
+        detail.milling_angle = item.milling_angle
+        if getattr(item, "defect", None) is not None:
+            detail.defect = to_plain(item.defect.to_dict())
+        return detail
+
+    def item_version(self, item) -> str:
+        return item_fields_version(item)
 
     # --- task configs (FIB-864, read side) --------------------------------------
 

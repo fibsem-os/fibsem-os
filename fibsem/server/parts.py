@@ -180,7 +180,12 @@ class MillingStages(Protocol):
 
 @runtime_checkable
 class Lamellae(Protocol):
-    """Lamella-only routes: thickness, correlation results, lamella defaults."""
+    """Lamella-only routes: history, thickness, correlation results, lamella
+    defaults."""
+
+    def item_history(
+        self, item_name: str, flt: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]: ...
 
     def measure_thickness(
         self,
