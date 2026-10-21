@@ -90,6 +90,8 @@ export interface Pairing {
   code: string | null;
   expires_in_s: number;
   computers: PairedComputer[];
+  /** Agents on the microscope PC that ask to connect are allowed without a click. */
+  always_allow_local: boolean;
 }
 
 export type AgentLevel = "off" | "watch" | "assist" | "drive";

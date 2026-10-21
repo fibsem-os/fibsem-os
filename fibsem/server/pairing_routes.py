@@ -112,9 +112,11 @@ def build_pairing_router(auth: AuthConfig) -> APIRouter:
     operator = APIRouter(prefix="/pairing", dependencies=[Depends(require_operator())])
 
     def _listing(pairing: Pairing) -> dict:
+        connections = auth.connections
         return {
             **pairing.state(),
             "computers": [c.to_dict() for c in pairing.tokens.computers()],
+            "always_allow_local": bool(connections and connections.always_allow),
         }
 
     @operator.get("")
@@ -139,6 +141,15 @@ def build_pairing_router(auth: AuthConfig) -> APIRouter:
         pairing = _pairing(auth)
         pairing.close()
         return _listing(pairing)
+
+    @operator.put("/always_allow_local")
+    def always_allow_local(body: Dict[str, Any]):
+        """``{"on": true}``: allow an agent on this PC that asks to connect
+        without the operator's click; saved for the next launch."""
+        if auth.connections is None:
+            raise _refused(404, "connect_off", "This server doesn't take asks.")
+        auth.connections.set_always_allow(bool(body.get("on")))
+        return _listing(_pairing(auth))
 
     @operator.delete("/computers/{computer_id}")
     def unpair(computer_id: str):

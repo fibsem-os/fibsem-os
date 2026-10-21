@@ -232,7 +232,10 @@ the first time, the agent card shows **Agent wants to connect**, naming the
 client, where it connects from and the PC user it runs as. **Allow** gives it a
 token of its own, kept in `~/.fibsem/agent/`, so later connections don't ask;
 it is listed under *Connect an agent… → Allowed agents* with Unpair. **Deny…**
-refuses it, with your reason, and it can ask again after a minute. By hand,
+refuses it, with your reason, and it can ask again after a minute. With
+**Always allow agents on this PC** ticked (under Allowed agents, or in the web
+app's Settings), an ask from this PC is allowed without the card; it still acts
+only at the level you set, and asks over SSH still show the card. By hand,
 registering the sidecar is:
 
 ```bash

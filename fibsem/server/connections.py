@@ -12,6 +12,11 @@ minute.
 One ask at a time: every program asking with the connect token joins it (an
 agent's sidecar and its ``fibsem-mcp watch`` are one card), and all of them get
 the token an Allow mints.
+
+With **Always allow agents on this PC** on (``app_server.allow_local_agents``),
+an ask from this PC is allowed at once, as if the operator had clicked Allow.
+Where an ask comes from is what the client says, so this trusts every program
+running as the PC's user, as the discovery file does.
 """
 
 from __future__ import annotations
@@ -25,7 +30,7 @@ from typing import Callable, List, Optional
 
 from fibsem.server.pairing import AGENT, PairedComputer, PairedTokens
 
-__all__ = ["ASK_WAIT_S", "ConnectAsk", "Connections"]
+__all__ = ["ASK_WAIT_S", "LOCAL", "ConnectAsk", "Connections"]
 
 # How long one POST /connect waits for the operator; the asker asks again.
 ASK_WAIT_S = 25.0
@@ -36,6 +41,8 @@ HAND_S = 120.0
 # keep the card up.
 DENIED_S = 60.0
 _FIELD_LIMIT = 80
+# Where an ask on the PC itself comes from; over SSH it names the address.
+LOCAL = "this PC"
 
 
 def _clean(value: object, default: str) -> str:
@@ -82,13 +89,21 @@ class Connections:
     """The ask waiting for the operator, and how the last one ended.
 
     ``on_change`` listeners are called after an ask arrives or is decided,
-    from whichever thread did it."""
+    from whichever thread did it; ``on_allowed_always`` ones with the computer
+    an ask from this PC was paired as while always allowing."""
 
     def __init__(
-        self, tokens: PairedTokens, clock: Callable[[], float] = time.monotonic
+        self,
+        tokens: PairedTokens,
+        clock: Callable[[], float] = time.monotonic,
+        always_allow: bool = False,
+        save_always_allow: Optional[Callable[[bool], None]] = None,
     ):
         self.tokens = tokens
         self._clock = clock
+        self.always_allow = always_allow
+        self._save_always_allow = save_always_allow
+        self._allowed_always: List[Callable[[PairedComputer], None]] = []
         self._changed_cond = threading.Condition()
         self._ask: Optional[ConnectAsk] = None
         self._allowed: Optional[_Decided] = None
@@ -99,6 +114,22 @@ class Connections:
         """Follow asks and decisions; returns the unsubscribe."""
         self._listeners.append(callback)
         return lambda: self._listeners.remove(callback)
+
+    def on_allowed_always(
+        self, callback: Callable[[PairedComputer], None]
+    ) -> Callable[[], None]:
+        """Follow asks allowed by the setting, not a click; returns the
+        unsubscribe."""
+        self._allowed_always.append(callback)
+        return lambda: self._allowed_always.remove(callback)
+
+    def set_always_allow(self, on: bool) -> None:
+        """Allow asks from this PC at once, or put them to the operator again;
+        saved for the next launch."""
+        self.always_allow = bool(on)
+        if self._save_always_allow is not None:
+            self._save_always_allow(self.always_allow)
+        self._changed()
 
     def _changed(self) -> None:
         for callback in list(self._listeners):
@@ -132,11 +163,24 @@ class Connections:
                 self._ask = ConnectAsk(
                     id=secrets.token_hex(4),
                     client=_clean(client, "an agent"),
-                    origin=_clean(origin, "this PC"),
+                    origin=_clean(origin, LOCAL),
                     user=_clean(user, "unknown"),
                     asked_at=time.time(),
                 )
             ask_id = self._ask.id
+            always = self.always_allow and self._ask.origin == LOCAL
+        if always:
+            try:
+                computer = self.allow(ask_id)
+            except LookupError:  # another asker of the same ask allowed it
+                computer = None
+            for callback in list(self._allowed_always) if computer else []:
+                try:
+                    callback(computer)
+                except Exception:  # noqa: BLE001 - a listener never blocks an ask
+                    logging.exception("Connections listener failed")
+            with self._changed_cond:
+                return self._answer() or {"state": "waiting", "id": ask_id}
         if new:
             self._changed()
         with self._changed_cond:

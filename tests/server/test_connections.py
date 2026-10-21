@@ -269,3 +269,57 @@ def test_an_unpaired_agent_forgets_its_token_and_asks_again(discovered):
     transport.close()
     computers = server.get("/pairing", headers=server.operator).json()["computers"]
     assert len(computers) == 1
+
+
+# --- always allow agents on this PC -----------------------------------------------
+
+
+def test_always_allow_pairs_an_ask_from_this_pc_at_once(tmp_path, clock):
+    saved, allowed = [], []
+    connections = Connections(
+        PairedTokens(tmp_path / "paired.json"),
+        clock=clock,
+        save_always_allow=saved.append,
+    )
+    connections.on_allowed_always(allowed.append)
+    connections.set_always_allow(True)
+    assert saved == [True]
+    answer = connections.ask("claude-code 2.1.3", "this PC", "lab", wait_s=0)
+    assert answer["state"] == "allowed"
+    assert connections.tokens.match(answer["token"]) == allowed[0]
+    assert connections.asking() == []
+
+
+def test_always_allow_still_asks_over_ssh(connections):
+    connections.set_always_allow(True)
+    answer = connections.ask("x", "10.0.0.5 over SSH", "lab", wait_s=0)
+    assert answer["state"] == "waiting"
+    assert connections.tokens.computers() == []
+
+
+def test_the_operator_sets_always_allow_and_it_goes_on_the_record(server, monkeypatch):
+    saved = []
+    monkeypatch.setattr(
+        server.session.app_server.auth.connections, "_save_always_allow", saved.append
+    )
+    agent_refused = server.put(
+        "/pairing/always_allow_local", json={"on": True}, headers=server.agent
+    )
+    assert agent_refused.status_code in (401, 403)
+    listing = server.put(
+        "/pairing/always_allow_local", json={"on": True}, headers=server.operator
+    ).json()
+    assert listing["always_allow_local"] is True and saved == [True]
+    found = _found(server)
+    answer = server.post(
+        "/connect",
+        json={"origin": "this PC", "user": "lab", "wait_s": 0},
+        headers=_bearer(found["connect_token"]),
+    ).json()
+    assert answer["state"] == "allowed"
+    events = server.get("/app/events", headers=server.operator).json()["events"]
+    said = [e["payload"] for e in events if e["kind"] == ACTION]
+    assert any(
+        p["what"].endswith("to connect") and "Always allow" in p.get("reason", "")
+        for p in said
+    )

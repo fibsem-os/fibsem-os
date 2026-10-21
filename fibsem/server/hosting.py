@@ -215,6 +215,41 @@ class AppServerHost:
     def url(self) -> str:
         return f"http://{self._host}:{self._port}"
 
+    def _connections(self):
+        """Asks to connect, allowed at once from this PC while the operator's
+        setting says so; an Allow by the setting goes on the record as theirs."""
+        from fibsem import config
+        from fibsem.acting import OPERATOR
+        from fibsem.server.connections import Connections
+        from fibsem.workflows.actions import ACTION, action_record
+
+        def save(on: bool) -> None:
+            config.update_user_preferences(
+                lambda p: setattr(p.app_server, "allow_local_agents", on)
+            )
+
+        connections = Connections(
+            self.auth.pairing.tokens,
+            always_allow=config.load_user_preferences().app_server.allow_local_agents,
+            save_always_allow=save,
+        )
+
+        def record(computer) -> None:
+            logging.info("Allowed %s to connect (always allowed)", computer.name)
+            if self.event_buffer is None:
+                return
+            self.event_buffer.append(
+                ACTION,
+                action_record(
+                    f"Allow {computer.name} to connect",
+                    reason="Always allow agents on this PC is on",
+                ),
+                actor=OPERATOR,
+            )
+
+        connections.on_allowed_always(record)
+        return connections
+
     def start(self) -> bool:
         """Serve the session's microscope. Returns False (and logs) rather than
         ever raising.
@@ -285,9 +320,7 @@ class AppServerHost:
 
             self.auth.pairing = Pairing(PairedTokens(self._paired_path))
         if self.auth.connections is None:
-            from fibsem.server.connections import Connections
-
-            self.auth.connections = Connections(self.auth.pairing.tokens)
+            self.auth.connections = self._connections()
         recorder = session.recorder
         if recorder is not None:
             # The app's stream: already fed, and not ours to detach on stop.

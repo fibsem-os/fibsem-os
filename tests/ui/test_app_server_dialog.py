@@ -354,3 +354,26 @@ def test_an_agent_is_paired_from_connect_an_agent_only(qapp, host, tmp_path):
     assert server._computers.layout().count() == 0
     agent.deleteLater()
     server.deleteLater()
+
+
+def test_always_allow_agents_on_this_pc_is_set_from_connect_an_agent(
+    qapp, host, tmp_path
+):
+    from fibsem.server.connections import Connections
+    from fibsem.server.pairing import PairedTokens, Pairing
+
+    host.auth.pairing = Pairing(PairedTokens(tmp_path / "paired.json"))
+    saved = []
+    host.auth.connections = Connections(
+        host.auth.pairing.tokens, save_always_allow=saved.append
+    )
+    dialog = ConnectAgentDialog(lambda: host, sidecar=tmp_path / "fibsem-mcp")
+    assert not dialog._always_allow.isChecked()
+    dialog._always_allow.click()
+    assert host.auth.connections.always_allow and saved == [True]
+    answer = host.auth.connections.ask("claude-code 2.1.3", "this PC", "lab", 0)
+    assert answer["state"] == "allowed"
+    dialog.refresh()
+    assert dialog._always_allow.isChecked()
+    assert dialog._agents.layout().count() == 1
+    dialog.deleteLater()

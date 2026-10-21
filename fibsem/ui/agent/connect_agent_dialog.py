@@ -17,6 +17,7 @@ from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QFontDatabase
 from PyQt5.QtWidgets import (
     QApplication,
+    QCheckBox,
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -138,6 +139,14 @@ class ConnectAgentDialog(QDialog):
         layout.addWidget(self._pair_command)
         layout.addSpacing(6)
         layout.addWidget(section("Allowed agents"))
+        self._always_allow = QCheckBox("Always allow agents on this PC")
+        self._always_allow.setToolTip(
+            "Allow an agent on this PC that asks to connect without asking you. "
+            "It acts only at the level you set, and is listed here with Unpair. "
+            "Agents over SSH still ask."
+        )
+        self._always_allow.toggled.connect(self._on_always_allow_toggled)
+        layout.addWidget(self._always_allow)
         self._agents = PairedList(self._pairing, role=AGENT, changed=self.refresh)
         layout.addWidget(self._agents)
 
@@ -167,9 +176,17 @@ class ConnectAgentDialog(QDialog):
     def _pairing(self):
         return getattr(getattr(self._host(), "auth", None), "pairing", None)
 
+    def _connections(self):
+        return getattr(getattr(self._host(), "auth", None), "connections", None)
+
     def refresh(self) -> None:
         self._pair.refresh()
         self._agents.refresh()
+        connections = self._connections()
+        self._always_allow.setEnabled(connections is not None)
+        self._always_allow.blockSignals(True)
+        self._always_allow.setChecked(bool(connections and connections.always_allow))
+        self._always_allow.blockSignals(False)
         code = self._pair.code.text() if self._pair.is_open() else ""
         self._pair_command.setVisible(bool(code))
         self._pair_command.setText(f"On that computer: fibsem-mcp pair {code}")
@@ -182,6 +199,11 @@ class ConnectAgentDialog(QDialog):
         self._level_label.setText(LEVEL_WORDS[level])
 
     # --- actions --------------------------------------------------------------
+
+    def _on_always_allow_toggled(self, on: bool) -> None:
+        connections = self._connections()
+        if connections is not None:
+            connections.set_always_allow(on)
 
     @staticmethod
     def _copy(text: str) -> bool:
