@@ -25,6 +25,7 @@ from fibsem.devices.wire import (
 )
 from fibsem.server.discovery import read_discovery_file
 from fibsem.server.images import TIFF_MEDIA_TYPE
+from fibsem.server.operator_token import read_operator_token
 from fibsem.structures import FibsemImage
 
 TIMEOUT = httpx.Timeout(120.0, connect=5.0)  # moves and acquisitions are slow
@@ -82,6 +83,21 @@ def resolve(
     if found is not None:
         return url or found["url"], token or found["token"]
     return None
+
+
+def resolve_operator(
+    url: Optional[str] = None, token: Optional[str] = None
+) -> Optional[Tuple[str, str]]:
+    """The server's url and the operator's token, for a client that acts as the
+    operator: url as given, else ``FIBSEM_SERVER_URL``, else the discovery file;
+    token as given, else ``FIBSEM_OPERATOR_TOKEN``, else this install's operator
+    token file. Never the agent's token. None when either is unknown."""
+    url = url or os.environ.get("FIBSEM_SERVER_URL")
+    if not url:
+        found = read_discovery_file()
+        url = found["url"] if found is not None else None
+    token = token or os.environ.get("FIBSEM_OPERATOR_TOKEN") or read_operator_token()
+    return (url, token) if url and token else None
 
 
 def error_for(what: str, status: Optional[int], detail: Any) -> Exception:

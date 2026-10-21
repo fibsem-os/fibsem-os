@@ -58,6 +58,7 @@ from dataclasses import replace
 from typing import (
     TYPE_CHECKING,
     Any,
+    Callable,
     Dict,
     Iterator,
     List,
@@ -71,7 +72,7 @@ from typing import (
 import numpy as np
 
 from fibsem.devices.beam import Beam, nearest_resolution
-from fibsem.devices.chamber import Chamber
+from fibsem.devices.chamber import Chamber, CryoCompartment
 from fibsem.devices.chamber_camera import ChamberCamera
 from fibsem.devices.core import (
     IMAGING_CHANNEL,
@@ -934,7 +935,14 @@ class AutoscriptChamber(Chamber):
     branches of ``ThermoMicroscope._get``, and ``_pump``/``_vent`` the
     ``pump_chamber``/``vent_chamber`` branches of ``_set``. The old key returns the
     vendor's name for the state ("Pumped"); the device reads it as a ``ChamberState``.
+
+    The cryo reads are ``state.touch_alarm`` (AutoScript 4.13), ``state.cryo``
+    (4.14) and the autoloader's ``Chamber`` compartment (4.10). Each is bound only when a read answers at connect, so an older client or
+    server, or a system without the part, leaves it absent. Temperatures are in
+    kelvin, AutoScript's default unit.
     """
+
+    NO_TOUCH_ALARM = "NoTouchAlarm"
 
     def __init__(
         self,
@@ -955,6 +963,63 @@ class AutoscriptChamber(Chamber):
     def read_pressure(self) -> float:
         return self._vacuum.chamber_pressure.value
 
+    @property
+    def _state(self) -> Any:
+        return self.connection.sdk.state
+
+    def available_touch_alarm(self) -> bool:
+        return _answers(lambda: self._state.touch_alarm.is_triggered)
+
+    def read_touch_alarm(self) -> str:
+        alarm = self._state.touch_alarm
+        if not alarm.is_triggered:
+            return ""
+        source = str(alarm.source or "")
+        return "" if source == self.NO_TOUCH_ALARM else source or "Unknown"
+
+    def available_n2_flow(self) -> bool:
+        return _answers(lambda: self._state.cryo.n2_flow.value)
+
+    def read_n2_flow(self) -> float:
+        return float(self._state.cryo.n2_flow.value)
+
+    def available_n2_flow_on(self) -> bool:
+        return _answers(lambda: self._state.cryo.n2_flow.is_on)
+
+    def read_n2_flow_on(self) -> bool:
+        return bool(self._state.cryo.n2_flow.is_on)
+
+    def available_heat_exchanger_on(self) -> bool:
+        return _answers(lambda: self._state.cryo.heat_exchanger.is_on)
+
+    def read_heat_exchanger_on(self) -> bool:
+        return bool(self._state.cryo.heat_exchanger.is_on)
+
+    def available_stage_temperature(self) -> bool:
+        return self._has_cryo_sensor("Stage")
+
+    def read_stage_temperature(self) -> float:
+        return float(self._state.cryo.temperature.get_temperature("Stage"))
+
+    def available_shield_temperature(self) -> bool:
+        return self._has_cryo_sensor("Shield")
+
+    def read_shield_temperature(self) -> float:
+        return float(self._state.cryo.temperature.get_temperature("Shield"))
+
+    def available_compartment(self) -> bool:
+        return _answers(lambda: _compartment(self.connection, "Chamber").state)
+
+    def read_compartment(self) -> CryoCompartment:
+        return _read_compartment(self.connection, "Chamber")
+
+    def _has_cryo_sensor(self, sensor: str) -> bool:
+        try:
+            sensors = self._state.cryo.temperature.get_available_sensors()
+            return sensor in [str(s) for s in sensors]
+        except Exception:  # noqa: BLE001 - an older AutoScript, or no cryo stage
+            return False
+
     def _pump(self) -> None:
         logging.info("Pumping chamber...")
         self._vacuum.pump()
@@ -964,6 +1029,48 @@ class AutoscriptChamber(Chamber):
         logging.info("Venting chamber...")
         self._vacuum.vent()
         logging.info("Chamber vented.")
+
+
+def _answers(read: Callable[[], Any]) -> bool:
+    """Whether *read* answers: False when this AutoScript, client or server, or
+    this instrument has no such member."""
+    try:
+        read()
+        return True
+    except Exception:  # noqa: BLE001 - whatever AutoScript raised for a missing part
+        return False
+
+
+def _compartment(connection: AutoScriptConnection, kind: str) -> Any:
+    """``specimen.autoloader.get_compartment`` (4.10) of an
+    ``AutoloaderCompartmentType`` value, ``"Autoloader"`` or ``"Chamber"``."""
+    return connection.sdk.specimen.autoloader.get_compartment(kind)
+
+
+def _read_compartment(connection: AutoScriptConnection, kind: str) -> CryoCompartment:
+    """State and dewar level from 4.10; the temperatures from 4.13, read by
+    ``get_sensor_temperature`` until 4.14 renamed it ``get_temperature``. A part this
+    AutoScript lacks is left out rather than failing the read."""
+    compartment = _compartment(connection, kind)
+    state = str(compartment.state).rsplit(".", 1)[-1]
+    try:
+        dewar_level: Optional[float] = float(compartment.dewar_level)
+    except Exception:  # noqa: BLE001 - not reported here
+        dewar_level = None
+    temperatures: Dict[str, float] = {}
+    try:
+        sensors = list(compartment.get_available_temperature_sensors())
+    except Exception:  # noqa: BLE001 - before 4.13
+        sensors = []
+    read = getattr(compartment, "get_temperature", None) or getattr(
+        compartment, "get_sensor_temperature", None
+    )
+    for sensor in sensors:
+        try:
+            temperatures[str(sensor)] = float(read(sensor))
+        except Exception:  # noqa: BLE001 - one sensor not answering
+            logging.debug(f"Cryo compartment {kind}: sensor {sensor} did not answer.")
+    return CryoCompartment(state, dewar_level, temperatures)
 
 
 def bind_autoscript_chamber(
@@ -1023,6 +1130,12 @@ class AutoscriptSampleLoader(SampleLoader):
             MagazineSlotState.EMPTY: False,
         }.get(state)
         return StageSample(present, _description(stage))
+
+    def available_compartment(self) -> bool:
+        return _answers(lambda: _compartment(self.connection, "Autoloader").state)
+
+    def read_compartment(self) -> CryoCompartment:
+        return _read_compartment(self.connection, "Autoloader")
 
     def read_capacity(self) -> int:
         """The slots the magazine reported at its last read; nothing is asked."""

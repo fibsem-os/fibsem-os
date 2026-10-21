@@ -27,19 +27,6 @@ from fibsem.config import (
 from fibsem.workflows.session import PROTOCOL
 
 
-def default_experiment_directory() -> str:
-    """Where a new experiment goes: the preference when it names a folder that
-    exists, else the AutoLamella log folder (the Create dialog's default)."""
-    preferred = load_user_preferences().experiment.default_experiment_directory
-    if preferred and os.path.isdir(preferred):
-        return str(preferred)
-    if preferred:
-        logging.warning(
-            f"Preference default_experiment_directory '{preferred}' does not exist; using default."
-        )
-    return str(cfg.LOG_PATH)
-
-
 def default_protocol_path() -> str:
     """The protocol a new experiment starts with: the preference when the file
     exists, else the shipped task protocol."""

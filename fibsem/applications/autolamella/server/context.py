@@ -28,7 +28,6 @@ experiment's events and ``session.changed``.
 
 import logging
 import os
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import fibsem.config as fibsem_cfg
@@ -37,15 +36,14 @@ from fibsem.applications.autolamella import task_outputs as _task_outputs
 from fibsem.applications.autolamella.config_edits import (
     ITEM_PATCH_FIELDS,
     apply_correlation,
-    config_version,
     item_fields_version,
     item_patch_refusal,
     poi_patch,
-    workflow_field_refusal,
 )
 from fibsem.geometry.saved_images import image_point_to_stage_position, stage_projector
 from fibsem.server.app_context import AppContext, find_item, item_pose_positions
 from fibsem.server.files import jpeg_preview
+from fibsem.server.task_configs import config_version, workflow_field_refusal
 from fibsem.structures import BeamType
 from fibsem.util.records import dataframe_records
 from fibsem.workflows.actions import NOTE
@@ -57,7 +55,7 @@ from fibsem.workflows.outputs import (
     latest_item_output,
 )
 from fibsem.workflows.runner import GRIDS, RunRequest
-from fibsem.workflows.session import CONFIG, GRID_RECORDS, PROTOCOL
+from fibsem.workflows.session import CONFIG, GRID_RECORDS
 from fibsem.workflows.status import TaskStatus
 
 __all__ = [
@@ -124,6 +122,9 @@ class AutoLamellaAppContext(AppContext):
     """Read-only facade over a running (or resting) AutoLamella session."""
 
     app_name = "AutoLamella"
+
+    def picture_sources(self) -> _task_outputs.PreviewSources:
+        return _task_outputs.PreviewSources(lambda: self._experiment)
 
     # --- experiment record ----------------------------------------------------
 
@@ -586,43 +587,8 @@ class AutoLamellaAppContext(AppContext):
     #
     # Kept to known places (Patrick's call, 2026-10-14; widened 2026-10-20): a new
     # experiment goes anywhere under the experiments folder, a load is a recent
-    # experiment or one under that folder, and a protocol is one of the files in
-    # the protocol folder, by name.
-
-    def _experiments_folder(self) -> str:
-        """Where the agent creates and finds experiments: the session's folder,
-        else the default experiments folder."""
-        from fibsem.applications.autolamella import experiment_setup
-
-        return (
-            self._session.experiments_folder
-            or experiment_setup.default_experiment_directory()
-        )
-
-    def saved_experiments(self) -> Dict[str, Any]:
-        """Every experiment under the experiments folder, newest first."""
-        from fibsem.applications.autolamella.tools.experiments import (
-            discover_experiments,
-        )
-
-        folder = self._experiments_folder()
-        return {
-            "folder": folder,
-            "items": [self.experiment_entry(s) for s in discover_experiments(folder)],
-        }
-
-    def _under_experiments_folder(self, path: str) -> Optional[str]:
-        """*path* (relative to the experiments folder, or absolute) when it is
-        inside that folder, links followed; else None."""
-        import os
-
-        folder = os.path.realpath(self._experiments_folder())
-        target = os.path.realpath(os.path.join(folder, path))
-        try:
-            inside = os.path.commonpath([target, folder]) == folder
-        except ValueError:  # another drive
-            return None
-        return target if inside and target != folder else None
+    # experiment or one under that folder (AppContext lists them), and a protocol
+    # is one of the files in the protocol folder, by name.
 
     def protocols(self) -> Dict[str, Any]:
         """The protocol files an agent may load or create an experiment with."""
@@ -675,9 +641,7 @@ class AutoLamellaAppContext(AppContext):
         import os
 
         from fibsem.applications.autolamella import experiment_setup
-        from fibsem.applications.autolamella.tools.experiments import (
-            DEFAULT_MAX_DEPTH,
-        )
+        from fibsem.workflows.experiments import DEFAULT_MAX_DEPTH
 
         refusal = self._session_refusal()
         if refusal:
@@ -1403,23 +1367,6 @@ class AutoLamellaAppContext(AppContext):
 
     # --- task configs (FIB-864, read side) --------------------------------------
 
-    def protocol_task_config(self, task_name: str) -> Dict[str, Any]:
-        """One task's protocol-level defaults document — what new items copy."""
-        experiment = self._experiment
-        protocol = getattr(experiment, "task_protocol", None) if experiment else None
-        config_map = getattr(protocol, "task_config", None) if protocol else None
-        if config_map is None:
-            return {"available": False, "task_name": task_name}
-        config = dict(config_map).get(task_name)
-        if config is None:
-            return {
-                "available": True,
-                "task_name": task_name,
-                "error": f"No task named {task_name!r} in the protocol.",
-                "task_names": list(config_map.keys()),
-            }
-        return self._config_document(task_name, config, level="protocol")
-
     def item_task_config(self, item_name: str, task_name: str) -> Dict[str, Any]:
         """One item's own copy of a task config — what its run executes."""
         experiment = self._experiment
@@ -1891,76 +1838,6 @@ class AutoLamellaAppContext(AppContext):
             )
         return result
 
-    def set_supervision(self, task_name: str, supervise: bool) -> Dict[str, Any]:
-        """Set whether ``task_name`` asks for supervision, as the status bar's
-        and the task row's chips do (``workflow_edits.set_supervision``). The
-        GUI's indicators refresh on the next task transition."""
-        from fibsem.applications.autolamella.workflow_edits import set_supervision
-
-        experiment = self._experiment
-        if experiment is None or experiment.task_protocol is None:
-            return {"available": False, "applied": False}
-        return {
-            "available": True,
-            **set_supervision(experiment, task_name, supervise, self.record_event),
-        }
-
-    def set_task_schedule(
-        self, task_name: str, scheduled_at: Optional[str]
-    ) -> Dict[str, Any]:
-        """Set (or clear) when ``task_name`` may start, in the live workflow,
-        as the Workflow tab's Edit Task does
-        (``RunPlan.set_schedule``): up to two days ahead.
-
-        The workflow reads the schedule at each task start (never a snapshot),
-        so a change takes effect at the next start, and like ``set_supervision``
-        it is saved at once.
-
-        ``scheduled_at`` is ISO-8601 (naive = local time; an offset is
-        normalized by the workflow) or ``None`` to clear.
-        """
-        from fibsem.applications.autolamella.workflow_edits import (
-            save_workflow_change,
-        )
-
-        parsed = None
-        if scheduled_at is not None:
-            try:
-                parsed = datetime.fromisoformat(scheduled_at)
-            except ValueError:
-                return {
-                    "available": True,
-                    "applied": False,
-                    "invalid_value": f"{scheduled_at!r} is not an ISO-8601 "
-                    "timestamp (e.g. '2026-09-04T06:00:00'); null clears "
-                    "the schedule.",
-                }
-        experiment = self._experiment
-        if experiment is None or experiment.task_protocol is None:
-            return {"available": False, "applied": False}
-        config = experiment.task_protocol.workflow_config
-        why = config.set_schedule(task_name, parsed)
-        if why:
-            return {
-                "available": True,
-                "applied": False,
-                "error": why,
-                "task_names": config.workflow,
-            }
-        iso = parsed.isoformat() if parsed else None
-        saved = save_workflow_change(
-            experiment,
-            {"field": "scheduled_at", "task_name": task_name, "scheduled_at": iso},
-            self.record_event,
-        )
-        return {
-            "available": True,
-            "applied": True,
-            "saved": saved,
-            "task_name": task_name,
-            "scheduled_at": iso,
-        }
-
     def set_workflow_options(self, **options: Any) -> Dict[str, Any]:
         """Set the workflow's run options, as its options panel does, and like
         the operator's it persists with the protocol. Any of:
@@ -1993,38 +1870,6 @@ class AutoLamellaAppContext(AppContext):
         for name, value in options.items():
             self.record_event("workflow_changed", {"field": name, "value": value})
         return {"available": True, "applied": True, "saved": saved, **options}
-
-    # -- the workflow's tasks: the Workflow tab's task list and the protocol
-    # editor's Add and Remove. Refused while a workflow runs: the run reads them.
-
-    def _workflow_edit(self, what: str):
-        """The experiment and its workflow config for an edit, or a refusal."""
-        experiment = self._experiment
-        protocol = getattr(experiment, "task_protocol", None) if experiment else None
-        if protocol is None:
-            return (
-                None,
-                None,
-                {"error_type": "not_found", "error": "No experiment is loaded."},
-            )
-        refusal = self._not_while_running(what)
-        if refusal:
-            return None, None, refusal
-        return experiment, protocol.workflow_config, None
-
-    def _protocol_changed(self, experiment, change: Dict[str, Any]) -> bool:
-        """Save the protocol after an edit, say it changed, so no editor writes
-        back a list it drew before the change, and put it on the record.
-        Whether it saved."""
-        saved = True
-        try:
-            experiment.save(save_protocol=True)
-        except Exception:
-            saved = False
-            logging.exception("save after a protocol change failed; applied in memory")
-        self._session.changed.emit(PROTOCOL)
-        self.record_event("workflow_changed", change)
-        return saved
 
     def add_task(self, task_type: str, task_name: str) -> Dict[str, Any]:
         """Add a task of a registered type, as the protocol editor's Add Task
@@ -2061,101 +1906,6 @@ class AutoLamellaAppContext(AppContext):
             "task_name": task_name.strip(),
             "task_type": task_type,
             "task_names": experiment.task_protocol.workflow_config.workflow,
-        }
-
-    def remove_task(self, task_name: str) -> Dict[str, Any]:
-        """Remove a task from the protocol, the workflow and every lamella, as
-        the protocol editor's Remove does. Task history stays: it is the record
-        of what ran."""
-        experiment, config, refusal = self._workflow_edit("remove tasks")
-        if refusal:
-            return refusal
-        if task_name not in experiment.task_protocol.task_config:
-            return {
-                "error_type": "not_found",
-                "error": f"No task named {task_name!r} in the protocol.",
-                "task_names": list(experiment.task_protocol.task_config),
-            }
-
-        def remove():
-            experiment.remove_task(task_name)
-            return self._protocol_changed(
-                experiment, {"field": "tasks", "removed": task_name}
-            )
-
-        saved = self._agent_call(remove)
-        return {"applied": True, "saved": saved, "task_names": config.workflow}
-
-    def reorder_tasks(self, order: List[str]) -> Dict[str, Any]:
-        """Put the workflow's tasks in *order*, as dragging them on the Workflow
-        tab does: every task, each once. Refused when a task would come before
-        a task it requires."""
-        experiment, config, refusal = self._workflow_edit("reorder tasks")
-        if refusal:
-            return refusal
-
-        def reorder():
-            why = experiment.task_protocol.reorder(list(order))
-            if why:
-                return why
-            return self._protocol_changed(
-                experiment, {"field": "order", "order": order}
-            )
-
-        saved = self._agent_call(reorder)
-        if isinstance(saved, str):
-            return {
-                "error_type": "invalid",
-                "error": saved,
-                "task_names": config.workflow,
-            }
-        return {"applied": True, "saved": saved, "task_names": config.workflow}
-
-    def set_task_requirements(
-        self,
-        task_name: str,
-        requires: Optional[List[str]] = None,
-        required: Optional[bool] = None,
-    ) -> Dict[str, Any]:
-        """Set what a workflow task requires (the tasks a lamella must have
-        completed first) and whether it is required or optional, as the
-        Workflow tab's Edit Task does. Refused when a requirement is not an
-        earlier task."""
-        experiment, config, refusal = self._workflow_edit("edit tasks")
-        if refusal:
-            return refusal
-        protocol = experiment.task_protocol
-        task = config.get(task_name)
-        if task is None or task_name not in protocol.task_config:
-            return {
-                "error_type": "not_found",
-                "error": f"No task named {task_name!r} in the workflow.",
-                "task_names": config.workflow,
-            }
-
-        def edit():
-            why = protocol.set_requirements(task_name, requires, required)
-            if why:
-                return why
-            return self._protocol_changed(
-                experiment,
-                {
-                    "field": "requirements",
-                    "task_name": task_name,
-                    "requires": protocol.requirements(task_name),
-                    "required": task.required,
-                },
-            )
-
-        saved = self._agent_call(edit)
-        if isinstance(saved, str):
-            return {"error_type": "invalid", "error": saved}
-        return {
-            "applied": True,
-            "saved": saved,
-            "task_name": task_name,
-            "requires": protocol.requirements(task_name),
-            "required": task.required,
         }
 
     def set_lamella_defaults(self, defaults: Dict[str, Any]) -> Dict[str, Any]:

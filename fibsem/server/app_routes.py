@@ -28,6 +28,7 @@ from fibsem.server.parts import (
     POSES,
     served_parts,
 )
+from fibsem.util.timestamps import to_datetime
 from fibsem.workflows import evidence
 
 __all__ = [
@@ -329,8 +330,28 @@ def build_app_router(context: Any) -> APIRouter:
         return {"items": context.recent_experiments()}
 
     @router.get("/experiment/all")
-    def saved_experiments():
-        return context.saved_experiments()
+    def saved_experiments(
+        instrument: Optional[str] = None,
+        operator: Optional[str] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+    ):
+        # instrument: serial or model; since/until: an ISO date or time.
+        bounds = {}
+        for name, value in (("since", since), ("until", until)):
+            if value is not None:
+                bounds[name] = to_datetime(value)
+                if bounds[name] is None:
+                    raise HTTPException(
+                        status_code=422,
+                        detail={
+                            "error_type": "invalid",
+                            "error": f"{name} is an ISO date or time, not {value!r}.",
+                        },
+                    )
+        return context.saved_experiments(
+            instrument=instrument, operator=operator, **bounds
+        )
 
     @router.get("/experiment/images")
     def display_images():

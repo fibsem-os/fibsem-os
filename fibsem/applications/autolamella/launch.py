@@ -13,7 +13,6 @@ import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella import experiment_setup
 from fibsem.applications.autolamella.server.context import AutoLamellaAppContext
 from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
-from fibsem.cli import _build_connection_parser
 from fibsem.server import headless
 from fibsem.workflows.experiment import EXPERIMENT_FILENAME
 
@@ -33,7 +32,7 @@ def _parser() -> argparse.ArgumentParser:
         prog="fibsem-autolamella-server",
         description="Serve an AutoLamella experiment over the App Server, "
         "with no window.",
-        parents=[_build_connection_parser()],
+        parents=[headless.connection_parser()],
     )
     parser.add_argument(
         "experiment",

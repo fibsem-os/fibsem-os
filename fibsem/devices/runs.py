@@ -85,6 +85,8 @@ class Run:
     # Set by a stop asked of it, which it takes as soon as it can: before it
     # starts milling, a stop has nothing else to set.
     stop: threading.Event = field(default_factory=threading.Event, repr=False)
+    # How many callers are in :meth:`Runs.wait` for it.
+    waiters: int = field(default=0, repr=False)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -193,9 +195,21 @@ class Runs:
     def wait(self, run_id: Optional[str], timeout: float) -> Optional[Run]:
         """The latest run, once it has ended or *timeout* seconds have passed.
         With a *run_id*, waits for that run only: a later one answers at once,
-        so a caller can tell its run was not the last."""
+        so a caller can tell its run was not the last. A run that ends while
+        someone waits for it says so on its ``command_ended`` (``waited``)."""
         with self._cond:
-            self._cond.wait_for(lambda: self._ended(run_id), timeout=max(0.0, timeout))
+            run = self._latest
+            if run is not None and run_id not in (None, run.run_id):
+                run = None
+            if run is not None:
+                run.waiters += 1
+            try:
+                self._cond.wait_for(
+                    lambda: self._ended(run_id), timeout=max(0.0, timeout)
+                )
+            finally:
+                if run is not None:
+                    run.waiters -= 1
             return self._latest
 
     def _ended(self, run_id: Optional[str]) -> bool:
@@ -243,15 +257,17 @@ class Runs:
         with self._cond:
             run.state, run.error = state, error
             run.ended_at = now_iso()
+            waited = run.waiters > 0
             self._cond.notify_all()
-        self._tell("command_ended", run)
+        self._tell("command_ended", run, waited=waited)
 
-    def _tell(self, kind: str, run: Run) -> None:
+    def _tell(self, kind: str, run: Run, **extra: Any) -> None:
         payload = {
             "run_id": run.run_id,
             "service": run.service,
             "command": run.command,
             "state": run.state,
+            **extra,
         }
         if run.error is not None:
             payload["error"] = run.error.get("message")

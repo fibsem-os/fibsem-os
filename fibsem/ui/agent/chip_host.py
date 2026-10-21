@@ -1,5 +1,6 @@
 """The agent on a window's status bar: its level chip and card, what it is
-doing on the microscope, and the previews of what its waiting request would do.
+doing on the microscope, and the session's pictures of what its waiting
+request would do.
 
 The window builds one and tells it the session's agent; the chip's clicks are
 handled here.
@@ -7,8 +8,7 @@ handled here.
 
 from __future__ import annotations
 
-import time
-from typing import Any, Callable, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 from PyQt5.QtCore import QObject, QTimer, pyqtSignal
 
@@ -16,10 +16,6 @@ from fibsem.ai.agent.levels import AgentLevel
 from fibsem.ui import notification_service
 from fibsem.ui.agent.activity import AgentActivity
 from fibsem.ui.agent.level_chip import AgentLevelChip, request_outcome
-from fibsem.ui.agent.previews import AgentPreviews
-
-# How often a waiting request the operator is looking at is read again.
-AGENT_REQUEST_REFRESH_S = 15.0
 
 
 class AgentChipHost(QObject):
@@ -37,12 +33,10 @@ class AgentChipHost(QObject):
         *,
         session: Callable[[], Any],
         view_controller: Callable[[], Any],
-        sources: Any,
         on_driving: Callable[[bool], None],
         parent: Optional[QObject] = None,
     ) -> None:
-        """*sources* reads what the previews draw (``PreviewSources``);
-        *on_driving* paints the agent's purple while it drives."""
+        """*on_driving* paints the agent's purple while it drives."""
         super().__init__(parent)
         self._session = session
         self._on_driving = on_driving
@@ -72,19 +66,9 @@ class AgentChipHost(QObject):
         self.activity.now_changed.connect(self.chip.set_now)
         self.activity.recent_changed.connect(self.chip.set_recent)
 
-        self.previews = AgentPreviews(
-            view_controller,
-            reference_image=sources.proposal_image,
-            task_config=sources.task_config,
-            show_picture=self._show_picture,
-            item_pose=sources.item_pose,
-            item_image=sources.item_image,
-            overview_image=sources.overview_image,
-            item_overview=sources.item_overview,
-            pending_proposal=sources.pending_proposal,
-        )
-        # A waiting request's lines, read again while the operator looks at it.
-        self._request_described: Tuple[Optional[str], float] = (None, 0.0)
+        # The pictures' versions the card shows, by kind.
+        self._pictures_shown: Dict[str, Optional[int]] = {}
+        self._picture_session = None
         self._experiment = None
         # The pending proposal the card's suggestion is on: (item id, task, id).
         self._suggested: Optional[Tuple[str, str, str]] = None
@@ -106,9 +90,9 @@ class AgentChipHost(QObject):
         agent = self._agent
         level = agent.level
         self._follow_requests()
+        self._show_pictures()
         if level is None:
             self.chip.set_request(None)
-            self.previews.show_request(None)
             self.chip.hide()
             self._on_driving(False)
             return
@@ -153,30 +137,42 @@ class AgentChipHost(QObject):
         if front is None:
             self._suggested = None
             self.chip.set_suggestion(None)
-            self.previews.show_suggestion(None)
             return
         item, task_name, proposal = front
         self._suggested = (item.id, task_name, proposal.id)
         self.chip.set_suggestion(
             suggestion_card(item, task_name, proposal, str(experiment.path))
         )
-        self.previews.show_suggestion(
-            suggestion_request(item, task_name, proposal, str(experiment.path))
-        )
 
-    def _show_picture(
-        self, image, caption: str = "", suggestion: bool = False, legend=()
-    ) -> None:
-        """The card's picture, and the same picture for the chat page."""
-        from fibsem.ui.agent.card import picture_png
+    def _show_pictures(self) -> None:
+        """The card shows the session's pictures (``AgentSession.picture``),
+        the chat page's too, each as it is drawn."""
+        from PyQt5.QtGui import QImage
 
-        self.chip.card.set_image(image, caption, suggestion=suggestion, legend=legend)
-        drawn = image is not None and not image.isNull()
-        self._agent.set_picture(
-            "suggestion" if suggestion else "request",
-            picture_png(image, legend) if drawn else None,
-            caption,
-        )
+        session = self._session()
+        if session is not self._picture_session:
+            self._picture_session = session
+            self._pictures_shown = {}
+
+            def drawn(signal=self.request_changed):
+                try:
+                    signal.emit()
+                except RuntimeError:  # the window has gone
+                    pass
+
+            session.agent.on_picture(drawn)
+        for kind in ("request", "suggestion"):
+            picture = self._agent.picture(kind)
+            version = picture["version"] if picture is not None else None
+            if self._pictures_shown.get(kind, -1) == version:
+                continue
+            self._pictures_shown[kind] = version
+            png = (picture or {}).get("png")
+            self.chip.card.set_image(
+                QImage.fromData(png, "PNG") if png else None,
+                (picture or {}).get("caption", ""),
+                suggestion=kind == "suggestion",
+            )
 
     def _on_approve_suggestion(self) -> None:
         """Approve on the card: the proposal is decided as suggested, as the
@@ -227,30 +223,10 @@ class AgentChipHost(QObject):
                     else None,
                 )
         current = agent.current()
-        if current is not None and current.status == "pending":
-            self._describe_request_again(agent.requests, current.id)
         shown = current.to_dict() if current is not None else None
         if shown != self.chip.request:
             self.chip.set_request(shown)
-        self.previews.show_request(shown)
         self.chip.set_now(self.activity.now)
-
-    def _describe_request_again(self, store, request_id: str) -> None:
-        """While the card shows a waiting request, its values now are read
-        again: on opening the card, and every
-        `AGENT_REQUEST_REFRESH_S` while it stays open. Off the GUI thread: it
-        reads the routes the request describes."""
-        if not (self.chip.popup.isVisible() or self.chip.floating):
-            self._request_described = (None, 0.0)
-            return
-        last_id, last_at = self._request_described
-        now = time.monotonic()
-        if last_id == request_id and now - last_at < AGENT_REQUEST_REFRESH_S:
-            return
-        self._request_described = (request_id, now)
-        from fibsem.ui.qt.threading import FunctionWorker
-
-        FunctionWorker(store.refresh, request_id).start()
 
     def _on_connect_agent(self) -> None:
         """From the card: the agent token and how to register the sidecar."""

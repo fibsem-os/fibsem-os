@@ -156,6 +156,12 @@ class VolumeExperiment(ProposalDecisions, BaseExperiment):
         self.save()
         return ""
 
+    def remove_task(self, task_name: str) -> None:
+        """Take a task out of the protocol and its plan. Task history stays:
+        it is the record of what ran."""
+        self.task_protocol.remove(task_name)
+        logging.info(f"Removed task {task_name} from experiment {self.name}")
+
     def slices_cut(self, position: VolumePosition) -> int:
         """How many slices ``position`` has cut: a per-slice task completed."""
         return len(

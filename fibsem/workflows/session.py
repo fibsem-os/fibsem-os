@@ -188,6 +188,7 @@ class AppSession:
         if microscope is self._microscope:
             return
         self._microscope = microscope
+        self.images.follow(microscope)
         self.changed.emit(MICROSCOPE)
 
     @property
@@ -319,9 +320,13 @@ class AppSession:
             self.app_server = hosting.AppServerHost(
                 self, app_context, serve_microscope=bool(self.serve_microscope)
             )
-        return self.app_server.start()
+        started = self.app_server.start()
+        if started:
+            self.agent.keep_pictures()
+        return started
 
     def stop_app_server(self) -> None:
+        self.agent.stop_pictures()
         if self.app_server is not None:
             self.app_server.stop()
 
