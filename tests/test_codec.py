@@ -118,6 +118,13 @@ def test_numpy_scalars_encode_as_plain_values():
     assert data["inner"]["x"] == 1.5 and type(data["inner"]["x"]) is float
 
 
+def test_a_bare_numpy_value_encodes_as_plain_data():
+    # A device parameter can answer one (an autofocus reading).
+    assert type(encode(np.float64(1.5))) is float
+    assert encode(np.bool_(True)) is True
+    assert encode(np.array([1, 2])) == [1, 2]
+
+
 @pytest.mark.parametrize("sent", ["ION", "ion", 2, "2", Beam.ION])
 def test_an_enum_reads_by_name_or_value(sent):
     assert decode(Inner, {"beam": sent}).beam is Beam.ION
