@@ -150,7 +150,8 @@ Its lines:
   why).
 - `MILL STAGE STARTED` and `MILL ENDED`: every mill, whoever started it (see
   *Milling*). `MILL READING`: a milling monitor triggered or failed (see
-  *Milling monitors*). `COMMAND ENDED`: a long command ended.
+  *Milling monitors*). `COMMAND ENDED`: a long command ended (not one
+  you were waiting for with `service_wait_for_run`: its answer has the end).
 - `AUTOFOCUS` and `ALIGNMENT`: every one, whoever ran it (a task's own
   included), with its check: `passed`, `unchecked`, or `doubtful (why)` (the
   working distance moved more than 0.1 mm or the best focus is at the sweep's

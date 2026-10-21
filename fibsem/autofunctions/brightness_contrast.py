@@ -299,10 +299,38 @@ class BrightnessContrastStepper:
         # the gain from the bulk, stays below it rather than climb back into the
         # clipping and oscillate.
         self._clipping_contrast = math.inf
+        # Brightnesses seen too dark and too bright at the contrast they were
+        # taken at: the next brightness at that contrast stays between them.
+        self._bracket: Optional[Tuple[float, float, float]] = None
 
     def next(self, controls: Sequence[float], stats: HistogramStats) -> np.ndarray:
         """The (brightness, contrast) to image at next, each 0 to 1."""
         x = np.array(controls, dtype=float)
+        new = self._propose(x, stats)
+        return self._within_bracket(x, stats, new)
+
+    def _within_bracket(
+        self, x: np.ndarray, stats: HistogramStats, new: np.ndarray
+    ) -> np.ndarray:
+        """*new*, its brightness kept strictly between the brightest image seen
+        too dark and the darkest seen too bright at this contrast. Without it a
+        detector more sensitive than assumed swings from black to white and back
+        (2026-10-19 run)."""
+        lo, hi, contrast = self._bracket or (0.0, 1.0, float(x[1]))
+        if abs(contrast - x[1]) > 1e-3:
+            lo, hi = 0.0, 1.0
+        off = stats.median - self.settings.target_centre
+        if problems(stats, self.settings) and abs(off) > 0.25:
+            if off < 0:
+                lo = max(lo, float(x[0]))
+            else:
+                hi = min(hi, float(x[0]))
+        self._bracket = (lo, hi, float(x[1]))
+        if abs(new[1] - x[1]) <= 1e-3 and not lo < new[0] < hi and hi - lo > 1e-3:
+            new = np.array([(lo + hi) / 2, new[1]])
+        return new
+
+    def _propose(self, x: np.ndarray, stats: HistogramStats) -> np.ndarray:
         s = self.settings
         previous, self._previous = self._previous, (x, stats)
         if previous is not None:
@@ -378,12 +406,31 @@ class BrightnessContrastStepper:
         dx = x1 - x0
         norm = float(dx @ dx)
         inside = all(max(st.black, st.white) < 0.45 for st in (before, after))
-        if norm < 1e-6 or not inside:
+        if norm < 1e-6:
             return
         row = self.response[0]
+        if not inside:
+            self._learn_flip(dx, before, after)
+            return
         learned = row + (after.median - before.median - row @ dx) * dx / norm
         if learned[0] > 0.05:
             self.response[0] = learned
+
+    def _learn_flip(
+        self, dx: np.ndarray, before: HistogramStats, after: HistogramStats
+    ) -> None:
+        """A brightness step that took the image from one side of the target to
+        the other with an end clipped: brightness moves the image at least this
+        much, as clipped medians understate the move. Without it, a detector more
+        sensitive than assumed swings from black to white and back (2026-10-19).
+        """
+        target = self.settings.target_centre
+        crossed = (before.median - target) * (after.median - target) < 0
+        db = float(dx[0])
+        if not crossed or abs(db) < 1e-3 or abs(dx[1]) > 1e-3:
+            return  # a contrast change moves the image too: not brightness's doing
+        moved = abs(after.median - before.median)
+        self.response[0, 0] = max(self.response[0, 0], moved / abs(db))
 
     # -- a histogram that is clipped: one control at a time -----------------------
 
