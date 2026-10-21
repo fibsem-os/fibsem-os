@@ -37,6 +37,7 @@ from fibsem.applications.autolamella.history_rows import (
     operation_facts,
     operations_need_a_look,
     operations_summary,
+    shown_images,
 )
 from fibsem.applications.autolamella.structures import Lamella
 from fibsem.applications.autolamella.ui.common.thumbnails import (
@@ -48,7 +49,6 @@ from fibsem.applications.autolamella.ui.common.thumbnails import (
 )
 from fibsem.cancellation import CANCELLED, COMPLETED, FAILED, SKIPPED
 from fibsem.config import load_user_preferences, update_user_preferences
-from fibsem.fm.preview import is_fluorescence_image
 from fibsem.imaging.drawing import draw_image_overlays
 from fibsem.imaging.export import ImageFields, image_caption, image_summary
 from fibsem.ui import stylesheets
@@ -82,7 +82,6 @@ _SPACING = 8
 # The runs stay as wide as a pair of thumbnails rather than spreading across a
 # wider panel, so a line's duration sits above the pictures it timed.
 _MAX_CONTENT_WIDTH = 2 * _MAX_THUMB_WIDTH + _SPACING + 2 * _MARGIN
-_MAX_IMAGES_PER_TASK = 2  # last 2 files = highest-res SEM + FIB
 _IMAGES_PER_LINE = 2  # tiles per line before wrapping; matches the SEM/FIB pair
 _CAPTION_STYLE = (
     f"color: {NEUTRAL_550}; font-family: {NUMBER_FONT}; font-size: 11px;"
@@ -658,12 +657,7 @@ class LamellaTaskImageWidget(QWidget):
 
         all_filepaths: List[str] = []
         for run in runs:
-            # cap the reference images *before* appending fluorescence: the cap picks
-            # the highest-magnification SEM/FIB pair out of a multi-FOV set, and
-            # applying it to a merged list would let a z-stack displace the FIB image.
-            finals = [p for p in run.images if not is_fluorescence_image(p)]
-            stacks = [p for p in run.images if is_fluorescence_image(p)]
-            filenames = finals[-_MAX_IMAGES_PER_TASK:] + stacks
+            filenames = shown_images(run)
             if flt.show == "operations":
                 filenames = []
             self._content_layout.addWidget(self._run_row(run, filenames, flt))

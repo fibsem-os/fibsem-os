@@ -25,6 +25,8 @@ from fibsem.applications.autolamella.history_rows import (
     operation_facts,
     operations_need_a_look,
     operations_summary,
+    run_record,
+    shown_images,
 )
 from fibsem.applications.autolamella.structures import (
     Experiment,
@@ -111,6 +113,20 @@ def test_a_real_run_reads_back_as_one_row_per_run_with_its_alignment(tmp_path):
     assert align.duration is not None and align.path and os.path.isdir(align.path)
     assert rough.images and all(os.path.isfile(p) for p in rough.images)
     assert rough.duration is not None and rough.duration >= align.duration
+
+    # the same run as plain data, files relative to the experiment folder
+    record = run_record(rough, str(exp.path))
+    assert record["status"] == "Completed" and record["task_name"] == ROUGH
+    assert record["images"] == [
+        os.path.relpath(p, exp.path) for p in shown_images(rough)
+    ]
+    assert record["operations_summary"] == operations_summary(rough)
+    assert record["operations_open"] is False
+    align_record, mill_record = record["operations"]
+    assert align_record["label"] == "Align" and align_record["facts"]
+    assert align_record["figure"] == os.path.relpath(align.plot, exp.path)
+    assert [s["name"] for s in mill_record["stages"]] == stages
+    assert all(s["drift"][0]["status"] == "completed" for s in mill_record["stages"])
 
 
 def test_a_task_run_twice_keeps_both_runs_images_in_their_own_folders(tmp_path):

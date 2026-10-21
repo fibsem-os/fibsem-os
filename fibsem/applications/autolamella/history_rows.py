@@ -32,6 +32,7 @@ from fibsem.applications.autolamella.task_outputs import (
     fluorescence_images,
 )
 from fibsem.cancellation import CANCELLED, COMPLETED, FAILED, SKIPPED
+from fibsem.fm.preview import is_fluorescence_image
 from fibsem.util.timestamps import to_datetime
 from fibsem.workflows.status import TaskState, TaskStatus
 
@@ -41,6 +42,9 @@ from fibsem.workflows.status import TaskState, TaskStatus
 OPERATION_KINDS = ("alignment", "autofocus", "fm_autofocus", "milling")
 
 _BEAM = {"ELECTRON": "SEM", "ION": "FIB"}
+
+# The final images a row shows: the last SEM and FIB.
+_SHOWN_PAIR = 2
 
 # The row holding a session's operations that ran outside any task.
 OUTSIDE_A_TASK = "Outside a task"
@@ -342,6 +346,15 @@ def _insert_by_start(rows: List[HistoryRun], row: HistoryRun) -> None:
 
 def _when(moment: Optional[datetime]) -> Optional[float]:
     return moment.timestamp() if moment is not None else None
+
+
+def shown_images(run: HistoryRun) -> List[str]:
+    """The images a run's row shows: the last SEM/FIB pair (the highest
+    magnification of a multi-FOV set), then its fluorescence stacks. The pair is
+    picked before the stacks are added, so a stack never displaces it."""
+    finals = [p for p in run.images if not is_fluorescence_image(p)]
+    stacks = [p for p in run.images if is_fluorescence_image(p)]
+    return finals[-_SHOWN_PAIR:] + stacks
 
 
 def operations_need_a_look(run: HistoryRun) -> bool:
@@ -809,3 +822,60 @@ def _mm(value: Any) -> str:
         return f"{float(value) * 1e3:.3f}"
     except (TypeError, ValueError):
         return "?"
+
+
+def run_record(run: HistoryRun, root: str) -> Dict[str, Any]:
+    """A run as plain data, for clients that are not the Qt tab: what its row,
+    folded line and opened operations say. Files are relative to ``root`` (the
+    experiment folder), so the experiment's files route serves them."""
+
+    def where(path: Optional[str]) -> Optional[str]:
+        return os.path.relpath(path, root) if path else None
+
+    def operation(op: HistoryOperation) -> Dict[str, Any]:
+        record = {
+            "kind": op.kind,
+            "label": op.label,
+            "status": op.status,
+            "detail": op.detail,
+            "started_at": _when(op.started_at),
+            "ended_at": _when(op.ended_at),
+            "facts": [list(fact) for fact in operation_facts(op)],
+            "figure": where(op.plot),
+            "stages": [],
+        }
+        if op.kind == "milling":
+            record["stages"] = [
+                {
+                    "name": stage.name,
+                    "text": stage.text,
+                    "strategy": stage.strategy,
+                    "said": stage.said,
+                    "figure": where(stage.figure),
+                    "monitors": [
+                        {"name": m.name, "said": m.said, "figure": where(m.figure)}
+                        for m in stage.monitors
+                    ],
+                    "drift": [operation(d) for d in stage.drift],
+                }
+                for stage in milling_stages(op)
+            ]
+        return record
+
+    return {
+        "task_id": run.task_id,
+        "task_name": run.task_name,
+        "task_type": run.task_type,
+        "status": run.status.name,
+        "status_message": run.status_message,
+        "started_at": _when(run.started_at),
+        "ended_at": _when(run.ended_at),
+        "duration": run.duration,
+        "images": [where(path) for path in shown_images(run)],
+        "images_replaced_by": run.images_replaced_by,
+        "outside_task": run.outside_task,
+        "decided_by": list(run.decided_by),
+        "operations_summary": operations_summary(run) if run.operations else "",
+        "operations_open": operations_need_a_look(run),
+        "operations": [operation(op) for op in run.operations],
+    }
