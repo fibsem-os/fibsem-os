@@ -4,7 +4,8 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { api } from "@/lib/api";
 import type { EvidenceAnswer } from "@/lib/types";
 
-const MARK = "#ffd34d";
+// The agent's purple, light enough to read on a grey overview.
+const MARK = "#a78bfa";
 
 /** Click to see it large. */
 function Enlargeable({ title, children }: { title: string; children: (big: boolean) => ReactNode }) {
@@ -39,12 +40,16 @@ export function EvidenceImage({ id }: { id: string }) {
   const w = p.full_width ?? p.width;
   const h = p.full_height ?? p.height;
   const marks = answer.data?.marks ?? {};
-  // Sized for the picture a few hundred pixels wide, with a dark halo so the
-  // marks read on a grey overview.
-  const r = Math.max(w / 50, 5);
-  const sw = Math.max(w / 150, 2);
-  const size = Math.max(w / 18, 12);
-  const halo = { stroke: "#000", strokeOpacity: 0.8, strokeWidth: sw * 2.2, fill: "none" };
+  // Thin marks sized for the picture a few hundred pixels wide; a faint halo keeps them clear of the image.
+  const r = Math.max(w / 60, 4);
+  const sw = Math.max(w / 320, 1.5);
+  const size = Math.max(w / 30, 10);
+  const halo = {
+    stroke: "#000",
+    strokeOpacity: 0.5,
+    strokeWidth: sw * 2,
+    fill: "none",
+  };
   const line = { stroke: MARK, strokeWidth: sw, fill: "none" };
   const label = (x: number, y: number, text?: string) =>
     text && (
@@ -52,11 +57,11 @@ export function EvidenceImage({ id }: { id: string }) {
         x={x}
         y={y}
         fill={MARK}
-        fontWeight="bold"
+        fontWeight={600}
         fontSize={size}
         stroke="#000"
-        strokeOpacity={0.8}
-        strokeWidth={w / 120}
+        strokeOpacity={0.5}
+        strokeWidth={sw * 1.5}
         strokeLinejoin="round"
         paintOrder="stroke"
       >
@@ -67,7 +72,11 @@ export function EvidenceImage({ id }: { id: string }) {
     <Enlargeable title="Evidence">
       {() => (
         <div className="relative">
-          <img className="block w-full rounded" alt="The image the agent judged from" src={`data:image/jpeg;base64,${p.image_b64_jpeg}`} />
+          <img
+            className="block w-full rounded"
+            alt="The image the agent judged from"
+            src={`data:image/jpeg;base64,${p.image_b64_jpeg}`}
+          />
           <svg className="absolute inset-0 h-full w-full" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
             {(marks.points ?? []).map((m, i) => (
               <g key={`p${i}`}>

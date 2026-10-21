@@ -29,7 +29,7 @@ async function download(entry: FileEntry) {
 }
 
 function Metadata() {
-  const { open, entry } = useOpenExperiment();
+  const { open, entry, loading } = useOpenExperiment();
   const caps = useQuery({ queryKey: ["capabilities"], queryFn: () => api<Capabilities>("/capabilities") });
   const history = useQuery({
     queryKey: ["app/experiment/task_history"],
@@ -42,6 +42,13 @@ function Metadata() {
     .sort();
   const last = ends.length ? ends[ends.length - 1] : null;
   if (!open) return null;
+  if (loading || caps.isPending || history.isPending)
+    return (
+      <Card className="flex flex-col gap-3">
+        <CardTitle>Experiment</CardTitle>
+        <div className="text-[13px] text-muted-foreground">Reading the experiment…</div>
+      </Card>
+    );
   const microscope = [entry?.instrument_model, entry?.instrument_serial].filter(Boolean).join(" · ");
   return (
     <Card className="flex flex-col gap-3">

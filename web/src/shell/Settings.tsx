@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Facts } from "@/components/ui/card";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { api } from "@/lib/api";
+import { api, forgetToken } from "@/lib/api";
 import type { Capabilities, Pairing } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -29,7 +29,11 @@ function Connections() {
   const act = useMutation({
     mutationFn: ({ method, path, body }: { method: string; path: string; body?: unknown }) =>
       api<Pairing>(path, { method, body: body === undefined ? undefined : JSON.stringify(body) }),
-    onSuccess: (answer) => client.setQueryData(["pairing"], answer),
+    onSuccess: (answer, { method, path }) => {
+      // Unpairing this browser ends its session now, not at its next refused call.
+      if (method === "DELETE" && path.endsWith(`/${encodeURIComponent(thisComputer() ?? "")}`)) forgetToken("unpaired");
+      else client.setQueryData(["pairing"], answer);
+    },
   });
   const [unpairing, setUnpairing] = useState<string | null>(null);
   const me = thisComputer();
@@ -94,7 +98,7 @@ function Connections() {
                 {computer.id === me && <span className="font-normal text-muted-foreground"> · this browser</span>}
               </span>
               <span className="text-xs text-muted-foreground">
-                Paired {new Date(computer.paired_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
+                Paired {new Date(computer.paired_at * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
               </span>
             </span>
             <span className="text-[13px]">{computer.role === "agent" ? "Agent" : "Operator"}</span>

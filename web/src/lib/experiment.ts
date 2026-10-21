@@ -14,5 +14,5 @@ export function useOpenExperiment() {
   });
   const open = status.data?.experiment ?? null;
   const entry = open ? recent.data?.items.find((e) => folderOf(e.path) === open.path) : undefined;
-  return { status, open, entry };
+  return { status, open, entry, loading: status.isPending || (!!open && recent.isPending) };
 }

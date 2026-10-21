@@ -54,7 +54,11 @@ export function setToken(value: string, kind: "paired" | "operator") {
   listeners.forEach((listener) => listener());
 }
 
-export function forgetToken() {
+/** Why the token was last forgotten: refused by the server, or unpaired here. */
+export let forgotten: "refused" | "unpaired" = "refused";
+
+export function forgetToken(why: typeof forgotten = "refused") {
+  forgotten = why;
   token = null;
   for (const store of [() => sessionStorage, () => localStorage]) {
     try {
