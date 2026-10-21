@@ -12,7 +12,8 @@ it would block the agent from acting on what it prints.
 
 The lines: ``PROMPT``, ``ANSWERED``, ``PROMPT WITHDRAWN``, ``PROPOSAL``,
 ``PROPOSAL RELEASED``, ``REQUEST`` (the agent's request decided, finished or
-cancelled, FIB-1283), ``COMMAND ENDED``, ``MILL STAGE STARTED`` and
+cancelled, FIB-1283), ``COMMAND ENDED`` (unless a caller was waiting for it
+with ``service_wait_for_run``, so has the end), ``MILL STAGE STARTED`` and
 ``MILL ENDED`` (every mill, whoever started it), ``MILL READING`` (a milling
 monitor's trigger or error), ``AUTOFOCUS`` and ``ALIGNMENT`` (every one, with
 its check: passed, doubtful and why, or unchecked), task ``EVENT`` lines,
@@ -147,6 +148,8 @@ def _print_events(events, since, out):
             out(f"SUGGESTION APPROVED{_item_of(data)} task={data.get('task')}")
         elif kind in ("request_decided", "request_finished", "request_cancelled"):
             out(_request_line(kind, data))
+        elif kind == "command_ended" and data.get("waited"):
+            pass  # a caller waiting for it (service_wait_for_run) has the end
         elif kind == "command_ended":
             # A long command the agent started (a mill, a spot burn) ended.
             line = (

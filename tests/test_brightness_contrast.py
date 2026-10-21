@@ -64,7 +64,8 @@ class _Detector:
     brightness. The scene: textured grey, a dark trench outlined by thin bright
     edges, and two bright 15 px spots."""
 
-    def __init__(self, seed=0):
+    def __init__(self, seed=0, sensitivity=2.0):
+        self.sensitivity = sensitivity
         rng = np.random.default_rng(seed)
         scene = 0.45 + 0.06 * rng.standard_normal((128, 192))
         scene[40:90, 60:130] = 0.25
@@ -76,7 +77,7 @@ class _Detector:
 
     def image(self, brightness, contrast):
         signal = np.exp(8 * (contrast - 0.5)) * (self.scene - 0.3)
-        return _uint8(signal + 0.5 + 2 * (brightness - 0.5) + self.noise)
+        return _uint8(signal + 0.5 + self.sensitivity * (brightness - 0.5) + self.noise)
 
 
 @pytest.mark.parametrize(
@@ -86,6 +87,21 @@ class _Detector:
 )
 def test_the_stepper_reaches_a_good_image_within_its_images(start):
     detector = _Detector()
+    stepper = BrightnessContrastStepper(SETTINGS)
+    x = np.array(start)
+    for n in range(1, SETTINGS.max_images + 1):
+        stats = measure(detector.image(*x))
+        if not problems(stats, SETTINGS):
+            break
+        x = stepper.next(x, stats)
+    assert problems(stats, SETTINGS) == [], (start, n, stats)
+
+
+@pytest.mark.parametrize("start", [(0.95, 0.5), (0.5, 0.8), (0.2, 0.25), (0.6, 0.5)])
+def test_a_detector_more_sensitive_than_assumed_does_not_swing(start):
+    """2026-10-19 run: black, saturated, black... for all six images. Here the
+    brightness moves the image 2.5x more than the stepper first assumes."""
+    detector = _Detector(sensitivity=5.0)
     stepper = BrightnessContrastStepper(SETTINGS)
     x = np.array(start)
     for n in range(1, SETTINGS.max_images + 1):
