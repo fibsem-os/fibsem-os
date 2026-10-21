@@ -307,7 +307,8 @@ def saved(
     ``required``: fields whose key must be present, though a new instance has a
     default (a point read with no ``y`` is a mistake, not the origin).
 
-    The rules hold wherever the class is decoded, on its own or inside another.
+    The rules hold wherever the class is decoded, on its own or inside another,
+    and its JSON schema names the saved keys and, as read, the required ones.
     Old file shapes are not for this: those belong to the reader for the file.
     """
     keys = dict(keys or {})
@@ -340,12 +341,29 @@ def saved(
                 data[key] = data.pop(name)
         return data
 
+    def json_schema(schema: Any, handler: Any) -> Any:
+        found = handler(schema)
+        written = handler.resolve_ref_schema(found)
+        if "properties" in written:
+            written["properties"] = {
+                keys.get(name, name): prop
+                for name, prop in written["properties"].items()
+            }
+        needed = [keys.get(name, name) for name in written.get("required", [])]
+        if handler.mode == "validation":
+            needed += [keys.get(n, n) for n in required if keys.get(n, n) not in needed]
+        if needed:
+            written["required"] = needed
+        return found
+
     def apply(cls: type) -> type:
         previous = getattr(cls, "__get_pydantic_core_schema__", None)
 
         def schema(owner: type, source: Any, handler: Any) -> Any:
             inner = previous(source, handler) if previous else handler(source)
-            outer = core_schema.no_info_before_validator_function(before, inner)
+            outer = core_schema.no_info_before_validator_function(
+                before, inner, metadata={"pydantic_js_functions": [json_schema]}
+            )
             if keys:
                 outer["serialization"] = (
                     core_schema.wrap_serializer_function_ser_schema(write, schema=inner)

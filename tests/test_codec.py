@@ -310,3 +310,10 @@ def test_an_array_and_a_timestamp_have_json_types():
 
 def test_a_field_not_saved_is_left_out_of_the_written_schema():
     assert "scratch" not in _schema(Plan, "serialization")["properties"]
+
+
+def test_a_saved_class_schema_names_its_saved_keys():
+    for mode in ("validation", "serialization"):
+        props = _schema(Saved, mode)["properties"]
+        assert "image" in props and "image_settings" not in props
+    assert set(_schema(Required, "validation")["required"]) == {"x", "y"}
