@@ -393,11 +393,48 @@ class TaskProtocol:
         config.requires = [n for n in others if n in requires]
         return ""
 
+    def set_requirements(
+        self,
+        task_name: str,
+        requires: Optional[List[str]] = None,
+        required: Optional[bool] = None,
+    ) -> str:
+        """Set the tasks *task_name* requires and whether the plan requires it;
+        None leaves either as it is. Why not, with nothing changed, or ""."""
+        plan = self.workflow_config.get(task_name)
+        if plan is None or task_name not in self.task_config:
+            return f"No {self.NOUN} named {task_name!r} in the workflow."
+        if requires is not None:
+            why = self.set_requires(task_name, list(requires))
+            if why:
+                return why
+        if required is not None:
+            plan.required = bool(required)
+        return ""
+
     def requirements(self, task_name: str) -> List[str]:
         """The tasks ``task_name`` requires on the same item; none for a task
         the protocol does not have."""
         config = self.task_config.get(task_name)
         return list(config.requires) if config is not None else []
+
+    def get_attention(self, task_name: str) -> Attention:
+        """Who decides the task's record, and when; automated for a task the
+        plan does not list."""
+        config = self.task_config.get(task_name)
+        if config is None or self.workflow_config.get(task_name) is None:
+            return Attention.automated
+        return config.attention
+
+    def set_attention(self, task_name: str, attention: Attention) -> str:
+        """Set who decides *task_name*'s record. Why not, with nothing
+        changed, or "". The status bar's and the task row's chips, and the App
+        Server's supervision."""
+        config = self.task_config.get(task_name)
+        if config is None or self.workflow_config.get(task_name) is None:
+            return f"No {self.NOUN} named {task_name!r} in the workflow."
+        config.attention = Attention(attention)
+        return ""
 
     @property
     def ordered_task_names(self) -> List[str]:

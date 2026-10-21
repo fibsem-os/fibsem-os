@@ -135,15 +135,95 @@ def test_a_removed_position_leaves_the_experiment(agent, experiment):
     assert agent.delete("/app/experiment/items/aspen").status_code == 404
 
 
-def test_what_volume_does_not_serve_yet_says_so(agent):
-    answer = _ok(
+MILL, IMAGE = "Volume FIB Milling", "Volume SEM Acquisition"
+
+
+def _saved_protocol(experiment):
+    return VolumeExperiment.load(experiment.path).task_protocol
+
+
+def test_supervision_schedule_and_requirements_are_saved_with_the_protocol(
+    agent, experiment
+):
+    _ok(
         agent.post(
             "/app/experiment/protocol/supervision",
-            json={"task_name": "Volume FIB Milling", "supervise": True},
+            json={"task_name": MILL, "supervise": True},
         )
     )
-    assert answer["applied"] is False
-    assert "Volume does not" in answer["error"]
+    _ok(
+        agent.post(
+            "/app/workflow/schedule",
+            json={"task_name": MILL, "scheduled_at": "2026-10-21T06:00:00"},
+        )
+    )
+    _ok(
+        agent.post(
+            f"/app/experiment/protocol/tasks/{IMAGE}/requirements",
+            json={"requires": [], "required": False},
+        )
+    )
+
+    saved = _saved_protocol(experiment)
+    assert saved.get_attention(MILL) is Attention.supervised
+    assert saved.workflow_config.get(MILL).scheduled_at is not None
+    assert saved.requirements(IMAGE) == []
+    assert saved.workflow_config.get(IMAGE).required is False
+    missing = agent.post(
+        "/app/experiment/protocol/supervision",
+        json={"task_name": "Nope", "supervise": True},
+    )
+    assert _ok(missing)["applied"] is False
+
+
+def test_tasks_are_reordered_and_removed(agent, experiment):
+    order = [t["name"] for t in _ok(agent.get("/app/experiment/protocol"))["tasks"]]
+    swapped = [order[1], order[0], *order[2:]]
+
+    _ok(agent.post("/app/experiment/protocol/tasks/reorder", json={"order": swapped}))
+    _ok(agent.delete(f"/app/experiment/protocol/tasks/{IMAGE}"))
+
+    saved = _saved_protocol(experiment)
+    assert saved.ordered_task_names == swapped[:3]
+    assert (
+        agent.post(
+            "/app/experiment/protocol/tasks/reorder", json={"order": swapped[:2]}
+        ).status_code
+        == 422
+    )
+    assert agent.delete(f"/app/experiment/protocol/tasks/{IMAGE}").status_code == 404
+
+
+def test_a_task_config_patch_names_the_version_it_read(agent, experiment):
+    path = f"/app/experiment/protocol/task_config/{IMAGE}"
+    read = _ok(agent.get(path))
+    assert read["config"]["autofocus_every"] == 0
+
+    patched = _ok(
+        agent.post(
+            path, json={"patch": {"autofocus_every": 5}, "version": read["version"]}
+        )
+    )
+
+    assert patched["changes"] == [{"path": "autofocus_every", "old": 0, "new": 5}]
+    assert _saved_protocol(experiment).task_config[IMAGE].autofocus_every == 5
+    stale = agent.post(
+        path, json={"patch": {"autofocus_every": 6}, "version": read["version"]}
+    )
+    assert stale.status_code == 409
+    supervision = agent.post(
+        path, json={"patch": {"attention": "automated"}, "version": patched["version"]}
+    )
+    assert supervision.status_code == 422
+
+
+def test_what_volume_does_not_serve_yet_says_so(agent):
+    answer = agent.post(
+        "/app/experiment/protocol/tasks",
+        json={"task_type": "VOLUME_MILLING", "task_name": "again"},
+    )
+    assert answer.status_code == 422
+    assert "Volume does not" in answer.json()["detail"]["message"]
 
 
 def test_an_agent_runs_a_position_from_set_up_to_its_last_slice(
