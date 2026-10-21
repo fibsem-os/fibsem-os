@@ -104,6 +104,32 @@ def test_run_autofocus_finds_best_z():
     assert abs(result.working_distance - best_z) <= DEFAULT_Z_PARAMS.zstep
 
 
+def test_a_flat_sweep_finds_no_focus_and_puts_the_objective_back():
+    """FIB-1519: flat scores (139.0 to 139.25) answered completed and left the
+    objective at the noisiest frame, 2 mm from focus."""
+    m = _mock_fm(initial_z=5e-6)
+    scores = iter([139.0, 139.25, 139.1, 139.2] * 10)
+    with patch(
+        "fibsem.fm.calibration.calculate_focus_quality",
+        side_effect=lambda arr, method: next(scores),
+    ):
+        result = run_autofocus(m, z_parameters=DEFAULT_Z_PARAMS)
+    assert result.found is False
+    assert result.working_distance == pytest.approx(5e-6)
+    assert m.objective.position == pytest.approx(5e-6)
+    assert result.to_dict()["found"] is False
+
+
+def test_a_sweep_with_a_peak_is_found():
+    m = _mock_fm(best_z=0.0, initial_z=5e-6)
+    with patch(
+        "fibsem.fm.calibration.calculate_focus_quality",
+        side_effect=lambda arr, method: float(np.mean(arr)),
+    ):
+        result = run_autofocus(m, z_parameters=DEFAULT_Z_PARAMS)
+    assert result.found is True
+
+
 def test_run_autofocus_result_fields_populated():
     m = _mock_fm(best_z=0.0)
     with patch(
@@ -235,6 +261,21 @@ def test_run_coarse_fine_returns_result():
     ):
         result = run_coarse_fine_autofocus(m, _af_settings())
     assert isinstance(result, AutoFocusResult)
+
+
+def test_a_flat_coarse_pass_skips_the_fine_one_and_records_no_focus():
+    m = _mock_fm(initial_z=8e-6)
+    with patch(
+        "fibsem.fm.calibration.calculate_focus_quality",
+        side_effect=lambda arr, method: 139.0,
+    ):
+        result = run_coarse_fine_autofocus(m, _af_settings())
+    assert result.found is False
+    assert {it.pass_index for it in result.iterations} == {0}
+    assert m.objective.position == pytest.approx(8e-6)
+    kind, payload = m.parent.record_event.call_args.args
+    assert kind == "fm_autofocus"
+    assert payload["status"] == "failed" and "no focus" in payload["error"]
 
 
 def test_run_coarse_fine_improves_over_single_pass():

@@ -225,3 +225,23 @@ def test_check_patch_refuses_as_apply_does_and_sets_nothing(config):
     assert config.milling["mill_rough"].stages[0].pattern.depth == before
     with pytest.raises(PatchError, match="not used"):
         check_patch(config, {"milling.mill_rough.alignment.interval": 5.0})
+
+
+def test_a_list_of_settings_is_set_whole():
+    """FIB-1522: an Acquire Fluorescence Image task added by the agent had no
+    channels, and neither the whole list nor channel_settings.0.* could set one."""
+    from fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence import (
+        AcquireFluorescenceImageConfig,
+    )
+    from fibsem.fm.structures import ChannelSettings
+
+    config = AcquireFluorescenceImageConfig()
+    gfp = ChannelSettings(name="GFP", excitation_wavelength=450, exposure_time=0.1)
+    ((path, old, new),) = apply_patch(config, {"channel_settings": [gfp.to_dict()]})
+    assert (path, old) == ("channel_settings", [])
+    assert config.channel_settings == [gfp] and new == [gfp]
+    apply_patch(config, {"channel_settings.0.power": 0.2})
+    assert config.channel_settings[0].power == 0.2
+    with pytest.raises(PatchError, match="not a list of ChannelSettings"):
+        apply_patch(config, {"channel_settings": [{"exposure_time": "long"}]})
+    assert config.channel_settings[0].power == 0.2

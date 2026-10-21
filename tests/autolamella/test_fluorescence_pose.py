@@ -151,7 +151,9 @@ def test_acquire_fluorescence_persists_autofocus_result(
     # stub the heavy work: autofocus returns a known result, image acquisition is a no-op.
     # working_distance mirrors the real AutoFocusResult field the task reads.
     monkeypatch.setattr(
-        task, "_run_autofocus", lambda: types.SimpleNamespace(working_distance=refined)
+        task,
+        "_run_autofocus",
+        lambda: types.SimpleNamespace(working_distance=refined, found=True),
     )
     monkeypatch.setattr(af, "acquire_image", lambda **kwargs: None)
 
@@ -161,7 +163,7 @@ def test_acquire_fluorescence_persists_autofocus_result(
 
 
 def test_the_autofocus_saves_under_the_task_s_folder_and_records_where(
-    fm_microscope: FibsemMicroscope, tmp_path: Path
+    fm_microscope: FibsemMicroscope, tmp_path: Path, monkeypatch
 ) -> None:
     """The sweep saves its result itself, so its ``fm_autofocus`` event says where
     and the History tab can open it (FIB-1257). The task used to save it
@@ -187,6 +189,8 @@ def test_the_autofocus_saves_under_the_task_s_folder_and_records_where(
     fm_microscope.session.record_signal.connect(
         lambda kind, payload: events.append(payload) if kind == "fm_autofocus" else None
     )
+    # the sim's frames score flat, which finds no focus (FIB-1519)
+    monkeypatch.setattr("fibsem.fm.calibration.has_peak", lambda scores: True)
 
     result = task._run_autofocus()
 
