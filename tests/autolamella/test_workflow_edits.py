@@ -10,13 +10,13 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.workflow_edits import (
-    WORKFLOW_CHANGED,
-    set_supervision,
-)
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.session import AppSession
 from fibsem.workflows.task_config import SCHEDULE_DAYS_AHEAD
+from fibsem.workflows.workflow_edits import (
+    WORKFLOW_CHANGED,
+    set_supervision,
+)
 from tests.protocols import planned, task_protocol
 
 
@@ -89,7 +89,7 @@ def test_the_agent_and_the_status_bar_chip_set_supervision_alike(
     import fibsem
 
     calls = []
-    import fibsem.applications.autolamella.workflow_edits as edits
+    import fibsem.workflows.workflow_edits as edits
 
     real = edits.set_supervision
     monkeypatch.setattr(

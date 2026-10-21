@@ -20,19 +20,24 @@ from fibsem.server.discovery import DISCOVERY_DIR
 OPERATOR_TOKEN_FILE = DISCOVERY_DIR / "operator-token.json"
 
 
-def load_operator_token(path: Optional[Path] = None) -> str:
-    """The install's operator token, made and saved the first time."""
+def read_operator_token(path: Optional[Path] = None) -> Optional[str]:
+    """The install's operator token, or None when none has been made (or the
+    file is unreadable). Never makes one: for a client on this machine."""
     path = Path(path) if path is not None else OPERATOR_TOKEN_FILE
     try:
         with open(path) as f:
             token = json.load(f).get("token")
-        if isinstance(token, str) and token:
-            return token
     except FileNotFoundError:
-        pass
+        return None
     except (OSError, ValueError, AttributeError):
-        logging.warning("Operator token file %s unreadable; making a new one", path)
-    return new_operator_token(path)
+        logging.warning("Operator token file %s unreadable", path)
+        return None
+    return token if isinstance(token, str) and token else None
+
+
+def load_operator_token(path: Optional[Path] = None) -> str:
+    """The install's operator token, made and saved the first time."""
+    return read_operator_token(path) or new_operator_token(path)
 
 
 def new_operator_token(path: Optional[Path] = None) -> str:

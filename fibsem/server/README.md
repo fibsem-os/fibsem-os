@@ -53,6 +53,9 @@ To connect from another computer: open an SSH tunnel to the App Server port
 `RemoteMicroscope.connect("http://localhost:8001", token)`, or set
 `FIBSEM_SERVER_URL` and `FIBSEM_SERVER_TOKEN`. The remote computer keeps no copy;
 "New operator token" revokes it.
+`fibsem-cli` is such a client: on the PC it finds the App Server and reads the
+operator token itself (`resolve_operator`); elsewhere it takes `--url` and
+`--token`, or `FIBSEM_SERVER_URL` and `FIBSEM_OPERATOR_TOKEN`.
 A long service command (marked `long: true` in the listing: milling's `run`,
 `run_task` and `run_stage`; imaging's `acquire_focus_stack`, `acquire_overview`,
 `fm_auto_focus`, `fm_acquire_image` and `fm_acquire_overview`; alignment's

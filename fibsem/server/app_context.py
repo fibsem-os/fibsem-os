@@ -9,6 +9,7 @@ and adds what its own experiment and protocol need.
 
 import logging
 import os
+from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
 from fibsem.acting import Actor
@@ -18,7 +19,13 @@ from fibsem.util.records import dataframe_records
 from fibsem.util.timestamps import to_iso, wall_time_of
 from fibsem.workflows.actions import NOTE, note_record
 from fibsem.workflows.evidence import EVIDENCE, frame_path
+from fibsem.workflows.experiments import (
+    default_experiment_directory,
+    discover_experiments,
+    filter_experiments,
+)
 from fibsem.workflows.runner import ITEMS, RunRequest
+from fibsem.workflows.session import CONFIG, PROTOCOL
 from fibsem.workflows.status import TaskStatus
 
 __all__ = ["AppContext", "content_hash", "find_item", "item_pose_positions"]
@@ -80,33 +87,11 @@ class AppContext:
         experiment = self._experiment
         return str(experiment.path) if experiment is not None else None
 
-    def _experiments_folder(self) -> Optional[str]:
-        """Where this app's experiments are saved, or None where it has none."""
-        return None
-
-    def _under_experiments_folder(self, path: str) -> Optional[str]:
-        """*path* (relative to the experiments folder, or absolute) when it is
-        inside that folder, links followed; else None."""
-        import os
-
-        folder = self._experiments_folder()
-        if folder is None:
-            return None
-        folder = os.path.realpath(folder)
-        target = os.path.realpath(os.path.join(folder, path))
-        try:
-            inside = os.path.commonpath([target, folder]) == folder
-        except ValueError:  # another drive
-            return None
-        return target if inside and target != folder else None
-
     def experiment_root(self, experiment: Optional[str] = None) -> Optional[str]:
         """The folder an experiment's files are read from: the open one's, or
         *experiment*, a past one by its path from the recents or the
         experiments folder (its folder or experiment.yaml). Raises
         ``FileRefusal`` for any other."""
-        import os
-
         from fibsem.server.files import FileRefusal
 
         if experiment is None:
@@ -482,17 +467,43 @@ class AppContext:
 
     # --- discovery --------------------------------------------------------------
 
-    @staticmethod
-    def experiment_entry(summary) -> Dict[str, Any]:
-        """One experiment in a listing, from its ``ExperimentSummary``."""
+    def _experiments_folder(self) -> str:
+        """Where experiments are created and found: the session's folder, else
+        the default experiments folder."""
+        return self._session.experiments_folder or default_experiment_directory()
+
+    def _under_experiments_folder(self, path: str) -> Optional[str]:
+        """*path* (relative to the experiments folder, or absolute) when it is
+        inside that folder, links followed; else None."""
+        folder = os.path.realpath(self._experiments_folder())
+        target = os.path.realpath(os.path.join(folder, path))
+        try:
+            inside = os.path.commonpath([target, folder]) == folder
+        except ValueError:  # another drive
+            return None
+        return target if inside and target != folder else None
+
+    def experiment_entry(self, summary) -> Dict[str, Any]:
+        """One experiment in a listing, from its ``ExperimentSummary``.
+        ``relative_path`` is its folder relative to the experiments folder, as
+        loads and reads take it; None for one outside that folder."""
+        folder = os.path.dirname(summary.path)
+        relative = None
+        if self._under_experiments_folder(folder) is not None:
+            relative = os.path.relpath(
+                os.path.realpath(folder), os.path.realpath(self._experiments_folder())
+            ).replace(os.sep, "/")
         return {
             "name": summary.name,
             "path": summary.path,
+            "relative_path": relative,
             "app": summary.app,
             "created_at": to_iso(summary.created_at),
             "num_items": summary.num_lamella,
             "available": summary.available,
             "instrument_model": summary.instrument_model,
+            "instrument_serial": summary.instrument_serial,
+            "operator": summary.operator,
             "software_version": summary.software_version,
         }
 
@@ -501,6 +512,25 @@ class AppContext:
         from fibsem.config import get_recent_experiments
 
         return [self.experiment_entry(s) for s in get_recent_experiments()]
+
+    def saved_experiments(
+        self,
+        instrument: Optional[str] = None,
+        operator: Optional[str] = None,
+        since: Optional[datetime] = None,
+        until: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """Every experiment under the experiments folder, newest first, narrowed
+        by `filter_experiments` (each filter left None does not narrow)."""
+        folder = self._experiments_folder()
+        found = filter_experiments(
+            discover_experiments(folder),
+            instrument=instrument,
+            operator=operator,
+            since=since,
+            until=until,
+        )
+        return {"folder": folder, "items": [self.experiment_entry(s) for s in found]}
 
     def _not_while_running(self, what: str) -> Optional[Dict[str, Any]]:
         """The refusal while a workflow runs (*what* to do when it has
@@ -955,4 +985,284 @@ class AppContext:
             "task_name": task_name,
             "action": action,
             "queue_version": edit.version,
+        }
+
+    # --- the protocol: its tasks, their order, requirements, schedule and
+    # supervision, and each task's settings. Saved with the protocol at once.
+
+    def protocol_task_config(self, task_name: str) -> Dict[str, Any]:
+        """One task's protocol-level defaults document — what new items copy."""
+        experiment = self._experiment
+        protocol = getattr(experiment, "task_protocol", None) if experiment else None
+        config_map = getattr(protocol, "task_config", None) if protocol else None
+        if config_map is None:
+            return {"available": False, "task_name": task_name}
+        config = dict(config_map).get(task_name)
+        if config is None:
+            return {
+                "available": True,
+                "task_name": task_name,
+                "error": f"No task named {task_name!r} in the protocol.",
+                "task_names": list(config_map.keys()),
+            }
+        return self._config_document(task_name, config, level="protocol")
+
+    @staticmethod
+    def _config_document(task_name: str, config, level: str) -> Dict[str, Any]:
+        """One config as a wire document with its version token: the full
+        ``to_dict``, the contract for editing (you cannot patch what you
+        cannot read)."""
+        from fibsem.server.task_configs import config_version
+        from fibsem.workflows.events import to_plain
+
+        return {
+            "available": True,
+            "task_name": task_name,
+            "level": level,
+            "version": config_version(config),
+            "config": to_plain(config.to_dict()),
+        }
+
+    def apply_protocol_task_config_patch(
+        self,
+        task_name: str,
+        patch: Dict[str, Any],
+        version: str,
+        timeout: float = 10.0,
+    ) -> Dict[str, Any]:
+        """Patch a task's protocol-level settings, what each run of it reads,
+        when *version* names the state the patch was written against."""
+        from fibsem.server.task_configs import patch_config
+
+        session = self._session
+
+        def edit():
+            experiment = session.experiment
+            protocol = getattr(experiment, "task_protocol", None)
+            config_map = getattr(protocol, "task_config", None)
+            if config_map is None:
+                return {"applied": False, "error": "no protocol is loaded"}
+            config = dict(config_map).get(task_name)
+            if config is None:
+                return {
+                    "applied": False,
+                    "error": f"No task named {task_name!r} in the protocol.",
+                    "task_names": list(config_map.keys()),
+                }
+            result = patch_config(config, dict(patch), str(version))
+            if result["applied"]:
+                result["saved"] = self._save_protocol(experiment)
+                result["task_name"] = task_name
+                session.changed.emit(
+                    CONFIG,
+                    {
+                        "level": "protocol",
+                        "item_name": "",
+                        "task_name": task_name,
+                        "result": result,
+                    },
+                )
+            return result
+
+        result = self._agent_call(edit, timeout)
+        result["available"] = True
+        return result
+
+    def set_supervision(self, task_name: str, supervise: bool) -> Dict[str, Any]:
+        """Set whether ``task_name`` asks for supervision
+        (``workflow_edits.set_supervision``), as the window's chips do."""
+        from fibsem.workflows.workflow_edits import set_supervision
+
+        experiment = self._experiment
+        if experiment is None or experiment.task_protocol is None:
+            return {"available": False, "applied": False}
+        return {
+            "available": True,
+            **set_supervision(experiment, task_name, supervise, self.record_event),
+        }
+
+    def set_task_schedule(
+        self, task_name: str, scheduled_at: Optional[str]
+    ) -> Dict[str, Any]:
+        """Set (or clear) when ``task_name`` may start, in the live workflow,
+        as the Workflow tab's Edit Task does
+        (``RunPlan.set_schedule``): up to two days ahead.
+
+        The workflow reads the schedule at each task start (never a snapshot),
+        so a change takes effect at the next start, and like ``set_supervision``
+        it is saved at once.
+
+        ``scheduled_at`` is ISO-8601 (naive = local time; an offset is
+        normalized by the workflow) or ``None`` to clear.
+        """
+        from fibsem.workflows.workflow_edits import (
+            save_workflow_change,
+        )
+
+        parsed = None
+        if scheduled_at is not None:
+            try:
+                parsed = datetime.fromisoformat(scheduled_at)
+            except ValueError:
+                return {
+                    "available": True,
+                    "applied": False,
+                    "invalid_value": f"{scheduled_at!r} is not an ISO-8601 "
+                    "timestamp (e.g. '2026-09-04T06:00:00'); null clears "
+                    "the schedule.",
+                }
+        experiment = self._experiment
+        if experiment is None or experiment.task_protocol is None:
+            return {"available": False, "applied": False}
+        config = experiment.task_protocol.workflow_config
+        why = config.set_schedule(task_name, parsed)
+        if why:
+            return {
+                "available": True,
+                "applied": False,
+                "error": why,
+                "task_names": config.workflow,
+            }
+        iso = parsed.isoformat() if parsed else None
+        saved = save_workflow_change(
+            experiment,
+            {"field": "scheduled_at", "task_name": task_name, "scheduled_at": iso},
+            self.record_event,
+        )
+        return {
+            "available": True,
+            "applied": True,
+            "saved": saved,
+            "task_name": task_name,
+            "scheduled_at": iso,
+        }
+
+    def _workflow_edit(self, what: str):
+        """The experiment and its workflow config for an edit, or a refusal."""
+        experiment = self._experiment
+        protocol = getattr(experiment, "task_protocol", None) if experiment else None
+        if protocol is None:
+            return (
+                None,
+                None,
+                {"error_type": "not_found", "error": "No experiment is loaded."},
+            )
+        refusal = self._not_while_running(what)
+        if refusal:
+            return None, None, refusal
+        return experiment, protocol.workflow_config, None
+
+    def _protocol_changed(self, experiment, change: Dict[str, Any]) -> bool:
+        """Save the protocol after an edit, say it changed, so no editor writes
+        back a list it drew before the change, and put it on the record.
+        Whether it saved."""
+        saved = self._save_protocol(experiment)
+        self._session.changed.emit(PROTOCOL)
+        self.record_event("workflow_changed", change)
+        return saved
+
+    @staticmethod
+    def _save_protocol(experiment) -> bool:
+        """Save the experiment with its protocol; whether it saved. A failed
+        save leaves the change in memory."""
+        try:
+            experiment.save(save_protocol=True)
+        except Exception:
+            logging.exception("save after a protocol change failed; applied in memory")
+            return False
+        return True
+
+    def remove_task(self, task_name: str) -> Dict[str, Any]:
+        """Remove a task from the protocol and the workflow
+        (``experiment.remove_task``), as the protocol editor's Remove does.
+        Task history stays: it is the record of what ran."""
+        experiment, config, refusal = self._workflow_edit("remove tasks")
+        if refusal:
+            return refusal
+        if task_name not in experiment.task_protocol.task_config:
+            return {
+                "error_type": "not_found",
+                "error": f"No task named {task_name!r} in the protocol.",
+                "task_names": list(experiment.task_protocol.task_config),
+            }
+
+        def remove():
+            experiment.remove_task(task_name)
+            return self._protocol_changed(
+                experiment, {"field": "tasks", "removed": task_name}
+            )
+
+        saved = self._agent_call(remove)
+        return {"applied": True, "saved": saved, "task_names": config.workflow}
+
+    def reorder_tasks(self, order: List[str]) -> Dict[str, Any]:
+        """Put the workflow's tasks in *order*, as dragging them on the Workflow
+        tab does: every task, each once. Refused when a task would come before
+        a task it requires."""
+        experiment, config, refusal = self._workflow_edit("reorder tasks")
+        if refusal:
+            return refusal
+
+        def reorder():
+            why = experiment.task_protocol.reorder(list(order))
+            if why:
+                return why
+            return self._protocol_changed(
+                experiment, {"field": "order", "order": order}
+            )
+
+        saved = self._agent_call(reorder)
+        if isinstance(saved, str):
+            return {
+                "error_type": "invalid",
+                "error": saved,
+                "task_names": config.workflow,
+            }
+        return {"applied": True, "saved": saved, "task_names": config.workflow}
+
+    def set_task_requirements(
+        self,
+        task_name: str,
+        requires: Optional[List[str]] = None,
+        required: Optional[bool] = None,
+    ) -> Dict[str, Any]:
+        """Set what a workflow task requires (the tasks an item must have
+        completed first) and whether it is required or optional, as the
+        Workflow tab's Edit Task does. Refused when a requirement is not an
+        earlier task."""
+        experiment, config, refusal = self._workflow_edit("edit tasks")
+        if refusal:
+            return refusal
+        protocol = experiment.task_protocol
+        task = config.get(task_name)
+        if task is None or task_name not in protocol.task_config:
+            return {
+                "error_type": "not_found",
+                "error": f"No task named {task_name!r} in the workflow.",
+                "task_names": config.workflow,
+            }
+
+        def edit():
+            why = protocol.set_requirements(task_name, requires, required)
+            if why:
+                return why
+            return self._protocol_changed(
+                experiment,
+                {
+                    "field": "requirements",
+                    "task_name": task_name,
+                    "requires": protocol.requirements(task_name),
+                    "required": task.required,
+                },
+            )
+
+        saved = self._agent_call(edit)
+        if isinstance(saved, str):
+            return {"error_type": "invalid", "error": saved}
+        return {
+            "applied": True,
+            "saved": saved,
+            "task_name": task_name,
+            "requires": protocol.requirements(task_name),
+            "required": task.required,
         }

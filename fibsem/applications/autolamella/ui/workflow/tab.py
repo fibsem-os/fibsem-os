@@ -36,7 +36,6 @@ from fibsem.applications.autolamella.ui.workflow.preflight import (
     confirm_add_to_queue_dialog,
     confirm_run_workflow_dialog,
 )
-from fibsem.applications.autolamella.workflow_edits import set_supervision
 from fibsem.applications.autolamella.workflows.estimate import (
     estimate_queue_addition,
     exchanges_for,
@@ -56,6 +55,7 @@ from fibsem.workflows.grid.manager import plan_grid_run
 from fibsem.workflows.grid.naming import grid_has_run
 from fibsem.workflows.queue import QUEUE_ACTIONS
 from fibsem.workflows.runner import GRIDS, ITEMS, QueueEdit, RunRequest
+from fibsem.workflows.workflow_edits import set_supervision
 
 
 class WorkflowTab(QWidget):

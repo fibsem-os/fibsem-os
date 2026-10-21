@@ -532,7 +532,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         router="app",
         params={
             "dir": "a folder path from an earlier listing, relative to the experiment (default: the top)",
-            "experiment": "optional: a past experiment to read instead of the open one, by its path from experiment_list_recent or experiment_list_all; only one the operator named. Every read of it goes on the record",
+            "experiment": "optional: a past experiment to read instead of the open one, by its relative_path from experiment_list_all (or its path from experiment_list_recent); only one the operator named. Every read of it goes on the record",
         },
         optional=("dir", "experiment"),
     ),
@@ -545,7 +545,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         router="app",
         params={
             "path": "a path from experiment_list_files, or an image path an image answer gave",
-            "experiment": "optional: a past experiment to read instead of the open one, by its path from experiment_list_recent or experiment_list_all; only one the operator named. Every read of it goes on the record",
+            "experiment": "optional: a past experiment to read instead of the open one, by its relative_path from experiment_list_all (or its path from experiment_list_recent); only one the operator named. Every read of it goes on the record",
         },
         optional=("experiment",),
     ),
@@ -558,7 +558,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         router="app",
         params={
             "path": "a path from experiment_list_files, or an image path an image answer gave",
-            "experiment": "optional: a past experiment to read instead of the open one, by its path from experiment_list_recent or experiment_list_all; only one the operator named. Every read of it goes on the record",
+            "experiment": "optional: a past experiment to read instead of the open one, by its relative_path from experiment_list_all (or its path from experiment_list_recent); only one the operator named. Every read of it goes on the record",
         },
         optional=("experiment",),
     ),
@@ -573,7 +573,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "path": "an image path from experiment_list_files, or one an image answer gave",
             "box": "[x, y, width, height] in source pixels (instead of fraction)",
             "fraction": "[left, top, width, height] as fractions of the image, 0 to 1 (instead of box)",
-            "experiment": "optional: a past experiment to read instead of the open one, by its path from experiment_list_recent or experiment_list_all; only one the operator named. Every read of it goes on the record",
+            "experiment": "optional: a past experiment to read instead of the open one, by its relative_path from experiment_list_all (or its path from experiment_list_recent); only one the operator named. Every read of it goes on the record",
         },
         optional=("box", "fraction", "experiment"),
     ),
@@ -1051,11 +1051,18 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="experiment_list_all",
-        description="Every experiment under the experiments folder (up to 3 folders deep), newest first, without loading them: where experiment_create puts a new one, and what experiment_load can open.",
+        description="Every experiment under the experiments folder (up to 3 folders deep), newest first, without loading them: where experiment_create puts a new one, and what experiment_load can open (its relative_path). Narrow it by instrument, operator or date.",
         method="GET",
         path="/app/experiment/all",
         level="watch",
         router="app",
+        params={
+            "instrument": "only experiments run on this instrument: its serial or model",
+            "operator": "only experiments run by this operator",
+            "since": "ISO date or time: created at or after it",
+            "until": "ISO date or time: created at or before it",
+        },
+        optional=("instrument", "operator", "since", "until"),
     ),
     ToolSpec(
         name="protocol_list",

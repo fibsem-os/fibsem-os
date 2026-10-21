@@ -18,18 +18,23 @@ import time
 import pytest
 import yaml
 
-from fibsem.applications.autolamella.tools.experiments import (
-    discover_experiments,
-    filter_experiments,
-    group_by_instrument,
-)
 from fibsem.config import ExperimentSummary, peek_experiment
+from fibsem.workflows.experiments import discover_experiments, filter_experiments
 
 DAY = 86400.0
 
 
-def _write(root, name, *, serial=None, model=None, operator=None, age_days=0,
-           lamellae=0, subdir=""):
+def _write(
+    root,
+    name,
+    *,
+    serial=None,
+    model=None,
+    operator=None,
+    age_days=0,
+    lamellae=0,
+    subdir="",
+):
     """An experiment.yaml as the app writes one."""
     directory = os.path.join(root, subdir, name) if subdir else os.path.join(root, name)
     os.makedirs(directory, exist_ok=True)
@@ -64,14 +69,42 @@ def _write(root, name, *, serial=None, model=None, operator=None, age_days=0,
 def facility(tmp_path):
     """Two instruments, five runs, one of them predating the session record."""
     root = str(tmp_path)
-    _write(root, "arctis-monday", serial="SN-4471", model="Arctis",
-           operator="Dr Someone", age_days=6, lamellae=4)
-    _write(root, "arctis-friday", serial="SN-4471", model="Arctis",
-           operator="Dr Someone", age_days=1, lamellae=2)
-    _write(root, "aquilos-run", serial="SN-1102", model="Aquilos",
-           operator="A Colleague", age_days=3, lamellae=7)
-    _write(root, "old-run", serial="SN-1102", model="Aquilos",
-           operator="A Colleague", age_days=40, lamellae=1)
+    _write(
+        root,
+        "arctis-monday",
+        serial="SN-4471",
+        model="Arctis",
+        operator="Dr Someone",
+        age_days=6,
+        lamellae=4,
+    )
+    _write(
+        root,
+        "arctis-friday",
+        serial="SN-4471",
+        model="Arctis",
+        operator="Dr Someone",
+        age_days=1,
+        lamellae=2,
+    )
+    _write(
+        root,
+        "aquilos-run",
+        serial="SN-1102",
+        model="Aquilos",
+        operator="A Colleague",
+        age_days=3,
+        lamellae=7,
+    )
+    _write(
+        root,
+        "old-run",
+        serial="SN-1102",
+        model="Aquilos",
+        operator="A Colleague",
+        age_days=40,
+        lamellae=1,
+    )
     _write(root, "before-sessions", age_days=2)  # no session key
     return root
 
@@ -82,8 +115,14 @@ def facility(tmp_path):
 
 
 def test_a_summary_carries_the_instrument_and_operator(tmp_path) -> None:
-    path = _write(str(tmp_path), "a-run", serial="SN-4471", model="Arctis",
-                  operator="Dr Someone", lamellae=3)
+    path = _write(
+        str(tmp_path),
+        "a-run",
+        serial="SN-4471",
+        model="Arctis",
+        operator="Dr Someone",
+        lamellae=3,
+    )
 
     summary = peek_experiment(path)
 
@@ -136,7 +175,11 @@ def test_an_unreadable_file_is_flagged_not_dropped(tmp_path) -> None:
 
 def test_it_finds_every_experiment_under_a_root(facility) -> None:
     assert {e.name for e in discover_experiments(facility)} == {
-        "arctis-monday", "arctis-friday", "aquilos-run", "old-run", "before-sessions",
+        "arctis-monday",
+        "arctis-friday",
+        "aquilos-run",
+        "old-run",
+        "before-sessions",
     }
 
 
@@ -259,31 +302,6 @@ def test_the_instrument_and_the_week_compose(facility) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Grouping
-# ---------------------------------------------------------------------------
-
-
-def test_it_groups_by_serial_not_model(facility) -> None:
-    """Serial is what distinguishes two of the same model in one facility, which
-    is the case grouping exists for."""
-    grouped = group_by_instrument(discover_experiments(facility))
-
-    assert {e.name for e in grouped["SN-4471"]} == {"arctis-monday", "arctis-friday"}
-    assert {e.name for e in grouped["SN-1102"]} == {"aquilos-run", "old-run"}
-
-
-def test_unattributable_runs_get_their_own_bucket(facility) -> None:
-    """Worth seeing rather than hiding: it is how many runs cannot be attributed."""
-    grouped = group_by_instrument(discover_experiments(facility))
-
-    assert [e.name for e in grouped[None]] == ["before-sessions"]
-
-
-def test_grouping_nothing_gives_nothing() -> None:
-    assert group_by_instrument([]) == {}
-
-
-# ---------------------------------------------------------------------------
 # The CLI's own argument handling
 # ---------------------------------------------------------------------------
 
@@ -293,27 +311,20 @@ def test_days_and_since_together_is_rejected() -> None:
     question than the one asked."""
     from argparse import Namespace
 
-    from fibsem.cli import _since_timestamp
+    from fibsem.cli import _since
 
     with pytest.raises(ValueError, match="one or the other"):
-        _since_timestamp(Namespace(days=7, since="2026-08-01"))
+        _since(Namespace(days=7, since="2026-08-01"))
 
 
-def test_neither_days_nor_since_means_no_lower_bound() -> None:
+def test_days_resolves_to_a_time_in_the_past() -> None:
     from argparse import Namespace
+    from datetime import datetime
 
-    from fibsem.cli import _since_timestamp
+    from fibsem.cli import _since
 
-    assert _since_timestamp(Namespace(days=None, since=None)) is None
-
-
-def test_days_resolves_to_a_timestamp_in_the_past() -> None:
-    from argparse import Namespace
-
-    from fibsem.cli import _since_timestamp
-
-    since = _since_timestamp(Namespace(days=7, since=None))
-
+    assert _since(Namespace(days=None, since=None)) is None
+    since = datetime.fromisoformat(_since(Namespace(days=7, since=None))).timestamp()
     assert time.time() - 8 * DAY < since < time.time() - 6 * DAY
 
 

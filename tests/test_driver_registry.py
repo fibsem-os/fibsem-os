@@ -600,12 +600,12 @@ def test_the_setup_wizard_writes_registry_names():
         assert registry.normalize_name(m.config_value) == m.config_value
 
 
-def test_the_cli_offers_a_plugin_driver(restore_registry, monkeypatch):
-    from fibsem import cli
+def test_the_headless_servers_offer_a_plugin_driver(restore_registry, monkeypatch):
+    from fibsem.server import headless
 
     _install(
         monkeypatch,
         _EntryPoint("jeol", lambda: DriverEntry("JEOL", f"{__name__}:_Recorder")),
     )
-    args = cli._build_parser().parse_args(["--manufacturer", "jeol", "info"])
+    args = headless.connection_parser().parse_args(["--manufacturer", "jeol"])
     assert args.manufacturer == "JEOL"

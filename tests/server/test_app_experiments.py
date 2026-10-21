@@ -35,7 +35,7 @@ def places(tmp_path, monkeypatch):
     )
     experiments = tmp_path / "experiments"
     experiments.mkdir()
-    monkeypatch.setattr(cfg, "LOG_PATH", str(experiments))
+    monkeypatch.setattr(fibsem_cfg, "AUTOLAMELLA_LOG_PATH", str(experiments))
     protocols = tmp_path / "protocols"
     protocols.mkdir()
     shutil.copy(SHIPPED_PROTOCOL, protocols / "standard.yaml")
@@ -121,6 +121,7 @@ def test_an_experiment_is_created_and_found_anywhere_under_the_folder(
     found = driver.get("/app/experiment/all").json()
     assert found["folder"] == str(places)
     assert [e["name"] for e in found["items"]] == ["grid-a"]
+    assert found["items"][0]["relative_path"] == "2026-10-20/grid-a"
 
     for name in ("../out", "/tmp/abs", "a//b", "a/./b", "a/b/c/d"):
         refused = driver.post("/app/experiment/create", json={"name": name})
@@ -128,6 +129,37 @@ def test_an_experiment_is_created_and_found_anywhere_under_the_folder(
     os.symlink(places.parent, places / "link")
     linked = driver.post("/app/experiment/create", json={"name": "link/out"})
     assert linked.status_code == 422
+
+
+def test_the_listing_narrows_and_names_each_as_a_load_takes_it(driver, host):
+    driver.post("/app/experiment/create", json={"name": "lab/first"})
+    listed = driver.get("/app/experiment/all").json()["items"]
+    assert [e["relative_path"] for e in listed] == ["lab/first"]
+    assert {"operator", "instrument_serial", "instrument_model"} <= set(listed[0])
+    assert driver.post("/app/experiment/load", json={"path": "lab/first"}).is_success
+
+    assert (
+        driver.get("/app/experiment/all", params={"since": "2999-01-01"}).json()[
+            "items"
+        ]
+        == []
+    )
+    assert (
+        len(
+            driver.get("/app/experiment/all", params={"until": "2999-01-01"}).json()[
+                "items"
+            ]
+        )
+        == 1
+    )
+    assert (
+        driver.get("/app/experiment/all", params={"operator": "nobody-here"}).json()[
+            "items"
+        ]
+        == []
+    )
+    bad = driver.get("/app/experiment/all", params={"since": "last tuesday"})
+    assert bad.status_code == 422
 
 
 def test_an_experiment_under_the_folder_is_loaded(driver, host, places):
@@ -252,7 +284,13 @@ def test_a_past_experiment_is_read_by_its_path_and_every_read_recorded(
     first = _two_experiments(driver)
     assert host.experiment.name == "second"
     client, recorded = reads
-    for name in (first, os.path.dirname(first), "lab/first"):
+    relative = next(
+        e["relative_path"]
+        for e in client.get("/app/experiment/all").json()["items"]
+        if e["name"] == "first"
+    )
+    assert relative == "lab/first"
+    for name in (relative, first, os.path.dirname(first)):
         listed = client.get("/app/experiment/files", params={"experiment": name})
         assert listed.status_code == 200, (name, listed.text)
         assert "experiment.yaml" in [e["name"] for e in listed.json()["entries"]]
