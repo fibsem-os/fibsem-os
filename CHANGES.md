@@ -300,18 +300,23 @@ lists where each key went.
   `--url`) with the operator token, so its moves and writes take the same routes as the
   window and the agent, with the server's checks, blocklist and record. `--manufacturer`,
   `--ip-address` and `--config` are gone from it (the headless servers keep them).
-- `move absolute` is the safe move, and crosses to another device by the traverse.
-  `move orientation` and `move device` are new. `set-beam` refuses a read-only or
-  invalid value and says when a value was clipped to its limits. `beam` blanks and
-  unblanks; turning a beam on or off stays at the microscope.
-- Every length is in µm and dwell times in µs (`acquire --hfw` was in metres). `acquire
-  --out DIR` saves the images on this machine.
-- `device` and `service` reach any device or service by name: list, show, get, set,
-  call (a long command is waited for; Ctrl-C stops it), ask.
-- `experiments` lists the app's experiments folder (`GET /app/experiment/all`, which now
-  takes `instrument`, `operator`, `since` and `until`, and gives each experiment's
-  operator, serial and `relative_path`). `--root` and `--recent` are gone.
-- `check` checks the devices the App Server serves.
+- Commands are named as the agent's tools are, in groups: `microscope get-info` and
+  `get-state`; `stage get-position`, `move-absolute`, `move-relative`,
+  `move-to-orientation`, `move-to-device`, `move-to-milling-angle`; `beam acquire-image`,
+  `auto-focus`, `auto-contrast`, `blank`, `unblank`, `set-parameters`;
+  `hardware-check`; `experiment list-all`; `device` and `service` with `list`,
+  `describe`, `get-parameter`, `set-parameter`, `call-command`, `call-query`. Beams are
+  chosen with `--beam-type ELECTRON|ION`, stage axes with `--x --y --z --r --t`.
+- `stage move-absolute` is the safe move, and crosses to another device by the
+  traverse. `beam set-parameters` refuses a read-only or invalid value and says when a
+  value was clipped to its limits. Turning a beam on or off stays at the microscope.
+- Every length is in µm and dwell times in µs (`acquire --hfw` was in metres). `beam
+  acquire-image --out DIR` saves the images on this machine.
+- `device`/`service call-command` waits for a long command; Ctrl-C stops it.
+- `experiment list-all` lists the app's experiments folder (`GET /app/experiment/all`,
+  which now takes `instrument`, `operator`, `since` and `until`, and gives each
+  experiment's operator, serial and `relative_path`). `--root` and `--recent` are gone.
+- `hardware-check` checks the devices the App Server serves.
 
 ### Changes to what v0.5.2 shipped
 

@@ -18,7 +18,7 @@ def test_plugins_does_not_require_a_server():
     """It runs without reaching an App Server."""
     assert _parse("plugins").needs_server is False
     # ...while everything else still does.
-    assert _parse("position").needs_server is True
+    assert _parse("stage", "get-position").needs_server is True
 
 
 def test_plugins_takes_no_connection_arguments():

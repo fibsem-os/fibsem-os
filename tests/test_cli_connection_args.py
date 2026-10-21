@@ -30,11 +30,12 @@ _IDS = [dest for _, dest, _, _ in CONNECTION_FLAGS]
 # Subcommands with required positionals. Nothing to do with connection
 # arguments; they just have to be supplied to reach a successful parse.
 POSITIONALS = {
+    "microscope": ["get-info"],
+    "stage": ["get-position"],
     "beam": ["blank"],
-    "mill-angle": ["18"],
-    "move": ["relative"],
     "device": ["list"],
     "service": ["list"],
+    "experiment": ["list-all"],
 }
 
 
@@ -60,8 +61,8 @@ def _subcommand_names():
 
 @pytest.mark.parametrize("flag,dest,given,_absent", CONNECTION_FLAGS, ids=_IDS)
 def test_a_connection_flag_is_honoured_from_either_position(flag, dest, given, _absent):
-    assert getattr(_parse(*flag, "info"), dest) == given
-    assert getattr(_parse("info", *flag), dest) == given
+    assert getattr(_parse(*flag, "hardware-check"), dest) == given
+    assert getattr(_parse("hardware-check", *flag), dest) == given
 
 
 @pytest.mark.parametrize("_flag,dest,_given,absent", CONNECTION_FLAGS, ids=_IDS)
@@ -74,12 +75,12 @@ def test_the_declared_default_still_applies_when_the_flag_is_absent(
     all; without it every ``args.url`` in main() becomes an
     AttributeError.
     """
-    assert getattr(_parse("info"), dest) == absent
+    assert getattr(_parse("hardware-check"), dest) == absent
 
 
 def test_the_flag_after_the_subcommand_wins_when_given_in_both_positions():
     """The more specific position, and the one that already worked."""
-    args = _parse("--url", "http://a", "info", "--url", "http://b")
+    args = _parse("--url", "http://a", "hardware-check", "--url", "http://b")
     assert args.url == "http://b"
 
 

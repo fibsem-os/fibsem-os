@@ -3,7 +3,7 @@
 Every microscope command is a call on the App Server, as the operator: the routes
 the agent's tools take, with the server's checks, blocklist and record. The
 server is the one the flags name, else the one running on this machine.
-``experiments`` asks the app the server hosts; ``plugins`` and ``--version``
+``experiment list-all`` asks the app the server hosts; ``plugins`` and ``--version``
 describe this install and need no server.
 """
 
@@ -202,16 +202,21 @@ class _CliError(RuntimeError):
 # ---------------------------------------------------------------------------
 
 
-def _beams(choice: str):
-    return [(n, b) for n, b in BEAMS.items() if choice in (n, "both")]
+def _beams(beam_type: str):
+    """(device name, BeamType) for ``--beam-type``: ELECTRON, ION or BOTH."""
+    return [(n, b) for n, b in BEAMS.items() if beam_type in (b.name, "BOTH")]
 
 
-def cmd_info(client, args) -> int:
+def cmd_microscope_get_info(client, args) -> int:
     info = client.info()
     print(
         f"{info.get('manufacturer')} {info.get('model')}  "
         f"serial {info.get('serial_number')}  software {info.get('software_version')}"
     )
+    return 0
+
+
+def cmd_microscope_get_state(client, args) -> int:
     state = client.state()
     ts = datetime.fromtimestamp(state.timestamp).strftime("%Y-%m-%d %H:%M:%S")
     print(f"Microscope State  [{ts}]")
@@ -230,7 +235,7 @@ def cmd_info(client, args) -> int:
     return 0
 
 
-def cmd_position(client, args) -> int:
+def cmd_stage_get_position(client, args) -> int:
     _print_stage_position(client.devices["stage"].get("position"))
     return 0
 
@@ -240,12 +245,12 @@ def _axes(args) -> Dict[str, Optional[float]]:
         "x": _micro(args.x),
         "y": _micro(args.y),
         "z": _micro(args.z),
-        "r": _rad(args.rotation),
-        "t": _rad(args.tilt),
+        "r": _rad(args.r),
+        "t": _rad(args.t),
     }
 
 
-def cmd_move_absolute(client, args) -> int:
+def cmd_stage_move_absolute(client, args) -> int:
     """The safe move (`StageMovement.safe_absolute_stage_movement`): flat for a
     large rotation, rotation first, the traverse to another device. An axis
     left out stays where it is."""
@@ -261,7 +266,7 @@ def cmd_move_absolute(client, args) -> int:
     return 0
 
 
-def cmd_move_relative(client, args) -> int:
+def cmd_stage_move_relative(client, args) -> int:
     movement = client.services["stage_movement"]
     _print_stage_position(
         movement.move_relative(delta=FibsemStagePosition(**_axes(args)))
@@ -269,33 +274,33 @@ def cmd_move_relative(client, args) -> int:
     return 0
 
 
-def cmd_move_orientation(client, args) -> int:
+def cmd_stage_move_to_orientation(client, args) -> int:
     movement = client.services["stage_movement"]
-    _print_stage_position(movement.move_to_orientation(orientation=args.name))
+    _print_stage_position(movement.move_to_orientation(orientation=args.orientation))
     return 0
 
 
-def cmd_move_device(client, args) -> int:
-    client.services["stage_movement"].move_to_device(device=args.name)
+def cmd_stage_move_to_device(client, args) -> int:
+    client.services["stage_movement"].move_to_device(device=args.device)
     _print_stage_position(client.devices["stage"].get("position"))
     return 0
 
 
-def cmd_mill_angle(client, args) -> int:
-    print(f"Moving to milling angle {args.angle:.2f} deg...")
+def cmd_stage_move_to_milling_angle(client, args) -> int:
+    print(f"Moving to milling angle {args.milling_angle:.2f} deg...")
     at_target = client.services["stage_movement"].move_to_milling_angle(
-        milling_angle=args.angle, rotation=args.rotation
+        milling_angle=args.milling_angle, rotation=args.rotation
     )
     print(f"Done ({'at target' if at_target else 'WARNING: not at target angle'}).")
     _print_stage_position(client.devices["stage"].get("position"))
     return 0
 
 
-def cmd_acquire(client, args) -> int:
+def cmd_beam_acquire_image(client, args) -> int:
     from fibsem.services.imaging import image_save_path
 
     imaging = client.services["imaging"]
-    for _, beam_type in _beams(args.beam):
+    for _, beam_type in _beams(args.beam_type):
         settings = ImageSettings(
             resolution=args.resolution,
             dwell_time=_micro(args.dwell_time),
@@ -311,17 +316,17 @@ def cmd_acquire(client, args) -> int:
     return 0
 
 
-def cmd_autofocus(client, args) -> int:
-    beam_type = BEAMS[args.beam]
+def cmd_beam_auto_focus(client, args) -> int:
+    name, beam_type = _beams(args.beam_type)[0]
     print(f"Running autofocus on {beam_type.name} beam...")
     client.services["imaging"].auto_focus(beam_type=beam_type)
-    wd = client.devices[args.beam].get("working_distance")
+    wd = client.devices[name].get("working_distance")
     print(f"Done. Working distance: {wd * 1e3:.4f} mm")
     return 0
 
 
-def cmd_autocontrast(client, args) -> int:
-    for name, beam_type in _beams(args.beam):
+def cmd_beam_auto_contrast(client, args) -> int:
+    for name, beam_type in _beams(args.beam_type):
         print(f"Running autocontrast on {beam_type.name} beam...")
         client.services["imaging"].autocontrast(beam_type=beam_type)
         detector = getattr(client.state(), f"{name}_detector")
@@ -332,17 +337,19 @@ def cmd_autocontrast(client, args) -> int:
     return 0
 
 
-def cmd_beam(client, args) -> int:
-    for name, beam_type in _beams(args.beam):
-        blanked = client.devices[name].set("blanked", args.action == "blank")
-        print(f"{beam_type.name}: {'blanked' if blanked else 'unblanked'}")
+def cmd_beam_blank(client, args) -> int:
+    """The beam's own blank or unblank command (``args.command``)."""
+    for name, beam_type in _beams(args.beam_type):
+        beam = client.devices[name]
+        beam.call(args.command)
+        print(f"{beam_type.name}: {'blanked' if beam.get('blanked') else 'unblanked'}")
     return 0
 
 
-def cmd_set_beam(client, args) -> int:
+def cmd_beam_set_parameters(client, args) -> int:
     """Each write is the server's: checked against the beam's limits and
     choices, a read-only one refused."""
-    beam = client.devices[args.beam]
+    beam = client.devices[_beams(args.beam_type)[0][0]]
     for parameter, value, show in [
         (
             "voltage",
@@ -360,7 +367,7 @@ def cmd_set_beam(client, args) -> int:
     return 0
 
 
-def cmd_check(client, args) -> int:
+def cmd_hardware_check(client, args) -> int:
     """Run the hardware check on the server's devices and print its report.
     Exits 1 if a step failed."""
     from fibsem.client.remote_microscope import RemoteMicroscope
@@ -398,7 +405,7 @@ def cmd_remote_list(client, args) -> int:
     return 0
 
 
-def cmd_remote_show(client, args) -> int:
+def cmd_remote_describe(client, args) -> int:
     remote = _remotes(client, args)[args.name]
     print(f"{args.name} ({remote.description.get('class', '')})")
     print("parameters:")
@@ -410,24 +417,24 @@ def cmd_remote_show(client, args) -> int:
     return 0
 
 
-def cmd_remote_get(client, args) -> int:
+def cmd_remote_get_parameter(client, args) -> int:
     _show(_remotes(client, args)[args.name].get(args.parameter))
     return 0
 
 
-def cmd_remote_set(client, args) -> int:
+def cmd_remote_set_parameter(client, args) -> int:
     remote = _remotes(client, args)[args.name]
     _show(remote.set(args.parameter, _parse_value(args.value)))
     return 0
 
 
-def cmd_remote_ask(client, args) -> int:
+def cmd_remote_call_query(client, args) -> int:
     remote = _remotes(client, args)[args.name]
     _show(remote.ask(args.query, **_parse_kwargs(args.kwargs)))
     return 0
 
 
-def cmd_remote_call(client, args) -> int:
+def cmd_remote_call_command(client, args) -> int:
     """A command; a long one runs on the server, and is waited for here. Ctrl-C
     stops it with the service's own stop."""
     from fibsem.client import Run
@@ -463,7 +470,7 @@ def _since(args) -> Optional[str]:
     return args.since
 
 
-def cmd_experiments(client, args) -> int:
+def cmd_experiment_list_all(client, args) -> int:
     """The experiments under the experiments folder of the app the server
     hosts (`experiment_list_all`), narrowed to an instrument, an operator or a
     time window. Answers "what did this microscope do this week?" (FIB-457)."""
@@ -593,87 +600,97 @@ def _build_connection_parser(*, defaults: bool = True) -> argparse.ArgumentParse
     return p
 
 
-def _beam_choice(p, *, both: bool, default: str = "electron") -> None:
-    choices = ["electron", "ion"] + (["both"] if both else [])
+def _beam_type(p, *, both: bool) -> None:
+    choices = ["ELECTRON", "ION"] + (["BOTH"] if both else [])
     p.add_argument(
-        "--beam",
+        "--beam-type",
+        type=str.upper,
         choices=choices,
-        default=default,
-        help=f"Which beam (default: {default})",
+        default="ELECTRON",
+        help=f"{', '.join(choices)} (default: ELECTRON)",
     )
 
 
 def _add_axes(p) -> None:
     for axis in ("x", "y", "z"):
         p.add_argument(f"--{axis}", type=float, metavar="UM", help=f"{axis} in µm")
-    p.add_argument(
-        "--rotation", type=float, metavar="DEG", help="Rotation (r) in degrees"
-    )
-    p.add_argument("--tilt", type=float, metavar="DEG", help="Tilt (t) in degrees")
+    p.add_argument("--r", type=float, metavar="DEG", help="rotation in degrees")
+    p.add_argument("--t", type=float, metavar="DEG", help="tilt in degrees")
+
+
+def _group(sub, conn, name: str, help: str):
+    """A command group (``stage``, ``beam``, ...) and the adder of its commands,
+    each with the connection flags."""
+    group = sub.add_parser(name, parents=[conn], help=help)
+    verbs = group.add_subparsers(dest="command_name", metavar="COMMAND", required=True)
+
+    def add(verb: str, func, help: str, **kwargs):
+        p = verbs.add_parser(verb, parents=[conn], help=help, **kwargs)
+        p.set_defaults(func=func)
+        return p
+
+    return group, add
+
+
+# Commands are named as the agent's tools are (`<group>_<verb>[_<object>]`,
+# fibsem.ai.agent.catalog), hyphenated: `stage move-absolute` is stage_move_absolute.
 
 
 def _add_microscope_parsers(sub, conn) -> None:
-    p = sub.add_parser(
-        "info", parents=[conn], help="Print the microscope and its state"
-    )
-    p.set_defaults(func=cmd_info)
+    _, add = _group(sub, conn, "microscope", "The microscope: who it is, its state")
+    add("get-info", cmd_microscope_get_info, "Manufacturer, model, serial, software")
+    add("get-state", cmd_microscope_get_state, "The stage position and both beams")
 
-    p = sub.add_parser("position", parents=[conn], help="Print the stage position")
-    p.set_defaults(func=cmd_position)
-
-    move = sub.add_parser("move", parents=[conn], help="Move the stage")
-    modes = move.add_subparsers(dest="mode", metavar="MODE", required=True)
-    p = modes.add_parser(
-        "absolute",
-        parents=[conn],
-        help="Move safely to a position; axes left out stay. Crosses to another "
-        "device by the traverse",
+    _, add = _group(sub, conn, "stage", "The stage: where it is, moves")
+    add("get-position", cmd_stage_get_position, "The stage position")
+    _add_axes(
+        add(
+            "move-absolute",
+            cmd_stage_move_absolute,
+            "Move safely to a position; axes left out stay. Crosses to another "
+            "device by the traverse",
+        )
     )
-    _add_axes(p)
-    p.set_defaults(func=cmd_move_absolute)
-    p = modes.add_parser(
-        "relative", parents=[conn], help="Move the stage axes by an offset"
+    _add_axes(
+        add(
+            "move-relative", cmd_stage_move_relative, "Move the stage axes by an offset"
+        )
     )
-    _add_axes(p)
-    p.set_defaults(func=cmd_move_relative)
-    p = modes.add_parser(
-        "orientation", parents=[conn], help="Move to an orientation (SEM, FIB, ...)"
+    p = add(
+        "move-to-orientation",
+        cmd_stage_move_to_orientation,
+        "Move to an orientation (SEM, FIB, ...)",
     )
-    p.add_argument("name", help="The orientation")
-    p.set_defaults(func=cmd_move_orientation)
-    p = modes.add_parser("device", parents=[conn], help="Travel to a device (FM, ...)")
-    p.add_argument("name", help="The device")
-    p.set_defaults(func=cmd_move_device)
-
-    p = sub.add_parser(
-        "mill-angle", parents=[conn], help="Move the stage to a milling angle"
+    p.add_argument("orientation")
+    p = add("move-to-device", cmd_stage_move_to_device, "Travel to a device (FM, ...)")
+    p.add_argument("device")
+    p = add(
+        "move-to-milling-angle",
+        cmd_stage_move_to_milling_angle,
+        "Tilt the stage to a milling angle",
     )
-    p.add_argument("angle", type=float, metavar="DEG", help="Milling angle in degrees")
+    p.add_argument("milling_angle", type=float, metavar="DEG", help="in degrees")
     p.add_argument(
         "--rotation",
         type=float,
         metavar="DEG",
-        help="Rotation in degrees (default: the rotation reference)",
+        help="rotation in degrees (default: the rotation reference)",
     )
-    p.set_defaults(func=cmd_mill_angle)
 
-    p = sub.add_parser(
-        "acquire", parents=[conn], help="Acquire one or both beam images"
+    _, add = _group(sub, conn, "beam", "The beams: images, focus, contrast, settings")
+    p = add(
+        "acquire-image", cmd_beam_acquire_image, "Acquire an image of one or both beams"
     )
-    _beam_choice(p, both=True)
+    _beam_type(p, both=True)
     p.add_argument(
-        "--hfw",
-        type=float,
-        default=150.0,
-        metavar="UM",
-        help="Field width in µm (default: 150)",
+        "--hfw", type=float, default=150.0, metavar="UM", help="in µm (default: 150)"
     )
     p.add_argument(
         "--resolution",
         type=_parse_resolution,
         default="1536x1024",
         metavar="WxH",
-        help="Image resolution (default: 1536x1024)",
+        help="(default: 1536x1024)",
     )
     p.add_argument(
         "--dwell-time",
@@ -681,9 +698,9 @@ def _add_microscope_parsers(sub, conn) -> None:
         default=1.0,
         dest="dwell_time",
         metavar="US",
-        help="Pixel dwell time in µs (default: 1)",
+        help="in µs (default: 1)",
     )
-    p.add_argument("--autocontrast", action="store_true", help="Run autocontrast first")
+    p.add_argument("--autocontrast", action="store_true", help="Autocontrast first")
     p.add_argument(
         "--out",
         type=Path,
@@ -693,37 +710,29 @@ def _add_microscope_parsers(sub, conn) -> None:
     p.add_argument(
         "--filename", default="image", help="Saved file stem (default: image)"
     )
-    p.set_defaults(func=cmd_acquire)
-
-    p = sub.add_parser("autofocus", parents=[conn], help="Focus a beam")
-    _beam_choice(p, both=False)
-    p.set_defaults(func=cmd_autofocus)
-
-    p = sub.add_parser("autocontrast", parents=[conn], help="Run a beam's autocontrast")
-    _beam_choice(p, both=True)
-    p.set_defaults(func=cmd_autocontrast)
-
-    p = sub.add_parser("beam", parents=[conn], help="Blank or unblank a beam")
-    p.add_argument("action", choices=["blank", "unblank"])
-    _beam_choice(p, both=True)
-    p.set_defaults(func=cmd_beam)
-
-    p = sub.add_parser(
-        "set-beam", parents=[conn], help="Set a beam's voltage, current or field width"
+    _beam_type(add("auto-focus", cmd_beam_auto_focus, "Focus a beam"), both=False)
+    _beam_type(
+        add("auto-contrast", cmd_beam_auto_contrast, "The instrument's autocontrast"),
+        both=True,
     )
-    _beam_choice(p, both=False)
-    p.add_argument("--voltage", type=float, metavar="KV", help="Voltage in kV")
+    for verb in ("blank", "unblank"):
+        p = add(verb, cmd_beam_blank, f"{verb.capitalize()} a beam")
+        p.set_defaults(command=verb)
+        _beam_type(p, both=True)
+    p = add(
+        "set-parameters",
+        cmd_beam_set_parameters,
+        "Set a beam's voltage, current or field width",
+    )
+    _beam_type(p, both=False)
+    p.add_argument("--voltage", type=float, metavar="KV", help="in kV")
     p.add_argument(
-        "--current",
-        type=float,
-        metavar="AMPS",
-        help="Current in amps (100e-12 is 100 pA)",
+        "--current", type=float, metavar="AMPS", help="in A (100e-12 is 100 pA)"
     )
-    p.add_argument("--hfw", type=float, metavar="UM", help="Field width in µm")
-    p.set_defaults(func=cmd_set_beam)
+    p.add_argument("--hfw", type=float, metavar="UM", help="in µm")
 
     p = sub.add_parser(
-        "check",
+        "hardware-check",
         parents=[conn],
         help="Check that fibsemOS drives the hardware correctly",
         description="Check each device the App Server serves: read every parameter "
@@ -752,42 +761,32 @@ def _add_microscope_parsers(sub, conn) -> None:
         metavar="PATH",
         help="Save the frame the acquire level takes, as a TIFF",
     )
-    p.set_defaults(func=cmd_check)
+    p.set_defaults(func=cmd_hardware_check)
 
 
 def _add_remote_parsers(sub, conn) -> None:
     """``device`` and ``service``: the server's protocol, by name."""
     for noun, plural in (("device", "devices"), ("service", "services")):
-        top = sub.add_parser(
-            noun,
-            parents=[conn],
-            help=f"The microscope's {plural} by name: list, show, get, set, call, ask",
-        )
-        top.set_defaults(noun=noun)
-        verbs = top.add_subparsers(dest="verb", metavar="VERB", required=True)
-        p = verbs.add_parser("list", parents=[conn], help=f"The {plural} it serves")
-        p.set_defaults(func=cmd_remote_list)
-        p = verbs.add_parser(
-            "show", parents=[conn], help="Its parameters' values, commands and queries"
-        )
-        p.add_argument("name")
-        p.set_defaults(func=cmd_remote_show)
-        p = verbs.add_parser("get", parents=[conn], help="Read a parameter")
+        group, add = _group(sub, conn, noun, f"The microscope's {plural}, by name")
+        group.set_defaults(noun=noun)
+        add("list", cmd_remote_list, f"The {plural} it serves")
+        add(
+            "describe", cmd_remote_describe, "Its parameters' values, commands, queries"
+        ).add_argument("name")
+        p = add("get-parameter", cmd_remote_get_parameter, "Read a parameter")
         p.add_argument("name")
         p.add_argument("parameter")
-        p.set_defaults(func=cmd_remote_get)
-        p = verbs.add_parser(
-            "set", parents=[conn], help="Write a parameter (in SI units)"
+        p = add(
+            "set-parameter", cmd_remote_set_parameter, "Write a parameter (SI units)"
         )
         p.add_argument("name")
         p.add_argument("parameter")
         p.add_argument("value", help="JSON (1e-9, true, [1536, 1024]) or text")
-        p.set_defaults(func=cmd_remote_set)
         for verb, what, func in (
-            ("call", "command", cmd_remote_call),
-            ("ask", "query", cmd_remote_ask),
+            ("call-command", "command", cmd_remote_call_command),
+            ("call-query", "query", cmd_remote_call_query),
         ):
-            p = verbs.add_parser(verb, parents=[conn], help=f"Run a {what}")
+            p = add(verb, func, f"Run a {what}")
             p.add_argument("name")
             p.add_argument(what)
             p.add_argument(
@@ -795,30 +794,25 @@ def _add_remote_parsers(sub, conn) -> None:
                 metavar="JSON|@FILE",
                 help="Its arguments: a JSON object, or @file (.json, .yaml)",
             )
-            p.set_defaults(func=func)
 
 
-def _add_experiments_parser(sub, conn) -> None:
-    p = sub.add_parser(
-        "experiments",
-        parents=[conn],
-        help="List the app's experiments, by instrument or time window",
+def _add_experiment_parsers(sub, conn) -> None:
+    _, add = _group(sub, conn, "experiment", "The app's experiments")
+    p = add(
+        "list-all",
+        cmd_experiment_list_all,
+        "The experiments folder's experiments, by instrument or time window",
     )
     p.add_argument(
-        "--instrument",
-        metavar="SERIAL|MODEL",
-        help="Only experiments run on this instrument",
+        "--instrument", metavar="SERIAL|MODEL", help="Only those run on this instrument"
     )
-    p.add_argument(
-        "--operator", metavar="NAME", help="Only experiments run by this operator"
-    )
+    p.add_argument("--operator", metavar="NAME", help="Only those run by this operator")
     p.add_argument("--days", type=int, metavar="N", help="Only the last N days")
     p.add_argument("--since", metavar="YYYY-MM-DD", help="Only on or after this date")
     p.add_argument("--until", metavar="YYYY-MM-DD", help="Only on or before this date")
     p.add_argument(
         "--group", action="store_true", help="Group the listing by instrument"
     )
-    p.set_defaults(func=cmd_experiments)
 
 
 def _add_plugins_parser(sub) -> None:
@@ -878,7 +872,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.required = True
     _add_microscope_parsers(sub, conn)
     _add_remote_parsers(sub, conn)
-    _add_experiments_parser(sub, conn)
+    _add_experiment_parsers(sub, conn)
     _add_plugins_parser(sub)
     return root
 
@@ -905,19 +899,20 @@ def main(argv=None) -> None:
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.WARNING)
 
-    if args.subcommand == "move" and args.mode in ("absolute", "relative"):
+    if getattr(args, "func", None) in (
+        cmd_stage_move_absolute,
+        cmd_stage_move_relative,
+    ):
         if all(v is None for v in _axes(args).values()):
-            parser.error(
-                "move: at least one of --x, --y, --z, --rotation, --tilt must be specified"
-            )
-    if args.subcommand == "check":
+            parser.error("at least one of --x, --y, --z, --r, --t must be specified")
+    if args.subcommand == "hardware-check":
         if args.level == "acquire" and not args.yes:
             parser.error(
-                "check: the acquire level turns the light on and exposes whatever "
+                "hardware-check: the acquire level turns the light on and exposes whatever "
                 "is under the objective; add --yes to run it"
             )
         if args.save_frame is not None and args.level != "acquire":
-            parser.error("check: --save-frame needs --level acquire")
+            parser.error("hardware-check: --save-frame needs --level acquire")
 
     client = None
     try:

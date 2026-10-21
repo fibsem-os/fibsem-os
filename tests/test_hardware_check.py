@@ -200,7 +200,7 @@ def test_out_of_range():
 
 def test_acquire_needs_yes_from_the_command_line(monkeypatch, capsys):
     with pytest.raises(SystemExit) as exit:
-        cli.main(["check", "--level", "acquire"])
+        cli.main(["hardware-check", "--level", "acquire"])
     assert exit.value.code == 2
     assert "--yes" in capsys.readouterr().err
 
@@ -208,14 +208,20 @@ def test_acquire_needs_yes_from_the_command_line(monkeypatch, capsys):
 def test_the_command_checks_through_the_app_server_and_fails_on_a_failed_step(
     microscope, monkeypatch, tmp_path, capsys
 ):
-    """``fibsem-cli check`` checks the server's devices, as the operator."""
+    """``fibsem-cli hardware-check`` checks the server's devices, as the operator."""
     pytest.importorskip("uvicorn")
     from fibsem.server import AuthConfig, build_server
     from tests.fixtures.app_server import serving
 
     auth = AuthConfig.generate(level="watch", token="agent")
     auth.operator_token = "operator"
-    argv = ["check", "--level", "settings", "--json", str(tmp_path / "report.json")]
+    argv = [
+        "hardware-check",
+        "--level",
+        "settings",
+        "--json",
+        str(tmp_path / "report.json"),
+    ]
     with serving(build_server(microscope, auth=auth)) as url:
         monkeypatch.setenv("FIBSEM_SERVER_URL", url)
         monkeypatch.setenv("FIBSEM_OPERATOR_TOKEN", "operator")

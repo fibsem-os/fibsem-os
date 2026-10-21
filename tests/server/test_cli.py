@@ -71,16 +71,17 @@ def run(url, monkeypatch, capsys):
     return run
 
 
-def test_info_names_the_microscope_and_reads_its_state(run):
-    code, out, _ = run("info")
-    assert code == 0
-    assert "DemoMicroscope" in out and "Stage Position" in out
+def test_the_microscope_says_who_it_is_and_its_state(run):
+    code, out, _ = run("microscope", "get-info")
+    assert code == 0 and "DemoMicroscope" in out
+    code, out, _ = run("microscope", "get-state")
+    assert code == 0 and "Stage Position" in out
     assert "ELECTRON" in out and "blanked:" in out
 
 
 def test_a_relative_move_moves_by_the_offset_in_um(run, microscope):
     before = microscope.get_stage_position()
-    code, _, _ = run("move", "relative", "--x", "10")
+    code, _, _ = run("stage", "move-relative", "--x", "10")
     assert code == 0
     assert math.isclose(microscope.get_stage_position().x - before.x, 10e-6)
 
@@ -101,7 +102,7 @@ def test_an_absolute_move_is_the_safe_move_and_keeps_axes_left_out(
 
     monkeypatch.setattr(microscope.stage_movement, "safe_absolute_stage_movement", spy)
     before = microscope.get_stage_position()
-    code, out, _ = run("move", "absolute", "--x", "25")
+    code, out, _ = run("stage", "move-absolute", "--x", "25")
     assert code == 0, out
     assert len(calls) == 1
     after = microscope.get_stage_position()
@@ -110,19 +111,19 @@ def test_an_absolute_move_is_the_safe_move_and_keeps_axes_left_out(
 
 
 def test_a_move_needs_an_axis(run):
-    code, _, err = run("move", "relative")
+    code, _, err = run("stage", "move-relative")
     assert code == 2 and "at least one of" in err
 
 
 def test_set_beam_writes_with_the_servers_checks(run, microscope):
-    code, out, _ = run("set-beam", "--hfw", "100")
+    code, out, _ = run("beam", "set-parameters", "--hfw", "100")
     assert code == 0
     assert math.isclose(microscope.devices["electron"].hfw.get_value(), 100e-6)
     # Out of limits: clipped, and said so.
-    code, out, _ = run("set-beam", "--hfw", "1e9")
+    code, out, _ = run("beam", "set-parameters", "--hfw", "1e9")
     assert code == 0 and "clipped" in out
     # Not one of the choices: refused with the beam's own message.
-    code, _, err = run("set-beam", "--voltage", "-5")
+    code, _, err = run("beam", "set-parameters", "--voltage", "-5")
     assert code == 1 and "voltage" in err and "not one of" in err
 
 
@@ -135,8 +136,9 @@ def test_beam_blanks_and_unblanks(run, microscope):
 
 def test_acquire_saves_here_when_asked(run, tmp_path):
     code, out, _ = run(
-        "acquire",
-        "--beam",
+        "beam",
+        "acquire-image",
+        "--beam-type",
         "both",
         "--resolution",
         "64x64",
@@ -153,28 +155,28 @@ def test_acquire_saves_here_when_asked(run, tmp_path):
 
 
 def test_autofocus_and_autocontrast(run):
-    assert run("autofocus")[0] == 0
-    code, out, _ = run("autocontrast", "--beam", "both")
+    assert run("beam", "auto-focus")[0] == 0
+    code, out, _ = run("beam", "auto-contrast", "--beam-type", "both")
     assert code == 0 and out.count("contrast:") == 2
 
 
 def test_mill_angle(run):
-    code, out, _ = run("mill-angle", "15")
+    code, out, _ = run("stage", "move-to-milling-angle", "15")
     assert code == 0 and "Stage Position" in out
 
 
 def test_device_and_service_by_name(run, microscope):
     code, out, _ = run("device", "list")
     assert code == 0 and "electron" in out and "stage" in out
-    code, out, _ = run("device", "show", "electron")
+    code, out, _ = run("device", "describe", "electron")
     assert code == 0 and "working_distance" in out and "commands:" in out
-    assert run("device", "set", "ion", "hfw", "2e-4")[0] == 0
+    assert run("device", "set-parameter", "ion", "hfw", "2e-4")[0] == 0
     assert math.isclose(microscope.devices["ion"].hfw.get_value(), 2e-4)
-    code, out, _ = run("device", "get", "ion", "hfw")
+    code, out, _ = run("device", "get-parameter", "ion", "hfw")
     assert code == 0 and json.loads(out) == pytest.approx(2e-4)
     code, out, _ = run(
         "service",
-        "call",
+        "call-command",
         "stage_movement",
         "move_relative",
         "--kwargs",
@@ -188,7 +190,12 @@ def test_kwargs_from_a_file(run, tmp_path, microscope):
     path.write_text(yaml.safe_dump({"delta": {**DELTA, "x": 0.0, "y": 2e-6}}))
     before = microscope.get_stage_position()
     code, _, _ = run(
-        "service", "call", "stage_movement", "move_relative", "--kwargs", f"@{path}"
+        "service",
+        "call-command",
+        "stage_movement",
+        "move_relative",
+        "--kwargs",
+        f"@{path}",
     )
     assert code == 0
     assert math.isclose(microscope.get_stage_position().y - before.y, 2e-6)
@@ -196,9 +203,9 @@ def test_kwargs_from_a_file(run, tmp_path, microscope):
 
 def test_what_the_agent_may_never_do_the_cli_may_not_either(run):
     """The blocklist holds for the operator token (#2121)."""
-    code, _, err = run("device", "set", "electron", "on", "false")
+    code, _, err = run("device", "set-parameter", "electron", "on", "false")
     assert code == 1 and "not_allowed" in err
-    code, _, err = run("device", "call", "chamber", "vent")
+    code, _, err = run("device", "call-command", "chamber", "vent")
     assert code == 1 and "not_allowed" in err
 
 
@@ -231,15 +238,15 @@ def test_experiments_lists_the_apps_experiments_folder(
     monkeypatch.setattr(session, "experiments_folder", str(tmp_path))
     _experiment(tmp_path, "lab/first", "SN-1")
     _experiment(tmp_path, "second", "SN-2")
-    code, out, _ = run("experiments")
+    code, out, _ = run("experiment", "list-all")
     assert code == 0, out
     assert "lab/first" in out and "Arctis/SN-1" in out and "pat" in out
     assert f"2 experiment(s) in {tmp_path}" in out
-    code, out, _ = run("experiments", "--instrument", "SN-2")
+    code, out, _ = run("experiment", "list-all", "--instrument", "SN-2")
     assert "second" in out and "lab/first" not in out
-    code, out, _ = run("experiments", "--since", "2999-01-01")
+    code, out, _ = run("experiment", "list-all", "--since", "2999-01-01")
     assert code == 0 and "No experiments found" in out
-    code, out, _ = run("experiments", "--group")
+    code, out, _ = run("experiment", "list-all", "--group")
     assert code == 0 and "Arctis (SN-1)" in out and "Arctis (SN-2)" in out
 
 
@@ -248,7 +255,7 @@ def test_no_server_says_what_to_start(monkeypatch, capsys):
     monkeypatch.delenv("FIBSEM_OPERATOR_TOKEN", raising=False)
     monkeypatch.setattr("fibsem.client.transport.read_discovery_file", lambda: None)
     with pytest.raises(SystemExit) as exit:
-        cli.main(["position"])
+        cli.main(["stage", "get-position"])
     assert exit.value.code == 1
     assert "fibsem-autolamella-server" in capsys.readouterr().err
 
@@ -300,5 +307,5 @@ def test_a_server_not_serving_the_microscope_says_where_to_turn_it_on(
 
 
 def test_lengths_are_um_on_the_command_line():
-    args = cli._build_parser().parse_args(["acquire"])
+    args = cli._build_parser().parse_args(["beam", "acquire-image"])
     assert args.hfw == 150.0 and args.dwell_time == 1.0
