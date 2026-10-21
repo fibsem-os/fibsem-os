@@ -279,6 +279,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="item_get_stack",
+        returns="ItemStack",
         description="An item's images under one role as a stack, in iteration order: a volume position's slices (role slice, SEM; slice_fib, the FIB image its milling kept). Each has iteration, filename (for item_get_output_image), acquired_at, pixel_size and hfw (m), and z (m into the position: iteration times the slice thickness; null for an app that doesn't slice).",
         method="GET",
         path="/app/experiment/items/{item_name}/stack",
