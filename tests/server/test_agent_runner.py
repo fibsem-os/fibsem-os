@@ -228,6 +228,8 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
     assert options.verbatim_prompts
     assert options.max_turns == runner_mod.MAX_TURNS
     assert options.max_budget_usd == runner_mod.MAX_BUDGET_USD
+    # A tool result with an image in it is more than the SDK's 1 MB default.
+    assert options.max_buffer_size >= 16 * 1024 * 1024
     # No developer CLAUDE.md or auto memory in an operator's agent.
     assert options.env == {
         "CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1",

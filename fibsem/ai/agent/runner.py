@@ -93,6 +93,9 @@ CLI_ENV = {
     "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
 }
 
+# One message from the CLI: a tool result carrying an image (the Read tool on
+# a plot, in code mode) is more than the SDK's 1 MB default.
+MAX_BUFFER_SIZE = 32 * 1024 * 1024
 MAX_TURNS = 40  # tool calls per wake-up
 MAX_BUDGET_USD = 5.0  # what one run spends
 SERVER_WAIT_S = 600.0
@@ -936,6 +939,7 @@ def build_options(
         effort=effort,
         resume=resume,
         session_id=session_id,
+        max_buffer_size=MAX_BUFFER_SIZE,
         stderr=lambda line: log.debug("claude: %s", line.rstrip()),
     )
 
