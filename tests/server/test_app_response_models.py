@@ -55,8 +55,17 @@ def _client(microscope, experiment, folder):
 
 @pytest.fixture
 def client(tmp_path, microscope, monkeypatch):
-    # protocols saved and experiments made land here, not in the repository
+    # protocols saved, experiments made and the recents list land here, not in
+    # the repository
+    from fibsem import config as fibsem_cfg
     from fibsem.applications.autolamella import experiment_setup
+
+    config = tmp_path / "config"
+    config.mkdir()
+    monkeypatch.setattr(fibsem_cfg, "CONFIG_PATH", str(config))
+    monkeypatch.setattr(
+        fibsem_cfg, "USER_PREFERENCES_PATH", str(config / "user-preferences.yaml")
+    )
 
     protocols = tmp_path / "protocols"
     protocols.mkdir()
