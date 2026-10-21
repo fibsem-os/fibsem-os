@@ -139,6 +139,7 @@ GROUP_TITLES: Dict[str, str] = {
 _WRITES_AT_WATCH = frozenset(
     {
         "experiment_add_note",
+        "server_report_session",  # the agent's own session, on the record
         "request_create",
         "request_withdraw",
         "item_measure_thickness",  # saves its result beside the image

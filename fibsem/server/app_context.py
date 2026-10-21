@@ -87,6 +87,32 @@ class AppContext:
         experiment = self._experiment
         return str(experiment.path) if experiment is not None else None
 
+    def experiment_root(self, experiment: Optional[str] = None) -> Optional[str]:
+        """The folder an experiment's files are read from: the open one's, or
+        *experiment*, a past one by its path from the recents or the
+        experiments folder (its folder or experiment.yaml). Raises
+        ``FileRefusal`` for any other."""
+        from fibsem.server.files import FileRefusal
+
+        if experiment is None:
+            return self.experiment_path
+        wanted = os.path.normcase(os.path.realpath(experiment))
+        for entry in self.recent_experiments():
+            yaml = os.path.normcase(os.path.realpath(entry["path"]))
+            if wanted in (yaml, os.path.dirname(yaml)):
+                return os.path.dirname(entry["path"])
+        found = self._under_experiments_folder(experiment)
+        if found is not None and os.path.basename(found) == "experiment.yaml":
+            found = os.path.dirname(found)
+        if found is None or not os.path.isfile(os.path.join(found, "experiment.yaml")):
+            raise FileRefusal(
+                404,
+                "not_found",
+                f"No experiment at {experiment}: give a path from "
+                "experiment_list_recent or experiment_list_all.",
+            )
+        return found
+
     def picture_sources(self) -> Optional[Any]:
         """What the agent's pictures read from the experiment (its items'
         images, configs and poses; see ``ai.agent.pictures``), or None."""

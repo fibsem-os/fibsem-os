@@ -227,7 +227,22 @@ def test_the_connected_line_warns_when_the_app_runs_other_code(tmp_path):
     assert len(sidecar._connected_lines("http://h:1", same)) == 1
 
     worktree = tmp_path / "worktree"
+    (worktree / "fibsem").mkdir(parents=True)
     other = {"level": "assist", "fibsem": {"path": str(worktree / "fibsem")}}
     line, warning = sidecar._connected_lines("http://h:1", other)
     assert str(worktree / "fibsem") in warning and fibsem_folder() in warning
     assert f"PYTHONPATH={worktree}" in warning
+
+
+def test_from_another_machine_the_connected_line_compares_versions():
+    """The app's folder is not on this machine (an agent on a Mac, the app on
+    the microscope PC): the versions are compared, not the folders."""
+    from fibsem import __version__
+
+    elsewhere = "C:\\fibsem-os\\fibsem"
+    same = {"fibsem": {"path": elsewhere, "version": __version__}}
+    assert len(sidecar._connected_lines("http://h:1", same)) == 1
+
+    older = {"fibsem": {"path": elsewhere, "version": "0.0.1"}}
+    line, warning = sidecar._connected_lines("http://h:1", older)
+    assert "fibsem 0.0.1" in warning and __version__ in warning

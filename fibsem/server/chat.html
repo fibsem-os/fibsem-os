@@ -51,6 +51,7 @@
   .level-menu .dot { color:var(--agent); }
   .level-menu b { color:var(--strong); }
   .level-menu small { grid-column:2; color:var(--muted); font-size:11.5px; }
+  .session { margin:0 16px 6px; font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .now { margin:0 16px 8px; font-size:12px; color:var(--strong); display:flex; gap:8px; align-items:center; }
   .now::before { content:""; width:7px; height:7px; border-radius:50%; background:var(--agent);
     animation:pulse 1.6s ease-in-out infinite; }
@@ -444,7 +445,8 @@ function headerHtml() {
   const menu = levelOpen ? `<div class="level-menu" role="menu">${levels.map(l =>
     `<button role="menuitemradio" data-level="${esc(l.level)}" aria-checked="${l.level === level}">
       <span class="dot">${l.level === level ? "●" : "○"}</span><b>${esc(l.name)}</b><small>${esc(l.tip)}</small></button>`).join("")}</div>` : "";
-  const now = a.now ? `<div class="now">${esc(a.now)}</div>` : "";
+  const now = (a.session ? `<div class="session" title="${esc(a.session)}">${esc(a.session)}</div>` : "")
+    + (a.now ? `<div class="now">${esc(a.now)}</div>` : "");
   return `<header>
     <span class="exp">${esc(a.experiment || "Agent chat")}</span>${halvesHtml()}
     <span class="controls">
