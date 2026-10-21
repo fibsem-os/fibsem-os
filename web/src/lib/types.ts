@@ -210,3 +210,112 @@ export type FileRead = FileEntry & {
   preview?: ImagePayload;
   summary?: { fm?: StackFacts; [key: string]: unknown };
 };
+
+/** GET /app/experiment: one row per item. */
+export interface ItemSummary {
+  lamella_name: string;
+  lamella_id: string;
+  last_completed_task: string | null;
+  last_completed_at: string | null;
+  is_completed: boolean;
+  is_failure: boolean;
+}
+
+export interface Defect {
+  verdict: string;
+  actor: string;
+  reason: string;
+  at_task: string;
+}
+
+/** GET /app/experiment/items/{name}: the facts the cards use. */
+export interface ItemDetail {
+  item_name: string;
+  is_failure: boolean;
+  defect?: Defect;
+  milling_angle?: number | null;
+}
+
+export interface HistoryOperation {
+  kind: string;
+  label: string;
+  status: string;
+  detail: string;
+  started_at: number | null;
+  ended_at: number | null;
+  facts: [string, string][];
+  figure: string | null;
+  stages: {
+    name: string;
+    text: string;
+    strategy: string;
+    said: string;
+    figure: string | null;
+    monitors: { name: string; said: string; figure: string | null }[];
+    drift: HistoryOperation[];
+  }[];
+}
+
+export interface HistoryRun {
+  task_id: string;
+  task_name: string;
+  status: string;
+  status_message: string;
+  started_at: number | null;
+  ended_at: number | null;
+  duration: number | null;
+  images: string[];
+  images_replaced_by: string | null;
+  outside_task: boolean;
+  decided_by: string[];
+  operations_summary: string;
+  operations_open: boolean;
+  operations: HistoryOperation[];
+}
+
+export interface HistoryFilter {
+  show: "all" | "images" | "operations";
+  status: "all" | "failed" | "cancelled";
+  task: string | null;
+  decided_by: "anyone" | "agent" | "operator";
+  order: "oldest" | "newest";
+}
+
+/** GET /app/experiment/items/{name}/history */
+export interface ItemHistory {
+  item_name: string;
+  filter: HistoryFilter;
+  tasks: string[];
+  total: number;
+  runs: HistoryRun[];
+}
+
+/** GET /app/experiment/grids: one row per grid. */
+export interface GridSummary {
+  name: string;
+  id: string;
+  description: string;
+  quality: string;
+  status: string;
+  current_task: string | null;
+  is_failure: boolean;
+  last_completed_task: string | null;
+  num_items: number;
+  overviews: Record<string, string>;
+}
+
+/** GET /app/experiment/grids/{name} */
+export type GridDetail = GridSummary & {
+  tasks: { name: string; status: string; files: Record<string, string[]> }[];
+  items: string[];
+};
+
+/** GET /app/experiment/grids/{name}/outputs/{file}/markers */
+export interface GridMarkers {
+  image?: { width: number; height: number };
+  markers: { item_name: string; x: number; y: number; inside: boolean; is_completed: boolean; is_failure: boolean }[];
+  unplaced: { item_name: string; reason: string }[];
+  linked?: boolean;
+  reason?: string;
+  error?: string;
+}

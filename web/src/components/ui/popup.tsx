@@ -7,12 +7,14 @@ export function Popup({
   children,
   label,
   align = "left",
+  side = "above",
   className,
 }: {
   trigger: (open: boolean, toggle: () => void) => ReactNode;
   children: (close: () => void) => ReactNode;
   label: string;
   align?: "left" | "right";
+  side?: "above" | "below";
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -36,8 +38,9 @@ export function Popup({
           role="dialog"
           aria-label={label}
           className={cn(
-            "absolute bottom-[calc(100%+8px)] z-30 rounded-md border border-input bg-popover p-1 shadow-[0_6px_20px_rgba(0,0,0,0.45)]",
+            "absolute z-30 rounded-md border border-input bg-popover p-1 shadow-[0_6px_20px_rgba(0,0,0,0.45)]",
             align === "left" ? "left-0" : "right-0",
+            side === "above" ? "bottom-[calc(100%+8px)]" : "top-[calc(100%+8px)]",
             className,
           )}
         >

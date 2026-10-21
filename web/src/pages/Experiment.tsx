@@ -3,14 +3,14 @@ import { ChevronRight, Download, FileImage, FileText, File as FileIcon, Folder }
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle, Facts } from "@/components/ui/card";
+import { Legend } from "@/components/images";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { api, getToken } from "@/lib/api";
 import { useOpenExperiment } from "@/lib/experiment";
+import { encodePath } from "@/lib/files";
 import * as fmt from "@/lib/format";
-import type { Capabilities, FileEntry, FileRead, FolderListing, StackFacts } from "@/lib/types";
+import type { Capabilities, FileEntry, FileRead, FolderListing } from "@/lib/types";
 import { cn } from "@/lib/utils";
-
-const encodePath = (path: string) => path.split("/").map(encodeURIComponent).join("/");
 
 const ICON = { folder: Folder, image: FileImage, text: FileText, other: FileIcon };
 
@@ -61,24 +61,6 @@ function Metadata() {
         ]}
       />
     </Card>
-  );
-}
-
-function Legend({ fm }: { fm: StackFacts }) {
-  return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px]">
-      {fm.channels.map((c) => (
-        <span key={c.name} className="flex items-center gap-1.5">
-          <span className="inline-block size-2.5 rounded-sm" style={{ background: c.color }} />
-          {c.name}
-          {c.excitation_wavelength != null && <span className="text-muted-foreground">{c.excitation_wavelength} nm</span>}
-        </span>
-      ))}
-      <span className="text-muted-foreground">
-        Max projection of {fm.z_planes} {fm.z_planes === 1 ? "plane" : "planes"}
-        {fm.z_step != null && ` · ${fmt.length(fm.z_step)} step`}
-      </span>
-    </div>
   );
 }
 

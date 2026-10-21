@@ -93,6 +93,14 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   return answer<T>(response);
 }
 
+/** An image route's bytes as an object URL, for an <img> that can't send the token. */
+export async function imageUrl(path: string): Promise<string> {
+  const response = await fetch(path, { headers: { Authorization: `Bearer ${token}` } });
+  if (response.status === 401) forgetToken();
+  if (!response.ok) throw new ApiError(response.status, response.statusText);
+  return URL.createObjectURL(await response.blob());
+}
+
 /** The pairing routes, which take no token. */
 export async function unauthed<T>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(path, {
