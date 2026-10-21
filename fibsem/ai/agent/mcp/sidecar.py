@@ -1760,12 +1760,16 @@ def build_sidecar(client, capabilities):
 FETCHED = "fetched"
 
 
+def _workdir() -> str:
+    """The agent's working folder: FIBSEM_AGENT_WORKDIR, else where the sidecar
+    runs."""
+    return os.path.realpath(os.environ.get("FIBSEM_AGENT_WORKDIR") or os.getcwd())
+
+
 def _save_fetched(experiment: str, relative: str, content: bytes):
     """Keep a fetched file at fetched/<experiment>/<its path in the
     experiment>, under the working folder: its local path and size."""
-    root = os.path.realpath(
-        os.path.join(os.environ.get("FIBSEM_AGENT_WORKDIR") or os.getcwd(), FETCHED)
-    )
+    root = os.path.join(_workdir(), FETCHED)
     parts = [experiment, *relative.split("/")]
     target = os.path.realpath(os.path.join(root, *parts))
     if os.path.commonpath([root, target]) != root or target == root:
@@ -1809,8 +1813,8 @@ def _described(fn, params):
 
 def _evidence_body(evidence):
     """The body that keeps *evidence* (the tool's ``evidence`` argument): a
-    ``file`` on this machine is read and sent as an upload. A `_Failure` when it
-    can't be read."""
+    ``file`` in the agent's working folder is read and sent as an upload. A
+    `_Failure` when it is outside that folder or can't be read."""
     if not isinstance(evidence, dict):
         return _Failure(
             'refused (422): {"error_type": "invalid", "message": "evidence is '
@@ -1819,8 +1823,22 @@ def _evidence_body(evidence):
     body = {k: v for k, v in evidence.items() if k != "file"}
     path = evidence.get("file")
     if path:
+        root = _workdir()
+        target = os.path.realpath(os.path.expanduser(str(path)))
+        if os.path.commonpath([root, target]) != root:
+            return _Failure(
+                "refused (422): "
+                + json.dumps(
+                    {
+                        "error_type": "invalid",
+                        "message": f"evidence file {path} is outside your working "
+                        f"folder ({root}): give a file there, or an experiment "
+                        "image as image.",
+                    }
+                )
+            )
         try:
-            with open(os.path.expanduser(str(path)), "rb") as f:
+            with open(target, "rb") as f:
                 body["upload"] = base64.b64encode(f.read()).decode("ascii")
         except OSError as exc:
             return _Failure(
