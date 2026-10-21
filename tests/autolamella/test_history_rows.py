@@ -15,6 +15,7 @@ from psygnal.containers import EventedDict
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.acting import Actor
 from fibsem.applications.autolamella.history_rows import (
     OUTSIDE_A_TASK,
     HistoryFilter,
@@ -24,6 +25,8 @@ from fibsem.applications.autolamella.history_rows import (
     operation_facts,
     operations_need_a_look,
     operations_summary,
+    run_record,
+    shown_images,
 )
 from fibsem.applications.autolamella.structures import (
     Experiment,
@@ -34,6 +37,12 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTaskConfig,
 )
 from fibsem.workflows.event_recording import EVENTS_FILENAME, read_events
+from fibsem.workflows.proposals import (
+    POINT_OF_INTEREST,
+    Decision,
+    DecisionOutcome,
+    Proposal,
+)
 from fibsem.workflows.status import TaskState, TaskStatus
 from tests.protocols import planned, task_protocol
 from tests.run_state import run_lamellae
@@ -104,6 +113,20 @@ def test_a_real_run_reads_back_as_one_row_per_run_with_its_alignment(tmp_path):
     assert align.duration is not None and align.path and os.path.isdir(align.path)
     assert rough.images and all(os.path.isfile(p) for p in rough.images)
     assert rough.duration is not None and rough.duration >= align.duration
+
+    # the same run as plain data, files relative to the experiment folder
+    record = run_record(rough, str(exp.path))
+    assert record["status"] == "Completed" and record["task_name"] == ROUGH
+    assert record["images"] == [
+        os.path.relpath(p, exp.path) for p in shown_images(rough)
+    ]
+    assert record["operations_summary"] == operations_summary(rough)
+    assert record["operations_open"] is False
+    align_record, mill_record = record["operations"]
+    assert align_record["label"] == "Align" and align_record["facts"]
+    assert align_record["figure"] == os.path.relpath(align.plot, exp.path)
+    assert [s["name"] for s in mill_record["stages"]] == stages
+    assert all(s["drift"][0]["status"] == "completed" for s in mill_record["stages"])
 
 
 def test_a_task_run_twice_keeps_both_runs_images_in_their_own_folders(tmp_path):
@@ -435,13 +458,67 @@ def test_the_filter_lets_through_what_it_names(tmp_path, flt, expected):
     assert [r.task_id for r in filter_runs(_runs(tmp_path), flt)] == expected
 
 
+def test_newest_first_turns_the_runs_round_and_hides_none(tmp_path):
+    flt = HistoryFilter(order="newest")
+
+    assert [r.task_id for r in filter_runs(_runs(tmp_path), flt)] == ["r2", "r1", "s"]
+    assert not flt.active
+
+
+def _decided(task_id, *actors, withdrawn=False):
+    proposal = Proposal(kind=POINT_OF_INTEREST, provenance={"task_id": task_id})
+    proposal.decisions = [
+        Decision(outcome=DecisionOutcome.Confirmed, actor=Actor.parse(a))
+        for a in actors
+    ]
+    if withdrawn:
+        proposal.decisions.append(
+            Decision(outcome=DecisionOutcome.Withdrawn, actor=Actor.parse("task:"))
+        )
+    return proposal
+
+
+def test_decided_by_keeps_the_runs_whose_proposals_they_decided(tmp_path):
+    lamella = _lamella(tmp_path)
+    lamella.task_history = [
+        _run(SETUP, "s", 0),
+        _run(ROUGH, "r1", 10),
+        _run(ROUGH, "r2", 20),
+    ]
+    lamella.proposals = [
+        _decided("s", "operator:pat"),
+        _decided("r1", "agent:claude", "operator:pat"),
+        _decided("r2", "task:Rough Milling", withdrawn=True),
+    ]
+    runs = history_rows(lamella, [])
+
+    def kept(**flt):
+        return [r.task_id for r in filter_runs(runs, HistoryFilter(**flt))]
+
+    assert kept(decided_by="agent") == ["r1"]
+    assert kept(decided_by="operator") == ["s", "r1"]
+    assert kept(decided_by="operator", order="newest") == ["r1", "s"]
+    assert HistoryFilter(decided_by="agent").active
+
+
 def test_a_saved_filter_round_trips_and_anything_unknown_shows_everything():
-    flt = HistoryFilter(show="operations", status="failed", task=ROUGH)
+    flt = HistoryFilter(
+        show="operations",
+        status="failed",
+        task=ROUGH,
+        decided_by="agent",
+        order="newest",
+    )
 
     assert HistoryFilter.from_dict(flt.to_dict()) == flt and flt.active
-    assert HistoryFilter.from_dict({"show": "pictures", "status": 3, "task": ""}) == (
-        HistoryFilter()
-    )
+    unknown = {
+        "show": "pictures",
+        "status": 3,
+        "task": "",
+        "decided_by": "cat",
+        "order": 1,
+    }
+    assert HistoryFilter.from_dict(unknown) == HistoryFilter()
     assert HistoryFilter.from_dict(None) == HistoryFilter()
     assert not HistoryFilter().active
 

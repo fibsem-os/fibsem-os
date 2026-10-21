@@ -109,6 +109,7 @@ test = [
     "pytest>=7.2.2",
     "pytest-xdist>=3.0",   # parallel execution (-n auto --dist worksteal)
     "pytest-timeout>=2.1", # fail a hung test instead of blocking the whole run
+    "jsonschema>=4",       # checks encoded structures against their JSON schema
 ]
 
 # Lint tooling. Install with `pip install .[dev]`.

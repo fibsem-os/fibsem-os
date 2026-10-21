@@ -9,7 +9,8 @@ a grid; nothing globs an item's directory.
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Any, Iterable, List, Optional
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional
 
 from fibsem.workflows.status import TaskState
 
@@ -70,7 +71,16 @@ def latest_item_output(
     return None
 
 
-def files_by_run(root: Any, runs: Iterable[TaskState]) -> List[dict]:
+@dataclass
+class RunFiles:
+    """One run's existing recorded files by role, as basenames."""
+
+    name: str
+    status: str
+    files: Dict[str, List[str]] = field(default_factory=dict)
+
+
+def files_by_run(root: Any, runs: Iterable[TaskState]) -> List[RunFiles]:
     """Each run in order, with its existing recorded files by role, as
     basenames: which run produced which file."""
     entries = []
@@ -84,7 +94,7 @@ def files_by_run(root: Any, runs: Iterable[TaskState]) -> List[dict]:
             ]
             if names:
                 files[role] = names
-        entries.append({"name": run.name, "status": run.status.name, "files": files})
+        entries.append(RunFiles(run.name, run.status.name, files))
     return entries
 
 
