@@ -165,6 +165,7 @@ def _every_field_changed() -> UserPreferences:
 
     prefs.app_server.enabled = True
     prefs.app_server.microscope = True
+    prefs.app_server.allow_local_agents = True
 
     prefs.hooks = [{"type": "notification", "name": "custom"}]
     return prefs
