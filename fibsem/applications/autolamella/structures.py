@@ -75,7 +75,13 @@ from fibsem.workflows.proposals import (
 from fibsem.workflows.quality import QualityRecord, Verdict
 from fibsem.workflows.saved_format import check_app
 from fibsem.workflows.status import TaskState, TaskStatus
-from fibsem.workflows.task_config import RunPlan, TaskConfig, TaskPlan, TaskProtocol
+from fibsem.workflows.task_config import (
+    RunPlan,
+    TaskConfig,
+    TaskPlan,
+    TaskProtocol,
+    WorkflowOptions,
+)
 
 if TYPE_CHECKING:
     import numpy as np
@@ -217,26 +223,6 @@ class AutoLamellaWorkflowConfig(RunPlan):
 
 @evented
 @dataclass
-class AutoLamellaWorkflowOptions:
-    turn_beams_off: bool = False
-    # Open the run summary dialog when a run ends. The run-end toast, with its
-    # Show summary link, comes either way; off is for runs nobody is watching
-    # the end of -- an agent starting many short runs, or overnight (FIB-1376).
-    show_run_summary: bool = True
-
-    def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "AutoLamellaWorkflowOptions":
-        data = dict(data)
-        # How long a run waited on reviews, before nothing waited on one.
-        data.pop("review_wait", None)
-        return cls(**data)
-
-
-@evented
-@dataclass
 class LamellaDefaultConfig(Configurable):
     """Initial state applied to every new Lamella created from this protocol."""
 
@@ -309,9 +295,7 @@ class AutoLamellaTaskProtocol(TaskProtocol):
     )
     description: str = "Protocol for AutoLamella"
     version: str = "1.0"
-    options: AutoLamellaWorkflowOptions = field(
-        default_factory=AutoLamellaWorkflowOptions
-    )
+    options: WorkflowOptions = field(default_factory=WorkflowOptions)
     lamella_defaults: LamellaDefaultConfig = field(default_factory=LamellaDefaultConfig)
     # Experiment-global correlation config (FIB-298): a user-step config, not an
     # automated task, so a peer field rather than an entry in task_config.
@@ -327,6 +311,12 @@ class AutoLamellaTaskProtocol(TaskProtocol):
         from fibsem.applications.autolamella.workflows.tasks import load_task_config
 
         return load_task_config(ddict or {})
+
+    @classmethod
+    def task_classes(cls) -> Dict[str, type]:
+        from fibsem.applications.autolamella.workflows.tasks import get_tasks
+
+        return get_tasks()
 
     def to_dict(self) -> Dict[str, Any]:
         saved = super().to_dict()
@@ -354,7 +344,7 @@ class AutoLamellaTaskProtocol(TaskProtocol):
             workflow_config=AutoLamellaWorkflowConfig.from_dict(
                 data.get("workflow_config")
             ),
-            options=AutoLamellaWorkflowOptions.from_dict(data.get("options", {})),
+            options=WorkflowOptions.from_dict(data.get("options", {})),
             lamella_defaults=LamellaDefaultConfig.from_dict(
                 data.get("lamella_defaults", {})
             ),
@@ -423,23 +413,6 @@ class AutoLamellaTaskProtocol(TaskProtocol):
                         f"Task '{name}' requires '{req}' which comes after it in the workflow."
                     )
         return issues
-
-    @classmethod
-    def load(cls, filename: str) -> "AutoLamellaTaskProtocol":
-        with open(filename) as file:
-            data = yaml.safe_load(file)
-        return cls.from_dict(data)
-
-    def save(self, filename: str) -> None:
-        """Save the task protocol to a YAML file."""
-        with open(filename, "w") as file:
-            yaml.safe_dump(
-                self.to_dict(),
-                file,
-                indent=4,
-                default_flow_style=False,
-                sort_keys=False,
-            )
 
     @classmethod
     def load_from_old_protocol(cls, path: Path) -> "AutoLamellaTaskProtocol":
@@ -597,7 +570,7 @@ class AutoLamellaTaskProtocol(TaskProtocol):
             task_config[UNDERCUT_TASK_NAME] = undercut_task
             workflow_config.tasks.insert(1, TaskPlan(name=UNDERCUT_TASK_NAME))
 
-        options = AutoLamellaWorkflowOptions(
+        options = WorkflowOptions(
             turn_beams_off=protocol.options.turn_beams_off,
         )
 
@@ -1414,24 +1387,13 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
         supervised), and a copy on every lamella. The protocol editor's Add
         Task, and an agent's. Raises ValueError for an unknown type or a name
         the protocol already has."""
-        from fibsem.applications.autolamella.workflows.tasks import get_tasks
-
-        task_name = task_name.strip()
-        registry = get_tasks()
-        if task_type not in registry:
-            raise ValueError(f"No task type {task_type!r}.")
-        if not task_name:
-            raise ValueError("A task needs a name.")
-        if task_name in self.task_protocol.task_config:
-            raise ValueError(f"There is already a task named {task_name!r}.")
-        config = registry[task_type].config_cls()  # type: ignore[attr-defined]
-        config.task_name = task_name
-        config.attention = Attention.supervised
-        self.task_protocol.add(config)
+        config = self.task_protocol.add_new(task_type, task_name)
         for lamella in self.positions:
-            lamella.task_config[task_name] = deepcopy(config)
+            lamella.task_config[config.task_name] = deepcopy(config)
             lamella._sync_imaging_paths()
-        logging.info(f"Added task {task_name} ({task_type}) to experiment {self.name}")
+        logging.info(
+            f"Added task {config.task_name} ({task_type}) to experiment {self.name}"
+        )
         return config
 
     def remove_task(self, task_name: str) -> None:

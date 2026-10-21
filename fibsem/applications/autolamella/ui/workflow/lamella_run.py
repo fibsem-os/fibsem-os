@@ -18,7 +18,6 @@ from PyQt5.QtWidgets import (
 
 from fibsem.applications.autolamella.structures import (
     AutoLamellaWorkflowConfig,
-    AutoLamellaWorkflowOptions,
     Experiment,
     Lamella,
 )
@@ -42,7 +41,7 @@ from fibsem.ui.widgets.custom_widgets import (
     ValueComboBox,
 )
 from fibsem.ui.widgets.lists import OptionsPopup, help_button
-from fibsem.workflows.task_config import TaskPlan
+from fibsem.workflows.task_config import TaskPlan, WorkflowOptions
 
 # What the panel's ? says: how to work the task list. It was a line of text under
 # the list on every view; it is for the first time, not every time.
@@ -202,7 +201,7 @@ class LamellaWorkflowWidget(QWidget):
     # ── workflow info signals ────────────────────────────────────────────
     workflow_name_changed = pyqtSignal(str)
     workflow_description_changed = pyqtSignal(str)
-    workflow_options_changed = pyqtSignal(object)  # AutoLamellaWorkflowOptions
+    workflow_options_changed = pyqtSignal(object)  # WorkflowOptions
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -285,7 +284,7 @@ class LamellaWorkflowWidget(QWidget):
         self.info.set_config(config)
         self._refresh_settings_button()
 
-    def set_options(self, options: AutoLamellaWorkflowOptions) -> None:
+    def set_options(self, options: WorkflowOptions) -> None:
         self.info.set_options(options)
         self._refresh_settings_button()
 
@@ -394,14 +393,14 @@ class WorkflowInfoWidget(QWidget):
 
     name_changed = pyqtSignal(str)
     description_changed = pyqtSignal(str)
-    options_changed = pyqtSignal(object)  # AutoLamellaWorkflowOptions
+    options_changed = pyqtSignal(object)  # WorkflowOptions
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setStyleSheet(f"background: {PANEL_COLOR};")
 
         self._config: Optional[AutoLamellaWorkflowConfig] = None
-        self._options: Optional[AutoLamellaWorkflowOptions] = None
+        self._options: Optional[WorkflowOptions] = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(6, 4, 6, 6)
@@ -463,7 +462,7 @@ class WorkflowInfoWidget(QWidget):
         self.name_edit.blockSignals(False)
         self.desc_edit.blockSignals(False)
 
-    def set_options(self, options: AutoLamellaWorkflowOptions) -> None:
+    def set_options(self, options: WorkflowOptions) -> None:
         self._options = options
         for checkbox, value in (
             (self.turn_beams_off_cb, options.turn_beams_off),
