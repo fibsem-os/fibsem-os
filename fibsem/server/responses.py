@@ -186,8 +186,10 @@ class RunAnswer:
     state: str
     ended_at: Optional[str] = None
     result: Any = None
-    # How it failed: error_type and message, as a refusal says them.
+    # How it failed: error_type and message, as a refusal says them, and the
+    # status that refusal answers (409 for a grid not in the inventory).
     error: Optional[Dict[str, Any]] = None
+    status_code: Optional[int] = None
 
 
 @dataclass

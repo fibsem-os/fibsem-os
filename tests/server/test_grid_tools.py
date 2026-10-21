@@ -112,6 +112,7 @@ def test_a_grid_not_in_the_magazine_ends_refused_and_says_what_to_do(driving):
     ended = _ran(driving, "grid_load", grid_name="G9")
     assert ended["state"] == "failed"
     assert ended["error"]["error_type"] == "GridExchangeError"
+    assert ended["status_code"] == 409
     assert "Run an inventory" in ended["error"]["message"]
 
 
