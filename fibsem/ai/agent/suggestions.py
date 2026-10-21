@@ -108,16 +108,21 @@ def suggestion_request(
         "proposal_id": proposal.id,
         "outcome": suggestion.outcome.name,
     }
-    if suggestion.values:
-        arguments["values"] = _encode_values(suggestion.values)
+    values = suggestion.values
+    if not values and suggestion.outcome is DecisionOutcome.Confirmed:
+        # confirmed as proposed: the proposal's own values are what is decided
+        values = proposal.values
+    if values:
+        arguments["values"] = _encode_values(values)
     if suggestion.patch:
         arguments["patch"] = dict(suggestion.patch)
     if suggestion.action:
         arguments["action"] = suggestion.action
+    # the agent's image only: without one, the picture takes the image the
+    # proposal was asked on, not as the agent's
     image = suggestion.image
     if image and experiment_path and not os.path.isabs(image):
         image = os.path.join(experiment_path, image)
-    image = image or _proposal_image(item, proposal, experiment_path)
     return {
         "request_id": suggestion.id,
         "status": "pending",

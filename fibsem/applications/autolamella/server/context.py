@@ -53,6 +53,7 @@ from fibsem.workflows.outputs import (
     files_by_run,
     item_output_named,
     latest_item_output,
+    saved_file,
 )
 from fibsem.workflows.runner import GRIDS, RunRequest
 from fibsem.workflows.session import CONFIG, GRID_RECORDS
@@ -104,6 +105,22 @@ def _recorded_item_file(lamella, filename: str):
     return None, {
         "error": f"No output named {filename!r} for {lamella.name!r}.",
         "filenames": _basenames(paths),
+    }
+
+
+def _grid_file(experiment, grid, filename: str):
+    """``(path, None)`` for *filename*: an output the grid's tasks recorded,
+    by basename, else a saved image at that path in the experiment (an
+    overview the agent took); ``(None, refusal)`` naming the grid's outputs."""
+    match = item_output_named(experiment, grid, filename) or saved_file(
+        experiment, experiment.path, filename
+    )
+    if match is not None:
+        return match, None
+    return None, {
+        "error": f"No output named {filename!r} for grid {grid.name!r}, "
+        "and no image at that path in the experiment.",
+        "filenames": _basenames(all_item_outputs(experiment, grid)),
     }
 
 
@@ -237,14 +254,15 @@ class AutoLamellaAppContext(AppContext):
     def output_image(
         self, item_name: str, filename: str, max_width: int = 768
     ) -> Dict[str, Any]:
-        """One recorded output image, rendered as JPEG bytes.
+        """One output image of an item, rendered as JPEG bytes.
 
         The read side of :meth:`task_outputs` for clients that cannot touch the
-        disk — the dashboard's thumbnails. ``filename`` must be the basename of
-        a path :meth:`task_outputs` itself listed; anything else is refused
-        with the valid names, so a client can never reach outside the item's
-        own recorded outputs. Stacks and multi-channel images are max-projected
-        to something viewable; this is a preview, not the data.
+        disk — the dashboard's thumbnails. ``filename`` is the basename of a
+        path :meth:`task_outputs` listed, or a path in the item's own folder
+        (an image the agent saved there); anything else is refused with the
+        valid names, and nothing outside the experiment is reached. Stacks
+        and multi-channel images are max-projected to something viewable; this
+        is a preview, not the data.
         """
         experiment = self._experiment
         if experiment is None:
@@ -254,6 +272,9 @@ class AutoLamellaAppContext(AppContext):
             return {"available": False, "jpeg": None, **refusal}
         match, refusal = _recorded_item_file(lamella, filename)
         if refusal:
+            # else an image saved in the item's folder (one the agent took)
+            match = saved_file(experiment, lamella.path, filename)
+        if match is None:
             return {"available": True, "jpeg": None, **refusal}
         return jpeg_preview(match, filename, max_width)
 
@@ -383,11 +404,12 @@ class AutoLamellaAppContext(AppContext):
     def grid_output_image(
         self, grid_name: str, filename: str, max_width: int = 768
     ) -> Dict[str, Any]:
-        """One recorded grid output (overview or thumbnail), rendered as JPEG.
+        """One grid output (overview or thumbnail), rendered as JPEG.
 
-        Same contract as :meth:`output_image`: ``filename`` must be a basename
-        the grid's own history recorded, anything else is refused with the
-        valid names. Overviews are large; this is the downscaled preview.
+        ``filename`` is a basename the grid's history recorded, or a saved
+        image's path in the experiment (`_grid_file`); anything else is
+        refused with the valid names. Overviews are large; this is the
+        downscaled preview.
         """
         experiment = self._experiment
         if experiment is None:
@@ -395,14 +417,9 @@ class AutoLamellaAppContext(AppContext):
         grid = experiment.get_grid_by_name(grid_name)
         if grid is None:
             return dict(self._no_such_grid(experiment, grid_name), jpeg=None)
-        match = item_output_named(experiment, grid, filename)
-        if match is None:
-            return {
-                "available": True,
-                "jpeg": None,
-                "error": f"No output named {filename!r} for grid {grid_name!r}.",
-                "filenames": _basenames(all_item_outputs(experiment, grid)),
-            }
+        match, refusal = _grid_file(experiment, grid, filename)
+        if refusal:
+            return {"available": True, "jpeg": None, **refusal}
         return jpeg_preview(match, filename, max_width)
 
     def grid_markers(self, grid_name: str, filename: str) -> Dict[str, Any]:
@@ -431,15 +448,9 @@ class AutoLamellaAppContext(AppContext):
         grid = experiment.get_grid_by_name(grid_name)
         if grid is None:
             return dict(self._no_such_grid(experiment, grid_name), markers=[])
-        match = item_output_named(experiment, grid, filename)
-        if match is None:
-            return {
-                "available": True,
-                "grid_name": grid_name,
-                "markers": [],
-                "error": f"No output named {filename!r} for grid {grid_name!r}.",
-                "filenames": _basenames(all_item_outputs(experiment, grid)),
-            }
+        match, refusal = _grid_file(experiment, grid, filename)
+        if refusal:
+            return {"available": True, "grid_name": grid_name, "markers": [], **refusal}
         try:
             image_block, project = stage_projector(match)
         except Exception as exc:  # noqa: BLE001 - a broken file is a data fact
@@ -666,7 +677,8 @@ class AutoLamellaAppContext(AppContext):
     def overview_stage_position(
         self, grid_name: str, filename: str, px=None, fraction=None
     ) -> Dict[str, Any]:
-        """The stage position under a point of a recorded grid overview.
+        """The stage position under a point of a grid overview: one its tasks
+        recorded, or any saved image in the experiment (`_grid_file`).
 
         The inverse of :meth:`grid_markers`, through the same projection the
         overview canvases use, built from the image's own metadata: a saved
@@ -682,13 +694,9 @@ class AutoLamellaAppContext(AppContext):
         if grid is None:
             refusal = self._no_such_grid(experiment, grid_name)
             return {"error_type": "not_found", **refusal}
-        path = item_output_named(experiment, grid, filename)
-        if path is None:
-            return {
-                "error_type": "not_found",
-                "error": f"No output named {filename!r} for grid {grid_name!r}.",
-                "filenames": _basenames(all_item_outputs(experiment, grid)),
-            }
+        path, refusal = _grid_file(experiment, grid, filename)
+        if refusal:
+            return {"error_type": "not_found", **refusal}
         try:
             position = image_point_to_stage_position(path, px=px, fraction=fraction)
         except ValueError as exc:

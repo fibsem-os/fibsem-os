@@ -246,6 +246,39 @@ class AgentSession:
         card = suggestion_card(item, task_name, proposal, str(experiment.path))
         return {"proposal_id": proposal.id, **card}
 
+    def waiting(self) -> Optional[Dict[str, Any]]:
+        """The decision a run waits on, and who can make it, for the chat
+        page: ``proposal`` ("01 · Setup · Alignment area") and ``who``; None
+        while nothing waits."""
+        from fibsem.ai.agent.suggestions import front_suggestion
+        from fibsem.workflows.proposals import kind_label
+
+        experiment = self._session.experiment
+        pending = experiment.pending_proposals() if experiment is not None else []
+        if not pending:
+            return None
+        item, task_name, proposal = pending[0]
+        level = self.level
+        if OPERATOR in self._session.deciders():
+            who = "Decide it in the window."
+        elif level is AgentLevel.DRIVE:
+            who = "The agent decides it."
+        elif level is AgentLevel.ASSIST:
+            who = (
+                "The agent suggested a decision."
+                if front_suggestion(experiment) is not None
+                else "The agent will suggest a decision."
+            )
+        else:
+            who = (
+                "No one here can decide it: raise the agent to Assist or "
+                "Drive, or open the window."
+            )
+        return {
+            "proposal": f"{item.name} · {task_name} · {kind_label(proposal.kind)}",
+            "who": who,
+        }
+
     def approve_suggestion(self, proposal_id: str) -> DecisionResult:
         """Decide the proposal as the agent suggested, as the operator's
         decision, naming the suggestion."""

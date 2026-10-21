@@ -259,7 +259,7 @@ def _cut_short(answer: Any) -> bool:
 _OUTCOME_FLAGS = ("ok", "started", "applied", "stopped")
 
 
-def _refusal(answer: Any) -> Optional[Dict[str, Any]]:
+def turned_away(answer: Any) -> Optional[Dict[str, Any]]:
     """The refusal in an answer that came back 2xx but says the action did
     nothing (one of its outcome flags is False), as a route's error detail;
     None for an answer that did what it was asked. Such a step failed, with
@@ -691,7 +691,7 @@ class RequestStore:
                         # The next step waits for this one's run to end, and a
                         # run that fails fails the step.
                         code, answer = self._wait_for_run(request, action, run)
-                refused = _refusal(answer) if code < 400 else None
+                refused = turned_away(answer) if code < 400 else None
                 ok = code < 400 and refused is None
                 result = {
                     "index": index,

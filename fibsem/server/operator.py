@@ -60,6 +60,7 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
             "request": request.to_dict() if request is not None else None,
             "suggestion": agent.suggestion(),
             "now": agent.now(),
+            "waiting": agent.waiting(),
             # The card's pictures: what each is, and its version to fetch.
             "pictures": {
                 kind: {

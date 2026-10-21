@@ -67,7 +67,7 @@ from fibsem.server.leases import LEASE_HEADER, Leases
 from fibsem.server.models import ControlRequest, MicroscopeStateRequest
 from fibsem.server.operator import build_operator_router
 from fibsem.server.parts import served_parts
-from fibsem.server.requests import RequestStore, build_request_router
+from fibsem.server.requests import RequestStore, build_request_router, turned_away
 from fibsem.structures import BeamType, MicroscopeState
 from fibsem.workflows.actions import ACTION, action_record
 
@@ -398,8 +398,10 @@ class _AgentActs:
         async def sending(message) -> None:
             if message["type"] == "http.response.start":
                 answer["status"] = message["status"]
-            elif message["type"] == "http.response.body" and answer["status"] >= 400:
-                answer["body"] += message.get("body", b"")[:65536]
+            elif message["type"] == "http.response.body":
+                # read for a refusal, a 2xx that did nothing too; a long
+                # answer is cut and read as none
+                answer["body"] = (answer["body"] + message.get("body", b""))[:65536]
             await send(message)
 
         call = from_headers(headers)
@@ -448,9 +450,15 @@ class _AgentActs:
             ):
                 return
             request = Request(scope)
+            try:
+                answer = json.loads(body or b"{}")
+            except ValueError:
+                answer = None
+            # 2xx, but it did nothing (a run not started): failed, with why
+            refused = turned_away(answer) if status < 400 else None
             payload = action_record(
                 call.action or action_name(request),
-                ok=status < 400,
+                ok=status < 400 and refused is None,
                 route=f"{scope.get('method')} {path}",
                 status=status,
                 level=call.level,
@@ -460,11 +468,10 @@ class _AgentActs:
                 payload["tool"] = call.tool
             if call.arguments:
                 payload["arguments"] = call.arguments
+            if refused is not None:
+                payload.update(refused)
             if status >= 400:
-                try:
-                    detail = json.loads(body or b"{}").get("detail")
-                except (ValueError, AttributeError):
-                    detail = None
+                detail = answer.get("detail") if isinstance(answer, dict) else None
                 if isinstance(detail, dict) and detail.get("error_type"):
                     payload["error_type"] = detail["error_type"]
                 # Why, in the route's words: an exception's name is not a reason.

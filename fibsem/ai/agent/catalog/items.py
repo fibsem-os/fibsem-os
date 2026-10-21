@@ -263,7 +263,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="item_get_output_image",
-        description="One saved image of an item, as an image you can look at: a 768 px JPEG preview of a file item_list_outputs lists (stacks and channels max-projected). A preview, not the data. A beam image comes with its metadata block (pixel size, preview_pixelsize, stage position, beam, detector). An unlisted name is refused with the valid ones.",
+        description="One saved image of an item, as an image you can look at: a 768 px JPEG preview of a file item_list_outputs lists (stacks and channels max-projected). A preview, not the data. A beam image comes with its metadata block (pixel size, preview_pixelsize, stage position, beam, detector). A name it neither lists nor finds in the item's folder is refused with the valid ones.",
         method="GET",
         path="/app/experiment/items/{item_name}/outputs/{filename}",
         level="watch",
@@ -320,7 +320,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="item_add",
-        description="Add a lamella, as the Lamella tab's Add does: at the stage position now (no where; refused while a workflow runs, since the run moves the stage), at stage_position, or under a point of a recorded grid overview (overview = {grid_name, filename, px: [x, y] source pixels or fraction: [x, y] 0-1}), which also puts it on that grid. Its poses, milling angle and grid are worked out as for a click, and it is saved. Leave name out: the app's item names (petnames) are the house style; put where the site came from in its description with item_update. Answers with the new item.",
+        description="Add a lamella, as the Lamella tab's Add does: at the stage position now (no where; refused while a workflow runs, since the run moves the stage), at stage_position, or under a point of a grid overview (overview = {grid_name, filename: one grid_get lists or any saved image's path in the experiment, px: [x, y] source pixels or fraction: [x, y] 0-1}), which also puts it on that grid. Its poses, milling angle and grid are worked out as for a click, and it is saved. Leave name out: the app's item names (petnames) are the house style; put where the site came from in its description with item_update. Answers with the new item.",
         method="POST",
         path="/app/experiment/items",
         level="drive",
@@ -407,7 +407,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="item_set_position",
-        description="Move a lamella to a point, as moving it on an overview does: to stage_position, or under a point of a recorded grid overview (overview = {grid_name, filename, px: [x, y] source pixels or fraction: [x, y] 0-1}). A point on the fluorescence side moves its fluorescence pose and the milling pose follows; otherwise its milling pose moves, with its milling angle, and the fluorescence pose follows. The stage does not move. Refused for the lamella a run is working on. Saved; answers with the item.",
+        description="Move a lamella to a point, as moving it on an overview does: to stage_position, or under a point of a grid overview (overview = {grid_name, filename: one grid_get lists or any saved image's path in the experiment, px: [x, y] source pixels or fraction: [x, y] 0-1}). A point on the fluorescence side moves its fluorescence pose and the milling pose follows; otherwise its milling pose moves, with its milling angle, and the fluorescence pose follows. The stage does not move. Refused for the lamella a run is working on. Saved; answers with the item.",
         method="POST",
         path="/app/experiment/items/{item_name}/position",
         level="drive",

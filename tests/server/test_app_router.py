@@ -1098,6 +1098,37 @@ def test_an_item_is_added_where_the_stage_is(driver, host, microscope):
     assert taken.status_code == 422
 
 
+def test_an_item_is_added_on_an_overview_the_agent_saved(
+    driver, host, grid_with_overview
+):
+    """Headless round 12 H1: an overview from beam_acquire_overview is in no
+    task's outputs, so item_add on it failed after approval."""
+    import shutil
+
+    from fibsem.workflows.outputs import saved_file
+
+    experiment = host.experiment
+    source = experiment.grid_path(grid_with_overview) / "overview_sem/overview.tif"
+    shutil.copy(source, os.path.join(experiment.path, "grid01-overview.tif"))
+    base = "/app/experiment/grids/grid-aspen/outputs/grid01-overview.tif"
+    assert driver.get(base).status_code == 200
+    assert driver.get(f"{base}/markers").json()["markers"] is not None
+    resp = driver.post(
+        "/app/experiment/items",
+        json={
+            "name": "on-saved",
+            "overview": {
+                "grid_name": "grid-aspen",
+                "filename": "grid01-overview.tif",
+                "px": [40.0, 90.0],
+            },
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    # Nothing outside the experiment folder.
+    assert saved_file(experiment, experiment.path, "../outside.tif") is None
+
+
 def test_an_item_is_added_under_an_overview_point(driver, host, grid_with_overview):
     # The marker for the new item lands back on the pixel it was added at: the
     # conversion is the markers' inverse.

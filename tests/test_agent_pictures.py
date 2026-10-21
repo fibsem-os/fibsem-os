@@ -406,6 +406,40 @@ def test_a_suggestion_is_drawn_on_its_proposal_s_image_in_its_own_picture():
     assert previews.suggestion_picture is None and card.shown is None
 
 
+def test_a_suggestion_to_confirm_as_proposed_draws_the_proposal_s_own_values():
+    """Round 12: approving "confirm it" on an alignment area showed no area,
+    and the image it was asked on was captioned the agent's."""
+    from fibsem.ai.agent.suggestions import suggestion_request
+    from fibsem.structures import FibsemRectangle
+    from fibsem.workflows.proposals import ALIGNMENT_AREA, Proposal, Suggestion
+
+    reference = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=200e-6)
+    card = _Card()
+    previews = AgentPictures(
+        _Controller().image,
+        reference_image=lambda arguments: reference,
+        show_picture=card,
+    )
+    proposal = Proposal(
+        kind=ALIGNMENT_AREA,
+        provenance={"task_id": "run-1"},
+        values={"alignment_area": FibsemRectangle(0.25, 0.25, 0.5, 0.5)},
+    )
+    proposal.suggestion = Suggestion(actor="agent:claude", reason="looks right")
+
+    class _Item:
+        id, name = "01", "01-full-magpie"
+
+    previews.show_suggestion(suggestion_request(_Item(), "Setup", proposal, None))
+
+    frame, layers = previews.suggestion_picture
+    assert frame is reference
+    (area,) = [m for layer in layers for m in layer.areas]
+    assert area == [pytest.approx((50.0, 25.0)), pytest.approx((150.0, 75.0))]
+    _png, caption = card.shown
+    assert not caption.startswith("The agent's image")
+
+
 def _pass_request(proposal, **arguments):
     """A waiting request to decide *proposal*, a loop's pass."""
     return {

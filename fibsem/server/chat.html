@@ -56,6 +56,9 @@
   .now::before { content:""; width:7px; height:7px; border-radius:50%; background:var(--agent);
     animation:pulse 1.6s ease-in-out infinite; }
   @keyframes pulse { 50% { opacity:.3; } }
+  .waiting { margin:0 16px 8px; font-size:12px; color:var(--strong); }
+  .waiting b { color:var(--warn); font-weight:600; }
+  .waiting span { color:var(--muted); }
   .act .what { background:none; border:0; padding:0; text-align:left; color:inherit; font:inherit; cursor:pointer; }
   .act .what:hover { color:var(--strong); }
   .halves .log { margin-left:10px; color:var(--accent); text-decoration:none; }
@@ -380,13 +383,17 @@ function headerHtml() {
       <span class="dot">${l.level === level ? "●" : "○"}</span><b>${esc(l.name)}</b><small>${esc(l.tip)}</small></button>`).join("")}</div>` : "";
   const now = (a.session ? `<div class="session" title="${esc(a.session)}">${esc(a.session)}</div>` : "")
     + (a.now ? `<div class="now">${esc(a.now)}</div>` : "");
+  // A run held on a proposal, and who can decide it: with no window, the
+  // only sign the run waits.
+  const w = a.waiting;
+  const waiting = w ? `<div class="waiting"><b>Waiting on a decision:</b> ${esc(w.proposal)} <span>· ${esc(w.who)}</span></div>` : "";
   return `<header>
     <span class="exp">${esc(a.experiment || "Agent chat")}</span>${halvesHtml()}
     <span class="controls">
       <button class="btn panels-menu" id="panels-menu" title="Panels">☰</button>
       <span class="level-wrap"><button class="chip ${esc(level)}" id="level" aria-haspopup="menu"${off}>${esc(shown.word)}</button>${menu}</span>
       <button class="chip stop" id="stop"${off}>Stop agent</button>
-    </span></header>${now}`;
+    </span></header>${now}${waiting}`;
 }
 
 // The card's picture as the window draws it (the values on the live image),

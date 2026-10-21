@@ -492,3 +492,36 @@ def test_a_direct_call_reads_the_state_it_changes(client, auth, microscope):
     (call,) = [p for kind, p in recorded if kind == "action"]
     assert call["what"].startswith("Ion · Set ")
     assert "→" in call["what"] and "hfw" not in call["what"]
+
+
+def test_a_run_start_that_started_nothing_is_recorded_as_failed(
+    client, auth, microscope, monkeypatch
+):
+    """Headless round 12 H2: a refused start answered 200 with started: false,
+    and /chat showed it "done"."""
+    why = "Cannot run: 01 is on Grid-01, which is not on the stage."
+    monkeypatch.setattr(
+        AutoLamellaAppContext,
+        "start_workflow",
+        lambda self, task_names, item_names=None: {"started": False, "reason": why},
+    )
+    auth.set_level(AgentLevel.DRIVE)
+    recorded = []
+
+    def record(kind, payload):
+        recorded.append((kind, payload))
+
+    microscope.session.record_signal.connect(record)
+    try:
+        answer = client.post(
+            "/app/workflow/start", headers=AGENT, json={"task_names": ["Setup"]}
+        )
+    finally:
+        microscope.session.record_signal.disconnect(record)
+    assert answer.status_code == 200
+    call = next(p for kind, p in recorded if kind == "action")
+    assert (call["ok"], call["error_type"], call["message"]) == (
+        False,
+        "not_started",
+        why,
+    )
