@@ -196,11 +196,14 @@ class DeviceClient:
         token: Optional[str] = None,
         events: bool = True,
         root: str = "",
+        code: Optional[str] = None,
     ):
-        """*token*, when given, goes on every HTTP request as a bearer token, for
-        the App Server, which serves the same routes behind one under *root*
-        (``"/microscope"``, ``fibsem.server.server``), and on opening its event
-        stream at ``{root}/events``.
+        """*token* goes on every HTTP request as a bearer token and on opening the
+        event stream at ``{root}/events``. For the App Server, which serves the
+        same routes under *root* (``"/microscope"``, ``fibsem.server.server``),
+        it is given. For a Device Server, without one, the token this computer
+        was paired with there, else one paired now with *code*, else a Device
+        Server's on this computer (`device_server_token`).
 
         *events* False never opens the event stream. Reads, writes and commands
         work the same; but nothing signals a change made on the far side,
@@ -209,6 +212,15 @@ class DeviceClient:
         ``refresh_metadata()``, and ``connected``, ``disconnected`` and
         ``reconnected`` never change or fire.
         """
+        if token is None and not root:
+            from fibsem.client.pairing import device_server_token
+
+            try:
+                token = device_server_token(f"http://{host}:{port}", code)
+            except (PermissionError, OSError) as error:
+                raise RemoteDeviceUnreachable(
+                    f"pairing with the device server at {host}:{port} failed: {error}"
+                ) from None
         self.base_url = f"http://{host}:{port}{root}"
         self.root = root
         self.events = events
@@ -971,7 +983,7 @@ def build_remote_device(entry: "DeviceEntry", context: "BuildContext") -> Device
     address, port = entry.options.get("address"), entry.options.get("port")
     if address is None or port is None:
         raise ValueError("a remote device needs an `address` and a `port`")
-    client, descriptions = _server(context, str(address), int(port))
+    client, descriptions = _server(context, str(address), int(port), entry.options)
     description = descriptions.get(entry.name)
     if description is None:
         raise ValueError(
@@ -1024,7 +1036,11 @@ def build_remote_fm(
     microscope = context.microscope
     try:
         fm = RemoteFluorescenceMicroscope.connect(
-            str(address), int(port), parent=microscope, offline=not entry.required
+            str(address),
+            int(port),
+            parent=microscope,
+            client=_client(str(address), int(port), entry.options),
+            offline=not entry.required,
         )
     except Exception as error:
         raise ConnectionError(
@@ -1037,8 +1053,16 @@ def build_remote_fm(
     return fm
 
 
+def _client(address: str, port: int, options: Mapping[str, Any]) -> DeviceClient:
+    """The client for a ``driver: remote`` entry's server, with the entry's
+    ``token`` (or ``code``, to pair once) when it states one."""
+    return DeviceClient(
+        address, port, token=options.get("token"), code=options.get("code")
+    )
+
+
 def _server(
-    context: "BuildContext", address: str, port: int
+    context: "BuildContext", address: str, port: int, options: Mapping[str, Any]
 ) -> Tuple[DeviceClient, Dict[str, Any]]:
     """The client for the server at *address*:*port* and what the server has, made
     the first time this connect asks for it. A server that did not answer is not
@@ -1046,7 +1070,11 @@ def _server(
     servers = context.shared.setdefault(REMOTE_DRIVER, {})
     key = (address, port)
     if key not in servers:
-        client = DeviceClient(address, port)
+        try:
+            client = _client(address, port, options)
+        except RemoteDeviceUnreachable as error:
+            servers[key] = error
+            raise
         try:
             servers[key] = (client, client.describe())
         except Exception as error:

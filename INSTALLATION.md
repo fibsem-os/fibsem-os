@@ -229,8 +229,14 @@ On the METEOR's Linux PC:
    is not encrypted.
 
    If odemis cannot be imported or does not answer, this stops with a message
-   saying which. From the support PC, `http://<address>:8765/health` should
-   report `"ok": true`.
+   saying which.
+
+   Every request needs a token. The first start makes one and says where it
+   is kept (`~/.fibsem/device-server-token.json`). To give the support PC its
+   own, start once with `--pair`: it prints a 4-digit code (5 minutes, works
+   once). Put it in the support PC's FM entry as `code: 1234`; the first
+   connect pairs and keeps the token, and the `code:` line can then go.
+   `token: <the token from that file>` works too.
 
 5. **With `--host`, open the port to the support PC only**, for example with `ufw`:
 
