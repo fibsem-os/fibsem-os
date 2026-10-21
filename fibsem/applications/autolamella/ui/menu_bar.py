@@ -26,8 +26,8 @@ from fibsem.ui.widgets.connection_dialog import connect_to_microscope_dialog
 from fibsem.ui.widgets.run_border import RunBorder
 
 if TYPE_CHECKING:
-    from fibsem.applications.autolamella.ui.panel.panel import MicroscopePanel
     from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
+    from fibsem.ui.widgets.microscope_panel import MicroscopePanel
     from fibsem.workflows.session import AppSession
 
 

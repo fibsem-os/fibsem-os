@@ -1835,8 +1835,8 @@ def render_lamella(h: Harness) -> None:
 @page("tasks")
 def render_tasks(h: Harness) -> None:
     """The task types on offer, and the shipped workflow's task list."""
-    from fibsem.applications.autolamella.ui.protocol.dialogs import AddTaskDialog
     from fibsem.applications.autolamella.workflows.tasks import get_tasks
+    from fibsem.ui.widgets.workflow.add_task_dialog import AddTaskDialog
 
     h.first_run(False)
     h.show_tab(0)

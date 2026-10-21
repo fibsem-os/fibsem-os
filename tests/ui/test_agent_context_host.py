@@ -122,7 +122,7 @@ class _Dialog:
 
 @pytest.fixture
 def toasts(monkeypatch):
-    from fibsem.applications.autolamella.ui.run import view as ui_module
+    from fibsem.ui.run import view as ui_module
 
     _Dialog.opened = []
     monkeypatch.setattr(ui_module, "WorkflowSummaryDialog", _Dialog)

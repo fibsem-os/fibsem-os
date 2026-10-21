@@ -37,7 +37,8 @@ class AttentionRouter(QObject):
         parent: Optional[QObject] = None,
     ) -> None:
         """*prompts* puts proposals up and takes them down (``ProposalPresenter``);
-        *controls* holds Attention Required."""
+        *controls* holds Attention Required; *timeline* is None in a window
+        with none."""
         super().__init__(parent)
         self._prompts = prompts
         self._tabs = tab_widget
@@ -118,7 +119,8 @@ class AttentionRouter(QObject):
         """The run holds on *hold*, or nothing holds it (None)."""
         # The timeline freezes its countdown on a hold: a wait for an answer or
         # a decision is not machine time whoever is giving it.
-        self._timeline.set_waiting_for_user(hold is not None)
+        if self._timeline is not None:
+            self._timeline.set_waiting_for_user(hold is not None)
         # A proposal is a wait for the operator, whether or not an agent is
         # connected and may answer first. The line says what releases a hold
         # the operator can release, and counts the wait.

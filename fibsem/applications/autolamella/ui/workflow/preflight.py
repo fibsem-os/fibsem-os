@@ -33,10 +33,6 @@ from PyQt5.QtWidgets import (
 
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.workflows.estimate import estimate_lamella_run
-from fibsem.applications.autolamella.workflows.tasks.attendance import (
-    RunAttendance,
-    run_attendance,
-)
 from fibsem.structures import BeamType
 from fibsem.ui import stylesheets
 from fibsem.ui.stylesheets import PRIMARY_BUTTON_STYLESHEET, SECONDARY_BUTTON_STYLESHEET
@@ -59,6 +55,10 @@ from fibsem.ui.widgets.preflight import (
     format_clock as _clock,
 )
 from fibsem.util.durations import format_duration_rounded
+from fibsem.workflows.attendance import (
+    RunAttendance,
+    run_attendance,
+)
 from fibsem.workflows.estimate import AdditionEstimate, RunEstimate, TaskEstimate
 from fibsem.workflows.grid.manager import LOAD_ENTRY_NAME, plan_grid_run
 from fibsem.workflows.grid.naming import beam_name, is_default_grid_name

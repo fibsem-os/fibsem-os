@@ -30,10 +30,10 @@ from PyQt5.QtWidgets import QApplication, QLabel, QToolButton  # noqa: E402
 from fibsem.applications.autolamella.ui.workflow.preflight import (
     WorkflowPreflightDialog,  # noqa: E402
 )
-from fibsem.applications.autolamella.workflows.tasks.attendance import (  # noqa: E402
+from fibsem.ui.stylesheets import NAPARI_STYLE  # noqa: E402
+from fibsem.workflows.attendance import (  # noqa: E402
     RunAttendance,
 )
-from fibsem.ui.stylesheets import NAPARI_STYLE  # noqa: E402
 from fibsem.workflows.estimate import RunEstimate, TaskEstimate  # noqa: E402
 
 _app = QApplication.instance() or QApplication(sys.argv)
