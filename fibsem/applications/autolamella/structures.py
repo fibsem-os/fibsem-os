@@ -269,63 +269,6 @@ class AutoLamellaTaskProtocol(TaskProtocol):
             protocol.id = data["id"]
         return protocol
 
-    def reorder(self, order: List[str]) -> str:
-        """Put the plan's tasks in *order*: every task, each once, none before
-        a task it requires. Why not, with nothing changed, or "". The Workflow
-        tab's drag and the App Server's reorder."""
-        if sorted(order) != sorted(self.workflow_config.workflow):
-            return "Give every task in the workflow, each once."
-        issues = self.validate(order)
-        if issues:
-            return " ".join(issues)
-        return self.workflow_config.reorder(list(order))
-
-    def set_requires(self, task_name: str, requires: List[str]) -> str:
-        return self.set_requirements(task_name, requires=requires)
-
-    def set_requirements(
-        self,
-        task_name: str,
-        requires: Optional[List[str]] = None,
-        required: Optional[bool] = None,
-    ) -> str:
-        """Set the tasks *task_name* requires, which must come before it in the
-        plan, and whether it is required; None leaves either as it is. Why
-        not, with nothing changed, or "". The Workflow tab's Edit Task and the
-        App Server's."""
-        plan = self.workflow_config.get(task_name)
-        config = self.task_config.get(task_name)
-        if plan is None or config is None:
-            return f"No task named {task_name!r} in the workflow."
-        if requires is not None:
-            workflow = self.workflow_config.workflow
-            earlier = workflow[: workflow.index(task_name)]
-            wrong = [name for name in requires if name not in earlier]
-            if wrong:
-                return (
-                    f"{task_name} can only require tasks before it: "
-                    f"{', '.join(earlier) or 'none'}; not {', '.join(wrong)}."
-                )
-            config.requires = list(requires)
-        if required is not None:
-            plan.required = bool(required)
-        return ""
-
-    def validate(self, order: Optional[List[str]] = None) -> List[str]:
-        """What is wrong with the plan in *order* (its own by default): a
-        task requiring one the plan does not have, or one after it."""
-        names = list(order) if order is not None else self.workflow_config.workflow
-        issues = []
-        for i, name in enumerate(names):
-            for req in self.requirements(name):
-                if req not in names:
-                    issues.append(f"Task '{name}' requires unknown task '{req}'.")
-                elif req not in names[:i]:
-                    issues.append(
-                        f"Task '{name}' requires '{req}' which comes after it in the workflow."
-                    )
-        return issues
-
     @classmethod
     def load_from_old_protocol(cls, path: Path) -> "AutoLamellaTaskProtocol":
         """Convert an AutoLamellaProtocol to an AutoLamellaTaskProtocol.
