@@ -1584,6 +1584,9 @@ def _sweep_settings():
 
 def _autofocus_payloads(microscope, monkeypatch, mode):
     _record_tile_positions(microscope, monkeypatch)
+    # The sim's frames score flat, which ends a sweep after its first pass
+    # (FIB-1519); these tests are about which passes run.
+    monkeypatch.setattr("fibsem.fm.calibration.has_peak", lambda scores: True)
     seen = []
     microscope.fm.acquisition_progress_signal.connect(
         lambda d: (

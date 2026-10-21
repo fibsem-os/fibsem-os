@@ -295,7 +295,8 @@ def _call(client, method, path, payload=None):
     with that text; a server error says "failed", not "refused", because the
     call may have done part of its work.
     """
-    kwargs = {"json": payload}
+    # A read's arguments are its query, as the FibsemClient sends them.
+    kwargs = {"params": payload} if method == "GET" and payload else {"json": payload}
     tool = _calling.get()
     if tool is not None and method != "GET":
         # The server describes the call for the operator from these (FIB-1426).

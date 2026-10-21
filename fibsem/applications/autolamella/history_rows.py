@@ -41,6 +41,10 @@ from fibsem.workflows.status import TaskState, TaskStatus
 # run that completed.
 OPERATION_KINDS = ("alignment", "autofocus", "fm_autofocus", "milling")
 
+# The event kinds that name a saved image. In a task the run's outputs list its
+# images; outside one, these are how a session's row finds them (FIB-1521).
+IMAGE_KINDS = ("image_acquired", "fm_image_acquired")
+
 _BEAM = {"ELECTRON": "SEM", "ION": "FIB"}
 
 # The final images a row shows: the last SEM and FIB.
@@ -136,8 +140,8 @@ class HistoryRun:
     # The later run that wrote over images this one recorded, when one did:
     # reference images are rewritten under the same name (FIB-1275).
     images_replaced_by: Optional[str] = None
-    # A session's operations outside any task, not a run: it has no status and
-    # no images of its own.
+    # A session's operations outside any task, not a run: it has no status, and
+    # its images are the ones it saved in the lamella's folder.
     outside_task: bool = False
     # Who decided what the run proposed: "agent", "operator", both or neither.
     decided_by: Tuple[str, ...] = ()
@@ -248,11 +252,20 @@ def history_rows(
 
     operations: Dict[str, List[HistoryOperation]] = {}
     outside: Dict[str, List[HistoryOperation]] = {}
+    outside_images: Dict[str, List[Tuple[Optional[datetime], str]]] = {}
     for record in events:
-        if record.get("kind") not in OPERATION_KINDS:
+        kind = record.get("kind")
+        task = record.get("task") or {}
+        if kind in IMAGE_KINDS and not task.get("id"):
+            path = _saved_in(lamella, (record.get("payload") or {}).get("path"))
+            if path is not None:
+                outside_images.setdefault(str(record.get("session") or ""), []).append(
+                    (to_datetime(record.get("t") or record.get("timestamp")), path)
+                )
+            continue
+        if kind not in OPERATION_KINDS:
             continue
         item = record.get("item") or {}
-        task = record.get("task") or {}
         if not task.get("id"):
             # another lamella's, though no task ran it, stays with that lamella
             if item.get("id") in (None, lamella.id):
@@ -292,25 +305,40 @@ def history_rows(
         )
         for run in runs
     ]
-    for session, ops in outside.items():
-        ops.sort(key=_started)
-        ops = _fold_drift(ops)
+    for session in {**outside, **outside_images}:
+        ops = _fold_drift(sorted(outside.get(session, []), key=_started))
+        saved = outside_images.get(session, [])
+        times = [op.started_at or op.ended_at for op in ops] + [t for t, _ in saved]
+        ends = [op.ended_at for op in ops] + [t for t, _ in saved]
         row = HistoryRun(
             task_id=f"session:{session}",
             task_name=OUTSIDE_A_TASK,
             task_type="",
             status=TaskStatus.Completed,
             status_message="",
-            started_at=ops[0].started_at or ops[0].ended_at,
-            ended_at=max(
-                (op.ended_at for op in ops if op.ended_at is not None), default=None
+            started_at=min(
+                (t for t in times if t is not None), key=_when, default=None
             ),
-            images=[],
+            ended_at=max((t for t in ends if t is not None), key=_when, default=None),
+            images=list(dict.fromkeys(path for _, path in saved)),
             operations=ops,
             outside_task=True,
         )
         _insert_by_start(rows, row)
     return rows
+
+
+def _saved_in(lamella: Lamella, path: Optional[str]) -> Optional[str]:
+    """``path`` when it is a file in the lamella's folder; else None."""
+    if not path or not lamella.path:
+        return None
+    folder = os.path.abspath(str(lamella.path))
+    path = os.path.abspath(str(path))
+    try:
+        inside = os.path.commonpath([folder, path]) == folder
+    except ValueError:  # another drive
+        return None
+    return path if inside else None
 
 
 def _deciders_by_run(lamella: Lamella) -> Dict[str, Tuple[str, ...]]:

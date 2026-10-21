@@ -668,7 +668,7 @@ def test_stop_agent_drops_to_watch_and_is_the_operator_s_on_the_record(main_ui, 
                 {
                     "what": "Stop the agent",
                     "ok": True,
-                    "reason": "none given",
+                    "reason": "Stopped by the operator",
                     "stops": "agent",
                     "previous": "drive",
                     "level": "watch",

@@ -13,7 +13,11 @@ from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 
-from fibsem.autofunctions.autofocus import AutoFocusIteration, AutoFocusResult
+from fibsem.autofunctions.autofocus import (
+    AutoFocusIteration,
+    AutoFocusResult,
+    has_peak,
+)
 from fibsem.autofunctions.integration import (
     adaptive_frame_integration,
     frame_integration,
@@ -35,7 +39,7 @@ from fibsem.autofunctions.stacking import (
     create_pixel_based_focus_stack,
     pixel_based_focus_selection,
 )
-from fibsem.cancellation import CANCELLED, COMPLETED, SKIPPED, ended_by
+from fibsem.cancellation import CANCELLED, COMPLETED, FAILED, SKIPPED, ended_by
 from fibsem.fm.progress import (
     FluorescenceAcquisitionProgress,
     FluorescenceAcquisitionStatus,
@@ -66,6 +70,10 @@ __all__ = [
 if TYPE_CHECKING:
     from fibsem.fm.microscope import FluorescenceMicroscope
     from fibsem.fm.structures import ChannelSettings, ZParameters
+
+
+# What a sweep with flat scores says (FIB-1519).
+NO_FOCUS = "no focus found: the scores were flat over the range searched"
 
 
 def run_autofocus(
@@ -201,21 +209,31 @@ def run_autofocus(
                 f"Z[{i + 1}/{len(z_positions)}]: {z_pos * 1e6:.1f} μm, Score: {focus_score:.4f}"
             )
 
-        best_idx = int(np.argmax([it.focus_score for it in iterations]))
-        best = iterations[best_idx]
+        scores = [it.focus_score for it in iterations]
+        best = iterations[int(np.argmax(scores))]
+        found = has_peak(scores)
+        # A flat sweep found nothing to move to: the objective goes back.
+        position = best.working_distance if found else initial_z
 
-        microscope.objective.move_absolute(best.working_distance)
-        logging.info(
-            f"Autofocus complete: Best position {best.working_distance * 1e6:.1f} μm (score: {best.focus_score:.4f})"
-        )
+        microscope.objective.move_absolute(position)
+        if found:
+            logging.info(
+                f"Autofocus complete: Best position {best.working_distance * 1e6:.1f} μm (score: {best.focus_score:.4f})"
+            )
+        else:
+            logging.warning(
+                f"Autofocus found no focus: the scores were flat ({min(scores):.4g} "
+                f"to {max(scores):.4g}); the objective is back at {initial_z * 1e6:.1f} μm"
+            )
 
         result = AutoFocusResult(
             image=best.image,
-            working_distance=best.working_distance,
+            working_distance=position,
             initial_working_distance=initial_z,
             focus_score=best.focus_score,
             iterations=iterations,
             method=method,
+            found=found,
         )
 
     if path is not None:
@@ -242,8 +260,9 @@ def run_coarse_fine_autofocus(
 
     Records one ``fm_autofocus`` event, however it ends (FIB-1257): when it
     started, and ``completed``; ``cancelled`` (a Stop, with the passes it
-    finished); ``failed`` with the error (and re-raises); or ``skipped`` with no
-    pass enabled. Given a ``path``, the result is saved to ``<path>/<name>``
+    finished); ``failed`` with the error (and re-raises), or `NO_FOCUS` when a
+    pass's scores were flat (the result's ``found`` is False, the objective back
+    where it started); or ``skipped`` with no pass enabled. Given a ``path``, the result is saved to ``<path>/<name>``
     first and the event says where; a save that fails is logged, not raised.
 
     Args:
@@ -311,6 +330,7 @@ def run_coarse_fine_autofocus(
         iterations=all_iterations,
         settings=autofocus_settings,
         method=last_result.method,
+        found=last_result.found,
     )
     saved = None
     if path is not None:
@@ -319,11 +339,17 @@ def run_coarse_fine_autofocus(
         except Exception as e:  # noqa: BLE001 - the focus is set either way
             logging.warning(f"Failed to save autofocus result: {e}")
     completed = len({it.pass_index for it in all_iterations})
+    if not result.found:
+        ended = {"status": FAILED, "error": NO_FOCUS}
+    elif completed == len(active_passes):
+        ended = {"status": COMPLETED}
+    else:
+        ended = {"status": CANCELLED}
     _record_fm_autofocus(
         microscope,
         {
             **record,
-            "status": COMPLETED if completed == len(active_passes) else CANCELLED,
+            **ended,
             "completed_passes": completed,
             "position": last_result.working_distance,
             "focus_score": last_result.focus_score,
@@ -372,6 +398,9 @@ def _run_passes(
             it.pass_index = pass_index
         all_iterations.extend(result.iterations)
         last_result = result
+        if not result.found:
+            # A finer pass about where nothing was found finds nothing either.
+            break
     return last_result, all_iterations
 
 

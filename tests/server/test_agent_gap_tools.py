@@ -311,7 +311,7 @@ class _Manager:
     def __init__(self, active):
         self.queue = _Queue(active)
 
-    def stop_task(self):
+    def stop_task(self, message=""):
         pass
 
 

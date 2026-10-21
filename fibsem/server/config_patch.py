@@ -12,7 +12,9 @@ refuses identically:
 - Every path segment must already exist: dataclass field, dict key, or list
   index. A patch edits values; it never creates structure.
 - The leaf must be a value, not a section — patching ``milling`` wholesale is
-  refused; patch the fields inside it.
+  refused; patch the fields inside it. A field declared as a list of
+  dataclasses (a task's ``channel_settings``) is a value: it is set whole, each
+  entry as its saved dict, read through the codec (FIB-1522).
 - The new value must match the old one's type (bool for bool, number for
   number, string for string, an enum member's name for an enum). A ``None``
   field takes the type its annotation declares (``Optional[X]`` is an ``X``,
@@ -97,14 +99,17 @@ def _resolve(root: Any, path: str, value: Any, none_type: Optional[type] = None)
         obj = _child(obj, part, path)
     leaf = parts[-1]
     old = _child(obj, leaf, path)
-    if isinstance(old, (dict, list)) or is_dataclass(old):
+    listed = _listed_type(obj, leaf) if isinstance(old, list) else None
+    if listed is None and (isinstance(old, (dict, list)) or is_dataclass(old)):
         raise PatchError(
             path,
             f"{path!r} names a section, not a value; patch the fields inside it.",
         )
     if old is None and none_type is None:
         none_type = _annotated_type(obj, leaf)
-    if old is None and none_type in (bool, int, float, str):
+    if listed is not None:
+        new = _decode(listed, value, path)  # a list of values, set whole
+    elif old is None and none_type in (bool, int, float, str):
         old_for_coerce = none_type()  # a stand-in of the declared type
         new = _coerce(old_for_coerce, value, path)
     elif old is None and none_type is not None:
@@ -136,6 +141,16 @@ def _declared_type(obj: Any, leaf: str) -> Any:
         return None
 
 
+def _listed_type(obj: Any, leaf: str) -> Optional[Any]:
+    """``List[X]`` when *obj*'s field *leaf* declares a list of dataclasses: a
+    list of values (a task's channels) rather than a section. None otherwise."""
+    hint = _declared_type(obj, leaf)
+    if typing.get_origin(hint) is not list:
+        return None
+    (item,) = typing.get_args(hint) or (None,)
+    return hint if is_dataclass(item) else None
+
+
 def _annotated_type(obj: Any, leaf: str) -> Optional[type]:
     """The type *obj*'s field *leaf* holds when set: ``X`` for ``Optional[X]``.
     None when *obj* is no dataclass or the annotation says nothing narrower."""
@@ -153,9 +168,13 @@ def _decode(type_: type, value: Any, path: str) -> Any:
     try:
         return decode(type_, value)
     except (TypeError, ValueError) as e:
-        raise PatchError(
-            path, f"{value!r} is not a {getattr(type_, '__name__', type_)}: {e}"
+        listed = typing.get_args(type_) if typing.get_origin(type_) is list else ()
+        what = (
+            f"list of {listed[0].__name__}"
+            if listed
+            else getattr(type_, "__name__", type_)
         )
+        raise PatchError(path, f"{value!r} is not a {what}: {e}")
 
 
 def _child(obj: Any, part: str, path: str) -> Any:

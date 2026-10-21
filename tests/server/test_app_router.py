@@ -145,6 +145,42 @@ def test_an_items_history_comes_through_the_tabs_filter(client, host):
     assert failed["total"] == 2
 
 
+def test_the_sidecars_history_tool_sends_its_filter(client, host):
+    """A read's arguments go as its query: the filter reaches the route
+    (FIB-1517, where the tool answered every run whatever it asked)."""
+    pytest.importorskip("mcp")
+    from fibsem.ai.agent.mcp.sidecar import build_sidecar
+    from fibsem.workflows.status import TaskState, TaskStatus
+
+    lamella = host.experiment.positions[0]
+    lamella.task_history.append(
+        TaskState(name="Setup", task_id="a", status=TaskStatus.Completed)
+    )
+    lamella.task_history.append(
+        TaskState(name="Rough", task_id="b", status=TaskStatus.Failed)
+    )
+    client.headers["Authorization"] = f"Bearer {TOKEN}"
+    sidecar = build_sidecar(client, client.get("/capabilities").json())
+
+    def history(**filters):
+        result = asyncio.run(
+            sidecar.call_tool(
+                "item_get_history", {"item_name": lamella.name, **filters}
+            )
+        )
+        if isinstance(result, tuple):
+            result = result[0]
+        text = "".join(
+            getattr(c, "text", "") for c in getattr(result, "content", result)
+        )
+        return json.loads(text)
+
+    newest = history(order="newest", status="failed")
+    assert newest["filter"]["order"] == "newest"
+    assert [r["task_name"] for r in newest["runs"]] == ["Rough"]
+    assert newest["total"] == 2
+
+
 def test_task_outputs_round_trip(client, host):
     name = host.experiment.positions[0].name
     payload = client.get(f"/app/experiment/items/{name}/outputs", headers=AUTH).json()

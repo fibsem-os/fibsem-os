@@ -86,13 +86,20 @@ def test_the_fm_joins_the_imaging_service(microscope, client):
     assert command["long"] is True and command["available"] is True
 
 
-def test_fm_focus_sweep_runs_on_and_saves_inside_the_experiment(client, experiment):
+def test_fm_focus_sweep_runs_on_and_saves_inside_the_experiment(
+    client, microscope, experiment
+):
+    start = microscope.fm.objective.position
     run = _sweep(
         client, {"settings": SHORT.to_dict(), "path": str(experiment / "focus")}
     )
     assert run["state"] == "done", run
-    assert run["result"]["status"] == "completed"
-    assert "working_distance" in run["result"]
+    # Noise frames score flat: no focus found, and the objective goes back
+    # rather than to the noisiest frame (FIB-1519).
+    assert run["result"]["status"] == "no_focus"
+    assert run["result"]["found"] is False
+    assert run["result"]["working_distance"] == pytest.approx(start)
+    assert microscope.fm.objective.position == pytest.approx(start)
     assert os.path.isdir(experiment / "focus" / "autofocus")
 
 
@@ -195,6 +202,19 @@ def test_an_fm_image_runs_on_and_saves_inside_the_experiment(client, experiment)
     assert os.path.basename(image["path"]).startswith("gfp-")
     assert image["path"].startswith(str(folder)) and os.path.isfile(image["path"])
     assert image["summary"]["channels"] == ["GFP"]
+    assert "substituted" not in result  # 550 nm is one of the Demo's bands
+
+
+def test_an_fm_image_says_when_a_wavelength_was_substituted(client, experiment):
+    """FIB-1520: GFP asked at 488 nm was taken at the Demo's nearest, 450 nm,
+    and the answer said nothing."""
+    gfp = ChannelSettings(name="GFP", excitation_wavelength=488, exposure_time=0.01)
+    run = _acquire(
+        client, {"channels": [gfp.to_dict()], "path": str(experiment / "fm")}
+    )
+    assert run["state"] == "done", run
+    (note,) = run["result"]["substituted"]
+    assert note.startswith("GFP: 488 nm") and "450 nm" in note
 
 
 def test_an_fm_z_stack_takes_its_planes_and_puts_the_objective_back(

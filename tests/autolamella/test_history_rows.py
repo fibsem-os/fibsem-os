@@ -427,6 +427,37 @@ def test_operations_outside_a_task_are_a_row_per_session_among_the_runs(tmp_path
     assert first.images == [] and rows[3].task_id == "session:s2"
 
 
+def test_an_image_saved_in_the_lamellas_folder_outside_a_task_is_on_its_row(
+    tmp_path,
+):
+    """FIB-1521: the agent's z-stack, saved in the lamella's folder outside any
+    task, was missing from its "Outside a task" row (images: [])."""
+    lamella = _lamella(tmp_path)
+    lamella.task_history = [_run(SETUP, "s", 0)]
+    stack = str(lamella.path / "agent" / "stack.ome.tiff")
+    elsewhere = str(tmp_path / "other-lamella" / "stack.ome.tiff")
+    events = [
+        _outside(lamella, 10, kind="fm_autofocus"),
+        dict(_outside(lamella, 11, kind="fm_image_acquired"), payload={"path": stack}),
+        dict(
+            _outside(lamella, 12, kind="fm_image_acquired"), payload={"path": elsewhere}
+        ),
+        dict(_outside(lamella, 13, kind="image_acquired"), payload={"path": None}),
+        # a session that only saved an image is a row too
+        dict(
+            _outside(lamella, 30, kind="fm_image_acquired", session="s2"),
+            payload={"path": stack},
+        ),
+    ]
+
+    setup, first, second = history_rows(lamella, events)
+
+    assert first.images == [stack] and len(first.operations) == 1
+    assert first.ended_at == T0 + timedelta(minutes=11)
+    assert second.images == [stack] and second.operations == []
+    assert second.started_at == T0 + timedelta(minutes=30)
+
+
 # --- the filter ---------------------------------------------------------------
 
 
