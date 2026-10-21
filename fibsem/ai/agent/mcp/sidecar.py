@@ -32,7 +32,7 @@ import re
 import sys
 from contextvars import ContextVar
 from typing import Annotated, Any, List, Optional, Tuple
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, unquote, urlencode
 
 from fibsem.ai.agent.calls import headers_for
 from fibsem.ai.agent.catalog import (
@@ -180,20 +180,15 @@ class _LazyClient:
 def _connected_lines(base_url, capabilities):
     """What ``--check`` and the first call print: where the sidecar connected,
     the agent level when the server says one, and a warning when the app runs
-    other ``fibsem`` code than this sidecar imports (FIB-1429)."""
-    from fibsem.server.discovery import fibsem_folder
+    other ``fibsem`` code than this sidecar (FIB-1429)."""
+    from fibsem.server.discovery import code_mismatch
 
     level = capabilities.get("level")
     line = f"fibsem-mcp: connected to {base_url}"
     lines = [f"{line} (agent level {level})" if level else line]
-    served = (capabilities.get("fibsem") or {}).get("path")
-    ours = fibsem_folder()
-    if served and os.path.normcase(served) != os.path.normcase(ours):
-        lines.append(
-            f"fibsem-mcp: warning: the app runs fibsem from {served}, but this "
-            f"sidecar imports it from {ours}. Register the sidecar with "
-            f"PYTHONPATH={os.path.dirname(served)} so its tools match the app."
-        )
+    warning = code_mismatch(capabilities, "fibsem-mcp")
+    if warning:
+        lines.append(warning)
     return lines
 
 
@@ -430,6 +425,30 @@ def build_sidecar(client, capabilities):
     # Explicit signatures so FastMCP derives a real parameter schema per tool.
     def server_get_capabilities():
         return _json_tool("server_get_capabilities")[1]()
+
+    def server_report_session(
+        session_id: Optional[str] = None,
+        model: Optional[str] = None,
+        goal: Optional[str] = None,
+        budget_usd: Optional[float] = None,
+        spent_usd: Optional[float] = None,
+        turns: Optional[int] = None,
+        ended: Optional[bool] = None,
+        reason: Optional[str] = None,
+    ):
+        return _app_post(
+            "/app/agent/session",
+            _given(
+                session_id=session_id,
+                model=model,
+                goal=goal,
+                budget_usd=budget_usd,
+                spent_usd=spent_usd,
+                turns=turns,
+                ended=ended,
+                reason=reason,
+            ),
+        )
 
     def microscope_get_info():
         return _json_tool("microscope_get_info")[1]()
@@ -975,26 +994,54 @@ def build_sidecar(client, capabilities):
     def _region(values):
         return None if values is None else ",".join(str(float(v)) for v in values)
 
-    def _read_file(path, box=None, fraction=None):
-        """The file route's answer for *path*: (data, err)."""
-        query = _query(box=_region(box), fraction=_region(fraction))
+    def _file_url(path, **query):
         # Every character quoted, so an absolute path an image answer gave
         # reaches the route whole.
         url = "/app/experiment/files/" + quote(str(path), safe="")
-        return _call(client, "GET", url + ("?" + query if query else ""))
+        query = _query(**query)
+        return url + ("?" + query if query else "")
 
-    def experiment_list_files(dir: Optional[str] = None):
-        return _app_get("/app/experiment/files?" + _query(dir=dir))
+    def _read_file(path, box=None, fraction=None, experiment=None):
+        """The file route's answer for *path*: (data, err)."""
+        url = _file_url(
+            path, box=_region(box), fraction=_region(fraction), experiment=experiment
+        )
+        return _call(client, "GET", url)
 
-    def experiment_read_file(path: str):
-        data, err = _read_file(path)
+    def experiment_list_files(
+        dir: Optional[str] = None, experiment: Optional[str] = None
+    ):
+        return _app_get(
+            "/app/experiment/files?" + _query(dir=dir, experiment=experiment)
+        )
+
+    def experiment_read_file(path: str, experiment: Optional[str] = None):
+        data, err = _read_file(path, experiment=experiment)
         return err if err else _with_images(data)
 
     def experiment_crop_image(
-        path: str, box: Optional[list] = None, fraction: Optional[list] = None
+        path: str,
+        box: Optional[list] = None,
+        fraction: Optional[list] = None,
+        experiment: Optional[str] = None,
     ):
-        data, err = _read_file(path, box=box, fraction=fraction)
+        data, err = _read_file(path, box=box, fraction=fraction, experiment=experiment)
         return err if err else _with_images(data)
+
+    def experiment_fetch_file(path: str, experiment: Optional[str] = None):
+        try:
+            resp = client.request(
+                "GET", _file_url(path, raw="true", experiment=experiment)
+            )
+        except ServerUnreachable as exc:
+            return _Failure(str(exc))
+        if resp.status_code >= 400:
+            return _refusal(resp)
+        return _save_fetched(
+            unquote(resp.headers.get("X-Experiment", "experiment")),
+            unquote(resp.headers.get("X-Experiment-Path", os.path.basename(path))),
+            resp.content,
+        )
 
     def _experiment_resources():
         """The experiment's top-level files and folders, as resources: not every
@@ -1572,6 +1619,7 @@ def build_sidecar(client, capabilities):
             experiment_list_files,
             experiment_read_file,
             experiment_crop_image,
+            experiment_fetch_file,
             item_get,
             grid_list,
             grid_get,
@@ -1604,6 +1652,7 @@ def build_sidecar(client, capabilities):
             item_set_objective_position_on_all,
             item_set_position,
             experiment_add_note,
+            server_report_session,
             request_create,
             request_withdraw,
             request_get,
@@ -1657,6 +1706,35 @@ def build_sidecar(client, capabilities):
                 ),
             )
     return mcp
+
+
+# Where experiment_fetch_file keeps what it fetches, under the agent's working
+# folder (FIBSEM_AGENT_WORKDIR, else where the sidecar runs).
+FETCHED = "fetched"
+
+
+def _save_fetched(experiment: str, relative: str, content: bytes):
+    """Keep a fetched file at fetched/<experiment>/<its path in the
+    experiment>, under the working folder: its local path and size."""
+    root = os.path.realpath(
+        os.path.join(os.environ.get("FIBSEM_AGENT_WORKDIR") or os.getcwd(), FETCHED)
+    )
+    parts = [experiment, *relative.split("/")]
+    target = os.path.realpath(os.path.join(root, *parts))
+    if os.path.commonpath([root, target]) != root or target == root:
+        return _Failure(f"refused: not a path to keep a file at: {relative}")
+    try:
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(target, "wb") as f:
+            f.write(content)
+    except OSError as exc:
+        return _Failure(f"failed: could not save {target}: {exc}")
+    return {
+        "saved": target,
+        "size": len(content),
+        "experiment": experiment,
+        "path": relative,
+    }
 
 
 def _described(fn, params):

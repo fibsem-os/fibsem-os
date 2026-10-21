@@ -38,6 +38,33 @@ def fibsem_folder() -> str:
     return str(Path(fibsem.__file__).resolve().parent)
 
 
+def code_mismatch(capabilities: dict, who: str) -> Optional[str]:
+    """A warning when the App Server runs other ``fibsem`` code than *who*
+    imports, from its /capabilities; None when they match. On the same
+    machine the folders are compared (FIB-1429); from another machine, whose
+    folders never match, the versions."""
+    from fibsem import __version__
+
+    served = capabilities.get("fibsem") or {}
+    path, version = served.get("path"), served.get("version")
+    ours = fibsem_folder()
+    if path and os.path.isdir(path):
+        if os.path.normcase(path) == os.path.normcase(ours):
+            return None
+        return (
+            f"{who}: warning: the app runs fibsem from {path}, but {who} "
+            f"imports it from {ours}. Run it with "
+            f"PYTHONPATH={os.path.dirname(path)} so its tools match the app."
+        )
+    if version and version != __version__:
+        return (
+            f"{who}: warning: the app runs fibsem {version}, but {who} runs "
+            f"{__version__}. Tools may not match the app's routes: install "
+            "the same version on both machines."
+        )
+    return None
+
+
 def dev_checkout(environ: Optional[dict] = None) -> Optional[str]:
     """The checkout holding the running ``fibsem`` when it came from
     ``PYTHONPATH`` (a development worktree), else None: a sidecar started

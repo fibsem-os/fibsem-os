@@ -47,6 +47,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
 # someone decides. Path parameter names don't matter.
 NOT_TOOLS: Dict[str, str] = {
     "GET /health": "Open liveness check, no token; the agent's first read is server_get_capabilities.",
+    "GET /app/agent/session": "The agent's own report, read back by the app and the dashboard; the agent knows what it reported.",
     "GET /dashboard/log": "The operator's event log page, HTML; app_get_events is the agent's read.",
     "GET /chat": "The operator's chat with the agent, HTML; it calls the operator's routes.",
     "POST /app/experiment/evidence": "Every acting tool's evidence argument: the sidecar keeps it here first, then the call cites it.",

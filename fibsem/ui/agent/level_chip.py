@@ -226,10 +226,12 @@ class AgentLevelChip(QPushButton):
         last_heard: Callable[[], Optional[float]] = lambda: None,
         parent: Optional[QWidget] = None,
         agent_client: Callable[[], Optional[str]] = lambda: None,
+        agent_session: Callable[[], Optional[str]] = lambda: None,
     ) -> None:
         super().__init__(parent)
         self._last_heard = last_heard
         self._agent_client = agent_client
+        self._agent_session = agent_session
         self._level: Optional[AgentLevel] = None
         self._request: Optional[Dict[str, Any]] = None
         self._suggestion: Optional[Dict[str, str]] = None
@@ -506,6 +508,11 @@ class AgentLevelChip(QPushButton):
         self.card.set_last_heard(
             last_heard_text(seconds, client), heard=seconds is not None
         )
+        try:
+            session = self._agent_session()
+        except Exception:
+            session = None
+        self.card.set_session(session)
 
     def _on_chosen(self, level: AgentLevel) -> None:
         if level is not self._level:

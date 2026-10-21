@@ -402,6 +402,34 @@ def test_the_agent_answers_a_supervised_run_through_the_runner(session):
     assert not [p for p in lamella.proposals_from(SETUP) if p.pending]
 
 
+def test_the_session_is_reported_to_the_app_after_each_turn_and_at_the_end(session):
+    async def reply(prompt):
+        return TurnEnd(cost_usd=0.25, session_id="scripted")
+
+    agent = ScriptedAgent(reply)
+    agent.model = "a-model"
+    running = _runner(session, agent, goal="Mill 01 and 02", budget_usd=5.0)
+    _until(lambda: agent.prompts, what="the kickoff")
+    assert "Mill 01 and 02" in agent.prompts[0]
+    _until(
+        lambda: (AgentSession(session).reported_session() or {}).get("turns") == 1,
+        what="the report",
+    )
+    reported = AgentSession(session).reported_session()
+    assert reported["session_id"] == "scripted"
+    assert reported["model"] == "a-model"
+    assert reported["goal"] == "Mill 01 and 02"
+    assert (reported["budget_usd"], reported["spent_usd"]) == (5.0, 0.25)
+    assert not reported.get("ended")
+
+    assert running.stop() == 0
+    ended = AgentSession(session).reported_session()
+    assert ended["ended"] and ended["reason"] == "stopped at fibsem-agent"
+    kinds = [e["kind"] for e in session.recorder.buffer.events_since(0)["events"]]
+    assert kinds.count("agent_session_started") == 1
+    assert kinds.count("agent_session_ended") == 1
+
+
 # --- ending -------------------------------------------------------------------
 
 

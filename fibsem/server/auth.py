@@ -40,7 +40,7 @@ import weakref
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Callable, Iterator, List, Optional
+from typing import Any, Callable, Dict, Iterator, List, Optional
 
 from fastapi import HTTPException, Request
 from starlette.requests import HTTPConnection
@@ -96,6 +96,9 @@ class AuthConfig:
     # Self-reported, so a label for the operator, not an identity: every client
     # shares the one token.
     agent_client: Optional[str] = None
+    # The agent's session as its harness reports it (fibsem.server.agent_session):
+    # model, goal, budget and spend. Self-reported, like agent_client.
+    agent_session: Optional[Dict[str, Any]] = None
     # Called after each level change and on Stop agent (on_level_change).
     _listeners: List[Callable[[], Optional[Callable]]] = field(
         default_factory=list, repr=False, compare=False
@@ -421,6 +424,13 @@ def is_operator_token(auth: AuthConfig, authorization: Optional[str]) -> bool:
     if authorization is None or not authorization.startswith("Bearer "):
         return False
     return _matches(authorization[len("Bearer ") :], auth.operator_token)
+
+
+def refuse_dashboard(request: Request) -> None:
+    """403 for the dashboard token: for a monitoring GET it may not make (a
+    raw file, which the event log never needs)."""
+    if _matches(_bearer_token(request), request.app.state.auth.dashboard_token):
+        raise _dashboard_refused()
 
 
 def action_name(request: Request) -> str:
