@@ -99,6 +99,7 @@ from fibsem.workflows.status import (
     WorkflowStatusEvent,
     WorkflowStatusUpdate,
 )
+from fibsem.workflows.workflow_edits import save_workflow_change
 
 # Suppress a specific upstream Napari/NumPy warning from shapes miter computation. This
 # module no longer imports napari, but the minimap still loads it, and a filter is matched
@@ -1747,12 +1748,16 @@ class AutoLamellaWindow(QMainWindow):
         else:
             self.task_widget.refresh_if_showing_task(task_name)
 
-    def _on_workflow_config_changed(self, wcfg: AutoLamellaWorkflowConfig):
+    def _on_workflow_config_changed(
+        self, wcfg: AutoLamellaWorkflowConfig, *changes: dict
+    ):
+        """Save the Workflow tab's edit with the protocol and record each
+        change, as the App Server's edits are."""
         if self.experiment is None or self.experiment.task_protocol is None:
             return
         self.experiment.task_protocol.workflow_config = wcfg
-        self.experiment.save()
-        self.experiment.save_protocol()
+        for change in changes:
+            save_workflow_change(self.experiment, change, self.session.record_event)
 
         self.panel.refresh()
 

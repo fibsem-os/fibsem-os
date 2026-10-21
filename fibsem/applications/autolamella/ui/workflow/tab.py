@@ -66,7 +66,7 @@ class WorkflowTab(QWidget):
         *,
         controls,
         flush_edits: Callable[[], None],
-        on_config_changed: Callable[[object], None],
+        on_config_changed: Callable[..., None],
         stop_task: Callable[..., None],
         after_naming: Callable[[], None],
         say: Callable[[str], None],
@@ -76,7 +76,8 @@ class WorkflowTab(QWidget):
         """*session* holds the experiment, the microscope and the runner;
         *controls* is the status bar's Run button; *flush_edits* lands an edit
         still waiting in the editors before a run writes the experiment;
-        *on_config_changed* saves a changed workflow; *after_naming* refreshes
+        *on_config_changed* saves a changed workflow and records each change
+        it is given, as the App Server's edits are; *after_naming* refreshes
         what shows the grids once a scan has named them; *say* puts what the
         selection allows on the status line."""
         super().__init__(parent)
@@ -98,12 +99,19 @@ class WorkflowTab(QWidget):
         self.lamella_workflow_widget.task_remove_requested.connect(
             self._on_task_removed
         )
-        for signal in (
-            self.lamella_workflow_widget.workflow_name_changed,
-            self.lamella_workflow_widget.workflow_description_changed,
-            self.lamella_workflow_widget.workflow_options_changed,
-        ):
-            signal.connect(self._save_workflow_config)
+        self.lamella_workflow_widget.workflow_name_changed.connect(
+            lambda text: self._save_workflow_config({"field": "name", "value": text})
+        )
+        self.lamella_workflow_widget.workflow_description_changed.connect(
+            lambda text: self._save_workflow_config(
+                {"field": "description", "value": text}
+            )
+        )
+        self.lamella_workflow_widget.workflow_options_changed.connect(
+            lambda option, value: self._save_workflow_config(
+                {"field": option, "value": value}
+            )
+        )
         self.lamella_workflow_widget.task_added.connect(self._on_task_added)
         self.lamella_workflow_widget.task_attention_toggled.connect(
             self._on_task_attention_toggled
@@ -435,15 +443,16 @@ class WorkflowTab(QWidget):
             else f"{tooltip}."
         )
 
-    def _save_workflow_config(self, *_args):
-        """Persist the current task list to the experiment protocol after any task change."""
+    def _save_workflow_config(self, change: dict) -> None:
+        """Persist the current task list to the experiment protocol after any
+        task change, and record *change*."""
         if self._session.experiment is None:
             return
         protocol = self._session.experiment.task_protocol
         if protocol is None:
             return
         protocol.workflow_config.tasks[:] = self.lamella_workflow_widget.get_tasks()
-        self._on_config_changed(protocol.workflow_config)
+        self._on_config_changed(protocol.workflow_config, change)
 
     def _put_back_if_running(self, what: str) -> bool:
         """Refuse *what* while a run is on, as the App Server does, and put
@@ -456,13 +465,13 @@ class WorkflowTab(QWidget):
         )
         return True
 
-    def _on_task_removed(self, *_args) -> None:
+    def _on_task_removed(self, task) -> None:
         experiment = self._session.experiment
         if experiment is None or experiment.task_protocol is None:
             return
         if self._put_back_if_running("remove tasks"):
             return
-        self._save_workflow_config()
+        self._save_workflow_config({"field": "tasks", "removed": task.name})
 
     def _on_task_added(self, task) -> None:
         """A task added to the plan from the protocol's tasks: supervised until
@@ -476,7 +485,9 @@ class WorkflowTab(QWidget):
         protocol.workflow_config.tasks[:] = self.lamella_workflow_widget.get_tasks()
         protocol.set_attention(task.name, Attention.supervised)
         self.lamella_workflow_widget.workflow.refresh_all()
-        self._on_config_changed(protocol.workflow_config)
+        self._on_config_changed(
+            protocol.workflow_config, {"field": "tasks", "added": task.name}
+        )
 
     def _on_task_attention_toggled(self, task) -> None:
         """A row's chip: Supervised <-> Automated, as the App Server's
@@ -496,25 +507,53 @@ class WorkflowTab(QWidget):
 
     def _on_task_edited(self, edited, requires: list) -> None:
         """Edit Task's Apply: into the protocol through its rules, as the App
-        Server's requirements and schedule are. A refused part is said, and the
-        rest is kept."""
+        Server's requirements and schedule are, and refused as the server
+        refuses them (requirements wait for a run; a schedule does not). A
+        refused part is said, and the rest is kept."""
         experiment = self._session.experiment
         if experiment is None or experiment.task_protocol is None:
             return
         protocol = experiment.task_protocol
         config = protocol.workflow_config
-        refusals = [
-            why
-            for why in (
-                protocol.set_requirements(edited.name, requires, edited.required),
-                config.set_schedule(edited.name, edited.scheduled_at),
+        task = config.get(edited.name)
+        if task is None:
+            return
+        refusals, changes = [], []
+        now = (protocol.requirements(edited.name), task.required)
+        if now != (list(requires), edited.required):
+            why = self._session.runner.run_refusal("edit tasks")
+            why = why or protocol.set_requirements(
+                edited.name, requires, edited.required
             )
-            if why
-        ]
+            if why:
+                refusals.append(why)
+            else:
+                changes.append(
+                    {
+                        "field": "requirements",
+                        "task_name": edited.name,
+                        "requires": protocol.requirements(edited.name),
+                        "required": task.required,
+                    }
+                )
+        if task.scheduled_at != edited.scheduled_at:
+            why = config.set_schedule(edited.name, edited.scheduled_at)
+            if why:
+                refusals.append(why)
+            else:
+                at = task.scheduled_at
+                changes.append(
+                    {
+                        "field": "scheduled_at",
+                        "task_name": edited.name,
+                        "scheduled_at": at.isoformat() if at else None,
+                    }
+                )
         if refusals:
             notification_service.show_toast(" ".join(refusals), "warning")
         self.lamella_workflow_widget.workflow.refresh_all()
-        self._on_config_changed(config)
+        if changes:
+            self._on_config_changed(config, *changes)
 
     def _on_workflow_task_order_changed(self, tasks) -> None:
         """A drag put the workflow's tasks in a new order: into the protocol
@@ -534,7 +573,9 @@ class WorkflowTab(QWidget):
                 0, lambda: self.lamella_workflow_widget.set_workflow_config(config)
             )
             return
-        self._on_config_changed(config)
+        self._on_config_changed(
+            config, {"field": "order", "order": [task.name for task in tasks]}
+        )
 
     def _on_add_to_queue(self, run_next: bool) -> None:
         """Add the left panel's current selection to the running queue.

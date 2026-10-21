@@ -201,7 +201,7 @@ class LamellaWorkflowWidget(QWidget):
     # ── workflow info signals ────────────────────────────────────────────
     workflow_name_changed = pyqtSignal(str)
     workflow_description_changed = pyqtSignal(str)
-    workflow_options_changed = pyqtSignal(object)  # WorkflowOptions
+    workflow_options_changed = pyqtSignal(str, object)  # option, value
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -393,7 +393,7 @@ class WorkflowInfoWidget(QWidget):
 
     name_changed = pyqtSignal(str)
     description_changed = pyqtSignal(str)
-    options_changed = pyqtSignal(object)  # WorkflowOptions
+    options_changed = pyqtSignal(str, object)  # option, value
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -446,8 +446,12 @@ class WorkflowInfoWidget(QWidget):
         # ── signals ───────────────────────────────────────────────────────
         self.name_edit.editingFinished.connect(self._on_name_changed)
         self.desc_edit.editingFinished.connect(self._on_desc_changed)
-        self.turn_beams_off_cb.toggled.connect(self._on_options_changed)
-        self.show_run_summary_cb.toggled.connect(self._on_options_changed)
+        self.turn_beams_off_cb.toggled.connect(
+            lambda on: self._on_option_changed("turn_beams_off", on)
+        )
+        self.show_run_summary_cb.toggled.connect(
+            lambda on: self._on_option_changed("show_run_summary", on)
+        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -495,8 +499,7 @@ class WorkflowInfoWidget(QWidget):
             self._config.description = text
         self.description_changed.emit(text)
 
-    def _on_options_changed(self) -> None:
+    def _on_option_changed(self, option: str, value: bool) -> None:
         if self._options is not None:
-            self._options.turn_beams_off = self.turn_beams_off_cb.isChecked()
-            self._options.show_run_summary = self.show_run_summary_cb.isChecked()
-        self.options_changed.emit(self._options)
+            setattr(self._options, option, value)
+        self.options_changed.emit(option, value)

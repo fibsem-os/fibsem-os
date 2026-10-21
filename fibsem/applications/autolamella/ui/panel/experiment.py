@@ -27,6 +27,7 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
 )
+from fibsem.applications.autolamella.ui.common.run_refusal import refused_during_run
 from fibsem.applications.autolamella.ui.lamella.rows import LamellaNameListWidget
 from fibsem.applications.autolamella.ui.lamella.selected import (
     SelectedLamellaController,
@@ -211,7 +212,7 @@ class ExperimentTab(QWidget):
         objective_position: Optional[float] = None,
         marked_at: Optional[str] = None,
         grid_id: Optional[str] = None,
-    ) -> Lamella:
+    ) -> Optional[Lamella]:
         """Add a lamella to the experiment.
 
         Args:
@@ -228,8 +229,12 @@ class ExperimentTab(QWidget):
                 marked on a grid's overview belongs to that grid whether or not it
                 is on the stage. Left alone it is resolved from the stage.
         Returns:
-            lamella: The created lamella.
+            lamella: The created lamella; None when a run refuses reading the stage.
         """
+        if stage_position is None and refused_during_run(
+            self.session.runner, "add an item where the stage is"
+        ):
+            return None
         if self.experiment is None:
             raise ValueError("No experiment loaded. Please load an experiment first.")
         if self.protocol is None:
@@ -294,6 +299,8 @@ class ExperimentTab(QWidget):
         if self.protocol is None:
             return
         if self.experiment is None or self.experiment.positions == []:
+            return
+        if refused_during_run(self.session.runner, "set a pose from the stage"):
             return
 
         # toggle between saving position and marking as ready

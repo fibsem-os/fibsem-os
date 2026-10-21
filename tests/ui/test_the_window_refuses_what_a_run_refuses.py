@@ -1,8 +1,9 @@
 """While a workflow runs, the window refuses the edits the App Server refuses
-then, with the same words: adding, removing or reordering tasks, and changing
-the experiment or protocol (`WorkflowRunner.run_refusal`)."""
+then, with the same words: adding, removing, reordering or editing tasks, and
+changing the experiment or protocol (`WorkflowRunner.run_refusal`)."""
 
 import os
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -20,6 +21,7 @@ from fibsem.applications.autolamella.ui.workflow import (
     tab as workflow_module,  # noqa: E402
 )
 from fibsem.workflows.runner import WorkflowRunner  # noqa: E402
+from fibsem.workflows.task_config import TaskPlan  # noqa: E402
 from tests.protocols import planned, task_protocol  # noqa: E402
 
 
@@ -120,6 +122,63 @@ def test_the_workflow_tab_s_tasks_are_put_back_during_a_run(method, what, toasts
 
 
 def test_a_removal_with_no_run_is_saved(toasts):
-    tab, _, saved, shown = _workflow_tab(running=False)
-    workflow_module.WorkflowTab._on_task_removed(tab, "Undercut")
+    tab, config, saved, shown = _workflow_tab(running=False)
+    workflow_module.WorkflowTab._on_task_removed(tab, config.tasks[1])
     assert saved == ["saved"] and shown == [] and toasts == []
+
+
+def test_edit_task_s_requirements_wait_for_the_run_and_its_schedule_does_not(
+    monkeypatch,
+):
+    said = []
+    monkeypatch.setattr(
+        workflow_module.notification_service,
+        "show_toast",
+        lambda m, *a: said.append(m),
+    )
+    tab, config, saved, _ = _workflow_tab(running=True)
+    tab._on_config_changed = lambda config, *changes: saved.extend(changes)
+    tab.lamella_workflow_widget.workflow = SimpleNamespace(refresh_all=lambda: None)
+    at = datetime.now() + timedelta(hours=1)
+    edited = TaskPlan(name="Undercut", required=False, scheduled_at=at)
+    workflow_module.WorkflowTab._on_task_edited(tab, edited, ["Trench"])
+    protocol = tab._session.experiment.task_protocol
+    assert protocol.requirements("Undercut") == [] and config.get("Undercut").required
+    assert config.get("Undercut").scheduled_at == at
+    assert said == ["A workflow is running; edit tasks when it has stopped."]
+    assert saved == [
+        {
+            "field": "scheduled_at",
+            "task_name": "Undercut",
+            "scheduled_at": at.isoformat(),
+        }
+    ]
+
+
+def test_the_lamella_template_waits_for_the_run(toasts):
+    editor = SimpleNamespace(session=SimpleNamespace(runner=_runner(True)))
+    # Refused before the dialog opens.
+    protocol_module.AutoLamellaProtocolTaskConfigEditor._on_lamella_defaults_clicked(
+        editor
+    )
+    assert toasts == [
+        "A workflow is running; edit the lamella defaults when it has stopped."
+    ]
+
+
+def test_reading_the_stage_into_a_lamella_waits_for_the_run(toasts):
+    from fibsem.applications.autolamella.ui.panel.experiment import ExperimentTab
+
+    tab = SimpleNamespace(
+        session=SimpleNamespace(runner=_runner(True)),
+        microscope=object(),
+        protocol=object(),
+        experiment=SimpleNamespace(positions=[object()]),
+    )
+    # Refused before it reads the stage or asks.
+    ExperimentTab.update_lamella_position_ui(tab)
+    assert ExperimentTab.add_new_lamella(tab, stage_position=None) is None
+    assert toasts == [
+        "A workflow is running; set a pose from the stage when it has stopped.",
+        "A workflow is running; add an item where the stage is when it has stopped.",
+    ]
