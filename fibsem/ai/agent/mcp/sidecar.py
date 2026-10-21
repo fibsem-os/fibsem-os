@@ -972,6 +972,9 @@ def build_sidecar(client, capabilities):
             arguments["task"] = task
         return _routed("item_get_history", item_name=item_name, **arguments)
 
+    def item_get_stack(item_name: str, role: str):
+        return _routed("item_get_stack", item_name=item_name, role=role)
+
     def _image_header(resp):
         # The image's scale and state ride on the JPEG answer as a header
         # (app_routes.IMAGE_METADATA_HEADER); absent for a non-fibsem image.
@@ -1656,6 +1659,7 @@ def build_sidecar(client, capabilities):
             protocol_get,
             item_list_outputs,
             item_get_history,
+            item_get_stack,
             item_get_output_image,
             item_measure_thickness,
             experiment_get_image_metadata,
