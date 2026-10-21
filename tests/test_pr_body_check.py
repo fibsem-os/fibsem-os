@@ -46,3 +46,22 @@ def test_the_github_tools_footer_is_refused():
 
 def test_windows_line_endings_are_fine():
     assert check.problems("Before.\r\n\r\nRelease-Note: none\r\n") == []
+
+
+def test_the_projects_header_is_not_attribution():
+    body = (
+        '<!-- claude-projects-attribution: {"github_login":"x"} -->\n'
+        "_Requested by **Patrick** · [project thread](https://claude.ai/code/project/c?thread=m)_\n\n"
+        "Before: x.\n\nRelease-Note: none\n"
+    )
+    assert check.problems(body) == []
+
+
+def test_a_session_link_after_the_release_note_is_refused():
+    body = (
+        "Before: x.\n\nRelease-Note: none\n\n"
+        "🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n"
+        "https://claude.ai/code/session_0123\n"
+    )
+    found = check.problems(body)
+    assert any("AI attribution" in why for why in found)

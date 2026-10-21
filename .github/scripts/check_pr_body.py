@@ -22,9 +22,17 @@ ATTRIBUTION = re.compile(
 )
 
 
+# The project's own two-line header on a pull request it opened: a marker comment
+# and a "Requested by" line. Not attribution of the change; skipped before checking.
+HEADER = re.compile(
+    r"\A\s*<!--\s*claude-projects-attribution.*?-->\s*\n(_Requested by .*_\s*\n)?",
+    re.DOTALL,
+)
+
+
 def problems(body: str) -> List[str]:
     """Why *body* would make a bad squash commit; empty when it is fine."""
-    text = body.replace("\r\n", "\n").strip()
+    text = HEADER.sub("", body.replace("\r\n", "\n")).strip()
     found: List[str] = []
     if ATTRIBUTION.search(text):
         found.append(
