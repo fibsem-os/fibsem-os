@@ -126,10 +126,10 @@ def test_the_workflow_settings_are_behind_the_gear(panel):
 
 
 def test_the_gear_says_when_something_in_it_is_set(panel):
-    from fibsem.applications.autolamella.structures import AutoLamellaWorkflowOptions
+    from fibsem.workflows.task_config import WorkflowOptions
 
     assert panel.btn_settings.toolTip() == "Workflow settings"
-    panel.set_options(AutoLamellaWorkflowOptions(turn_beams_off=True))
+    panel.set_options(WorkflowOptions(turn_beams_off=True))
     assert panel.btn_settings.toolTip() == "Workflow settings (some set)"
 
 

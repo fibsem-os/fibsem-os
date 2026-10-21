@@ -252,3 +252,14 @@ def test_a_refused_code_says_why(url, auth, tmp_path, monkeypatch):
     with pytest.raises(PermissionError, match="isn't open"):
         client_pairing.pair("0000", url)
     assert not (tmp_path / "remote").exists()
+
+
+def test_a_paired_computer_gives_its_control_lease_up_at_off(http, auth):
+    code = auth.pairing.open()
+    token = http.post("/pair", json={"code": code, "name": "laptop"}).json()["token"]
+    lease = http.post("/microscope/control", json={}, headers=_as(token)).json()[
+        "lease"
+    ]
+    auth.set_level(AgentLevel.OFF)
+    released = http.delete(f"/microscope/control/{lease}", headers=_as(token))
+    assert released.json() == {"released": True}

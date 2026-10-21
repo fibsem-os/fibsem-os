@@ -16,6 +16,7 @@ from fibsem.workflows.deciding import ProposalDecisions
 from fibsem.workflows.experiment import EXPERIMENT_FILENAME, BaseExperiment
 from fibsem.workflows.saved_format import check_app
 from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.task_config import TaskConfig
 
 PROTOCOL_FILENAME = "protocol.yaml"
 
@@ -155,6 +156,20 @@ class VolumeExperiment(ProposalDecisions, BaseExperiment):
         position.alignment_area = area
         self.save()
         return ""
+
+    def add_task(self, task_type: str, task_name: str) -> TaskConfig:
+        """Add a new task of a registered *task_type*, named *task_name*, to
+        the protocol (``VolumeProtocol.add_new``). Raises ValueError for an
+        unknown type or a name the protocol already has."""
+        config = self.task_protocol.add_new(task_type, task_name)
+        logging.info(
+            f"Added task {config.task_name} ({task_type}) to experiment {self.name}"
+        )
+        return config
+
+    @property
+    def turns_beams_off(self) -> bool:
+        return self.task_protocol.options.turn_beams_off
 
     def remove_task(self, task_name: str) -> None:
         """Take a task out of the protocol and its plan. Task history stays:

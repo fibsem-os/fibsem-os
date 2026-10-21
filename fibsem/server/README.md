@@ -56,6 +56,15 @@ To connect from another computer: open an SSH tunnel to the App Server port
 `fibsem-cli` is such a client: on the PC it finds the App Server and reads the
 operator token itself (`resolve_operator`); elsewhere it takes `--url` and
 `--token`, or `FIBSEM_SERVER_URL` and `FIBSEM_OPERATOR_TOKEN`.
+Control can be held across calls, so a remote run's calls never interleave with
+anyone's: `POST /microscope/control` `{"action"}` (Drive) takes it and answers
+`{"lease", "idle_s"}`, or `409 microscope_busy`. Calls with the `X-Fibsem-Control`
+header run inside the lease; anyone else is refused, naming it. `PUT
+/microscope/control/{lease}` renews it (a lease idle for `idle_s` is given up),
+`POST`/`DELETE .../{lease}/lend` lends it while a run waits on a question, and
+`DELETE /microscope/control/{lease}` gives it up at any level. `GET
+/microscope/control` says who is in control. `RemoteMicroscope.control` does all
+of this: a remote run holds the microscope as a local run does.
 Or **pair** the computer, with no token to copy: Tools → App Server → *Pair a
 computer* (or the chat page's Computers panel) shows a 4-digit code for 5
 minutes, and `RemoteMicroscope.pair("1234")` sends it (to the tunnel's end,

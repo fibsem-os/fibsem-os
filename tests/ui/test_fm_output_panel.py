@@ -153,8 +153,8 @@ def widget(microscope, tmp_path, monkeypatch):
         def __init__(self, *args, **kwargs):
             pass
 
-        def start(self):
-            pass
+        def start(self, **_):
+            return True
 
     monkeypatch.setattr(module, "FMOverviewConfirmationDialog", _Dialog)
     monkeypatch.setattr(module, "FunctionWorker", _Worker)

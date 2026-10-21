@@ -19,12 +19,8 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.config import (
-    add_recent_experiment,
-    load_user_preferences,
-    save_user_preferences,
-)
-from fibsem.workflows.session import PROTOCOL
+from fibsem.config import load_user_preferences
+from fibsem.workflows import protocol_files
 
 
 def default_protocol_path() -> str:
@@ -48,43 +44,20 @@ def protocol_directory() -> str:
 def list_protocols() -> List[Dict[str, Any]]:
     """The protocol files an agent may choose: those in the protocol folder,
     plus the default when it lives elsewhere. By file name, sorted."""
-    folder = protocol_directory()
-    paths = {}
-    if os.path.isdir(folder):
-        for name in os.listdir(folder):
-            if name.endswith((".yaml", ".yml")):
-                paths[name] = os.path.join(folder, name)
-    default = default_protocol_path()
-    paths.setdefault(os.path.basename(default), default)
-    return [
-        {"name": name, "path": path, "default": path == default}
-        for name, path in sorted(paths.items())
-    ]
+    return protocol_files.list_protocols(protocol_directory(), default_protocol_path())
 
 
 def protocol_by_name(name: str) -> Optional[str]:
     """The path of the listed protocol file called *name*, or None."""
-    return next((p["path"] for p in list_protocols() if p["name"] == name), None)
+    return protocol_files.protocol_by_name(
+        protocol_directory(), default_protocol_path(), name
+    )
 
 
 def protocol_file_for(name: str) -> str:
-    """The path in the protocol folder a protocol saved as *name* goes to: a
-    plain file name, ``.yaml`` added when it has no extension. Raises
-    ValueError for a name that is a path."""
-    name = name.strip()
-    if not name or os.path.basename(name) != name or name in (".", ".."):
-        raise ValueError(f"A protocol file name, not a path: {name!r}.")
-    if not name.endswith((".yaml", ".yml")):
-        name += ".yaml"
-    return os.path.join(protocol_directory(), name)
-
-
-def record_recent(experiment: Experiment) -> None:
-    """Make *experiment* the last one used, at the top of the recents."""
-    prefs = load_user_preferences()
-    prefs.experiment.last_experiment_path = str(experiment.path)
-    add_recent_experiment(prefs, os.path.join(experiment.path, "experiment.yaml"))
-    save_user_preferences(prefs)
+    """The path in the protocol folder a protocol saved as *name* goes to.
+    Raises ValueError for a name that is a path."""
+    return protocol_files.protocol_file_for(protocol_directory(), name)
 
 
 def load_for_adoption(path) -> Tuple[Optional[Experiment], Optional[str]]:
@@ -111,14 +84,5 @@ def create_experiment(
     experiment = Experiment.create(path=Path(directory), name=name, metadata=metadata)
     experiment.task_protocol = protocol
     protocol.save(os.path.join(experiment.path, "protocol.yaml"))
-    record_recent(experiment)
+    protocol_files.record_recent(experiment)
     return experiment
-
-
-def adopt_protocol(session, protocol: AutoLamellaTaskProtocol) -> None:
-    """Make *protocol* the open experiment's and save it beside it: the Load
-    Protocol dialog's OK. Where the experiment is edited; whoever draws the
-    protocol hears it on ``session.changed``."""
-    session.experiment.task_protocol = protocol
-    session.experiment.save_protocol()
-    session.changed.emit(PROTOCOL)

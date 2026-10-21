@@ -59,8 +59,9 @@ def started(monkeypatch, widget):
         def __init__(self, fn, *args):
             calls.append(args)
 
-        def start(self):
+        def start(self, **_):
             widget.fm.set_acquiring(False)
+            return True
 
     monkeypatch.setattr(module, "FunctionWorker", _Worker)
     monkeypatch.setattr(widget, "_acquisition_destination", lambda name: ("/tmp", name))

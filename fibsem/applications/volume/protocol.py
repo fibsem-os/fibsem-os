@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, field
 from typing import Any, ClassVar, Dict, Optional
 
 from fibsem.applications.volume.tasks import (
@@ -10,10 +11,14 @@ from fibsem.applications.volume.tasks import (
     VolumeSEMAcquisitionTaskConfig,
     VolumeSetupImagingTaskConfig,
     VolumeSetupMillingTaskConfig,
+    get_volume_tasks,
     load_volume_task_configs,
 )
 from fibsem.workflows.attention import Attention
-from fibsem.workflows.task_config import TaskConfig, TaskProtocol
+from fibsem.workflows.task_config import TaskConfig, TaskProtocol, WorkflowOptions
+
+# Where volume protocol files are saved and listed, by name.
+PROTOCOL_FOLDER = os.path.join(os.path.dirname(__file__), "protocol")
 
 
 @dataclass
@@ -25,12 +30,26 @@ class VolumeProtocol(TaskProtocol):
     NOUN: ClassVar[str] = "volume task"
 
     name: str = "Volume Protocol"
+    options: WorkflowOptions = field(default_factory=WorkflowOptions)
 
     @classmethod
     def load_task_configs(
         cls, ddict: Optional[Dict[str, Dict[str, Any]]]
     ) -> Dict[str, TaskConfig]:
         return load_volume_task_configs(ddict)
+
+    @classmethod
+    def task_classes(cls) -> Dict[str, type]:
+        return get_volume_tasks()
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {**super().to_dict(), "options": self.options.to_dict()}
+
+    @classmethod
+    def from_dict(cls, data: Optional[Dict[str, Any]]) -> "VolumeProtocol":
+        protocol = super().from_dict(data)
+        protocol.options = WorkflowOptions.from_dict((data or {}).get("options", {}))
+        return protocol
 
     @classmethod
     def default(cls) -> "VolumeProtocol":

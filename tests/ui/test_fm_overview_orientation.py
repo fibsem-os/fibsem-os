@@ -100,8 +100,8 @@ def no_worker(monkeypatch):
         def __init__(self, func, *args, **kwargs):
             started.append((func, args))
 
-        def start(self):
-            pass
+        def start(self, **_):
+            return True
 
         def is_alive(self):
             return True

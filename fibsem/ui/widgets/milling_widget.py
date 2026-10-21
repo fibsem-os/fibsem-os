@@ -19,6 +19,7 @@ from fibsem.milling.progress import (
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import MillingState
 from fibsem.ui import stylesheets
+from fibsem.ui.control import control_of
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.util.durations import format_duration_precise
 from fibsem.workflows.actions import record_operator_action
@@ -217,7 +218,7 @@ class FibsemMillingWidget2(QWidget):
         self._milling_thread.finished.connect(self._update_button_states)
         self._milling_thread.finished.connect(self.finished_milling_signal.emit)
 
-        self._milling_thread.start()
+        self._milling_thread.start(control=control_of(self.microscope), action="mill")
 
         # Lock the controls now rather than waiting for the first progress signal to
         # arrive -- preparing the milling conditions takes seconds, and the editor was

@@ -32,6 +32,7 @@ from fibsem.devices.fm import Objective
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import FibsemStagePosition, MicroscopeState
 from fibsem.ui import notification_service, stylesheets
+from fibsem.ui.control import control_of
 from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.tokens import (
@@ -359,7 +360,9 @@ class SelectedLamellaController(QObject):
                 f"Failed to move objective: {e}", "warning"
             )
         )
-        self._worker.start()
+        self._worker.start(
+            control=control_of(self._microscope()), action="move objective"
+        )
 
     def set_pose(self, pose_name: str) -> None:
         """The current microscope state as the lamella's pose *pose_name*."""

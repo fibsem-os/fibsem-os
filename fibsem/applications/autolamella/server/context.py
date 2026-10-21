@@ -583,151 +583,33 @@ class AutoLamellaAppContext(AppContext):
             "grid_names": [g.name for g in experiment.grids],
         }
 
-    # --- experiments and protocols: the File menu, for an agent at Drive ---------
-    #
-    # Kept to known places (Patrick's call, 2026-10-14; widened 2026-10-20): a new
-    # experiment goes anywhere under the experiments folder, a load is a recent
-    # experiment or one under that folder (AppContext lists them), and a protocol
-    # is one of the files in the protocol folder, by name.
+    # --- experiments and protocols: the File menu's AutoLamella files ---------
 
-    def protocols(self) -> Dict[str, Any]:
-        """The protocol files an agent may load or create an experiment with."""
-        from fibsem.applications.autolamella import experiment_setup
-
-        return {
-            "folder": experiment_setup.protocol_directory(),
-            "protocols": experiment_setup.list_protocols(),
-        }
-
-    def _protocol_or_refusal(self, name: Optional[str]):
-        from fibsem.applications.autolamella import experiment_setup
+    @property
+    def protocol_type(self):
         from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
 
-        path = (
-            experiment_setup.default_protocol_path()
-            if name is None
-            else experiment_setup.protocol_by_name(name)
-        )
-        if path is None:
-            return None, {
-                "error_type": "not_found",
-                "error": f"No protocol named {name!r} in the protocol folder.",
-                "protocol_names": [
-                    p["name"] for p in experiment_setup.list_protocols()
-                ],
-            }
-        try:
-            return AutoLamellaTaskProtocol.load(path), None
-        except Exception as exc:  # noqa: BLE001 - a broken file is a data fact
-            return None, {
-                "error_type": "invalid",
-                "error": f"Could not load the protocol {path}: {exc}",
-            }
+        return AutoLamellaTaskProtocol
 
-    def _adopt(self, experiment) -> None:
-        """Make *experiment* the open one, as the dialogs' OK does."""
-        self._agent_call(lambda: self._session.adopt(experiment))
-
-    def create_experiment(
-        self,
-        name: str,
-        protocol: Optional[str] = None,
-        description: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """Create an experiment at *name*, a folder path under the experiments
-        folder (made as needed), and open it, with *protocol* from the protocol
-        folder (the default protocol when omitted). An existing folder is
-        refused, never overwritten."""
-        import os
-
-        from fibsem.applications.autolamella import experiment_setup
-        from fibsem.workflows.experiments import DEFAULT_MAX_DEPTH
-
-        refusal = self._session_refusal()
-        if refusal:
-            return refusal
-        parts = (name or "").replace("\\", "/").split("/")
-        path = self._under_experiments_folder(name or "")
-        if any(p in ("", ".", "..") for p in parts) or path is None:
-            return {
-                "error_type": "invalid",
-                "error": "name is a folder, or a path of folders, under the "
-                f"experiments folder {self._experiments_folder()}.",
-            }
-        if len(parts) > DEFAULT_MAX_DEPTH:
-            return {
-                "error_type": "invalid",
-                "error": f"At most {DEFAULT_MAX_DEPTH} folders deep, so "
-                "experiment_list_all finds it again.",
-            }
-        if os.path.exists(path):
-            return {"error_type": "invalid", "error": f"{path} exists."}
-        task_protocol, refusal = self._protocol_or_refusal(protocol)
-        if refusal:
-            return refusal
-        metadata = {"description": description} if description else None
-        experiment = experiment_setup.create_experiment(
-            os.path.dirname(path), os.path.basename(path), task_protocol, metadata
-        )
-        self._adopt(experiment)
-        return {"applied": True, "experiment": self.experiment_summary()}
-
-    def load_experiment(self, path: str) -> Dict[str, Any]:
-        """Open a recent experiment (``path`` as the recent list gives it) or
-        one under the experiments folder (its folder or experiment.yaml,
-        relative to that folder or absolute), as the Load dialog does. One with
-        no protocol is refused."""
-        import os
-
+    def _protocol_folder(self) -> Optional[str]:
         from fibsem.applications.autolamella import experiment_setup
 
-        refusal = self._session_refusal()
-        if refusal:
-            return refusal
-        recent = [entry["path"] for entry in self.recent_experiments()]
-        if path not in recent:
-            found = self._under_experiments_folder(path)
-            if found is not None and os.path.isdir(found):
-                found = os.path.join(found, "experiment.yaml")
-            if (
-                found is None
-                or os.path.basename(found) != "experiment.yaml"
-                or (not os.path.isfile(found))
-            ):
-                return {
-                    "error_type": "not_found",
-                    "error": "Not a recent experiment or one under the "
-                    f"experiments folder {self._experiments_folder()}; the "
-                    "operator opens any other from the Load dialog.",
-                    "recent_paths": recent,
-                }
-            path = found
-        experiment, why = experiment_setup.load_for_adoption(path)
-        if experiment is None:
-            return {"error_type": "invalid", "error": f"Not loaded: {why}."}
-        self._adopt(experiment)
-        experiment_setup.record_recent(experiment)
-        return {"applied": True, "experiment": self.experiment_summary()}
+        return experiment_setup.protocol_directory()
 
-    def load_protocol(self, protocol: str) -> Dict[str, Any]:
-        """Load a protocol from the protocol folder into the open experiment, as
-        the Load Protocol dialog does: it replaces the experiment's protocol and
-        is saved beside it. Items keep the task configs they have (use
-        apply_protocol_to_item to bring one up to date)."""
-        refusal = self._session_refusal()
-        if refusal:
-            return refusal
-        experiment = self._experiment
-        if experiment is None:
-            return {"error_type": "not_found", "error": "No experiment is loaded."}
-        task_protocol, refusal = self._protocol_or_refusal(protocol)
-        if refusal:
-            return refusal
+    def _default_protocol_path(self) -> Optional[str]:
+        from fibsem.applications.autolamella import experiment_setup
 
-        from fibsem.applications.autolamella.experiment_setup import adopt_protocol
+        return experiment_setup.default_protocol_path()
 
-        self._agent_call(lambda: adopt_protocol(self._session, task_protocol))
-        return {"applied": True, "protocol": self.protocol()}
+    def _new_experiment(self, directory, name, protocol, metadata):
+        from fibsem.applications.autolamella import experiment_setup
+
+        return experiment_setup.create_experiment(directory, name, protocol, metadata)
+
+    def _load_for_adoption(self, path):
+        from fibsem.applications.autolamella import experiment_setup
+
+        return experiment_setup.load_for_adoption(path)
 
     # --- lamella positions: the Lamella tab's buttons, for an agent at Drive ------
 
@@ -1838,76 +1720,6 @@ class AutoLamellaAppContext(AppContext):
             )
         return result
 
-    def set_workflow_options(self, **options: Any) -> Dict[str, Any]:
-        """Set the workflow's run options, as its options panel does, and like
-        the operator's it persists with the protocol. Any of:
-
-        - ``show_run_summary``: whether the run summary dialog opens when a run
-          ends. Off leaves the run-end toast and its Show summary link: an agent
-          starting many short runs turns it off so no dialog stands over the
-          window (FIB-1376).
-        - ``turn_beams_off``: whether the beams are turned off when a run ends.
-
-        Each is read when it applies (a run's end), so a change
-        takes effect from then, mid-run included; plain rebinds, so no GUI
-        marshal, like ``set_task_schedule``.
-        """
-        experiment = self._experiment
-        protocol = getattr(experiment, "task_protocol", None) if experiment else None
-        if protocol is None:
-            return {"available": False, "applied": False}
-        for name, value in options.items():
-            setattr(protocol.options, name, value)
-        saved = True
-        try:
-            experiment.save(save_protocol=True)
-        except Exception:
-            saved = False
-            logging.exception(
-                "save after workflow option change failed; the change is "
-                "applied in memory but not yet on disk"
-            )
-        for name, value in options.items():
-            self.record_event("workflow_changed", {"field": name, "value": value})
-        return {"available": True, "applied": True, "saved": saved, **options}
-
-    def add_task(self, task_type: str, task_name: str) -> Dict[str, Any]:
-        """Add a task of a registered type, as the protocol editor's Add Task
-        does: its default settings in the protocol, at the end of the workflow,
-        and a copy on every lamella."""
-        from fibsem.applications.autolamella.workflows.tasks import get_tasks
-
-        experiment, _, refusal = self._workflow_edit("add tasks")
-        if refusal:
-            return refusal
-        types = sorted(get_tasks())
-        if task_type not in types:
-            return {
-                "error_type": "not_found",
-                "error": f"No task type {task_type!r}.",
-                "task_type_names": types,
-            }
-
-        def add():
-            try:
-                experiment.add_task(task_type, task_name)
-            except ValueError as exc:
-                return str(exc)
-            return self._protocol_changed(
-                experiment, {"field": "tasks", "added": task_name.strip()}
-            )
-
-        saved = self._agent_call(add)
-        if isinstance(saved, str):
-            return {"error_type": "invalid", "error": saved}
-        return {
-            "applied": True,
-            "saved": saved,
-            "task_name": task_name.strip(),
-            "task_type": task_type,
-            "task_names": experiment.task_protocol.workflow_config.workflow,
-        }
-
     def set_lamella_defaults(self, defaults: Dict[str, Any]) -> Dict[str, Any]:
         """Set what every new lamella starts with, as the protocol editor's
         Lamella Template does: ``use_petname``, ``name_prefix``, ``poi`` ({x, y}
@@ -1951,36 +1763,6 @@ class AutoLamellaAppContext(AppContext):
 
         saved = self._agent_call(edit)
         return {"applied": True, "saved": saved, "lamella_defaults": updated.to_dict()}
-
-    def save_protocol_as(self, name: str, overwrite: bool = False) -> Dict[str, Any]:
-        """Save the experiment's protocol to the protocol folder as *name*, as
-        Export Protocol does, so a later experiment can be created with it or
-        load it. Refused when the file exists, unless *overwrite*."""
-        import os
-
-        from fibsem.applications.autolamella import experiment_setup
-
-        experiment = self._experiment
-        protocol = getattr(experiment, "task_protocol", None) if experiment else None
-        if protocol is None:
-            return {"error_type": "not_found", "error": "No experiment is loaded."}
-        try:
-            path = experiment_setup.protocol_file_for(name)
-        except ValueError as exc:
-            return {"error_type": "invalid", "error": str(exc)}
-        if os.path.exists(path) and not overwrite:
-            return {
-                "error_type": "invalid",
-                "error": f"{os.path.basename(path)} already exists in the protocol "
-                "folder; pass overwrite to replace it.",
-                "protocol_names": [
-                    p["name"] for p in experiment_setup.list_protocols()
-                ],
-            }
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        protocol.save(path)
-        self.record_event("workflow_changed", {"field": "protocol_saved", "path": path})
-        return {"saved": True, "name": os.path.basename(path), "path": path}
 
     # -- the grid protocol: the Protocol tab's grid tasks and the Grids view's
     # task list. Refused while a workflow runs: a grid run reads these configs,

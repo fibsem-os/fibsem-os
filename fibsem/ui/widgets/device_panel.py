@@ -33,6 +33,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.control import STOP_COMMANDS
+from fibsem.ui.control import control_of, operator_acts
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.widgets.form_builder import Control, build_control, parameter_spec
 
@@ -131,7 +133,15 @@ class DevicePanel(QWidget):
     def _write(self, name: str) -> None:
         control = self.controls[name]
         try:
-            self.device.parameters[name].set_value(control.read())
+            done = operator_acts(
+                control_of(self.device),
+                f"set {self.device.name} {name}",
+                self.device.parameters[name].set_value,
+                control.read(),
+            )
+            if not done:
+                self._show_value(name, self.device.parameters[name].cached)
+                return
             self.status.setText("")
         except Exception as error:  # refused: say why, and show what it is
             self.status.setText(f"{name}: {error}")
@@ -174,7 +184,12 @@ class DevicePanel(QWidget):
         worker.errored.connect(
             lambda error, name=name: self._show_result(name, f"failed: {error}")
         )
-        worker.start()
+        if name in STOP_COMMANDS:
+            worker.start()
+        else:
+            worker.start(
+                control=control_of(self.device), action=f"{self.device.name} {name}"
+            )
 
     def _show_result(self, name: str, text: str) -> None:
         try:

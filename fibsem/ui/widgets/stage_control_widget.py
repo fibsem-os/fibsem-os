@@ -47,6 +47,7 @@ from fibsem.structures import (
     StageSystemSettings,
 )
 from fibsem.ui import notification_service
+from fibsem.ui.control import control_of
 from fibsem.ui.qt.threading import thread_worker
 from fibsem.ui.stylesheets import (
     LABEL_INSTRUCTIONS_STYLE,
@@ -381,7 +382,7 @@ class StageControlWidget(QWidget):
         worker = self.absolute_movement_worker(stage_position=stage_position)
         worker.returned.connect(self._on_stage_move_returned)
         worker.finished.connect(self.move_stage_finished)
-        worker.start()
+        worker.start(control=control_of(self.microscope), action="move stage")
 
     @thread_worker
     def absolute_movement_worker(self, stage_position: FibsemStagePosition) -> None:
@@ -501,7 +502,7 @@ class StageControlWidget(QWidget):
         worker = self._stage_move_worker(beam_type, point, vertical_move)
         worker.returned.connect(self._on_stage_move_returned)
         worker.finished.connect(self.move_stage_finished)
-        worker.start()
+        worker.start(control=control_of(self.microscope), action="move stage")
 
     @thread_worker
     def _stage_move_worker(
@@ -586,7 +587,9 @@ class StageControlWidget(QWidget):
         # were being retaken. Both paths now share the one slot that says it.
         worker.returned.connect(self._on_stage_move_returned)
         worker.finished.connect(self.move_stage_finished)
-        worker.start()
+        worker.start(
+            control=control_of(self.microscope), action="move stage to orientation"
+        )
 
     @thread_worker
     def move_to_orientation_worker(self, orientation: str) -> None:

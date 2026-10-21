@@ -37,6 +37,7 @@ from fibsem.structures import (
     SlotCalibration,
 )
 from fibsem.ui import stylesheets
+from fibsem.ui.control import control_of
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.tokens import (
     BORDER_COLOR,
@@ -563,7 +564,9 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
         )
         self._worker.returned.connect(lambda _: self._after_orientation_move(None))
         self._worker.errored.connect(self._after_orientation_move)
-        self._worker.start()
+        self._worker.start(
+            control=control_of(self._microscope), action="move stage to orientation"
+        )
 
     def _after_orientation_move(self, error) -> None:
         if self._closed:
@@ -671,7 +674,7 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
                 self.capture_status, f"Move failed: {e}", ERROR_COLOR
             )
         )
-        self._worker.start()
+        self._worker.start(control=control_of(self._microscope), action="move stage")
 
     # -- review and save -------------------------------------------------------
 
