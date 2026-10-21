@@ -1003,6 +1003,12 @@ def test_fm_overview_previews_in_colour_and_places_markers(
     top_left, bottom_right = rgb[8, 8], rgb[56, 56]
     assert top_left[0] > 150 and top_left[1] < 80  # red corner
     assert bottom_right[1] > 150 and bottom_right[0] < 80  # green corner
+    # what the legend needs: the channels as drawn, and the z planes
+    from fibsem.server.app_routes import IMAGE_METADATA_HEADER
+
+    fm = json.loads(served.headers[IMAGE_METADATA_HEADER])["fm"]
+    assert [c["name"] for c in fm["channels"]] == [c.name for c in metadata.channels]
+    assert fm["z_planes"] == data.shape[-3]
 
     markers = client.get(
         "/app/experiment/grids/grid-aspen/outputs/overview.ome.tiff/markers",

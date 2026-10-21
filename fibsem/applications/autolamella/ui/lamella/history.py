@@ -208,6 +208,12 @@ _SHOW = (
     ("operations", "Operations only"),
 )
 _RUNS = (("all", "All runs"), ("failed", "Failed"), ("cancelled", "Cancelled"))
+_ORDER = (("oldest", "Oldest first"), ("newest", "Newest first"))
+_DECIDED_BY = (
+    ("anyone", "Anyone"),
+    ("agent", "The agent"),
+    ("operator", "The operator"),
+)
 
 
 def _clock(value) -> str:
@@ -293,6 +299,10 @@ class _HistoryFilterButton(QToolButton):
     def _build_menu(self) -> None:
         self._menu.clear()
         self._actions.clear()
+        self._heading("Order")
+        for value, text in _ORDER:
+            self._add("order", value, text)
+        self._menu.addSeparator()
         self._heading("Show")
         for value, text in _SHOW:
             self._add("show", value, text)
@@ -305,6 +315,10 @@ class _HistoryFilterButton(QToolButton):
         self._add("task", None, "All tasks")
         for name in self._tasks:
             self._add("task", name, name)
+        self._menu.addSeparator()
+        self._heading("Decided by")
+        for value, text in _DECIDED_BY:
+            self._add("decided_by", value, text)
         self._menu.addSeparator()
         reset = self._menu.addAction("Reset filters")
         reset.triggered.connect(lambda _c=False: self._pick(HistoryFilter()))
@@ -332,6 +346,8 @@ class _HistoryFilterButton(QToolButton):
             ("show", self._filter.show),
             ("status", self._filter.status),
             ("task", self._filter.task),
+            ("decided_by", self._filter.decided_by),
+            ("order", self._filter.order),
         }
         for key, action in self._actions.items():
             on = key in chosen

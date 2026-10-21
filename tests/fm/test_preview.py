@@ -8,7 +8,9 @@ from fibsem.fm.preview import (
     composite_projection,
     is_fluorescence_image,
     load_projection,
+    load_stack_preview,
     projection_layers,
+    stack_facts,
 )
 from fibsem.fm.structures import (
     FluorescenceChannelMetadata,
@@ -125,6 +127,32 @@ def test_a_channel_missing_from_metadata_is_still_shown(stack_on_disk):
 
     assert rgb[..., 0].max() == 255  # the described channel is red
     assert rgb.sum(axis=2).max() > 255  # the undescribed one still contributes
+
+
+def test_a_stack_says_its_channels_planes_and_step_for_its_legend(stack_on_disk):
+    data = np.zeros((2, 5, 8, 8), dtype=np.uint16)
+    image = _stack(data, ["green"])  # metadata describes one of two channels
+    image.metadata.z_positions = [0.0, 2e-7, 4e-7, 6e-7, 8e-7]
+
+    _, _, facts = load_stack_preview(stack_on_disk(image))
+
+    assert facts["z_planes"] == 5
+    assert facts["z_step"] == pytest.approx(2e-7)
+    first, second = facts["channels"]
+    assert first["name"] == "Channel-00" and first["color"] == "green"
+    assert first["excitation_wavelength"] == 488.0
+    # drawn as the projection draws it, though the metadata doesn't name it
+    assert second["name"] == "Channel-02" and second["excitation_wavelength"] is None
+    assert [layer.color for layer in projection_layers(image)] == [
+        c["color"] for c in facts["channels"]
+    ]
+
+
+def test_a_recorded_z_step_is_the_step(stack_on_disk):
+    image = _stack(np.zeros((1, 3, 8, 8), dtype=np.uint16), ["red"])
+    image.metadata.pixel_size_z = 5e-7
+
+    assert stack_facts(image)["z_step"] == pytest.approx(5e-7)
 
 
 def test_a_stack_with_no_channels_raises(stack_on_disk):

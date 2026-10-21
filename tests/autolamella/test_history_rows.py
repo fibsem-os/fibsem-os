@@ -15,6 +15,7 @@ from psygnal.containers import EventedDict
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.acting import Actor
 from fibsem.applications.autolamella.history_rows import (
     OUTSIDE_A_TASK,
     HistoryFilter,
@@ -34,6 +35,12 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTaskConfig,
 )
 from fibsem.workflows.event_recording import EVENTS_FILENAME, read_events
+from fibsem.workflows.proposals import (
+    POINT_OF_INTEREST,
+    Decision,
+    DecisionOutcome,
+    Proposal,
+)
 from fibsem.workflows.status import TaskState, TaskStatus
 from tests.protocols import planned, task_protocol
 from tests.run_state import run_lamellae
@@ -435,13 +442,67 @@ def test_the_filter_lets_through_what_it_names(tmp_path, flt, expected):
     assert [r.task_id for r in filter_runs(_runs(tmp_path), flt)] == expected
 
 
+def test_newest_first_turns_the_runs_round_and_hides_none(tmp_path):
+    flt = HistoryFilter(order="newest")
+
+    assert [r.task_id for r in filter_runs(_runs(tmp_path), flt)] == ["r2", "r1", "s"]
+    assert not flt.active
+
+
+def _decided(task_id, *actors, withdrawn=False):
+    proposal = Proposal(kind=POINT_OF_INTEREST, provenance={"task_id": task_id})
+    proposal.decisions = [
+        Decision(outcome=DecisionOutcome.Confirmed, actor=Actor.parse(a))
+        for a in actors
+    ]
+    if withdrawn:
+        proposal.decisions.append(
+            Decision(outcome=DecisionOutcome.Withdrawn, actor=Actor.parse("task:"))
+        )
+    return proposal
+
+
+def test_decided_by_keeps_the_runs_whose_proposals_they_decided(tmp_path):
+    lamella = _lamella(tmp_path)
+    lamella.task_history = [
+        _run(SETUP, "s", 0),
+        _run(ROUGH, "r1", 10),
+        _run(ROUGH, "r2", 20),
+    ]
+    lamella.proposals = [
+        _decided("s", "operator:pat"),
+        _decided("r1", "agent:claude", "operator:pat"),
+        _decided("r2", "task:Rough Milling", withdrawn=True),
+    ]
+    runs = history_rows(lamella, [])
+
+    def kept(**flt):
+        return [r.task_id for r in filter_runs(runs, HistoryFilter(**flt))]
+
+    assert kept(decided_by="agent") == ["r1"]
+    assert kept(decided_by="operator") == ["s", "r1"]
+    assert kept(decided_by="operator", order="newest") == ["r1", "s"]
+    assert HistoryFilter(decided_by="agent").active
+
+
 def test_a_saved_filter_round_trips_and_anything_unknown_shows_everything():
-    flt = HistoryFilter(show="operations", status="failed", task=ROUGH)
+    flt = HistoryFilter(
+        show="operations",
+        status="failed",
+        task=ROUGH,
+        decided_by="agent",
+        order="newest",
+    )
 
     assert HistoryFilter.from_dict(flt.to_dict()) == flt and flt.active
-    assert HistoryFilter.from_dict({"show": "pictures", "status": 3, "task": ""}) == (
-        HistoryFilter()
-    )
+    unknown = {
+        "show": "pictures",
+        "status": 3,
+        "task": "",
+        "decided_by": "cat",
+        "order": 1,
+    }
+    assert HistoryFilter.from_dict(unknown) == HistoryFilter()
     assert HistoryFilter.from_dict(None) == HistoryFilter()
     assert not HistoryFilter().active
 

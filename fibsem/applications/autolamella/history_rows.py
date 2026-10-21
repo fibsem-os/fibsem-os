@@ -21,10 +21,11 @@ from __future__ import annotations
 import math
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from fibsem.acting import AGENT, OPERATOR
 from fibsem.applications.autolamella.structures import Lamella
 from fibsem.applications.autolamella.task_outputs import (
     final_reference_images,
@@ -134,6 +135,8 @@ class HistoryRun:
     # A session's operations outside any task, not a run: it has no status and
     # no images of its own.
     outside_task: bool = False
+    # Who decided what the run proposed: "agent", "operator", both or neither.
+    decided_by: Tuple[str, ...] = ()
 
     @property
     def duration(self) -> Optional[float]:
@@ -149,19 +152,30 @@ class HistoryFilter:
     ``show``: ``all``, ``images`` (runs that left images, without their
     operations) or ``operations`` (runs that recorded operations, without
     images). ``status``: ``all``, ``failed`` or ``cancelled``. ``task``: one
-    task name, or None for every task.
+    task name, or None for every task. ``decided_by``: ``anyone``, ``agent`` or
+    ``operator``, the runs whose proposals they decided. ``order``: ``oldest``
+    or ``newest`` first.
     """
 
     show: str = "all"
     status: str = "all"
     task: Optional[str] = None
+    decided_by: str = "anyone"
+    order: str = "oldest"
 
     @property
     def active(self) -> bool:
-        return self != HistoryFilter()
+        """Whether it hides any run; the order hides none."""
+        return replace(self, order="oldest") != HistoryFilter()
 
     def to_dict(self) -> Dict[str, Any]:
-        return {"show": self.show, "status": self.status, "task": self.task}
+        return {
+            "show": self.show,
+            "status": self.status,
+            "task": self.task,
+            "decided_by": self.decided_by,
+            "order": self.order,
+        }
 
     @classmethod
     def from_dict(cls, data: Optional[Dict[str, Any]]) -> "HistoryFilter":
@@ -171,10 +185,14 @@ class HistoryFilter:
         show = data.get("show")
         status = data.get("status")
         task = data.get("task")
+        decided_by = data.get("decided_by")
+        order = data.get("order")
         return cls(
             show=show if show in ("all", "images", "operations") else "all",
             status=status if status in ("all", "failed", "cancelled") else "all",
             task=task if isinstance(task, str) and task else None,
+            decided_by=decided_by if decided_by in ("agent", "operator") else "anyone",
+            order=order if order == "newest" else "oldest",
         )
 
 
@@ -185,7 +203,7 @@ _STATUS_OF_FILTER = {
 
 
 def filter_runs(runs: List[HistoryRun], flt: HistoryFilter) -> List[HistoryRun]:
-    """The runs ``flt`` lets through, in order. A task filter names a task the
+    """The runs ``flt`` lets through, in its order. A task filter names a task the
     lamella has not run lets nothing through, rather than everything."""
     wanted = _STATUS_OF_FILTER.get(flt.status)
     kept = []
@@ -198,8 +216,10 @@ def filter_runs(runs: List[HistoryRun], flt: HistoryFilter) -> List[HistoryRun]:
             continue
         if flt.show == "operations" and not run.operations:
             continue
+        if flt.decided_by != "anyone" and flt.decided_by not in run.decided_by:
+            continue
         kept.append(run)
-    return kept
+    return kept[::-1] if flt.order == "newest" else kept
 
 
 def history_rows(
@@ -251,6 +271,7 @@ def history_rows(
         operations[task_id] = _fold_drift(ops)
 
     images, replaced_by = _images_by_run(lamella, runs)
+    deciders = _deciders_by_run(lamella)
     rows = [
         HistoryRun(
             task_id=run.task_id,
@@ -263,6 +284,7 @@ def history_rows(
             images=images.get(run.task_id, []),
             operations=operations.get(run.task_id, []),
             images_replaced_by=replaced_by.get(run.task_id),
+            decided_by=deciders.get(run.task_id, ()),
         )
         for run in runs
     ]
@@ -285,6 +307,21 @@ def history_rows(
         )
         _insert_by_start(rows, row)
     return rows
+
+
+def _deciders_by_run(lamella: Lamella) -> Dict[str, Tuple[str, ...]]:
+    """By run, who decided its proposals: the agent, the operator or both. A
+    withdrawn proposal was decided by no one."""
+    deciders: Dict[str, set] = {}
+    for proposal in lamella.proposals:
+        if not proposal.task_id or proposal.withdrawn:
+            continue
+        for decision in proposal.decisions:
+            if decision.actor.kind in (AGENT, OPERATOR):
+                deciders.setdefault(proposal.task_id, set()).add(
+                    str(decision.actor.kind)
+                )
+    return {task_id: tuple(sorted(kinds)) for task_id, kinds in deciders.items()}
 
 
 def _insert_by_start(rows: List[HistoryRun], row: HistoryRun) -> None:
