@@ -323,10 +323,13 @@ class AppContext:
 
     # --- the experiment ---------------------------------------------------------
 
-    # What each app's reads answer: an app with facts of its own subclasses them.
-    summary_type = ExperimentSummary
-    item_detail_type = ItemDetail
-    task_outputs_type = TaskOutputs
+    # What each app's reads answer: an app with facts of its own maps the base
+    # class to its subclass.
+    answer_types: Dict[type, type] = {}
+
+    def answer_type(self, base: type) -> type:
+        """The class this app answers for *base*."""
+        return self.answer_types.get(base, base)
 
     def summary_row(self, experiment, item) -> SummaryRow:
         """*item*'s row of the experiment summary; an app adds its facts."""
@@ -343,8 +346,8 @@ class AppContext:
     def experiment_summary(self) -> ExperimentSummary:
         experiment = self._experiment
         if experiment is None:
-            return self.summary_type(available=False)
-        return self.summary_type(
+            return self.answer_type(ExperimentSummary)(available=False)
+        return self.answer_type(ExperimentSummary)(
             available=True,
             items=[self.summary_row(experiment, p) for p in experiment.positions],
         )
@@ -377,11 +380,11 @@ class AppContext:
     def item_detail(self, item_name: str) -> ItemDetail:
         """The durable facts about one item, as a curated snapshot: every
         field is wire contract. Files are task_outputs; history task_history."""
-        return self.item_read(item_name, self.detail_of, self.item_detail_type)
+        return self.item_read(item_name, self.detail_of, self.answer_type(ItemDetail))
 
     def detail_of(self, experiment, item) -> ItemDetail:
         """*item*'s detail; an app adds its facts."""
-        return self.item_detail_type(
+        return self.answer_type(ItemDetail)(
             available=True,
             item_name=item.name,
             id=item.id,
@@ -399,12 +402,12 @@ class AppContext:
     def task_outputs(self, item_name: str) -> TaskOutputs:
         """The files an item's tasks produced, existence-checked, per run in
         run order: which task produced which image."""
-        return self.item_read(item_name, self.outputs_of, self.task_outputs_type)
+        return self.item_read(item_name, self.outputs_of, self.answer_type(TaskOutputs))
 
     def outputs_of(self, experiment, item) -> TaskOutputs:
         """*item*'s outputs; an app adds its own."""
         history = list(item.task_history)
-        return self.task_outputs_type(
+        return self.answer_type(TaskOutputs)(
             available=True,
             item_name=item.name,
             completed_tasks=[

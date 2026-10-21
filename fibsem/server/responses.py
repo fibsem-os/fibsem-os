@@ -9,7 +9,7 @@ service declares itself (``type_path`` names its type).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, Generic, List, Optional, TypeVar, Union
 
 from fibsem.ai.agent.recent import RecentRow
 from fibsem.codec import encode, saved
@@ -417,6 +417,548 @@ class FolderListing:
     root: str
     dir: str
     entries: List[FileEntry]
+
+
+@dataclass
+class RunSummary:
+    available: bool
+    # the last run's outcome table, a row per item; its columns are the run's
+    items: List[Dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass
+class ProtocolTask:
+    name: str
+    attention: Optional[str] = None
+    # whether the task asks for supervision: what the supervision edit takes
+    supervise: Optional[bool] = None
+    required: Optional[bool] = None
+    requires: List[str] = field(default_factory=list)
+    scheduled_at: Optional[str] = None
+
+
+@dataclass
+class ProtocolView:
+    """The workflow's tasks in order. An app adds its own in a subclass."""
+
+    available: bool
+    name: Optional[str] = None
+    tasks: List[ProtocolTask] = field(default_factory=list)
+
+
+@dataclass
+class LogRecord:
+    time: str
+    level: str
+    # one line, or a record's lines with what was logged under it
+    text: Optional[str] = None
+    lines: Optional[List[str]] = None
+
+
+@dataclass
+class LogRead:
+    available: bool
+    records: List[LogRecord] = field(default_factory=list)
+    since: Optional[str] = None
+    until: Optional[str] = None
+    level: Optional[str] = None
+    truncated: Optional[bool] = None
+    read_from: Optional[str] = None
+
+
+@dataclass
+class TaskConfigRead:
+    """A task's config document, at the protocol's level or an item's, with the
+    version a patch echoes; ``error`` and the ``task_names`` there are when
+    there is no such task."""
+
+    available: bool
+    task_name: Optional[str] = None
+    item_name: Optional[str] = None
+    level: Optional[str] = None
+    version: Optional[str] = None
+    config: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+    error_type: Optional[str] = None
+    task_names: Optional[List[str]] = None
+    item_names: Optional[List[str]] = None
+    applied: Optional[bool] = None
+
+
+@dataclass
+class ItemHistory:
+    available: bool
+    item_name: str
+    # the filter shown (`history_rows.HistoryFilter`), the tasks run, and
+    # how many runs before it filtered
+    filter: Optional[Dict[str, Any]] = None
+    tasks: List[str] = field(default_factory=list)
+    total: Optional[int] = None
+    # each run shown (`history_rows.run_record`), files relative to the experiment
+    runs: List[Dict[str, Any]] = field(default_factory=list)
+    error: Optional[str] = None
+    item_names: Optional[List[str]] = None
+
+
+@dataclass
+class GridSummary:
+    name: str
+    id: str
+    description: str
+    quality: str
+    status: str
+    is_failure: bool
+    current_task: Optional[str] = None
+    completed_tasks: List[str] = field(default_factory=list)
+    last_completed_task: Optional[str] = None
+    num_items: int = 0
+    # each overview role's latest file (a basename)
+    overviews: Dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class Grids:
+    available: bool
+    items: List[GridSummary] = field(default_factory=list)
+
+
+@dataclass
+class GridDetail:
+    """A grid's summary, every task run with its files, and its items; or
+    ``available: false`` with the ``grid_names`` there are."""
+
+    available: Optional[bool] = None
+    grid_name: Optional[str] = None
+    error: Optional[str] = None
+    grid_names: Optional[List[str]] = None
+    name: Optional[str] = None
+    id: Optional[str] = None
+    description: Optional[str] = None
+    quality: Optional[str] = None
+    status: Optional[str] = None
+    is_failure: Optional[bool] = None
+    current_task: Optional[str] = None
+    completed_tasks: List[str] = field(default_factory=list)
+    last_completed_task: Optional[str] = None
+    num_items: Optional[int] = None
+    overviews: Dict[str, str] = field(default_factory=dict)
+    tasks: List[RunFiles] = field(default_factory=list)
+    items: List[str] = field(default_factory=list)
+
+
+@dataclass
+class OverviewStagePosition:
+    grid_name: str
+    grid_id: str
+    filename: str
+    stage_position: FibsemStagePosition
+
+
+@dataclass
+class GridMarker:
+    item_name: str
+    # source-image pixels, origin top-left, +y down
+    x: float
+    y: float
+    inside: bool
+    is_completed: bool
+    is_failure: bool
+    last_completed_task: Optional[str] = None
+
+
+@dataclass
+class Unplaced:
+    item_name: str
+    reason: str
+
+
+@dataclass
+class GridMarkers:
+    available: bool
+    grid_name: Optional[str] = None
+    filename: Optional[str] = None
+    # the overview's scale block (`fibsem.server.images.image_metadata`)
+    image: Optional[Dict[str, Any]] = None
+    convention: Optional[str] = None
+    markers: List[GridMarker] = field(default_factory=list)
+    unplaced: List[Unplaced] = field(default_factory=list)
+    linked: Optional[bool] = None
+    reason: Optional[str] = None
+    error: Optional[str] = None
+    grid_names: Optional[List[str]] = None
+    filenames: Optional[List[str]] = None
+
+
+@dataclass
+class ProtocolFile:
+    name: str
+    path: str
+    default: bool
+
+
+@dataclass
+class ProtocolFiles:
+    folder: Optional[str]
+    protocols: List[ProtocolFile] = field(default_factory=list)
+
+
+@dataclass
+class ExperimentEntry:
+    name: str
+    path: str
+    # its folder under the experiments folder, as loads and reads take it
+    relative_path: Optional[str]
+    app: Optional[str]
+    created_at: Optional[str]
+    num_items: int
+    available: bool
+    instrument_model: Optional[str] = None
+    instrument_serial: Optional[str] = None
+    operator: Optional[str] = None
+    software_version: Optional[str] = None
+
+
+@dataclass
+class RecentExperiments:
+    items: List[ExperimentEntry]
+
+
+@dataclass
+class SavedExperiments:
+    folder: str
+    items: List[ExperimentEntry]
+
+
+@dataclass
+class FileRead:
+    """One file of an experiment as its kind reads: a folder as its listing,
+    text as text, an image as a preview, anything else as its entry."""
+
+    path: Optional[str] = None
+    name: Optional[str] = None
+    kind: Optional[str] = None
+    size: Optional[int] = None
+    modified: Optional[str] = None
+    images: Optional[int] = None
+    # a folder
+    root: Optional[str] = None
+    dir: Optional[str] = None
+    entries: Optional[List[FileEntry]] = None
+    # text
+    text: Optional[str] = None
+    truncated: Optional[bool] = None
+    # an image: its metadata and its preview (`fibsem.server.files.read`)
+    summary: Optional[Dict[str, Any]] = None
+    preview: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class Proposals:
+    available: bool
+    # each pending proposal (`Proposal.to_dict`) with its item, task, ids and
+    # the reference image its values sit on
+    proposals: List[Dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass
+class Events:
+    available: bool
+    # each event record (`fibsem.workflows.events`)
+    events: List[Dict[str, Any]] = field(default_factory=list)
+    latest_seq: Optional[int] = None
+    stream: Optional[str] = None
+    oldest_available: Optional[int] = None
+
+
+@dataclass
+class EventHistory:
+    available: bool
+    events: List[Dict[str, Any]] = field(default_factory=list)
+    # the offset to pass back as before for the page before this one
+    start: Optional[int] = None
+
+
+@dataclass
+class Thickness:
+    """A lamella's thickness read off a FIB image (`ThicknessResult.to_dict`,
+    in nm and degrees), with the plot."""
+
+    item_name: str
+    image: str
+    poi: Point
+    window_um: List[float]
+    window_from: str
+    saved_to: Optional[str]
+    pixel_size_nm: float
+    region_px: List[int]
+    continuity: Dict[str, Any]
+    uncertainty_nm: float
+    thickness_nm: Optional[Dict[str, Optional[float]]] = None
+    thirds_nm: Optional[List[Optional[float]]] = None
+    wedge: Optional[Dict[str, Optional[float]]] = None
+    angle_deg: Optional[float] = None
+    straightness: Optional[Dict[str, Optional[float]]] = None
+    warnings: Optional[List[Dict[str, str]]] = None
+    plot: Optional[Dict[str, str]] = None
+
+
+@dataclass
+class MarkersDrawn:
+    image: str
+    path: str
+    items: List[str]
+    plot: Dict[str, str]
+    grid_name: Optional[str] = None
+    linked: Optional[bool] = None
+    reason: Optional[str] = None
+
+
+@dataclass
+class PlanStep:
+    grid: str
+    step: str
+
+
+@dataclass
+class GridPlan:
+    available: bool
+    valid: bool
+    reason: Optional[str] = None
+    screen_all: Optional[bool] = None
+    task_names: Optional[List[str]] = None
+    grid_names: Optional[List[str]] = None
+    note: Optional[str] = None
+    steps: List[PlanStep] = field(default_factory=list)
+    # seconds of work, and each task's count and seconds
+    estimate: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class Recorded:
+    """A note or evidence put on the record; for evidence, its record
+    (`fibsem.workflows.evidence.save`)."""
+
+    available: bool
+    recorded: bool
+    error: Optional[str] = None
+    item_names: Optional[List[str]] = None
+    evidence_id: Optional[str] = None
+    image: Optional[str] = None
+    uploaded: Optional[bool] = None
+    source: Optional[str] = None
+    marks: Optional[Any] = None
+    item_name: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+# --- Edits to the experiment and the run ---
+#
+# An edit answers ``applied`` and, when it changed a file, ``saved``. A
+# refusal is an HTTP error (`app_routes._answer_or_refusal`); what an edit
+# could not do but is not refused for is ``reason``.
+
+
+@dataclass
+class Edit:
+    applied: bool = False
+    available: Optional[bool] = None
+    saved: Optional[bool] = None
+    save_error: Optional[str] = None
+    reason: Optional[str] = None
+    error: Optional[str] = None
+
+
+@dataclass
+class Decided(Edit):
+    # what a decision could not do while a task runs, and its kind
+    running: Optional[Dict[str, Any]] = None
+    error_type: Optional[str] = None
+    synced_tasks: Optional[List[str]] = None
+
+
+@dataclass
+class Suggested(Edit):
+    suggestion_id: Optional[str] = None
+    error_type: Optional[str] = None
+
+
+@dataclass
+class RunStarted:
+    started: bool
+    available: Optional[bool] = None
+    reason: Optional[str] = None
+    # the names there are, when it named one that isn't
+    task_names: Optional[List[str]] = None
+    item_names: Optional[List[str]] = None
+    grid_names: Optional[List[str]] = None
+    screen_all: Optional[bool] = None
+    # a grid run's steps in order
+    plan: Optional[List[PlanStep]] = None
+
+
+@dataclass
+class Requeued:
+    queued: bool
+    available: Optional[bool] = None
+    reason: Optional[str] = None
+    item_id: Optional[str] = None
+    item_name: Optional[str] = None
+    task_name: Optional[str] = None
+    queue_version: Optional[int] = None
+
+
+@dataclass
+class QueueEdited(Edit):
+    changed: Optional[bool] = None
+    item_id: Optional[str] = None
+    item_name: Optional[str] = None
+    task_name: Optional[str] = None
+    action: Optional[str] = None
+    queue_version: Optional[int] = None
+
+
+@dataclass
+class QueuedGridStep:
+    item_id: str
+    grid_name: str
+    step: str
+
+
+@dataclass
+class GridTasksQueued:
+    queued: bool
+    reason: Optional[str] = None
+    added: List[QueuedGridStep] = field(default_factory=list)
+    queue_version: Optional[int] = None
+    grid_names: Optional[List[str]] = None
+    task_names: Optional[List[str]] = None
+
+
+@dataclass
+class RunningTask:
+    item_name: str
+    task_name: str
+
+
+@dataclass
+class Stopped:
+    stopped: bool
+    available: Optional[bool] = None
+    reason: Optional[str] = None
+    item_name: Optional[str] = None
+    task_name: Optional[str] = None
+    # the task that is running, when it was told to stop another
+    running: Optional[RunningTask] = None
+
+
+@dataclass
+class TaskEdit(Edit):
+    """An edit to the workflow's tasks: the task, and the tasks in order."""
+
+    task_name: Optional[str] = None
+    task_names: Optional[List[str]] = None
+    supervise: Optional[bool] = None
+    scheduled_at: Optional[str] = None
+    invalid_value: Optional[str] = None
+    task_type: Optional[str] = None
+    requires: Optional[List[str]] = None
+    required: Optional[bool] = None
+
+
+@dataclass
+class OptionsSet(Edit):
+    turn_beams_off: Optional[bool] = None
+    show_run_summary: Optional[bool] = None
+
+
+@dataclass
+class LamellaDefaultsSet(Edit):
+    lamella_defaults: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class ProtocolSaved:
+    saved: bool
+    name: str
+    path: str
+
+
+@dataclass
+class Change:
+    path: str
+    old: Any = None
+    new: Any = None
+
+
+@dataclass
+class ConfigEdit(Edit):
+    """A patch to a task config, or its milling stages reordered, against
+    the version read: each value changed, and the new version."""
+
+    task_name: Optional[str] = None
+    item_name: Optional[str] = None
+    changes: List[Change] = field(default_factory=list)
+    version: Optional[str] = None
+    # the items' configs that followed a protocol edit
+    synced_tasks: Optional[List[str]] = None
+    milling_key: Optional[str] = None
+    order: Optional[List[str]] = None
+    task_names: Optional[List[str]] = None
+    # a correlation's run, under the item's folder
+    run_path: Optional[str] = None
+
+
+@dataclass
+class GridEdit(Edit):
+    grid_name: Optional[str] = None
+    # a rename's old name
+    was: Optional[str] = None
+    added: Optional[List[str]] = None
+    grid_names: Optional[List[str]] = None
+    # the verdict and its reason (`GridQuality.to_dict`)
+    quality: Optional[Dict[str, Any]] = None
+    note: Optional[str] = None
+    items_without_grid: Optional[List[str]] = None
+
+
+# An app's own item detail, experiment summary and protocol view
+# (`AppContext.answer_type`).
+D = TypeVar("D", bound=ItemDetail)
+S = TypeVar("S", bound=ExperimentSummary)
+P = TypeVar("P", bound=ProtocolView)
+
+
+@dataclass
+class ItemEdit(Edit, Generic[D]):
+    """An edit to one item; ``item`` is its detail after, when it answers it."""
+
+    item_name: Optional[str] = None
+    item: Optional[D] = None
+    pose: Optional[str] = None
+    stage_position: Optional[FibsemStagePosition] = None
+    fluorescence_pose_followed: Optional[bool] = None
+    # the objective's position, metres
+    objective_position: Optional[float] = None
+    # the items it was applied to, and those it skipped
+    items: Optional[int] = None
+    skipped: Optional[List[str]] = None
+    # a patch: the fields it set, or each value it changed and the version after
+    fields: Optional[List[str]] = None
+    changes: Optional[List[Change]] = None
+    version: Optional[str] = None
+    synced_tasks: Optional[List[str]] = None
+
+
+@dataclass
+class ExperimentOpened(Generic[S]):
+    applied: bool
+    experiment: Optional[S] = None
+
+
+@dataclass
+class ProtocolLoaded(Generic[P]):
+    applied: bool
+    protocol: Optional[P] = None
 
 
 # --- The agent: its requests, and the operator's card (/app/agent) ---
