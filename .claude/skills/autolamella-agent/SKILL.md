@@ -14,7 +14,8 @@ skills build on it:
 - **assist-autolamella**: at **Assist**, ask the operator to approve each
   action.
 - **supervise-autolamella**: at **Drive**, decide the workflow's proposals
-  and act.
+  and act. Its lead mode runs a whole session with three `autolamella-*`
+  agents: a Verifier, an Investigator and an Auditor.
 
 When in doubt, wait and ask the operator. A workflow's proposals have no
 timeout, so nothing is lost by waiting.
