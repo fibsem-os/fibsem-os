@@ -642,10 +642,12 @@ on the feature itself before acting, as an operator would.
   `radius_um` for their size) to `experiment_measure_sites` on the overview
   you picked them on. It fits the grid bars on the image and answers each
   site's tier, its clearance (up and down the image is the trench
-  direction), its square and how many of your sites share it. Read
-  `bars.confidence` first (an `unreliable` fit is no measurement: judge by
-  eye and say so), then look at its picture: the bars it found must sit on
-  the bars you see. It is experimental. You still pick the cells and judge
+  direction, in the sample plane), its square and how many of your sites
+  share it. Read `bars.confidence` and `bars.problems` first (an
+  `unreliable` fit is no measurement: judge by eye and say so), and check
+  `mesh_pitch_um` against the grid's mesh. Then look at its picture: the
+  bars it found must sit on the bars you see, and broken squares in the
+  openings. It is experimental. You still pick the cells and judge
   the film; it measures where they sit.
 - Methods that worked on an uncoated grid: GrabCut on the holey film and a
   piece of debris as an anchor to find the same place again. GrabCut needs
