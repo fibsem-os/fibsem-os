@@ -3,12 +3,13 @@ PATH, inside Claude Code's sandbox.
 
 Everything it runs is sandboxed: writes stay in PATH, reads outside it are
 refused, there is no network (so no App Server either: the fibsem tools are
-the only way to the microscope), and secrets are unset. The sandbox must
-start, or the CLI refuses the command: code never runs unconfined. There is
-no sandbox on Windows, so code mode is macOS and Linux only.
+the only way to the microscope), and secrets are unset. Its code runs with
+fibsem-agent's own Python environment, which it can read but not change. The
+sandbox must start, or the CLI refuses the command: code never runs
+unconfined. There is no sandbox on Windows, so code mode is macOS and Linux
+only.
 """
 
-import configparser
 import json
 import os
 import re
@@ -49,8 +50,8 @@ Read, Write and Edit, which work in {work} only, in a sandbox with no \
 network: code can't reach the App Server or the web, so the mcp__fibsem__* \
 tools are the only way to the microscope and its data. \
 experiment_fetch_file saves a file under fetched/ for your code. Run Python \
-with .venv/bin/python; it has numpy, scipy, scikit-image, matplotlib and \
-fibsem. You can't install anything: say what you are missing.
+with {python}: it has fibsem and what fibsem-agent's environment has. You \
+can't install anything: say what you are missing.
 - Your notebook is notebook/. Read notebook/INDEX.md before your first \
 analysis. Write lessons and scripts worth reusing there, one line each in \
 INDEX.md. Only conclusions go on the record: a note and one evidence image."""
@@ -93,6 +94,21 @@ def secrets(environ: Mapping[str, str]) -> List[str]:
     return sorted(names)
 
 
+def readable() -> List[Path]:
+    """What the agent's code reads outside ``work``: this Python environment,
+    the Python it is built on, and fibsem (a checkout, if installed editable)."""
+    import fibsem
+
+    paths = [Path(sys.prefix), Path(sys.base_prefix)]
+    paths.append(Path(fibsem.__file__).resolve().parents[1])
+    found: List[Path] = []
+    for path in (p.resolve() for p in paths):
+        if not any(path.is_relative_to(other) for other in found):
+            found = [other for other in found if not other.is_relative_to(path)]
+            found.append(path)
+    return found
+
+
 def allowed_tools(work: Path) -> List[str]:
     """The code tools, writes in ``work`` only."""
     return [
@@ -114,8 +130,8 @@ def settings(work: Path, environ: Mapping[str, str]) -> dict:
             # The Read, Glob and Grep tools, and the sandbox: home and other
             # user folders are unreadable outside ``work``.
             "blockReadsOutsideWorkingDirectories": True,
-            # Its skills, settings and Python stay as they were set up.
-            "deny": [f"Edit({claude})", f"Edit({_rule(work / '.venv')})"],
+            # Its skills and settings stay as fibsem-agent put them.
+            "deny": [f"Edit({claude})"],
         },
         "sandbox": {
             "enabled": True,
@@ -125,6 +141,8 @@ def settings(work: Path, environ: Mapping[str, str]) -> dict:
             # Sandboxed is what makes a command safe to run unasked.
             "autoAllowBashIfSandboxed": True,
             "network": {"allowedDomains": []},
+            # Read only: writes stay in ``work``.
+            "filesystem": {"allowRead": [str(path) for path in readable()]},
             "credentials": {
                 "envVars": [{"name": name, "mode": "deny"} for name in secrets(environ)]
             },
@@ -146,10 +164,9 @@ def env(work: Path) -> dict:
     }
 
 
-def prepare(work: Path, checkout: Path, skills: List[str]) -> List[str]:
+def prepare(work: Path, checkout: Path, skills: List[str]) -> None:
     """Make ``work`` ready: the agent's skills copied in from the checkout
-    (the CLI reads them from its working folder) and the notebook. Returns
-    warnings for the operator."""
+    (the CLI reads them from its working folder) and the notebook."""
     work.mkdir(parents=True, exist_ok=True)
     target = work / ".claude" / "skills"
     target.mkdir(parents=True, exist_ok=True)
@@ -163,40 +180,6 @@ def prepare(work: Path, checkout: Path, skills: List[str]) -> List[str]:
         (notebook / INDEX).write_text(INDEX_TEXT, encoding="utf-8")
     if not (notebook / ".git").exists() and shutil.which("git"):
         subprocess.run(["git", "init", "-q", str(notebook)], check=False)
-    return _venv_warnings(work)
-
-
-def _venv_warnings(work: Path) -> List[str]:
-    env = work / ".venv"
-    # A conda env made with ``conda create -p .venv`` holds its own Python.
-    if (env / "conda-meta").is_dir():
-        return []
-    config = env / "pyvenv.cfg"
-    if not config.is_file():
-        return [
-            f"No Python environment in {env}: the agent's code can't run until "
-            "you make one (conda create -p .venv python=3.11, or python3 -m "
-            "venv .venv; then pip install numpy scipy scikit-image matplotlib "
-            "fibsem)."
-        ]
-    parser = configparser.ConfigParser()
-    try:
-        parser.read_string("[venv]\n" + config.read_text(encoding="utf-8"))
-    except configparser.Error:
-        return []
-    base = parser.get("venv", "home", fallback="")
-    home = Path.home().resolve()
-    if (
-        base
-        and Path(base).resolve().is_relative_to(home)
-        and not Path(base).resolve().is_relative_to(work.resolve())
-    ):
-        return [
-            f"{work / '.venv'} is built on a Python under your home folder "
-            f"({base}), which the sandbox can't read: rebuild it as a conda env "
-            "(conda create -p .venv) or on a Homebrew or python.org Python."
-        ]
-    return []
 
 
 def workdir(given: str) -> Path:

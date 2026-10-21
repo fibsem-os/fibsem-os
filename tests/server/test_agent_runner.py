@@ -10,6 +10,7 @@ import logging
 import os
 import re
 import socket
+import sys
 import threading
 import time
 from pathlib import Path
@@ -254,7 +255,7 @@ def test_code_mode_is_sandboxed_in_its_work_folder(tmp_path, monkeypatch):
     monkeypatch.setenv("SOME_SERVICE_TOKEN", "x")
     checkout = runner_mod.find_checkout()
     work = tmp_path / "work"
-    warnings = code_mode.prepare(work, checkout, list(runner_mod.SKILLS))
+    code_mode.prepare(work, checkout, list(runner_mod.SKILLS))
     options = runner_mod.build_options(checkout, token="t0k", work=work)
 
     # The skills are read from the work folder, which is the CLI's.
@@ -262,7 +263,6 @@ def test_code_mode_is_sandboxed_in_its_work_folder(tmp_path, monkeypatch):
     for skill in runner_mod.SKILLS:
         assert (work / ".claude" / "skills" / skill / "SKILL.md").is_file()
     assert (work / "notebook" / "INDEX.md").is_file()
-    assert any(".venv" in warning for warning in warnings)
 
     assert options.permission_mode == "dontAsk"
     for tool in ("Bash", "Read", "Write", "Edit", "Glob", "Grep"):
@@ -277,9 +277,10 @@ def test_code_mode_is_sandboxed_in_its_work_folder(tmp_path, monkeypatch):
 
     settings = json.loads(options.settings)
     assert settings["permissions"]["blockReadsOutsideWorkingDirectories"] is True
-    for folder in (".claude", ".venv"):
-        rule = f"Edit(/{(work / folder).as_posix()}/**)"
-        assert rule in settings["permissions"]["deny"]
+    assert (
+        f"Edit(/{(work / '.claude').as_posix()}/**)"
+        in (settings["permissions"]["deny"])
+    )
     sandbox = settings["sandbox"]
     assert sandbox["enabled"] and sandbox["failIfUnavailable"]
     assert sandbox["allowUnsandboxedCommands"] is False
@@ -292,6 +293,14 @@ def test_code_mode_is_sandboxed_in_its_work_folder(tmp_path, monkeypatch):
     assert options.env["MPLCONFIGDIR"].startswith(str(work))
     prompt = options.system_prompt["append"]
     assert str(work) in prompt and "no network" in prompt
+    # Its code runs with fibsem-agent's own environment, read only.
+    assert sys.executable in prompt
+    readable = sandbox["filesystem"]["allowRead"]
+    assert any(Path(sys.prefix).resolve().is_relative_to(path) for path in readable)
+    import fibsem
+
+    package = Path(fibsem.__file__).resolve()
+    assert any(package.is_relative_to(path) for path in readable)
     assert "There is no shell" not in prompt
 
     # On the CLI's command line, as flag settings, which a project's own
@@ -307,23 +316,6 @@ def test_code_mode_is_sandboxed_in_its_work_folder(tmp_path, monkeypatch):
     assert not any("t0k" in part for part in command), "the token is in argv"
 
 
-def test_code_mode_keeps_its_venv_off_home(tmp_path, monkeypatch):
-    from fibsem.ai.agent import code_mode
-
-    monkeypatch.setenv("HOME", str(tmp_path))
-    work = tmp_path / "work"
-    (work / ".venv").mkdir(parents=True)
-    cfg = work / ".venv" / "pyvenv.cfg"
-    cfg.write_text(f"home = {tmp_path / '.pyenv' / 'bin'}\n")
-    assert any("home folder" in w for w in code_mode._venv_warnings(work))
-    cfg.write_text("home = /opt/homebrew/bin\n")
-    assert code_mode._venv_warnings(work) == []
-    # A conda env made in place holds its own Python.
-    cfg.unlink()
-    (work / ".venv" / "conda-meta").mkdir()
-    assert code_mode._venv_warnings(work) == []
-
-
 def test_code_mode_needs_a_folder_of_its_own(tmp_path, monkeypatch):
     from fibsem.ai.agent import code_mode
 
@@ -335,7 +327,7 @@ def test_code_mode_needs_a_folder_of_its_own(tmp_path, monkeypatch):
     for wrong in (tmp_path / "home", Path("/"), tmp_path, checkout / "sub"):
         assert code_mode.refusal(wrong, checkout), wrong
     # fibsem-agent's own environment can't be in the agent's folder.
-    monkeypatch.setattr(code_mode.sys, "prefix", str(work / ".venv"))
+    monkeypatch.setattr(code_mode.sys, "prefix", str(work / "env"))
     assert "Python" in code_mode.refusal(work, checkout)
     monkeypatch.setattr(code_mode.sys, "platform", "win32")
     assert "sandbox" in code_mode.refusal(work, checkout)

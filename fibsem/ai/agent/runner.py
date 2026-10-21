@@ -100,7 +100,9 @@ def runner_prompt(work: Optional[Path] = None) -> str:
     work folder too."""
     if work is None:
         return RUNNER_PROMPT.format(tools=NO_CODE)
-    return RUNNER_PROMPT.format(tools=code_mode.PROMPT.format(work=work))
+    return RUNNER_PROMPT.format(
+        tools=code_mode.PROMPT.format(work=work, python=sys.executable)
+    )
 
 
 REREAD_PROPOSALS = (
@@ -1018,8 +1020,7 @@ def main(argv=None) -> int:
     _log_to(log_path)
     log.info("fibsem-agent: skills from %s, log %s", checkout, log_path)
     if work is not None:
-        for warning in code_mode.prepare(work, checkout, list(SKILLS)):
-            log.warning(warning)
+        code_mode.prepare(work, checkout, list(SKILLS))
         log.info("Code mode: the agent works in %s, sandboxed.", work)
 
     options = build_options(
