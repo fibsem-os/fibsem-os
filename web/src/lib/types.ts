@@ -167,3 +167,46 @@ export interface EvidenceAnswer {
   } | null;
   path: string;
 }
+
+/** One experiment in /app/experiment/recent. */
+export interface ExperimentEntry {
+  name: string;
+  path: string;
+  app: string | null;
+  created_at: string | null;
+  num_items: number;
+  available: boolean;
+  instrument_model: string | null;
+  instrument_serial: string | null;
+  operator: string | null;
+  software_version: string | null;
+}
+
+export interface FileEntry {
+  name: string;
+  path: string;
+  kind: "folder" | "text" | "image" | "other";
+  size: number | null;
+  modified: string;
+  images?: number;
+}
+
+export interface FolderListing {
+  root: string;
+  dir: string;
+  entries: FileEntry[];
+}
+
+export interface StackFacts {
+  channels: { name: string; color: string; excitation_wavelength: number | null; emission: string | null }[];
+  z_planes: number;
+  z_step: number | null;
+}
+
+/** GET /app/experiment/files/{path}: a text file's text, or an image's preview. */
+export type FileRead = FileEntry & {
+  text?: string;
+  truncated?: boolean;
+  preview?: ImagePayload;
+  summary?: { fm?: StackFacts; [key: string]: unknown };
+};

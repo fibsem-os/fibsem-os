@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { MessageSquare, Microscope, Settings as Gear } from "lucide-react";
+import { FolderOpen, MessageSquare, Microscope, Settings as Gear } from "lucide-react";
 import type { ReactNode } from "react";
 import { api } from "@/lib/api";
 import type { Page } from "@/lib/route";
@@ -44,6 +44,7 @@ export function Rail({ page, go, openSettings }: { page: Page; go: (page: Page) 
       className="order-last flex shrink-0 flex-row gap-1 border-t border-border bg-card p-1 md:order-first md:w-[92px] md:flex-col md:border-t-0 md:border-r md:px-2 md:py-3"
     >
       <Tab on={page === "microscope"} onClick={() => go("microscope")} icon={<Microscope size={22} />} label="Microscope" />
+      <Tab on={page === "experiment"} onClick={() => go("experiment")} icon={<FolderOpen size={22} />} label="Experiment" />
       <Tab
         on={page === "agent"}
         onClick={() => go("agent")}
