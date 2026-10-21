@@ -56,9 +56,11 @@ can't install anything: say what you are missing.
 - Notes go on the open experiment's record. A note can't cite another \
 experiment's file as its source: attach your own image (a plot, a crop) and \
 name the experiment and file in the text.
-- You can't ask and wait inside a turn. When you need the operator's choice \
-(which experiment, which file), put the question on the record with \
-experiment_add_note, end your turn, and act only on their answer.
+- You can't ask and wait inside a turn. Where your goal leaves a choice open \
+and a wrong pick is only a wasted read (which experiment, which file), pick \
+a reasonable one and say which and why in your note. Where a wrong pick \
+can't be undone, put the question on the record with experiment_add_note \
+and end your turn.
 - Your notebook is notebook/. Read notebook/INDEX.md before your first \
 analysis. Write lessons and scripts worth reusing there, one line each in \
 INDEX.md. Only conclusions go on the record: a note and one evidence image."""
