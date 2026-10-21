@@ -1,7 +1,7 @@
 """The History tab's rows: one per task run, with what its operations did.
 
-Each row is one run of a task on a lamella, in the order they ran, joined from
-two records that already exist: the lamella's ``task_history`` (one entry per run,
+Each row is one run of a task on an item, in the order they ran, joined from
+two records that already exist: the item's ``task_history`` (one entry per run,
 failed and cancelled ones included) and the operation events in ``events.jsonl``
 (an ``alignment``, an ``autofocus``...), which carry the run's ``task.id``. The run
 still going, when there is one, is a row too.
@@ -9,9 +9,9 @@ still going, when there is one, is a row too.
 Operations outside any task -- an agent's autofocus or mill between runs, or the
 operator's from the Microscope tab -- have no ``task.id`` (FIB-1375). Each session's
 are one more row, "Outside a task", placed among the runs by when they started.
-They belong to no lamella, so every lamella's History shows them.
+They belong to no item, so every item's History shows them.
 
-Deliberately free of UI imports, like ``task_outputs``: what a row says is policy,
+Deliberately free of UI imports: what a row says is policy,
 and keeping it here lets it be tested without Qt and read by other consumers. The
 widget only draws rows and keeps the filter.
 """
@@ -23,14 +23,9 @@ import os
 import re
 from dataclasses import dataclass, field, replace
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from fibsem.acting import AGENT, OPERATOR
-from fibsem.applications.autolamella.structures import Lamella
-from fibsem.applications.autolamella.task_outputs import (
-    final_reference_images,
-    fluorescence_images,
-)
 from fibsem.cancellation import CANCELLED, COMPLETED, FAILED, SKIPPED
 from fibsem.fm.preview import is_fluorescence_image
 from fibsem.util.timestamps import to_datetime
@@ -126,7 +121,7 @@ class MonitorLine:
 
 @dataclass
 class HistoryRun:
-    """One run of a task on a lamella."""
+    """One run of a task on an item."""
 
     task_id: str
     task_name: str
@@ -231,17 +226,20 @@ def filter_runs(runs: List[HistoryRun], flt: HistoryFilter) -> List[HistoryRun]:
 
 
 def history_rows(
-    lamella: Lamella, events: Iterable[Dict[str, Any]]
+    item: Any,
+    events: Iterable[Dict[str, Any]],
+    run_images: Callable[[TaskState, bool], List[str]],
 ) -> List[HistoryRun]:
-    """The lamella's runs, oldest first, each with its operations and images.
+    """The item's runs, oldest first, each with its operations and images.
 
     ``events`` are recorded events, from ``events.jsonl`` or the live buffer; any
-    order, any lamella: only this lamella's operation events are used, matched to
+    order, any item: only this item's operation events are used, matched to
     a run by the task id the event was stamped with. An experiment without an
     events file still has its runs and images, with no operations.
+    ``run_images(run, fallback)`` is the app's: the images a row shows.
     """
-    runs: List[TaskState] = list(lamella.task_history)
-    current = lamella.task_state
+    runs: List[TaskState] = list(item.task_history)
+    current = item.task_state
     known = {run.task_id for run in runs}
     if (
         current is not None
@@ -257,7 +255,7 @@ def history_rows(
         kind = record.get("kind")
         task = record.get("task") or {}
         if kind in IMAGE_KINDS and not task.get("id"):
-            path = _saved_in(lamella, (record.get("payload") or {}).get("path"))
+            path = _saved_in(item, (record.get("payload") or {}).get("path"))
             if path is not None:
                 outside_images.setdefault(str(record.get("session") or ""), []).append(
                     (to_datetime(record.get("t") or record.get("timestamp")), path)
@@ -265,11 +263,11 @@ def history_rows(
             continue
         if kind not in OPERATION_KINDS:
             continue
-        item = record.get("item") or {}
+        about = record.get("item") or {}
         if not task.get("id"):
-            # another lamella's, though no task ran it, stays with that lamella
-            if item.get("id") in (None, lamella.id):
-                operation = _operation(record, lamella.name)
+            # another item's, though no task ran it, stays with that item
+            if about.get("id") in (None, item.id):
+                operation = _operation(record, item.name)
                 actor = _ACTORS.get(record.get("actor"))
                 if actor:
                     operation.label = f"{operation.label} ({actor})"
@@ -277,9 +275,9 @@ def history_rows(
                     operation
                 )
             continue
-        if item.get("id") != lamella.id:
+        if about.get("id") != item.id:
             continue
-        operations.setdefault(task["id"], []).append(_operation(record, lamella.name))
+        operations.setdefault(task["id"], []).append(_operation(record, item.name))
     # In the order they started: a mill ends after the drift corrections it ran,
     # and is recorded after them, but it is what started them. A record with no
     # start (a skip) goes where it ended.
@@ -287,8 +285,8 @@ def history_rows(
         ops.sort(key=_started)
         operations[task_id] = _fold_drift(ops)
 
-    images, replaced_by = _images_by_run(lamella, runs)
-    deciders = _deciders_by_run(lamella)
+    images, replaced_by = _images_by_run(runs, run_images)
+    deciders = _deciders_by_run(item)
     rows = [
         HistoryRun(
             task_id=run.task_id,
@@ -328,11 +326,11 @@ def history_rows(
     return rows
 
 
-def _saved_in(lamella: Lamella, path: Optional[str]) -> Optional[str]:
-    """``path`` when it is a file in the lamella's folder; else None."""
-    if not path or not lamella.path:
+def _saved_in(item: Any, path: Optional[str]) -> Optional[str]:
+    """``path`` when it is a file in the item's folder; else None."""
+    if not path or not item.path:
         return None
-    folder = os.path.abspath(str(lamella.path))
+    folder = os.path.abspath(str(item.path))
     path = os.path.abspath(str(path))
     try:
         inside = os.path.commonpath([folder, path]) == folder
@@ -341,11 +339,11 @@ def _saved_in(lamella: Lamella, path: Optional[str]) -> Optional[str]:
     return path if inside else None
 
 
-def _deciders_by_run(lamella: Lamella) -> Dict[str, Tuple[str, ...]]:
+def _deciders_by_run(item: Any) -> Dict[str, Tuple[str, ...]]:
     """By run, who decided its proposals: the agent, the operator or both. A
     withdrawn proposal was decided by no one."""
     deciders: Dict[str, set] = {}
-    for proposal in lamella.proposals:
+    for proposal in item.proposals:
         if not proposal.task_id or proposal.withdrawn:
             continue
         for decision in proposal.decisions:
@@ -422,7 +420,8 @@ def operations_summary(run: HistoryRun) -> str:
 
 
 def _images_by_run(
-    lamella: Lamella, runs: List[TaskState]
+    runs: List[TaskState],
+    run_images: Callable[[TaskState, bool], List[str]],
 ) -> Tuple[Dict[str, List[str]], Dict[str, str]]:
     """Each run's images. A file two runs recorded belongs to the later one:
     reference images are rewritten to the same name on every run, so what is on
@@ -433,11 +432,7 @@ def _images_by_run(
     # The filename fallback is for experiments from before runs recorded their
     # outputs. Once any run has, a run that recorded no final images made none.
     fallback = not any(run.outputs for run in runs)
-    recorded = {
-        run.task_id: final_reference_images(lamella, run, fallback=fallback)
-        + fluorescence_images(lamella, run)
-        for run in runs
-    }
+    recorded = {run.task_id: run_images(run, fallback) for run in runs}
     owner = {path: run.task_id for run in runs for path in recorded[run.task_id]}
     images = {
         task_id: [path for path in paths if owner[path] == task_id]

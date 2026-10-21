@@ -32,7 +32,8 @@ LAMELLAE = "lamellae"
 
 @runtime_checkable
 class Items(Protocol):
-    """The experiment's items: list, detail, outputs and per-item edits."""
+    """The experiment's items: list, detail, outputs, history and per-item
+    edits."""
 
     def item_detail(self, item_name: str) -> Dict[str, Any]: ...
 
@@ -43,6 +44,12 @@ class Items(Protocol):
     ) -> Dict[str, Any]: ...
 
     def item_task_config(self, item_name: str, task_name: str) -> Dict[str, Any]: ...
+
+    def item_stack(self, item_name: str, role: str) -> Any: ...
+
+    def item_history(
+        self, item_name: str, flt: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]: ...
 
     def add_item(
         self,
@@ -180,12 +187,8 @@ class MillingStages(Protocol):
 
 @runtime_checkable
 class Lamellae(Protocol):
-    """Lamella-only routes: history, thickness, correlation results, lamella
+    """Lamella-only routes: thickness, correlation results, lamella
     defaults."""
-
-    def item_history(
-        self, item_name: str, flt: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]: ...
 
     def measure_thickness(
         self,

@@ -54,6 +54,7 @@ from fibsem.server.responses import (
     ItemDetail,
     ItemEdit,
     ItemHistory,
+    ItemStack,
     LamellaDefaultsSet,
     LogRead,
     MarkersDrawn,
@@ -351,6 +352,12 @@ def build_app_router(context: Any) -> APIRouter:
         return _typed(context.task_outputs(item_name))
 
     @router.get(
+        "/experiment/items/{item_name}/stack", tags=[ITEMS], response_model=ItemStack
+    )
+    def item_stack(item_name: str, role: str):
+        return _typed(context.item_stack(item_name, role))
+
+    @router.get(
         "/experiment/items/{item_name}",
         tags=[ITEMS],
         response_model=_app_type(context, ItemDetail),
@@ -378,16 +385,18 @@ def build_app_router(context: Any) -> APIRouter:
         responses=_JPEG,
         tags=[ITEMS],
     )
-    def output_image(item_name: str, filename: str):
+    def output_image(item_name: str, filename: str, width: Optional[int] = None):
         # Serves actual image/jpeg (not a JSON payload) so a browser <img>
         # can consume it; filename must be a basename the item's own
         # outputs listing names — the context refuses anything else.
-        return _jpeg_or_404(context.output_image(item_name, filename))
+        return _jpeg_or_404(
+            context.output_image(item_name, filename, files.preview_width(width))
+        )
 
     @router.get(
         "/experiment/items/{item_name}/history",
         response_model=ItemHistory,
-        tags=[LAMELLAE],
+        tags=[ITEMS],
     )
     def item_history(
         item_name: str,

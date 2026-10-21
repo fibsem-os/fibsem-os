@@ -22,7 +22,6 @@ from PyQt5.QtWidgets import QApplication, QLabel, QPushButton  # noqa: E402
 
 import fibsem.applications.autolamella.ui.lamella.history as history_tab  # noqa: E402
 import fibsem.config as cfg  # noqa: E402
-from fibsem.applications.autolamella.history_rows import HistoryFilter  # noqa: E402
 from fibsem.applications.autolamella.structures import (
     # noqa: E402     TaskState,
     Lamella,
@@ -36,6 +35,7 @@ from fibsem.util.timestamps import format_time  # noqa: E402
 from fibsem.workflows.event_recording import (  # noqa: E402
     EVENTS_FILENAME,
 )
+from fibsem.workflows.history_rows import HistoryFilter  # noqa: E402
 from fibsem.workflows.status import (
     TaskState,
     TaskStatus,  # noqa: E402

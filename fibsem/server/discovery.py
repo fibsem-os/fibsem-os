@@ -1,8 +1,9 @@
 """Same-machine discovery of a running fibsem server.
 
 The server writes ``~/.fibsem/app-server.json`` while it runs so local
-clients (the ``fibsem-mcp`` sidecar in particular) can connect without the
-user copying a token. The file is written ``0600``; on Windows the mode is
+clients (the ``fibsem-mcp`` sidecar in particular) find it without the
+user copying anything. Its token only asks to connect: the operator allows
+the agent (`fibsem.server.connections`). The file is written ``0600``; on Windows the mode is
 advisory and the real protection is the user-profile directory's ACLs — do
 not claim more than that.
 
@@ -89,7 +90,9 @@ def write_discovery_file(
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "url": f"http://{_client_host(host)}:{port}",
-        "token": auth.token,
+        # Only asks to connect: the operator allows an agent on this PC
+        # (fibsem.server.connections). Never the agent's own token.
+        "connect_token": auth.connect_token,
         "pid": os.getpid(),
         # No level: it changes while the server runs and a file
         # would go stale. /capabilities is the live answer (FIB-1035).
@@ -122,7 +125,9 @@ def _read(path: Path) -> Optional[dict]:
             data = json.load(f)
     except (OSError, ValueError):
         return None
-    if not isinstance(data, dict) or "url" not in data or "token" not in data:
+    if not isinstance(data, dict) or "url" not in data:
+        return None
+    if "token" not in data and "connect_token" not in data:
         return None
     if not _pid_alive(data.get("pid")):
         return None
