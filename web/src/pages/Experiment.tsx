@@ -1,0 +1,242 @@
+import { useQuery } from "@tanstack/react-query";
+import { ChevronRight, Download, FileImage, FileText, File as FileIcon, Folder } from "lucide-react";
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardTitle, Facts } from "@/components/ui/card";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { api, getToken } from "@/lib/api";
+import { useOpenExperiment } from "@/lib/experiment";
+import * as fmt from "@/lib/format";
+import type { Capabilities, FileEntry, FileRead, FolderListing, StackFacts } from "@/lib/types";
+import { cn } from "@/lib/utils";
+
+const encodePath = (path: string) => path.split("/").map(encodeURIComponent).join("/");
+
+const ICON = { folder: Folder, image: FileImage, text: FileText, other: FileIcon };
+
+/** The file as it is, through the token: a link can't carry the header. */
+async function download(entry: FileEntry) {
+  const response = await fetch(`/app/experiment/files/${encodePath(entry.path)}?raw=true`, {
+    headers: { Authorization: `Bearer ${getToken()}` },
+  });
+  if (!response.ok) return;
+  const url = URL.createObjectURL(await response.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = entry.name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function Metadata() {
+  const { open, entry, loading } = useOpenExperiment();
+  const caps = useQuery({ queryKey: ["capabilities"], queryFn: () => api<Capabilities>("/capabilities") });
+  const history = useQuery({
+    queryKey: ["app/experiment/task_history"],
+    queryFn: () => api<{ items: Record<string, unknown>[] }>("/app/experiment/task_history"),
+    enabled: !!open,
+  });
+  const ends = (history.data?.items ?? [])
+    .map((r) => String(r.end_timestamp ?? r.completed_at ?? ""))
+    .filter(Boolean)
+    .sort();
+  const last = ends.length ? ends[ends.length - 1] : null;
+  if (!open) return null;
+  if (loading || caps.isPending || history.isPending)
+    return (
+      <Card className="flex flex-col gap-3">
+        <CardTitle>Experiment</CardTitle>
+        <div className="text-[13px] text-muted-foreground">Reading the experiment…</div>
+      </Card>
+    );
+  const microscope = [entry?.instrument_model, entry?.instrument_serial].filter(Boolean).join(" · ");
+  return (
+    <Card className="flex flex-col gap-3">
+      <CardTitle>Experiment</CardTitle>
+      <Facts
+        className="[&_dd]:text-left"
+        rows={[
+          ["Name", open.name],
+          ["App", [caps.data?.app_name, caps.data?.fibsem?.version && `fibsemOS ${caps.data.fibsem.version}`].filter(Boolean).join(" · ") || "–"],
+          ["Created", fmt.when(entry?.created_at) || "–"],
+          ["Created with", entry?.software_version ? `fibsemOS ${entry.software_version}` : "–"],
+          ["Microscope", microscope || "–"],
+          ["Operator", entry?.operator || "–"],
+          ["Items", String(open.num_items)],
+          ["Last run", last ? `${fmt.when(last)} (${fmt.ago(last)})` : "None yet"],
+          ["Folder", <span className="break-all">{open.path}</span>],
+        ]}
+      />
+    </Card>
+  );
+}
+
+function Legend({ fm }: { fm: StackFacts }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px]">
+      {fm.channels.map((c) => (
+        <span key={c.name} className="flex items-center gap-1.5">
+          <span className="inline-block size-2.5 rounded-sm" style={{ background: c.color }} />
+          {c.name}
+          {c.excitation_wavelength != null && <span className="text-muted-foreground">{c.excitation_wavelength} nm</span>}
+        </span>
+      ))}
+      <span className="text-muted-foreground">
+        Max projection of {fm.z_planes} {fm.z_planes === 1 ? "plane" : "planes"}
+        {fm.z_step != null && ` · ${fmt.length(fm.z_step)} step`}
+      </span>
+    </div>
+  );
+}
+
+function Preview({ entry }: { entry: FileEntry }) {
+  const [big, setBig] = useState(false);
+  const read = useQuery({
+    queryKey: ["app/experiment/files", entry.path, "read"],
+    queryFn: () => api<FileRead>(`/app/experiment/files/${encodePath(entry.path)}?width=1024`),
+    enabled: entry.kind === "image" || entry.kind === "text",
+  });
+  const p = read.data?.preview;
+  const fm = read.data?.summary?.fm;
+  return (
+    <div className="flex min-w-0 flex-col gap-2.5">
+      <div className="flex items-center gap-2">
+        <span className="min-w-0 flex-1 truncate font-semibold">{entry.name}</span>
+        <Button onClick={() => download(entry)} title="Download">
+          <Download size={14} />
+          Download
+        </Button>
+      </div>
+      <div className="text-[12px] text-muted-foreground">
+        {[fmt.bytes(entry.size), fmt.when(entry.modified)].filter(Boolean).join(" · ")}
+      </div>
+      {read.isLoading && <div className="text-[13px] text-muted-foreground">Reading…</div>}
+      {read.error && <div className="text-[13px] text-destructive">{read.error.message}</div>}
+      {p && (
+        <>
+          <button className="cursor-zoom-in rounded border-0 bg-black p-0" onClick={() => setBig(true)}>
+            <img className="block w-full rounded" alt={entry.name} src={`data:image/jpeg;base64,${p.image_b64_jpeg}`} />
+          </button>
+          {fm && <Legend fm={fm} />}
+          <Dialog open={big} onOpenChange={setBig}>
+            <DialogContent title={entry.name} className="w-[min(1200px,calc(100vw-32px))]">
+              <div className="overflow-auto bg-black p-2">
+                <img className="block w-full" alt={entry.name} src={`data:image/jpeg;base64,${p.image_b64_jpeg}`} />
+              </div>
+            </DialogContent>
+          </Dialog>
+        </>
+      )}
+      {read.data?.text != null && (
+        <pre className="m-0 max-h-[60vh] overflow-auto rounded bg-background p-3 text-[12px] whitespace-pre-wrap">
+          {read.data.text}
+          {read.data.truncated && "\n…"}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+function Files() {
+  const [dir, setDir] = useState("");
+  const [picked, setPicked] = useState<FileEntry | null>(null);
+  const [filter, setFilter] = useState("");
+  const listing = useQuery({
+    queryKey: ["app/experiment/files", dir],
+    queryFn: () => api<FolderListing>(`/app/experiment/files?dir=${encodeURIComponent(dir)}`),
+  });
+  const parts = dir && dir !== "." ? dir.split("/") : [];
+  const go = (to: string) => {
+    setDir(to);
+    setPicked(null);
+  };
+  const shown = (listing.data?.entries ?? []).filter((e) => e.name.toLowerCase().includes(filter.toLowerCase()));
+  return (
+    <Card className="flex min-w-0 flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <nav aria-label="Folder" className="flex min-w-0 flex-1 flex-wrap items-center gap-1 text-[13px]">
+          {[["Experiment", ""] as const, ...parts.map((part, i) => [part, parts.slice(0, i + 1).join("/")] as const)].map(
+            ([name, to], i, all) => (
+              <span key={to} className="flex items-center gap-1">
+                {i > 0 && <ChevronRight size={12} className="text-muted-foreground" />}
+                {i === all.length - 1 ? (
+                  <span className="font-semibold">{name}</span>
+                ) : (
+                  <button className="cursor-pointer border-0 bg-transparent p-0 text-link" onClick={() => go(to)}>
+                    {name}
+                  </button>
+                )}
+              </span>
+            ),
+          )}
+        </nav>
+        <input
+          aria-label="Filter files"
+          placeholder="Filter"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          className="w-40 rounded border border-input bg-background px-2 py-1 text-[13px] text-foreground"
+        />
+      </div>
+      {listing.error && <div className="text-[13px] text-destructive">{listing.error.message}</div>}
+      <div className={cn("grid items-start gap-4", picked && "lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]")}>
+        <table className="w-full border-collapse text-[13px]">
+          <thead>
+            <tr className="text-left text-[12px] text-muted-foreground">
+              <th className="py-1 font-normal">Name</th>
+              <th className="hidden py-1 font-normal sm:table-cell">Kind</th>
+              <th className="py-1 text-right font-normal">Size</th>
+              <th className="hidden py-1 pl-3 text-right font-normal sm:table-cell">Modified</th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((e) => {
+              const Icon = ICON[e.kind];
+              return (
+                <tr
+                  key={e.path}
+                  className={cn("cursor-pointer border-t border-border hover:bg-accent", picked?.path === e.path && "bg-accent")}
+                  onClick={() => (e.kind === "folder" ? go(e.path) : setPicked(e))}
+                >
+                  <td className="py-1.5 pr-2">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <Icon size={14} className="shrink-0 text-muted-foreground" />
+                      <span className="truncate">{e.name}</span>
+                    </span>
+                  </td>
+                  <td className="hidden py-1.5 text-muted-foreground capitalize sm:table-cell">
+                    {e.kind === "folder" && e.images ? `folder · ${e.images} images` : e.kind}
+                  </td>
+                  <td className="py-1.5 text-right text-muted-foreground tabular-nums">{fmt.bytes(e.size)}</td>
+                  <td className="hidden py-1.5 pl-3 text-right whitespace-nowrap text-muted-foreground sm:table-cell">
+                    {fmt.ago(e.modified)}
+                  </td>
+                </tr>
+              );
+            })}
+            {listing.data && !shown.length && (
+              <tr>
+                <td colSpan={4} className="py-3 text-muted-foreground">
+                  {filter ? "Nothing matches." : "This folder is empty."}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+        {picked && <Preview key={picked.path} entry={picked} />}
+      </div>
+    </Card>
+  );
+}
+
+export function ExperimentPage() {
+  const { status, open } = useOpenExperiment();
+  if (status.data && !open)
+    return <div className="p-5 text-muted-foreground">No experiment is open.</div>;
+  return (
+    <div className="grid items-start gap-4 p-4 md:p-5 lg:grid-cols-[320px_minmax(0,1fr)]">
+      <Metadata />
+      {open && <Files key={open.path} />}
+    </div>
+  );
+}
