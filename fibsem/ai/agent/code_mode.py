@@ -1,4 +1,4 @@
-"""``fibsem-agent --code PATH``: the agent writes and runs its own code in
+"""``fibsem-agent --code [PATH]``: the agent writes and runs its own code in
 PATH, inside Claude Code's sandbox.
 
 Everything it runs is sandboxed: writes stay in PATH, reads outside it are
@@ -56,13 +56,28 @@ analysis. Write lessons and scripts worth reusing there, one line each in \
 INDEX.md. Only conclusions go on the record: a note and one evidence image."""
 
 
-def refusal() -> Optional[str]:
-    """Why code mode can't run here, or None."""
+def refusal(work: Path, checkout: Path) -> Optional[str]:
+    """Why code mode can't run in ``work``, or None."""
     if sys.platform == "win32":
         return (
             "Code mode needs Claude Code's sandbox, which Windows doesn't have: "
             "run fibsem-agent --code on macOS or Linux."
         )
+    home = Path.home().resolve()
+    if work in (home, Path(work.anchor)) or home.is_relative_to(work):
+        return (
+            f"Code mode would let the agent read and write all of {work}: give "
+            "it a folder of its own, such as ~/fibsem-work."
+        )
+    # What runs outside the sandbox must not be the agent's to change.
+    for name, path in (("checkout", checkout), ("Python", Path(sys.prefix))):
+        path = path.resolve()
+        if work.is_relative_to(path) or path.is_relative_to(work):
+            return (
+                f"{work} holds fibsem-agent's own {name} ({path}), which the "
+                "agent must not change: give it a folder of its own, and run "
+                "fibsem-agent from another environment."
+            )
     return None
 
 
@@ -99,8 +114,8 @@ def settings(work: Path, environ: Mapping[str, str]) -> dict:
             # The Read, Glob and Grep tools, and the sandbox: home and other
             # user folders are unreadable outside ``work``.
             "blockReadsOutsideWorkingDirectories": True,
-            # Its own skills and settings stay as fibsem-agent put them.
-            "deny": [f"Edit({claude})"],
+            # Its skills, settings and Python stay as they were set up.
+            "deny": [f"Edit({claude})", f"Edit({_rule(work / '.venv')})"],
         },
         "sandbox": {
             "enabled": True,
@@ -152,12 +167,17 @@ def prepare(work: Path, checkout: Path, skills: List[str]) -> List[str]:
 
 
 def _venv_warnings(work: Path) -> List[str]:
-    config = work / ".venv" / "pyvenv.cfg"
+    env = work / ".venv"
+    # A conda env made with ``conda create -p .venv`` holds its own Python.
+    if (env / "conda-meta").is_dir():
+        return []
+    config = env / "pyvenv.cfg"
     if not config.is_file():
         return [
-            f"No Python environment in {work / '.venv'}: the agent's code can't "
-            "run until you make one (python3 -m venv .venv, then pip install "
-            "numpy scipy scikit-image matplotlib fibsem)."
+            f"No Python environment in {env}: the agent's code can't run until "
+            "you make one (conda create -p .venv python=3.11, or python3 -m "
+            "venv .venv; then pip install numpy scipy scikit-image matplotlib "
+            "fibsem)."
         ]
     parser = configparser.ConfigParser()
     try:
@@ -173,8 +193,8 @@ def _venv_warnings(work: Path) -> List[str]:
     ):
         return [
             f"{work / '.venv'} is built on a Python under your home folder "
-            f"({base}), which the sandbox can't read: rebuild it on a Homebrew "
-            "or python.org Python."
+            f"({base}), which the sandbox can't read: rebuild it as a conda env "
+            "(conda create -p .venv) or on a Homebrew or python.org Python."
         ]
     return []
 

@@ -8,7 +8,7 @@ decides what the agent may do, and the runner never sets the level. Needs the
 
     fibsem-agent
     fibsem-agent --resume <session id>
-    fibsem-agent --code ~/fibsem-work   # it writes and runs code, sandboxed
+    cd ~/fibsem-work && fibsem-agent --code   # it writes and runs code, sandboxed
 """
 
 import argparse
@@ -976,10 +976,12 @@ def main(argv=None) -> int:
     )
     parser.add_argument(
         "--code",
+        nargs="?",
+        const=".",
         default=None,
         metavar="PATH",
-        help="code mode: the agent writes and runs its own code in PATH, "
-        "sandboxed (macOS and Linux only)",
+        help="code mode: the agent writes and runs its own code in PATH (the "
+        "current folder if none), sandboxed (macOS and Linux only)",
     )
     args = parser.parse_args(argv)
 
@@ -1005,11 +1007,11 @@ def main(argv=None) -> int:
         return 1
     work = None
     if args.code:
-        refused = code_mode.refusal()
+        work = code_mode.workdir(args.code)
+        refused = code_mode.refusal(work, checkout)
         if refused:
             print(refused, file=sys.stderr)
             return 1
-        work = code_mode.workdir(args.code)
     # From the environment, so it is not in the process list or shell history.
     token = os.environ.get("FIBSEM_SERVER_TOKEN")
     log_path = Path(args.log).expanduser() if args.log else _default_log()
