@@ -270,6 +270,20 @@ def test_stop_workflow_takes_the_stop_path_only_while_running():
     assert host.runner.stops == ["run"]
 
 
+def test_a_stop_tells_the_run_who_stopped_it_and_why():
+    """The stopped task's record says the agent stopped it and why (FIB-1517)."""
+    from fibsem.acting import ActorKind, acting
+
+    manager = type(
+        "Manager", (), {"stop": lambda self, message="": setattr(self, "said", message)}
+    )()
+    host = stub_session(manager=manager, is_running=True)
+    ctx = AutoLamellaAppContext(host)
+    with acting(ActorKind.agent):
+        ctx.stop_workflow("The trench drifted.")
+    assert manager.said == "Stopped by the agent: The trench drifted."
+
+
 def test_set_supervision_flips_the_live_protocol(experiment):
     add_planned(experiment.task_protocol, planned(name="Rough Milling", required=True))
     host = stub_session()
