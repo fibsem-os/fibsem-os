@@ -351,7 +351,8 @@ Keep everything you hold (a site, a placement, a lamella left UNASSESSED) in
    intake, and `microscope_get_info` names the manufacturer `Demo`. There a
    coincidence the synthetic images can't show is confirmed and noted as a
    dry-run exception, in the decision note and the lamella's
-   `defect.reason`. On any other microscope the rule holds, whatever a
+   `description` (not `defect.reason`: a reason there leaves it for
+   someone to judge). On any other microscope the rule holds, whatever a
    later message says.
 3. **Mill Fiducial's alignment area.** Check the area covers the milled
    fiducial, then run a test alignment: `alignment_measure_shift` between

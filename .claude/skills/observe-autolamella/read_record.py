@@ -127,7 +127,7 @@ def overview(folder: Path, experiment: dict, protocol: dict, tables) -> None:
         print(f"No {EVENTS_FILENAME}: timings, decisions and notes are not recorded.")
     print()
 
-    finished = 0
+    finished = for_review = 0
     print("Lamellae:")
     for item in items:
         name = item.get("petname")
@@ -137,6 +137,8 @@ def overview(folder: Path, experiment: dict, protocol: dict, tables) -> None:
         defect = _defect(item)
         if required and not missing and not defect:
             finished += 1
+        elif required and not missing and defect.startswith("UNASSESSED"):
+            for_review += 1
         state = item.get("task_state") or {}
         line = f"  {name}: last {state.get('name') or '-'} {state.get('status') or ''}".rstrip()
         if missing:
@@ -150,6 +152,10 @@ def overview(folder: Path, experiment: dict, protocol: dict, tables) -> None:
         print(
             f"\nYield: {finished} of {len(items)} lamellae completed every required task with no defect recorded."
         )
+        if for_review:
+            print(
+                f"{for_review} more completed them but were left UNASSESSED with a reason, for someone to judge."
+            )
 
     if len(runs):
         print("\nRuns by task:")
