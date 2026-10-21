@@ -43,6 +43,7 @@ from fibsem.applications.autolamella.workflows.tasks.attendance import (
 )
 from fibsem.structures import BeamType, GridInventoryEntry, GridSlotState
 from fibsem.ui import stylesheets
+from fibsem.ui.control import control_of
 from fibsem.ui.qt.threading import thread_worker
 from fibsem.ui.tokens import (
     ACCENT_COLOR,
@@ -247,7 +248,9 @@ class ScreenGridsDialog(QDialog):
 
     # -- the read and the scan, off the GUI thread -------------------------------
 
-    def _run(self, job, on_done, on_failed) -> None:
+    def _run(self, job, on_done, on_failed, action: str = "") -> None:
+        """Run *job* off the GUI thread; one with an ``action`` holds control of
+        the microscope while it runs."""
         if self._synchronous:
             try:
                 job()
@@ -262,7 +265,7 @@ class ScreenGridsDialog(QDialog):
         worker.finished.connect(lambda: self._forget(worker))
         self._worker = worker
         _scans_running.append(worker)
-        worker.start()
+        worker.start(control=control_of(self.stage) if action else None, action=action)
 
     @thread_worker
     def _job_worker(self, job) -> None:
@@ -302,7 +305,12 @@ class ScreenGridsDialog(QDialog):
         self._show_error("")
         self._timer.start()
         self._apply()
-        self._run(self.stage.run_inventory, self._on_scanned, self._on_scan_failed)
+        self._run(
+            self.stage.run_inventory,
+            self._on_scanned,
+            self._on_scan_failed,
+            action="scan the magazine",
+        )
 
     def _on_scanned(self) -> None:
         self._timer.stop()

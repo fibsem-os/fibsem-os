@@ -83,6 +83,7 @@ from fibsem.structures import (
     Point,
 )
 from fibsem.ui import notification_service, stylesheets
+from fibsem.ui.control import control_of
 from fibsem.ui.fm.widgets import LinePlotWidget
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.qt.threading import FunctionWorker
@@ -1335,7 +1336,9 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self._stage_worker = FunctionWorker(
             self.microscope.safe_absolute_stage_movement, position
         )
-        self._stage_worker.start()
+        self._stage_worker.start(
+            control=control_of(self.microscope), action="move stage"
+        )
 
     def _on_lamella_defect_changed(self, lamella: Optional["Lamella"]):
         """Persist a defect set from this list's row menu.
@@ -1369,7 +1372,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                 logging.exception("Error moving to lamella position")
 
         worker = FunctionWorker(_move)
-        worker.start()
+        worker.start(control=control_of(self.microscope), action="move stage")
 
     def _acquire_fib_image(self):
         """Acquire a FIB image using current microscope settings and display it."""
@@ -1386,7 +1389,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                 self._fib_acquire_done.emit()
 
         worker = FunctionWorker(_worker)
-        worker.start()
+        if not worker.start(
+            control=control_of(self.microscope), action="acquire FIB image"
+        ):
+            self._fib_acquire_done.emit()
 
     def _acquire_fm_image(self):
         """Acquire a single FM image in a background thread and display it."""
@@ -1415,7 +1421,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                 self._fm_acquire_done.emit()
 
         worker = FunctionWorker(_worker)
-        worker.start()
+        if not worker.start(
+            control=control_of(self.microscope), action="acquire FM image"
+        ):
+            self._fm_acquire_done.emit()
 
     def _set_fib_buttons_enabled(self, enabled: bool) -> None:
         for btn in [
@@ -1451,7 +1460,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         worker.finished.connect(
             lambda: self.btn_autocontrast_fib.setText("AutoContrast")
         )
-        worker.start()
+        if not worker.start(
+            control=control_of(self.microscope), action="FIB autocontrast"
+        ):
+            self._fib_acquire_done.emit()
 
     def _run_fib_autofocus(self) -> None:
         from fibsem.structures import FibsemRectangle
@@ -1477,7 +1489,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         worker = FunctionWorker(_worker)
         # reset the label on the GUI thread; setText from the worker thread is unsafe
         worker.finished.connect(lambda: self.btn_autofocus_fib.setText("AutoFocus"))
-        worker.start()
+        if not worker.start(
+            control=control_of(self.microscope), action="FIB autofocus"
+        ):
+            self._fib_acquire_done.emit()
 
     def _on_fib_acquire_done(self):
         self._set_fib_buttons_enabled(True)
@@ -2216,7 +2231,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         worker = FunctionWorker(
             self.microscope.stable_move, dx=dx, dy=dy, beam_type=BeamType.ION
         )
-        worker.start()
+        worker.start(control=control_of(self.microscope), action="move stage")
 
     def _on_fm_double_clicked(self, x: float, y: float) -> None:
         """Stable-move the stage to the double-clicked position on the FM canvas."""
@@ -2256,7 +2271,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         # reverses between t=0 and t=-180 on a compustage) and fm_stable_move undoes
         # the display transform. Mirrors FMControlWidget.
         worker = FunctionWorker(self.microscope.fm_stable_move, dx=px, dy=py)
-        worker.start()
+        worker.start(control=control_of(self.microscope), action="move stage")
 
     # Public API
     # ------------------------------------------------------------------

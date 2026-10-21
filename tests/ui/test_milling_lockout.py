@@ -137,8 +137,8 @@ def test_the_lock_lands_at_start_not_at_the_first_progress_signal(widget, monkey
         def connect(self, *args, **kwargs):
             pass
 
-        def start(self):
-            pass  # never actually mill
+        def start(self, **_):
+            return True  # never actually mill
 
         def is_alive(self):
             return True

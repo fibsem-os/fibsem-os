@@ -25,6 +25,7 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.services.spot_burn import in_frame
 from fibsem.structures import BeamType
 from fibsem.ui import notification_service, stylesheets
+from fibsem.ui.control import control_of
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.utils import beam_choices
 from fibsem.ui.widgets.custom_widgets import ValueComboBox, ValueSpinBox
@@ -380,7 +381,7 @@ class FibsemSpotBurnWidget(QWidget):
         self.worker = FunctionWorker(self._run_spot_burn, settings)
         self.worker.returned.connect(self.spot_burn_finished)
         self.worker.errored.connect(self.spot_burn_errored)
-        self.worker.start()
+        self.worker.start(control=control_of(self.microscope), action="spot burn")
 
     def cancel_spot_burn(self) -> None:
         """Cancel the running spot burn."""

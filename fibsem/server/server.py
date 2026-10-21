@@ -29,6 +29,7 @@ from fibsem import __version__
 from fibsem.acting import AGENT, OPERATOR, acting, current_actor
 from fibsem.ai.agent import blocklist
 from fibsem.ai.agent.calls import calling, current_call, from_headers
+from fibsem.control import STOP_COMMANDS
 from fibsem.microscope import FibsemMicroscope
 from fibsem.server.app_routes import (
     build_app_config_router,
@@ -98,11 +99,6 @@ class _RefusingRoute(APIRoute):
 
         return refusing
 
-
-# Device and service commands that stop something (an FM z-stack stops through
-# `imaging.stop`; milling's `end` ends the stage keeping what it milled). No
-# control taken, so never refused by the running move or mill.
-STOP_COMMANDS = frozenset(("stop", "stop_live", "end"))
 
 # The instrument half of the API; /app is the application's.
 MICROSCOPE = "/microscope"

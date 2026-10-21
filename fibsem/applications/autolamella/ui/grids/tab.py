@@ -47,6 +47,7 @@ from fibsem.applications.autolamella.ui.grids.overview import GridPositionsWidge
 from fibsem.applications.autolamella.ui.grids.results import GridResultsWidget
 from fibsem.structures import GridInventoryEntry
 from fibsem.ui import stylesheets
+from fibsem.ui.control import control_of
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.qt.threading import thread_worker
 from fibsem.ui.tokens import ERROR_COLOR, NEUTRAL_200, PANEL_COLOR, TEXT_MUTED_COLOR
@@ -468,7 +469,7 @@ class GridsTabWidget(QWidget):
         def job() -> None:
             stage.ensure_loaded(grid.name)
 
-        self._start(job, f"Loading {grid.name}…", f"{grid.name} is loaded.")
+        self._start(job, f"Loading {grid.name}…", f"{grid.name} is loaded.", acts=True)
 
     def _on_unload(self, grid: GridRecord) -> None:
         stage = self.stage
@@ -479,7 +480,10 @@ class GridsTabWidget(QWidget):
             stage.unload()
 
         self._start(
-            job, f"Unloading {grid.name}…", f"{grid.name} returned to the magazine."
+            job,
+            f"Unloading {grid.name}…",
+            f"{grid.name} returned to the magazine.",
+            acts=True,
         )
 
     # -- the report ---------------------------------------------------------------
@@ -539,9 +543,11 @@ class GridsTabWidget(QWidget):
         doing: str,
         done: str,
         after: Optional[Callable[[], None]] = None,
+        acts: bool = False,
     ) -> None:
         """Run *job* off the GUI thread, saying *doing* meanwhile and *done* when
-        it returns; *after*, if given, runs on the GUI thread after that."""
+        it returns; *after*, if given, runs on the GUI thread after that. One that
+        ``acts`` on the loader holds control of the microscope while it runs."""
         if self._busy:
             return
         self._set_busy(True)
@@ -562,7 +568,10 @@ class GridsTabWidget(QWidget):
         worker.errored.connect(self._on_errored)
         worker.finished.connect(self._on_finished)
         self._worker = worker
-        worker.start()
+        worker.start(
+            control=control_of(self._microscope) if acts else None,
+            action=doing.rstrip("…"),
+        )
 
     @thread_worker
     def _job_worker(self, job: Callable[[], None]) -> None:
