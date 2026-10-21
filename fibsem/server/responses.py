@@ -9,9 +9,7 @@ service declares itself (``type_path`` names its type).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union
-
-from fastapi.responses import JSONResponse
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 from fibsem.ai.agent.recent import RecentRow
 from fibsem.codec import encode, saved
@@ -25,10 +23,16 @@ from fibsem.structures import (
 )
 from fibsem.workflows.outputs import RunFiles
 
+if TYPE_CHECKING:
+    from fastapi.responses import JSONResponse
+
 
 def answer(value: Any, type_: Any = None, status_code: int = 200) -> JSONResponse:
     """*value* as a route's JSON answer, written as *type_* when that isn't its
     own class (a dict of descriptions)."""
+    # Here, not at the top: the window imports these classes without the server.
+    from fastapi.responses import JSONResponse
+
     return JSONResponse(encode(value, type_), status_code=status_code)
 
 
