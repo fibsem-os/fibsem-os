@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { FolderOpen, MessageSquare, Microscope, Settings as Gear } from "lucide-react";
+import { FolderOpen, Grid3x3, Layers, MessageSquare, Microscope, Settings as Gear } from "lucide-react";
 import type { ReactNode } from "react";
 import { api } from "@/lib/api";
 import type { Page } from "@/lib/route";
@@ -45,6 +45,8 @@ export function Rail({ page, go, openSettings }: { page: Page; go: (page: Page) 
     >
       <Tab on={page === "microscope"} onClick={() => go("microscope")} icon={<Microscope size={22} />} label="Microscope" />
       <Tab on={page === "experiment"} onClick={() => go("experiment")} icon={<FolderOpen size={22} />} label="Experiment" />
+      <Tab on={page === "lamellae"} onClick={() => go("lamellae")} icon={<Layers size={22} />} label="Lamellae" />
+      <Tab on={page === "grids"} onClick={() => go("grids")} icon={<Grid3x3 size={22} />} label="Grids" />
       <Tab
         on={page === "agent"}
         onClick={() => go("agent")}

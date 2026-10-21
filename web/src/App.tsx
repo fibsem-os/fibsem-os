@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { AgentPage } from "@/pages/Agent";
 import { ExperimentPage } from "@/pages/Experiment";
+import { GridsPage } from "@/pages/Grids";
+import { LamellaePage } from "@/pages/Lamellae";
 import { MicroscopePage } from "@/pages/Microscope";
 import { Pair } from "@/shell/Pair";
 import { Rail } from "@/shell/Rail";
@@ -22,6 +24,8 @@ function Shell() {
         <div className="min-h-0 flex-1 overflow-auto">
           {page === "microscope" && <MicroscopePage />}
           {page === "experiment" && <ExperimentPage />}
+          {page === "lamellae" && <LamellaePage />}
+          {page === "grids" && <GridsPage go={go} />}
           {page === "agent" && <AgentPage />}
         </div>
       </div>
