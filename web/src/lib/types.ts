@@ -119,7 +119,7 @@ export interface AgentRequest {
   reason: string;
   actions: RequestAction[];
   results: { ok?: boolean }[];
-  evidence?: string | null;
+  evidence?: Evidence | null;
 }
 
 export interface Suggestion {
