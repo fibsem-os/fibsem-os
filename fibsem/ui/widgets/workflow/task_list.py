@@ -319,6 +319,7 @@ class WorkflowTaskList(QWidget):
     remove_requested = pyqtSignal(object)  # TaskPlan
     selection_changed = pyqtSignal(list)  # List[TaskPlan]
     order_changed = pyqtSignal(list)  # List[TaskPlan]
+    current_changed = pyqtSignal(object)  # Optional[TaskPlan], the row clicked
     add_task_clicked = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
@@ -357,6 +358,11 @@ class WorkflowTaskList(QWidget):
         self._header.select_all_changed.connect(self.set_all_selected)
         self._header.add_task_clicked.connect(self.add_task_clicked)
         self._list.reordered.connect(self._on_reordered)
+        self._list.currentItemChanged.connect(
+            lambda item, _previous: self.current_changed.emit(
+                None if item is None else item.data(Qt.ItemDataRole.UserRole)
+            )
+        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -455,6 +461,15 @@ class WorkflowTaskList(QWidget):
     def get_tasks(self) -> List[TaskPlan]:
         """Return tasks in current display order."""
         return [self._row(i).task for i in range(self._list.count())]
+
+    def current_task(self) -> Optional[TaskPlan]:
+        item = self._list.currentItem()
+        return None if item is None else item.data(Qt.ItemDataRole.UserRole)
+
+    def set_current(self, name: Optional[str]) -> None:
+        """Make the task named *name* the current row; none when it is gone."""
+        names = [task.name for task in self.get_tasks()]
+        self._list.setCurrentRow(names.index(name) if name in names else -1)
 
     def get_selected(self) -> List[TaskPlan]:
         return [

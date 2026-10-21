@@ -1,10 +1,10 @@
-"""Edits to a lamella's plan, for the experiment's record (FIB-1034).
+"""Edits to an experiment's plan, for the experiment's record (FIB-1034).
 
 Before an edit is applied, the code applying it *touches* what it is about to
 change: it hands over a reader of the value. The value is read then, as the
 edit's ``before``, the first time it is touched, and read again when the edits
 settle, as its ``after``, on :meth:`PendingEdits.flush`: at once for an
-agent's edit, after a pause in the editors (``ui/protocol/edit_recording.py``). So an
+agent's edit, after a pause in the editors (``fibsem/ui/edit_recording.py``). So an
 edit made in a hundred drag steps is one ``edit`` event, and one that ends
 where it started is none.
 
@@ -157,47 +157,6 @@ class PendingEdits:
                 logging.debug(
                     f"could not record an edit to {edit.target}", exc_info=True
                 )
-
-
-def touch_agent_patch(
-    edits: PendingEdits,
-    experiment: Any,
-    level: str,
-    item_name: str,
-    task_name: str,
-    patch: Any,
-) -> None:
-    """Touch what an agent's config edit at *level* can change
-    (``config_edits.apply_agent_edit``)."""
-    try:
-        if level == "protocol":
-            configs = experiment.task_protocol.task_config
-            edits.touch(
-                None, task_name, "protocol.task_config", lambda: configs.get(task_name)
-            )
-            return
-        lamella = experiment.get_lamella_by_name(item_name)
-        if lamella is None:
-            return
-        if level == "item_fields":
-            fields = {str(path).split(".", 1)[0] for path in patch or {}}
-            for field in fields:
-                edits.touch(
-                    lamella,
-                    None,
-                    field,
-                    lambda field=field: getattr(lamella, field, None),
-                )
-            # the patterns synced to them move with them
-            if {"poi", "alignment_area"} & fields:
-                edits.touch_patterns(lamella)
-            return
-        tasks = [task_name]
-        if level == "apply_protocol":
-            tasks = list((patch or {}).get("task_names") or lamella.task_config)
-        edits.touch_task_configs([lamella], tasks)
-    except Exception:  # noqa: BLE001 - recording must not matter
-        logging.debug("could not note what an agent patch changes", exc_info=True)
 
 
 def _same(a: Any, b: Any) -> bool:

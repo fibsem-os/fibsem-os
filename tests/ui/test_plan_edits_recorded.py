@@ -30,9 +30,6 @@ from fibsem.applications.autolamella.ui.protocol import (
 from fibsem.applications.autolamella.ui.protocol import (
     protocol_tab as protocol_editor_module,  # noqa: E402
 )
-from fibsem.applications.autolamella.ui.protocol.edit_recording import (
-    SETTLE_MS,  # noqa: E402  # noqa: E402
-)
 from fibsem.applications.autolamella.workflows.tasks.rough import (  # noqa: E402
     MillRoughTaskConfig,
 )
@@ -40,6 +37,9 @@ from fibsem.applications.autolamella.workflows.tasks.tasks import (  # noqa: E40
     SpotBurnFiducialTaskConfig,
 )
 from fibsem.structures import MicroscopeState, Point  # noqa: E402
+from fibsem.ui.edit_recording import (
+    SETTLE_MS,  # noqa: E402  # noqa: E402
+)
 from fibsem.workflows.event_recording import EventRecorder  # noqa: E402
 from fibsem.workflows.task_config import TaskPlan
 
@@ -840,7 +840,7 @@ def test_an_edit_whose_record_cannot_be_taken_is_still_made(
 ):
     """Snapshots are taken before an edit applies: one that fails must cost the
     record, never the edit."""
-    from fibsem.applications.autolamella import edit_recording
+    from fibsem.workflows import edit_recording
 
     def broken(value):
         raise RuntimeError("cannot describe it")

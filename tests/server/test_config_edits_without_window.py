@@ -204,11 +204,8 @@ def test_the_version_does_not_change_with_attention_or_requires():
 def test_the_editors_values_are_copied_touched_and_saved_on_one_path(tmp_path):
     """The editors' write: each value set whole and copied, touched for the
     record before it changes, and saved by the same save the patches make."""
-    from fibsem.applications.autolamella.config_edits import (
-        save_edits,
-        set_task_config_values,
-    )
-    from fibsem.applications.autolamella.edit_recording import PendingEdits
+    from fibsem.server.task_configs import save_edits, set_task_config_values
+    from fibsem.workflows.edit_recording import PendingEdits
 
     _, experiment, scope = _context(tmp_path)
     lamella = experiment.positions[0]
@@ -245,8 +242,8 @@ def test_the_editors_values_are_copied_touched_and_saved_on_one_path(tmp_path):
 
 
 def test_the_editors_values_refuse_an_unknown_task(tmp_path):
-    from fibsem.applications.autolamella.config_edits import set_task_config_values
-    from fibsem.applications.autolamella.edit_recording import PendingEdits
+    from fibsem.server.task_configs import set_task_config_values
+    from fibsem.workflows.edit_recording import PendingEdits
 
     _, experiment, scope = _context(tmp_path)
     result = set_task_config_values(

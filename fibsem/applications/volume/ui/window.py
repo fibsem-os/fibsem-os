@@ -155,6 +155,7 @@ class VolumeWindow(AppWindow):
         if what == MICROSCOPE:
             self.status_bar.set_microscope(self.microscope)
             self.agent_host.activity.set_microscope(self.microscope)
+            self.protocol_tab.set_microscope(self.microscope)
         elif what == EXPERIMENT:
             self._setup_experiment_connections()
             self.attention.listen(self.experiment)
@@ -163,6 +164,9 @@ class VolumeWindow(AppWindow):
         elif what == PROTOCOL:
             self.protocol_tab.refresh()
         self._update_instructions()
+
+    def flush_editors(self) -> None:
+        self.protocol_tab.flush_pending_save()
 
     def _refresh_title(self) -> None:
         title = self.windowTitle().split(" — ")[0]
