@@ -84,11 +84,11 @@ def test_the_refusal_names_the_lamellae_and_the_grid(experiment, arctis):
     also_two = _lamella(experiment, "also-two", "Grid-02")
     assert run_refusal(experiment, stage, [on_two]) == (
         "Cannot run: on-two is on Grid-02, which is not on the stage. "
-        "Load Grid-02 from the Grids tab first, or leave that lamella out."
+        "Load Grid-02 first, or leave that lamella out."
     )
     assert run_refusal(experiment, stage, [on_two, also_two]) == (
         "Cannot run: on-two, also-two are on Grid-02, which is not on the stage. "
-        "Load Grid-02 from the Grids tab first, or leave those lamellae out."
+        "Load Grid-02 first, or leave those lamellae out."
     )
 
 

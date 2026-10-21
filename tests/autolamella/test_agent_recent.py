@@ -411,3 +411,37 @@ def test_a_row_carries_the_evidence_its_call_cites():
     cited, uncited = recent.rows
     assert cited.evidence["text"] == "trench off centre"
     assert uncited.evidence is None
+
+
+def test_a_suggestion_says_what_it_is_on():
+    """Rounds 11-12 R6: "Suggested on 01 · Setup: confirm it", with no word
+    of what; a tilt asked as a position reads as the tilt."""
+    recent = RecentActions()
+    item = {"name": "01-meet-tapir"}
+    recent.add(
+        _record(
+            "proposal_suggested",
+            {
+                "item": item,
+                "task": "Setup",
+                "proposal_id": "p1",
+                "kind": "state",
+                "label": "Tilt",
+            },
+        )
+    )
+    recent.add(
+        _record(
+            "proposal_suggested",
+            {
+                "item": item,
+                "task": "Setup",
+                "proposal_id": "p2",
+                "kind": "alignment_area",
+            },
+        )
+    )
+    assert [text for text, _, _ in _rows(recent)] == [
+        "Suggested on 01-meet-tapir · Setup · Tilt: confirm it",
+        "Suggested on 01-meet-tapir · Setup · Alignment area: confirm it",
+    ]

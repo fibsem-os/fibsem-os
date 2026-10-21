@@ -62,3 +62,7 @@ def main(
     session = open_session(headless.connect(args), folder, create=args.create)
     session.serve_microscope = args.serve_microscope
     return headless.serve_until_stopped(session, serve, "fibsem-volume", stop)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

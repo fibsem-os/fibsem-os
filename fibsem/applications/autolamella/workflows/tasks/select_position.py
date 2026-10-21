@@ -175,7 +175,11 @@ class SelectMillingPositionTask(AutoLamellaTask):
                     message=f"Tilt to the milling angle ({milling_angle:.1f}"
                     f"{constants.DEGREE_SYMBOL})? The current milling angle is "
                     f"{current_milling_angle:.1f}{constants.DEGREE_SYMBOL}.",
-                    provenance={"positive": "Tilt", "negative": "Skip"},
+                    provenance={
+                        "positive": "Tilt",
+                        "negative": "Skip",
+                        "label": "Tilt",
+                    },
                     decided=self._stage_position_now,
                     enabled=self.config.confirm_tilt,
                 )

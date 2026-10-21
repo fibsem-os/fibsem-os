@@ -32,6 +32,7 @@ from typing import Any, Dict, List, Optional
 from fibsem.acting import AGENT, OPERATOR
 from fibsem.ai.agent.catalog.describe import describe_action, describe_done
 from fibsem.util import wording
+from fibsem.workflows.proposals import kind_label
 
 # Rows kept: the card scrolls through them all.
 SIZE = 50
@@ -345,7 +346,8 @@ class RecentActions:
             return False
         item = (p.get("item") or {}).get("name") or ""
         # what it suggested: the reason is the card's Why (FIB-1492)
-        text = f"Suggested on {item} · {p.get('task')}: {_suggested(p)}"
+        what = p.get("label") or kind_label(str(p.get("kind") or ""))
+        text = f"Suggested on {item} · {p.get('task')} · {what}: {_suggested(p)}"
         return self._put(
             ("suggestion", p.get("proposal_id")),
             record,

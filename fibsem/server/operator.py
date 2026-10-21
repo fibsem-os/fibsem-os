@@ -48,9 +48,8 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
         client its sidecar named, and the request waiting, if any."""
         auth = agent.host.auth if agent.host is not None else None
         request = agent.current()
-        path = agent.experiment_path()
         return {
-            "experiment": os.path.basename(path) if path else None,
+            "experiment": agent.experiment_name(),
             "level": agent.level.value if agent.level is not None else None,
             "stopped": bool(auth.stopped) if auth is not None else False,
             "last_heard_s": agent.seconds_since_seen(),

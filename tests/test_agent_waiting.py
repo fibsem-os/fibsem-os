@@ -6,11 +6,15 @@ from types import SimpleNamespace
 from fibsem.acting import OPERATOR
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.ai.agent.session import AgentSession
-from fibsem.workflows.proposals import ALIGNMENT_AREA, Proposal, Suggestion
+from fibsem.workflows.proposals import ALIGNMENT_AREA, STATE, Proposal, Suggestion
 
 
-def _agent(level, pending=(), deciders=()):
-    experiment = SimpleNamespace(pending_proposals=lambda: list(pending))
+def _agent(level, pending=(), deciders=(), experiment=True):
+    experiment = (
+        SimpleNamespace(name="r12", pending_proposals=lambda: list(pending))
+        if experiment
+        else None
+    )
     host = SimpleNamespace(running=True, auth=SimpleNamespace(level=level))
     session = SimpleNamespace(
         experiment=experiment, app_server=host, deciders=lambda: set(deciders)
@@ -41,3 +45,13 @@ def test_the_waiting_decision_and_who_can_make_it():
     assert _agent(AgentLevel.ASSIST, pending).waiting()["who"] == (
         "The agent suggested a decision."
     )
+
+
+def test_a_tilt_asked_as_a_position_reads_as_the_tilt():
+    item = SimpleNamespace(name="01-meet-tapir")
+    tilt = Proposal(kind=STATE, provenance={"task_id": "run-1", "label": "Tilt"})
+    waiting = _agent(AgentLevel.DRIVE, [(item, "Setup", tilt)]).waiting()
+    assert waiting["proposal"] == "01-meet-tapir · Setup · Tilt"
+    # The header names the open experiment, never the session's plain record.
+    assert _agent(AgentLevel.DRIVE).experiment_name() == "r12"
+    assert _agent(AgentLevel.DRIVE, experiment=False).experiment_name() is None

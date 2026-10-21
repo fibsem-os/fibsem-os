@@ -653,6 +653,28 @@ def test_a_new_lamella_s_point_without_an_image_is_drawn_on_the_live_view():
     assert caption.startswith("01-full-magpie, on the live view")
 
 
+def test_a_new_lamella_at_a_stage_position_with_no_image_says_so():
+    """Headless round 12: no FIB image yet, and the card showed nothing."""
+    card = _Card()
+    previews = AgentPictures(lambda beam: None, show_picture=card)
+    position = {"x": 0.0, "y": 0.0, "z": 0.0, "r": 0.0, "t": 0.0}
+    previews.show_request(
+        {
+            "request_id": "st01",
+            "status": "pending",
+            "actions": [
+                {
+                    "tool": "item_add",
+                    "what": "new lamella",
+                    "arguments": {"stage_position": position},
+                }
+            ],
+        }
+    )
+    assert previews.request_picture is None
+    assert card.notes == "No FIB image yet to draw the new lamella on"
+
+
 def _pixels(png):
     return np.asarray(Image.open(io.BytesIO(png)).convert("RGB")).astype(int)
 

@@ -691,6 +691,15 @@ class AgentPictures:
                     f"No FIB image of {missing[0]} yet to draw on",
                     suggestion=suggestion,
                 )
+            elif marks:
+                # Say so, rather than show nothing (headless round 12).
+                mark = next(iter(marks.values()))
+                beam_name = "SEM" if mark.beam is BeamType.ELECTRON else "FIB"
+                self._show_picture(
+                    None,
+                    f"No {beam_name} image yet to draw the {mark.legend} on",
+                    suggestion=suggestion,
+                )
             return
         current = _Layer(CURRENT_COLOUR, dashed=True)
         milling = _Layer(stage_colour(0), fill=True)

@@ -8,7 +8,7 @@ A lamella marked on a grid's stored overview belongs to that grid whether or not
 the grid is on the stage (FIB-71). Running it while the grid is in the magazine
 would drive the stage to that pose on whatever grid *is* there, so a run that
 includes one is refused, by name, before anything moves. There is no override:
-load the grid from the Grids tab, or leave that lamella out.
+load the grid, or leave that lamella out.
 
 The inventory is *read* first (`SampleHandling.get_inventory`: instant, nothing moves) so
 the answer is the hardware's, not a stale chip's. A lamella that is not linked to
@@ -76,7 +76,7 @@ def run_refusal(
     return (
         "Cannot run: "
         + " ".join(lines)
-        + f" Load {which} from the Grids tab first, or leave "
+        + f" Load {which} first, or leave "
         + (
             "that lamella"
             if sum(len(n) for n in off.values()) == 1
