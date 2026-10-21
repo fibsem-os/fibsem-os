@@ -19,6 +19,11 @@ from fibsem.util.records import dataframe_records
 from fibsem.util.timestamps import to_iso, wall_time_of
 from fibsem.workflows.actions import NOTE, note_record
 from fibsem.workflows.evidence import EVIDENCE, frame_path
+from fibsem.workflows.experiments import (
+    default_experiment_directory,
+    discover_experiments,
+    filter_experiments,
+)
 from fibsem.workflows.runner import ITEMS, RunRequest
 from fibsem.workflows.session import CONFIG, PROTOCOL
 from fibsem.workflows.status import TaskStatus
@@ -436,17 +441,43 @@ class AppContext:
 
     # --- discovery --------------------------------------------------------------
 
-    @staticmethod
-    def experiment_entry(summary) -> Dict[str, Any]:
-        """One experiment in a listing, from its ``ExperimentSummary``."""
+    def _experiments_folder(self) -> str:
+        """Where experiments are created and found: the session's folder, else
+        the default experiments folder."""
+        return self._session.experiments_folder or default_experiment_directory()
+
+    def _under_experiments_folder(self, path: str) -> Optional[str]:
+        """*path* (relative to the experiments folder, or absolute) when it is
+        inside that folder, links followed; else None."""
+        folder = os.path.realpath(self._experiments_folder())
+        target = os.path.realpath(os.path.join(folder, path))
+        try:
+            inside = os.path.commonpath([target, folder]) == folder
+        except ValueError:  # another drive
+            return None
+        return target if inside and target != folder else None
+
+    def experiment_entry(self, summary) -> Dict[str, Any]:
+        """One experiment in a listing, from its ``ExperimentSummary``.
+        ``relative_path`` is its folder relative to the experiments folder, as
+        loads and reads take it; None for one outside that folder."""
+        folder = os.path.dirname(summary.path)
+        relative = None
+        if self._under_experiments_folder(folder) is not None:
+            relative = os.path.relpath(
+                os.path.realpath(folder), os.path.realpath(self._experiments_folder())
+            ).replace(os.sep, "/")
         return {
             "name": summary.name,
             "path": summary.path,
+            "relative_path": relative,
             "app": summary.app,
             "created_at": to_iso(summary.created_at),
             "num_items": summary.num_lamella,
             "available": summary.available,
             "instrument_model": summary.instrument_model,
+            "instrument_serial": summary.instrument_serial,
+            "operator": summary.operator,
             "software_version": summary.software_version,
         }
 
@@ -455,6 +486,25 @@ class AppContext:
         from fibsem.config import get_recent_experiments
 
         return [self.experiment_entry(s) for s in get_recent_experiments()]
+
+    def saved_experiments(
+        self,
+        instrument: Optional[str] = None,
+        operator: Optional[str] = None,
+        since: Optional[datetime] = None,
+        until: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """Every experiment under the experiments folder, newest first, narrowed
+        by `filter_experiments` (each filter left None does not narrow)."""
+        folder = self._experiments_folder()
+        found = filter_experiments(
+            discover_experiments(folder),
+            instrument=instrument,
+            operator=operator,
+            since=since,
+            until=until,
+        )
+        return {"folder": folder, "items": [self.experiment_entry(s) for s in found]}
 
     def _not_while_running(self, what: str) -> Optional[Dict[str, Any]]:
         """The refusal while a workflow runs (*what* to do when it has

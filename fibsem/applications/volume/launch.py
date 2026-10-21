@@ -9,7 +9,6 @@ from typing import List, Optional
 
 from fibsem.applications.volume.experiment import VolumeExperiment
 from fibsem.applications.volume.server import serve
-from fibsem.cli import _build_connection_parser
 from fibsem.server import headless
 from fibsem.workflows.experiment import EXPERIMENT_FILENAME
 from fibsem.workflows.session import AppSession
@@ -32,7 +31,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="fibsem-volume",
         description="Serve a volume experiment over the App Server, with no window.",
-        parents=[_build_connection_parser()],
+        parents=[headless.connection_parser()],
     )
     parser.add_argument("experiment", type=Path, help="The volume experiment's folder.")
     parser.add_argument(

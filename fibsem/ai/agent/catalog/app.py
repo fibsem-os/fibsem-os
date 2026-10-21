@@ -1034,11 +1034,18 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="experiment_list_all",
-        description="Every experiment under the experiments folder (up to 3 folders deep), newest first, without loading them: where experiment_create puts a new one, and what experiment_load can open.",
+        description="Every experiment under the experiments folder (up to 3 folders deep), newest first, without loading them: where experiment_create puts a new one, and what experiment_load can open (its relative_path). Narrow it by instrument, operator or date.",
         method="GET",
         path="/app/experiment/all",
         level="watch",
         router="app",
+        params={
+            "instrument": "only experiments run on this instrument: its serial or model",
+            "operator": "only experiments run by this operator",
+            "since": "ISO date or time: created at or after it",
+            "until": "ISO date or time: created at or before it",
+        },
+        optional=("instrument", "operator", "since", "until"),
     ),
     ToolSpec(
         name="protocol_list",

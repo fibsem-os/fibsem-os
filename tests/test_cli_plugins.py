@@ -1,8 +1,8 @@
 """``fibsem-cli plugins``.
 
 The failure mode this command exists for is "my plugin does not show up", so it
-has to answer without a microscope: diagnosing a plugin is usually done away
-from the instrument, and every other subcommand connects before it dispatches.
+has to answer without a server: diagnosing a plugin is usually done away
+from the instrument, and every other subcommand reaches the App Server.
 """
 
 import pytest
@@ -14,11 +14,11 @@ def _parse(*argv):
     return cli._build_parser().parse_args(argv)
 
 
-def test_plugins_does_not_require_a_microscope():
-    """The whole reason it is dispatched before setup_session()."""
-    assert _parse("plugins").needs_microscope is False
+def test_plugins_does_not_require_a_server():
+    """It runs without reaching an App Server."""
+    assert _parse("plugins").needs_server is False
     # ...while everything else still does.
-    assert _parse("position").needs_microscope is True
+    assert _parse("stage", "get-position").needs_server is True
 
 
 def test_plugins_takes_no_connection_arguments():
@@ -29,7 +29,7 @@ def test_plugins_takes_no_connection_arguments():
     test_debug_is_accepted_on_either_side_of_the_subcommand.
     """
     with pytest.raises(SystemExit):
-        _parse("plugins", "--manufacturer", "Thermo")
+        _parse("plugins", "--url", "http://localhost:8001")
 
 
 def test_plugins_prints_the_report(capsys):

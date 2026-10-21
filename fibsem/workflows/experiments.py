@@ -23,16 +23,18 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Dict, Iterable, List, Optional
+from datetime import datetime
+from typing import Iterable, List, Optional
 
-from fibsem.config import ExperimentSummary, get_recent_experiments, peek_experiment
+from fibsem import config as fibsem_cfg
+from fibsem.config import ExperimentSummary, load_user_preferences, peek_experiment
 from fibsem.util.timestamps import from_posix, to_datetime
 
 __all__ = [
+    "default_experiment_directory",
     "discover_experiments",
     "created_order",
     "filter_experiments",
-    "group_by_instrument",
 ]
 
 # How deep to look for an experiment.yaml below the root. An experiment directory
@@ -40,6 +42,19 @@ __all__ = [
 # and one level of grouping (a per-project or per-user folder). Unbounded descent
 # over a whole data drive is slow enough to look like a hang.
 DEFAULT_MAX_DEPTH = 3
+
+
+def default_experiment_directory() -> str:
+    """Where a new experiment goes: the preference when it names a folder that
+    exists, else the AutoLamella log folder (the Create dialog's default)."""
+    preferred = load_user_preferences().experiment.default_experiment_directory
+    if preferred and os.path.isdir(preferred):
+        return str(preferred)
+    if preferred:
+        logging.warning(
+            f"Preference default_experiment_directory '{preferred}' does not exist; using default."
+        )
+    return str(fibsem_cfg.AUTOLAMELLA_LOG_PATH)
 
 
 def discover_experiments(
@@ -99,8 +114,9 @@ def filter_experiments(
     It is not evidence of the instrument you asked about, and quietly including
     unknowns is how a per-instrument total comes out wrong.
 
-    ``since`` and ``until`` are a datetime or a POSIX time. An experiment that does
-    not say when it was created counts as the oldest.
+    ``since`` and ``until`` are a datetime or a POSIX time; a naive datetime is
+    this machine's time. An experiment that does not say when it was created
+    counts as the oldest.
     """
     results = list(experiments)
 
@@ -118,38 +134,16 @@ def filter_experiments(
         results = [e for e in results if needle in (e.operator or "").casefold()]
 
     if since is not None:
-        start = to_datetime(since)
-        results = [e for e in results if created_order(e) >= start]
+        start = _aware(to_datetime(since))
+        results = [e for e in results if _aware(created_order(e)) >= start]
 
     if until is not None:
-        end = to_datetime(until)
-        results = [e for e in results if created_order(e) <= end]
+        end = _aware(to_datetime(until))
+        results = [e for e in results if _aware(created_order(e)) <= end]
 
     return results
 
 
-def group_by_instrument(
-    experiments: Iterable[ExperimentSummary],
-) -> Dict[Optional[str], List[ExperimentSummary]]:
-    """Bucket by instrument serial, keeping the order given.
-
-    Serial rather than model, because it is what distinguishes two of the same
-    model in one facility -- the case the grouping exists for. Experiments with
-    no session record collect under ``None``, which is a bucket worth seeing:
-    it is how many runs cannot be attributed at all.
-    """
-    grouped: Dict[Optional[str], List[ExperimentSummary]] = {}
-    for experiment in experiments:
-        grouped.setdefault(experiment.instrument_serial, []).append(experiment)
-    return grouped
-
-
-def recent_experiments() -> List[ExperimentSummary]:
-    """The experiments this machine has opened, newest first.
-
-    A second source alongside a directory walk, and the only one that reaches
-    experiments created outside any root the caller knows to look in. Capped at
-    ten by the preference that stores it, and stored inside the installed
-    package, so it is neither complete nor durable -- see FIB-336.
-    """
-    return get_recent_experiments(prune_missing=False)
+def _aware(moment: datetime) -> datetime:
+    """*moment*, as this machine's time when it carries no offset."""
+    return moment.astimezone() if moment.tzinfo is None else moment

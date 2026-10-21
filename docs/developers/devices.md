@@ -798,7 +798,7 @@ vendor scan. Its Devices tab draws any device from what it describes about itsel
 limits and choices, written on edit and kept current through `changed`; each command
 that needs no arguments as a button, run after the user confirms; and its `facts`.
 
-`fibsem-cli check` (the hardware check) checks every device the microscope built, a plugin's too,
+`fibsem-cli hardware-check` checks every device the App Server's microscope built, a plugin's too,
 through `Device.hardware_check(report, level)`. By default that is the `READ` step:
 every parameter read and checked against its own limits and choices. A driver adds
 steps for `SETTINGS` and `ACQUIRE` by overriding it, calling `super()` first, and
