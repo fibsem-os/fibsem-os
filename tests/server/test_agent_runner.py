@@ -359,10 +359,12 @@ def test_fibsem_agent_starts_with_its_status(tmp_path):
         max_turns=40,
         resume=None,
     )
-    lines = runner_mod.status(args, tmp_path, tmp_path / "a.log", tmp_path / "w")
+    lines = runner_mod.status(
+        args, tmp_path, tmp_path / "a.log", tmp_path / "w", "abc-123"
+    )
     rows = dict(line.split(":", 1) for line in lines)
     assert rows["Goal"].strip() == "mill 01"
-    assert rows["Session"].strip() == "new"
+    assert rows["Session"].strip() == "abc-123 (new)"
     assert rows["Code"].strip().startswith("Available in")
     assert len({line.index(line.split()[1]) for line in lines}) == 1, "aligned"
 

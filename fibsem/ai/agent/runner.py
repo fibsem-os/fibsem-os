@@ -22,6 +22,7 @@ import sys
 import sysconfig
 import threading
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, List, Optional
@@ -691,7 +692,7 @@ class SdkAgent:
     def __init__(self, options) -> None:
         self._options = options
         self._client = None
-        self.session_id: Optional[str] = options.resume
+        self.session_id: Optional[str] = options.resume or options.session_id
         self.model: Optional[str] = options.model
         self.introduced = False
 
@@ -849,6 +850,7 @@ def build_options(
     max_budget_usd: Optional[float] = MAX_BUDGET_USD,
     resume: Optional[str] = None,
     work: Optional[Path] = None,
+    session_id: Optional[str] = None,
 ):
     """The SDK session: the sidecar as the only MCP server, the project's
     skills and nothing of the user's Claude Code config. With ``work``, code
@@ -899,6 +901,7 @@ def build_options(
         max_budget_usd=max_budget_usd,
         model=model,
         resume=resume,
+        session_id=session_id,
         stderr=lambda line: log.debug("claude: %s", line.rstrip()),
     )
 
@@ -928,7 +931,9 @@ def _default_log() -> Path:
     return Path.home() / ".fibsem" / "agent" / f"fibsem-agent-{stamp}.log"
 
 
-def status(args, checkout: Path, log_path: Path, work: Optional[Path]) -> List[str]:
+def status(
+    args, checkout: Path, log_path: Path, work: Optional[Path], session_id: str
+) -> List[str]:
     """What this run is, at its start: one line each."""
     from fibsem import __version__
 
@@ -942,7 +947,7 @@ def status(args, checkout: Path, log_path: Path, work: Optional[Path]) -> List[s
             f"${args.max_budget_usd:g} per run, {args.max_turns} tool calls "
             "per wake-up",
         ),
-        ("Session", f"resuming {args.resume}" if args.resume else "new"),
+        ("Session", f"{session_id} ({'resumed' if args.resume else 'new'})"),
         ("Skills", str(checkout)),
         ("Code", code_mode.describe(work)),
         ("Log", str(log_path)),
@@ -1042,7 +1047,9 @@ def main(argv=None) -> int:
     log_path = Path(args.log).expanduser() if args.log else _default_log()
     print_fibsem_logo()
     _log_to(log_path)
-    for line in status(args, checkout, log_path, work):
+    # A new session's id is chosen here, so the status can name it.
+    session_id = args.resume or str(uuid.uuid4())
+    for line in status(args, checkout, log_path, work, session_id):
         log.info(line)
     if work is not None:
         code_mode.prepare(work, checkout, list(SKILLS))
@@ -1058,6 +1065,7 @@ def main(argv=None) -> int:
         max_budget_usd=args.max_budget_usd,
         resume=args.resume,
         work=work,
+        session_id=None if args.resume else session_id,
     )
     agent = SdkAgent(options)
     runner = Runner(
