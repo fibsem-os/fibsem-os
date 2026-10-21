@@ -27,7 +27,7 @@ function LamellaCard({
   picked: boolean;
   onPick: () => void;
 }) {
-  const name = item.lamella_name;
+  const name = item.item_name;
   const thumb = useFileRead(`${name}/thumbnail.png`, 640);
   const detail = useQuery({
     queryKey: ["app/experiment/items", name],
@@ -92,7 +92,7 @@ export function LamellaePage() {
   const [filter, setFilter] = useState<HistoryFilter>(NO_FILTER);
   if (status.data && !open) return <div className="p-5 text-muted-foreground">No experiment is open.</div>;
   const list = items.data?.items ?? [];
-  const name = picked && list.some((i) => i.lamella_name === picked) ? picked : (list[0]?.lamella_name ?? null);
+  const name = picked && list.some((i) => i.item_name === picked) ? picked : (list[0]?.item_name ?? null);
   const workflow = status.data?.workflow;
   return (
     <div className="grid items-start gap-4 p-4 md:p-5 lg:grid-cols-[320px_minmax(0,1fr)]">
@@ -100,11 +100,11 @@ export function LamellaePage() {
         {items.data && !list.length && <div className="text-muted-foreground">No lamellae yet.</div>}
         {list.map((item) => (
           <LamellaCard
-            key={item.lamella_id}
+            key={item.item_id}
             item={item}
-            running={workflow?.running && workflow.current_item === item.lamella_name ? workflow.current_task : null}
-            picked={item.lamella_name === name}
-            onPick={() => setPicked(item.lamella_name)}
+            running={workflow?.running && workflow.current_item === item.item_name ? workflow.current_task : null}
+            picked={item.item_name === name}
+            onPick={() => setPicked(item.item_name)}
           />
         ))}
       </div>

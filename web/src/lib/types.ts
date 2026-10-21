@@ -213,8 +213,8 @@ export type FileRead = FileEntry & {
 
 /** GET /app/experiment: one row per item. */
 export interface ItemSummary {
-  lamella_name: string;
-  lamella_id: string;
+  item_name: string;
+  item_id: string;
   last_completed_task: string | null;
   last_completed_at: string | null;
   is_completed: boolean;
