@@ -56,7 +56,7 @@ def test_a_new_experiment_is_served_and_the_operator_hands_over(
             operator = {"Authorization": f"Bearer {operator_token}"}
             capabilities = client.get("/capabilities", headers=agent).json()
             assert capabilities["app_name"] == "AutoLamella"
-            assert client.get("/chat", headers=operator).status_code == 200
+            assert client.get("/ui/agent", headers=operator).status_code == 200
             # Watch first: the agent reads but can't add a position
             site = {"name": "site-a"}
             refused = client.post("/app/experiment/items", json=site, headers=agent)
@@ -77,7 +77,7 @@ def test_a_new_experiment_is_served_and_the_operator_hands_over(
     assert fibsem_cfg.get_last_experiment_file() == str(folder / "experiment.yaml")
     out = capsys.readouterr().out
     # The plain chat address: the token stays out of the terminal.
-    assert "/chat (Pair this browser)" in out and "#token=" not in out
+    assert "/ui/agent (Pair this browser)" in out and "#token=" not in out
 
 
 def test_with_no_folder_none_is_open_and_last_opens_the_most_recent(

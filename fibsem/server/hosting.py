@@ -78,9 +78,9 @@ def event_log_url(host) -> str:
 
 
 def chat_url(host) -> str:
-    """The chat page, with the operator token in the fragment as the
-    event log has its own."""
-    return f"{host.url}/chat#token={host.auth.operator_token}"
+    """The web app's Agent page, with the operator token in the fragment as
+    the event log has its own."""
+    return f"{host.url}/ui/agent#token={host.auth.operator_token}"
 
 
 class AppServerHost:

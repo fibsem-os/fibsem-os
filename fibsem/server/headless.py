@@ -95,7 +95,7 @@ def serve_until_stopped(
     what = experiment.name if experiment is not None else "no experiment"
     print(f"Serving {what} at {host.url} (agent at Watch).")
     # The plain address, never the token: scrollback and service logs keep it.
-    print(f"Chat and level controls: {host.url}/chat (Pair this browser)")
+    print(f"Chat and level controls: {host.url}/ui/agent (Pair this browser)")
     pairing = host.auth.pairing
     if pairing is not None:
         # Seeing this terminal is the proof: the code shows only here.

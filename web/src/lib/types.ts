@@ -91,3 +91,79 @@ export interface Pairing {
   expires_in_s: number;
   computers: PairedComputer[];
 }
+
+export type AgentLevel = "off" | "watch" | "assist" | "drive";
+
+export interface LevelChoice {
+  level: AgentLevel;
+  name: string;
+  word: string;
+  tip: string;
+}
+
+export interface Evidence {
+  evidence_id: string;
+  [key: string]: unknown;
+}
+
+export interface RequestAction {
+  tool: string;
+  what?: string;
+  change?: string;
+  details?: { columns?: string[]; rows?: string[][] } | null;
+}
+
+export interface AgentRequest {
+  request_id: string;
+  status: string;
+  reason: string;
+  actions: RequestAction[];
+  results: { ok?: boolean }[];
+  evidence?: Evidence | null;
+}
+
+export interface Suggestion {
+  proposal_id: string;
+  proposal: string;
+  decision: string;
+  reason: string;
+  evidence: Evidence | null;
+  no_evidence?: string;
+}
+
+/** GET /app/agent: the agent as the chip and card show it. */
+export interface AgentState {
+  experiment: string | null;
+  level: AgentLevel | null;
+  stopped: boolean;
+  last_heard_s: number | null;
+  client: string | null;
+  session: string | null;
+  request: AgentRequest | null;
+  suggestion: Suggestion | null;
+  now: string | null;
+  waiting: { proposal: string; who: string } | null;
+  pictures: Partial<Record<"request" | "suggestion", { caption?: string; image: boolean; version: number }>>;
+  levels: LevelChoice[];
+}
+
+/** One row of GET /app/agent/recent. */
+export interface RecentRow {
+  when: string;
+  text: string;
+  outcome: string;
+  tone: "waiting" | "running" | "ok" | "error" | "muted" | string;
+  level: string;
+  evidence: Evidence | null;
+  why: string;
+  kind: "you" | "reply" | "note" | "action";
+}
+
+export interface EvidenceAnswer {
+  preview: (ImagePayload & { full_width?: number; full_height?: number }) | null;
+  marks: {
+    points?: { x: number; y: number; label?: string }[];
+    areas?: { x: number; y: number; width: number; height: number; label?: string }[];
+  } | null;
+  path: string;
+}
