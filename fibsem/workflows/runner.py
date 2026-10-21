@@ -39,6 +39,15 @@ ITEMS = "items"
 GRIDS = "grids"
 
 
+def stop_message(actor: Any = None, reason: str = "") -> str:
+    """What a stopped task's record says: "Stopped by the agent: <reason>.",
+    or empty when nobody is named."""
+    if actor is None:
+        return ""
+    reason = (reason or "").strip().rstrip(".")
+    return f"Stopped by the {actor}" + (f": {reason}." if reason else ".")
+
+
 @dataclass(frozen=True)
 class RunRequest:
     """What to run: ``task_names`` in order, over ``names`` (every item or
@@ -241,24 +250,29 @@ class WorkflowRunner:
         manager = self.manager
         return manager is not None and manager.should_abort
 
-    def stop(self, actor: Any = None, via: str = "", **details: Any) -> None:
+    def stop(
+        self, actor: Any = None, via: str = "", message: str = "", **details: Any
+    ) -> None:
         """End the run after the task now running unwinds. Named, ``actor``'s
-        stop goes on the record first, saying from where (``via``)."""
+        stop goes on the record first, saying from where (``via``). *message*
+        is what the stopped task's record says (`stop_message`)."""
         if not self.is_running:
             return
         self._record_stop("workflow", actor, via, details)
         manager = self.manager
         if manager is not None:
-            manager.stop()
+            manager.stop(message or stop_message(actor))
         self.stopping.emit()
 
-    def stop_task(self, actor: Any = None, via: str = "", **details: Any) -> None:
+    def stop_task(
+        self, actor: Any = None, via: str = "", message: str = "", **details: Any
+    ) -> None:
         """Abandon the task now running and go on with the rest; recorded as
         :meth:`stop` records."""
         self._record_stop("task", actor, via, details)
         manager = self.manager
         if manager is not None:
-            manager.stop_task()
+            manager.stop_task(message or stop_message(actor))
 
     def _record_stop(
         self, stopped: str, actor: Any, via: str, details: Dict[str, Any]

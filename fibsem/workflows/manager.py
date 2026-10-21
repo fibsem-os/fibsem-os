@@ -124,6 +124,8 @@ class BaseTaskManager:
         self._task_stop_event = StopEvent()
         # Built once: the token's identity is captured by every task at construction.
         self._abort_token = AnyStopEvent(self._stop_event, self._task_stop_event)
+        # What a stopped task's record says: who stopped it and why, when known.
+        self.stop_message = ""
         self.queue = TaskQueue(fixed_tasks=self.FIXED_TASKS)
         # Whether this run's end event has fired; no run, nothing to report.
         self._run_ended = True
@@ -461,6 +463,8 @@ class BaseTaskManager:
             # A stop_task click that landed between two tasks was aimed at the one
             # that has just finished, not at this one.
             self._task_stop_event.clear()
+            if not self._stop_event.is_set():
+                self.stop_message = ""
 
             record = self._record_for(item)
             if record is None or not self._ready(item, record):
@@ -528,7 +532,9 @@ class BaseTaskManager:
             ):
                 logging.info(f"Task {task_name} on {record.name} cancelled by user.")
                 record.task_state.status = TaskStatus.Cancelled
-                record.task_state.status_message = "Cancelled by user."
+                record.task_state.status_message = (
+                    self.stop_message or "Cancelled by user."
+                )
             else:
                 logging.warning(
                     f"Error running task {task_name} on {record.name}: {e}",
@@ -582,12 +588,14 @@ class BaseTaskManager:
         except Exception:
             logging.exception("reporting the end of a run that never began failed")
 
-    def stop(self) -> None:
-        """End the run once the task now running unwinds, and stop its mill."""
+    def stop(self, message: str = "") -> None:
+        """End the run once the task now running unwinds, and stop its mill.
+        *message* is what the stopped task's record says."""
+        self.stop_message = message or self.stop_message
         self._stop_event.set()
         self._stop_milling()
 
-    def stop_task(self) -> None:
+    def stop_task(self, message: str = "") -> None:
         """Abandon the task now running and carry on with the rest of the queue.
 
         The task unwinds through the same path a run-wide Stop uses, so it ends
@@ -598,6 +606,7 @@ class BaseTaskManager:
         Cleared at the top of each task, so a click that lands between two tasks
         is discarded rather than killing the next one.
         """
+        self.stop_message = message or self.stop_message
         self._task_stop_event.set()
         self._stop_milling()
 

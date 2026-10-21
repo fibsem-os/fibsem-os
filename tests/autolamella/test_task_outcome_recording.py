@@ -68,6 +68,25 @@ def test_a_cancelled_task_is_recorded_as_cancelled_not_failed(
     assert task.lamella.task_history[0].status is TaskStatus.Cancelled
 
 
+def test_a_stopped_task_records_who_stopped_it_and_why(
+    microscope: FibsemMicroscope, tmp_path: Path
+) -> None:
+    """The stop's own words reach the record, where History shows them
+    (FIB-1517): not "Cancelled by user." when the agent stopped it."""
+    from fibsem.workflows.runner import stop_message
+
+    task = _make_task(microscope, tmp_path)
+    task.task_manager = type("Manager", (), {})()
+    task.task_manager.stop_message = stop_message("agent", "The trench drifted.")
+    _run_raising(task, OperationCancelledError("stopped"))
+
+    entry = task.lamella.task_history[0]
+    assert entry.status is TaskStatus.Cancelled
+    assert entry.status_message == "Stopped by the agent: The trench drifted."
+    assert stop_message("operator") == "Stopped by the operator."
+    assert stop_message(None, "why") == ""
+
+
 def test_a_successful_task_still_records_exactly_one_entry(
     microscope: FibsemMicroscope, tmp_path: Path
 ) -> None:
