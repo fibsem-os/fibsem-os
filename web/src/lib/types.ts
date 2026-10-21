@@ -148,6 +148,8 @@ export interface ConnectAsk {
   name: string;
   /** What allowing it means at the level now. */
   if_allowed: string;
+  /** The allowed agent that allowing this one unpairs: one per microscope. */
+  replaces: string | null;
 }
 
 export interface AgentState {

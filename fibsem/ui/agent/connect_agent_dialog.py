@@ -139,11 +139,11 @@ class ConnectAgentDialog(QDialog):
         layout.addWidget(self._pair_command)
         layout.addSpacing(6)
         layout.addWidget(section("Allowed agents"))
-        self._always_allow = QCheckBox("Always allow agents on this PC")
+        self._always_allow = QCheckBox("Always allow agents logged in to this PC")
         self._always_allow.setToolTip(
-            "Allow an agent on this PC that asks to connect without asking you. "
+            "Allow an agent running on this PC, over SSH too, without asking you. "
             "It acts only at the level you set, and is listed here with Unpair. "
-            "Agents over SSH still ask."
+            "Agents on other computers still ask."
         )
         self._always_allow.toggled.connect(self._on_always_allow_toggled)
         layout.addWidget(self._always_allow)
@@ -189,7 +189,12 @@ class ConnectAgentDialog(QDialog):
         self._always_allow.blockSignals(False)
         code = self._pair.code.text() if self._pair.is_open() else ""
         self._pair_command.setVisible(bool(code))
-        self._pair_command.setText(f"On that computer: fibsem-mcp pair {code}")
+        pairing = self._pairing()
+        agent = pairing.tokens.agent() if pairing is not None else None
+        replaces = f". It replaces {agent.name}." if agent is not None else ""
+        self._pair_command.setText(
+            f"On that computer: fibsem-mcp pair {code}{replaces}"
+        )
         host = self._host()
         auth = getattr(host, "auth", None)
         if auth is None:

@@ -486,6 +486,13 @@ class AgentLevelChip(QPushButton):
         popup = self.popup
         popup.setFixedWidth(self._card_width())
         popup.adjustSize()
+        # adjustSize guesses wrapped text's height at another width.
+        layout = popup.layout()
+        if layout is not None and layout.hasHeightForWidth():
+            popup.resize(
+                popup.width(),
+                max(popup.height(), layout.totalHeightForWidth(popup.width())),
+            )
         if not popup.isVisible():
             return
         popup.move(self._above_chip(popup))

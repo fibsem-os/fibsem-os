@@ -327,7 +327,18 @@ class AgentSession:
         asks = connections.asking() if connections is not None else []
         if not asks:
             return None
-        return {**asks[0].to_dict(), "if_allowed": if_allowed(self.level)}
+        replaces = self._paired_agent()
+        return {
+            **asks[0].to_dict(),
+            "replaces": replaces,
+            "if_allowed": if_allowed(self.level, replaces),
+        }
+
+    def _paired_agent(self) -> Optional[str]:
+        """The allowed agent's name, which allowing another replaces."""
+        connections = self.connections
+        agent = connections.tokens.agent() if connections is not None else None
+        return agent.name if agent is not None else None
 
     def allow_connection(self, ask_id: str) -> str:
         """Allow the asking agent: it is paired, with a token of its own,
@@ -336,9 +347,13 @@ class AgentSession:
         connections = self.connections
         if connections is None:
             raise LookupError("The App Server isn't running.")
+        replaces = self._paired_agent()
         computer = connections.allow(ask_id)
         logging.info("Operator allowed %s to connect", computer.name)
-        self._record_connection(f"Allow {computer.name} to connect")
+        self._record_connection(
+            f"Allow {computer.name} to connect",
+            reason=f"Replaces {replaces}" if replaces else "",
+        )
         return computer.name
 
     def deny_connection(self, ask_id: str, reason: str = "") -> None:

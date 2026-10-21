@@ -523,6 +523,8 @@ class ConnectAskView:
     name: str
     # what allowing it means at the level now, in the card's words
     if_allowed: str
+    # the allowed agent that allowing this one unpairs: one per microscope
+    replaces: Optional[str] = None
 
 
 @dataclass

@@ -271,7 +271,7 @@ def test_an_unpaired_agent_forgets_its_token_and_asks_again(discovered):
     assert len(computers) == 1
 
 
-# --- always allow agents on this PC -----------------------------------------------
+# --- always allow agents logged in to this PC ---------------------------------------
 
 
 def test_always_allow_pairs_an_ask_from_this_pc_at_once(tmp_path, clock):
@@ -281,20 +281,36 @@ def test_always_allow_pairs_an_ask_from_this_pc_at_once(tmp_path, clock):
         clock=clock,
         save_always_allow=saved.append,
     )
-    connections.on_allowed_always(allowed.append)
+    connections.on_allowed_always(lambda computer, replaced: allowed.append(computer))
     connections.set_always_allow(True)
     assert saved == [True]
-    answer = connections.ask("claude-code 2.1.3", "this PC", "lab", wait_s=0)
+    answer = connections.ask(
+        "claude-code 2.1.3", "10.0.0.5 over SSH", "lab", wait_s=0, loopback=True
+    )
     assert answer["state"] == "allowed"
     assert connections.tokens.match(answer["token"]) == allowed[0]
     assert connections.asking() == []
 
 
-def test_always_allow_still_asks_over_ssh(connections):
+def test_always_allow_asks_a_caller_from_another_address(connections):
     connections.set_always_allow(True)
-    answer = connections.ask("x", "10.0.0.5 over SSH", "lab", wait_s=0)
+    # What the body says of its origin is display text only.
+    answer = connections.ask("x", "this PC", "lab", wait_s=0, loopback=False)
     assert answer["state"] == "waiting"
     assert connections.tokens.computers() == []
+
+
+@pytest.mark.parametrize(
+    "peer, loopback",
+    [("127.0.0.1", True), ("::1", True), ("10.0.0.5", False), ("testclient", False)],
+)
+def test_loopback_is_the_peer_address(peer, loopback):
+    from types import SimpleNamespace
+
+    from fibsem.server.pairing_routes import _loopback
+
+    assert _loopback(SimpleNamespace(client=SimpleNamespace(host=peer))) is loopback
+    assert _loopback(SimpleNamespace(client=None)) is False
 
 
 def test_the_operator_sets_always_allow_and_it_goes_on_the_record(server, monkeypatch):
@@ -323,3 +339,39 @@ def test_the_operator_sets_always_allow_and_it_goes_on_the_record(server, monkey
         p["what"].endswith("to connect") and "Always allow" in p.get("reason", "")
         for p in said
     )
+
+
+# --- one agent per microscope -------------------------------------------------------
+
+
+def test_a_new_agent_replaces_the_allowed_one(tmp_path):
+    tokens = PairedTokens(tmp_path / "paired.json")
+    browser, _ = tokens.add("lab laptop")
+    first, first_token = tokens.add("claude-code on this PC", AGENT)
+    second, second_token = tokens.add("codex on mac-mini", AGENT)
+    assert tokens.agent() == second
+    assert [c.name for c in tokens.computers()] == ["lab laptop", "codex on mac-mini"]
+    assert tokens.match(first_token) is None
+    assert tokens.match(second_token) == second
+
+
+def test_the_card_says_which_agent_allowing_replaces(server):
+    found = _found(server)
+    connect = _bearer(found["connect_token"])
+    server.session.app_server.auth.pairing.tokens.add("codex on mac-mini", AGENT)
+    waiting = server.post("/connect", json={"wait_s": 0}, headers=connect).json()
+    asking = server.get("/app/agent", headers=server.operator).json()["asking"]
+    assert asking["replaces"] == "codex on mac-mini"
+    assert asking["if_allowed"].endswith(
+        "It replaces codex on mac-mini, which is unpaired."
+    )
+    server.post(
+        f"/app/agent/connections/{waiting['id']}/allow", headers=server.operator
+    )
+    listed = server.get("/pairing", headers=server.operator).json()["computers"]
+    assert [c["name"] for c in listed if c["role"] == "agent"] == [
+        "an agent on this PC"
+    ]
+    events = server.get("/app/events", headers=server.operator).json()["events"]
+    allowed = [e["payload"] for e in events if e["kind"] == ACTION][-1]
+    assert allowed["reason"] == "Replaces codex on mac-mini"

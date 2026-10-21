@@ -371,9 +371,25 @@ def test_always_allow_agents_on_this_pc_is_set_from_connect_an_agent(
     assert not dialog._always_allow.isChecked()
     dialog._always_allow.click()
     assert host.auth.connections.always_allow and saved == [True]
-    answer = host.auth.connections.ask("claude-code 2.1.3", "this PC", "lab", 0)
+    answer = host.auth.connections.ask(
+        "claude-code 2.1.3", "this PC", "lab", 0, loopback=True
+    )
     assert answer["state"] == "allowed"
     dialog.refresh()
     assert dialog._always_allow.isChecked()
     assert dialog._agents.layout().count() == 1
+    dialog.deleteLater()
+
+
+def test_pairing_an_agent_says_which_agent_it_replaces(qapp, host, tmp_path):
+    from fibsem.server.pairing import AGENT, PairedTokens, Pairing
+
+    host.auth.pairing = Pairing(PairedTokens(tmp_path / "paired.json"))
+    host.auth.pairing.tokens.add("claude-code on this PC", AGENT)
+    dialog = ConnectAgentDialog(lambda: host, sidecar=tmp_path / "fibsem-mcp")
+    dialog._pair.button.click()
+    code = host.auth.pairing.state()["code"]
+    assert dialog._pair_command.text() == (
+        f"On that computer: fibsem-mcp pair {code}. It replaces claude-code on this PC."
+    )
     dialog.deleteLater()
