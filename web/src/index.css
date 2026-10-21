@@ -1,0 +1,58 @@
+@import "tailwindcss";
+@import "./theme.css";
+
+/* shadcn's names over the Qt palette. */
+:root {
+  --background: var(--fibsem-canvas-bg);
+  --foreground: var(--fibsem-text-strong-color);
+  --card: var(--fibsem-surface-color);
+  --panel: var(--fibsem-panel-color);
+  --popover: var(--fibsem-surface-color);
+  --muted-foreground: var(--fibsem-text-muted-color);
+  --border: var(--fibsem-border-color);
+  --input: var(--fibsem-gray-primary-color);
+  --primary: var(--fibsem-primary-color);
+  --primary-hover: var(--fibsem-primary-color-hover);
+  --primary-foreground: var(--fibsem-gray-white-color);
+  --accent: var(--fibsem-row-alt-color);
+  --link: var(--fibsem-accent-color);
+  --destructive: var(--fibsem-error-color);
+  --ring: var(--fibsem-primary-color);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-panel: var(--panel);
+  --color-popover: var(--popover);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-link: var(--link);
+  --color-destructive: var(--destructive);
+  --color-ring: var(--ring);
+  --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-size: 14px;
+}
+
+* {
+  border-color: var(--border);
+}

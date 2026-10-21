@@ -382,6 +382,20 @@ def test_the_chat_page_is_served(server):
     assert "/app/agent/recent" in answer.text
 
 
+def test_the_web_app_is_served(server):
+    # Every page path gets index.html; assets are served with their type.
+    for path in ("/ui", "/ui/", "/ui/microscope"):
+        answer = server.get(path)
+        assert answer.status_code == 200
+        assert "/ui/assets/index.js" in answer.text
+    script = server.get("/ui/assets/index.js")
+    assert script.status_code == 200
+    assert "javascript" in script.headers["content-type"]
+    assert server.get("/ui/assets/missing.js").status_code == 404
+    outside = server.get("/ui/assets/..%2F..%2Fserver.py")
+    assert "def build_server" not in outside.text
+
+
 def test_the_connect_text_is_the_card_s(server):
     from fibsem.server.agent_setup import setup_text
 
