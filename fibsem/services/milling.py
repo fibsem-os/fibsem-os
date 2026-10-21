@@ -70,6 +70,7 @@ from psygnal import Signal
 
 # At import, not under TYPE_CHECKING: the App Server decodes a command's arguments
 # from its type hints (a FibsemMillingSettings sent as a dict).
+from fibsem.acting import current_actor
 from fibsem.cancellation import (
     CANCELLED,
     COMPLETED,
@@ -803,10 +804,15 @@ class Milling(Service):
         its own mill, ignores it until it moves to monitors (FIB-1484).
 
         Refused with `NothingToStop` when nothing is milling and no stage runs.
+        *by* is who the call is marked as, when it is (a server request), not
+        what a client says.
         """
         stage_run = self._stage_run
         if stage_run is None and not self._is_milling():
             raise NothingToStop("Nothing is milling.")
+        actor = current_actor()
+        if actor is not None:
+            by = actor.value
         end = MillingStepEnd(ENDED, by=by, reason=reason)
         if stage_run is not None:
             stage_run.end_as(end)

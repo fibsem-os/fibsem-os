@@ -13,9 +13,10 @@ from __future__ import annotations
 import csv
 import logging
 import os
+import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List, Optional
 
 import numpy as np
 
@@ -73,6 +74,9 @@ class FmIntensityMonitor(MillingStreamMonitor[FmIntensityConfig]):
     view = "fm"
     # Without the FM watching, the mill would run blind to the drop.
     required = True
+    # Milled time with no frame, or a stream gone, fails the step.
+    frame_timeout: ClassVar[float] = 10.0
+    look_interval: ClassVar[float] = 0.2
 
     def __init__(self, config: Optional[FmIntensityConfig] = None) -> None:
         super().__init__(config)
@@ -81,6 +85,10 @@ class FmIntensityMonitor(MillingStreamMonitor[FmIntensityConfig]):
         self.drop_at: Optional[float] = None
         self._saved_at: Optional[float] = None
         self._figure: Optional[str] = None
+        self._own_stream = False
+        self._frame_at = 0.0
+        self._done = threading.Event()
+        self._watchdog: Optional[threading.Thread] = None
 
     @property
     def fm(self) -> Any:
@@ -100,7 +108,27 @@ class FmIntensityMonitor(MillingStreamMonitor[FmIntensityConfig]):
         if self.folder is not None:
             os.makedirs(self.folder, exist_ok=True)
         super().on_start()
-        self.fm.start_acquisition()
+        fm = self.fm
+        # The operator's live view, when on, is ridden and left on.
+        self._own_stream = not fm.is_streaming
+        if self._own_stream:
+            fm.start_acquisition()
+        self._watchdog = threading.Thread(
+            target=self._watch_frames, name=f"monitor-{self.name}", daemon=True
+        )
+        self._watchdog.start()
+
+    def _watch_frames(self) -> None:
+        while not self._done.wait(self.look_interval):
+            if self.step.ending.is_set() or self.error is not None:
+                return
+            self.guarded(self._check_frames)
+
+    def _check_frames(self) -> None:
+        if not self.fm.is_streaming:
+            raise RuntimeError("the FM live view stopped")
+        if self.step.milled_time() - self._frame_at >= self.frame_timeout:
+            raise RuntimeError(f"no FM frame in {self.frame_timeout:g} s of milling")
 
     def restore_view(self) -> None:
         self.fm.set_active_channel()
@@ -112,10 +140,11 @@ class FmIntensityMonitor(MillingStreamMonitor[FmIntensityConfig]):
                 (data.shape[-1], data.shape[-2])
             )
             data = data[..., y : y + h, x : x + w]
+        milled = self.step.milled_time()
+        self._frame_at = milled
         mean = float(np.mean(data))
         if np.isnan(mean):
             return
-        milled = self.step.milled_time()
         stats = self.rule.update(mean, milled)
         reading = {k: _plain(stats[k]) for k in _READING}
         self.rows.append({"milled_time": round(milled, 3), **reading})
@@ -138,9 +167,12 @@ class FmIntensityMonitor(MillingStreamMonitor[FmIntensityConfig]):
         frame.save(os.path.join(self.folder, f"fm-{milled:07.1f}s.ome.tiff"))
 
     def on_stop(self) -> None:
+        self._done.set()
+        if self._watchdog is not None:
+            self._watchdog.join(timeout=self.look_interval + 5.0)
         try:
             fm = getattr(self.step.microscope, "fm", None)
-            if fm is not None:
+            if fm is not None and self._own_stream:
                 fm.stop_acquisition()
         finally:
             super().on_stop()

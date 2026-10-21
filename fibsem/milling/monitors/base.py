@@ -139,14 +139,19 @@ class MillingMonitor(Generic[TMillingMonitorConfig]):
         except Exception as e:  # noqa: BLE001 - a monitor's own failure
             self.error = e
             logging.warning(f"Milling monitor {self.name} failed: {e}", exc_info=True)
-            if self.step is not None:
-                self.step.report(
-                    {"error": f"{type(e).__name__}: {e}"},
-                    notable=True,
-                    monitor=self.name,
-                )
-                if self.required:
-                    self.step.fail(f"{self.name} failed: {e}", by=self.by)
+        if self.error is None or self.step is None:
+            return
+        e = self.error
+        self.step.report(
+            {"error": f"{type(e).__name__}: {e}"}, notable=True, monitor=self.name
+        )
+        if self.required:
+            try:
+                self.step.fail(f"{self.name} failed: {e}", by=self.by)
+            except Exception:  # noqa: BLE001 - the step fails for the monitor
+                # The beam's stop raised; the step's end is the monitor's, and
+                # the state monitor stops the beam again.
+                logging.warning("Could not stop the beam", exc_info=True)
 
     # ── what a monitor does to the step ───────────────────────────────────
 
