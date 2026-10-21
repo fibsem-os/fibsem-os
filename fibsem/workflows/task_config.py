@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import uuid
 from abc import ABC
-from dataclasses import dataclass, field, fields
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
@@ -28,6 +28,9 @@ from typing import (
     Union,
     get_type_hints,
 )
+
+import yaml
+from psygnal import evented
 
 from fibsem.codec.upgrades import protocol as upgrade
 from fibsem.structures import Configurable, Display, param
@@ -228,6 +231,28 @@ def load_task_configs(
 SCHEDULE_DAYS_AHEAD = 2
 
 
+@evented
+@dataclass
+class WorkflowOptions:
+    """How a run ends: whether the beams go off and the summary dialog opens."""
+
+    turn_beams_off: bool = False
+    # Open the run summary dialog when a run ends. The run-end toast, with its
+    # Show summary link, comes either way; off is for runs nobody is watching
+    # the end of -- an agent starting many short runs, or overnight (FIB-1376).
+    show_run_summary: bool = True
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "WorkflowOptions":
+        data = dict(data)
+        # How long a run waited on reviews, before nothing waited on one.
+        data.pop("review_wait", None)
+        return cls(**data)
+
+
 @dataclass
 class TaskPlan:
     """One task in the plan a run follows: whether an item is done without it,
@@ -352,6 +377,28 @@ class TaskProtocol:
         """name -> typed config, from the saved ``task_config`` section."""
         raise NotImplementedError
 
+    @classmethod
+    def task_classes(cls) -> Dict[str, type]:
+        """task_type -> task class, for every task this protocol can add."""
+        raise NotImplementedError
+
+    def add_new(self, task_type: str, task_name: str) -> TaskConfig:
+        """Add a supervised task of a registered *task_type*, named
+        *task_name*, with its default settings, at the end of the plan.
+        Raises ValueError for an unknown type, no name, or a name in use."""
+        task_name = task_name.strip()
+        classes = self.task_classes()
+        if task_type not in classes:
+            raise ValueError(f"No {self.NOUN} type {task_type!r}.")
+        if not task_name:
+            raise ValueError(f"A {self.NOUN} needs a name.")
+        if task_name in self.task_config:
+            raise ValueError(f"There is already a {self.NOUN} named {task_name!r}.")
+        config = classes[task_type].config_cls()
+        config.task_name = task_name
+        config.attention = Attention.supervised
+        return self.add(config)
+
     def add(self, config: TaskConfig) -> TaskConfig:
         if not config.task_name:
             raise ValueError(f"A {self.NOUN} config needs a task_name.")
@@ -451,6 +498,23 @@ class TaskProtocol:
             "task_config": {k: v.to_dict() for k, v in self.task_config.items()},
             "workflow_config": self.workflow_config.to_dict(),
         }
+
+    @classmethod
+    def load(cls, filename: str):
+        with open(filename) as file:
+            data = yaml.safe_load(file)
+        return cls.from_dict(data)
+
+    def save(self, filename: str) -> None:
+        """Save the task protocol to a YAML file."""
+        with open(filename, "w") as file:
+            yaml.safe_dump(
+                self.to_dict(),
+                file,
+                indent=4,
+                default_flow_style=False,
+                sort_keys=False,
+            )
 
     @classmethod
     def from_dict(cls, data: Optional[Dict[str, Any]]):

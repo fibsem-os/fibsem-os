@@ -1,6 +1,10 @@
 {
   "id": "pinned-volume-protocol-id",
   "name": "Volume Protocol",
+  "options": {
+    "show_run_summary": true,
+    "turn_beams_off": false
+  },
   "task_config": {
     "Setup FIB Milling Position": {
       "attention": "supervised",
