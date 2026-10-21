@@ -38,8 +38,8 @@ On the curl path your own harness may gate commands that change state: a
 permission prompt for the operator in an interactive session, a hard denial
 when running on your own. Treat a harness denial exactly like a server 403:
 stop and ask, and never repackage the call to get past it. Under
-`fibsem-agent` there is no shell, so there is no curl path: the MCP tools are
-the way in.
+`fibsem-agent` there is no curl path, even in code mode (its shell has no
+network): the MCP tools are the way in.
 
 Read `server_get_capabilities` (`/capabilities`) before anything else:
 

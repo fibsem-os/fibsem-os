@@ -56,7 +56,13 @@ def resolve(root: Optional[str], path: str) -> str:
             f"Only files inside the open experiment ({root}), not {path}.",
         )
     if not os.path.exists(target):
-        raise FileRefusal(404, "not_found", f"No file or folder at {path}.")
+        raise FileRefusal(
+            404,
+            "not_found",
+            f"No file or folder at {path} in {os.path.basename(root)}. Paths are "
+            "inside the experiment; for another experiment's files, pass "
+            "experiment.",
+        )
     return target
 
 

@@ -244,6 +244,90 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
     assert not any("t0k" in part for part in command), "the token is in argv"
 
 
+def test_code_mode_is_sandboxed_in_its_work_folder(tmp_path, monkeypatch):
+    pytest.importorskip("claude_agent_sdk")
+    import json
+
+    from fibsem.ai.agent import code_mode
+
+    monkeypatch.setenv("SOME_SERVICE_TOKEN", "x")
+    checkout = runner_mod.find_checkout()
+    work = tmp_path / "work"
+    warnings = code_mode.prepare(work, checkout, list(runner_mod.SKILLS))
+    options = runner_mod.build_options(checkout, token="t0k", work=work)
+
+    # The skills are read from the work folder, which is the CLI's.
+    assert options.cwd == str(work)
+    for skill in runner_mod.SKILLS:
+        assert (work / ".claude" / "skills" / skill / "SKILL.md").is_file()
+    assert (work / "notebook" / "INDEX.md").is_file()
+    assert any(".venv" in warning for warning in warnings)
+
+    assert options.permission_mode == "dontAsk"
+    for tool in ("Bash", "Read", "Write", "Edit", "Glob", "Grep"):
+        assert tool in options.tools
+    for tool in ("WebFetch", "WebSearch", "Agent"):
+        assert tool in options.disallowed_tools
+    assert "Bash" not in options.disallowed_tools
+    # Writes in the work folder only.
+    rule = f"/{work.as_posix()}/**"
+    assert f"Edit({rule})" in options.allowed_tools
+    assert "Write" not in options.allowed_tools and "Edit" not in options.allowed_tools
+
+    settings = json.loads(options.settings)
+    assert settings["permissions"]["blockReadsOutsideWorkingDirectories"] is True
+    assert (
+        f"Edit(/{(work / '.claude').as_posix()}/**)" in settings["permissions"]["deny"]
+    )
+    sandbox = settings["sandbox"]
+    assert sandbox["enabled"] and sandbox["failIfUnavailable"]
+    assert sandbox["allowUnsandboxedCommands"] is False
+    assert sandbox["network"]["allowedDomains"] == []
+    hidden = {entry["name"] for entry in sandbox["credentials"]["envVars"]}
+    assert {"ANTHROPIC_API_KEY", "FIBSEM_SERVER_TOKEN", "SOME_SERVICE_TOKEN"} <= hidden
+    assert all(entry["mode"] == "deny" for entry in sandbox["credentials"]["envVars"])
+
+    assert options.env["FIBSEM_AGENT_WORKDIR"] == str(work)
+    assert options.env["MPLCONFIGDIR"].startswith(str(work))
+    prompt = options.system_prompt["append"]
+    assert str(work) in prompt and "no network" in prompt
+    assert "There is no shell" not in prompt
+
+    # On the CLI's command line, as flag settings, which a project's own
+    # settings can't loosen; the token still isn't in argv.
+    from claude_agent_sdk._internal.transport.subprocess_cli import (
+        SubprocessCLITransport,
+    )
+
+    transport = SubprocessCLITransport("", options)
+    transport._cli_path = "claude"
+    command = transport._build_command()
+    assert json.loads(command[command.index("--settings") + 1]) == settings
+    assert not any("t0k" in part for part in command), "the token is in argv"
+
+
+def test_code_mode_keeps_its_venv_off_home(tmp_path, monkeypatch):
+    from fibsem.ai.agent import code_mode
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    work = tmp_path / "work"
+    (work / ".venv").mkdir(parents=True)
+    cfg = work / ".venv" / "pyvenv.cfg"
+    cfg.write_text(f"home = {tmp_path / '.pyenv' / 'bin'}\n")
+    assert any("home folder" in w for w in code_mode._venv_warnings(work))
+    cfg.write_text("home = /opt/homebrew/bin\n")
+    assert code_mode._venv_warnings(work) == []
+
+
+def test_code_mode_refuses_windows(monkeypatch):
+    from fibsem.ai.agent import code_mode
+
+    monkeypatch.setattr(code_mode.sys, "platform", "win32")
+    assert "sandbox" in code_mode.refusal()
+    monkeypatch.setattr(code_mode.sys, "platform", "darwin")
+    assert code_mode.refusal() is None
+
+
 # --- turning lines into turns -------------------------------------------------
 
 

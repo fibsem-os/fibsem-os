@@ -8,6 +8,7 @@ decides what the agent may do, and the runner never sets the level. Needs the
 
     fibsem-agent
     fibsem-agent --resume <session id>
+    fibsem-agent --code ~/fibsem-work   # it writes and runs code, sandboxed
 """
 
 import argparse
@@ -25,6 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, List, Optional
 
+from fibsem.ai.agent import code_mode
 from fibsem.ai.agent.levels import LEVEL_SKILLS
 from fibsem.ai.agent.mcp import watch as watch_mod
 from fibsem.util import timestamps
@@ -78,9 +80,7 @@ interactive Claude Code session. Nobody is at a terminal.
 arrives as your next message, starting "The watcher printed:". Don't start a \
 watcher, don't loop app_get_events, and don't wait inside a turn: do what the \
 lines call for, then end your turn.
-- Your tools are the mcp__fibsem__* tools and Skill. There is no shell, no \
-file access and no web. Where a skill shows curl, python or a script, use the \
-matching mcp__fibsem__ tool, or say what you can't do.
+{tools}
 - Your replies go to fibsem-agent's console and log, which the operator may \
 not be reading. Anything the operator must see goes on the record with \
 experiment_add_note; answer a MESSAGE with its reply_to.
@@ -89,6 +89,19 @@ observe-autolamella at Watch, assist-autolamella at Assist, \
 supervise-autolamella at Drive. A LEVEL line means it changed: read that \
 level's skill if you haven't. A refusal is the server's answer: handle it as \
 the skills say."""
+NO_CODE = """\
+- Your tools are the mcp__fibsem__* tools and Skill. There is no shell, no \
+file access and no web. Where a skill shows curl, python or a script, use the \
+matching mcp__fibsem__ tool, or say what you can't do."""
+
+
+def runner_prompt(work: Optional[Path] = None) -> str:
+    """What the runner tells the agent about itself; in code mode, about its
+    work folder too."""
+    if work is None:
+        return RUNNER_PROMPT.format(tools=NO_CODE)
+    return RUNNER_PROMPT.format(tools=code_mode.PROMPT.format(work=work))
+
 
 REREAD_PROPOSALS = (
     "Events were lost: re-read proposal_list and app_get_status before acting "
@@ -832,9 +845,12 @@ def build_options(
     max_turns: Optional[int] = MAX_TURNS,
     max_budget_usd: Optional[float] = MAX_BUDGET_USD,
     resume: Optional[str] = None,
+    work: Optional[Path] = None,
 ):
     """The SDK session: the sidecar as the only MCP server, the project's
-    skills and nothing of the user's Claude Code config."""
+    skills and nothing of the user's Claude Code config. With ``work``, code
+    mode: the code tools, sandboxed, in ``work`` (``code_mode.prepare`` has
+    copied the skills there)."""
     from claude_agent_sdk import ClaudeAgentOptions
 
     command = sidecar_command()
@@ -846,16 +862,25 @@ def build_options(
         env["FIBSEM_SERVER_URL"] = url
     if token:
         env["FIBSEM_SERVER_TOKEN"] = token
+    tools, allowed, denied = BUILT_IN_TOOLS, ALLOWED_TOOLS, DENIED_TOOLS
+    settings = None
+    if work is not None:
+        env.update(code_mode.env(work))
+        tools = BUILT_IN_TOOLS + code_mode.CODE_TOOLS
+        allowed = ALLOWED_TOOLS + code_mode.allowed_tools(work)
+        denied = [tool for tool in DENIED_TOOLS if tool not in code_mode.CODE_TOOLS]
+        settings = code_mode.settings_json(work, {**os.environ, **env})
     return ClaudeAgentOptions(
-        cwd=str(checkout),
+        cwd=str(work or checkout),
         # The checkout's .claude/skills (CLAUDE.md is off, see CLI_ENV), and none of
         # ~/.claude: the user's own settings, hooks and skills stay out.
         setting_sources=["project"],
         skills=list(SKILLS),
-        tools=list(BUILT_IN_TOOLS),
-        allowed_tools=list(ALLOWED_TOOLS),
-        disallowed_tools=list(DENIED_TOOLS),
+        tools=list(tools),
+        allowed_tools=list(allowed),
+        disallowed_tools=list(denied),
         permission_mode=PERMISSION_MODE,
+        settings=settings,
         mcp_servers={SERVER: server},
         env=env,
         # Only the server above: not a `fibsem` registered in ~/.claude.json.
@@ -863,7 +888,7 @@ def build_options(
         system_prompt={
             "type": "preset",
             "preset": "claude_code",
-            "append": RUNNER_PROMPT,
+            "append": runner_prompt(work),
         },
         # Watcher lines carry operator-typed text: never expand an @path in it.
         verbatim_prompts=True,
@@ -949,6 +974,13 @@ def main(argv=None) -> int:
         default=None,
         help="the fibsem-os checkout whose .claude/skills the agent reads",
     )
+    parser.add_argument(
+        "--code",
+        default=None,
+        metavar="PATH",
+        help="code mode: the agent writes and runs its own code in PATH, "
+        "sandboxed (macOS and Linux only)",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -971,11 +1003,22 @@ def main(argv=None) -> int:
             file=sys.stderr,
         )
         return 1
+    work = None
+    if args.code:
+        refused = code_mode.refusal()
+        if refused:
+            print(refused, file=sys.stderr)
+            return 1
+        work = code_mode.workdir(args.code)
     # From the environment, so it is not in the process list or shell history.
     token = os.environ.get("FIBSEM_SERVER_TOKEN")
     log_path = Path(args.log).expanduser() if args.log else _default_log()
     _log_to(log_path)
     log.info("fibsem-agent: skills from %s, log %s", checkout, log_path)
+    if work is not None:
+        for warning in code_mode.prepare(work, checkout, list(SKILLS)):
+            log.warning(warning)
+        log.info("Code mode: the agent works in %s, sandboxed.", work)
 
     options = build_options(
         checkout,
@@ -985,6 +1028,7 @@ def main(argv=None) -> int:
         max_turns=args.max_turns,
         max_budget_usd=args.max_budget_usd,
         resume=args.resume,
+        work=work,
     )
     agent = SdkAgent(options)
     runner = Runner(
