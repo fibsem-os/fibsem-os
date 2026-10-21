@@ -671,7 +671,7 @@ class BaseTask(ABC):
                     TaskStatus.Cancelled if cancelled else TaskStatus.Failed
                 )
                 self.item.task_state.status_message = (
-                    "Cancelled by user." if cancelled else str(e)
+                    self._stop_message() if cancelled else str(e)
                 )
                 self._record_outcome()
             except Exception:
@@ -697,7 +697,7 @@ class BaseTask(ABC):
                     self.item,
                     self.task_id,
                     TaskStatus.Cancelled if cancelled else TaskStatus.Failed,
-                    "Cancelled by user."
+                    self._stop_message()
                     if cancelled
                     else f"Finished, but its result could not be recorded: {e}",
                 )
@@ -797,6 +797,11 @@ class BaseTask(ABC):
         if isinstance(exc, (OperationCancelledError, InterruptedError)):
             return True
         return bool(getattr(self.task_manager, "should_abort", False))
+
+    def _stop_message(self) -> str:
+        """What a stopped task's record says: who stopped it and why, when the
+        stop said so."""
+        return getattr(self.task_manager, "stop_message", "") or "Cancelled by user."
 
     def _check_for_abort(self) -> None:
         """Raise InterruptedError if this task should stop. Call between steps.

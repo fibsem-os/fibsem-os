@@ -343,13 +343,16 @@ def set_images_ui(
     run: Optional[Any],
     eb_image: Optional[FibsemImage] = None,
     ib_image: Optional[FibsemImage] = None,
+    check_abort: bool = True,
 ):
     """Keep a task's images as the latest of each beam (the run's ``images``),
-    then have the window, when one answers, show them."""
+    then have the window, when one answers, show them. ``check_abort=False``
+    keeps them after a Stop without asking the window, as `update_status_ui`."""
     if run is None:
         return
 
-    _check_for_abort(run)
+    if check_abort:
+        _check_for_abort(run)
 
     images = getattr(run, "images", None)
     if images is not None:
@@ -358,7 +361,7 @@ def set_images_ui(
         if ib_image is not None:
             images.set(ib_image, BeamType.ION)
     responder = getattr(run, "responder", None)
-    if responder is None:
+    if responder is None or _abort_requested(run):
         return
 
     # TMP: prevent milling images overwriting existing

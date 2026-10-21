@@ -840,7 +840,12 @@ class LamellaTaskImageWidget(QWidget):
             else:  # one line, or operations asked for: no fold to open
                 for index, operation in enumerate(run.operations):
                     layout.addWidget(self._operation(run.task_id, index, operation))
-            if not run.operations and flt.show == "all" and self._has_events:
+            if (
+                not run.operations
+                and not run.outside_task
+                and flt.show == "all"
+                and self._has_events
+            ):
                 layout.addWidget(
                     _text(
                         "No operations recorded",
@@ -848,7 +853,7 @@ class LamellaTaskImageWidget(QWidget):
                     )
                 )
 
-        if flt.show != "operations" and not run.outside_task:
+        if flt.show != "operations" and (filenames or not run.outside_task):
             if filenames:
                 layout.addWidget(self._image_grid(filenames))
             elif run.images_replaced_by is not None:

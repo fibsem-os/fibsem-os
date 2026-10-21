@@ -494,7 +494,10 @@ TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "item_name": "the item (lamella) name",
             "task_name": "the task name, as listed by protocol_get",
-            "patch": "object of dotted-path: value entries to set",
+            "patch": (
+                "object of dotted-path: value entries to set; a list of settings "
+                "(channel_settings) is set whole, as a list of their dicts"
+            ),
             "version": "the version token from item_get_task_config",
         },
         line=_item_update_task_config,

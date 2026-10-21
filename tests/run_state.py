@@ -99,11 +99,11 @@ class HeldManager:
             self._on_execute()
         self.release.wait(30)
 
-    def stop(self) -> None:
+    def stop(self, message: str = "") -> None:
         self.is_stopped = True
         self.release.set()
 
-    def stop_task(self) -> None:
+    def stop_task(self, message: str = "") -> None:
         pass
 
     def build_run_summary_dataframe(self) -> None:

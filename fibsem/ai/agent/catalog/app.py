@@ -697,7 +697,10 @@ TOOLS: Tuple[ToolSpec, ...] = (
         router="app",
         params={
             "task_name": "the task name, as listed by protocol_get",
-            "patch": "object of dotted-path: value entries to set",
+            "patch": (
+                "object of dotted-path: value entries to set; a list of settings "
+                "(channel_settings) is set whole, as a list of their dicts"
+            ),
             "version": "the version token from protocol_get_task_config",
         },
         line=_protocol_update_task_config,

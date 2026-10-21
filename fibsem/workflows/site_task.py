@@ -180,6 +180,9 @@ class SiteTask(BaseTask):
         # task's _run (FIB-1253). In __init__ rather than pre_task, so a task
         # whose _run is called directly still writes there.
         self.config.imaging.path = self.output_dir
+        # Set once only the closing reference images are left: the work is done,
+        # so a Stop lets the task finish rather than record it Cancelled (FIB-1523).
+        self._closing = False
 
     @property
     def item_type(self) -> str:
@@ -280,6 +283,7 @@ class SiteTask(BaseTask):
             run=self.task_manager,
             msg=f"{self.item.name} [{self.task_name}] {message}",
             workflow_info=workflow_info,
+            check_abort=not self._closing,
         )
 
     def _run_autofocus(
@@ -497,6 +501,7 @@ class SiteTask(BaseTask):
             phase = "final" if filename is None else "other"
         if filename is None:
             filename = f"ref_{self.task_name}_final"
+            self._closing = True
 
         self.log_status_message(
             "ACQUIRE_REFERENCE_IMAGES", "Acquiring Reference Images..."
@@ -515,7 +520,7 @@ class SiteTask(BaseTask):
         if fib_image is not None:
             self._last_fib_image = fib_image
         set_images_ui(
-            self.task_manager, sem_image, fib_image
+            self.task_manager, sem_image, fib_image, check_abort=not self._closing
         )  # show the last acquired image
 
     def _retract_objective(self) -> None:

@@ -1026,6 +1026,9 @@ class FMControlWidget(QWidget):
             if result["status"] == "cancelled":
                 logging.info("Auto-focus was cancelled")
                 return
+            if result["status"] == "no_focus":
+                logging.warning(f"Auto-focus: {result['message']}")
+                return
 
             logging.info(
                 f"Auto-focus completed successfully. Best focus: {result['working_distance'] * 1e6:.1f} μm"

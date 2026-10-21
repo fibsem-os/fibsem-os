@@ -188,6 +188,19 @@ def test_each_channel_is_its_own_projected_layer():
     assert layers[0].data[1, 1] == 900 and layers[1].data[5, 5] == 700
 
 
+def test_gray_channels_in_a_stack_take_the_palette():
+    """Gray is the settings' default, so a stack of gray channels would draw as
+    one gray blur (FIB-1517): each takes its palette colour instead, and the
+    legend says so. A lone gray channel stays gray."""
+    data = np.zeros((2, 3, 8, 8), dtype=np.uint16)
+    image = _stack(data, ["gray", "gray"])
+    colors = [layer.color for layer in projection_layers(image)]
+    assert colors == ["violet", "blue"]
+    assert [c["color"] for c in stack_facts(image)["channels"]] == colors
+    lone = _stack(np.zeros((1, 3, 8, 8), dtype=np.uint16), ["gray"])
+    assert projection_layers(lone)[0].color == "gray"
+
+
 def test_the_composite_is_the_blend_of_the_layers():
     rng = np.random.default_rng(0)
     data = (rng.random((2, 2, 8, 8)) * 4000).astype(np.uint16)
