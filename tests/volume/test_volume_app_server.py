@@ -260,7 +260,7 @@ def test_an_agent_runs_a_position_from_set_up_to_its_last_slice(
         time.sleep(0.2)
 
     (row,) = _ok(agent.get("/app/experiment"))["items"]
-    assert row["slices_cut"] == 2 and not row["failed"]
+    assert row["slices_cut"] == 2 and not row["is_failure"]
     history = _ok(agent.get("/app/experiment/task_history"))["items"]
     assert [r["iteration"] for r in history] == [None, None, 0, 0, 1, 1]
 

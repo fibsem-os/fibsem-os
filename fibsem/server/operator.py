@@ -9,7 +9,6 @@ approve its own request or raise its own level.
 """
 
 import base64
-import dataclasses
 import os
 from typing import Any, Dict, Optional
 
@@ -21,6 +20,23 @@ from fibsem.server import files
 from fibsem.server.agent_setup import setup_text
 from fibsem.server.auth import require_operator
 from fibsem.server.requests import RequestRefused
+from fibsem.server.responses import (
+    AgentStopped,
+    AgentView,
+    ConnectText,
+    EvidenceView,
+    LevelOption,
+    LevelSet,
+    MessageSent,
+    Picture,
+    PictureInfo,
+    RecentRows,
+    RequestDecided,
+    SuggestionCard,
+    SuggestionDecided,
+    Waiting,
+    answer,
+)
 from fibsem.workflows import evidence
 
 
@@ -42,73 +58,78 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
     """The operator's side of the agent, under ``/app/agent``."""
     router = APIRouter(prefix="/app/agent", dependencies=[Depends(require_operator())])
 
-    @router.get("")
+    @router.get("", response_model=AgentView)
     def get_agent():
         """The agent as the chip shows it: level, stopped, last heard, the
         client its sidecar named, and the request waiting, if any."""
         auth = agent.host.auth if agent.host is not None else None
         request = agent.current()
-        return {
-            "experiment": agent.experiment_name(),
-            "level": agent.level.value if agent.level is not None else None,
-            "stopped": bool(auth.stopped) if auth is not None else False,
-            "last_heard_s": agent.seconds_since_seen(),
-            "client": agent.client(),
-            # The agent's session as it reported it, in the card's words.
-            "session": agent.session_text(),
-            "request": request.to_dict() if request is not None else None,
-            "suggestion": agent.suggestion(),
-            "now": agent.now(),
-            "waiting": agent.waiting(),
-            # The card's pictures: what each is, and its version to fetch.
-            "pictures": {
-                kind: {
-                    "caption": picture["caption"],
-                    "image": picture["png"] is not None,
-                    "version": picture["version"],
-                }
-                for kind in ("request", "suggestion")
-                if (picture := agent.picture(kind)) is not None
-            },
-            "levels": [
-                {
-                    "level": level.value,
-                    "name": LEVEL_NAMES[level],
-                    "word": LEVEL_WORDS[level],
-                    "tip": LEVEL_TIPS[level],
-                }
-                for level in AgentLevel
-            ],
-        }
+        suggestion = agent.suggestion()
+        waiting = agent.waiting()
+        return answer(
+            AgentView(
+                experiment=agent.experiment_name(),
+                level=agent.level.value if agent.level is not None else None,
+                stopped=bool(auth.stopped) if auth is not None else False,
+                last_heard_s=agent.seconds_since_seen(),
+                client=agent.client(),
+                session=agent.session_text(),
+                request=request.view() if request is not None else None,
+                suggestion=SuggestionCard(**suggestion) if suggestion else None,
+                now=agent.now(),
+                waiting=Waiting(**waiting) if waiting else None,
+                # The card's pictures: what each is, and its version to fetch.
+                pictures={
+                    kind: PictureInfo(
+                        picture["caption"],
+                        picture["png"] is not None,
+                        picture["version"],
+                    )
+                    for kind in ("request", "suggestion")
+                    if (picture := agent.picture(kind)) is not None
+                },
+                levels=[
+                    LevelOption(
+                        level.value,
+                        LEVEL_NAMES[level],
+                        LEVEL_WORDS[level],
+                        LEVEL_TIPS[level],
+                    )
+                    for level in AgentLevel
+                ],
+            )
+        )
 
-    @router.get("/connect")
+    @router.get("/connect", response_model=ConnectText)
     def connect():
         """The text the card's "Connect an agent…" copies: pasted into an agent
         on this machine, it registers the sidecar and checks the connection.
         None when the sidecar isn't installed."""
         host = agent.host
-        return {"text": setup_text(host.url if host is not None else None)}
+        return answer(ConnectText(setup_text(host.url if host is not None else None)))
 
-    @router.get("/recent")
+    @router.get("/recent", response_model=RecentRows)
     def recent():
         """The card's rows: the conversation and the agent's actions, oldest
         first, as the card reads them from the record."""
-        return {"rows": [dataclasses.asdict(row) for row in agent.recent()]}
+        return answer(RecentRows(agent.recent()))
 
-    @router.get("/pictures/{kind}")
+    @router.get("/pictures/{kind}", response_model=Picture)
     def get_picture(kind: str):
         """The card's picture of the waiting request or the suggestion, as
         the window drew it: a PNG with its legend, and what it is."""
         picture = agent.picture(kind)
         if picture is None or picture["png"] is None:
             raise _refused(404, "not_found", f"No {kind} picture is drawn.")
-        return {
-            "image_b64_png": base64.b64encode(picture["png"]).decode("ascii"),
-            "caption": picture["caption"],
-            "version": picture["version"],
-        }
+        return answer(
+            Picture(
+                base64.b64encode(picture["png"]).decode("ascii"),
+                picture["caption"],
+                picture["version"],
+            )
+        )
 
-    @router.get("/evidence/{evidence_id}")
+    @router.get("/evidence/{evidence_id}", response_model=EvidenceView)
     def get_evidence(evidence_id: str):
         """A piece of evidence: its image as a preview, and its marks in the
         image's pixels."""
@@ -120,16 +141,16 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
         image = record.get("image")
         try:
             relative = os.path.relpath(image, os.path.realpath(root))
-            answer = files.read(root, relative)
+            read = files.read(root, relative)
         except (TypeError, ValueError, files.FileRefusal) as exc:
             raise _refused(404, "not_found", f"The evidence image is missing: {exc}")
-        return {
-            "preview": answer.get("preview"),
-            "marks": record.get("marks"),
-            "path": relative.replace(os.sep, "/"),
-        }
+        return answer(
+            EvidenceView(
+                read.get("preview"), record.get("marks"), relative.replace(os.sep, "/")
+            )
+        )
 
-    @router.post("/messages", status_code=201)
+    @router.post("/messages", status_code=201, response_model=MessageSent)
     def send_message(body: Dict[str, Any]):
         text = _text(body, "text")
         if len(text) > MESSAGE_LIMIT:
@@ -145,9 +166,9 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
                 "not_recording",
                 "Nothing is recording, so the agent can't hear a message.",
             )
-        return {"id": message_id}
+        return answer(MessageSent(message_id), status_code=201)
 
-    @router.put("/level")
+    @router.put("/level", response_model=LevelSet)
     def set_level(body: Dict[str, Any]):
         try:
             level = AgentLevel(_text(body, "level").lower())
@@ -157,31 +178,29 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
         why_not = agent.set_level(level)
         if why_not is not None:
             raise _refused(409, "level_refused", why_not)
-        return {"level": level.value}
+        return answer(LevelSet(level.value))
 
-    @router.post("/stop")
+    @router.post("/stop", response_model=AgentStopped)
     def stop_agent():
         """Stop agent: down to Watch, and stop what it is doing on the microscope."""
         stopped = agent.stop()
-        return {
-            "stopped": stopped,
-            "level": agent.level.value if agent.level is not None else None,
-        }
+        level = agent.level.value if agent.level is not None else None
+        return answer(AgentStopped(stopped, level))
 
     def _store() -> None:
         if agent.requests is None:
             raise _refused(409, "no_server", "The App Server isn't serving the agent.")
 
-    @router.post("/requests/{request_id}/approve")
+    @router.post("/requests/{request_id}/approve", response_model=RequestDecided)
     def approve_request(request_id: str):
         _store()
         try:
             agent.approve(request_id)
         except RequestRefused as refusal:
             raise HTTPException(status_code=refusal.status_code, detail=refusal.detail)
-        return {"id": request_id, "approved": True}
+        return answer(RequestDecided(request_id, True))
 
-    @router.post("/requests/{request_id}/reject")
+    @router.post("/requests/{request_id}/reject", response_model=RequestDecided)
     def reject_request(request_id: str, body: Optional[Dict[str, Any]] = None):
         _store()
         reason = _text(body or {}, "reason", required=False)
@@ -189,14 +208,14 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
             agent.reject(request_id, reason)
         except RequestRefused as refusal:
             raise HTTPException(status_code=refusal.status_code, detail=refusal.detail)
-        return {"id": request_id, "approved": False}
+        return answer(RequestDecided(request_id, False))
 
-    @router.post("/suggestions/{proposal_id}/approve")
+    @router.post("/suggestions/{proposal_id}/approve", response_model=SuggestionDecided)
     def approve_suggestion(proposal_id: str):
         """Decide the proposal as the agent suggested, as the card's Approve."""
         return _decided(agent.approve_suggestion(proposal_id), proposal_id)
 
-    @router.post("/suggestions/{proposal_id}/decline")
+    @router.post("/suggestions/{proposal_id}/decline", response_model=SuggestionDecided)
     def decline_suggestion(proposal_id: str, body: Optional[Dict[str, Any]] = None):
         """Drop the suggestion with the operator's reason, as the card's
         Decline; the proposal stays pending."""
@@ -206,8 +225,8 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
     return router
 
 
-def _decided(result: Any, proposal_id: str) -> Dict[str, Any]:
+def _decided(result: Any, proposal_id: str) -> Any:
     if not result.applied:
         status = 422 if result.error_type == "invalid_value" else 409
         raise _refused(status, result.error_type or "not_decided", result.reason)
-    return {"proposal_id": proposal_id, "applied": True}
+    return answer(SuggestionDecided(proposal_id, True))

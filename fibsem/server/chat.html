@@ -986,7 +986,7 @@ async function readItems() {
   try {
     const answer = await api("/app/experiment");
     files.items = {};
-    for (const i of answer.items || []) files.items[i.lamella_name] = i;
+    for (const i of answer.items || []) files.items[i.item_name] = i;
   } catch (e) { files.items = {}; }
 }
 
