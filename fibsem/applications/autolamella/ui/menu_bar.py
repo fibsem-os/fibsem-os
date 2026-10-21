@@ -218,6 +218,16 @@ class MainMenuBar(QObject):
         )
         view_menu.addAction(self.action_open_fm_image_viewer)
 
+        view_menu.addSeparator()
+        self.action_toast_problems_only = QAction(
+            "Toasts for Problems Only", self._host
+        )
+        self.action_toast_problems_only.setCheckable(True)
+        self.action_toast_problems_only.triggered.connect(
+            self._on_toast_problems_toggle
+        )
+        view_menu.addAction(self.action_toast_problems_only)
+
         # keep the checkable / enabled state honest each time the menu opens
         view_menu.aboutToShow.connect(self._sync_view_menu)
 
@@ -515,6 +525,13 @@ class MainMenuBar(QObject):
             )
         )
 
+    def _on_toast_problems_toggle(self, checked: bool):
+        self.preferences_saved.emit(
+            fibsem_cfg.update_user_preferences(
+                lambda p: setattr(p.display, "toast_problems_only", checked)
+            )
+        )
+
     def _on_border_toggle(self, checked: bool):
         self.preferences_saved.emit(
             fibsem_cfg.update_user_preferences(
@@ -543,6 +560,7 @@ class MainMenuBar(QObject):
         d = preferences.display
         self.action_sound_toggle.setChecked(d.sound_enabled)
         self.action_border_toggle.setChecked(d.border_enabled)
+        self.action_toast_problems_only.setChecked(d.toast_problems_only)
         self._dev_menu.menuAction().setVisible(d.dev_mode)
         self._test_menu.menuAction().setVisible(d.dev_mode)
         coincidence_enabled = preferences.features.coincidence_milling_enabled

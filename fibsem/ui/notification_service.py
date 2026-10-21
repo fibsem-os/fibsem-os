@@ -17,9 +17,9 @@ from PyQt5.QtCore import QObject, pyqtSignal
 class _NotificationService(QObject):
     """App-wide toast signal bus. Thread-safe: cross-thread emits are queued to main thread."""
 
-    toast = pyqtSignal(str, str, bool)  # (message, notification_type, temporary)
+    toast = pyqtSignal(str, str, bool, bool)  # (message, type, temporary, always)
     # The same, with a link on the toast: (..., action_text, callback).
-    toast_action = pyqtSignal(str, str, bool, str, object)
+    toast_action = pyqtSignal(str, str, bool, bool, str, object)
 
 
 _service: Optional[_NotificationService] = None
@@ -46,27 +46,32 @@ def show(
     notification_type: str = "info",
     temporary: bool = False,
     action: Optional[Tuple[str, Callable[[], None]]] = None,
+    always: bool = False,
 ) -> None:
     """Emit a toast. Persists to notification history by default (temporary=False).
 
     ``action`` is a (text, callback) link shown on the toast and on its history
     entry, e.g. ("Show summary", open_summary). The callback runs on the GUI thread.
 
+    ``always`` pops it up even when the operator has toasts for problems only.
+
     Use show_toast() for transient validation messages that should not appear in history.
     """
     if action is not None:
         text, callback = action
         _get_service().toast_action.emit(
-            message, notification_type, temporary, text, callback
+            message, notification_type, temporary, always, text, callback
         )
         return
-    _get_service().toast.emit(message, notification_type, temporary)
+    _get_service().toast.emit(message, notification_type, temporary, always)
 
 
-def show_toast(message: str, notification_type: str = "info") -> None:
+def show_toast(
+    message: str, notification_type: str = "info", always: bool = False
+) -> None:
     """Emit a transient toast that does not go to notification history.
 
     Preferred for widget-level validation messages (no microscope connected, etc.).
     For workflow events that should persist in history, use show() with temporary=False.
     """
-    _get_service().toast.emit(message, notification_type, True)
+    _get_service().toast.emit(message, notification_type, True, always)
