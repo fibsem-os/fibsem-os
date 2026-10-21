@@ -78,7 +78,7 @@ def test_the_app_offers_the_core_and_its_parts(client):
 def test_a_read_takes_its_path_values(client):
     assert client.app.app_get_status()["experiment"]["name"] == "client-exp"
     (item,) = client.app.item_list()["items"]
-    name = item["lamella_name"]
+    name = item["item_name"]
     assert client.app.item_get(item_name=name)["item_name"] == name
 
 

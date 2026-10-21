@@ -18,7 +18,8 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from fastapi.responses import FileResponse
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import FileResponse, JSONResponse
 
 from fibsem.ai.agent.calls import current_call
 from fibsem.server import files
@@ -30,6 +31,20 @@ from fibsem.server.parts import (
     MILLING_STAGES,
     POSES,
     served_parts,
+)
+from fibsem.server.responses import (
+    AppStatus,
+    DisplayImages,
+    ExperimentSummary,
+    FolderListing,
+    ItemDetail,
+    Queue,
+    SavedImageMetadata,
+    SavedImagePixels,
+    SavedImagePosition,
+    TaskHistory,
+    TaskOutputs,
+    answer,
 )
 from fibsem.util.timestamps import to_datetime
 from fibsem.workflows import evidence
@@ -188,24 +203,35 @@ def _answer_or_refusal(result: Dict[str, Any]) -> Dict[str, Any]:
     raise HTTPException(status_code=_REFUSAL_STATUS.get(error_type, 422), detail=detail)
 
 
+def _typed(result: Any) -> Response:
+    """A context answer: a refusal raises (`_answer_or_refusal`), a structure
+    answers as the codec writes it, and a dict as it is."""
+    if isinstance(result, dict):
+        return JSONResponse(jsonable_encoder(_answer_or_refusal(result)))
+    return answer(result)
+
+
 def build_app_router(context: Any) -> APIRouter:
     router = APIRouter(prefix="/app")
 
-    @router.get("/workflow/status")
+    @router.get("/workflow/status", response_model=AppStatus)
     def app_status():
-        return context.status()
+        return _typed(context.status())
 
-    @router.get("/workflow/queue")
+    @router.get("/workflow/queue", response_model=Queue)
     def app_queue():
-        return context.queue()
+        return _typed(context.queue())
 
-    @router.get("/experiment")
+    @router.get(
+        "/experiment",
+        response_model=getattr(context, "summary_type", ExperimentSummary),
+    )
     def experiment_summary():
-        return context.experiment_summary()
+        return _typed(context.experiment_summary())
 
-    @router.get("/experiment/task_history")
+    @router.get("/experiment/task_history", response_model=TaskHistory)
     def task_history():
-        return context.task_history()
+        return _typed(context.task_history())
 
     @router.get("/workflow/summary")
     def run_summary():
@@ -243,13 +269,21 @@ def build_app_router(context: Any) -> APIRouter:
             raise HTTPException(status_code=status, detail=detail)
         return result
 
-    @router.get("/experiment/items/{item_name}/outputs", tags=[ITEMS])
+    @router.get(
+        "/experiment/items/{item_name}/outputs",
+        tags=[ITEMS],
+        response_model=getattr(context, "task_outputs_type", TaskOutputs),
+    )
     def task_outputs(item_name: str):
-        return context.task_outputs(item_name)
+        return _typed(context.task_outputs(item_name))
 
-    @router.get("/experiment/items/{item_name}", tags=[ITEMS])
+    @router.get(
+        "/experiment/items/{item_name}",
+        tags=[ITEMS],
+        response_model=getattr(context, "item_detail_type", ItemDetail),
+    )
     def item_detail(item_name: str):
-        return context.item_detail(item_name)
+        return _typed(context.item_detail(item_name))
 
     @router.get("/experiment/protocol/task_config/{task_name}")
     def protocol_task_config(task_name: str):
@@ -265,6 +299,26 @@ def build_app_router(context: Any) -> APIRouter:
         # can consume it; filename must be a basename the item's own
         # outputs listing names — the context refuses anything else.
         return _jpeg_or_404(context.output_image(item_name, filename))
+
+    @router.get("/experiment/items/{item_name}/history", tags=[LAMELLAE])
+    def item_history(
+        item_name: str,
+        show: Optional[str] = None,
+        status: Optional[str] = None,
+        task: Optional[str] = None,
+        decided_by: Optional[str] = None,
+        order: Optional[str] = None,
+    ):
+        return context.item_history(
+            item_name,
+            {
+                "show": show,
+                "status": status,
+                "task": task,
+                "decided_by": decided_by,
+                "order": order,
+            },
+        )
 
     @router.post("/experiment/items/{item_name}/thickness", tags=[LAMELLAE])
     def measure_thickness(item_name: str, body: Dict[str, Any]):
@@ -356,20 +410,20 @@ def build_app_router(context: Any) -> APIRouter:
             instrument=instrument, operator=operator, **bounds
         )
 
-    @router.get("/experiment/images")
+    @router.get("/experiment/images", response_model=DisplayImages)
     def display_images():
-        return context.display_images()
+        return _typed(context.display_images())
 
-    @router.get("/experiment/images/metadata")
+    @router.get("/experiment/images/metadata", response_model=SavedImageMetadata)
     def image_metadata(path: str):
-        answer = context.image_metadata(path)
-        error = answer.get("error_type")
+        found = context.image_metadata(path)
+        error = found.get("error_type") if isinstance(found, dict) else None
         if error is not None:
             status = 403 if error == "not_allowed" else 404
-            raise HTTPException(status_code=status, detail=answer)
-        return answer
+            raise HTTPException(status_code=status, detail=found)
+        return _typed(found)
 
-    @router.get("/experiment/images/stage_position")
+    @router.get("/experiment/images/stage_position", response_model=SavedImagePosition)
     def image_stage_position(
         path: str,
         x: Optional[float] = None,
@@ -381,7 +435,7 @@ def build_app_router(context: Any) -> APIRouter:
         # stage position, from the image's own metadata.
         px = None if x is None or y is None else [x, y]
         fraction = None if fx is None or fy is None else [fx, fy]
-        return _answer_or_refusal(context.image_stage_position(path, px, fraction))
+        return _typed(context.image_stage_position(path, px, fraction))
 
     @router.post("/experiment/images/markers", tags=[LAMELLAE])
     def render_markers(body: Dict[str, Any]):
@@ -400,7 +454,7 @@ def build_app_router(context: Any) -> APIRouter:
             )
         return _answer_or_refusal(context.render_markers(path, grid_name))
 
-    @router.post("/experiment/images/pixels")
+    @router.post("/experiment/images/pixels", response_model=SavedImagePixels)
     def image_pixels(body: Dict[str, Any]):
         # A POST on the read router because it computes, never acts: stage
         # positions as points on a saved image, a list a GET could not carry.
@@ -415,7 +469,7 @@ def build_app_router(context: Any) -> APIRouter:
                 "Pass stage_positions: a non-empty list of stage positions "
                 "({x, y, z, r, t, coordinate_system})."
             )
-        return _answer_or_refusal(context.image_pixels(path, positions))
+        return _typed(context.image_pixels(path, positions))
 
     # -- an experiment's files: the open one's, or a past one's, read only ------
 
@@ -433,11 +487,12 @@ def build_app_router(context: Any) -> APIRouter:
                 payload["experiment"] = experiment
             context.record_event("experiment_file_read", payload)
 
-    @router.get("/experiment/files")
+    @router.get("/experiment/files", response_model=FolderListing)
     def list_files(dir: str = "", experiment: Optional[str] = None):
-        answer = _files_answer(experiment, files.list_folder, dir)
+        listing = _files_answer(experiment, files.list_folder, dir)
         _record_read(experiment, dir, False)
-        return answer
+        # As listed: a file has no images count, rather than a null one.
+        return JSONResponse(listing)
 
     @router.get("/experiment/files/{path:path}")
     def read_file(

@@ -181,7 +181,7 @@ def test_the_listing_marks_long_commands(client):
     services = client.get("/microscope/services").json()
     assert services["milling"]["commands"]["run"]["long"] is True
     assert services["spot_burn"]["commands"]["run"]["long"] is True
-    assert "long" not in services["milling"]["commands"]["prepare"]
+    assert services["milling"]["commands"]["prepare"]["long"] is False
 
 
 def test_the_client_waits_for_the_run(app, held):

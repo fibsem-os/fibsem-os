@@ -68,6 +68,17 @@ from fibsem.server.operator import build_operator_router
 from fibsem.server.pairing_routes import build_pairing_router
 from fibsem.server.parts import served_parts
 from fibsem.server.requests import RequestStore, build_request_router, turned_away
+from fibsem.server.responses import (
+    ControlView,
+    Fitted,
+    LeaseTaken,
+    LendEnded,
+    MicroscopeInfo,
+    Released,
+    StateAnswer,
+    Status,
+    answer,
+)
 from fibsem.structures import BeamType, MicroscopeState
 from fibsem.workflows.actions import ACTION, action_record
 
@@ -635,23 +646,33 @@ def build_server(
     # --- The microscope as a whole ---
 
     # What it is and its state: the operator's page reads these too.
-    @whole.get("", dependencies=[Depends(require_monitoring())])
+    @whole.get(
+        "",
+        dependencies=[Depends(require_monitoring())],
+        response_model=MicroscopeInfo,
+    )
     def get_microscope():
         info = microscope.system.info
-        return {
-            "manufacturer": microscope.manufacturer,
-            "model": info.model,
-            "serial_number": info.serial_number,
-            "software_version": info.software_version,
-            # What is fitted is not in the configuration dict -- the instrument
-            # answered it at connect -- so it travels beside it.
-            "fitted": {"manipulator": microscope.is_available("manipulator")},
-            "system": microscope.system.to_dict(),
-        }
+        return answer(
+            MicroscopeInfo(
+                manufacturer=microscope.manufacturer,
+                model=info.model,
+                serial_number=info.serial_number,
+                software_version=info.software_version,
+                # What is fitted is not in the configuration dict -- the instrument
+                # answered it at connect -- so it travels beside it.
+                fitted=Fitted(manipulator=microscope.is_available("manipulator")),
+                system=microscope.system.to_dict(),
+            )
+        )
 
-    @whole.get("/state", dependencies=[Depends(require_monitoring())])
+    @whole.get(
+        "/state",
+        dependencies=[Depends(require_monitoring())],
+        response_model=StateAnswer,
+    )
     def get_microscope_state():
-        return {"microscope_state": microscope.get_microscope_state().to_dict()}
+        return answer(StateAnswer(microscope.get_microscope_state()))
 
     # Every device's and service's changes as they happen, in the Device Server's
     # shape: a read, at Watch, until the level drops below it. A browser page is
@@ -692,55 +713,69 @@ def build_server(
     # Who is in control, and a lease on it for calls that must not interleave
     # with anyone's (`fibsem.server.leases`): taken and renewed at Drive, given
     # up at any level, like a stop.
-    @whole.get("/control", dependencies=[Depends(require_monitoring())])
+    @whole.get(
+        "/control",
+        dependencies=[Depends(require_monitoring())],
+        response_model=ControlView,
+    )
     def get_control(request: Request):
         current = microscope.control.current
         lease = app.state.leases.get(request.headers.get(LEASE_HEADER))
-        return {
-            "in_control": None
-            if current is None
-            else {"by": current.by, "action": current.action, "since": current.since},
-            "yours": lease is not None and lease.entry is current,
-        }
+        return answer(
+            ControlView(current, lease is not None and lease.entry is current)
+        )
 
-    @whole.post("/control", dependencies=[Depends(_drive)])
+    @whole.post("/control", dependencies=[Depends(_drive)], response_model=LeaseTaken)
     def take_lease(body: ControlRequest):
         try:
             lease = app.state.leases.take(current_actor() or AGENT, body.action)
         except MicroscopeBusy as busy:
             raise busy_refusal(busy) from None
-        return {"lease": lease.id, "idle_s": app.state.leases.idle_s}
+        return answer(LeaseTaken(lease.id, app.state.leases.idle_s))
 
-    @whole.put("/control/{lease}", dependencies=[Depends(_drive)])
+    @whole.put(
+        "/control/{lease}", dependencies=[Depends(_drive)], response_model=Status
+    )
     def renew_lease(request: Request, lease: str):
         caller_lease(request, lease)
-        return {"status": "ok"}
+        return answer(Status())
 
-    @whole.delete("/control/{lease}", dependencies=[Depends(require_token())])
+    @whole.delete(
+        "/control/{lease}",
+        dependencies=[Depends(require_token())],
+        response_model=Released,
+    )
     def release_lease(lease: str):
-        return {"released": app.state.leases.release(lease)}
+        return answer(Released(app.state.leases.release(lease)))
 
     # A run waiting on a question lends its lease, as a local run lends.
-    @whole.post("/control/{lease}/lend", dependencies=[Depends(_drive)])
+    @whole.post(
+        "/control/{lease}/lend", dependencies=[Depends(_drive)], response_model=Status
+    )
     def lend_lease(request: Request, lease: str):
         app.state.leases.lend(caller_lease(request, lease).id)
-        return {"status": "ok"}
+        return answer(Status())
 
-    @whole.delete("/control/{lease}/lend", dependencies=[Depends(require_token())])
+    @whole.delete(
+        "/control/{lease}/lend",
+        dependencies=[Depends(require_token())],
+        response_model=LendEnded,
+    )
     def end_lend(lease: str):
-        return {"ended": app.state.leases.end_lend(lease)}
+        return answer(LendEnded(app.state.leases.end_lend(lease)))
 
     # Restores beams and stage in their set order: Drive, and control of the
     # microscope, like any command.
     @whole.put(
         "/state",
         dependencies=[Depends(_drive), Depends(take_control, scope="function")],
+        response_model=Status,
     )
     def set_microscope_state(body: MicroscopeStateRequest):
         microscope.set_microscope_state(
             MicroscopeState.from_dict(body.microscope_state)
         )
-        return {"status": "ok"}
+        return answer(Status())
 
     app.include_router(base)
     app.include_router(build_pairing_router(auth))

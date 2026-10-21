@@ -116,9 +116,9 @@ def _build(server, name, type_):
 def test_a_served_device_names_its_driver_and_type():
     scanner = _served(LimitedScanner("scanner"), "Demo", "scan_generator")
     described = describe_device(scanner)
-    assert (described["driver"], described["type"]) == ("Demo", "scan_generator")
-    assert described["facts"]["dwell_time_limits"] == [DWELL.min, DWELL.max]
-    assert described["facts"]["resolution_limits"] == [[16, 16], [1024, 1024]]
+    assert (described.driver, described.type) == ("Demo", "scan_generator")
+    assert described.facts["dwell_time_limits"] == [DWELL.min, DWELL.max]
+    assert described.facts["resolution_limits"] == [[16, 16], [1024, 1024]]
 
 
 def test_a_remote_scanner_scans_on_the_server_within_its_limits(server):
@@ -194,7 +194,7 @@ def test_a_config_file_builds_each_device_with_its_own_driver(tmp_path):
     assert isinstance(unit, DemoScanGenerator)
     assert (unit.driver, unit.entry_type) == ("Demo", "scan_generator")
     assert unit.parent is None  # no microscope on the unit's PC
-    assert describe_device(unit)["type"] == "scan_generator"
+    assert describe_device(unit).type == "scan_generator"
     disconnect_devices(built, cleanups)
 
 

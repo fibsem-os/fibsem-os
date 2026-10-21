@@ -96,6 +96,12 @@ class MillingStrategyConfig(Tagged, Configurable, ABC):
         return self.strategy_name
 
     @classmethod
+    def tagged_variants(cls) -> Dict[str, type]:
+        from fibsem.milling.strategy import get_strategies
+
+        return {name: s.config_class for name, s in get_strategies().items()}
+
+    @classmethod
     def read_tagged(cls, name: Optional[str], data: Any, strict: bool) -> Any:
         """The config of the strategy called ``name`` (Standard when absent).
 

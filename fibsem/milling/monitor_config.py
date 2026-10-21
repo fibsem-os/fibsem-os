@@ -56,6 +56,12 @@ class MillingMonitorConfig(Tagged, Configurable):
         return self.monitor_name
 
     @classmethod
+    def tagged_variants(cls) -> Dict[str, type]:
+        from fibsem.milling.monitors import get_monitors
+
+        return {name: m.config_class for name, m in get_monitors().items()}
+
+    @classmethod
     def read_tagged(cls, name: Optional[str], data: Any, strict: bool) -> Any:
         """The config of the monitor called ``name``; None, with a warning, for a
         monitor not installed here (the stage mills without it)."""
