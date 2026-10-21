@@ -807,6 +807,24 @@ def test_grid_markers_place_items_in_source_pixels(client, host, grid_with_overv
     assert by_name[outside.name]["x"] > 128
 
 
+def test_grid_markers_take_a_saved_image_by_its_path(client, host, grid_with_overview):
+    """A path with folders, encoded as the sidecar sends it (%2F), reaches the
+    route rather than a bare 404."""
+    from urllib.parse import quote
+
+    path = os.path.relpath(
+        host.experiment.grid_path(grid_with_overview) / "overview_sem" / "overview.tif",
+        str(host.experiment.path),
+    )
+    assert "/" in path
+    response = client.get(
+        f"/app/experiment/grids/grid-aspen/outputs/{quote(path, safe='')}/markers",
+        headers=AUTH,
+    )
+    assert response.status_code == 200
+    assert response.json()["image"]["width"] == 128
+
+
 def test_grid_markers_report_unplaceable_items(client, host, grid_with_overview):
     from fibsem.structures import MicroscopeState
 

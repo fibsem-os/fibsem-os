@@ -350,8 +350,10 @@ def build_app_router(context: Any) -> APIRouter:
     def grid_output_image(grid_name: str, filename: str):
         return _jpeg_or_404(context.grid_output_image(grid_name, filename))
 
+    # {filename:path}: any saved image's path in the experiment, slashes and all.
     @router.get(
-        "/experiment/grids/{grid_name}/outputs/{filename}/stage_position", tags=[GRIDS]
+        "/experiment/grids/{grid_name}/outputs/{filename:path}/stage_position",
+        tags=[GRIDS],
     )
     def overview_stage_position(
         grid_name: str,
@@ -369,7 +371,7 @@ def build_app_router(context: Any) -> APIRouter:
         )
 
     @router.get(
-        "/experiment/grids/{grid_name}/outputs/{filename}/markers", tags=[GRIDS]
+        "/experiment/grids/{grid_name}/outputs/{filename:path}/markers", tags=[GRIDS]
     )
     def grid_markers(grid_name: str, filename: str):
         return context.grid_markers(grid_name, filename)

@@ -81,6 +81,7 @@ from fibsem.structures import (
     ImageSettings,
     OverviewAcquisitionSettings,
 )
+from fibsem.util import timestamps
 
 # Two beam currents closer than this, relatively, are the same current: a
 # brightness and contrast that worked at one is where to start at the other.
@@ -152,12 +153,26 @@ class Imaging(Service):
         self,
         beam_type: BeamType = BeamType.ELECTRON,
         image_settings: Optional[ImageSettings] = None,
+        path: Optional[str] = None,
+        filename: Optional[str] = None,
     ) -> FibsemImage:
         """Acquire an image with ``beam_type``: with ``image_settings`` when given
-        (their own beam type wins), else with the beam's current settings."""
+        (their own beam type wins), else with the beam's current settings. Given
+        ``path`` (a folder), also save it there as ``<filename>_eb`` (or ``_ib``;
+        ``filename`` defaults to when it was taken) and record it as
+        ``image_acquired``, as `acquire_image` does."""
         if image_settings is not None and image_settings.beam_type is not None:
             beam_type = image_settings.beam_type
-        return self.beam(beam_type).acquire(image_settings)
+        name = filename or f"image-{timestamps.now():%Y%m%d-%H%M%S}"
+        if os.path.basename(name) != name or name in (".", ".."):
+            raise ValueError(f"filename is a name, not a path: {name!r}")
+        image = self.beam(beam_type).acquire(image_settings)
+        if path is None:
+            return image
+        suffix = "eb" if beam_type is BeamType.ELECTRON else "ib"
+        saved = image.save(path=os.path.join(path, f"{name}_{suffix}"))
+        self.session.record("image_acquired", acquisition_record(image, saved))
+        return image
 
     @command
     def autocontrast(

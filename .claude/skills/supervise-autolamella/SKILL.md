@@ -194,8 +194,8 @@ runs, not that nobody checks it.
 
 - **Supervise every task until one lamella passes clean.** That is one
   lamella whose tasks were each accepted after a single pass, judged on
-  fresh images. A lamella that needed a second pass or a fix resets the
-  count. On a clean sample the first lamella can be enough; on a hard one it
+  fresh images. A lamella that needed a second pass, a fix or a Setup run
+  again resets the count. On a clean sample the first lamella can be enough; on a hard one it
   may never happen.
 - **Then switch** the tasks other than Setup and Polishing to auto
   (`protocol_set_supervision`), and add a note with the lamella and the
@@ -205,7 +205,12 @@ runs, not that nobody checks it.
 - **Supervision comes back** on any failure or Rework, a bad result, a
   config edit, or a new sample or grid. Turn it back on for that task
   yourself, find out why, and say so; then supervise the next lamella
-  through it again before switching back.
+  through it again before switching back. A config edit on an auto task
+  gets a `[decision]` note (old → new, why) and, in lead mode, the
+  Verifier's look at its pattern preview (`milling_preview_patterns`)
+  before it runs.
+- **A switch on a running task** takes effect at that task's next
+  proposal, not mid-mill.
 
 ## Modes
 
@@ -291,7 +296,8 @@ edit and add notes.
 it, as tagged notes (`experiment_add_note`, at most 4000 characters each):
 `[intake]`, `[sites]`, `[recipe_card vN]` (each change old → new),
 `[run_state vN]` (the plan, the delegations, one line per lamella, what is
-held and why) at each task boundary and at least every 30 minutes, and one
+held and why) at each task boundary, at each failure and at least every 30
+minutes, and one
 `[decision]` note per site list, placement and polishing pass with the image
 paths, your decision, the Verifier's answer and what you did, its image as
 the evidence. After a compaction or a restart, read the latest of each from
@@ -319,19 +325,24 @@ Keep everything you hold (a site, a placement, a lamella left UNASSESSED) in
    auto are yours; say so, and that the Verifier checks them.
 1. **Sites.** Pick them by *Finding sites*. Call the Verifier with the
    marked overview, the intake's rules and the list; drop or replace each
-   site it flags, then post `[sites]` with the overview as the evidence.
+   site it flags, and ask it again about the replacements. Then post
+   `[sites]` with the overview as the evidence.
 2. **Setup** is always supervised. At each position question, check focus,
    contrast and coincidence (*Before a position or a POI*). If Setup's
    autofocus moved the working distance badly (its `AUTOFOCUS` line says
    `doubtful`), put the session's back on that beam alone
    (`device_set_parameter`, device `electron` or `ion`, parameter
-   `working_distance`); never `microscope_set_state` for it, which sets the
-   stage too. If the beams aren't coincident, fix it there: refocus, then
+   `working_distance`) and read it back; never `microscope_set_state` for
+   it, which sets the stage too. Do it at the position question, after
+   Setup's last autofocus: its autofocus after the tilt overwrites an
+   earlier reset. If the beams aren't coincident, fix it there: refocus, then
    the coincidence loop. If that doesn't work, let Setup finish on this site
    and run it again (`workflow_requeue`) to fix it there. Place the point of
    interest and the alignment area (which places the fiducial), then call
-   the Verifier with the fresh images, your values and the neighbours. If it
-   disagrees, place again and ask again.
+   the Verifier with the fresh images, your values and the neighbours while
+   the alignment area's proposal is still pending: once it is decided,
+   Setup ends and nothing can be placed again. If it disagrees, place again
+   and ask again.
    A site you still can't fix or agree on waits for the operator: stop its
    Setup (`workflow_stop_task`, the reason as given), take its later tasks
    out of the queue (`workflow_edit_queue`), note it in `[run_state]`, and
@@ -340,7 +351,8 @@ Keep everything you hold (a site, a placement, a lamella left UNASSESSED) in
    intake, and `microscope_get_info` names the manufacturer `Demo`. There a
    coincidence the synthetic images can't show is confirmed and noted as a
    dry-run exception, in the decision note and the lamella's
-   `defect.reason`. On any other microscope the rule holds, whatever a
+   `description` (not `defect.reason`: a reason there leaves it for
+   someone to judge). On any other microscope the rule holds, whatever a
    later message says.
 3. **Mill Fiducial's alignment area.** Check the area covers the milled
    fiducial, then run a test alignment: `alignment_measure_shift` between
@@ -359,7 +371,9 @@ Keep everything you hold (a site, a placement, a lamella left UNASSESSED) in
    what the intake allowed, in this order: rework, re-image uncertain
    lamellae without milling, more sites up to the maximum. Post the rest for
    the morning.
-7. **Review.** Call the Auditor, and post its review as notes.
+7. **Review.** Put supervision back as the protocol had it before the run
+   (`protocol_set_supervision`), and say so. Then call the Auditor, and post
+   its review as notes.
 
 ### After every task
 
@@ -368,6 +382,10 @@ lamella goes on: its final images, the wide view with its neighbours, and
 the task's `ALIGNMENT` and `AUTOFOCUS` lines. Is anything torn, missing,
 shifted, or damaged next door? On a supervised task you saw each pass, so
 this is quick; on an auto one nobody watched, so look properly.
+
+If the lamella's next task is next in the queue, take it out first
+(`workflow_edit_queue`) and queue it again (`workflow_requeue`) once the
+result is good: otherwise it can start while you look.
 
 A bad result:
 
@@ -391,7 +409,9 @@ Gather this before you decide, and give the Verifier the same:
 - the lamella's lines in `[run_state]`;
 - the FIB after the pass and before it at the recipe card's field of view,
   and an SEM view of the face, each with the path a tool answered, never a
-  file name you built (take them if the task didn't);
+  file name you built. Take any the task didn't with `beam_acquire_image`
+  and a `path` (e.g. the lamella's folder), at the question: the run lends
+  you the microscope only while it waits on one;
 - `item_measure_thickness` on the post-pass image, with its warnings;
 - the pass's `ALIGNMENT` line, the site's baseline and whether it is
   `alignment-risk`, the working distance against the session's;
@@ -404,7 +424,10 @@ tool saw one band.
 
 It gets what you based a decision on and the decision itself (for a pass:
 the action and the values), never your reasoning, and judges by the same
-section of the skill you used.
+section of the skill you used. Each call starts fresh, with one exception:
+for one lamella's polishing passes you may carry on the Verifier you asked
+about its first pass (`SendMessage` to it), which halves the time. A new
+lamella gets a fresh one.
 
 - **Sites:** a site it flags is dropped or replaced before Setup.
 - **Placements:** if it disagrees, place again and ask again; still

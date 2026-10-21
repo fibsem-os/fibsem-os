@@ -84,9 +84,11 @@ def _label_placement(
 ) -> Tuple[Tuple[float, float], str, str]:
     """Where a marker's label goes: an offset in points, and how to align the text.
 
-    In points, derived from the marker's size, rather than a fixed count of image
-    pixels: an overview pixel is tens of nanometres, so a ten-pixel offset put the
-    label inside the crosshair at any real scale.
+    Beside the end of the marker's arm, level with its centre, so a label reads as
+    its own cross's and not a neighbour's. In points, derived from the marker's size,
+    rather than a fixed count of image pixels: an overview pixel is tens of
+    nanometres, so a ten-pixel offset put the label inside the crosshair at any real
+    scale.
 
     And away from whichever edge the marker is near, rather than clipped at it -- a
     clipped name gives no sign it was cut, and reads as a lamella with a shorter name.
@@ -94,23 +96,12 @@ def _label_placement(
     Returns:
         ``((dx, dy), ha, va)`` for ``annotate(..., textcoords="offset points")``.
     """
-    height = float(image_shape[0]) if len(image_shape) > 0 else 0.0
     width = float(image_shape[1]) if len(image_shape) > 1 else 0.0
     gap = marker_half_points + _LABEL_GAP_POINTS
 
     if width > 0 and x > width * (1.0 - _EDGE_FRACTION):
-        dx, ha = -gap, "right"
-    else:
-        dx, ha = gap, "left"
-
-    # Display space, not data space: a positive dy is up the page whichever way the
-    # image's y-axis runs. Image y grows downwards, so a small y is the top edge.
-    if height > 0 and y < height * _EDGE_FRACTION:
-        dy, va = -gap, "top"
-    else:
-        dy, va = gap, "bottom"
-
-    return (dx, dy), ha, va
+        return (-gap, 0.0), "right", "center"
+    return (gap, 0.0), "left", "center"
 
 
 def plot_tile_positions(
@@ -475,16 +466,8 @@ def plot_minimap(
                     x, y, image.data.shape, marker_half_points=markersize / 2
                 )
                 description = entry["description"] if show_descriptions else ""
-                # The name is the line further from the marker, so a column of
-                # markers reads name-first: above the marker, the description sits
-                # between them; below it, under the name.
-                line_gap = fontsize + 2
-                name_dy, sub_dy = dy, dy
-                if description:
-                    if va == "bottom":
-                        name_dy = dy + line_gap
-                    else:
-                        sub_dy = dy - line_gap
+                # The name level with the marker, the description under it.
+                name_dy, sub_dy = dy, dy - (fontsize + 2)
                 name = ax.annotate(
                     entry["label"],
                     xy=(x, y),

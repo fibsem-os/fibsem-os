@@ -206,3 +206,25 @@ def test_a_preview_is_never_written_into_the_experiment(reader, folder):
     tif = folder / "01-tough-mako" / "ref_Mill Fiducial_final_ib.tif"
     with pytest.raises(SystemExit, match="outside the experiment folder"):
         reader.main([str(folder), "--preview", str(tif), "--out", str(folder / "x")])
+
+
+def test_a_lamella_left_unassessed_with_a_reason_is_not_yield(reader):
+    """A lead's stop for the morning (UNASSESSED, with why) is a defect line;
+    UNASSESSED with no reason is a lamella nobody has judged."""
+    left = {"defect": {"verdict": "UNASSESSED", "reason": "no SEM of the face"}}
+    assert reader._defect(left) == "UNASSESSED (no SEM of the face)"
+    assert reader._defect({"defect": {"verdict": "UNASSESSED"}}) == ""
+    assert reader._defect({}) == ""
+
+
+def test_the_overview_counts_lamellae_left_for_review_apart(reader, folder, capsys):
+    path = folder / "experiment.yaml"
+    experiment = yaml.safe_load(path.read_text())
+    for item in experiment["positions"]:
+        item["defect"] = {"verdict": "UNASSESSED", "reason": "stopped one pass short"}
+    path.write_text(yaml.safe_dump(experiment))
+    reader.main([str(folder)])
+    out = capsys.readouterr().out
+    assert "Yield: 0 of 2 lamellae" in out
+    assert "defect: UNASSESSED (stopped one pass short)" in out
+    assert "1 more completed them but were left UNASSESSED" in out

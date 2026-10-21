@@ -6,6 +6,7 @@ tasks:
     task_type: SELECT_MILLING_POSITION
     parameters:
       milling_angle: 15
+      use_autofocus: false
   Mill Fiducial:
     task_type: MILL_FIDUCIAL
     parameters:
