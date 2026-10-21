@@ -243,7 +243,8 @@ export interface StackSlice {
 
 /** GET /app/experiment/items/{name}/stack?role=: the item's images of one role, in iteration order. */
 export interface ItemStack {
-  item: string;
+  item_name: string;
+  item_id: string;
   role: string;
   slices: StackSlice[];
 }
