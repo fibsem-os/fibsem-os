@@ -28,9 +28,13 @@ from fibsem.applications.autolamella.edit_recording import (
 )
 from fibsem.server.app_context import content_hash, find_item, item_pose_positions
 from fibsem.server.config_patch import PatchError, apply_patch, check_patch
-from fibsem.workflows.events import to_plain
+from fibsem.server.task_configs import (
+    config_version,
+    patch_config,
+    plain_changes,
+    workflow_field_refusal,
+)
 from fibsem.workflows.status import TaskStatus
-from fibsem.workflows.task_config import WORKFLOW_FIELDS
 
 # The item-document fields an agent may patch: what a lamella IS — geometry,
 # verdict, notes. Everything else on the object (poses, ids, paths, history)
@@ -56,24 +60,6 @@ def item_fields_version(lamella) -> str:
     }
     fields["poses"] = item_pose_positions(lamella)
     return content_hash(fields)
-
-
-def config_version(config, workflow_fields: bool = False) -> str:
-    """A content hash naming exactly this state of a task config's settings.
-
-    The config's version (FIB-864): reads serve it, writes echo it, and a
-    mismatch is refused as stale — a patch can never apply against a state
-    its author did not see. Computed from the serialized document so the
-    same content hashes identically wherever it is held. Not from the
-    workflow fields (name, attention, requires) unless *workflow_fields*:
-    a lamella task's have their own verbs, and a supervision change does not
-    make a settings edit stale. A grid task's attention is patched.
-    """
-    data = config.to_dict()
-    if not workflow_fields:
-        for name in WORKFLOW_FIELDS:
-            data.pop(name, None)
-    return content_hash(to_plain(data))
 
 
 def apply_agent_edit(
@@ -122,13 +108,6 @@ def _save(experiment, what: str, save_protocol: bool = False) -> bool:
             "not yet on disk"
         )
         return False
-
-
-def _changes(changes) -> list:
-    return [
-        {"path": p, "old": to_plain(old), "new": to_plain(new)}
-        for p, old, new in changes
-    ]
 
 
 def task_config_at(experiment, level: str, item_name: str, task_name: str):
@@ -183,27 +162,23 @@ def patch_task_config(
     _lamella, config, refusal = task_config_at(experiment, level, item_name, task_name)
     if refusal:
         return {"applied": False, **refusal}
-    refused = workflow_field_refusal(patch)
-    if refused:
-        return {"applied": False, **refused}
-    if config_version(config) != version:
-        return {"applied": False, "stale": True}
-    try:
-        changes = apply_patch(config, patch)
-    except PatchError as exc:
-        return {"applied": False, "invalid_patch": str(exc), "path": exc.path}
+    patched = patch_config(config, patch, version)
+    if not patched["applied"]:
+        return patched
     where = f"{item_name} / {task_name}" if level == "item" else task_name
     logging.info(
         f"agent config patch applied ({level}): {where}: "
-        + ", ".join(f"{p}: {old!r} -> {new!r}" for p, old, new in changes)
+        + ", ".join(
+            f"{c['path']}: {c['old']!r} -> {c['new']!r}" for c in patched["changes"]
+        )
     )
     saved = save_edits(experiment, level, "agent config patch")
     result = {
         "applied": True,
         "saved": saved,
         "task_name": task_name,
-        "changes": _changes(changes),
-        "version": config_version(config),
+        "changes": patched["changes"],
+        "version": patched["version"],
     }
     if level == "item":
         result["item_name"] = item_name
@@ -256,7 +231,7 @@ def set_task_config_values(
         logging.info(
             f"config edit ({level}): {where}: " + ", ".join(p for p, _o, _n in changes)
         )
-    return {"applied": True, "task_name": task_name, "changes": _changes(changes)}
+    return {"applied": True, "task_name": task_name, "changes": plain_changes(changes)}
 
 
 def _value_at(owner: Any, name: str) -> Any:
@@ -264,27 +239,6 @@ def _value_at(owner: Any, name: str) -> Any:
 
 
 # The workflow fields a task-config patch may not set, and the verb that sets each.
-WORKFLOW_FIELD_VERBS = {
-    "attention": "protocol_set_supervision",
-    "requires": "protocol_set_task_requirements",
-}
-
-
-def workflow_field_refusal(patch: dict) -> Optional[dict]:
-    """Why a task-config *patch* is refused for naming attention or requires,
-    as an ``invalid_patch`` answer; None when it names neither. Both have
-    their own verbs."""
-    for path in patch:
-        field = str(path).split(".", 1)[0]
-        if field in WORKFLOW_FIELD_VERBS:
-            return {
-                "invalid_patch": f"{field} is not set by a config patch; use "
-                f"{WORKFLOW_FIELD_VERBS[field]}.",
-                "path": path,
-            }
-    return None
-
-
 _ITEM_NONE_TYPES = {"description": str}
 
 
@@ -379,7 +333,7 @@ def edit_item_fields(lamella, patch: dict, version: str) -> dict:
         "applied": True,
         "item_name": lamella.name,
         "synced_tasks": synced_tasks,
-        "changes": _changes(changes),
+        "changes": plain_changes(changes),
         "version": item_fields_version(lamella),
     }
 
@@ -495,7 +449,9 @@ def reorder_milling_stages(
         "task_name": task_name,
         "milling_key": milling_key,
         "order": list(order),
-        "changes": _changes([(f"milling.{milling_key}.stages", names, list(order))]),
+        "changes": plain_changes(
+            [(f"milling.{milling_key}.stages", names, list(order))]
+        ),
         "version": config_version(config),
     }
 

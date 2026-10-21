@@ -15,7 +15,6 @@ from PyQt5.QtCore import QObject, Qt
 from PyQt5.QtWidgets import QMessageBox, QWidget
 
 from fibsem.acting import AGENT, OPERATOR
-from fibsem.applications.autolamella.workflow_edits import set_supervision
 from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
 from fibsem.ui import notification_service
 from fibsem.ui.widgets.run_border import RunBorder, run_border_state
@@ -28,6 +27,7 @@ from fibsem.ui.widgets.workflow_summary_dialog import (
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.runner import GRIDS, RunRequest
 from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.workflow_edits import set_supervision
 
 if TYPE_CHECKING:
     import pandas as pd

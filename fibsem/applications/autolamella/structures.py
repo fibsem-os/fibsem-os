@@ -367,24 +367,6 @@ class AutoLamellaTaskProtocol(TaskProtocol):
             protocol.id = data["id"]
         return protocol
 
-    def get_attention(self, task_name: str) -> Attention:
-        """Who decides the task's record, and when; automated for a task the
-        plan does not list."""
-        config = self.task_config.get(task_name)
-        if config is None or self.workflow_config.get(task_name) is None:
-            return Attention.automated
-        return config.attention
-
-    def set_attention(self, task_name: str, attention: Attention) -> str:
-        """Set who decides *task_name*'s record. Why not, with nothing
-        changed, or "". The status bar's and the task row's chips, and the App
-        Server's supervision."""
-        config = self.task_config.get(task_name)
-        if config is None or self.workflow_config.get(task_name) is None:
-            return f"No task named {task_name!r} in the workflow."
-        config.attention = Attention(attention)
-        return ""
-
     def reorder(self, order: List[str]) -> str:
         """Put the plan's tasks in *order*: every task, each once, none before
         a task it requires. Why not, with nothing changed, or "". The Workflow
