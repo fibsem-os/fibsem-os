@@ -966,6 +966,22 @@ def build_sidecar(client, capabilities):
             "experiment_render_markers", path=path, **_given(grid_name=grid_name)
         )
 
+    def experiment_measure_sites(
+        path: str,
+        points: list,
+        fractions: bool = False,
+        margin_um: Optional[float] = None,
+        radius_um: Optional[float] = None,
+    ):
+        return _routed(
+            "experiment_measure_sites",
+            path=path,
+            points=[list(p) for p in points],
+            **_given(
+                fractions=fractions or None, margin_um=margin_um, radius_um=radius_um
+            ),
+        )
+
     def experiment_get_image_pixels(path: str, stage_positions: list):
         return _app_post(
             "/app/experiment/images/pixels",
@@ -1499,6 +1515,7 @@ def build_sidecar(client, capabilities):
             microscope_set_state,
             experiment_get_image_stage_position,
             experiment_render_markers,
+            experiment_measure_sites,
             experiment_get_image_pixels,
             grid_set_quality,
             grid_set_note,

@@ -165,6 +165,79 @@ class AppContext:
             )
         return {"path": path, "image": block, "points": points}
 
+    def measure_sites(
+        self,
+        path: str,
+        points: List[List[float]],
+        fractions: bool = False,
+        margin_um: float = 10.0,
+        radius_um: float = 0.0,
+    ) -> Dict[str, Any]:
+        """Candidate sites on a saved SEM or FIB overview against its grid bars
+        (`fibsem.imaging.grid_bars`): each site's tier, clearances, square and
+        neighbours, the bar fit and how sure it is, and a picture saved as
+        ``grid_sites/<image>.png`` beside the image (replaced when measured
+        again). ``points`` are [x, y] source pixels, or fractions of the image
+        with ``fractions``."""
+        import base64
+
+        from fibsem.fm.preview import is_fluorescence_image
+        from fibsem.imaging.grid_bars import fit_grid_bars, measure_sites, sites_picture
+        from fibsem.structures import FibsemImage
+
+        target, refusal = self._experiment_image(path)
+        if refusal:
+            return refusal
+        if is_fluorescence_image(target):
+            return {
+                "error_type": "invalid",
+                "message": f"{path!r} is a fluorescence image; the bars are fitted on a beam image.",
+            }
+        try:
+            image = FibsemImage.load(target)
+            fit = fit_grid_bars(image)
+        except ValueError as exc:
+            return {"error_type": "invalid", "message": f"{path!r}: {exc}"}
+        except Exception as exc:  # noqa: BLE001 - an unreadable file is a data fact
+            return {"error_type": "invalid", "message": f"{path!r}: {exc}"}
+        height, width = fit.shape
+        try:
+            px = [
+                (float(x) * width, float(y) * height)
+                if fractions
+                else (float(x), float(y))
+                for x, y in points
+            ]
+        except (TypeError, ValueError):
+            return {"error_type": "invalid", "message": "Each point is [x, y]."}
+        sites = measure_sites(fit, px, margin_um * 1e-6, radius_um * 1e-6)
+        for number, site in enumerate(sites, 1):
+            site["number"] = number
+            try:
+                site["stage_position"] = image_point_to_stage_position(
+                    target, px=site["px"]
+                ).to_dict()
+            except ValueError:
+                site["stage_position"] = None
+        png, jpeg = sites_picture(fit, sites, margin_um * 1e-6)
+        stem = os.path.splitext(os.path.basename(target))[0]
+        saved = os.path.join(os.path.dirname(target), "grid_sites", f"{stem}.png")
+        try:
+            os.makedirs(os.path.dirname(saved), exist_ok=True)
+            with open(saved, "wb") as f:
+                f.write(png)
+        except OSError:
+            logging.exception(f"Could not save the sites picture for {path!r}")
+            saved = None
+        return {
+            "image": path,
+            "path": saved,
+            "bars": fit.to_dict(),
+            "margin_um": margin_um,
+            "sites": sites,
+            "plot": {"image_b64_jpeg": base64.b64encode(jpeg).decode()},
+        }
+
     @property
     def _runner(self):
         return self._session.runner

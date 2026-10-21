@@ -1577,3 +1577,70 @@ def test_the_thickness_window_comes_from_the_trench_patterns():
     assert width == pytest.approx(9e-6)
     assert height == pytest.approx(3e-6)
     assert Lamella.trench_window(SimpleNamespace(task_config={})) is None
+
+
+def test_sites_are_measured_against_the_grid_bars_over_http_and_mcp(client, host):
+    """G9 (2026-10-19 run: site picking without code): candidate sites on a
+    saved overview, tiered by their clearance from the fitted bars, with a
+    picture saved beside the image."""
+    import base64
+
+    import numpy as np
+
+    pytest.importorskip("mcp")
+    from fibsem.ai.agent.mcp.sidecar import build_sidecar
+    from tests.test_grid_bars import grid_image
+
+    image, on_bar = grid_image()
+    image.metadata.microscope_state = MicroscopeState()  # a saved image has one
+    own = os.path.join(str(host.experiment.path), "overviews", "grid.tif")
+    os.makedirs(os.path.dirname(own), exist_ok=True)
+    image.save(own)
+    ys, xs = np.nonzero(~on_bar)
+    opening, bar = (xs[0], ys[0]), np.argwhere(on_bar)[0][::-1]
+    url = "/app/experiment/images/sites"
+
+    resp = client.post(
+        url,
+        headers=AUTH,
+        json={"path": own, "points": [[float(v) for v in bar], [0.5, 0.5]]},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["bars"]["confidence"] == "good"
+    first, second = body["sites"]
+    assert first["number"] == 1 and first["tier"] == "on_bar"
+    assert "stage_position" in second
+    assert body["path"] == os.path.join(os.path.dirname(own), "grid_sites", "grid.png")
+    assert os.path.getsize(body["path"]) > 0
+    assert base64.b64decode(body["plot"]["image_b64_jpeg"])[:2] == b"\xff\xd8"
+
+    fractions = client.post(
+        url, headers=AUTH, json={"path": own, "points": [[0.5, 0.5]], "fractions": True}
+    ).json()
+    h, w = on_bar.shape
+    assert fractions["sites"][0]["px"] == [w / 2, h / 2]
+
+    assert client.post(url, headers=AUTH, json={"path": own}).status_code == 422
+    assert (
+        client.post(
+            url, headers=AUTH, json={"path": own, "points": [[1, 1]], "margin_um": "x"}
+        ).status_code
+        == 422
+    )
+    missing = client.post(url, headers=AUTH, json={"path": own + ".nope", "points": []})
+    assert missing.status_code == 404
+
+    client.headers["Authorization"] = f"Bearer {TOKEN}"
+    sidecar = build_sidecar(client, client.get("/capabilities").json())
+    result = asyncio.run(
+        sidecar.call_tool(
+            "experiment_measure_sites",
+            {"path": own, "points": [[float(opening[0]), float(opening[1])]]},
+        )
+    )
+    if isinstance(result, tuple):
+        result = result[0]
+    contents = list(getattr(result, "content", result))
+    assert any(getattr(c, "type", None) == "image" for c in contents)
+    assert json.loads(contents[0].text)["sites"][0]["tier"] in ("middle", "near_bar")

@@ -393,6 +393,33 @@ def build_app_router(context: Any) -> APIRouter:
             )
         return _answer_or_refusal(context.image_pixels(path, positions))
 
+    @router.post("/experiment/images/sites")
+    def measure_sites(body: Dict[str, Any]):
+        # A POST on the read router: a computation over a saved overview; its
+        # picture is saved beside the image, as a markers picture is.
+        path = _required_text(
+            body, "path", "a saved SEM or FIB overview inside the experiment"
+        )
+        points = body.get("points")
+        if not isinstance(points, list) or not all(
+            isinstance(p, (list, tuple)) and len(p) == 2 for p in points
+        ):
+            raise _missing_field(
+                "Pass points: a list of [x, y], one per candidate site."
+            )
+        options = {}
+        for key in ("margin_um", "radius_um"):
+            if body.get(key) is not None:
+                try:
+                    options[key] = float(body[key])
+                except (TypeError, ValueError):
+                    raise _missing_field(f"{key} is a number of microns.") from None
+        return _answer_or_refusal(
+            context.measure_sites(
+                path, points, fractions=bool(body.get("fractions")), **options
+            )
+        )
+
     # -- the experiment's own files: previews and text, never raw bytes --------
 
     def _files_answer(read, *args, **kwargs):

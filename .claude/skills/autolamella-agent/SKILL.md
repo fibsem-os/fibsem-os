@@ -638,10 +638,18 @@ on the feature itself before acting, as an operator would.
   ranked below every square that has; (3) on a bar: never mill it.
 - The film under the site has to be intact. A broken, sheeted or covered
   square is not a site.
-- Methods that worked on an uncoated grid: GrabCut on the holey film, tracing
-  the grid bars by hand where shading defeats a threshold, and a piece of
-  debris as an anchor to find the same place again. GrabCut needs code you
-  may not be able to run; then judge by eye and say so. Say how sure you are
+- Measure the tiers, don't guess them: give your candidates (cell centres,
+  `radius_um` for their size) to `experiment_measure_sites` on the overview
+  you picked them on. It fits the grid bars on the image and answers each
+  site's tier, its clearance (up and down the image is the trench
+  direction), its square and how many of your sites share it. Read
+  `bars.confidence` first (an `unreliable` fit is no measurement: judge by
+  eye and say so), then look at its picture: the bars it found must sit on
+  the bars you see. It is experimental. You still pick the cells and judge
+  the film; it measures where they sit.
+- Methods that worked on an uncoated grid: GrabCut on the holey film and a
+  piece of debris as an anchor to find the same place again. GrabCut needs
+  code you may not be able to run; then judge by eye and say so. Say how sure you are
   of each detection, not only where it is.
 - Look at the tile seams. A feature on a seam can be cut in two, doubled or
   hidden under the next tile; check it in the tiles on both sides before you

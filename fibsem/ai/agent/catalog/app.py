@@ -496,6 +496,22 @@ TOOLS: Tuple[ToolSpec, ...] = (
         optional=("grid_name",),
     ),
     ToolSpec(
+        name="experiment_measure_sites",
+        description="Experimental: candidate sites on a saved SEM or FIB overview, measured against the grid bars it fits on the image (two families of straight bars, per tile for a stitched overview; holds on a coated grid, where cells fade but bars don't). For each site, numbered in the order given: tier (middle: clear of every bar by more than margin_um, default 10; near_bar: within it, only if no square has better; on_bar: never mill), clearance_um all round and up_um / down_um (the FIB trench direction), from_centre_um (its square's centre), nearest_site_um, sites_in_square (one lamella per square), and its stage_position. radius_um is taken off every clearance (a cell's or lamella's half-size). bars says the fit: pitch, bar width, snr and confidence (good, weak, unreliable: don't use an unreliable fit). Distances are in the image plane: a tilted view foreshortens them up and down. Saved as grid_sites/<image>.png beside the image (bars blue, the margin red, sites in their tier's colour): look at it before you trust the tiers, and cite it as evidence. You pick the sites (cells, intact film); this measures where they sit. Nothing moves.",
+        method="POST",
+        path="/app/experiment/images/sites",
+        level="watch",
+        router="app",
+        params={
+            "path": "a SEM or FIB overview file path inside the experiment folder",
+            "points": "candidate sites: [[x, y], ...] in source pixels (or fractions with fractions=true)",
+            "fractions": "true when points are fractions of the image, 0-1 (as read off a preview)",
+            "margin_um": "the worse zone beside a bar, um (default 10)",
+            "radius_um": "taken off every clearance, um (default 0)",
+        },
+        optional=("fractions", "margin_um", "radius_um"),
+    ),
+    ToolSpec(
         name="experiment_get_image_stage_position",
         description="The stage position under a point of any saved image in the experiment, beam or FM, from the image's own metadata, so it holds wherever the stage is now. Give x, y in source pixels, or fx, fy from 0 to 1 for a point read off a preview. Nothing moves.",
         method="GET",
