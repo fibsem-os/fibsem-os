@@ -1,0 +1,5 @@
+node_modules/
+# The root ignores *.json; these are source.
+!package.json
+!tsconfig.json
+!components.json

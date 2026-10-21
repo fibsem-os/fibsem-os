@@ -259,3 +259,29 @@ jobs:
           echo "  ruff format \$(git diff --name-only --diff-filter=d \$(git merge-base origin/main HEAD) HEAD -- '*.py')"
           exit 1
         fi
+
+  web:
+    # The web app's build output is committed so a wheel install serves /ui/
+    # without Bun. This rebuilds it and fails when the commit and the source
+    # disagree, including the palette written from fibsem/theme/tokens.py.
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+    - uses: actions/setup-python@v7
+      with:
+        python-version: "3.12"
+    - uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: "1.4.2"
+    - run: python scripts/web_theme.py
+    - run: bun install --frozen-lockfile
+      working-directory: web
+    - run: bun run build
+      working-directory: web
+    - name: Fail if the committed build or theme is stale
+      run: |
+        git status --porcelain -- fibsem/server/ui web/src/theme.css
+        test -z "$(git status --porcelain -- fibsem/server/ui web/src/theme.css)" || {
+          echo "Run 'bun run theme && bun run build' in web/ and commit the result."
+          exit 1
+        }

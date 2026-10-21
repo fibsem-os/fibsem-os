@@ -590,6 +590,25 @@ def build_server(
         # call it makes needs the operator token.
         return _page("chat.html")
 
+    @app.get("/ui")
+    @app.get("/ui/{path:path}")
+    def web_app(path: str = ""):
+        # The web app (built from web/), served like /chat. Asset paths are
+        # files; every other path is a page and gets index.html.
+        import mimetypes
+        import pkgutil
+
+        if path.startswith("assets/") and ".." not in path:
+            try:
+                asset = pkgutil.get_data("fibsem.server", f"ui/{path}")
+            except OSError:
+                asset = None
+            if asset is None:
+                raise HTTPException(status_code=404, detail=f"{path} not found")
+            kind = mimetypes.guess_type(path)[0] or "application/octet-stream"
+            return Response(asset, media_type=kind)
+        return _page("ui/index.html")
+
     @base.get("/capabilities")
     def capabilities():
         return {
