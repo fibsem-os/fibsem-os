@@ -167,6 +167,12 @@ def kind_label(kind: str) -> str:
     return kind.replace("_", " ").capitalize()
 
 
+def proposal_label(proposal: "Proposal") -> str:
+    """What this proposal asks, for a person: its own ``label`` (a tilt asked
+    as a position reads "Tilt"), else its kind's."""
+    return str(proposal.provenance.get("label") or kind_label(proposal.kind))
+
+
 def register_proposal_kind(kind: ProposalKind) -> ProposalKind:
     PROPOSAL_KINDS[kind.name] = kind
     return kind
@@ -1076,14 +1082,13 @@ class DecisionResult:
     save_error: str = ""
 
     def to_dict(self) -> dict:
-        return {
-            "applied": self.applied,
-            "save_error": self.save_error,
-            "reason": self.reason,
-            "running": self.running,
-            "error_type": self.error_type,
-            "synced_tasks": list(self.synced_tasks),
-        }
+        """``applied``, and of the rest only what is set."""
+        doc = {"applied": self.applied}
+        for name in ("reason", "running", "error_type", "synced_tasks", "save_error"):
+            value = getattr(self, name)
+            if value:
+                doc[name] = list(value) if name == "synced_tasks" else value
+        return doc
 
 
 @dataclass(frozen=True)

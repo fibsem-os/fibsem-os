@@ -15,7 +15,7 @@ from fibsem.workflows.proposals import (
     DecisionOutcome,
     Proposal,
     _encode_values,
-    kind_label,
+    proposal_label,
 )
 
 _ACTIONS = {
@@ -86,7 +86,7 @@ def suggestion_card(
     which is the window's (FIB-1492). With no evidence, ``no_evidence`` says
     what the picture is instead."""
     card = {
-        "proposal": f"{item.name} · {task_name} · {kind_label(proposal.kind)}",
+        "proposal": f"{item.name} · {task_name} · {proposal_label(proposal)}",
         "decision": decision_text(proposal),
         "reason": proposal.suggestion.reason,
         "evidence": find_evidence(experiment_path, proposal.suggestion.evidence),

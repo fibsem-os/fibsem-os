@@ -251,7 +251,7 @@ class AgentSession:
         page: ``proposal`` ("01 · Setup · Alignment area") and ``who``; None
         while nothing waits."""
         from fibsem.ai.agent.suggestions import front_suggestion
-        from fibsem.workflows.proposals import kind_label
+        from fibsem.workflows.proposals import proposal_label
 
         experiment = self._session.experiment
         pending = experiment.pending_proposals() if experiment is not None else []
@@ -275,7 +275,7 @@ class AgentSession:
                 "Drive, or open the window."
             )
         return {
-            "proposal": f"{item.name} · {task_name} · {kind_label(proposal.kind)}",
+            "proposal": f"{item.name} · {task_name} · {proposal_label(proposal)}",
             "who": who,
         }
 
@@ -497,6 +497,12 @@ class AgentSession:
         experiment = self._session.experiment or self._session.plain_experiment
         path = getattr(experiment, "path", None)
         return str(path) if path is not None else None
+
+    def experiment_name(self) -> Optional[str]:
+        """The open experiment's name; None before one is open (not the
+        session's plain record)."""
+        experiment = self._session.experiment
+        return experiment.name if experiment is not None else None
 
     def seconds_since_seen(self) -> Optional[float]:
         """Seconds since the agent's token last made a request, or None."""

@@ -4,6 +4,7 @@ part every app's headless command shares (``fibsem-volume``,
 
 import argparse
 import logging
+import signal
 import threading
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -80,7 +81,8 @@ def serve_until_stopped(
     stop: Optional[threading.Event] = None,
 ) -> int:
     """``serve(session)``, print where to reach it, then wait for Ctrl-C (or
-    *stop*) and stop the run, the server and the recording. The exit code."""
+    *stop*, or a terminate signal: a service stop, a Windows close) and stop
+    the run, the server and the recording. The exit code."""
     if not serve(session):
         print("error: the App Server did not start; see the log.")
         return 1
@@ -91,6 +93,7 @@ def serve_until_stopped(
     print(f"Chat and level controls: {chat_url(host)}")
     print(setup_text(host.url) or "fibsem-mcp is not installed beside this Python.")
     stop = stop or threading.Event()
+    _stop_on_terminate(stop)
     try:
         # in short waits: Ctrl-C does not break a bare wait on Windows
         while not stop.wait(0.5):
@@ -103,3 +106,14 @@ def serve_until_stopped(
     session.stop_app_server()
     session.stop_recording()
     return 0
+
+
+def _stop_on_terminate(stop: threading.Event) -> None:
+    """Set *stop* on SIGTERM (and SIGBREAK, a Windows console close), so a
+    terminate ends as Ctrl-C does. Only the main thread can install it."""
+    if threading.current_thread() is not threading.main_thread():
+        return
+    for name in ("SIGTERM", "SIGBREAK"):
+        number = getattr(signal, name, None)
+        if number is not None:
+            signal.signal(number, lambda *_: stop.set())

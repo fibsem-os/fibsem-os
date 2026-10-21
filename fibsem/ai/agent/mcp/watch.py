@@ -425,8 +425,8 @@ def _counts(counts):
 def _proposal_line(item_name, task_name):
     return (
         f"PROPOSAL item={item_name} task={task_name} "
-        "-- the run is stopped on a proposal: find it in proposal_list "
-        "and decide it"
+        "-- the run is stopped on a proposal: find it in proposal_list; "
+        "decide it at Drive, suggest a decision at Assist"
     )
 
 

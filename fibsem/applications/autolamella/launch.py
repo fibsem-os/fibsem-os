@@ -132,3 +132,7 @@ def main(
     return headless.serve_until_stopped(
         session, serve, "fibsem-autolamella-server", stop
     )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

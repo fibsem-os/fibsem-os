@@ -388,6 +388,8 @@ def test_decide_by_the_proposals_id_needs_no_run(ui, qapp):
         resp = _post_on_worker(qapp, client, "/app/workflow/decide", body)
 
     assert resp.status_code == 200, resp.text
+    # Only what is set (round 11 R7): no empty save_error, reason or error_type.
+    assert set(resp.json()) <= {"applied", "available", "synced_tasks"}
     assert lamella.poi == Point(4e-6, 0.0)
     assert proposal.current.proposal_id == proposal.id
     assert proposal.current.task_id == RUN, "filled in from the proposal it named"
