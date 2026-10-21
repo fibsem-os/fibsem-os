@@ -84,6 +84,8 @@ def _plain(value: Any) -> Any:
 def encode(value: Any, type_: Any = None) -> Any:
     """``value`` as JSON-ready data. ``type_`` is what to write it as, when that
     isn't its own class (a pattern held where its base class is declared)."""
+    if type_ is None and isinstance(value, (np.generic, np.ndarray)):
+        return _plain(value)
     return _adapter(type(value) if type_ is None else type_).dump_python(
         value, mode="json", fallback=_plain, warnings=False
     )
