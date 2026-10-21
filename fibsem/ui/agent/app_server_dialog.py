@@ -1,5 +1,5 @@
-"""Tools → App Server: the server itself -- status, services, paired computers,
-the event log.
+"""Tools → App Server: the server itself -- status, services, the operator's
+token and paired computers, and a link to the event log.
 
 The App Server is the API inside AutoLamella that the agent, the event log and
 ``FibsemClient`` reach. This dialog is about the server, not the agent
@@ -14,7 +14,8 @@ same way. The agent's level is not: it resets to Watch at every launch.
 import time
 from typing import Callable, Optional
 
-from PyQt5.QtCore import QTimer
+from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtGui import QFontDatabase
 from PyQt5.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -23,12 +24,19 @@ from PyQt5.QtWidgets import (
     QLabel,
     QPushButton,
     QVBoxLayout,
+    QWidget,
 )
 
 from fibsem.server.hosting import event_log_url
 from fibsem.ui import stylesheets
 from fibsem.ui.agent.level_chip import last_heard_text
-from fibsem.ui.tokens import OK_COLOR, TEXT_MUTED_COLOR, TEXT_STRONG_COLOR
+from fibsem.ui.tokens import (
+    ACCENT_COLOR,
+    OK_COLOR,
+    TEXT_MUTED_COLOR,
+    TEXT_STRONG_COLOR,
+)
+from fibsem.ui.widgets.custom_widgets import IconToolButton
 
 __all__ = ["AppServerDialog"]
 
@@ -55,6 +63,12 @@ MICROSCOPE_TIP = (
 
 PAIR_LABEL = "Pair a computer"
 STOP_PAIRING_LABEL = "Stop pairing"
+COPY_TOKEN_LABEL = "Copy token"
+
+_LINK_STYLE = (
+    f"QPushButton {{ background: transparent; color: {ACCENT_COLOR}; border: none; "
+    f"padding: 0px; }} QPushButton:disabled {{ color: {TEXT_MUTED_COLOR}; }}"
+)
 
 _SECTION_STYLE = (
     f"color: {TEXT_MUTED_COLOR}; font-size: 10px; font-weight: bold; "
@@ -110,14 +124,23 @@ class AppServerDialog(QDialog):
         layout.setContentsMargins(16, 14, 16, 12)
         layout.setSpacing(8)
 
-        # --- status ---------------------------------------------------------
-        layout.addWidget(section("Status"))
+        # --- server ---------------------------------------------------------
+        layout.addWidget(section("Server"))
         status_row = QHBoxLayout()
         self._status_dot = QLabel("●")
         self._status_label = QLabel("")
         self._status_label.setWordWrap(True)
+        self._btn_event_log = QPushButton("Event log")
+        self._btn_event_log.setStyleSheet(_LINK_STYLE)
+        self._btn_event_log.setCursor(Qt.PointingHandCursor)
+        self._btn_event_log.setToolTip(
+            "Open the event log in your browser: what the agent, the operator "
+            "and the run did. It reads the session and can't act on it."
+        )
+        self._btn_event_log.clicked.connect(self._on_event_log_clicked)
         status_row.addWidget(self._status_dot)
         status_row.addWidget(self._status_label, stretch=1)
+        status_row.addWidget(self._btn_event_log)
         layout.addLayout(status_row)
         self._services_label = note("")
         layout.addWidget(self._services_label)
@@ -133,105 +156,70 @@ class AppServerDialog(QDialog):
         self._settle_timer.setSingleShot(True)
         self._settle_timer.setInterval(SETTLE_MS)
         self._settle_timer.timeout.connect(self._apply_switches)
+        switches = QHBoxLayout()
         for box in (self._chk_enabled, self._chk_microscope):
             box.toggled.connect(self._on_switch_toggled)
-            layout.addWidget(box)
+            switches.addWidget(box)
+        switches.addStretch(1)
+        layout.addLayout(switches)
 
         layout.addSpacing(6)
 
-        # --- clients ----------------------------------------------------------
-        layout.addWidget(section("Clients"))
+        # --- agent ------------------------------------------------------------
+        layout.addWidget(section("Agent"))
         self._agent_label = QLabel("")
         self._agent_label.setWordWrap(True)
-        layout.addWidget(self._agent_label)
-        layout.addWidget(
-            note(
-                "Set what the agent may do from the Agent chip in the status bar; "
-                "its menu also shows how to connect one."
-            )
+        self._agent_label.setToolTip(
+            "Set what the agent may do, or connect one, from the Agent chip in "
+            "the status bar."
         )
+        layout.addWidget(self._agent_label)
 
         layout.addSpacing(6)
 
         # --- operator ---------------------------------------------------------
         layout.addWidget(section("Operator"))
-        layout.addWidget(
-            note(
-                "Your own token, for the web page and your own scripts: it "
-                "messages the agent, sets its level, stops it and decides its "
-                "requests, as you. Kept between launches; a new one replaces it."
-            )
-        )
         operator_row = QHBoxLayout()
-        operator_row.addStretch(1)
-        self._btn_copy_operator = QPushButton("Copy operator token")
+        self._btn_copy_operator = QPushButton(COPY_TOKEN_LABEL)
+        self._btn_copy_operator.setToolTip(
+            "Your own token, for the chat page and your scripts: it acts as you. "
+            "Kept between launches."
+        )
         self._btn_copy_operator.clicked.connect(self._on_copy_operator_clicked)
-        self._btn_new_operator = QPushButton("New operator token")
+        self._btn_new_operator = QPushButton("New token")
         self._btn_new_operator.setToolTip(
             "Replace the operator token: the old one stops working at once."
         )
         self._btn_new_operator.clicked.connect(self._on_new_operator_clicked)
-        operator_row.addWidget(self._btn_new_operator)
         operator_row.addWidget(self._btn_copy_operator)
-        layout.addLayout(operator_row)
-
-        layout.addSpacing(6)
-
-        # --- computers --------------------------------------------------------
-        layout.addWidget(section("Computers"))
-        layout.addWidget(
-            note(
-                "Pair your own computer or a browser: type the code shown here on "
-                "it. It acts as you, as the operator token does. Unpair one to "
-                "cut it off."
-            )
-        )
-        pair_row = QHBoxLayout()
-        self._pair_code = QLabel("")
-        self._pair_code.setStyleSheet(
-            f"color: {TEXT_STRONG_COLOR}; font-size: 20px; font-weight: bold; "
-            "letter-spacing: 4px;"
-        )
-        self._pair_left = note("")
-        pair_row.addWidget(self._pair_code)
-        pair_row.addWidget(self._pair_left, stretch=1)
+        operator_row.addWidget(self._btn_new_operator)
+        operator_row.addStretch(1)
         self._btn_pair = QPushButton(PAIR_LABEL)
         self._btn_pair.setToolTip(
-            "Show a code to type on the other computer. It works once, for 5 minutes."
+            "Show a code to type on another computer or in the chat page: it "
+            "gets a token of its own and acts as you. Works once, for 5 minutes."
         )
         self._btn_pair.clicked.connect(self._on_pair_clicked)
-        pair_row.addWidget(self._btn_pair)
-        layout.addLayout(pair_row)
+        operator_row.addWidget(self._btn_pair)
+        layout.addLayout(operator_row)
+        code_row = QHBoxLayout()
+        self._pair_code = QLabel("")
+        font = QFontDatabase.systemFont(QFontDatabase.FixedFont)
+        font.setPointSize(18)
+        font.setBold(True)
+        font.setLetterSpacing(font.AbsoluteSpacing, 6)
+        self._pair_code.setFont(font)
+        self._pair_code.setStyleSheet(f"color: {TEXT_STRONG_COLOR};")
+        self._pair_left = note("")
+        code_row.addWidget(self._pair_code)
+        code_row.addWidget(self._pair_left)
+        code_row.addStretch(1)
+        layout.addLayout(code_row)
         self._computers = QVBoxLayout()
         self._computers.setSpacing(2)
         layout.addLayout(self._computers)
         # The paired computers as last drawn, so a refresh redraws only a change.
         self._shown_computers: Optional[tuple] = None
-
-        layout.addSpacing(6)
-
-        # --- event log --------------------------------------------------------
-        layout.addWidget(section("Event log"))
-        layout.addWidget(
-            note(
-                "A read-only page in your browser, with a token of its own: it "
-                "reads the session and can't act on it. The agent's level "
-                "doesn't affect it."
-            )
-        )
-        log_row = QHBoxLayout()
-        log_row.addStretch(1)
-        self._btn_copy_link = QPushButton("Copy link")
-        self._btn_copy_link.setToolTip("Copy the event log's address and token.")
-        self._btn_copy_link.clicked.connect(self._on_copy_link_clicked)
-        self._btn_event_log = QPushButton("Open Event Log")
-        self._btn_event_log.setToolTip(
-            "What the agent, the operator and the run did, filterable."
-        )
-        self._btn_event_log.clicked.connect(self._on_event_log_clicked)
-        log_row.addWidget(self._btn_copy_link)
-        log_row.addWidget(self._btn_event_log)
-        layout.addLayout(log_row)
 
         layout.addSpacing(6)
 
@@ -244,7 +232,7 @@ class AppServerDialog(QDialog):
         footer.addWidget(self._btn_close)
         layout.addLayout(footer)
 
-        # Keep "last heard" and the pairing countdown ticking while open.
+        # Keep "last heard" and a pairing code's time ticking while open.
         self._status_timer = QTimer(self)
         self._status_timer.setInterval(1000)
         self._status_timer.timeout.connect(self.refresh)
@@ -287,10 +275,9 @@ class AppServerDialog(QDialog):
         host = self._host()
         running = host is not None
         self._btn_event_log.setEnabled(running)
-        self._btn_copy_link.setEnabled(running)
         self._btn_copy_operator.setEnabled(running)
         self._btn_new_operator.setEnabled(running)
-        self._refresh_pairing(self._pairing(host))
+        self._refresh_pairing(self._pairing())
         # Nothing to serve while the server is off.
         self._chk_microscope.setEnabled(
             self._chk_enabled.isChecked() or self._set_enabled is None
@@ -314,71 +301,7 @@ class AppServerDialog(QDialog):
         self._agent_label.setText(self.agent_text(host))
         self._agent_label.setStyleSheet(f"color: {TEXT_STRONG_COLOR};")
 
-    @staticmethod
-    def _pairing(host):
-        auth = getattr(host, "auth", None) if host is not None else None
-        return getattr(auth, "pairing", None)
-
-    def _refresh_pairing(self, pairing) -> None:
-        state = pairing.state() if pairing is not None else {"open": False}
-        self._btn_pair.setEnabled(pairing is not None)
-        if state["open"]:
-            left = int(state["expires_in_s"])
-            self._pair_code.setText(state["code"])
-            self._pair_left.setText(f"{left // 60}:{left % 60:02d} left")
-            self._btn_pair.setText(STOP_PAIRING_LABEL)
-        else:
-            self._pair_code.setText("")
-            self._pair_left.setText("")
-            self._btn_pair.setText(PAIR_LABEL)
-        computers = tuple(pairing.tokens.computers()) if pairing is not None else ()
-        if computers != self._shown_computers:
-            self._shown_computers = computers
-            self._draw_computers(pairing, computers)
-
-    def _draw_computers(self, pairing, computers) -> None:
-        while self._computers.count():
-            item = self._computers.takeAt(0)
-            row = item.layout()
-            while row is not None and row.count():
-                widget = row.takeAt(0).widget()
-                if widget is not None:
-                    widget.deleteLater()
-            if item.widget() is not None:
-                item.widget().deleteLater()
-        if not computers:
-            self._computers.addWidget(note("No computers paired."))
-            return
-        for computer in computers:
-            row = QHBoxLayout()
-            paired = time.strftime("%d %b %Y", time.localtime(computer.paired_at))
-            row.addWidget(QLabel(computer.name), stretch=1)
-            row.addWidget(note(f"paired {paired}"))
-            unpair = QPushButton("Unpair")
-            unpair.setToolTip(f"{computer.name}'s token stops working at once.")
-            unpair.clicked.connect(
-                lambda _=False, cid=computer.id: self._on_unpair_clicked(cid)
-            )
-            row.addWidget(unpair)
-            self._computers.addLayout(row)
-
     # --- actions --------------------------------------------------------------
-
-    def _on_pair_clicked(self) -> None:
-        pairing = self._pairing(self._host())
-        if pairing is None:
-            return
-        if pairing.state()["open"]:
-            pairing.close()
-        else:
-            pairing.open()
-        self.refresh()
-
-    def _on_unpair_clicked(self, computer_id: str) -> None:
-        pairing = self._pairing(self._host())
-        if pairing is not None:
-            pairing.tokens.remove(computer_id)
-        self.refresh()
 
     def _on_switch_toggled(self, _checked: bool) -> None:
         self._chk_microscope.setEnabled(
@@ -415,18 +338,6 @@ class AppServerDialog(QDialog):
             return
         open_in_browser(event_log_url(host))
 
-    def _on_copy_link_clicked(self) -> None:
-        host = self._host()
-        clipboard = QApplication.clipboard()
-        if host is None or clipboard is None:
-            return
-        clipboard.setText(event_log_url(host))
-        self._btn_copy_link.setText("Copied")
-        QTimer.singleShot(1500, self._restore_copy_link)
-
-    def _restore_copy_link(self) -> None:
-        self._btn_copy_link.setText("Copy link")
-
     def _copy_operator_token(self, token: Optional[str], copied: str) -> None:
         clipboard = QApplication.clipboard()
         if not token or clipboard is None:
@@ -447,5 +358,65 @@ class AppServerDialog(QDialog):
             return
         self._copy_operator_token(host.new_operator_token(), "New token copied")
 
+    def _pairing(self):
+        host = self._host()
+        return getattr(getattr(host, "auth", None), "pairing", None)
+
+    def _refresh_pairing(self, pairing) -> None:
+        state = pairing.state() if pairing is not None else {"open": False}
+        self._btn_pair.setEnabled(pairing is not None)
+        self._pair_code.setVisible(state["open"])
+        self._pair_left.setVisible(state["open"])
+        if state["open"]:
+            left = int(state["expires_in_s"])
+            self._pair_code.setText(state["code"])
+            self._pair_left.setText(f"{left // 60}:{left % 60:02d} left")
+            self._btn_pair.setText(STOP_PAIRING_LABEL)
+        else:
+            self._btn_pair.setText(PAIR_LABEL)
+        computers = tuple(pairing.tokens.computers()) if pairing is not None else ()
+        if computers != self._shown_computers:
+            self._shown_computers = computers
+            self._draw_computers(computers)
+
+    def _draw_computers(self, computers) -> None:
+        while self._computers.count():
+            widget = self._computers.takeAt(0).widget()
+            if widget is not None:
+                widget.deleteLater()
+        for computer in computers:
+            row = QWidget()
+            line = QHBoxLayout(row)
+            line.setContentsMargins(0, 0, 0, 0)
+            line.addWidget(QLabel(computer.name), stretch=1)
+            paired = time.strftime("%d %b", time.localtime(computer.paired_at))
+            line.addWidget(note(f"paired {paired}"))
+            unpair = IconToolButton(
+                icon="mdi:link-variant-off",
+                tooltip=f"Unpair {computer.name}: its token stops working at once",
+                size=22,
+            )
+            unpair.clicked.connect(
+                lambda _=False, cid=computer.id: self._on_unpair_clicked(cid)
+            )
+            line.addWidget(unpair)
+            self._computers.addWidget(row)
+
+    def _on_pair_clicked(self) -> None:
+        pairing = self._pairing()
+        if pairing is None:
+            return
+        if pairing.state()["open"]:
+            pairing.close()
+        else:
+            pairing.open()
+        self.refresh()
+
+    def _on_unpair_clicked(self, computer_id: str) -> None:
+        pairing = self._pairing()
+        if pairing is not None:
+            pairing.tokens.remove(computer_id)
+        self.refresh()
+
     def _restore_copy_operator(self) -> None:
-        self._btn_copy_operator.setText("Copy operator token")
+        self._btn_copy_operator.setText(COPY_TOKEN_LABEL)

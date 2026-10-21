@@ -186,7 +186,6 @@ def test_the_dialog_has_no_token_and_no_arming(qapp, host):
 def test_no_server_disables_the_event_log(qapp):
     dialog = AppServerDialog(lambda: None)
     assert not dialog._btn_event_log.isEnabled()
-    assert not dialog._btn_copy_link.isEnabled()
     assert "Not running" in dialog._status_label.text()
     dialog.deleteLater()
 
@@ -319,28 +318,22 @@ def test_a_missing_sidecar_says_how_to_install_it(qapp, host, monkeypatch):
 def test_a_computer_is_paired_and_unpaired_from_the_dialog(qapp, host, tmp_path):
     from fibsem.server.pairing import PairedTokens, Pairing
 
-    host.auth.pairing = Pairing(PairedTokens(tmp_path / "paired.json"))
     dialog = AppServerDialog(lambda: host)
-    assert dialog._btn_pair.text() == "Pair a computer"
+    assert not dialog._btn_pair.isEnabled()
+    host.auth.pairing = Pairing(PairedTokens(tmp_path / "paired.json"))
+    dialog.refresh()
+    assert not dialog._pair_code.isVisibleTo(dialog)
     dialog._btn_pair.click()
     code = host.auth.pairing.state()["code"]
     assert dialog._pair_code.text() == code
-    assert "left" in dialog._pair_left.text()
+    assert dialog._pair_left.text().endswith("left")
     assert dialog._btn_pair.text() == "Stop pairing"
     host.auth.pairing.pair(code, "lab laptop")
     dialog.refresh()
-    assert dialog._pair_code.text() == ""
-    names = [
-        dialog._computers.itemAt(0).layout().itemAt(i).widget().text() for i in range(2)
-    ]
-    assert names[0] == "lab laptop" and names[1].startswith("paired ")
-    unpair = dialog._computers.itemAt(0).layout().itemAt(2).widget()
-    unpair.click()
+    assert not dialog._pair_code.isVisibleTo(dialog)
+    assert dialog._btn_pair.text() == "Pair a computer"
+    row = dialog._computers.itemAt(0).widget().layout()
+    assert row.itemAt(0).widget().text() == "lab laptop"
+    row.itemAt(2).widget().click()
     assert host.auth.pairing.tokens.computers() == []
-    dialog.deleteLater()
-
-
-def test_pairing_is_off_with_no_pairing(qapp, host):
-    dialog = AppServerDialog(lambda: host)
-    assert not dialog._btn_pair.isEnabled()
     dialog.deleteLater()
