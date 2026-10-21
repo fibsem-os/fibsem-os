@@ -338,6 +338,19 @@ def test_code_mode_needs_a_folder_of_its_own(tmp_path, monkeypatch):
     assert "sandbox" in code_mode.refusal(work, checkout)
 
 
+def test_fibsem_agent_says_whether_code_mode_is_on(tmp_path, monkeypatch):
+    from fibsem.ai.agent import code_mode
+
+    monkeypatch.setattr(code_mode.sys, "platform", "darwin")
+    (off,) = code_mode.describe(None)
+    assert off.startswith("Code mode: off") and "--code" in off
+    monkeypatch.setattr(code_mode.sys, "platform", "win32")
+    assert "Windows" in code_mode.describe(None)[0]
+    on = "\n".join(code_mode.describe(tmp_path))
+    assert on.startswith("Code mode: on") and str(tmp_path) in on
+    assert sys.executable in on and "No network" in on
+
+
 def test_code_with_no_path_is_the_current_folder(tmp_path, monkeypatch):
     from fibsem.ai.agent import code_mode
 

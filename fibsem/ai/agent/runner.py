@@ -29,6 +29,7 @@ from typing import Callable, List, Optional
 from fibsem.ai.agent import code_mode
 from fibsem.ai.agent.levels import LEVEL_SKILLS
 from fibsem.ai.agent.mcp import watch as watch_mod
+from fibsem.logo import print_fibsem_logo
 from fibsem.util import timestamps
 
 BASE_SKILL = "autolamella-agent"
@@ -1017,11 +1018,13 @@ def main(argv=None) -> int:
     # From the environment, so it is not in the process list or shell history.
     token = os.environ.get("FIBSEM_SERVER_TOKEN")
     log_path = Path(args.log).expanduser() if args.log else _default_log()
+    print_fibsem_logo()
     _log_to(log_path)
     log.info("fibsem-agent: skills from %s, log %s", checkout, log_path)
     if work is not None:
         code_mode.prepare(work, checkout, list(SKILLS))
-        log.info("Code mode: the agent works in %s, sandboxed.", work)
+    for line in code_mode.describe(work):
+        log.info(line)
 
     options = build_options(
         checkout,
