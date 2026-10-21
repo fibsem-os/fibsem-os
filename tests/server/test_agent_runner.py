@@ -195,10 +195,22 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
     )
 
     assert options.permission_mode == "dontAsk"
-    assert options.allowed_tools == ["mcp__fibsem__*", "ToolSearch"]
-    assert options.tools == ["Skill", "ToolSearch"]
-    for tool in ("Bash", "Read", "Write", "Edit", "WebFetch", "WebSearch"):
+    assert options.allowed_tools == [
+        "mcp__fibsem__*",
+        "ToolSearch",
+        runner_mod.READ_TOOL_RESULTS,
+    ] + [f"Agent({name})" for name in runner_mod.SPECIALISTS]
+    assert options.tools == ["Skill", "ToolSearch", "Agent", "Read"]
+    for tool in ("Bash", "Grep", "Glob", "Write", "Edit", "WebFetch"):
         assert tool in options.disallowed_tools
+    # Read is held to saved tool answers by the runner's own gate.
+    (read,) = options.hooks["PreToolUse"]
+    assert read.matcher == "Read" and read.hooks == [runner_mod._gate_read]
+    assert options.effort == "high"
+    # The CLI's own agents are refused: only the specialists are called, and
+    # each answers inside the turn that called it.
+    for agent in ("general-purpose", "claude", "Explore"):
+        assert f"Agent({agent})" in options.disallowed_tools
     assert set(options.skills) == {
         "autolamella-agent",
         "observe-autolamella",
@@ -223,6 +235,7 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
     assert options.env == {
         "CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1",
         "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
+        "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
         "FIBSEM_SERVER_URL": "http://127.0.0.1:9",
         "FIBSEM_SERVER_TOKEN": "t0k",
     }
@@ -242,6 +255,117 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
     assert "Skill(autolamella-agent)" in allowed and "mcp__fibsem__*" in allowed
     assert "bypassPermissions" not in command
     assert not any("t0k" in part for part in command), "the token is in argv"
+
+
+# --- the specialists ------------------------------------------------------------
+
+# Read-only, but it saves its result beside the image it measured.
+MEASURES = {"item_measure_thickness"}
+# Only the Run Lead decides, starts, stops, mills, edits and keeps the record.
+LEAD_ONLY = {
+    "proposal_decide",
+    "proposal_suggest",
+    "request_create",
+    "experiment_add_note",
+    "item_update_task_config",
+    "item_remove",
+    "milling_run_stage",
+    "milling_run_task",
+    "milling_stop",
+    "milling_end",
+}
+# The two that are lent the microscope; every other specialist only reads.
+HAS_THE_MICROSCOPE = {"autolamella-surveyor", "autolamella-placement"}
+
+
+def _specialists():
+    """Each agent file's frontmatter, by its file name."""
+    import yaml
+
+    checkout = runner_mod.find_checkout()
+    agents = {}
+    for path in sorted((checkout / ".claude" / "agents").glob("autolamella-*.md")):
+        _, front, _ = path.read_text(encoding="utf-8").split("---\n", 2)
+        agents[path.stem] = yaml.safe_load(front)
+    return agents
+
+
+def _tools(front):
+    return [tool.strip() for tool in front["tools"].split(",")]
+
+
+def test_the_runner_allows_the_specialists_the_checkout_defines():
+    agents = _specialists()
+    assert set(agents) == set(runner_mod.SPECIALISTS)
+    for name, front in agents.items():
+        assert front["name"] == name
+        assert front["description"]
+
+
+def test_a_specialist_has_only_tools_that_exist_and_the_runner_can_refuse():
+    from fibsem.ai.agent.catalog import CATALOG
+
+    catalog = {spec.name for spec in CATALOG}
+    for name, front in _specialists().items():
+        for tool in _tools(front):
+            if tool.startswith("mcp__fibsem__"):
+                assert tool.removeprefix("mcp__fibsem__") in catalog, (name, tool)
+            else:
+                # A specialist gets a tool it lists unless the runner denies
+                # it; Read is the agent's own, behind the Read gate.
+                assert tool in runner_mod.DENIED_TOOLS or tool == "Read", (name, tool)
+
+
+def test_only_the_run_lead_decides_and_only_two_specialists_act():
+    from fibsem.ai.agent.catalog import CATALOG
+
+    read_only = {spec.name for spec in CATALOG if spec.read_only}
+    for name, front in _specialists().items():
+        fibsem = {
+            tool.removeprefix("mcp__fibsem__")
+            for tool in _tools(front)
+            if tool.startswith("mcp__fibsem__")
+        }
+        assert not fibsem & LEAD_ONLY, (name, fibsem & LEAD_ONLY)
+        assert not {t for t in fibsem if t.startswith(("workflow_", "protocol_"))} - (
+            read_only
+        ), name
+        if name not in HAS_THE_MICROSCOPE:
+            assert fibsem <= read_only | MEASURES, (name, fibsem - read_only)
+
+
+def test_read_opens_only_a_saved_tool_answer(tmp_path):
+    claude = tmp_path / "claude"
+    saved = claude / "projects" / "-a-checkout" / "session" / "tool-results"
+    saved.mkdir(parents=True)
+    (saved / "answer.txt").write_text("a long log")
+    (tmp_path / "operator-token.json").write_text("{}")
+    (saved / "link.json").symlink_to(tmp_path / "operator-token.json")
+
+    def opens(path):
+        return runner_mod.saved_tool_answer(str(path), claude_dir=str(claude))
+
+    assert opens(saved / "answer.txt")
+    assert not opens(tmp_path / "operator-token.json")
+    assert not opens(claude / "projects" / "-a-checkout" / "session" / "x.jsonl")
+    assert not opens(saved / ".." / ".." / "x.jsonl")
+    assert not opens(saved / "link.json")
+    assert not opens(saved)
+
+
+def test_the_read_gate_refuses_what_is_not_a_saved_answer(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+    saved = tmp_path / "projects" / "-a" / "s" / "tool-results"
+    saved.mkdir(parents=True)
+    (saved / "a.txt").write_text("x")
+
+    def gate(path):
+        call = {"tool_name": "Read", "tool_input": {"file_path": str(path)}}
+        return asyncio.run(runner_mod._gate_read(call, "t1", None))
+
+    assert gate(saved / "a.txt") == {}
+    refused = gate(tmp_path / "elsewhere.txt")["hookSpecificOutput"]
+    assert refused["permissionDecision"] == "deny"
 
 
 # --- turning lines into turns -------------------------------------------------

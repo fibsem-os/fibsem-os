@@ -126,11 +126,22 @@ fibsem-agent
   the Agent chip, the server still refuses what it doesn't allow, and the
   runner never sets it.
 - **Tools.** The `mcp__fibsem__*` tools run without a prompt, since the
-  server decides what they may do. The agent also has the Skill tool, and
-  ToolSearch to find the fibsem tools, and nothing else: no shell, no file
-  reads or writes, no web. Nothing waits on a
+  server decides what they may do. The agent also has the Skill tool,
+  ToolSearch to find the fibsem tools, the Agent tool for the checkout's
+  `autolamella-*` specialists (`.claude/agents`), and Read for a tool answer
+  too large to show, which the CLI saves to a file: the runner refuses Read
+  of any other file. Nothing else, for the specialists either: no shell, no
+  other file reads, no writes, no web. Nothing waits on a
   permission prompt; anything else is denied. So the offline
   `read_record.py` reader stays with Claude Code.
+- **Specialists.** In the supervise skill's lead mode the agent is the Run
+  Lead and calls a specialist for each key decision: the site survey, each
+  site's placement, each polishing pass and its second opinion, a check
+  after each automatic mill. Each one runs inside the turn that called it,
+  with only the tools its file lists; only the Run Lead decides. The CLI's
+  own agents are refused. Each specialist sets its own model and effort;
+  `--effort` sets the agent's own (default high). A lead run calls the most
+  capable model often: raise `--max-budget-usd` to match the night.
 - **Your Claude Code config stays out.** The session loads this checkout's
   project settings and skills, not `~/.claude`, and only this sidecar, not a
   `fibsem` server you registered with `claude mcp add`.
