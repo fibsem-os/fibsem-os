@@ -1,11 +1,13 @@
-"""What the agent's waiting request or suggestion would do, drawn on the card
-where the operator decides (FIB-1404, FIB-1411).
+"""What the agent's waiting request or suggestion would do, drawn where the
+operator decides: the window's card and the chat page (FIB-1404, FIB-1411).
+The session draws them, window or none (FIB-1500).
 
-Under Why: the image the values were measured on, every value drawn on it in the
-agent's purple. A decision's or an item's point of interest on that item's image;
+Under Why: the image the values were measured on, every value drawn on it in
+the app's own styles, with a legend, an agent chip, a scalebar and the image's
+metadata bar. A decision's or an item's point of interest on that item's image;
 an item edit's alignment area; the patterns a mill would draw, a config edit's as
-it would leave them (as they are now in grey) and any reaching past the edge of
-the field in red, on the FIB image; where a move would go. A suggestion on a
+it would leave them (the current ones dashed grey) and any reaching past the edge
+of the field in red, on the FIB image; where a move would go. A suggestion on a
 pending proposal is drawn as the decision it would make.
 
 Nothing is drawn on the live views: they show what the microscope does, and the
@@ -24,7 +26,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from fibsem.services.milling import parse_patterns
 from fibsem.structures import BeamType, Point
-from fibsem.ui.tokens import PURPLE_COLOR, RED_COLOR, WHITE_ICON_COLOR
+from fibsem.theme.tokens import ERROR_COLOR, ORANGE_COLOR, WHITE_ICON_COLOR
 from fibsem.workflows.evidence import frame_path
 
 # What a request places on the sample, by kind.
@@ -241,9 +243,9 @@ def request_targets(request: Dict[str, Any]) -> List[Tuple[BeamType, Point]]:
     return targets
 
 
-def _frame(controller, beam: BeamType):
-    """The frame *beam*'s view shows, when it has a pixel size; else None."""
-    image = controller.image(beam) if hasattr(controller, "image") else None
+def _frame(frame_of: Callable[[BeamType], object], beam: BeamType):
+    """*beam*'s latest frame, when it has a pixel size; else None."""
+    image = frame_of(beam)
     metadata = getattr(image, "metadata", None)
     if image is None or metadata is None or metadata.pixel_size is None:
         return None
@@ -344,12 +346,10 @@ def _fraction_pixel(frame, fraction: Tuple[float, float]) -> Tuple[float, float]
 # How a mark draws its places: a point of interest or a feature "+", a move
 # target a crosshair, a spot burn point a dot.
 CROSS, TARGET, DOT = "cross", "target", "dot"
-# How the legend shows the rest: patterns to mill, filled; patterns outlined (a
-# config edit's as they are now, those past the field); an area, dashed.
-FILL, OUTLINE, AREA = "fill", "outline", "area"
-# The patterns to mill: see-through, so where they overlap shows darker
-# (FIB-1424; Patrick: "solid rectangles", not bounding boxes).
-FILL_ALPHA = 70
+# How the legend shows the rest: patterns to mill, filled; patterns outlined
+# (those past the field), or dashed (a config edit's as they are now); an area,
+# dashed.
+FILL, OUTLINE, DASHED, AREA = "fill", "outline", "dashed", "area"
 
 
 class _Mark:
@@ -369,8 +369,11 @@ class _Mark:
         title: str = "",
         item: str = "",
         stage: Optional[object] = None,
+        kind: str = "",
     ):
         self.beam = beam
+        # What it is (`POI_MARK`, ...), for its colour.
+        self.kind = kind
         self.legend = legend
         self.places: List[Tuple[Optional[object], Any]] = list(places)
         self.area = area
@@ -400,21 +403,41 @@ class _Mark:
         return [reproject_pixel(on, frame, *value) for on, value in measured]
 
 
-# The picture on the card: its width at most, and how its marks are drawn.
+# The picture on the card: its width at most.
 PICTURE_WIDTH = 1024
-# A config edit's patterns as they are now: solid white, seen on any image.
-_BEFORE = WHITE_ICON_COLOR
+# The app's colours for what a request places, as its editors draw them: the
+# point of interest as the lamella editor, the alignment area as its overlay,
+# spot burn points as their editor. A move target has no style of its own.
+MARK_COLOURS = {
+    TARGET_MARK: WHITE_ICON_COLOR,
+    POI_MARK: "magenta",
+    AREA_MARK: "limegreen",
+    ITEM_MARK: ORANGE_COLOR,
+    POSE_MARK: WHITE_ICON_COLOR,
+    SPOT_MARK: "cyan",
+    FEATURE_MARK: "yellow",
+}
+# What is there now (a config edit's patterns, a pose): grey, dashed.
+CURRENT_COLOUR = "#bfbfbf"
+# Patterns past the field: the app's error red.
+PAST_FIELD_COLOUR = ERROR_COLOR
+# A pass decided without running: outlined, nothing milled.
+UNMILLED_COLOUR = CURRENT_COLOUR
 
 
 class _Layer:
     """What one colour draws on the card's picture: crosses, crosshairs, dots
     and areas (pixels of the picture's frame), and patterns (metres from the
-    field's centre), filled (*fill*, what would be milled) or outlined.
+    field's centre), filled (*fill*, what would be milled: each stage in the
+    milling view's colour, `names` its stage) or outlined, solid or *dashed*.
     Areas, which are never milled, are dashed."""
 
-    def __init__(self, colour: str, fill: bool = False) -> None:
+    def __init__(self, colour: str, fill: bool = False, dashed: bool = False) -> None:
         self.colour = colour
         self.fill = fill
+        self.dashed = dashed
+        # Each pattern's stage name, for its colour and the legend.
+        self.names: List[str] = []
         self.crosses: List[Tuple[float, float]] = []
         self.targets: List[Tuple[float, float]] = []
         self.dots: List[Tuple[float, float]] = []
@@ -427,7 +450,19 @@ class _Layer:
     @property
     def pattern_shape(self) -> str:
         """How the legend shows this layer's patterns."""
-        return FILL if self.fill else OUTLINE
+        return FILL if self.fill else DASHED if self.dashed else OUTLINE
+
+    def add_stages(self, stages, name: str = "") -> None:
+        """*stages*' patterns, each named for its stage; or, *name* given,
+        bare patterns under that name."""
+        for stage in stages:
+            patterns = _stage_patterns([stage]) if not name else [stage]
+            self.patterns.extend(patterns)
+            self.names.extend([name or stage.name] * len(patterns))
+
+    def stage_names(self) -> List[str]:
+        """The stages it draws, in order, each once."""
+        return list(dict.fromkeys(self.names))
 
     def key(self, shape: str, text: str, drawn=True) -> None:
         """Name what this colour draws in the picture's legend, when it draws it."""
@@ -470,7 +505,7 @@ def _on_frame(frame, corners) -> bool:
 
 
 def _patterns_on_frame(frame, patterns) -> bool:
-    """Whether any of *patterns* shows on *frame*, as `draw_picture` places them."""
+    """Whether any of *patterns* shows on *frame*, as the picture places them."""
     from fibsem.milling.patterning.utils import pattern_outline
 
     for pattern in patterns:
@@ -497,232 +532,32 @@ def _key_past_field(frame, layer: "_Layer") -> None:
         layer.key(OUTLINE, "past the field", layer.patterns)
 
 
-def evidence_picture(evidence: Optional[Dict[str, Any]]):
-    """The image of the agent's *evidence*, its marks drawn on it, at most
-    `PICTURE_WIDTH` wide: a QImage, or None when there is no image to show."""
-    from PyQt5.QtCore import Qt
-    from PyQt5.QtGui import QImage
-
-    path = (evidence or {}).get("image")
-    if not path:
-        return None
-    image = QImage(str(path))
-    if image.isNull():
-        # A beam image (TIFF): as the card draws a frame.
-        from fibsem.imaging.export import _to_uint8
-        from fibsem.ui.utils import arr_to_qimage
-
-        try:
-            frame = _load_beam_image(str(path))
-            image = arr_to_qimage(_to_uint8(frame.data))
-        except Exception:  # noqa: BLE001 - shown without it
-            return None
-    width = image.width()
-    scale = min(1.0, PICTURE_WIDTH / max(width, 1))
-    if scale < 1.0:
-        image = image.scaledToWidth(int(width * scale), Qt.SmoothTransformation)  # type: ignore
-    image = image.convertToFormat(QImage.Format_RGB32)
-    draw_evidence_marks(image, (evidence or {}).get("marks"), scale)
-    return image
+def _chip(suggestion: bool) -> str:
+    """Whose the picture is, on it."""
+    return "Agent's suggestion" if suggestion else "Agent's request"
 
 
-def draw_evidence_marks(image, marks: Optional[Dict[str, Any]], scale: float) -> None:
-    """The agent's *marks* (its image's pixels, times *scale*) on the QImage
-    *image*, in the agent's purple: a cross per point, a box per area, each
-    with its label. Each has a dark halo so it reads on a grey overview, and
-    is sized for the picture shown a third as wide (FIB-1503)."""
-    from PyQt5.QtCore import QPointF, QRectF, Qt
-    from PyQt5.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPen
+def stage_colour(index: int) -> str:
+    """The milling view's colour for its *index*-th stage."""
+    from fibsem.milling.patterning.plotting import COLOURS
 
-    if not marks:
-        return
-    line = max(3.0, image.width() / 110)
-    font = QFont()
-    font.setBold(True)
-    font.setPixelSize(max(18, int(image.width() / 20)))
-    metrics = QFontMetricsF(font)
-    size = line * 5
-    shapes, labels = QPainterPath(), QPainterPath()
-    for point in marks.get("points") or []:
-        x, y = point["x"] * scale, point["y"] * scale
-        shapes.moveTo(x - size, y)
-        shapes.lineTo(x + size, y)
-        shapes.moveTo(x, y - size)
-        shapes.lineTo(x, y + size)
-        if point.get("label"):
-            # Where it would run off the picture's right edge, under the mark
-            # and ending at the edge.
-            text = point["label"]
-            at = QPointF(x + size + line, y - line)
-            if at.x() + metrics.horizontalAdvance(text) > image.width():
-                at = QPointF(
-                    max(0.0, image.width() - metrics.horizontalAdvance(text) - line),
-                    y + size + metrics.ascent(),
-                )
-            labels.addText(at, font, text)
-    for area in marks.get("areas") or []:
-        rect = QRectF(
-            area["x"] * scale,
-            area["y"] * scale,
-            area["width"] * scale,
-            area["height"] * scale,
-        )
-        shapes.addRect(rect)
-        if area.get("label"):
-            labels.addText(rect.topLeft() + QPointF(0, -line), font, area["label"])
-    painter = QPainter(image)
-    painter.setRenderHint(QPainter.Antialiasing)
-    painter.setBrush(Qt.NoBrush)  # type: ignore
-    halo = QColor(0, 0, 0, 200)
-    painter.strokePath(shapes, QPen(halo, line * 2.2, Qt.SolidLine, Qt.RoundCap))  # type: ignore
-    painter.strokePath(shapes, QPen(QColor(PURPLE_COLOR), line))
-    painter.strokePath(
-        labels, QPen(halo, line * 1.2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
-    )  # type: ignore
-    painter.fillPath(labels, QColor(PURPLE_COLOR))
-    painter.end()
-
-
-def draw_picture(frame, layers: List[_Layer]):
-    """*frame* with *layers* drawn on it, as the card shows it: a QImage at most
-    `PICTURE_WIDTH` wide (FIB-1411). Patterns are drawn as the milling view
-    draws them, against this frame's field."""
-    from PyQt5.QtCore import QLineF, QPointF, Qt
-    from PyQt5.QtGui import QColor, QPainter, QPen, QPolygonF
-
-    from fibsem.imaging.export import _to_uint8
-    from fibsem.milling.patterning.utils import pattern_outline
-    from fibsem.ui.utils import arr_to_qimage
-
-    height, width = frame.data.shape[:2]
-    image = arr_to_qimage(_to_uint8(frame.data))
-    scale = min(1.0, PICTURE_WIDTH / width)
-    if scale < 1.0:
-        image = image.scaledToWidth(
-            int(width * scale),
-            Qt.SmoothTransformation,  # type: ignore
-        )
-    image = image.convertToFormat(image.Format_RGB32)
-    painter = QPainter(image)
-    painter.setRenderHint(QPainter.Antialiasing)
-    # Seen at the Why column's width, a third of this or less.
-    line = max(2.0, image.width() / 150)
-
-    def at(pixel) -> QPointF:
-        return QPointF(pixel[0] * scale, pixel[1] * scale)
-
-    for layer in layers:
-        colour = QColor(layer.colour)
-        pen = QPen(colour, line)
-        painter.setPen(pen)
-        fill = QColor(colour)
-        fill.setAlpha(FILL_ALPHA)
-        painter.setBrush(fill if layer.fill else Qt.NoBrush)  # type: ignore
-        for pattern in layer.patterns:
-            for ring in pattern_outline(pattern):
-                points = [at(_offset_pixel(frame, Point(x=x, y=y))) for x, y in ring]
-                if len(points) == 2:
-                    painter.drawLine(QLineF(points[0], points[1]))
-                else:
-                    painter.drawPolygon(QPolygonF(points))
-        painter.setBrush(Qt.NoBrush)  # type: ignore
-        pen.setStyle(Qt.DashLine)  # type: ignore
-        painter.setPen(pen)
-        for (x0, y0), (x1, y1) in layer.areas:
-            painter.drawPolygon(
-                QPolygonF([at((x0, y0)), at((x1, y0)), at((x1, y1)), at((x0, y1))])
-            )
-        pen.setStyle(Qt.SolidLine)  # type: ignore
-        pen.setWidthF(line * 1.5)
-        painter.setPen(pen)
-        for shape in (CROSS, TARGET, DOT):
-            for pixel in layer.points(shape):
-                _draw_mark(painter, shape, at(pixel), 6 * line)
-    painter.end()
-    return image
-
-
-def _draw_mark(painter, shape: str, centre, arm: float) -> None:
-    """One point, *arm* its reach, in the painter's pen: "+", a crosshair (a
-    ring, its lines stopping short of the centre), or a dot."""
-    from PyQt5.QtCore import QLineF, QPointF, Qt
-
-    x, y = centre.x(), centre.y()
-    if shape == DOT:
-        painter.setBrush(painter.pen().color())
-        painter.drawEllipse(centre, arm * 0.35, arm * 0.35)
-        painter.setBrush(Qt.NoBrush)  # type: ignore
-        return
-    if shape == TARGET:
-        painter.drawEllipse(QPointF(x, y), arm * 0.6, arm * 0.6)
-        gap = arm * 0.25
-        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-            painter.drawLine(
-                QLineF(x + dx * gap, y + dy * gap, x + dx * arm, y + dy * arm)
-            )
-        return
-    painter.drawLine(QLineF(x - arm, y, x + arm, y))
-    painter.drawLine(QLineF(x, y - arm, x, y + arm))
+    return COLOURS[index % len(COLOURS)]
 
 
 def legend_entries(layers: List[_Layer]) -> List[Tuple[str, str, str]]:
     """What each layer draws, for the picture's legend: ``(colour, shape,
-    words)``."""
-    return [
-        (layer.colour, shape, text) for layer in layers for shape, text in layer.keys
-    ]
-
-
-def draw_legend(painter, entries, font_px: int) -> None:
-    """*entries* (`legend_entries`) in a box at the top left of what *painter*
-    draws on: a sample of each mark, then its words, as the canvas legend does.
-    *font_px* the words' height, in the painter's pixels."""
-    from PyQt5.QtCore import QPointF, QRectF, Qt
-    from PyQt5.QtGui import QColor, QFont, QFontMetricsF, QPen
-
-    if not entries:
-        return
-    font = QFont()
-    font.setPixelSize(font_px)
-    painter.setFont(font)
-    metrics = QFontMetricsF(font)
-    row = metrics.height() * 1.3
-    sample = metrics.height() * 1.2
-    pad = metrics.height() * 0.5
-    box = QRectF(
-        pad,
-        pad,
-        pad * 3 + sample + max(metrics.horizontalAdvance(e[-1]) for e in entries),
-        pad * 2 + row * len(entries),
-    )
-    painter.setPen(Qt.NoPen)  # type: ignore
-    painter.setBrush(QColor(0, 0, 0, 170))
-    painter.drawRoundedRect(box, pad / 2, pad / 2)
-    painter.setBrush(Qt.NoBrush)  # type: ignore
-    for index, (colour, shape, text) in enumerate(entries):
-        top = box.top() + pad + row * index
-        middle = top + row / 2
-        left = box.left() + pad
-        pen = QPen(QColor(colour), 1.5)
-        if shape == AREA:
-            pen.setStyle(Qt.DashLine)  # type: ignore
-        painter.setPen(pen)
-        if shape in (FILL, OUTLINE, AREA):
-            fill = QColor(colour)
-            fill.setAlpha(FILL_ALPHA)
-            painter.setBrush(fill if shape == FILL else Qt.NoBrush)  # type: ignore
-            painter.drawRect(QRectF(left, middle - sample * 0.3, sample, sample * 0.6))
-            painter.setBrush(Qt.NoBrush)  # type: ignore
-        else:
-            _draw_mark(
-                painter, shape, QPointF(left + sample / 2, middle), sample * 0.45
-            )
-        painter.setPen(QColor("#ffffff"))
-        painter.drawText(
-            QRectF(left + sample + pad, top, box.width(), row),
-            int(Qt.AlignVCenter | Qt.AlignLeft),  # type: ignore
-            text,
-        )
+    words)``. Patterns to mill are named by their stages."""
+    entries = []
+    for layer in layers:
+        for shape, text in layer.keys:
+            if shape == FILL and layer.names:
+                entries.extend(
+                    (stage_colour(i), FILL, name)
+                    for i, name in enumerate(layer.stage_names())
+                )
+            else:
+                entries.append((layer.colour, shape, text))
+    return entries
 
 
 def _stage_patterns(stages) -> List:
@@ -735,13 +570,14 @@ def _stage_patterns(stages) -> List:
     return patterns
 
 
-class AgentPreviews:
-    """Draws the agent's waiting request and suggestion on the card, on the
-    image their values were measured on. Nothing on the views."""
+class AgentPictures:
+    """Draws the agent's waiting request and suggestion on the image their
+    values were measured on, for the card and the chat page. Nothing on the
+    views."""
 
     def __init__(
         self,
-        view_controller: Callable[[], object],
+        frame: Callable[[BeamType], object],
         reference_image: Optional[Callable[[Dict[str, Any]], object]] = None,
         task_config: Optional[Callable[[str, str], object]] = None,
         show_picture: Optional[Callable[..., None]] = None,
@@ -752,8 +588,8 @@ class AgentPreviews:
         item_overview: Optional[Callable[[str], object]] = None,
         pending_proposal: Optional[Callable[[Dict[str, Any]], object]] = None,
     ) -> None:
-        # Asked when there is something to draw: the views are built after this.
-        self._view_controller = view_controller
+        # Each beam's latest frame, or None: the session's images.
+        self._frame_of = frame
         # The image a proposal_decide action's values sit on (its arguments), or
         # None: the window reads it from the experiment.
         self._reference_image = reference_image or (lambda arguments: None)
@@ -777,8 +613,7 @@ class AgentPreviews:
         self._item_overview = item_overview or (lambda item: None)
         # A request's own image, by path (the agent's evidence).
         self._load_image = load_image or _load_beam_image
-        # The card's picture: (QImage or None, caption, suggestion=bool,
-        # legend=legend_entries).
+        # The picture: (PNG or None, caption, suggestion=bool).
         self._show_picture = show_picture or (lambda *args, **kwargs: None)
         self._shown_ids: Dict[bool, Optional[str]] = {False: None, True: None}
         # The card's pictures, as drawn: (frame, layers), for tests and reading.
@@ -819,14 +654,11 @@ class AgentPreviews:
             # An image the agent made: shown as it is, its marks on it.
             self._evidence_only(cited, suggestion)
             return
-        controller = self._view_controller()
-        if controller is None:
-            return
         patterns = request_patterns(request)
         before, after = config_edit_stages(request, self._task_config)
         passed, kept, _points = decided_passes(request, self._pending_proposal)
         milled = request_stages(request) + after + passed
-        live = _frame(controller, BeamType.ION)
+        live = _frame(self._frame_of, BeamType.ION)
         aspect = live.data.shape[0] / live.data.shape[1] if live is not None else 2 / 3
         outside = request_outside_field(request, aspect, milled)
         missing: List[str] = []
@@ -840,7 +672,7 @@ class AgentPreviews:
             beam = frame.metadata.image_settings.beam_type or BeamType.ION
         else:
             frame, beam = self._measured_on(
-                controller, marks, bool(patterns or milled or before or kept)
+                marks, bool(patterns or milled or before or kept)
             )
             if passed or kept:
                 # A pass's patterns, on the image the pass was asked on.
@@ -859,30 +691,30 @@ class AgentPreviews:
                     suggestion=suggestion,
                 )
             return
-        layers = [
-            _Layer(_BEFORE),
-            _Layer(PURPLE_COLOR, fill=True),
-            _Layer(RED_COLOR),
-        ]
-        grey, purple, red = layers
+        current = _Layer(CURRENT_COLOUR, dashed=True)
+        milling = _Layer(stage_colour(0), fill=True)
+        past = _Layer(PAST_FIELD_COLOUR)
+        layers = [current, milling, past]
         if beam is BeamType.ION:
-            grey.patterns = _stage_patterns(before)
-            # Past the field, outlined in red over purple.
-            purple.patterns = patterns + _stage_patterns(milled)
-            red.patterns = outside
-            grey.key(OUTLINE, "as now", grey.patterns)
+            current.patterns = _stage_patterns(before)
+            # Past the field, outlined in red over the stage's colour.
+            milling.add_stages(patterns, name="patterns")
+            milling.add_stages(milled)
+            past.patterns = outside
+            current.key(DASHED, "current", current.patterns)
             if kept:
                 # A pass decided without running: nothing is milled.
-                unmilled = _Layer(PURPLE_COLOR)
+                unmilled = _Layer(UNMILLED_COLOUR)
                 unmilled.patterns = _stage_patterns(kept)
                 unmilled.key(OUTLINE, "not milled", unmilled.patterns)
                 layers.append(unmilled)
-            purple.key(
-                FILL, "after the edit" if before else "patterns", purple.patterns
-            )
-            _key_past_field(frame, red)
-        self._add_marks(frame, [m for m in marks.values() if not m.before], purple)
-        self._add_marks(frame, [m for m in marks.values() if m.before], grey)
+            milling.key(FILL, "patterns", milling.patterns)
+            _key_past_field(frame, past)
+        layers.extend(
+            self._add_marks(frame, [m for m in marks.values() if not m.before])
+        )
+        for mark in (m for m in marks.values() if m.before):
+            self._add_mark(frame, mark, current)
         title = next(
             (m.title for m in marks.values() if m.title and m.places), pass_title
         )
@@ -897,13 +729,15 @@ class AgentPreviews:
         )
 
     def _evidence_only(self, evidence: Dict[str, Any], suggestion: bool) -> None:
-        image = evidence_picture(evidence)
-        drawn = (evidence, []) if image is not None else None
+        from fibsem.ai.agent.drawing import evidence_png
+
+        png = evidence_png(evidence, _chip(suggestion))
+        drawn = (evidence, []) if png is not None else None
         if suggestion:
             self.suggestion_picture = drawn
         else:
             self.request_picture = drawn
-        self._show_picture(image, "The agent's image", suggestion=suggestion)
+        self._show_picture(png, "The agent's image", suggestion=suggestion)
 
     def _pass_frame(self, request: Dict[str, Any]):
         """``(image, ION, what)``: the image the first pass a request decides
@@ -916,7 +750,7 @@ class AgentPreviews:
                 return image, BeamType.ION, str(action.get("what") or "")
         return None
 
-    def _measured_on(self, controller, marks: Dict[str, "_Mark"], milling: bool):
+    def _measured_on(self, marks: Dict[str, "_Mark"], milling: bool):
         """The frame the request's values were measured on: a decision's or an
         item's own image; else the FIB view's, where a mill draws; else the
         view of the beam a move is in. With its beam; None, None for none."""
@@ -927,9 +761,9 @@ class AgentPreviews:
         beams = [BeamType.ION] if milling else []
         beams += sorted({m.beam for m in marks.values()}, key=lambda b: b.value)
         if BeamType.ION in beams:
-            return _frame(controller, BeamType.ION), BeamType.ION
+            return _frame(self._frame_of, BeamType.ION), BeamType.ION
         if beams:
-            return _frame(controller, beams[0]), beams[0]
+            return _frame(self._frame_of, beams[0]), beams[0]
         return None, None
 
     def _pose_overview(self, marks: Dict[str, "_Mark"], frame, beam):
@@ -970,7 +804,7 @@ class AgentPreviews:
 
         def add(overlay_id, beam, legend, places, area=False, shape=CROSS, **kw):
             mark = marks.setdefault(
-                overlay_id, _Mark(beam, legend, [], area, shape, **kw)
+                overlay_id, _Mark(beam, legend, [], area, shape, kind=overlay_id, **kw)
             )
             mark.places.extend(places)
 
@@ -1154,25 +988,31 @@ class AgentPreviews:
 
     # --- drawing ----------------------------------------------------------------
 
-    @staticmethod
-    def _add_marks(frame, marks, layer: _Layer) -> None:
-        """*marks* re-projected onto *frame*, into *layer*. A mark that falls
-        off the picture is not drawn, and its key says so."""
+    @classmethod
+    def _add_marks(cls, frame, marks) -> List[_Layer]:
+        """*marks* re-projected onto *frame*, each in its colour's layer."""
+        layers: Dict[str, _Layer] = {}
         for mark in marks:
-            pixels = mark.pixels(frame)
-            if mark.area:
-                shown = len(pixels) >= 2 and _on_frame(frame, pixels[:2])
-                if shown:
-                    layer.areas.append(pixels[:2])
-                shape = AREA
-            else:
-                inside = [p for p in pixels if _on_frame(frame, [p, p])]
-                layer.points(mark.shape).extend(inside)
-                shown = bool(inside) or not pixels
-                shape = mark.shape
-            layer.key(
-                shape, mark.legend if shown else f"{mark.legend}, off the picture"
-            )
+            colour = MARK_COLOURS.get(mark.kind, WHITE_ICON_COLOR)
+            cls._add_mark(frame, mark, layers.setdefault(colour, _Layer(colour)))
+        return list(layers.values())
+
+    @staticmethod
+    def _add_mark(frame, mark: "_Mark", layer: _Layer) -> None:
+        """*mark* re-projected onto *frame*, into *layer*. A mark that falls
+        off the picture is not drawn, and its key says so."""
+        pixels = mark.pixels(frame)
+        if mark.area:
+            shown = len(pixels) >= 2 and _on_frame(frame, pixels[:2])
+            if shown:
+                layer.areas.append(pixels[:2])
+            shape = AREA
+        else:
+            inside = [p for p in pixels if _on_frame(frame, [p, p])]
+            layer.points(mark.shape).extend(inside)
+            shown = bool(inside) or not pixels
+            shape = mark.shape
+        layer.key(shape, mark.legend if shown else f"{mark.legend}, off the picture")
 
     def _picture(
         self,
@@ -1198,12 +1038,10 @@ class AgentPreviews:
         caption = picture_caption(frame, beam)
         if title:
             caption = f"{title} · {caption}"
-        image = draw_picture(frame, layers)
-        if marks:
-            draw_evidence_marks(image, marks, image.width() / frame.data.shape[1])
+        from fibsem.ai.agent.drawing import picture_png
+
         self._show_picture(
-            image,
+            picture_png(frame, layers, marks, chip=_chip(suggestion)),
             f"The agent's image · {caption}" if agent_image else caption,
             suggestion=suggestion,
-            legend=legend_entries(layers),
         )

@@ -1,9 +1,9 @@
 """The volume app over the App Server: the /app core and the Items part, with
 each position edit made by the experiment's own method (its refusals, one save).
 
-Not yet served for volume, and refused with why: protocol edits and the
-experiment and protocol files (they wait on the shared task-config work), and
-per-position task configs (positions share the protocol's).
+Not yet served for volume, and refused with why: adding tasks, workflow
+options, the experiment and protocol files, and per-position task configs
+(positions share the protocol's).
 """
 
 from typing import Any, Callable, Dict, List, Optional
@@ -111,9 +111,6 @@ class VolumeAppContext(AppContext):
     def protocols(self) -> Dict[str, Any]:
         return {"folder": None, "protocols": []}
 
-    def saved_experiments(self):
-        return {"folder": None, "items": []}
-
     def create_experiment(self, name, protocol=None, description=None):
         return _not_served("create experiments over the App Server")
 
@@ -126,29 +123,8 @@ class VolumeAppContext(AppContext):
     def save_protocol_as(self, name, overwrite=False):
         return _not_served("save protocols")
 
-    def protocol_task_config(self, task_name):
-        return _not_served("serve task configs")
-
-    def apply_protocol_task_config_patch(self, task_name, patch, version, timeout=10.0):
-        return _not_served("edit task configs")
-
     def add_task(self, task_type, task_name):
         return _not_served("add tasks")
-
-    def remove_task(self, task_name):
-        return _not_served("remove tasks")
-
-    def reorder_tasks(self, order):
-        return _not_served("reorder tasks")
-
-    def set_task_requirements(self, task_name, requires):
-        return _not_served("edit task requirements")
-
-    def set_supervision(self, task_name, supervise):
-        return _not_served("change supervision")
-
-    def set_task_schedule(self, task_name, scheduled_at):
-        return _not_served("schedule tasks")
 
     def set_workflow_options(self, **options):
         return _not_served("set workflow options")

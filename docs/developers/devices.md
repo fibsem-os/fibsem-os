@@ -798,7 +798,7 @@ vendor scan. Its Devices tab draws any device from what it describes about itsel
 limits and choices, written on edit and kept current through `changed`; each command
 that needs no arguments as a button, run after the user confirms; and its `facts`.
 
-`fibsem-cli check` (the hardware check) checks every device the microscope built, a plugin's too,
+`fibsem-cli hardware-check` checks every device the App Server's microscope built, a plugin's too,
 through `Device.hardware_check(report, level)`. By default that is the `READ` step:
 every parameter read and checked against its own limits and choices. A driver adds
 steps for `SETTINGS` and `ACQUIRE` by overriding it, calling `super()` first, and
@@ -848,8 +848,13 @@ A device server makes devices on one computer available to the microscope on
 another, as the METEOR's FM is on the computer that drives the beams:
 
 ```bash
-python -m fibsem.server.devices --serve odemis-fm --host 0.0.0.0 --port 8765
+python -m fibsem.server.devices --serve odemis-fm --port 8765
 ```
+
+It listens on its own computer only; the microscope's computer reaches it through an
+SSH tunnel, or over a private cable with `--host <address on that link>`. Not
+`--host 0.0.0.0`: that listens on every network and nothing is encrypted
+(INSTALLATION.md, "Delmic METEOR").
 
 On the microscope's computer, the `fm` entry names `driver: remote` and the server's
 `address` and `port`, as in the example under

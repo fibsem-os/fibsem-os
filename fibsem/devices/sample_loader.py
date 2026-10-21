@@ -2,7 +2,9 @@
 
 It reports hardware facts only. The magazine is a row per slot, numbered from 1 as on
 the magazine and in the vendor API, each with a state and the description the
-hardware keeps for it. ``on_stage`` is what the loader says sits on the stage. Grid
+hardware keeps for it. ``on_stage`` is what the loader says sits on the stage.
+``compartment``, when the hardware reports it, is the loader's own cryo compartment
+(its dewar and grippers); the chamber side is the chamber's. Grid
 names, which grid is which across scans and the holder's working slot are the grid
 model's (``fibsem.services.sample_handling``), not the device's.
 
@@ -32,6 +34,7 @@ from enum import Enum
 from typing import Any, Iterator, Optional, Tuple
 
 from fibsem.codec import decode, encode
+from fibsem.devices.chamber import CryoCompartment
 from fibsem.devices.core import Device, DeviceParameter, command
 from fibsem.devices.stage import STAGE_RESOURCE
 
@@ -129,6 +132,10 @@ class SampleLoader(Device):
         float, unit="s", doc="How long one exchange takes, an unload and a load."
     )
     busy = DeviceParameter(bool, doc="Whether a command is running on the loader.")
+    compartment = DeviceParameter(
+        CryoCompartment,
+        doc="The loader's cryo compartment: state, dewar level, temperatures.",
+    )
 
     def __init__(self, parent: Any = None, **kwargs: Any):
         super().__init__(name="sample_loader", parent=parent, **kwargs)

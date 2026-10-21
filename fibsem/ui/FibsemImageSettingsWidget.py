@@ -45,7 +45,8 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         revise_prompt: Optional[Callable[[str, bool], None]] = None,
     ):
         """``images``: where the latest image of each beam is kept, the app
-        session's when there is one, so readers need no widget.
+        session's when there is one, so readers need no widget; else this
+        widget's own, following the microscope.
 
         What the host offers, each None when it has none: ``view_controller``
         returns the quad view; ``toggle_movement`` locks the Movement tab with
@@ -54,7 +55,10 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         can_continue)`` says on the prompt bar whether an alignment area can
         be confirmed."""
         super().__init__(parent=parent)
-        self.images = images if images is not None else LatestImages()
+        if images is None:
+            images = LatestImages()
+            images.follow(microscope)
+        self.images = images
 
         self._host_view_controller = view_controller
         self._toggle_movement = toggle_movement
@@ -388,16 +392,6 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
                 raise ValueError(
                     "Image metadata is None, cannot update the display without beam type information."
                 )
-
-            # update image references for every acquisition, not just the live
-            # stream: workflow one-shots (post-mill inspect, spot burn,
-            # coincidence) also emit on these signals, and eb_image/ib_image
-            # must match what the canvas below shows — click-to-move and the
-            # App Server's /app/experiment/images read these references.
-            if image.metadata.beam_type is BeamType.ELECTRON:
-                self.eb_image = image
-            elif image.metadata.beam_type is BeamType.ION:
-                self.ib_image = image
 
             controller = self._view_controller()
             if controller is not None:

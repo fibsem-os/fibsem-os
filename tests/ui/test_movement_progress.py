@@ -345,11 +345,12 @@ def _prefs(monkeypatch, sem: bool, fib: bool):
 
 
 def _with_images(movement):
-    """An image on each beam's view, put up the way an acquisition puts it up: through
-    the image widget, which keeps its own reference and shows it again later."""
+    """An image on each beam's view, put up the way an acquisition puts it up: kept
+    as the latest image, which the image widget shows again later."""
     controller = movement._view_controller()
     for beam in (BeamType.ELECTRON, BeamType.ION):
         image = movement.microscope.acquire_image(beam_type=beam)
+        movement.image_widget.images.set(image)
         movement.image_widget._on_acquire(image)
     return controller
 

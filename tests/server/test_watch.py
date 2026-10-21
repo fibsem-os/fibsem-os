@@ -357,6 +357,17 @@ def test_a_long_command_s_end_is_a_line(app):
                 "error": "the beam would not blank",
             },
         )
+        # Someone waited for this one with service_wait_for_run: no line.
+        app.buffer.append(
+            "command_ended",
+            {
+                "run_id": "r3",
+                "service": "imaging",
+                "command": "acquire_overview",
+                "state": "done",
+                "waited": True,
+            },
+        )
         app.buffer.append("workflow_completed", {})
 
     code, lines = _watch({2: run})
@@ -365,6 +376,7 @@ def test_a_long_command_s_end_is_a_line(app):
         "COMMAND ENDED milling.run run=r1 state=done",
         "COMMAND ENDED spot_burn.run run=r2 state=failed (the beam would not blank)",
     ]
+    assert not any("run=r3" in line for line in lines)
 
 
 def test_task_lines_name_the_task(app):

@@ -196,3 +196,41 @@ def test_service_wait_for_run_waits_for_a_task_s_mill(client, microscope):
     run = json.loads("".join(getattr(c, "text", "") for c in contents))["run"]
     assert run["run_id"] == task.task_id
     assert run["state"] == "done"
+
+
+def test_a_run_that_ends_while_someone_waits_says_so():
+    """The waiter has the end, so the watcher need not wake an agent for it
+    again (2026-10-19 run: a COMMAND ENDED after every waited overview)."""
+    from types import SimpleNamespace
+
+    from fibsem.devices.runs import Runs
+
+    recorded = []
+    owner = SimpleNamespace(
+        name="imaging",
+        session=SimpleNamespace(record=lambda kind, payload: recorded.append(payload)),
+    )
+    runs = Runs(owner)
+
+    def ended(waiting):
+        release = threading.Event()
+        run = runs.start("acquire_overview", release.wait)
+        answered = []
+        if waiting:
+            waiter = threading.Thread(
+                target=lambda: answered.append(runs.wait(run.run_id, 5.0))
+            )
+            waiter.start()
+            while run.waiters == 0:
+                threading.Event().wait(0.01)
+        release.set()
+        if waiting:
+            waiter.join()
+            assert answered[0].state == "done"
+        mine = lambda: [p for p in recorded if p["run_id"] == run.run_id]  # noqa: E731
+        while len(mine()) < 2:  # started and ended, read without waiting
+            threading.Event().wait(0.01)
+        return mine()[1]
+
+    assert ended(waiting=True)["waited"] is True
+    assert ended(waiting=False)["waited"] is False

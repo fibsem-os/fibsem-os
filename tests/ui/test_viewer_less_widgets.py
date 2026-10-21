@@ -165,8 +165,8 @@ def test_one_shot_acquisition_rebinds_the_image_references():
     assert not microscope.is_acquiring, "this test pins the non-streaming path"
 
     sem, fib = _image(BeamType.ELECTRON), _image(BeamType.ION)
-    widget._on_acquire(sem)
-    widget._on_acquire(fib)
+    microscope.imaging.show(sem)
+    microscope.imaging.show(fib)
     assert widget.eb_image is sem
     assert widget.ib_image is fib
 

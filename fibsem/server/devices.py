@@ -44,7 +44,7 @@ Try it on one computer:
 On a METEOR's Linux PC, serving its real FM to the PC that drives the beams (see
 INSTALLATION.md, "Delmic METEOR"):
 
-    python -m fibsem.server.devices --serve odemis-fm --host 0.0.0.0
+    python -m fibsem.server.devices --serve odemis-fm   # reached over an SSH tunnel
 
     from fibsem.drivers.remote.devices import connect_remote_beams   # terminal 2
     beams = connect_remote_beams("127.0.0.1", 8765)

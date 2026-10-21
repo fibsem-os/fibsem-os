@@ -225,8 +225,7 @@ def test_the_image_shows_beside_the_steps_and_follows_the_card_s_width(qapp):
     card.set_request(_request())
     assert card.image_label is None
     image = QImage(1024, 683, QImage.Format_RGB32)
-    legend = [("#8b5cf6", "target", "move target")]
-    card.set_image(image, "FIB · 07:41", legend=legend)
+    card.set_image(image, "FIB · 07:41")
     narrow = card.image_label.pixmap().width()
     assert narrow >= PICTURE_MIN
     assert card.image_label.toolTip() == "FIB · 07:41 · click to enlarge"
@@ -721,7 +720,7 @@ def test_how_a_request_ended_is_a_toast_once_not_the_status_bar(
     assert main_ui.status_bar.failure is None
 
 
-def test_the_window_draws_a_waiting_request_s_mill_on_the_card_and_takes_it_down(
+def test_the_card_shows_the_session_s_picture_of_a_waiting_mill_and_takes_it_down(
     main_ui, host
 ):
     rectangle = {
@@ -747,18 +746,23 @@ def test_the_window_draws_a_waiting_request_s_mill_on_the_card_and_takes_it_down
     ]
     from fibsem.structures import FibsemImage
 
-    main_ui.view_controller.set_image(
-        BeamType.ION, FibsemImage.generate_blank_image(resolution=(200, 100))
+    agent = main_ui.session.agent
+    main_ui.session.images.set(
+        FibsemImage.generate_blank_image(resolution=(200, 100)), BeamType.ION
     )
     host.auth.set_level(AgentLevel.ASSIST)
     host.requests.requests = [waiting]
+    # FIB-1500: the session draws it, window or none; the card shows it.
+    agent.draw_pictures()
     main_ui.agent_host.refresh()
-    assert main_ui.agent_host.previews.request_picture is not None
+    assert agent.picture("request")["png"] is not None
     assert main_ui.agent_host.chip.card.image_label is not None
 
     host.requests.requests = [dict(waiting, status="rejected")]
+    agent.draw_pictures()
     main_ui.agent_host.refresh()
-    assert main_ui.agent_host.previews.request_picture is None
+    assert agent.picture("request") is None
+    assert main_ui.agent_host.chip.card.image_label is None
 
 
 def test_the_card_is_narrow_until_something_waits(qapp):

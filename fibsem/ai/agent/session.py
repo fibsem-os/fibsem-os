@@ -9,6 +9,8 @@ as the operator. A window draws it; nothing here needs a widget.
 from __future__ import annotations
 
 import logging
+import threading
+import time
 import uuid
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set
 
@@ -24,6 +26,8 @@ if TYPE_CHECKING:
 OPEN = ("pending", "applying")
 # The longest message to the agent, in characters (FIB-1423).
 MESSAGE_LIMIT = 2000
+# How often a waiting request's values are read again (FIB-1412).
+REQUEST_REFRESH_S = 15.0
 
 
 def _no_suggestion(verb: str) -> DecisionResult:
@@ -44,10 +48,17 @@ class AgentSession:
         self._unsubscribe: Optional[Callable[[], None]] = None
         # Requests whose ending has been said, so each is said once.
         self._said: Set[str] = set()
-        # The card's pictures as the window draws them, for the chat page:
-        # kind ("request", "suggestion") to its PNG, caption and version.
+        # The pictures of the waiting request and the suggestion, for the
+        # card and the chat page: kind ("request", "suggestion") to its PNG,
+        # caption and version. Drawn on a thread of their own (`keep_pictures`).
         self._pictures: Dict[str, Dict[str, Any]] = {}
         self._picture_version = 0
+        self._picture_listeners: List[Callable[[], None]] = []
+        self._drawer: Optional[Any] = None
+        self._drawer_context: Optional[Any] = None
+        self._drawing: Optional[threading.Thread] = None
+        self._stop_drawing = threading.Event()
+        self._draw_now = threading.Event()
         # The Now line, following the session's microscope.
         self._now: Optional[Any] = None
         self._now_microscope: Optional[Any] = None
@@ -262,23 +273,143 @@ class AgentSession:
         recorder.buffer.append(NOTE, note_record(text, id=message_id), actor=OPERATOR)
         return message_id
 
+    # --- the pictures of what it asks ------------------------------------------
+
     def set_picture(self, kind: str, png: Optional[bytes], caption: str = "") -> None:
-        """The card's *kind* picture as drawn: a PNG with its legend, or None
-        with *caption* saying why there is none; neither takes it down."""
+        """The *kind* picture as drawn: a PNG with its legend, or None with
+        *caption* saying why there is none; neither takes it down."""
         if png is None and not caption:
-            self._pictures.pop(kind, None)
-            return
-        self._picture_version += 1
-        self._pictures[kind] = {
-            "png": png,
-            "caption": caption,
-            "version": self._picture_version,
-        }
+            if self._pictures.pop(kind, None) is None:
+                return
+        else:
+            self._picture_version += 1
+            self._pictures[kind] = {
+                "png": png,
+                "caption": caption,
+                "version": self._picture_version,
+            }
+        for listener in list(self._picture_listeners):
+            listener()
 
     def picture(self, kind: str) -> Optional[Dict[str, Any]]:
-        """The card's *kind* picture (`set_picture`), or None: drawn only
-        while the window is open."""
+        """The *kind* picture (`set_picture`), or None."""
         return self._pictures.get(kind)
+
+    def on_picture(self, listener: Callable[[], None]) -> Callable[[], None]:
+        """Call *listener* when a picture is drawn or taken down, on the
+        drawing thread. Returns how to stop."""
+        self._picture_listeners.append(listener)
+        return lambda: self._picture_listeners.remove(listener)
+
+    def draw_pictures(self) -> None:
+        """Draw the waiting request and the suggestion, each once, on the
+        image its values were measured on (``pictures.AgentPictures``); what
+        is no longer waiting comes down."""
+        drawer = self._picture_drawer()
+        current = self.current()
+        drawer.show_request(current.to_dict() if current is not None else None)
+        drawer.show_suggestion(self._suggestion_request())
+
+    def keep_pictures(self) -> None:
+        """Draw the pictures as requests and suggestions come and go, and read
+        a waiting request's values again every `REQUEST_REFRESH_S`, on a thread
+        of its own until `stop_pictures`: drawing reads images and the
+        experiment, the refresh the routes a request describes."""
+        if self._drawing is not None and self._drawing.is_alive():
+            return
+        self._stop_drawing.clear()
+        self._drawing = threading.Thread(
+            target=self._keep_pictures, name="agent-pictures", daemon=True
+        )
+        self._drawing.start()
+
+    def stop_pictures(self) -> None:
+        self._stop_drawing.set()
+        self._draw_now.set()
+        if self._drawing is not None:
+            self._drawing.join(5.0)
+        self._drawing = None
+        for kind in list(self._pictures):
+            self.set_picture(kind, None)
+
+    def _keep_pictures(self) -> None:
+        store, unsubscribe = None, None
+        described: tuple = (None, 0.0)
+        while not self._stop_drawing.is_set():
+            self._draw_now.clear()
+            if self.requests is not store:
+                if unsubscribe is not None:
+                    unsubscribe()
+                store = self.requests
+                unsubscribe = (
+                    store.subscribe(lambda _request: self._draw_now.set())
+                    if store is not None
+                    else None
+                )
+            try:
+                self.draw_pictures()
+                described = self._describe_again(store, described)
+            except Exception:
+                logging.exception("Drawing the agent's pictures failed")
+            self._draw_now.wait(1.0)
+        if unsubscribe is not None:
+            unsubscribe()
+
+    def _describe_again(self, store, described: tuple) -> tuple:
+        """Read the waiting request's values again once it has waited
+        `REQUEST_REFRESH_S` since it was filed or last read."""
+        current = self.current()
+        if store is None or current is None or current.status != "pending":
+            return (None, 0.0)
+        now = time.monotonic()
+        if described[0] != current.id:
+            return (current.id, now)
+        if now - described[1] < REQUEST_REFRESH_S:
+            return described
+        store.refresh(current.id)
+        return (current.id, now)
+
+    def _picture_drawer(self):
+        """The drawer, made again for each App Server's app: what it reads
+        from the experiment is the app's."""
+        from fibsem.ai.agent.pictures import AgentPictures
+
+        host = self._session.app_server
+        context = getattr(host, "app_context", None) if host is not None else None
+        if self._drawer is None or context is not self._drawer_context:
+            sources = context.picture_sources() if context is not None else None
+            reads = {}
+            if sources is not None:
+                reads = dict(
+                    reference_image=sources.proposal_image,
+                    task_config=sources.task_config,
+                    item_pose=sources.item_pose,
+                    item_image=sources.item_image,
+                    overview_image=sources.overview_image,
+                    item_overview=sources.item_overview,
+                    pending_proposal=sources.pending_proposal,
+                )
+            self._drawer = AgentPictures(
+                self._session.images.get, show_picture=self._show_picture, **reads
+            )
+            self._drawer_context = context
+        return self._drawer
+
+    def _show_picture(
+        self, png: Optional[bytes], caption: str = "", suggestion: bool = False
+    ) -> None:
+        self.set_picture("suggestion" if suggestion else "request", png, caption)
+
+    def _suggestion_request(self) -> Optional[Dict[str, Any]]:
+        """The suggestion shown, as the request that would decide it."""
+        from fibsem.ai.agent.suggestions import front_suggestion, suggestion_request
+
+        experiment = self._session.experiment
+        front = front_suggestion(experiment)
+        if front is None:
+            return None
+        item, task_name, proposal = front
+        return suggestion_request(item, task_name, proposal, str(experiment.path))
 
     def now(self) -> Optional[str]:
         """What the agent is doing on the microscope, as the card's Now line

@@ -36,7 +36,6 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
 )
-from fibsem.applications.autolamella.task_outputs import PreviewSources
 from fibsem.applications.autolamella.ui.dialogs.create_experiment import (
     create_experiment_dialog,
 )
@@ -296,7 +295,6 @@ class AutoLamellaWindow(QMainWindow):
             self.status_bar,
             session=lambda: self.session,
             view_controller=lambda: getattr(self, "view_controller", None),
-            sources=PreviewSources(lambda: self.experiment),
             on_driving=self.run_border.set_agent_driving,
             parent=self,
         )
