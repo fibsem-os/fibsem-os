@@ -16,11 +16,11 @@ from fibsem.applications.autolamella.workflows.tasks.mill_coincident import (
 from fibsem.applications.autolamella.workflows.tasks.setup_coincidence_milling import (
     SetupCoincidenceMillingTaskConfig,
 )
-from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
-    SpotBurnFiducialTaskConfig,
-)
 from fibsem.applications.autolamella.workflows.tasks.trench import (
     MillTrenchTaskConfig,
+)
+from fibsem.workflows.site_tasks.spot_burn import (
+    SpotBurnFiducialTaskConfig,
 )
 
 # a config of each kind with its parameters off their defaults, so a value that

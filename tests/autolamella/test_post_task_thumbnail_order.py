@@ -30,9 +30,15 @@ import pytest
 
 
 def _post_task_body():
-    from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
+    from fibsem.workflows.site_task import SiteTask
 
-    return ast.parse(textwrap.dedent(inspect.getsource(AutoLamellaTask.post_task)))
+    return ast.parse(textwrap.dedent(inspect.getsource(SiteTask.post_task)))
+
+
+def _finishing_task_body():
+    from fibsem.applications.autolamella.structures import Lamella
+
+    return ast.parse(textwrap.dedent(inspect.getsource(Lamella.finishing_task)))
 
 
 def _statement_index(tree, predicate) -> int:
@@ -48,7 +54,8 @@ class TestTheOrder:
     def test_the_thumbnail_is_written_before_the_status_is_set(self):
         tree = _post_task_body()
 
-        thumbnail = _statement_index(tree, lambda d: "save_thumbnail" in d)
+        # The lamella saves its thumbnail when it is told the task is finishing.
+        thumbnail = _statement_index(tree, lambda d: "finishing_task" in d)
         status = _statement_index(
             tree, lambda d: "TaskStatus" in d and "Completed" in d
         )
@@ -63,7 +70,7 @@ class TestTheOrder:
 
     def test_the_write_is_guarded(self):
         """Ordering it first must not let a thumbnail failure block task completion."""
-        tree = _post_task_body()
+        tree = _finishing_task_body()
         body = tree.body[0].body
 
         guarded = any(

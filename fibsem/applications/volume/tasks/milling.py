@@ -69,7 +69,7 @@ class VolumeFIBMillingTask(VolumeTask):
 
     def _run(self) -> None:
         self._move_to_pose()
-        self._align_to_reference(FIB_REFERENCE)
+        self._align_reference_image(FIB_REFERENCE, required=True)
 
         config = deepcopy(self.config.milling)
         poi = self.position.slice_poi(self.slice, self.config.slice_thickness)

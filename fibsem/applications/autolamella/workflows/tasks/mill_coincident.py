@@ -29,7 +29,6 @@ from fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence import
     AcquireFluorescenceImageConfig,
 )
 from fibsem.applications.autolamella.workflows.tasks.base import (
-    ALIGNMENT_REFERENCE_IMAGE_FILENAME,
     AutoLamellaTask,
 )
 from fibsem.applications.autolamella.workflows.tasks.setup_coincidence_milling import (
@@ -52,6 +51,7 @@ from fibsem.structures import (
     param,
 )
 from fibsem.workflows.proposals import MILLING
+from fibsem.workflows.task import ALIGNMENT_REFERENCE_IMAGE_FILENAME
 
 MILL_COINCIDENT_KEY = "mill_coincident"
 DEFAULT_SETUP_TASK_NAME = "Setup Coincidence Milling"

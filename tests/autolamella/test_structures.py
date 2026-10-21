@@ -15,9 +15,6 @@ from fibsem.applications.autolamella.structures import (
     Lamella,
     LamellaDefaultConfig,
 )
-from fibsem.applications.autolamella.workflows.tasks.basic_milling import (
-    BasicMillingTaskConfig,
-)
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning.patterns import RectanglePattern
 from fibsem.milling.tasks import FibsemMillingTaskConfig
@@ -29,6 +26,9 @@ from fibsem.structures import (
     MicroscopeState,
     Point,
     ReferenceImageParameters,
+)
+from fibsem.workflows.site_tasks.mill import (
+    MillTaskConfig,
 )
 
 # ── DefectState tests ─────────────────────────────────────────────────────────
@@ -393,13 +393,13 @@ def test_add_new_lamella_no_name_collision_after_delete(tmp_path):
 # ── AutoLamellaTaskConfig.estimated_time ─────────────────────────────────────
 
 
-def _make_task_config(n_stages: int = 1) -> BasicMillingTaskConfig:
+def _make_task_config(n_stages: int = 1) -> MillTaskConfig:
     stage = FibsemMillingStage(
         milling=FibsemMillingSettings(milling_current=2e-9),
         pattern=RectanglePattern(width=10e-6, height=5e-6, depth=1e-6),
     )
     milling_task = FibsemMillingTaskConfig(stages=[stage] * n_stages)
-    config = BasicMillingTaskConfig(milling={"mill": milling_task})
+    config = MillTaskConfig(milling={"mill": milling_task})
     return config
 
 

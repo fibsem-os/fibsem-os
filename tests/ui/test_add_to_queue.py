@@ -21,11 +21,11 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
 )
-from fibsem.applications.autolamella.workflows.tasks.reference_image import (
-    AcquireReferenceImageConfig,
-)
 from fibsem.ui.widgets.workflow.timeline import WorkflowProgressWidget
 from fibsem.workflows.queue import TaskQueue
+from fibsem.workflows.site_tasks.reference_image import (
+    AcquireReferenceImageConfig,
+)
 from fibsem.workflows.status import TaskStatus as Status
 from tests.protocols import planned, task_protocol
 

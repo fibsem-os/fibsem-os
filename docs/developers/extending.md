@@ -173,6 +173,11 @@ A task is one step applied to one lamella. Subclass `AutoLamellaTask`
 repository or through the `fibsem.autolamella.tasks` entry point from a plugin.
 `fiducial.py` is a representative task module of moderate complexity.
 
+`AutoLamellaTask` is a `SiteTask` (`fibsem/workflows/site_task.py`): a task
+at a site with poses, a point of interest and an alignment area. The site tasks
+in `fibsem/workflows/site_tasks/` (reference image, Mill and spot burn) use
+nothing more than that, and AutoLamella and volume both run them.
+
 Four contracts:
 
 - **Override `_run()`, not `run()`.** `run()` is the lifecycle wrapper: it

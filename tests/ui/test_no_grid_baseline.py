@@ -20,10 +20,10 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.applications.autolamella.ui import window as module
 from fibsem.applications.autolamella.ui.workflow import tab as workflow_tab
-from fibsem.applications.autolamella.workflows.tasks.reference_image import (
+from fibsem.structures import FibsemStagePosition
+from fibsem.workflows.site_tasks.reference_image import (
     AcquireReferenceImageConfig,
 )
-from fibsem.structures import FibsemStagePosition
 from tests.protocols import planned, task_protocol
 
 

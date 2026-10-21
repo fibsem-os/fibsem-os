@@ -16,13 +16,11 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.structures import Lamella
-from fibsem.applications.autolamella.workflows.tasks.base import (
-    ALIGNMENT_REFERENCE_IMAGE_FILENAME,
-)
 from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTask,
     SelectMillingPositionTaskConfig,
 )
+from fibsem.workflows.task import ALIGNMENT_REFERENCE_IMAGE_FILENAME
 from tests.answering import answering
 from tests.autolamella._on_the_record import manager_for
 

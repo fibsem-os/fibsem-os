@@ -42,12 +42,7 @@ def run_task(
     if task_cls is None:
         raise ValueError(f"Task {task_config.task_type} is not registered.")
 
-    task = task_cls(
-        microscope=microscope,
-        config=task_config,
-        lamella=lamella,
-        task_manager=task_manager,
-    )
+    task = task_cls(microscope, task_config, lamella, task_manager=task_manager)
     task.run()
 
 

@@ -27,7 +27,6 @@ import yaml
 from psygnal import evented
 from psygnal.containers import EventedDict, EventedList
 
-from fibsem import timing
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
@@ -50,11 +49,9 @@ from fibsem.structures import (
     FibsemImage,
     FibsemRectangle,
     FibsemStagePosition,
-    ImageSettings,
     MicroscopeState,
     Parameter,
     Point,
-    ReferenceImageParameters,
     SessionInfo,
     field_specs,
     param,
@@ -74,7 +71,8 @@ from fibsem.workflows.proposals import (
 )
 from fibsem.workflows.quality import QualityRecord, Verdict
 from fibsem.workflows.saved_format import check_app
-from fibsem.workflows.status import TaskState, TaskStatus
+from fibsem.workflows.site_task import SiteTaskConfig
+from fibsem.workflows.status import TaskState
 from fibsem.workflows.task_config import (
     RunPlan,
     TaskConfig,
@@ -98,97 +96,11 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class AutoLamellaTaskConfig(TaskConfig, ABC):
-    """Configuration for AutoLamella tasks: the engine's, with the task's milling
-    and the reference images it acquires when it finishes."""
+class AutoLamellaTaskConfig(SiteTaskConfig, ABC):
+    """Configuration for AutoLamella tasks: a site task's, with the tasks the
+    lamella editor draws beside it."""
 
     related_tasks: ClassVar[list[type["AutoLamellaTaskConfig"]]] = []
-    milling: Dict[str, FibsemMillingTaskConfig] = param(
-        doc="The task's milling, by key (trench, rough, polishing, ...): each one's patterns, strategy and alignment.",
-        default_factory=dict,
-    )
-    reference_imaging: ReferenceImageParameters = param(
-        doc="The reference images the task acquires when it finishes.",
-        default_factory=ReferenceImageParameters,
-    )
-
-    @property
-    def parameters(self) -> Tuple[str, ...]:
-        return tuple(
-            name
-            for name in super().parameters
-            if name not in ("milling", "reference_imaging")
-        )
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "AutoLamellaTaskConfig":
-        return super().from_dict(upgrade.task_config(data))
-
-    @property
-    def estimated_time(self) -> float:
-        """Estimate the total time for this task (milling + reference imaging)."""
-        milling_time = sum(t.estimated_time for t in self.milling.values())
-        imaging_time = self.reference_imaging.estimated_time
-        return milling_time + imaging_time
-
-    @property
-    def opens_with_stage_move(self) -> bool:
-        """Whether ``_run`` begins by moving the stage onto the task's pose.
-
-        True for nearly every task, and the exceptions say so. Charged even when the
-        stage is already in place -- a task following another on the same lamella pays
-        0.02 s for the move rather than 7.6 s -- because which case applies is runtime
-        state the config cannot see, and over-charging errs long.
-        """
-        return True
-
-    @property
-    def opens_with_reference_alignment(self) -> bool:
-        """Whether ``_run`` aligns against the stored reference before its own work.
-
-        Off by default: only some tasks do it, and a task that claims it when it does
-        not adds 5 s of fiction to every estimate that includes it.
-        """
-        return False
-
-    @property
-    def estimated_duration(self) -> float:
-        """Conservative forward estimate of this task's wall-clock, in seconds.
-
-        Unlike :attr:`estimated_time`, which counts only the scan arithmetic and the
-        milling, this adds the measured per-operation costs the task actually pays --
-        see :mod:`fibsem.timing`. On the run it was calibrated against, that moved
-        Setup Lamella Position from 0.22x of its real duration to 0.99x.
-
-        A task whose cost is dominated by something this base cannot see -- spot burn
-        exposures, fluorescence channels -- overrides this and adds its own term. The
-        estimate lives on the config rather than on the task because the callers that
-        need it (the pre-run dialog, the queue) hold configs and have no microscope to
-        construct a task with.
-        """
-        # Reference images at both ends, but not the same number: a task opens with
-        # _acquire_reference_image at one field of view and closes with
-        # _acquire_set_of_reference_images over all of them.
-        total = timing.reference_image_cost(self.reference_imaging, fovs=1)
-        total += timing.reference_image_cost(self.reference_imaging)
-        # what _run does before its own work
-        if self.opens_with_stage_move:
-            total += timing.stage_move_cost(1)
-        if self.opens_with_reference_alignment:
-            total += timing.REFERENCE_ALIGNMENT_S
-        for milling_task in self.milling.values():
-            total += timing.milling_task_cost(milling_task)
-        return total
-
-    @property
-    def imaging(self) -> ImageSettings:
-        """Get the imaging settings from the reference imaging parameters."""
-        return self.reference_imaging.imaging
-
-    @imaging.setter
-    def imaging(self, value: ImageSettings):
-        """Set the imaging settings in the reference imaging parameters."""
-        self.reference_imaging.imaging = value
 
 
 def item_config_dict(config: TaskConfig) -> Dict[str, Any]:
@@ -646,6 +558,7 @@ _THUMBNAIL_PLACEHOLDER = None
 @evented
 @dataclass
 class Lamella(SiteItem):
+    item_type: ClassVar[str] = "lamella"
     path: Path
     number: int  # TODO: deprecate, use petname instead
     petname: str
@@ -780,18 +693,17 @@ class Lamella(SiteItem):
     def stage_position(self, value: FibsemStagePosition):
         self.milling_pose.stage_position = value
 
-    @property
-    def last_completed_task(self) -> Optional["TaskState"]:
-        """Return the last completed task state.
-
-        The last *completed* one, not the last recorded: a failure landing last
-        would otherwise be reported as the lamella's latest progress in the
-        experiment summary.
-        """
-        for task in reversed(self.task_history):
-            if task.status is TaskStatus.Completed:
-                return task
-        return None
+    def finishing_task(self, task_name: str, config: Any, image: Any) -> None:
+        """Keep the config the task ran with, and its last FIB image as the
+        thumbnail. A thumbnail that cannot be saved is logged: a missing picture
+        is worth far less than an accurate task state."""
+        self.task_config[task_name] = deepcopy(config)
+        if image is None:
+            return
+        try:
+            self.save_thumbnail(image)
+        except Exception as e:
+            logging.warning(f"Could not save the thumbnail for {self.name}: {e}")
 
     @property
     def landing_selected(self) -> bool:

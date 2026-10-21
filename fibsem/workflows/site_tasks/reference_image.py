@@ -4,14 +4,13 @@ from dataclasses import dataclass
 from typing import ClassVar, Literal, Optional, Type
 
 from fibsem import utils
-from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
-from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.structures import param
 from fibsem.workflows.proposals import STATE
+from fibsem.workflows.site_task import SiteTask, SiteTaskConfig
 
 
 @dataclass
-class AcquireReferenceImageConfig(AutoLamellaTaskConfig):
+class AcquireReferenceImageConfig(SiteTaskConfig):
     """Configuration for the AcquireReferenceImageTask."""
 
     task_type: ClassVar[str] = "ACQUIRE_REFERENCE_IMAGE"
@@ -27,7 +26,7 @@ class AcquireReferenceImageConfig(AutoLamellaTaskConfig):
     )
 
 
-class AcquireReferenceImageTask(AutoLamellaTask):
+class AcquireReferenceImageTask(SiteTask):
     """Task to acquire reference image with specified settings."""
 
     config: AcquireReferenceImageConfig
@@ -43,7 +42,9 @@ class AcquireReferenceImageTask(AutoLamellaTask):
         # move to position
         self._move_to_pose()
 
-        msg = f"Acquire reference image for {self.lamella.name}. Press Continue when ready."
+        msg = (
+            f"Acquire reference image for {self.item.name}. Press Continue when ready."
+        )
         # The question on the record: the position as arrived at is the
         # proposal, Continue confirms it, and the position as it stands then is
         # the decision -- so a move made first is the delta.
@@ -66,8 +67,8 @@ class AcquireReferenceImageTask(AutoLamellaTask):
             base = self.config.filename
         else:
             task_name = "Setup"
-            if self.lamella.last_completed_task is not None:
-                task_name = self.lamella.last_completed_task.name.replace(" ", "-")
+            if self.item.last_completed_task is not None:
+                task_name = self.item.last_completed_task.name.replace(" ", "-")
             base = f"ReferenceImage-{task_name}"
 
         filename = f"ref_{base}-{utils.current_timestamp_v3()}"

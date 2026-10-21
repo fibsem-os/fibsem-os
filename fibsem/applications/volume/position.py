@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, ClassVar, Dict, List, Optional, Sequence, Tuple
 
 from psygnal import evented
 
@@ -40,6 +40,7 @@ class VolumePosition(SiteItem):
     the same answer the run would have.
     """
 
+    item_type: ClassVar[str] = "position"
     name: str
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     description: str = ""

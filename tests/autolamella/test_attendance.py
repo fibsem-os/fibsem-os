@@ -14,10 +14,6 @@ from fibsem.applications.autolamella.workflows.tasks.attendance import (
     attendance_for,
     run_attendance,
 )
-from fibsem.applications.autolamella.workflows.tasks.reference_image import (
-    AcquireReferenceImageConfig,
-    AcquireReferenceImageTask,
-)
 from fibsem.applications.autolamella.workflows.tasks.rough import (
     MillRoughTask,
     MillRoughTaskConfig,
@@ -31,6 +27,10 @@ from fibsem.applications.autolamella.workflows.tasks.undercut import (
     MillUndercutTaskConfig,
 )
 from fibsem.workflows.attention import Attention
+from fibsem.workflows.site_tasks.reference_image import (
+    AcquireReferenceImageConfig,
+    AcquireReferenceImageTask,
+)
 from tests.protocols import planned, task_protocol
 
 SETUP = "Setup Lamella Position"

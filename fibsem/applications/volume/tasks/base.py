@@ -6,7 +6,6 @@ import os
 from typing import TYPE_CHECKING, Any, ClassVar, Optional, Type
 
 from fibsem import acquire
-from fibsem.alignment import ALIGNMENT_SUBDIR, multi_step_alignment_v2
 from fibsem.applications.volume.position import VolumePosition
 from fibsem.structures import BeamType, FibsemImage, ImageSettings
 from fibsem.util.timestamps import now
@@ -105,23 +104,3 @@ class VolumeTask(BaseTask):
             message=message,
             decided=lambda: {"stage_position": self.microscope.get_stage_position()},
         )
-
-    def _align_to_reference(self, filename: str) -> None:
-        """Align to the position's reference ``filename``. A position without
-        one has not been set up, and a slice cut unaligned is worse than none,
-        so the task fails."""
-        reference = os.path.join(self.path, filename)
-        if not os.path.exists(reference):
-            raise RuntimeError(
-                f"{self.position.name} has no alignment reference {filename}; "
-                "set the position up first."
-            )
-        self.log_status_message("ALIGN_REFERENCE_IMAGE", "Aligning to the reference.")
-        multi_step_alignment_v2(
-            microscope=self.microscope,
-            ref_image=FibsemImage.load(reference),
-            stop_event=self._stop_event,
-            run_name=f"{self.position.name} - {self.task_name}",
-            path=os.path.join(self.output_dir, ALIGNMENT_SUBDIR),
-        )
-        self._check_for_abort()

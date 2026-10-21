@@ -40,9 +40,6 @@ __all__ = [
     # select position
     "SelectMillingPositionTaskConfig",
     "SelectMillingPositionTask",
-    # basic milling
-    "BasicMillingTaskConfig",
-    "BasicMillingTask",
     # acquire fluorescence image
     "AcquireFluorescenceImageConfig",
     "AcquireFluorescenceImageTask",
@@ -56,15 +53,8 @@ from fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence import
     AcquireFluorescenceImageTask,
 )
 from fibsem.applications.autolamella.workflows.tasks.base import (
-    ALIGNMENT_REFERENCE_IMAGE_FILENAME,
-    MAX_ALIGNMENT_ATTEMPTS,
     AutoLamellaTask,
     TAutoLamellaTaskConfig,
-    get_task_supervision,
-)
-from fibsem.applications.autolamella.workflows.tasks.basic_milling import (
-    BasicMillingTask,
-    BasicMillingTaskConfig,
 )
 from fibsem.applications.autolamella.workflows.tasks.fiducial import (
     MillFiducialTask,
@@ -82,10 +72,6 @@ from fibsem.applications.autolamella.workflows.tasks.polishing import (
     MillPolishingTask,
     MillPolishingTaskConfig,
 )
-from fibsem.applications.autolamella.workflows.tasks.reference_image import (
-    AcquireReferenceImageConfig,
-    AcquireReferenceImageTask,
-)
 from fibsem.applications.autolamella.workflows.tasks.rough import (
     MillRoughTask,
     MillRoughTaskConfig,
@@ -102,10 +88,6 @@ from fibsem.applications.autolamella.workflows.tasks.setup_coincidence_milling i
     SetupCoincidenceMillingTask,
     SetupCoincidenceMillingTaskConfig,
 )
-from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
-    SpotBurnFiducialTask,
-    SpotBurnFiducialTaskConfig,
-)
 from fibsem.applications.autolamella.workflows.tasks.trench import (
     MillTrenchTask,
     MillTrenchTaskConfig,
@@ -113,6 +95,19 @@ from fibsem.applications.autolamella.workflows.tasks.trench import (
 from fibsem.applications.autolamella.workflows.tasks.undercut import (
     MillUndercutTask,
     MillUndercutTaskConfig,
+)
+from fibsem.workflows.site_task import get_task_supervision
+from fibsem.workflows.site_tasks.reference_image import (
+    AcquireReferenceImageConfig,
+    AcquireReferenceImageTask,
+)
+from fibsem.workflows.site_tasks.spot_burn import (
+    SpotBurnFiducialTask,
+    SpotBurnFiducialTaskConfig,
+)
+from fibsem.workflows.task import (
+    ALIGNMENT_REFERENCE_IMAGE_FILENAME,
+    MAX_ALIGNMENT_ATTEMPTS,
 )
 
 # related tasks (must be defined after task definitions, due to circular nature)

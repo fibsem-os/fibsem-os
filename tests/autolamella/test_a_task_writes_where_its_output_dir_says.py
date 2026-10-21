@@ -27,7 +27,6 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.applications.autolamella.workflows.tasks.base import (
-    ALIGNMENT_REFERENCE_IMAGE_FILENAME,
     AutoLamellaTask,
 )
 from fibsem.applications.autolamella.workflows.tasks.rough import (
@@ -40,6 +39,7 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
 from fibsem.autofunctions.autofocus import AutoFocusResult
 from fibsem.structures import BeamType
 from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.task import ALIGNMENT_REFERENCE_IMAGE_FILENAME
 from tests.protocols import planned, task_protocol
 from tests.run_state import run_lamellae
 

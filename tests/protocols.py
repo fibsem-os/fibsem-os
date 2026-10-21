@@ -8,10 +8,10 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskConfig,
     AutoLamellaTaskProtocol,
 )
-from fibsem.applications.autolamella.workflows.tasks.reference_image import (
+from fibsem.workflows.attention import Attention
+from fibsem.workflows.site_tasks.reference_image import (
     AcquireReferenceImageConfig,
 )
-from fibsem.workflows.attention import Attention
 from fibsem.workflows.task_config import TaskPlan
 
 Planned = Tuple[TaskPlan, AutoLamellaTaskConfig]

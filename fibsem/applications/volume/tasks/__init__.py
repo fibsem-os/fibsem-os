@@ -21,6 +21,8 @@ from fibsem.applications.volume.tasks.setup import (
     VolumeSetupMillingTaskConfig,
 )
 from fibsem.plugins.loader import PluginRegistry, subclass_of
+from fibsem.workflows.site_tasks import BUILTIN_SITE_TASKS
+from fibsem.workflows.task import BaseTask
 from fibsem.workflows.task_config import TaskConfig, load_task_configs
 
 if TYPE_CHECKING:
@@ -45,14 +47,17 @@ __all__ = [
     "run_volume_task",
 ]
 
-BUILTIN_VOLUME_TASKS: Dict[str, Type[VolumeTask]] = {
-    cls.config_cls.task_type: cls
-    for cls in (
-        VolumeSetupMillingTask,
-        VolumeSetupImagingTask,
-        VolumeFIBMillingTask,
-        VolumeSEMAcquisitionTask,
-    )
+BUILTIN_VOLUME_TASKS: Dict[str, Type[BaseTask]] = {
+    **BUILTIN_SITE_TASKS,
+    **{
+        cls.config_cls.task_type: cls
+        for cls in (
+            VolumeSetupMillingTask,
+            VolumeSetupImagingTask,
+            VolumeFIBMillingTask,
+            VolumeSEMAcquisitionTask,
+        )
+    },
 }
 
 VOLUME_TASK_ENTRY_POINT_GROUP = "fibsem.volume.tasks"
@@ -62,7 +67,7 @@ VOLUME_TASK_ENTRY_POINT_GROUP = "fibsem.volume.tasks"
 #
 #     [project.entry-points.'fibsem.volume.tasks']
 #     my_task = "my_package.tasks:MyVolumeTask"
-VOLUME_TASK_PLUGINS: PluginRegistry[Type[VolumeTask]] = PluginRegistry(
+VOLUME_TASK_PLUGINS: PluginRegistry[Type[BaseTask]] = PluginRegistry(
     group=VOLUME_TASK_ENTRY_POINT_GROUP,
     kind="volume task",
     resolve=subclass_of(VolumeTask, lambda cls: cls.config_cls.task_type),
@@ -70,7 +75,7 @@ VOLUME_TASK_PLUGINS: PluginRegistry[Type[VolumeTask]] = PluginRegistry(
 )
 
 
-def get_volume_tasks() -> Dict[str, Type[VolumeTask]]:
+def get_volume_tasks() -> Dict[str, Type[BaseTask]]:
     """Every volume task, by task_type: built-ins, then runtime registrations,
     then plugins."""
     return VOLUME_TASK_PLUGINS.all()
@@ -90,7 +95,7 @@ def run_volume_task(
     position: "VolumePosition",
     iteration: Optional[int] = None,
     task_manager: Optional[Any] = None,
-) -> VolumeTask:
+) -> BaseTask:
     """Run the named task from the experiment's protocol on one position, for
     slice ``iteration`` (the manager's, when it runs one).
 
@@ -104,9 +109,9 @@ def run_volume_task(
     if task_cls is None:
         raise KeyError(f"Volume task type '{saved.task_type}' is not registered.")
     task = task_cls(
-        microscope=microscope,
-        config=deepcopy(saved),
-        position=position,
+        microscope,
+        deepcopy(saved),
+        position,
         experiment=experiment,
         task_manager=task_manager,
     )

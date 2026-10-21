@@ -11,7 +11,7 @@ declare the fields and add their own.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List, Optional
 
 from fibsem.acting import Actor, ActorKind
 from fibsem.structures import FibsemRectangle, MicroscopeState, Point
@@ -55,6 +55,15 @@ class ExperimentItem:
             for task in self.task_history
             if task.status is TaskStatus.Completed
         ]
+
+    @property
+    def last_completed_task(self) -> Optional[Any]:
+        """The last *completed* run, not the last recorded: a failure landing
+        last would otherwise be reported as the item's latest progress."""
+        for task in reversed(self.task_history):
+            if task.status is TaskStatus.Completed:
+                return task
+        return None
 
     def has_completed_task(self, task_name: str) -> bool:
         """Whether any run of ``task_name`` completed."""
@@ -130,6 +139,8 @@ class SiteItem(ExperimentItem):
     ``poses`` by name, a point of interest ``poi`` and an ``alignment_area``, in
     fractions of the frame. What a task that works at a site reads."""
 
+    # What the item is called in the log and in task_step events.
+    item_type: ClassVar[str] = "site"
     poses: Dict[str, MicroscopeState]
     poi: Point
     alignment_area: FibsemRectangle
@@ -149,3 +160,8 @@ class SiteItem(ExperimentItem):
         if not isinstance(value, MicroscopeState):
             raise TypeError("Milling pose must be a MicroscopeState instance.")
         self.poses[MILLING_POSE] = value
+
+    def finishing_task(self, task_name: str, config: Any, image: Any) -> None:
+        """A task finished here with *config*, *image* the last FIB image it
+        took (or None): what the item keeps of it, before it is marked done.
+        Nothing, unless the item keeps something."""

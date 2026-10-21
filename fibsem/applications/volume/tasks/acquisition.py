@@ -57,7 +57,7 @@ class VolumeSEMAcquisitionTask(VolumeTask):
 
     def _run(self) -> None:
         self._move_to_pose(SEM_POSE)
-        self._align_to_reference(SEM_REFERENCE)
+        self._align_reference_image(SEM_REFERENCE, required=True)
 
         area = self.config.auto_area
         if self._due(self.config.autofocus_every):

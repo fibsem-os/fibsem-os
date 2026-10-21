@@ -91,7 +91,7 @@ def test_the_protocol_editor_reads_the_width_of_the_burns_reference_image():
     from fibsem.applications.autolamella.ui.protocol.lamella_editor import (
         AutoLamellaProtocolEditorWidget,
     )
-    from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
+    from fibsem.workflows.site_tasks.spot_burn import (
         SpotBurnFiducialTaskConfig,
     )
 

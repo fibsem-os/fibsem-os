@@ -32,10 +32,6 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.applications.autolamella.workflows.tasks import base, spot_burn
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
-from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
-    SpotBurnFiducialTask,
-    SpotBurnFiducialTaskConfig,
-)
 from fibsem.structures import Point
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import (
@@ -45,6 +41,10 @@ from fibsem.workflows.proposals import (
     SPOT_BURN,
     Decision,
     DecisionOutcome,
+)
+from fibsem.workflows.site_tasks.spot_burn import (
+    SpotBurnFiducialTask,
+    SpotBurnFiducialTaskConfig,
 )
 from fibsem.workflows.status import HoldKind
 from tests.protocols import planned, task_protocol
@@ -148,7 +148,7 @@ def _task(ui, points=((0.5, 0.5),)):
     task = SpotBurnFiducialTask(
         microscope=ui.microscope,
         config=config,
-        lamella=lamella,
+        item=lamella,
         task_manager=manager,
     )
     task._manager = manager

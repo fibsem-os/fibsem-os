@@ -287,7 +287,7 @@ def stub_acquisition(monkeypatch):
 
 
 def _make_reference_image_task(microscope: FibsemMicroscope, tmp_path: Path):
-    from fibsem.applications.autolamella.workflows.tasks.reference_image import (
+    from fibsem.workflows.site_tasks.reference_image import (
         AcquireReferenceImageConfig,
         AcquireReferenceImageTask,
     )
@@ -297,7 +297,7 @@ def _make_reference_image_task(microscope: FibsemMicroscope, tmp_path: Path):
     return AcquireReferenceImageTask(
         microscope=microscope,
         config=AcquireReferenceImageConfig(),
-        lamella=lamella,
+        item=lamella,
         task_manager=manager_for(microscope, lamella),
     )
 
@@ -318,8 +318,8 @@ def test_acquire_reference_image_task_reaches_the_review_panel(
 
     task._run()
 
-    outputs = task.lamella.task_state.outputs
+    outputs = task.item.task_state.outputs
     assert set(outputs) == {"final_sem", "final_fib"}
-    found = final_reference_images(task.lamella, task.lamella.task_state)
+    found = final_reference_images(task.item, task.item.task_state)
     assert len(found) == 4, "both resolutions, both beams"
     assert all(Path(path).is_file() for path in found)

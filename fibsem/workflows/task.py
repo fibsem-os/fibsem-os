@@ -21,11 +21,16 @@ from abc import ABC, abstractmethod
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, ClassVar, Dict, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Dict, Optional, Tuple, Union
 
-from fibsem import acquire
+from fibsem import acquire, alignment
 from fibsem.acting import TASK, acting
-from fibsem.cancellation import AnyStopEvent, OperationCancelledError, StopEvent
+from fibsem.cancellation import (
+    SKIPPED,
+    AnyStopEvent,
+    OperationCancelledError,
+    StopEvent,
+)
 from fibsem.control import lending
 from fibsem.devices.beam import nearest_resolution
 from fibsem.milling.tasks import (
@@ -57,6 +62,9 @@ from fibsem.workflows.proposals import (
     Proposal,
 )
 from fibsem.workflows.status import TaskStatus, take_back_finish
+
+if TYPE_CHECKING:
+    from fibsem.alignment import AlignmentResult
 
 # Characters a folder name cannot hold on Windows (and ``/`` anywhere).
 _UNSAFE_IN_FOLDER_NAMES = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
@@ -105,6 +113,9 @@ LIFECYCLE_STEPS = {"STARTED", "FINISHED"}
 
 # The alignment reference is taken at the listed resolution nearest this.
 ALIGNMENT_REFERENCE_RESOLUTION = (1536, 1024)
+# The FIB reference a site's tasks align to, in its folder.
+ALIGNMENT_REFERENCE_IMAGE_FILENAME = "ref_alignment_ib.tif"
+MAX_ALIGNMENT_ATTEMPTS = 3
 
 
 class BaseTask(ABC):
@@ -595,6 +606,47 @@ class BaseTask(ABC):
         parameter = None if beam is None else beam.parameters.get("resolution")
         choices = None if parameter is None else parameter.choices
         return nearest_resolution(ALIGNMENT_REFERENCE_RESOLUTION, choices)
+
+    def _align_reference_image(
+        self, filename: str, required: bool = False
+    ) -> Optional["AlignmentResult"]:
+        """Align to a reference image in the item's folder, saving the run under
+        the task's output folder. Returns what the alignment measured. A missing
+        reference is skipped and recorded, or fails the task when *required*."""
+        self.log_status_message("ALIGN_REFERENCE_IMAGE", "Aligning Reference Images...")
+        full_filename = os.path.join(str(self.path), filename)
+        if not os.path.exists(full_filename):
+            if required:
+                raise RuntimeError(
+                    f"{self.item.name} has no alignment reference {filename}; "
+                    "run its setup first."
+                )
+            logging.warning(
+                f"Reference image {full_filename} for alignment does not exist, "
+                f"but was requested by {self.task_name}. Skipping alignment."
+            )
+            # Recorded, not only logged: the alignment the task asked for did
+            # not happen, and the record should say so beside the ones that did.
+            self.microscope.record_event(
+                "alignment",
+                {
+                    "status": SKIPPED,
+                    "reason": f"reference image {filename} does not exist",
+                    "reference": full_filename,
+                },
+            )
+            return None
+        result = alignment.multi_step_alignment_v2(
+            microscope=self.microscope,
+            ref_image=FibsemImage.load(full_filename),
+            use_autocontrast=True,
+            steps=MAX_ALIGNMENT_ATTEMPTS,
+            stop_event=self._stop_event,
+            run_name=f"{self.item.name} - {self.task_name}",
+            path=os.path.join(self.output_dir, alignment.ALIGNMENT_SUBDIR),
+        )
+        self._check_for_abort()
+        return result
 
     # -- lifecycle -------------------------------------------------------------
 

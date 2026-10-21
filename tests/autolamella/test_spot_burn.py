@@ -9,13 +9,11 @@ These cover the failure modes that crashed the unsupervised (automatic) path:
 """
 
 import threading
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
-from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
-    SpotBurnFiducialTaskConfig,
-)
 from fibsem.imaging.spot import (
     SpotBurnProgress,
     SpotBurnSettings,
@@ -25,6 +23,9 @@ from fibsem.imaging.spot import (
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, Point
 from fibsem.workflows.attention import Attention
+from fibsem.workflows.site_tasks.spot_burn import (
+    SpotBurnFiducialTaskConfig,
+)
 from tests.protocols import planned, task_protocol
 
 # The widget-dispatch tests need the UI stack (PyQt5/superqt, the [ui] extra), which
@@ -205,7 +206,7 @@ class TestTheTypedDecode:
 def _make_headless_spot_burn_task(coordinates, tmp_path):
     """A SpotBurnFiducialTask with no parent UI (unsupervised/headless path)."""
     from fibsem.applications.autolamella.structures import Lamella
-    from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
+    from fibsem.workflows.site_tasks.spot_burn import (
         SpotBurnFiducialTask,
     )
 
@@ -213,14 +214,16 @@ def _make_headless_spot_burn_task(coordinates, tmp_path):
     config = SpotBurnFiducialTaskConfig(
         task_name="Spot Burn Fiducial", coordinates=coordinates
     )
-    return SpotBurnFiducialTask(microscope=MagicMock(), config=config, lamella=lamella)
+    # The experiment says where the lamella's files go.
+    experiment = SimpleNamespace(item_path=lambda item: item.path)
+    return SpotBurnFiducialTask(MagicMock(), config, lamella, experiment=experiment)
 
 
 def test_update_spot_burn_ui_skips_when_no_coordinates(monkeypatch, tmp_path):
     """Unsupervised/headless with no coordinates skips, rather than blocking on ask_user."""
     # patch where it is *used*: the task imports run_spot_burn at module level, so
     # patching fibsem.imaging.spot would leave the task's own binding untouched.
-    import fibsem.applications.autolamella.workflows.tasks.spot_burn as sb_mod
+    import fibsem.workflows.site_tasks.spot_burn as sb_mod
 
     calls = []
     monkeypatch.setattr(sb_mod, "run_spot_burn", lambda **kw: calls.append(kw))
@@ -238,17 +241,17 @@ def test_update_spot_burn_ui_runs_stored_coordinates_headless(monkeypatch, tmp_p
 
     from psygnal.containers import EventedDict
 
-    import fibsem.applications.autolamella.workflows.tasks.spot_burn as sb_mod
     import fibsem.config as cfg
+    import fibsem.workflows.site_tasks.spot_burn as sb_mod
     from fibsem import utils
     from fibsem.applications.autolamella.structures import (
         Experiment,
     )
     from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
-    from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
+    from fibsem.workflows.proposals import SPOT_BURN, DecisionOutcome
+    from fibsem.workflows.site_tasks.spot_burn import (
         SpotBurnFiducialTask,
     )
-    from fibsem.workflows.proposals import SPOT_BURN, DecisionOutcome
 
     calls = []
     monkeypatch.setattr(sb_mod, "run_spot_burn", lambda **kw: calls.append(kw))
@@ -272,7 +275,7 @@ def test_update_spot_burn_ui_runs_stored_coordinates_headless(monkeypatch, tmp_p
         task = SpotBurnFiducialTask(
             microscope=microscope,
             config=lamella.task_config[name],
-            lamella=lamella,
+            item=lamella,
             task_manager=TaskManager(microscope=microscope, experiment=exp),
         )
         task.update_spot_burn_parameters_ui()

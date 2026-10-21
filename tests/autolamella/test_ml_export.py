@@ -27,9 +27,6 @@ from fibsem.applications.autolamella.workflows.tasks.rough import MillRoughTaskC
 from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTaskConfig,
 )
-from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
-    SpotBurnFiducialTaskConfig,
-)
 from fibsem.applications.autolamella.workflows.tasks.trench import MillTrenchTaskConfig
 from fibsem.structures import (
     BeamType,
@@ -39,6 +36,9 @@ from fibsem.structures import (
     ImageSettings,
     MicroscopeState,
     Point,
+)
+from fibsem.workflows.site_tasks.spot_burn import (
+    SpotBurnFiducialTaskConfig,
 )
 
 PIXELSIZE = 1e-7  # 100 nm/px
