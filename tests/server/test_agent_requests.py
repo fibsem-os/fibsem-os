@@ -414,6 +414,31 @@ def test_a_request_whose_mill_was_stopped_says_so(
     assert finished[-1]["cancelled"] == 1
 
 
+def test_a_failed_run_s_action_carries_the_route_s_status(
+    client, app, context, microscope, monkeypatch
+):
+    """A run refused as it ran (422 for a ValueError) is recorded with that
+    status, not a blanket 500 (FIB-1491)."""
+
+    def refuse(stop_event=None):
+        raise ValueError("the objective is retracted")
+
+    monkeypatch.setattr(microscope.milling, "run", refuse)
+    run = {
+        "tool": "service_call_command",
+        "arguments": {"service": "milling", "command": "run"},
+    }
+    filed = _file(client, run).json()
+    store = app.state.requests
+    store.approve(filed["request_id"])
+    done = store.wait(filed["request_id"], timeout=10)
+    assert done.status == "failed", done.results
+    assert done.results[0]["status_code"] == 422
+    assert done.results[0]["error"]["error_type"] == "ValueError"
+    actions = [p for kind, p, _ in context.recorded if kind == "action"]
+    assert actions[-1]["status_code"] == 422
+
+
 def test_an_action_answered_200_but_turned_away_fails_with_its_reason(
     client, app, context
 ):
@@ -1101,11 +1126,17 @@ def test_the_sidecar_shows_an_approved_image_as_an_image(client, app):
     assert preview["image_index"] == 0
 
 
-def test_a_waiting_request_is_described_again_with_the_values_now(client, app, context):
+def test_a_waiting_request_is_described_again_with_the_values_now(
+    client, app, context, microscope
+):
     """FIB-1412: the old value is read when the operator looks, not only when
-    the request was filed."""
+    the request was filed. An edit against a version keeps the line it was
+    filed with: it applies only to what it was read against (FIB-1491)."""
+    from fibsem.structures import BeamType
+
     item = context._session.experiment.positions[0]
     item.description = "first pass"
+    microscope.set_beam_current(2e-11, BeamType.ION)
     edit = {
         "tool": "item_update",
         "arguments": {
@@ -1114,14 +1145,21 @@ def test_a_waiting_request_is_described_again_with_the_values_now(client, app, c
             "version": "v",
         },
     }
-    filed = _file(client, edit).json()
+    current = {
+        "tool": "device_set_parameter",
+        "arguments": {"device": "ion", "parameter": "current", "value": 6e-11},
+    }
+    filed = _file(client, edit, current).json()
     store = app.state.requests
+    filed_line = store.get(filed["request_id"]).to_dict()["actions"][1]["change"]
     changed = []
     store.subscribe(changed.append)
     item.description = "second pass"
+    microscope.set_beam_current(3e-11, BeamType.ION)
     assert store.refresh(filed["request_id"])
-    action = store.get(filed["request_id"]).to_dict()["actions"][0]
-    assert action["change"] == "description: second pass → trench floor high"
+    actions = store.get(filed["request_id"]).to_dict()["actions"]
+    assert actions[0]["change"] == "description: first pass → trench floor high"
+    assert actions[1]["change"] != filed_line
     assert len(changed) == 1
     store.reject(filed["request_id"])
     assert not store.refresh(filed["request_id"])

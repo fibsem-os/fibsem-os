@@ -9,6 +9,9 @@ import time
 from pathlib import Path
 from typing import Callable, List
 
+import httpx
+
+from fibsem.client.pairing import ask_to_connect
 from fibsem.server import hosting
 
 
@@ -54,3 +57,29 @@ def run_in_background(main: Callable, argv: List[str]):
     worker = threading.Thread(target=lambda: result.append(main(argv, stop)))
     worker.start()
     return stop, worker, result
+
+
+def allowed_agent(found: dict, operator_token: str, timeout: float = 30) -> str:
+    """An agent on this PC asks to connect with the discovery file's token, and
+    the operator allows it through their route, as the web app's card does.
+    The agent's token."""
+    url, tokens = found["url"], []
+    asking = threading.Thread(
+        target=lambda: tokens.append(
+            ask_to_connect(url, found["connect_token"], "fibsem-test/1", timeout)
+        )
+    )
+    asking.start()
+    operator = {"Authorization": f"Bearer {operator_token}"}
+    deadline = time.monotonic() + timeout
+    with httpx.Client(base_url=url, headers=operator) as client:
+        while time.monotonic() < deadline:
+            ask = client.get("/app/agent").json().get("asking")
+            if ask is not None:
+                allowed = client.post(f"/app/agent/connections/{ask['id']}/allow")
+                assert allowed.is_success, allowed.text
+                break
+            time.sleep(0.05)
+    asking.join(timeout)
+    assert tokens and tokens[0], "the agent was never allowed"
+    return tokens[0]

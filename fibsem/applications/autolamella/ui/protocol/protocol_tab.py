@@ -18,6 +18,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem.applications.autolamella.config_edits import set_reference_imaging
 from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
+from fibsem.applications.autolamella.ui.common.run_refusal import refused_during_run
 from fibsem.applications.autolamella.ui.grids.protocol import GridProtocolWidget
 from fibsem.applications.autolamella.ui.protocol.dialogs import (
     AddTaskDialog,
@@ -599,6 +600,8 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
     def _on_add_task_clicked(self):
         """Show dialog to add a new task."""
+        if refused_during_run(self.session.runner, "add tasks"):
+            return
         dialog = AddTaskDialog(
             {task_type: cls.config_cls for task_type, cls in get_tasks().items()},
             self.experiment.task_protocol.task_config,
@@ -624,6 +627,8 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
     def _on_remove_task_clicked(self):
         """Remove the selected task with confirmation dialog."""
+        if refused_during_run(self.session.runner, "remove tasks"):
+            return
         selected_task_name = self.task_list_widget.selected_task
 
         if not selected_task_name:

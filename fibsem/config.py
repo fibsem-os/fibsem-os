@@ -394,6 +394,9 @@ class AppServerPreferences:
     # default: a read of the instrument is hardware access, not monitoring.
     # (Was `devices`, never released; a saved `devices` is ignored.)
     microscope: bool = False
+    # Allow an agent on this PC that asks to connect without the operator's
+    # click (fibsem.server.connections). Off by default.
+    allow_local_agents: bool = False
 
 
 @dataclass

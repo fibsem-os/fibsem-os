@@ -427,6 +427,8 @@ class FibsemMillingTask:
         self.error: Optional[BaseException] = None
         # How each stage the last run() reached ended, for its recorded event.
         self._stage_records: List[Dict[str, Any]] = []
+        # The images the last run() saved, in the order it took them.
+        self.images: List[FibsemImage] = []
 
     @property
     def _stop_token(self) -> Union[threading.Event, AnyStopEvent]:
@@ -521,6 +523,7 @@ class FibsemMillingTask:
         error: Optional[str] = None
         self.outcome, self.error = None, None
         self._stage_records = []
+        self.images = []
         started_at = now_iso()
 
         self._emit(MillingProgressStatus.TASK_STARTED, total_stages=len(self.stages))
@@ -868,6 +871,9 @@ class FibsemMillingTask:
             image_settings=self.config.acquisition.imaging,
             acquire_sem=self.config.acquisition.acquire_sem,
             acquire_fib=self.config.acquisition.acquire_fib,
+        )
+        self.images.extend(
+            image for image in (sem_image, fib_image) if image is not None
         )
 
         try:

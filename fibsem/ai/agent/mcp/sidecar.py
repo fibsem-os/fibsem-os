@@ -83,17 +83,19 @@ def _user_agent(client_info=None):
     return agent
 
 
-def _connect(url, token):
+def _connect(url, token, user_agent=None):
     """A connection to the server, found as `fibsem.client.transport.resolve`
     finds it, or None when none is known (yet). It follows a restarted
     server itself."""
     try:
-        return Transport(url, token, user_agent=_user_agent())
+        return Transport(url, token, user_agent=user_agent or _user_agent())
     except ServerUnreachable:
         return None
 
 
-def _connect_with_retry(url, token, wait_s, sleep_fn=None, connect=_connect):
+def _connect_with_retry(
+    url, token, wait_s, sleep_fn=None, connect=_connect, user_agent=None
+):
     """Find and reach a server, retrying until the deadline.
 
     MCP clients launch the sidecar at session start, often before the human has
@@ -103,7 +105,8 @@ def _connect_with_retry(url, token, wait_s, sleep_fn=None, connect=_connect):
     /capabilities until ``wait_s`` runs out.
 
     Returns (transport, capabilities). Raises `ServerUnreachable` with guidance
-    on timeout.
+    on timeout. *user_agent* names the MCP client when it has said who it is,
+    so an ask to connect names it too.
     """
     import time
 
@@ -111,12 +114,19 @@ def _connect_with_retry(url, token, wait_s, sleep_fn=None, connect=_connect):
     deadline = time.monotonic() + wait_s
     waiting_reported = False
     while True:
-        transport = connect(url, token)
+        transport = (
+            connect(url, token, user_agent=user_agent)
+            if user_agent
+            else connect(url, token)
+        )
         if transport is not None:
             capabilities, err = _call(transport, "GET", "/capabilities")
             if err is None:
                 return transport, capabilities
             transport.close()
+            if "connect_waiting" in err or "connect_denied" in err:
+                # The operator hasn't allowed this agent: say so, don't retry.
+                raise ServerUnreachable(f"fibsem-mcp: {err}")
         if time.monotonic() >= deadline:
             if transport is None:
                 raise ServerUnreachable(_NO_SERVER_MSG)
@@ -163,6 +173,11 @@ class _LazyClient:
             return self._client
 
     @property
+    def named_user_agent(self) -> Optional[str]:
+        """The User-Agent naming the MCP client, once it has said who it is."""
+        return self._user_agent
+
+    @property
     def connected(self) -> bool:
         """Whether a server was found yet, so a call would not wait for one."""
         return self._client is not None
@@ -207,6 +222,8 @@ def _probe(url, token, connect=_connect):
     transport = connect(url, token)
     if transport is None:
         return None
+    # Asking to connect waits on the operator: the first call asks.
+    transport.asks = False
     try:
         resp = transport.request("GET", "/capabilities", timeout=_PROBE_S)
         return resp.json() if resp.status_code == 200 else None
@@ -955,6 +972,9 @@ def build_sidecar(client, capabilities):
             arguments["task"] = task
         return _routed("item_get_history", item_name=item_name, **arguments)
 
+    def item_get_stack(item_name: str, role: str):
+        return _routed("item_get_stack", item_name=item_name, role=role)
+
     def _image_header(resp):
         # The image's scale and state ride on the JPEG answer as a header
         # (app_routes.IMAGE_METADATA_HEADER); absent for a non-fibsem image.
@@ -1639,6 +1659,7 @@ def build_sidecar(client, capabilities):
             protocol_get,
             item_list_outputs,
             item_get_history,
+            item_get_stack,
             item_get_output_image,
             item_measure_thickness,
             experiment_get_image_metadata,
@@ -1992,7 +2013,12 @@ def main(argv=None):
             file=sys.stderr,
         )
     wait_s = max(0.0, args.wait)
-    client = _LazyClient(lambda: _connect_with_retry(args.url, args.token, wait_s))
+    # The first connection names the MCP client, so an ask to connect does.
+    client = _LazyClient(
+        lambda: _connect_with_retry(
+            args.url, args.token, wait_s, user_agent=client.named_user_agent
+        )
+    )
     build_sidecar(client, capabilities).run()
 
 

@@ -761,14 +761,20 @@ class RequestStore:
     def _wait_for_run(self, request: AgentRequest, action: Action, run: Dict):
         """Wait for the *run* *action* started to end: (status, answer), the
         answer the ended run as the command's own would be. A run that raised
-        or failed is a 500 with its error; a stopped one is cut short. Stops
+        is its error, with the status the route answers it with (FIB-1491); one
+        that failed otherwise is a 500. A stopped one is cut short. Stops
         waiting, the run still going, when the request is cancelled."""
         run_id = run["run_id"]
         run_path = action.path.rsplit("/commands/", 1)[0] + "/run"
         query = f"run_id={quote(run_id)}&wait={RUN_POLL_S}"
-        while run.get("state") == "running":
-            if request._abort is not None or not self._assisting():
+        # Read through the run route at least once: a run that ended before
+        # its command answered says how it failed only there.
+        read = False
+        while run.get("state") == "running" or not read:
+            stopping = request._abort is not None or not self._assisting()
+            if stopping and run.get("state") == "running":
                 return 200, {"result": run}
+            read = True
             code, answer = self._call("GET", run_path, None, query)
             if code >= 400:
                 return code, answer
@@ -786,32 +792,38 @@ class RequestStore:
         if error is None and run.get("state") == FAILED:
             error = {"error_type": "failed", "message": f"{run.get('command')} failed."}
         if error is not None:
-            return 500, {"detail": error}
+            return run.get("status_code") or 500, {"detail": error}
         return 200, {"result": run}
 
     def refresh(self, request_id: str) -> bool:
         """Describe a waiting request's actions again: the values now, read when
-        the operator looks, not when it was filed (FIB-1412). Reads the routes
+        the operator looks, not when it was filed (FIB-1412). An edit against a
+        version keeps the line it was filed with: it applies only to the values
+        it was read against, so those are its "now" (FIB-1491). Reads the routes
         it describes, so never on the GUI thread. False when it no longer
         waits."""
         request = self.get(request_id)
         if request is None or request.status != PENDING:
             return False
         before = [(a.what, a.change, a.details) for a in request.actions]
-        self._describe_actions(request.actions)
+        self._describe_actions(request.actions, refresh=True)
         if [(a.what, a.change, a.details) for a in request.actions] != before:
             self._changed(request)
         return True
 
     # --- helpers ---
 
-    def _describe_actions(self, actions: List[Action]) -> List[Dict[str, Any]]:
+    def _describe_actions(
+        self, actions: List[Action], refresh: bool = False
+    ) -> List[Dict[str, Any]]:
         lines = describe_actions(
             [(a.tool, a.arguments, a.path) for a in actions],
             read=self._read,
             describe=self._describe,
         )
         for action, line in zip(actions, lines):
+            if refresh and "version" in action.arguments:
+                continue
             action.what, action.change = line["what"], line["change"]
             action.details = line.get("details")
         return lines

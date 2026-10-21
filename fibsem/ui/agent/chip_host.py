@@ -55,6 +55,8 @@ class AgentChipHost(QObject):
         self.chip.stop_clicked.connect(self._on_stop)
         self.chip.approve_clicked.connect(self._on_approve)
         self.chip.reject_clicked.connect(self._on_reject)
+        self.chip.allow_clicked.connect(self._on_allow)
+        self.chip.deny_clicked.connect(self._on_deny)
         self.chip.message_sent.connect(self._on_operator_message)
         self.chip.suggestion_approved.connect(self._on_approve_suggestion)
         self.chip.suggestion_declined.connect(self._on_decline_suggestion)
@@ -73,6 +75,9 @@ class AgentChipHost(QObject):
         self._experiment = None
         # The pending proposal the card's suggestion is on: (item id, task, id).
         self._suggested: Optional[Tuple[str, str, str]] = None
+        # The asks to connect followed, and how to stop following them.
+        self._connections = None
+        self._unfollow_connections: Optional[Callable[[], None]] = None
 
         self._timer = QTimer(self)
         self._timer.setInterval(1000)
@@ -91,9 +96,11 @@ class AgentChipHost(QObject):
         agent = self._agent
         level = agent.level
         self._follow_requests()
+        self._follow_connections()
         self._show_pictures()
         if level is None:
             self.chip.set_request(None)
+            self.chip.set_asking(None)
             self.chip.hide()
             self._on_driving(False)
             return
@@ -101,6 +108,7 @@ class AgentChipHost(QObject):
             self.chip.set_level(level)
         self._on_driving(level is AgentLevel.DRIVE)
         self._show_request()
+        self.chip.set_asking(agent.asking())
         self.chip.show()
 
     def listen(self, experiment) -> None:
@@ -207,6 +215,44 @@ class AgentChipHost(QObject):
 
         self._agent.follow(changed)
 
+    def _follow_connections(self) -> None:
+        """Show an agent asking to connect as it asks, not on the next poll."""
+        connections = self._agent.connections
+        if connections is self._connections:
+            return
+        if self._unfollow_connections is not None:
+            self._unfollow_connections()
+            self._unfollow_connections = None
+        self._connections = connections
+        if connections is None:
+            return
+
+        def changed(signal=self.request_changed):
+            try:
+                signal.emit()
+            except RuntimeError:  # the window has gone
+                pass
+
+        self._unfollow_connections = connections.on_change(changed)
+
+    def _on_allow(self, ask_id: str) -> None:
+        """Allow on the card: the agent is paired and connects."""
+        try:
+            name = self._agent.allow_connection(ask_id)
+        except LookupError as exc:
+            notification_service.show(f"Could not allow the agent: {exc}", "info")
+        else:
+            notification_service.show(f"{name} can connect", "info")
+        self.refresh()
+
+    def _on_deny(self, ask_id: str, reason: str) -> None:
+        """Deny on the card: the agent is refused, with the reason."""
+        try:
+            self._agent.deny_connection(ask_id, reason)
+        except LookupError as exc:
+            notification_service.show(f"Could not deny the agent: {exc}", "info")
+        self.refresh()
+
     def _show_request(self) -> None:
         """The chip shows a request waiting or being applied; how one ended is
         said once, as a toast, so the status bar keeps what is running now."""
@@ -230,7 +276,7 @@ class AgentChipHost(QObject):
         self.chip.set_now(self.activity.now)
 
     def _on_connect_agent(self) -> None:
-        """From the card: the agent token and how to register the sidecar."""
+        """From the card: how to register the sidecar, and the allowed agents."""
         from fibsem.ui.agent.connect_agent_dialog import ConnectAgentDialog
 
         dialog = ConnectAgentDialog(

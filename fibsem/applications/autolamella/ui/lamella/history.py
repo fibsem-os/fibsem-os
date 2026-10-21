@@ -26,20 +26,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.history_rows import (
-    OPERATION_KINDS,
-    HistoryFilter,
-    HistoryOperation,
-    HistoryRun,
-    filter_runs,
-    history_rows,
-    milling_stages,
-    operation_facts,
-    operations_need_a_look,
-    operations_summary,
-    shown_images,
-)
 from fibsem.applications.autolamella.structures import Lamella
+from fibsem.applications.autolamella.task_outputs import history_images
 from fibsem.applications.autolamella.ui.common.thumbnails import (
     PLACEHOLDER_HEIGHT,
     TARGET_WIDTH,
@@ -72,6 +60,19 @@ from fibsem.util.timestamps import format_time
 from fibsem.workflows.event_recording import (
     EVENTS_FILENAME,
     read_new_events,
+)
+from fibsem.workflows.history_rows import (
+    OPERATION_KINDS,
+    HistoryFilter,
+    HistoryOperation,
+    HistoryRun,
+    filter_runs,
+    history_rows,
+    milling_stages,
+    operation_facts,
+    operations_need_a_look,
+    operations_summary,
+    shown_images,
 )
 from fibsem.workflows.status import TaskStatus
 
@@ -637,7 +638,7 @@ class LamellaTaskImageWidget(QWidget):
 
         lamella = self._lamella
         self._thumb_width = self._fitted_thumb_width()
-        self._runs = history_rows(lamella, self._events())
+        self._runs = history_rows(lamella, self._events(), history_images(lamella))
         flt = self._filter_button.filter
         self._filter_button.set_tasks([run.task_name for run in self._runs])
         runs = filter_runs(self._runs, flt)

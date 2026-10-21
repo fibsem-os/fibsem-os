@@ -84,6 +84,15 @@ def final_reference_images(
     )
 
 
+def history_images(lamella: Lamella) -> Callable[[TaskState, bool], List[str]]:
+    """What a History row of *lamella* shows for a run: its final reference
+    images, then its fluorescence stacks (``history_rows``' ``run_images``)."""
+    return lambda run, fallback: (
+        final_reference_images(lamella, run, fallback=fallback)
+        + fluorescence_images(lamella, run)
+    )
+
+
 def latest_final_reference_images(lamella: Lamella, task_name: str) -> List[str]:
     """The final reference images of the latest run of ``task_name`` that left
     any: the task's images as they stand now.

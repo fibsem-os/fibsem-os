@@ -33,6 +33,7 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
 )
+from fibsem.applications.autolamella.ui.common.run_refusal import refused_during_run
 from fibsem.applications.autolamella.ui.dialogs.create_experiment import (
     create_experiment_dialog,
 )
@@ -1350,6 +1351,8 @@ class AutoLamellaWindow(QMainWindow):
 
     def create_experiment(self) -> None:
         """Create a new experiment using the experiment creation dialog."""
+        if refused_during_run(self.session.runner, "change experiments"):
+            return
         if self.microscope is None:
             notification_service.show_toast(
                 "Please connect to microscope first.", "warning"
@@ -1367,6 +1370,8 @@ class AutoLamellaWindow(QMainWindow):
 
     def load_experiment(self) -> None:
         """Load an existing experiment using the experiment loading dialog."""
+        if refused_during_run(self.session.runner, "change experiments"):
+            return
         if self.microscope is None:
             notification_service.show_toast(
                 "Please connect to microscope first.", "warning"
@@ -1754,6 +1759,8 @@ class AutoLamellaWindow(QMainWindow):
     #### PROTOCOL
     def load_protocol(self):
         """Load a protocol into the current experiment using the protocol loading dialog."""
+        if refused_during_run(self.session.runner, "change experiments"):
+            return
         if self.microscope is None:
             notification_service.show_toast(
                 "Please connect to microscope first.", "warning"

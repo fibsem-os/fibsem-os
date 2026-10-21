@@ -243,6 +243,13 @@ class WorkflowRunner:
             return ""
         return f"The run is working on {name}; {what} when it has moved on."
 
+    def run_refusal(self, what: str) -> str:
+        """Why *what* must wait, or "": a workflow is running. For the edits
+        no run may see change under it, by the window and the agent alike."""
+        if not self.is_running:
+            return ""
+        return f"A workflow is running; {what} when it has stopped."
+
     @property
     def should_abort(self) -> bool:
         """Whether the task now running should unwind (see
