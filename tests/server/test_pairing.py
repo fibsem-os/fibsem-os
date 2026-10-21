@@ -57,6 +57,24 @@ def _wrong(code):
 # --- the code -----------------------------------------------------------------
 
 
+def test_pairing_the_same_browser_again_replaces_its_row(pairing, tmp_path):
+    """A browser that pairs again (its token lost or refused) takes its old
+    row's place, rather than leaving rows of the same name (FIB-1517)."""
+    first, old_token = pairing.pair(pairing.open(), "Chrome", browser="b1")
+    pairing.pair(pairing.open(), "Firefox", browser="b2")
+    again, token = pairing.pair(pairing.open(), "Chrome", browser="b1")
+    assert [c.name for c in pairing.tokens.computers()] == ["Firefox", "Chrome"]
+    assert pairing.tokens.match(old_token) is None
+    assert pairing.tokens.match(token) == again
+    assert "browser" not in again.to_dict()  # never shown
+    # Kept across a restart; one with no id is never replaced.
+    reloaded = PairedTokens(tmp_path / "paired.json")
+    assert [c.browser for c in reloaded.computers()] == ["b2", "b1"]
+    pairing.pair(pairing.open(), "script")
+    pairing.pair(pairing.open(), "script")
+    assert len(pairing.tokens.computers()) == 4
+
+
 def test_the_right_code_pairs_once_and_closes_pairing(pairing):
     code = pairing.open()
     assert len(code) == 4 and code.isdigit()

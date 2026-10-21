@@ -73,6 +73,9 @@ class PairedComputer:
     paired_at: float
     token_hash: str
     role: str = OPERATOR
+    # The browser's own id, kept in its storage: pairing it again replaces this
+    # row. Never shown, so only that browser can name it.
+    browser: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -114,9 +117,12 @@ class PairedTokens:
             )
         os.chmod(self._path, 0o600)
 
-    def add(self, name: str, role: str = OPERATOR) -> "tuple[PairedComputer, str]":
+    def add(
+        self, name: str, role: str = OPERATOR, browser: str = ""
+    ) -> "tuple[PairedComputer, str]":
         """Pair a computer named *name* as *role*: its record and its token,
-        which is shown once and kept only hashed here."""
+        which is shown once and kept only hashed here. A *browser* paired
+        before is paired afresh: its old row and token go."""
         token = secrets.token_urlsafe(32)
         computer = PairedComputer(
             id=secrets.token_hex(4),
@@ -124,8 +130,14 @@ class PairedTokens:
             paired_at=time.time(),
             token_hash=_hash(token),
             role=role,
+            browser=browser,
         )
         with self._lock:
+            if browser:
+                for old in [
+                    c for c in self._computers.values() if c.browser == browser
+                ]:
+                    del self._computers[old.id]
             self._computers[computer.id] = computer
             self._save()
         return computer, token
@@ -246,9 +258,12 @@ class Pairing:
                 else 0.0,
             }
 
-    def pair(self, code: str, name: str) -> "tuple[PairedComputer, str]":
+    def pair(
+        self, code: str, name: str, browser: str = ""
+    ) -> "tuple[PairedComputer, str]":
         """Pair a computer with *code*, or raise `PairingRefused`. A right code
-        closes pairing: one code pairs one computer."""
+        closes pairing: one code pairs one computer. *browser* is the browser's
+        own id, when it gives one (`PairedTokens.add`)."""
         name = " ".join(str(name or "").split())[:80] or "computer"
         with self._lock:
             if not self._live():
@@ -279,7 +294,8 @@ class Pairing:
                 "Too many wrong codes: pairing closed. Open it again at the "
                 "microscope PC.",
             )
-        paired = self.tokens.add(name, role)
+        browser = str(browser or "")[:64]
+        paired = self.tokens.add(name, role, browser)
         logging.info("Paired %s as %s", paired[0].name, role)
         self._changed()
         return paired

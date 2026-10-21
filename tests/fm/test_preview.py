@@ -141,6 +141,8 @@ def test_a_stack_says_its_channels_planes_and_step_for_its_legend(stack_on_disk)
     first, second = facts["channels"]
     assert first["name"] == "Channel-00" and first["color"] == "green"
     assert first["excitation_wavelength"] == 488.0
+    assert first["exposure_time"] == 0.1  # for the preview's metadata line
+    assert facts["acquired_at"].startswith("2026-01-01T00:00:00")
     # drawn as the projection draws it, though the metadata doesn't name it
     assert second["name"] == "Channel-02" and second["excitation_wavelength"] is None
     assert [layer.color for layer in projection_layers(image)] == [

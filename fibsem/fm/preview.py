@@ -50,8 +50,9 @@ def _channel_look(channels: list, index: int) -> Tuple[str, str]:
 
 def stack_facts(image: FluorescenceImage) -> Dict[str, Any]:
     """What a legend says about a stack: each channel as the projection draws
-    it (name, colour, excitation in nm, emission filter), the number of z
-    planes, and their step in metres (None when not recorded)."""
+    it (name, colour, excitation in nm, emission filter, exposure in s), the
+    number of z planes, their step in metres (None when not recorded), and when
+    it was acquired."""
     shape = np.shape(image.data)
     planes = int(shape[-3]) if len(shape) >= 3 else 1
     count = int(shape[-4]) if len(shape) >= 4 else 1
@@ -68,13 +69,20 @@ def stack_facts(image: FluorescenceImage) -> Dict[str, Any]:
                 "color": color,
                 "excitation_wavelength": getattr(known, "excitation_wavelength", None),
                 "emission": getattr(emission, "name", None),
+                "exposure_time": getattr(known, "exposure_time", None),
             }
         )
     step = metadata.pixel_size_z
     z = metadata.z_positions or []
     if step is None and len(z) >= 2:
         step = abs(z[1] - z[0])
-    return {"channels": facts, "z_planes": planes, "z_step": step}
+    acquired = metadata.acquisition_datetime
+    return {
+        "channels": facts,
+        "z_planes": planes,
+        "z_step": step,
+        "acquired_at": acquired.isoformat() if acquired is not None else None,
+    }
 
 
 def composite_projection(image: FluorescenceImage) -> np.ndarray:

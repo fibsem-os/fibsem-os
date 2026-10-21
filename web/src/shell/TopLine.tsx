@@ -2,10 +2,12 @@ import { useQuery } from "@tanstack/react-query";
 import { Facts } from "@/components/ui/card";
 import { HoverCard } from "@/components/ui/hover-card";
 import { api } from "@/lib/api";
+import type { Go } from "@/lib/route";
 import type { Capabilities, WorkflowStatus } from "@/lib/types";
+import { AgentChip } from "./AgentChip";
 
-/** The run on the left, read first; the open experiment on the right. */
-export function TopLine() {
+/** The run on the left, read first; the agent and the open experiment on the right. */
+export function TopLine({ go }: { go: Go }) {
   const status = useQuery({ queryKey: ["app/workflow/status"], queryFn: () => api<WorkflowStatus>("/app/workflow/status") });
   const caps = useQuery({ queryKey: ["capabilities"], queryFn: () => api<Capabilities>("/capabilities") });
   const workflow = status.data?.workflow;
@@ -26,6 +28,7 @@ export function TopLine() {
         <span className="truncate">{what}</span>
       </span>
       <div className="flex-1" />
+      <AgentChip go={go} />
       {experiment ? (
         <HoverCard
           trigger={

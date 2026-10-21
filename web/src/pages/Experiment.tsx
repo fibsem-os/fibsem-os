@@ -3,7 +3,7 @@ import { ChevronRight, Download, FileImage, FileText, File as FileIcon, Folder }
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle, Facts } from "@/components/ui/card";
-import { Legend } from "@/components/images";
+import { Legend, metaLine } from "@/components/images";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { api, getToken } from "@/lib/api";
 import { useOpenExperiment } from "@/lib/experiment";
@@ -99,6 +99,7 @@ function Preview({ entry }: { entry: FileEntry }) {
           <button className="cursor-zoom-in rounded border-0 bg-black p-0" onClick={() => setBig(true)}>
             <img className="block w-full rounded" alt={entry.name} src={`data:image/jpeg;base64,${p.image_b64_jpeg}`} />
           </button>
+          <div className="text-[12px] text-muted-foreground">{metaLine(entry.path, read.data?.summary)}</div>
           {fm && <Legend fm={fm} />}
           <Dialog open={big} onOpenChange={setBig}>
             <DialogContent title={entry.name} className="w-[min(1200px,calc(100vw-32px))]">

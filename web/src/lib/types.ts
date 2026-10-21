@@ -198,9 +198,16 @@ export interface FolderListing {
 }
 
 export interface StackFacts {
-  channels: { name: string; color: string; excitation_wavelength: number | null; emission: string | null }[];
+  channels: {
+    name: string;
+    color: string;
+    excitation_wavelength: number | null;
+    emission: string | null;
+    exposure_time?: number | null;
+  }[];
   z_planes: number;
   z_step: number | null;
+  acquired_at?: string | null;
 }
 
 /** GET /app/experiment/files/{path}: a text file's text, or an image's preview. */
@@ -312,7 +319,7 @@ export type GridDetail = GridSummary & {
 
 /** GET /app/experiment/grids/{name}/outputs/{file}/markers */
 export interface GridMarkers {
-  image?: { width: number; height: number };
+  image?: { width: number; height: number; pixel_size?: number | null; hfw?: number | null; beam_type?: string };
   markers: { item_name: string; x: number; y: number; inside: boolean; is_completed: boolean; is_failure: boolean }[];
   unplaced: { item_name: string; reason: string }[];
   linked?: boolean;

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { metaLine } from "@/components/images";
 import { Card, CardTitle } from "@/components/ui/card";
 import { api, imageUrl } from "@/lib/api";
 import { useOpenExperiment } from "@/lib/experiment";
@@ -147,7 +148,7 @@ function Overview({ grid, filename }: { grid: string; filename: string }) {
         )}
       </div>
       <div className="text-[12px] text-muted-foreground">
-        {filename}
+        {[m?.image && metaLine(filename, m.image), filename].filter(Boolean).join(" · ")}
         {m?.reason && ` · ${m.reason}`}
         {m && m.unplaced.length > 0 && ` · not placed: ${m.unplaced.map((u) => u.item_name).join(", ")}`}
       </div>
