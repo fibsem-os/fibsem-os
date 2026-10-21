@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardTitle } from "@/components/ui/card";
+import { Card, CardTitle, Facts } from "@/components/ui/card";
 import { api } from "@/lib/api";
 import { Connections } from "@/shell/Settings";
 import { cn } from "@/lib/utils";
@@ -23,6 +23,7 @@ interface GatewayState {
   last_exit: { mode: Mode; app: string | null; code: number | null; at: number; killed: boolean; log: string | null } | null;
   apps: { key: string; name: string; headless: boolean }[];
   configurations: { name: string; path: string; default: boolean }[];
+  last_experiment: string | null;
 }
 
 interface Switch {
@@ -36,20 +37,35 @@ interface Switch {
   experiment: string | null;
 }
 
-const MODES: { mode: Mode | "server"; name: string; what: string }[] = [
+type Shown = Mode | "server";
+
+const MODES: { mode: Shown; name: string; what: string }[] = [
   { mode: "off", name: "Off", what: "Nothing holds the microscope." },
-  { mode: "window", name: "Window", what: "The app's window at this PC, as a desktop launch opens it." },
+  { mode: "window", name: "Window", what: "The app's window at this PC, as the desktop shortcut opens it." },
   { mode: "headless", name: "Headless app", what: "The app with no window, for a hub or a browser." },
-  { mode: "server", name: "Microscope server", what: "The microscope only, for an app on another computer. Later." },
+  { mode: "server", name: "Microscope server", what: "The microscope only, for an app on another computer." },
 ];
 
 const when = (seconds: number) =>
   new Date(seconds * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 
-function ModeCards({ state }: { state: GatewayState }) {
+const FIELD = "rounded border border-input bg-background px-2 py-1.5 text-[13px] text-foreground";
+
+function Status({ state }: { state: GatewayState }) {
+  const app = state.apps.find((a) => a.key === state.app)?.name ?? state.app;
+  const rows: [string, ReactNode][] = [["App", app ?? "–"]];
+  if (state.mode === "headless") {
+    rows.push(["Experiment", state.experiment ?? "None open"], ["Configuration", state.configuration ?? "–"]);
+  }
+  if (state.since) rows.push(["Started", `${when(state.since)} by ${state.who ?? "–"}, from the ${state.via ?? "–"}`]);
+  return <Facts className="[&_dd]:text-left" rows={rows} />;
+}
+
+function ModeSection({ state }: { state: GatewayState }) {
   const client = useQueryClient();
+  const [shown, setShown] = useState<Shown>(state.mode);
   const [app, setApp] = useState(state.apps[0]?.key ?? "");
-  const [experiment, setExperiment] = useState("");
+  const [experiment, setExperiment] = useState(state.last_experiment ?? "");
   const [configuration, setConfiguration] = useState(
     state.configurations.find((c) => c.default)?.name ?? "",
   );
@@ -63,79 +79,66 @@ function ModeCards({ state }: { state: GatewayState }) {
   });
   const busy = state.switching || act.isPending;
   const chosen = state.apps.find((a) => a.key === app);
-  const start = (mode: Mode) =>
-    act.mutate({
-      path: "/gateway/mode",
-      body: {
-        mode,
-        app,
-        ...(mode === "headless" && configuration ? { configuration } : {}),
-        ...(experiment.trim() ? { experiment: experiment.trim() } : { last: true }),
-      },
-    });
+  const running = shown === state.mode;
+  const stop = () => act.mutate({ path: "/gateway/stop", body: {} });
+  const mode = MODES.find((m) => m.mode === shown)!;
 
-  return (
-    <Card className="flex flex-col gap-3">
-      <CardTitle>Mode</CardTitle>
-      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
-        {MODES.map(({ mode, name, what }) => {
-          const on = state.mode === mode;
-          return (
-            <div
-              key={mode}
-              className={cn(
-                "flex flex-col gap-1 rounded-md border border-border bg-background px-3.5 py-3 text-[13px]",
-                on && "border-primary shadow-[inset_0_0_0_1px_var(--color-primary)]",
-                mode === "server" && "opacity-50",
-              )}
-            >
-              <span className="font-semibold">{name}</span>
-              <span className="text-xs text-muted-foreground">{what}</span>
-              {on && mode !== "off" && (
-                <span className="text-xs">
-                  {[
-                    state.app,
-                    state.experiment,
-                    state.configuration,
-                    state.who && `by ${state.who}`,
-                    state.since && when(state.since),
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </span>
-              )}
-            </div>
-          );
-        })}
-      </div>
-      {state.holder && (
-        <p className="m-0 text-[13px] text-[var(--fibsem-semantic-warning-color)]">
-          Another App Server runs here (pid {state.holder.pid}) that the gateway didn't start: close it at the PC before
-          switching.
-        </p>
-      )}
-      <div className="flex flex-wrap items-end gap-2.5">
+  const appField = (
+    <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+      App
+      <select value={app} onChange={(event) => setApp(event.target.value)} className={FIELD}>
+        {state.apps.map((a) => (
+          <option key={a.key} value={a.key}>
+            {a.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+
+  let body: ReactNode = null;
+  let action: ReactNode = null;
+  if (shown === "server") {
+    body = <p className="m-0 text-[13px] text-muted-foreground">Comes in a later step.</p>;
+  } else if (running && shown !== "off") {
+    body = <Status state={state} />;
+    action =
+      shown === "headless" ? (
+        <Button variant="danger" disabled={busy} onClick={stop}>
+          Stop
+        </Button>
+      ) : (
+        <span className="text-xs text-muted-foreground">The window is closed at the PC.</span>
+      );
+  } else if (shown === "off") {
+    action =
+      state.mode === "headless" ? (
+        <Button variant="danger" disabled={busy} onClick={stop}>
+          Stop the headless app
+        </Button>
+      ) : null;
+  } else if (shown === "window") {
+    body = <div className="flex flex-wrap gap-2.5">{appField}</div>;
+    action = (
+      <Button
+        variant="primary"
+        disabled={busy || state.mode === "window"}
+        onClick={() => act.mutate({ path: "/gateway/mode", body: { mode: "window", app } })}
+      >
+        Open window
+      </Button>
+    );
+  } else {
+    body = (
+      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+        {appField}
         <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-          App
-          <select
-            value={app}
-            onChange={(event) => setApp(event.target.value)}
-            className="rounded border border-input bg-background px-2 py-1.5 text-[13px] text-foreground"
-          >
-            {state.apps.map((a) => (
-              <option key={a.key} value={a.key}>
-                {a.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-          Microscope configuration (headless)
+          Microscope configuration
           <select
             value={configuration}
             onChange={(event) => setConfiguration(event.target.value)}
             title={state.configurations.find((c) => c.name === configuration)?.path}
-            className="rounded border border-input bg-background px-2 py-1.5 text-[13px] text-foreground"
+            className={FIELD}
           >
             {state.configurations.map((c) => (
               <option key={c.name} value={c.name}>
@@ -145,37 +148,79 @@ function ModeCards({ state }: { state: GatewayState }) {
             ))}
           </select>
         </label>
-        <label className="flex min-w-[260px] flex-1 flex-col gap-1 text-xs text-muted-foreground">
-          Experiment folder (headless)
+        <label className="flex flex-col gap-1 text-xs text-muted-foreground sm:col-span-2">
+          Experiment folder
           <input
             value={experiment}
             onChange={(event) => setExperiment(event.target.value)}
-            placeholder="The last experiment when left empty"
-            className="rounded border border-input bg-background px-2 py-1.5 text-[13px] text-foreground"
+            placeholder="None: start with no experiment open"
+            className={cn(FIELD, "font-mono text-xs")}
           />
+          {experiment && experiment === state.last_experiment && <span>The last experiment opened on this PC.</span>}
         </label>
-        <Button disabled={busy || state.mode === "window"} onClick={() => start("window")}>
-          Open window
-        </Button>
-        <Button
-          variant="primary"
-          disabled={busy || state.mode === "window" || !chosen?.headless}
-          onClick={() => start("headless")}
-        >
-          Run headless
-        </Button>
-        <Button
-          variant="danger"
-          disabled={busy || state.mode !== "headless"}
-          onClick={() => act.mutate({ path: "/gateway/stop", body: {} })}
-        >
-          Stop
-        </Button>
       </div>
-      {state.mode === "window" && (
-        <p className="m-0 text-xs text-muted-foreground">The window is closed at the PC, never from here.</p>
-      )}
-      {act.error && <p className="m-0 text-[13px] text-destructive">{(act.error as Error).message}</p>}
+    );
+    action = (
+      <Button
+        variant="primary"
+        disabled={busy || state.mode === "window" || !chosen?.headless}
+        onClick={() =>
+          act.mutate({
+            path: "/gateway/mode",
+            body: {
+              mode: "headless",
+              app,
+              ...(configuration ? { configuration } : {}),
+              ...(experiment.trim() ? { experiment: experiment.trim() } : {}),
+            },
+          })
+        }
+      >
+        Run headless
+      </Button>
+    );
+  }
+
+  return (
+    <Card className="flex flex-col gap-3">
+      <CardTitle>Mode</CardTitle>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-[180px_minmax(0,1fr)]">
+        <nav aria-label="Modes" className="flex flex-row flex-wrap gap-0.5 sm:flex-col">
+          {MODES.map((m) => (
+            <button
+              key={m.mode}
+              onClick={() => setShown(m.mode)}
+              className={cn(
+                "flex cursor-pointer items-baseline justify-between gap-2 rounded border-0 bg-transparent px-2.5 py-2 text-left text-[13px] text-muted-foreground hover:bg-accent",
+                shown === m.mode && "bg-accent text-foreground",
+              )}
+            >
+              {m.name}
+              {state.mode === m.mode && m.mode !== "off" && <span className="text-xs text-muted-foreground">running</span>}
+            </button>
+          ))}
+        </nav>
+        <div className="flex min-h-[190px] min-w-0 flex-col gap-3">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[14px] font-semibold">{mode.name}</span>
+            <span className="text-xs text-muted-foreground">{mode.what}</span>
+          </div>
+          {body}
+          {state.holder && (
+            <p className="m-0 text-[13px] text-[var(--fibsem-semantic-warning-color)]">
+              Another App Server runs here (pid {state.holder.pid}) that the gateway didn't start: close it at the PC
+              before switching.
+            </p>
+          )}
+          {act.error && <p className="m-0 text-[13px] text-destructive">{(act.error as Error).message}</p>}
+          <div className="mt-auto flex flex-wrap items-center justify-end gap-2.5">
+            {!running && shown !== "off" && shown !== "server" && state.mode === "headless" && (
+              <span className="text-xs text-muted-foreground">Stops the headless app first.</span>
+            )}
+            {action}
+          </div>
+        </div>
+      </div>
       {state.last_exit && (
         <p className="m-0 text-xs text-muted-foreground">
           Last ended: {state.last_exit.app ?? state.last_exit.mode},{" "}
@@ -199,12 +244,12 @@ function Recent() {
       <CardTitle>Recent</CardTitle>
       {switches.length === 0 && <p className="m-0 text-[13px] text-muted-foreground">No switches yet.</p>}
       {switches.map((s, i) => (
-        <div key={i} className="grid grid-cols-[150px_minmax(0,1fr)_auto] gap-3 border-t border-border py-2 text-[13px]">
+        <div key={i} className="grid grid-cols-1 gap-0.5 border-t border-border py-2 text-[13px] sm:grid-cols-[150px_minmax(0,1fr)_auto] sm:gap-3">
           <span className="text-muted-foreground tabular-nums">{when(s.at)}</span>
           <span className="min-w-0 break-words">
             {s.from_mode} → {s.to_mode}
             {s.app && ` · ${s.app}`}
-            {s.experiment && ` · ${s.experiment}`}
+            {s.experiment && <span title={s.experiment}> · {s.experiment.split(/[\\/]/).filter(Boolean).pop()}</span>}
             <span className={cn("text-muted-foreground", s.result.startsWith("refused") && "text-[var(--fibsem-semantic-warning-color)]")}>
               {" "}
               · {s.result}
@@ -238,7 +283,7 @@ export function GatewayPage() {
           </span>
         </div>
         {gateway.error && <p className="m-0 text-[13px] text-destructive">{(gateway.error as Error).message}</p>}
-        {state && <ModeCards state={state} />}
+        {state && <ModeSection state={state} />}
         <Card>
           <Connections roles={["operator", "hub"]} />
         </Card>

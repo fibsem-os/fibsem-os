@@ -114,6 +114,7 @@ class GatewayState:
     last_exit: Optional[LastExit] = None
     apps: List[GatewayApp] = field(default_factory=list)
     configurations: List[Configuration] = field(default_factory=list)
+    last_experiment: Optional[str] = None
 
 
 @dataclass
@@ -168,6 +169,14 @@ def configurations() -> List[Configuration]:
     return found
 
 
+def last_experiment() -> Optional[str]:
+    """The folder of the last experiment opened on this PC, as ``--last`` opens it."""
+    from fibsem.config import get_last_experiment_file
+
+    path = get_last_experiment_file()
+    return str(Path(path).parent) if path else None
+
+
 def _python() -> str:
     """The interpreter to run children with: ``python`` beside a ``pythonw``,
     whose children would have no standard streams for their log."""
@@ -208,6 +217,7 @@ class Gateway:
         home: Optional[Path] = None,
         app_registry: Callable[[], Dict[str, App]] = apps,
         saved_configurations: Callable[[], List[Configuration]] = configurations,
+        last: Callable[[], Optional[str]] = last_experiment,
         discovery: Callable[[], Optional[dict]] = read_discovery_file,
         running: Callable[[str, Optional[str]], bool] = workflow_running,
         python: Optional[str] = None,
@@ -217,6 +227,7 @@ class Gateway:
         self._home = Path(home) if home is not None else DISCOVERY_DIR
         self._apps = app_registry
         self._configurations = saved_configurations
+        self._last = last
         self._discovery = discovery
         self._running = running
         self._python = python or _python()
@@ -246,6 +257,7 @@ class Gateway:
             for key, app in self._apps().items()
         ]
         state.configurations = self._configurations()
+        state.last_experiment = self._last()
         return state
 
     def history(self, limit: int = HISTORY_SHOWN) -> History:

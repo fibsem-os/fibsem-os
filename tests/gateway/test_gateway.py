@@ -63,6 +63,7 @@ def _gateway(tmp_path, fakes, serve="serve", stop_wait_s=20.0):
             Configuration("arctis", "/configs/arctis.yaml", default=True),
             Configuration("demo", "/configs/demo.yaml"),
         ],
+        last=lambda: "/experiments/grid3",
         discovery=lambda: fakes.found,
         running=lambda url, token: fakes.running,
         stop_wait_s=stop_wait_s,
@@ -111,6 +112,10 @@ def test_last_runs_the_most_recent_experiment(tmp_path, fakes):
         == "last"
     )
     assert "serving --last" in _log(gateway.stop("operator", "page"))
+
+
+def test_the_state_names_the_last_experiment(tmp_path, fakes):
+    assert _gateway(tmp_path, fakes).state().last_experiment == "/experiments/grid3"
 
 
 def test_headless_connects_with_the_configuration_picked(tmp_path, fakes):
