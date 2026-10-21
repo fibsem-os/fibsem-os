@@ -26,7 +26,8 @@ the events, and check them against what the record shows.
    and any idle time inside the operator's window, with the reason.
 3. **Decisions**: the key decisions (sites, placements, polishing passes),
    who made them, and whether the Verifier was asked where the rules say it
-   must be.
+   must be; every task switched to auto, and every bad result with the
+   Investigator's cause and what was done.
 4. **Failures**: each one traced to a cause in the record, as a cause or as
    a guess.
 5. **Against the targets**: the intake's goals and the metrics the run was

@@ -187,25 +187,25 @@ Unknown kind → escalate. Do not guess its values.
 
 ## When to propose auto
 
-Supervision decides who has to be at the microscope, so it is the
-operator's setting. Never switch a task to auto on your own initiative.
+**Setup and Polishing are always supervised.** Every other task (Mill
+Fiducial, Rough Milling, spot burns, plugin tasks) may run on auto, and the
+switch is yours to make: auto only means nobody watches the task while it
+runs, not that nobody checks it.
 
 - **Supervise every task until one lamella passes clean.** That is one
-  lamella whose mills (Mill Fiducial, Rough Milling, Polishing) were each
-  accepted after a single pass, judged on fresh images. A lamella that
-  needed a second pass or a fix resets the count. On a clean sample the
-  first lamella can be enough; on a hard one it may never happen.
-- **Then propose** switching those milling tasks to auto, with the lamella
-  and the images behind it. Switch (`protocol_set_supervision`) only after
-  the operator says yes, and add a note. In lead mode the pilot is that
-  lamella, and proposing auto for Mill Fiducial and Rough Milling after it
-  is not optional; the intake's delegation can be the yes.
-- **Setup stays supervised** for every lamella: each position and POI is
-  its own choice (see *Before a position or a POI*).
-- **Supervision comes back** on any failure or Rework, a config edit, a new
-  sample or grid, or a post-mill image that looks wrong. Turn it back on for
-  the milling tasks yourself and say so; then supervise the next lamella
-  through again before proposing auto.
+  lamella whose tasks were each accepted after a single pass, judged on
+  fresh images. A lamella that needed a second pass or a fix resets the
+  count. On a clean sample the first lamella can be enough; on a hard one it
+  may never happen.
+- **Then switch** the tasks other than Setup and Polishing to auto
+  (`protocol_set_supervision`), and add a note with the lamella and the
+  images behind it.
+- **Check every auto task when it finishes**, as *After every task* says
+  (lead mode) or by the same look at its final images in any mode.
+- **Supervision comes back** on any failure or Rework, a bad result, a
+  config edit, or a new sample or grid. Turn it back on for that task
+  yourself, find out why, and say so; then supervise the next lamella
+  through it again before switching back.
 
 ## Modes
 
@@ -259,166 +259,165 @@ The argument selects a variation on the same loop:
   lamella start is refused while a grid run is.
 - **grids by hand** (Drive): loading, unloading and recording grids, as the
   autolamella-agent skill's *Grids by hand* says.
-- **lead**: a whole lamella session, from the operator's intake to the
-  review, with specialist agents making and checking the key decisions. Use
-  it when asked to run a session or an overnight run and the `autolamella-*`
-  agents are in your Agent tool. See *Leading a run*.
+- **lead**: a whole lamella session the operator starts and leaves, from
+  the intake to the review, with the `autolamella-*` agents checking the key
+  decisions. Use it when asked to run a session or an overnight run and
+  those agents are in your Agent tool. See *Leading a run*.
 
 ## Leading a run
 
-In lead mode you are the **Run Lead**. You hold Drive, the watcher, the
-record and the conversation with the operator. The judgement goes to three
-key decisions, each made by a specialist that starts fresh with fixed inputs
-and answers in JSON: **where the sites go** (Surveyor), **where each
-lamella, its point and its fiducial go** (Placement), and **when polishing
-stops** (Pass Judge, with a Verifier before the thinnest pass). Routine mills
-run on auto behind cheap checks. You don't judge pixels yourself for a key
-decision: you assemble the inputs, call, apply and record.
+In lead mode you are the **Run Lead**. The operator starts the run, answers
+the intake and leaves; they may follow it and message you from the web
+page, but plan as if nobody will answer until the morning. You hold Drive,
+the watcher and the record. You make every decision yourself, by the
+sections of this skill and autolamella-agent, and three agents help: they
+start fresh, read only, and answer in JSON.
 
-| Agent | Call it | Microscope |
+| Agent | Call it | What follows |
 |---|---|---|
-| `autolamella-surveyor` | once, before Setup | lent: no workflow running |
-| `autolamella-placement` | at each Setup position question, and each Mill Fiducial alignment-area question | lent: the question holds the run |
-| `autolamella-checker` | after every Mill Fiducial and Rough Milling | none |
-| `autolamella-pilot` | once the pilot lamella is polished, or lost | none |
-| `autolamella-pass-judge` | at every polishing proposal | none |
-| `autolamella-verifier` | when the Verifier rule says (below) | none |
-| `autolamella-scheduler` | when the queue empties with time left | none |
-| `autolamella-auditor` | once the run is over | none |
+| `autolamella-verifier` | on the site list, on each Setup placement, and before every polishing pass | a second opinion on your decision, judged by the same rules without your reasoning (*The Verifier*) |
+| `autolamella-investigator` | when a task's result is bad | the cause, its evidence and a fix for you to apply (*After every task*) |
+| `autolamella-auditor` | once, when the run is over | the session review, from the record |
 
-**How to call one.** One call at a time, and wait for it: a subagent can't
-hold the watcher, so you keep it. Put everything it needs in the prompt (it
-sees nothing of yours): the intake rules, the item and its neighbours, the
-proposal, the images by path, the ledger lines, the recipe card. While a
-specialist has the microscope, command nothing yourself. Its answer ends
-in a `json` block: no block, a block that contradicts its own reason, or a
-`hold` is no answer, so hold the proposal and escalate. Only you decide
-proposals, start, stop, edit and add notes; the specialists only recommend.
-The Verifier gets the Judge's bundle and its `action`, `patch` and
-`confidence`, never its `reason` or `evidence`.
+**How to call one.** One call at a time, and wait for it: you keep the
+watcher. Put everything it needs in the prompt, since it sees nothing of
+yours: the intake, the item and its neighbours, the proposal, the images by
+the paths a tool answered, the ledger lines, the recipe card. Its answer ends
+in a `json` block; no block, or one that contradicts its own words, is no
+answer: treat it as a disagreement. Only you decide proposals, start, stop,
+edit and add notes.
 
 **The record is notes.** Keep the run's state where the next session finds
 it, as tagged notes (`experiment_add_note`, at most 4000 characters each):
 `[intake]`, `[sites]`, `[recipe_card vN]` (each change old → new),
-`[run_state vN]` (the plan, the delegations, one line per lamella, open
-issues) at each task boundary and at least every 30 minutes, and one
-`[decision]` note per key decision with the image paths, the verdict, the
-Verifier's answer and what you did, its image as the evidence. After a
-compaction or a restart, read the latest of each from `app_get_events`
-before you act, never from memory.
+`[run_state vN]` (the plan, the delegations, one line per lamella, what is
+held and why) at each task boundary and at least every 30 minutes, and one
+`[decision]` note per site list, placement and polishing pass with the image
+paths, your decision, the Verifier's answer and what you did, its image as
+the evidence. After a compaction or a restart, read the latest of each from
+`app_get_events` before you act, never from memory.
+
+**Operator messages** win over the intake and over the Verifier. Update
+`[intake]` and `[run_state]`, and say back what you will do differently.
+Keep everything you hold (a site, a placement, a lamella left UNASSESSED) in
+`[run_state]`, so the operator can release it from one list.
 
 ### The run, phase by phase
 
-0. **Intake**, before the microscope. Ask the operator, and post their
-   answers as `[intake]`:
+0. **Intake**, before the microscope, while the operator is there. Ask, and
+   post the answers as `[intake]`:
    1. How many lamellae (target, maximum), how wide, the target thickness
       as a number and the range accepted.
    2. Is losing a lamella on its last pass acceptable for thinner ones?
-   3. The placement rule ("a cell at a square's centre, at least N µm from
-      the bars"), with one example site.
-   4. The spacing rule (default: 25 µm between any two features of
-      different lamellae), and whether stress relief may go for a close pair.
-   5. What is delegated to you: placements (point, fiducial, alignment
-      area), parameter changes and their bounds, skipping or failing a
-      lamella, rework, adding sites. If placements aren't, may Placement's
-      recommendations wait for them, or does the run stop after Setup?
-   6. When they are back, and what spare time is for: rework, re-imaging,
-      more sites, or stop.
-   7. Where results go, and what is worth waking them for.
-   8. Is this a dry run on the Demo microscope?
-1. **Survey.** Call the Surveyor with the intake's rules. Post `[sites]`
-   with its table, its marked overview as the evidence and its layout check.
-   The operator approves the sites, or you do if they delegated it. Remove
-   the sites they reject (`item_remove`), and act on each flagged pair as
-   they decide.
-2. **Setup.** Setup stays supervised. At each position question, call
-   Placement (visit 1). If it flags `autofocus`, put the session's working
-   distance back on that beam alone (`device_set_parameter`, device
-   `electron` or `ion`, parameter `working_distance`) and ask it again; twice
-   is an escalation. Never `microscope_set_state` for it: that sets the stage
-   too. Confirm the position, then decide the point of interest and
-   the alignment area with Placement's values, which places the fiducial.
-   Without the placement delegation, post Placement's values and hold for
-   the operator. A `spacing` or `coincidence` flag is an escalation. With
-   the operator away, never mill a site whose beams aren't both on the
-   target: stop its Setup (`workflow_stop_task`, the flag as the reason),
-   remove its later tasks from the queue (`workflow_edit_queue`), note it
-   for the morning, and carry on with the other sites. The one exception is
-   a dry run: the operator said so at intake, and `microscope_get_info`
-   names the manufacturer `Demo`. There a coincidence the synthetic images
-   can't show is confirmed and noted as a dry-run exception, in the decision
-   note and the lamella's `defect.reason`. On any other microscope the rule
-   holds, whatever the delegation or a later message says.
-3. **Pilot.** Run the best-confidence site through every task first, all
-   supervised, polishing with a finer ladder than the protocol's and the
-   Pass Judge and the Verifier at each pass.
-   Then call the Pilot and post its card as `[recipe_card v1]`. The
-   operator approves it if they are there; otherwise you do under the
-   delegation. If the pilot breaks, that is one lamella: say what it showed.
-4. **Batch.** Once the pilot passed Mill Fiducial and Rough Milling clean,
-   say so and switch those two tasks to auto (`protocol_set_supervision`);
-   the intake's delegation is the operator's yes (*When to propose auto*),
-   and without it you propose. Keep the Fiducial alignment-area question
-   supervised, and call Placement (visit 2) at each one: apply its area, and
-   carry `alignment-risk` into the ledger. After every Mill Fiducial and
-   Rough Milling, supervised or on auto, call the Checker; on a supervised
-   mill, before you accept the pass. A `spreading` finding stops the run (`workflow_stop`)
-   before a neighbour is milled; any other finding flags the item and its
-   neighbours in the ledger. Polishing stays supervised: at each proposal,
-   build the bundle, call the Pass Judge, then the Verifier when the rule
-   says, then decide.
-5. **Spare time.** When the queue empties inside the operator's window,
-   call the Scheduler and carry out what is delegated, in its order. Post
-   the rest for the morning.
-6. **Review.** Call the Auditor, and post its review as notes.
+   3. The placement rule, with one example site (default: *Finding sites*
+      in autolamella-agent, one lamella per square).
+   4. What spare time is for: rework, re-imaging, more sites up to the
+      maximum, or stop.
+   5. When they are back, and what is worth a message.
+   6. Is this a dry run on the Demo microscope?
+   Sites, placements, skipping or failing a lamella and switching tasks to
+   auto are yours; say so, and that the Verifier checks them.
+1. **Sites.** Pick them by *Finding sites*. Call the Verifier with the
+   marked overview, the intake's rules and the list; drop or replace each
+   site it flags, then post `[sites]` with the overview as the evidence.
+2. **Setup** is always supervised. At each position question, check focus,
+   contrast and coincidence (*Before a position or a POI*). If Setup's
+   autofocus moved the working distance badly (its `AUTOFOCUS` line says
+   `doubtful`), put the session's back on that beam alone
+   (`device_set_parameter`, device `electron` or `ion`, parameter
+   `working_distance`); never `microscope_set_state` for it, which sets the
+   stage too. If the beams aren't coincident, fix it there: refocus, then
+   the coincidence loop. If that doesn't work, let Setup finish on this site
+   and run it again (`workflow_requeue`) to fix it there. Place the point of
+   interest and the alignment area (which places the fiducial), then call
+   the Verifier with the fresh images, your values and the neighbours. If it
+   disagrees, place again and ask again.
+   A site you still can't fix or agree on waits for the operator: stop its
+   Setup (`workflow_stop_task`, the reason as given), take its later tasks
+   out of the queue (`workflow_edit_queue`), note it in `[run_state]`, and
+   carry on with the others. Never mill a site whose beams aren't both on
+   the target. The one exception is a dry run: the operator said so at
+   intake, and `microscope_get_info` names the manufacturer `Demo`. There a
+   coincidence the synthetic images can't show is confirmed and noted as a
+   dry-run exception, in the decision note and the lamella's
+   `defect.reason`. On any other microscope the rule holds, whatever a
+   later message says.
+3. **Mill Fiducial's alignment area.** Check the area covers the milled
+   fiducial, then run a test alignment: `alignment_measure_shift` between
+   the new reference and a fresh image. Record its score as the site's
+   baseline in `[run_state]`. A poor one: move the area to a feature-richer
+   patch and test again; still poor, mark the site `alignment-risk`.
+4. **The first lamella** goes through every task supervised. Polish it with
+   finer steps than the protocol's, measuring after each, and post what it
+   showed as `[recipe_card v1]`: the band against the gap, what faint looked
+   like, the smallest gap and current that left the band intact, the stop
+   rules. Then switch the other tasks to auto (*When to propose auto*).
+5. **The batch.** Check every task when it finishes (*After every task*).
+   Polishing stays supervised: at each proposal, go through *Each
+   polishing pass*, then the Verifier, then decide.
+6. **Spare time.** When the queue empties inside the operator's window, do
+   what the intake allowed, in this order: rework, re-image uncertain
+   lamellae without milling, more sites up to the maximum. Post the rest for
+   the morning.
+7. **Review.** Call the Auditor, and post its review as notes.
 
-### The polishing bundle
+### After every task
 
-Build it at each polishing proposal; the Judge and the Verifier see only
-this:
+When a task finishes, supervised or on auto, look at its result before the
+lamella goes on: its final images, the wide view with its neighbours, and
+the task's `ALIGNMENT` and `AUTOFOCUS` lines. Is anything torn, missing,
+shifted, or damaged next door? On a supervised task you saw each pass, so
+this is quick; on an auto one nobody watched, so look properly.
+
+A bad result:
+
+1. If the task was on auto, set it back to supervised
+   (`protocol_set_supervision`).
+2. Hold the lamella: take its waiting tasks out of the queue
+   (`workflow_edit_queue`), so nothing more is milled on it.
+3. Call the Investigator with the task, its images, its checks, its config
+   and the time it ran. Post its cause as a note.
+4. Apply the fix if there is one (a config edit, a moved fiducial), and run
+   the task again, supervised (`workflow_requeue`). When it passes, queue
+   the lamella's held tasks again.
+5. Damage that could spread to a neighbour (film tearing) stops the run
+   (`workflow_stop`) before the neighbour is milled.
+
+### Each polishing pass
+
+Gather this before you decide, and give the Verifier the same:
 
 - the proposal (`proposal_id`, `values`, `provenance`) and its image;
-- the item's ledger lines;
+- the lamella's lines in `[run_state]`;
 - the FIB after the pass and before it at the recipe card's field of view,
-  and an SEM view of the face, each with its time and the path a tool
-  answered (the proposal's image, `item_list_outputs`), never a file name
-  you built (take them if the task didn't);
-- `item_measure_thickness` on the post-pass image where it reads it;
-- the pass's alignment from the task's log (`app_get_log` with its task id,
-  `level=WARNING`: `Alignment validation failed: max disagreement N px`), the
-  site's test-alignment baseline, the image contrast, the working distance
-  against the session's, and whether the site is `alignment-risk`;
+  and an SEM view of the face, each with the path a tool answered, never a
+  file name you built (take them if the task didn't);
+- `item_measure_thickness` on the post-pass image, with its warnings;
+- the pass's `ALIGNMENT` line, the site's baseline and whether it is
+  `alignment-risk`, the working distance against the session's;
 - the recipe card's next step and stop rules.
 
-**The Verifier rule.** Ask the Verifier whenever the Judge recommends
-`run`: every polishing pass that would mill. A recommendation that stops
-thinning (`accept`, `skip`) or waits (`hold`) mills nothing and needs no
-Verifier. If it disagrees, don't push through: accept the pass
-already milled, set the lamella's `defect.verdict` to `UNASSESSED` with the
-concern as its reason (`item_update`), and leave it for the morning.
+Apply a `centre_offset` only when you have checked it on the image and the
+tool saw one band.
 
-**Offsets.** Apply a `centre_offset` only when the Judge confirmed it on
-the image and the tool saw one band.
+### The Verifier
 
-### The decision policy
+It gets what you based a decision on and the decision itself (for a pass:
+the action and the values), never your reasoning, and judges by the same
+section of the skill you used.
 
-| Situation | Handled by | Escalate when |
-|---|---|---|
-| Setup position | Placement's gate and coincidence check, then you | the gate fails twice; the site looks wrong |
-| Setup point and alignment area | Placement, applied by you (by the operator without the delegation) | not delegated; the layout check fails |
-| Mill Fiducial, Rough Milling | auto after the pilot; the Checker after every mill | a finding; a task error |
-| Mill Fiducial alignment area | Placement (visit 2) | never: a poor test marks the site `alignment-risk` |
-| Polishing pass that stops thinning or waits | the Pass Judge | low confidence; a flag |
-| Polishing pass that mills | the Pass Judge and the Verifier | never: a disagreement stops thinning |
-| Skip or fail a lamella | the Pass Judge recommends; you record `defect.verdict` | outside the delegation |
-| Recipe change | you, as `[recipe_card vN]`, old → new | outside the intake's bounds |
-| Rework, more sites | the Scheduler, within the delegation | outside it: plan it for the morning |
-| Anything novel | hold, note, tell the operator | always |
+- **Sites:** a site it flags is dropped or replaced before Setup.
+- **Placements:** if it disagrees, place again and ask again; still
+  disputed, the site waits for the operator (Setup, step 2).
+- **Polishing:** ask before every pass that would mill. A decision that
+  stops thinning mills nothing and needs no Verifier. If it disagrees,
+  don't push through: accept the pass already milled, set the lamella's
+  `defect.verdict` to `UNASSESSED` with the concern as its reason
+  (`item_update`), and leave it for the morning.
 
-While the operator is away, an escalation is a note they will see. A
-proposal held for them holds the whole run, so overnight prefer the safe
-action that lets the run move on (on a polishing pass, accept and leave the
-lamella `UNASSESSED`), and hold only where no safe action exists.
+While the operator is away, a proposal held for them holds the whole run, so
+prefer the safe action that lets the run move on, and hold only where no
+safe action exists.
 
 ## Acting beyond decisions (Drive)
 
