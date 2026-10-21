@@ -537,6 +537,30 @@ def test_a_mill_run_by_hand_is_not_the_task_s(ui, qapp, monkeypatch):
     assert runs == [(None, None)]
 
 
+def test_a_mill_that_ends_after_its_widget_is_gone_calls_nothing(ui, qapp, monkeypatch):
+    """Closing the window mid-mill: the run's end reaches no deleted widget."""
+    from PyQt5.QtCore import QCoreApplication, QEvent
+
+    from fibsem.services.milling import Milling
+
+    started, release = threading.Event(), threading.Event()
+
+    def held(service, config, path=None):
+        started.set()
+        release.wait(5)
+
+    monkeypatch.setattr(Milling, "run_task", held)
+    widget = ui.ui_responder._milling_widget().milling_widget
+    widget.run_milling(_config("held"))
+    assert started.wait(5)
+    worker = widget._milling_thread
+    release.set()
+    worker.join(5)  # its finished signal is queued, not yet delivered
+    widget.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    _settle(qapp, 0.1)
+
+
 def test_the_question_is_the_task_s_and_the_answer_the_operator_s(ui, qapp, tmp_path):
     from fibsem.acting import OPERATOR
     from fibsem.workflows.event_recording import (
