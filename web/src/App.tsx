@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { AgentPage } from "@/pages/Agent";
 import { MicroscopePage } from "@/pages/Microscope";
 import { Pair } from "@/shell/Pair";
 import { Rail } from "@/shell/Rail";
@@ -17,7 +18,9 @@ function Shell() {
       <Rail page={page} go={go} openSettings={() => setSettings(true)} />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <TopLine />
-        <div className="min-h-0 flex-1 overflow-auto">{page === "microscope" && <MicroscopePage />}</div>
+        <div className="min-h-0 flex-1 overflow-auto">{page === "microscope" && <MicroscopePage />}
+          {page === "agent" && <AgentPage />}
+        </div>
       </div>
       <Settings open={settings} onOpenChange={setSettings} />
     </div>

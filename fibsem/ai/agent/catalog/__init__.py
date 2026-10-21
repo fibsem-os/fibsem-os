@@ -49,7 +49,7 @@ NOT_TOOLS: Dict[str, str] = {
     "GET /health": "Open liveness check, no token; the agent's first read is server_get_capabilities.",
     "GET /app/agent/session": "The agent's own report, read back by the app and the dashboard; the agent knows what it reported.",
     "GET /dashboard/log": "The operator's event log page, HTML; app_get_events is the agent's read.",
-    "GET /chat": "The operator's chat with the agent, HTML; it calls the operator's routes.",
+    "GET /chat": "A redirect to the web app's Agent page, GET /ui/agent.",
     "GET /ui": "The operator's web app, HTML; it calls the operator's routes.",
     "GET /ui/{}": "The web app's pages and assets, served like GET /ui.",
     "GET /pair": "Pairing a computer with the operator's code: a person's computer, not the agent.",

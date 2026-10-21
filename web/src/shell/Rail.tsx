@@ -3,6 +3,7 @@ import { MessageSquare, Microscope, Settings as Gear } from "lucide-react";
 import type { ReactNode } from "react";
 import { api } from "@/lib/api";
 import type { Page } from "@/lib/route";
+import type { AgentState } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const tab =
@@ -34,18 +35,18 @@ function Tab({ on, icon, label, ...props }: { on?: boolean; icon: ReactNode; lab
 export function Rail({ page, go, openSettings }: { page: Page; go: (page: Page) => void; openSettings: () => void }) {
   const agent = useQuery({
     queryKey: ["app/agent"],
-    queryFn: () => api<{ request?: unknown }>("/app/agent"),
+    queryFn: () => api<AgentState>("/app/agent"),
   });
-  const waiting = agent.data?.request ? 1 : 0;
+  const waiting = agent.data?.request?.status === "pending" || agent.data?.suggestion ? 1 : 0;
   return (
     <nav
       aria-label="Pages"
       className="order-last flex shrink-0 flex-row gap-1 border-t border-border bg-card p-1 md:order-first md:w-[92px] md:flex-col md:border-t-0 md:border-r md:px-2 md:py-3"
     >
       <Tab on={page === "microscope"} onClick={() => go("microscope")} icon={<Microscope size={22} />} label="Microscope" />
-      {/* The Agent page is /chat until this app has its own. */}
       <Tab
-        href="/chat"
+        on={page === "agent"}
+        onClick={() => go("agent")}
         icon={<MessageSquare size={22} />}
         label={
           <>

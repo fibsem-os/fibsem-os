@@ -1,5 +1,5 @@
-// The App Server, as this browser reaches it. The token is the one /chat pairs,
-// under the same storage keys, so pairing either page pairs both.
+// The App Server, as this browser reaches it. The token keys are the ones the
+// old /chat page used, so a browser it paired stays paired.
 
 const OPERATOR_KEY = "fibsem-operator-token";
 const PAIRED_KEY = "fibsem-paired-token";
@@ -28,8 +28,13 @@ function stored(store: () => Storage, key: string): string | null {
 /** The token from the URL fragment, this tab, or this browser's pairing. */
 export function loadToken(): string | null {
   const fragment = new URLSearchParams(location.hash.slice(1)).get("token");
-  if (fragment) history.replaceState(null, "", location.pathname);
-  token = fragment || stored(() => sessionStorage, OPERATOR_KEY) || stored(() => localStorage, PAIRED_KEY);
+  if (fragment) {
+    // The window's link carries the operator token; it is kept for this tab.
+    history.replaceState(null, "", location.pathname);
+    setToken(fragment, "operator");
+    return token;
+  }
+  token = stored(() => sessionStorage, OPERATOR_KEY) || stored(() => localStorage, PAIRED_KEY);
   return token;
 }
 

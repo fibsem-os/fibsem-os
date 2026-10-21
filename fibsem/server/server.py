@@ -586,14 +586,16 @@ def build_server(
 
     @app.get("/chat")
     def chat():
-        # The operator's chat with the agent; served like /dashboard, and every
-        # call it makes needs the operator token.
-        return _page("chat.html")
+        # The chat is the web app's Agent page; a browser keeps the URL
+        # fragment (the token) across the redirect.
+        from fastapi.responses import RedirectResponse
+
+        return RedirectResponse("/ui/agent")
 
     @app.get("/ui")
     @app.get("/ui/{path:path}")
     def web_app(path: str = ""):
-        # The web app (built from web/), served like /chat. Asset paths are
+        # The web app (built from web/), served like /dashboard/log. Asset paths are
         # files; every other path is a page and gets index.html.
         import mimetypes
         import pkgutil

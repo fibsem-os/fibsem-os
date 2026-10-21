@@ -39,7 +39,7 @@ def test_a_new_experiment_is_served_until_stopped(discovery, tmp_path, capsys):
     assert VolumeExperiment.load(folder).name == "vol"
     out = capsys.readouterr().out
     # The plain chat address: the token stays out of the terminal.
-    assert "/chat (Pair this browser)" in out and "#token=" not in out
+    assert "/ui/agent (Pair this browser)" in out and "#token=" not in out
 
 
 def test_an_experiment_must_exist_unless_created(tmp_path, capsys):

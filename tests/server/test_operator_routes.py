@@ -375,11 +375,10 @@ def test_the_session_draws_a_waiting_request_without_a_window(server):
         server.session.agent.stop_pictures()
 
 
-def test_the_chat_page_is_served(server):
-    # Static, like the event log: every call it makes needs the operator token.
-    answer = server.get("/chat")
-    assert answer.status_code == 200
-    assert "/app/agent/recent" in answer.text
+def test_the_chat_is_the_web_app_s_agent_page(server):
+    answer = server.get("/chat", follow_redirects=False)
+    assert answer.status_code in (302, 307)
+    assert answer.headers["location"] == "/ui/agent"
 
 
 def test_the_web_app_is_served(server):
