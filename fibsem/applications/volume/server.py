@@ -5,10 +5,12 @@ Per-position task configs are refused with why: positions share the protocol's.
 """
 
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fibsem.applications.volume.experiment import VolumeExperiment
+from fibsem.applications.volume.experiment_setup import (
+    create_experiment,
+    load_for_adoption,
+)
 from fibsem.applications.volume.protocol import PROTOCOL_FOLDER, VolumeProtocol
 from fibsem.server.app_context import (
     AppContext,
@@ -28,7 +30,6 @@ from fibsem.structures import FibsemRectangle, FibsemStagePosition, Point
 from fibsem.util.timestamps import to_iso
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.outputs import item_output_named, saved_file
-from fibsem.workflows.protocol_files import record_recent
 
 __all__ = ["VolumeAppContext", "serve"]
 
@@ -123,17 +124,10 @@ class VolumeAppContext(AppContext):
         return PROTOCOL_FOLDER
 
     def _new_experiment(self, directory, name, protocol, metadata):
-        experiment = VolumeExperiment.create(
-            Path(directory), name, metadata=metadata, task_protocol=protocol
-        )
-        record_recent(experiment)
-        return experiment
+        return create_experiment(directory, name, protocol, metadata)
 
     def _load_for_adoption(self, path):
-        try:
-            return VolumeExperiment.load(Path(path)), None
-        except Exception as exc:  # noqa: BLE001 - a broken file is a data fact
-            return None, f"could not load {path}: {exc}"
+        return load_for_adoption(path)
 
     # --- Items ------------------------------------------------------------------
 

@@ -37,9 +37,7 @@ from fibsem.ui.widgets.custom_widgets import (
     ValueComboBox,
 )
 from fibsem.ui.widgets.lists import OptionsPopup, help_button
-from fibsem.ui.widgets.workflow.task_editor import (
-    WorkflowTaskEditorWidget,
-)
+from fibsem.ui.widgets.workflow.task_editor_dialog import TaskEditorDialog
 from fibsem.ui.widgets.workflow.task_list import WorkflowTaskList
 from fibsem.workflows.task_config import TaskPlan, WorkflowOptions
 
@@ -119,62 +117,6 @@ class PickTaskDialog(QDialog):
         return self.selected_task
 
 
-class _TaskEditorDialog(QDialog):
-    """Modal dialog wrapping WorkflowTaskEditorWidget. Also where a task is
-    removed from the workflow: the editor's Remove asks here, this confirms,
-    closes, and tells the host which task to drop."""
-
-    remove_requested = pyqtSignal(object)  # TaskPlan
-
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
-        self.setWindowTitle("Edit Task")
-        self.setModal(True)
-        self.setMinimumWidth(470)
-        self.setMinimumHeight(520)
-        self.setStyleSheet(f"background: {SURFACE_COLOR}; color: {TEXT_COLOR};")
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-
-        self.editor = WorkflowTaskEditorWidget(task=TaskPlan(name=""))
-        # Use the editor's own styled Apply/Cancel buttons as the dialog actions.
-        self.editor.apply_clicked.connect(self.accept)
-        self.editor.cancel_clicked.connect(self.reject)
-        self.editor.remove_clicked.connect(self._on_remove_clicked)
-        layout.addWidget(self.editor, 1)
-        self._task: Optional[TaskPlan] = None
-
-    def open_for(
-        self,
-        task: TaskPlan,
-        requires: List[str],
-        available_tasks: List[str],
-        allow_remove: bool = True,
-    ) -> None:
-        self._task = task
-        self.editor.load_task(task, requires, available_tasks=available_tasks)
-        self.editor.set_remove_allowed(allow_remove)
-        self.open()
-
-    def _on_remove_clicked(self) -> None:
-        task = self._task
-        if task is None:
-            return
-        reply = QMessageBox.question(
-            self,
-            "Remove Task",
-            f"Remove <b>{task.name}</b> from workflow?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if reply != QMessageBox.Yes:
-            return
-        self.reject()
-        self.remove_requested.emit(task)
-
-
 class LamellaWorkflowWidget(QWidget):
     """Combined widget: LamellaListWidget (top) + WorkflowTaskList (bottom).
 
@@ -208,7 +150,7 @@ class LamellaWorkflowWidget(QWidget):
 
         self.experiment: Optional[Experiment] = None
 
-        self._editor_dialog = _TaskEditorDialog(self)
+        self._editor_dialog = TaskEditorDialog(self)
         self._editor_dialog.editor.apply_clicked.connect(self.task_edited)
         self._editor_dialog.remove_requested.connect(self._on_task_remove_confirmed)
 
