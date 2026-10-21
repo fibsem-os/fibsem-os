@@ -188,6 +188,7 @@ class AppSession:
         if microscope is self._microscope:
             return
         self._microscope = microscope
+        self.images.follow(microscope)
         self.changed.emit(MICROSCOPE)
 
     @property

@@ -48,7 +48,61 @@ def test_the_image_widget_reads_and_writes_the_session_s_images(qapp):
         assert widget.ib_image is images.get(BeamType.ION)
         assert images.get(BeamType.ION).metadata.beam_type is BeamType.ION
         frame = _image(BeamType.ION)
-        widget._on_acquire(frame)
+        widget.ib_image = frame
         assert images.get(BeamType.ION) is frame
     finally:
         widget.deleteLater()
+
+
+def test_an_image_widget_without_a_session_follows_the_microscope(qapp):
+    from fibsem import utils
+    from fibsem.structures import ImageSettings
+    from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
+
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    widget = FibsemImageSettingsWidget(
+        microscope=microscope,
+        image_settings=ImageSettings(resolution=[64, 64], hfw=1e-5),
+        parent=None,
+    )
+    try:
+        frame = _image(BeamType.ELECTRON)
+        microscope.imaging.show(frame)
+        assert widget.eb_image is frame
+    finally:
+        widget.deleteLater()
+
+
+def test_images_shown_and_live_frames_are_kept_until_unfollowed():
+    from fibsem import utils
+
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    images = LatestImages()
+    images.follow(microscope)
+
+    shown, live = _image(BeamType.ION), _image(BeamType.ELECTRON)
+    microscope.imaging.show(shown)
+    microscope.beams[BeamType.ELECTRON].live_frame.emit(live)
+    assert images.get(BeamType.ION) is shown
+    assert images.get(BeamType.ELECTRON) is live
+
+    images.follow(None)
+    microscope.imaging.show(_image(BeamType.ION))
+    assert images.get(BeamType.ION) is shown
+
+
+def test_the_session_keeps_the_microscope_s_images_without_a_window():
+    from fibsem import utils
+    from fibsem.workflows.session import AppSession
+
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    session = AppSession()
+    session.microscope = microscope
+
+    frame = _image(BeamType.ION)
+    microscope.imaging.show(frame)
+    assert session.images.get(BeamType.ION) is frame
+
+    session.microscope = None
+    microscope.imaging.show(_image(BeamType.ION))
+    assert session.images.get(BeamType.ION) is frame
