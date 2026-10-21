@@ -269,8 +269,12 @@ def _isolate_device_server_token(tmp_path_factory):
     server and its client on one machine share the token file, and no
     test reads a developer's paired tokens. Session-scoped,
     as module-scoped fixtures start Device Servers."""
-    import fibsem.client.pairing as client_pairing
-    import fibsem.server.device_auth as device_auth
+    try:
+        import fibsem.client.pairing as client_pairing
+        import fibsem.server.device_auth as device_auth
+    except ImportError:  # no [server] extra: nothing serves or pairs
+        yield
+        return
 
     directory = tmp_path_factory.mktemp("fibsem-home")
     with pytest.MonkeyPatch.context() as mp:
