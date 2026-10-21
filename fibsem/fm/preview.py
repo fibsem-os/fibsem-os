@@ -33,18 +33,22 @@ def projection_layers(image: FluorescenceImage) -> List[FMLayer]:
     channels = list(image.metadata.channels)
     layers = []
     for index, plane in enumerate(projected):
-        name, color = _channel_look(channels, index)
+        name, color = _channel_look(channels, index, len(projected))
         layers.append(FMLayer(name=name, data=plane, color=color))
     return layers
 
 
-def _channel_look(channels: list, index: int) -> Tuple[str, str]:
+def _channel_look(channels: list, index: int, count: int = 1) -> Tuple[str, str]:
     """A channel's name and colour as the projection draws it. Metadata should
     describe every channel, but never drop a plane when it doesn't: an unnamed
-    channel is better than a silently missing one."""
+    channel is better than a silently missing one. Gray is the settings'
+    default, so in a stack of several channels it takes the palette's colour."""
     fallback = AVAILABLE_COLORS[index % len(AVAILABLE_COLORS)]
     if index < len(channels):
-        return channels[index].name, getattr(channels[index], "color", None) or fallback
+        color = getattr(channels[index], "color", None)
+        if not color or (color == "gray" and count > 1):
+            color = fallback
+        return channels[index].name, color
     return f"Channel-{index + 1:02d}", fallback
 
 
@@ -60,7 +64,7 @@ def stack_facts(image: FluorescenceImage) -> Dict[str, Any]:
     channels = list(metadata.channels)
     facts = []
     for index in range(count):
-        name, color = _channel_look(channels, index)
+        name, color = _channel_look(channels, index, count)
         known = channels[index] if index < len(channels) else None
         emission = getattr(known, "emission_filter", None)
         facts.append(

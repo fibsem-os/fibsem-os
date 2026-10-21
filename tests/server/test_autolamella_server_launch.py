@@ -16,6 +16,7 @@ from fibsem.applications.autolamella import launch  # noqa: E402
 from fibsem.applications.autolamella.structures import Experiment  # noqa: E402
 from fibsem.server.operator_token import load_operator_token  # noqa: E402
 from tests.fixtures.headless import (  # noqa: E402
+    allowed_agent,
     confine_host,
     run_in_background,
     serving,
@@ -52,7 +53,8 @@ def test_a_new_experiment_is_served_and_the_operator_hands_over(
         found = serving(discovery)
         operator_token = load_operator_token(discovery.parent / "operator-token.json")
         with httpx.Client(base_url=found["url"]) as client:
-            agent = {"Authorization": f"Bearer {found['token']}"}
+            agent_token = allowed_agent(found, operator_token)
+            agent = {"Authorization": f"Bearer {agent_token}"}
             operator = {"Authorization": f"Bearer {operator_token}"}
             capabilities = client.get("/capabilities", headers=agent).json()
             assert capabilities["app_name"] == "AutoLamella"
@@ -102,7 +104,8 @@ def test_the_agent_creates_the_experiment_in_the_named_folder(discovery, places)
         found = serving(discovery)
         operator_token = load_operator_token(discovery.parent / "operator-token.json")
         with httpx.Client(base_url=found["url"]) as client:
-            agent = {"Authorization": f"Bearer {found['token']}"}
+            agent_token = allowed_agent(found, operator_token)
+            agent = {"Authorization": f"Bearer {agent_token}"}
             operator = {"Authorization": f"Bearer {operator_token}"}
             assert client.get("/app/experiment", headers=agent).json()["items"] == []
             drive = {"level": "drive"}

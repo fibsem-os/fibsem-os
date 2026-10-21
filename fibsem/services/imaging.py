@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import math
 import os
 import threading
 from contextlib import contextmanager
@@ -81,6 +82,7 @@ from fibsem.structures import (
     ImageSettings,
     OverviewAcquisitionSettings,
 )
+from fibsem.util import timestamps
 
 # Two beam currents closer than this, relatively, are the same current: a
 # brightness and contrast that worked at one is where to start at the other.
@@ -152,12 +154,26 @@ class Imaging(Service):
         self,
         beam_type: BeamType = BeamType.ELECTRON,
         image_settings: Optional[ImageSettings] = None,
+        path: Optional[str] = None,
+        filename: Optional[str] = None,
     ) -> FibsemImage:
         """Acquire an image with ``beam_type``: with ``image_settings`` when given
-        (their own beam type wins), else with the beam's current settings."""
+        (their own beam type wins), else with the beam's current settings. Given
+        ``path`` (a folder), also save it there as ``<filename>_eb`` (or ``_ib``;
+        ``filename`` defaults to when it was taken) and record it as
+        ``image_acquired``, as `acquire_image` does."""
         if image_settings is not None and image_settings.beam_type is not None:
             beam_type = image_settings.beam_type
-        return self.beam(beam_type).acquire(image_settings)
+        name = filename or f"image-{timestamps.now():%Y%m%d-%H%M%S}"
+        if os.path.basename(name) != name or name in (".", ".."):
+            raise ValueError(f"filename is a name, not a path: {name!r}")
+        image = self.beam(beam_type).acquire(image_settings)
+        if path is None:
+            return image
+        suffix = "eb" if beam_type is BeamType.ELECTRON else "ib"
+        saved = image.save(path=os.path.join(path, f"{name}_{suffix}"))
+        self.session.record("image_acquired", acquisition_record(image, saved))
+        return image
 
     @command
     def autocontrast(
@@ -512,11 +528,13 @@ class Imaging(Service):
         tileset, the tab's own sweep), and unless the stage is at the FM's pose:
         from any other pose the objective sweeps where it cannot see the sample,
         so the scores mean nothing. ``stop`` ends it between
-        steps, ``cancelled``, with the objective where the passes left it. Given
-        a ``path``, the result is saved to ``<path>/<name>``. Answers the best
-        objective position and the sweep's scores.
+        steps, ``cancelled``, with the objective where the passes left it. A
+        sweep whose scores are flat answers ``no_focus``, with the objective back
+        where it started. Given a ``path``, the result is saved to
+        ``<path>/<name>``. Answers the best objective position and the sweep's
+        scores.
         """
-        from fibsem.fm.calibration import run_coarse_fine_autofocus
+        from fibsem.fm.calibration import NO_FOCUS, run_coarse_fine_autofocus
 
         fm = self.parent.fm
         self._refuse_while_fm_live("auto-focus")
@@ -537,6 +555,8 @@ class Imaging(Service):
             )
         if result is None or self._stop_requested.is_set():
             return {"status": "cancelled", **(result.to_dict() if result else {})}
+        if not result.found:
+            return {"status": "no_focus", "message": NO_FOCUS, **result.to_dict()}
         return {"status": "completed", **result.to_dict()}
 
     @command(long=True, available=_has_fm)
@@ -554,7 +574,9 @@ class Imaging(Service):
 
         Refused while the FM is in use or can't see the sample from this pose.
         ``stop`` ends it ``cancelled`` before the next frame, saving nothing.
-        Answers the image's path and a summary of it.
+        Answers the image's path and a summary of it, and ``substituted`` when a
+        channel's excitation wavelength isn't on the filter set and the nearest
+        band was used.
         """
         from fibsem.fm.acquisition import acquire_image
         from fibsem.imaging.tiled import stamped_overview_name
@@ -575,7 +597,7 @@ class Imaging(Service):
             return {"status": "cancelled", "image": None}
         saved = filename if os.path.isfile(filename) else None
         answer = {"summary": _fm_image_summary(image), "path": saved}
-        return {"status": "completed", "image": answer}
+        return {"status": "completed", "image": answer, **_substituted(channels, image)}
 
     @command(long=True, available=_has_fm)
     def fm_acquire_overview(
@@ -633,7 +655,10 @@ class Imaging(Service):
         except OperationCancelledError:
             return _overview_answer(result, image=None)
         image = {"summary": _fm_image_summary(result.image), "path": result.mosaic_path}
-        return _overview_answer(result, image=image)
+        return {
+            **_overview_answer(result, image=image),
+            **_substituted(channels, result.image),
+        }
 
     @query
     def fm_estimate_overview(
@@ -934,6 +959,21 @@ def _fm_image_summary(image: Any) -> Dict[str, Any]:
         "pixel_size": [md.pixel_size_x, md.pixel_size_y],
         "stage_position": position.to_dict() if position is not None else None,
     }
+
+
+def _substituted(channels: List[ChannelSettings], image: Any) -> Dict[str, Any]:
+    """``substituted``: each channel whose excitation the filter set doesn't have,
+    and the nearest band it took instead, as the image records it (FIB-1520).
+    Nothing when every channel got what it asked for."""
+    notes = [
+        f"{asked.name}: {asked.excitation_wavelength:g} nm excitation is not on this "
+        f"filter set; it used the nearest, {used.excitation_wavelength:g} nm"
+        for asked, used in zip(channels, image.metadata.channels or [])
+        if not math.isclose(
+            asked.excitation_wavelength, used.excitation_wavelength, rel_tol=1e-6
+        )
+    ]
+    return {"substituted": notes} if notes else {}
 
 
 def _range(param: Any) -> tuple:

@@ -123,7 +123,11 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
         if self.config.autofocus_settings.enabled:
             result = self._run_autofocus()
             # autofocus found a better focus — make it the lamella's saved objective position
-            if result is not None and self.lamella.fluorescence_pose is not None:
+            if (
+                result is not None
+                and result.found
+                and self.lamella.fluorescence_pose is not None
+            ):
                 self.lamella.fluorescence_pose.objective_position = (
                     result.working_distance
                 )

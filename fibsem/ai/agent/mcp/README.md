@@ -26,8 +26,13 @@ microscope* there serves the routes the microscope tools reach; the Agent chip
 sets what the agent may do with them.
 
 - While running, the server writes `~/.fibsem/app-server.json`
-  (url + token) so local clients connect without copying anything, and
-  refuses to start if another live server owns that file.
+  (url + a connect token) so local clients find it without copying anything,
+  and refuses to start if another live server owns that file.
+- The connect token only asks to connect. The sidecar's first call (or
+  `fibsem-mcp --check`) puts **Agent wants to connect** on the agent card;
+  once the operator clicks Allow it gets a token of its own, kept in
+  `~/.fibsem/agent/`, and later launches don't ask. Until then a call answers
+  `connect_waiting`.
 - It binds `127.0.0.1` by default; exposing it on the LAN is an explicit
   choice, and the token then travels as cleartext HTTP.
 
@@ -127,8 +132,9 @@ fibsem-agent
   runner never sets it.
 - **Tools.** The `mcp__fibsem__*` tools run without a prompt, since the
   server decides what they may do. The agent also has the Skill tool,
-  ToolSearch to find the fibsem tools, and the Agent tool for the checkout's
-  three `autolamella-*` agents (`.claude/agents`). Nothing else, for those
+  ToolSearch to find the fibsem tools, the Agent tool for the checkout's
+  three `autolamella-*` agents (`.claude/agents`), and SendMessage to carry
+  one on (a lamella's polishing passes, one Verifier). Nothing else, for those
   agents either: no shell, no file reads or writes, no web. Nothing waits on
   a permission prompt; anything else is denied. So the offline
   `read_record.py` reader stays with Claude Code.

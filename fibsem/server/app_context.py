@@ -12,7 +12,7 @@ import os
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
-from fibsem.acting import Actor
+from fibsem.acting import Actor, current_actor
 from fibsem.codec import decode, encode
 from fibsem.geometry.saved_images import image_point_to_stage_position, stage_projector
 from fibsem.server.responses import (
@@ -46,7 +46,7 @@ from fibsem.workflows.experiments import (
     filter_experiments,
 )
 from fibsem.workflows.outputs import files_by_run
-from fibsem.workflows.runner import ITEMS, RunRequest
+from fibsem.workflows.runner import ITEMS, RunRequest, stop_message
 from fibsem.workflows.session import CONFIG, PROTOCOL
 from fibsem.workflows.status import TaskStatus
 
@@ -664,12 +664,8 @@ class AppContext:
     def _not_while_running(self, what: str) -> Optional[Dict[str, Any]]:
         """The refusal while a workflow runs (*what* to do when it has
         stopped), or None."""
-        if self._running:
-            return {
-                "error_type": "task_running",
-                "error": f"A workflow is running; {what} when it has stopped.",
-            }
-        return None
+        why = self._runner.run_refusal(what)
+        return {"error_type": "task_running", "error": why} if why else None
 
     def _busy(self, why: str) -> Optional[Dict[str, Any]]:
         """A run_edits refusal as the routes answer it, or None."""
@@ -960,7 +956,7 @@ class AppContext:
         if self._event_buffer is not None:
             self._event_buffer.append(kind, payload, actor=actor)
 
-    def stop_workflow(self) -> Dict[str, Any]:
+    def stop_workflow(self, reason: str = "") -> Dict[str, Any]:
         """Stop the running workflow — the same path as the GUI's Stop button.
 
         Everything on that path is thread-safe from here: the manager's stop is
@@ -975,10 +971,12 @@ class AppContext:
                 "stopped": False,
                 "reason": "no workflow is running",
             }
-        self._runner.stop()
+        self._runner.stop(message=stop_message(current_actor(), reason))
         return {"available": True, "stopped": True}
 
-    def stop_task(self, item_name: str, task_name: str) -> Dict[str, Any]:
+    def stop_task(
+        self, item_name: str, task_name: str, reason: str = ""
+    ) -> Dict[str, Any]:
         """Stop the task now running and carry on with the rest of the queue,
         as the timeline's Stop Task does. *item_name* and *task_name* name the
         task meant: a stop that lands after it finished is refused rather than
@@ -1000,7 +998,7 @@ class AppContext:
                     else None
                 ),
             }
-        self._runner.stop_task()
+        self._runner.stop_task(message=stop_message(current_actor(), reason))
         return {"stopped": True, "item_name": item_name, "task_name": task_name}
 
     def _start_run(self, request: RunRequest, timeout: float) -> Dict[str, Any]:

@@ -186,8 +186,10 @@ class RunAnswer:
     state: str
     ended_at: Optional[str] = None
     result: Any = None
-    # How it failed: error_type and message, as a refusal says them.
+    # How it failed: error_type and message, as a refusal says them, and the
+    # status that refusal answers (409 for a grid not in the inventory).
     error: Optional[Dict[str, Any]] = None
+    status_code: Optional[int] = None
 
 
 @dataclass
@@ -498,6 +500,32 @@ class Waiting:
 
 
 @dataclass
+class ConnectAskView:
+    """An agent on this PC asking to connect, as the card shows it."""
+
+    id: str
+    # as it names itself
+    client: str
+    # "this PC", or an address over SSH
+    origin: str
+    # the PC user it runs as
+    user: str
+    asked_at: float
+    # what the allowed agents' list will call it
+    name: str
+    # what allowing it means at the level now, in the card's words
+    if_allowed: str
+
+
+@dataclass
+class ConnectionDecided:
+    id: str
+    allowed: bool
+    # the allowed agent's name in the list, None when denied
+    name: Optional[str] = None
+
+
+@dataclass
 class AgentView:
     """The agent as the chip and card show it."""
 
@@ -514,6 +542,8 @@ class AgentView:
     waiting: Optional[Waiting]
     pictures: Dict[str, PictureInfo]
     levels: List[LevelOption]
+    # an agent on this PC asking to connect
+    asking: Optional[ConnectAskView] = None
 
 
 @dataclass

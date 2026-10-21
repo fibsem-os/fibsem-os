@@ -31,7 +31,9 @@ and the agent's token never reaches the operator's routes. One per install, kept
 disk (`fibsem.server.operator_token`), never in the discovery file. A computer
 paired as the operator (`fibsem.server.pairing`) holds an operator token too; one
 paired as an agent holds an agent token, gated by the level like the App
-Server's own.
+Server's own. The discovery file's **connect token** only asks to connect
+(`fibsem.server.connections`): an agent on this PC is paired when the operator
+allows it.
 """
 
 import hmac
@@ -43,7 +45,7 @@ import weakref
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Iterator, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, List, Optional
 
 from fastapi import HTTPException, Request
 from starlette.requests import HTTPConnection
@@ -54,6 +56,9 @@ from fibsem.ai.agent.levels import AgentLevel
 from fibsem.control import MicroscopeBusy
 from fibsem.server.leases import LEASE_HEADER
 from fibsem.server.pairing import AGENT, OPERATOR, PairedComputer, Pairing
+
+if TYPE_CHECKING:
+    from fibsem.server.connections import Connections
 
 # What each level reaches, in order: a route needing a level is open at it and
 # every level above.
@@ -87,6 +92,10 @@ class AuthConfig:
     # Pairing a computer (fibsem.server.pairing): each paired token is the
     # operator's. None means nothing can pair.
     pairing: Optional[Pairing] = None
+    # The discovery file's token: a local program asks to connect with it
+    # (fibsem.server.connections) and reaches nothing else.
+    connect_token: Optional[str] = None
+    connections: Optional["Connections"] = None
     # The agent level (FIB-1035): the only gate.
     level: AgentLevel = AgentLevel.WATCH
     # Set by stop_agent, cleared by the next set_level: the operator braked, so a
@@ -191,6 +200,10 @@ class AuthConfig:
         computer = self.paired(token)
         return computer is not None and computer.role == AGENT
 
+    def is_connect(self, token: Optional[str]) -> bool:
+        """Whether *token* is the discovery file's, which only asks to connect."""
+        return _matches(token, self.connect_token)
+
     def paired(self, token: Optional[str]) -> Optional[PairedComputer]:
         """The paired computer whose token this is, or None."""
         if self.pairing is None:
@@ -208,6 +221,7 @@ class AuthConfig:
         return cls(
             token=token or secrets.token_urlsafe(32),
             dashboard_token=secrets.token_urlsafe(32),
+            connect_token=secrets.token_urlsafe(32),
             level=AgentLevel(level),
         )
 
@@ -280,6 +294,17 @@ def _operator_only() -> HTTPException:
         detail={
             "error_type": "operator_only",
             "message": "Only the operator does this: the agent's token can't.",
+        },
+    )
+
+
+def _connect_first(app_name: str) -> HTTPException:
+    return HTTPException(
+        status_code=403,
+        detail={
+            "error_type": "connect_first",
+            "message": "This token only asks to connect (POST /connect): the "
+            f"operator allows the agent in {app_name}.",
         },
     )
 
@@ -362,6 +387,8 @@ def require_level(needed: AgentLevel):
                 raise _dashboard_refused()
             if auth.is_operator(token):
                 return
+            if auth.is_connect(token):
+                raise _connect_first(_app_name(request))
             raise _unauthorized()
         lent = _lent.get()
         # A valid token is proof of life whatever happens next -- a level

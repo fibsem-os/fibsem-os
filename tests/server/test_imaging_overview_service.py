@@ -308,3 +308,39 @@ def test_an_overview_is_centred_where_asked_and_announces_its_mosaic(
     ((mosaic, path),) = seen
     assert mosaic is result["image"]
     assert path == result["overview"]["paths"]["mosaic"]
+
+
+def test_an_agent_image_is_saved_inside_the_experiment_when_asked(client, experiment):
+    """beam_acquire_image with a path: saved under the open experiment (a
+    relative folder is read inside it) and named in the answer; a path
+    outside it, or a file name that is a path, is refused."""
+    from fibsem.ai.agent.catalog import CATALOG, route_call
+
+    spec = next(t for t in CATALOG if t.name == "beam_acquire_image")
+    settings = {"hfw": 50e-6, "resolution": [64, 64]}
+    method, path, body = route_call(
+        spec,
+        {
+            "beam_type": "ION",
+            "image_settings": settings,
+            "path": "02-lamella/checks",
+            "filename": "face",
+        },
+    )
+    resp = client.request(method, path, json=body)
+    assert resp.status_code == 200, resp.text
+    saved = resp.json()["result"]["path"]
+    assert saved.startswith(str(experiment / "02-lamella" / "checks" / "face_ib"))
+    assert os.path.isfile(saved)
+
+    _, _, unsaved = route_call(spec, {"image_settings": settings})
+    resp = client.request(method, path, json=unsaved)
+    assert resp.status_code == 200, resp.text
+    assert not resp.json()["result"].get("path")
+
+    for arguments in (
+        {"path": str(experiment.parent)},
+        {"path": "checks", "filename": "../face"},
+    ):
+        _, _, refused = route_call(spec, {"image_settings": settings, **arguments})
+        assert client.request(method, path, json=refused).status_code in (403, 422)

@@ -27,11 +27,13 @@ session, use them for everything except the watcher (below). They map
 one-to-one onto the HTTP routes and avoid shell-permission prompts. They come
 from the `fibsem-mcp` sidecar; if they are missing, it isn't registered in
 this session's MCP config (`claude mcp add -s user fibsem -- fibsem-mcp`), and
-plain HTTP works regardless. The running app advertises itself in a
-discovery file:
+plain HTTP works regardless. The first connection asks the operator to
+allow you: a call that answers `connect_waiting` means they haven't clicked
+Allow yet, so tell them and try again. Once allowed, your token is kept on this
+PC:
 
 ```bash
-TOKEN=$(python3 -c "import json;print(json.load(open('$HOME/.fibsem/app-server.json'))['token'])")
+TOKEN=$(python3 -c "import json;print(json.load(open('$HOME/.fibsem/agent/127.0.0.1_8001.json'))['token'])")
 curl -s "http://127.0.0.1:8001/capabilities" -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -230,7 +232,7 @@ is already on the record: a request's reason is kept with it.
 
 Where a site came from (grid, square, rank, why it was chosen) belongs on the
 lamella, not in a note: `item_update` with `{"patch": {"description":
-"..."}}`. When you add a lamella (`item_add`), leave `name` out so it gets the
+"..."}, "version": "..."}`, the version from `item_get`. When you add a lamella (`item_add`), leave `name` out so it gets the
 app's usual name.
 
 ## Reading the experiment

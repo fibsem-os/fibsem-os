@@ -6,7 +6,7 @@ import { api, getToken } from "@/lib/api";
 import { Markdown } from "@/lib/markdown";
 import type { AgentState, RecentRow } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { RequestCard, SuggestionCard } from "./agent/Cards";
+import { ConnectCard, RequestCard, SuggestionCard } from "./agent/Cards";
 import { Composer } from "./agent/Composer";
 import { EvidenceImage } from "./agent/Pictures";
 
@@ -256,6 +256,7 @@ export function AgentPage() {
             <span className="text-muted-foreground">· {a.waiting.who}</span>
           </div>
         )}
+        {a.asking && <ConnectCard key={a.asking.id} ask={a.asking} />}
         {request && <RequestCard key={request.request_id} request={request} agent={a} />}
         {!request && suggestion && <SuggestionCard key={suggestion.proposal_id} suggestion={suggestion} agent={a} />}
         <Composer agent={a} onSent={() => (pinned.current = true)} />

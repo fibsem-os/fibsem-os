@@ -836,7 +836,8 @@ def build_device_router(
             ended.result = json_answer(found.result, preview=True)
             if found.exception is not None:
                 what = f"{noun} {device}.{found.command}"
-                ended.error = answer_for_error(found.exception, what).detail
+                refused = answer_for_error(found.exception, what)
+                ended.error, ended.status_code = refused.detail, refused.status_code
             answers[device] = (found.run_id, ended)
             return ended
 

@@ -1,8 +1,8 @@
 """The operator's side of the agent, without Qt (FIB-1461).
 
 What the agent chip, its card and its menu do, as calls: set the level, the
-brake, approve or reject a request, say how each request ended once, and send
-the agent a message. Each records what it does on the session's event stream,
+brake, allow or deny an agent asking to connect, approve or reject a request,
+say how each request ended once, and send the agent a message. Each records what it does on the session's event stream,
 as the operator. A window draws it; nothing here needs a widget.
 """
 
@@ -15,7 +15,7 @@ import uuid
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set
 
 from fibsem.acting import OPERATOR
-from fibsem.ai.agent.levels import AgentLevel
+from fibsem.ai.agent.levels import AgentLevel, if_allowed
 from fibsem.workflows.actions import ACTION, NOTE, action_record, note_record
 from fibsem.workflows.proposals import DecisionResult
 
@@ -311,6 +311,52 @@ class AgentSession:
         if front is None or front[2].id != proposal_id:
             return None
         return experiment, front[0], front[1]
+
+    # --- an agent asking to connect ------------------------------------------
+
+    @property
+    def connections(self) -> Optional[Any]:
+        """The asks to connect while the App Server runs
+        (``fibsem.server.connections``), else None."""
+        host = self.host
+        return getattr(host.auth, "connections", None) if host is not None else None
+
+    def asking(self) -> Optional[Dict[str, Any]]:
+        """The agent asking to connect, as the card shows it, or None."""
+        connections = self.connections
+        asks = connections.asking() if connections is not None else []
+        if not asks:
+            return None
+        return {**asks[0].to_dict(), "if_allowed": if_allowed(self.level)}
+
+    def allow_connection(self, ask_id: str) -> str:
+        """Allow the asking agent: it is paired, with a token of its own,
+        listed with Unpair. Returns the name it is listed under. Raises
+        ``LookupError`` when nothing asks with that id."""
+        connections = self.connections
+        if connections is None:
+            raise LookupError("The App Server isn't running.")
+        computer = connections.allow(ask_id)
+        logging.info("Operator allowed %s to connect", computer.name)
+        self._record_connection(f"Allow {computer.name} to connect")
+        return computer.name
+
+    def deny_connection(self, ask_id: str, reason: str = "") -> None:
+        """Refuse the asking agent, with the operator's reason. Raises
+        ``LookupError`` when nothing asks with that id."""
+        connections = self.connections
+        if connections is None:
+            raise LookupError("The App Server isn't running.")
+        ask = connections.deny(ask_id, reason)
+        logging.info("Operator denied %s", ask.name)
+        self._record_connection(f"Deny {ask.name}", reason=reason.strip())
+
+    def _record_connection(self, what: str, reason: str = "") -> None:
+        recorder = self._session.recorder
+        if recorder is not None:
+            recorder.buffer.append(
+                ACTION, action_record(what, reason=reason), actor=OPERATOR
+            )
 
     # --- what the agent hears ------------------------------------------------
 

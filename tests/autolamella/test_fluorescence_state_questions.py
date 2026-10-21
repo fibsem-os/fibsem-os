@@ -101,7 +101,7 @@ def stubbed_acquisition(monkeypatch):
         AF,
         "run_coarse_fine_autofocus",
         lambda *a, **k: types.SimpleNamespace(
-            working_distance=OBJECTIVE, save=lambda *a, **k: None
+            working_distance=OBJECTIVE, found=True, save=lambda *a, **k: None
         ),
     )
     monkeypatch.setattr(AF, "acquire_image", lambda **kwargs: None)

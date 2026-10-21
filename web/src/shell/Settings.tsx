@@ -83,6 +83,20 @@ function Connections() {
           </Button>
         </div>
       )}
+      {data && (
+        <label className="flex items-center gap-2 text-[13px]">
+          <input
+            type="checkbox"
+            className="accent-primary"
+            checked={data.always_allow_local}
+            onChange={(e) =>
+              act.mutate({ method: "PUT", path: "/pairing/always_allow_local", body: { on: e.target.checked } })
+            }
+          />
+          Always allow agents on the microscope PC
+          <span className="text-muted-foreground">· they act only at the level you set; agents over SSH still ask</span>
+        </label>
+      )}
       <div className="flex flex-col">
         {data?.computers.length === 0 && (
           <p className="m-0 border-t border-border py-2.5 text-[13px] text-muted-foreground">None yet.</p>

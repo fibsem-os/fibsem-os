@@ -350,8 +350,10 @@ def build_app_router(context: Any) -> APIRouter:
     def grid_output_image(grid_name: str, filename: str):
         return _jpeg_or_404(context.grid_output_image(grid_name, filename))
 
+    # {filename:path}: any saved image's path in the experiment, slashes and all.
     @router.get(
-        "/experiment/grids/{grid_name}/outputs/{filename}/stage_position", tags=[GRIDS]
+        "/experiment/grids/{grid_name}/outputs/{filename:path}/stage_position",
+        tags=[GRIDS],
     )
     def overview_stage_position(
         grid_name: str,
@@ -369,7 +371,7 @@ def build_app_router(context: Any) -> APIRouter:
         )
 
     @router.get(
-        "/experiment/grids/{grid_name}/outputs/{filename}/markers", tags=[GRIDS]
+        "/experiment/grids/{grid_name}/outputs/{filename:path}/markers", tags=[GRIDS]
     )
     def grid_markers(grid_name: str, filename: str):
         return context.grid_markers(grid_name, filename)
@@ -874,6 +876,12 @@ def build_app_suggest_router(context: Any) -> APIRouter:
     return _served(router, context)
 
 
+def _stop_reason(body: Optional[Dict[str, Any]]) -> str:
+    """Why a stop was asked for, for the stopped task's record."""
+    reason = body.get("reason") if isinstance(body, dict) else None
+    return reason if isinstance(reason, str) else ""
+
+
 def build_app_stop_router(context: Any) -> APIRouter:
     """Stopping the run. Mounted (by build_server) at Drive, with a reason: the
     workflow is never the agent's own, so at Assist the stop goes in a request
@@ -881,10 +889,10 @@ def build_app_stop_router(context: Any) -> APIRouter:
     router = APIRouter(prefix="/app")
 
     @router.post("/workflow/stop")
-    def stop_workflow():
+    def stop_workflow(body: Optional[Dict[str, Any]] = None):
         # The same path as the GUI's Stop button, and never waits on the
         # command lock. The operator's own Stop is never gated.
-        return context.stop_workflow()
+        return context.stop_workflow(_stop_reason(body))
 
     @router.post("/workflow/stop_task")
     def stop_task(body: Dict[str, Any]):
@@ -892,7 +900,7 @@ def build_app_stop_router(context: Any) -> APIRouter:
         # It names the task meant, so a stop landing late stops nothing else.
         item_name = _required_text(body, "item_name", "the item of the task running")
         task_name = _required_text(body, "task_name", "the task running")
-        return context.stop_task(item_name, task_name)
+        return context.stop_task(item_name, task_name, _stop_reason(body))
 
     return _served(router, context)
 

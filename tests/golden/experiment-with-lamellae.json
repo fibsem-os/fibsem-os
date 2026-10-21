@@ -556,7 +556,7 @@
           "sync_fluorescence_pose": false,
           "task_name": "Setup Lamella Position",
           "task_type": "SELECT_MILLING_POSITION",
-          "use_autofocus": true
+          "use_autofocus": false
         }
       },
       "task_history": [],
@@ -1121,7 +1121,7 @@
           "sync_fluorescence_pose": false,
           "task_name": "Setup Lamella Position",
           "task_type": "SELECT_MILLING_POSITION",
-          "use_autofocus": true
+          "use_autofocus": false
         }
       },
       "task_history": [],

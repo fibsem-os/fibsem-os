@@ -20,8 +20,9 @@ from fibsem.acting import OPERATOR, acting
 ACTION = "action"
 NOTE = "note"
 
-# The reason on a stop nobody gave one for: the operator's buttons ask none.
-NO_REASON = "none given"
+# The reason on a stop nobody gave one for: the operator's buttons ask none, and
+# an agent's stop must give one.
+OPERATOR_STOP = "Stopped by the operator"
 
 
 def action_record(
@@ -37,10 +38,10 @@ def action_record(
     agent). Other fields say how: tool, arguments, route, status, level, via,
     request_id and index for a request's step, error_type and message for one
     that failed or was refused. Empty fields are left out; a stop always has a
-    reason, `NO_REASON` when none was given (FIB-1495)."""
+    reason, `OPERATOR_STOP` when none was given (FIB-1495)."""
     payload: Dict[str, Any] = {"what": what, "ok": ok}
     if stops and not reason:
-        reason = NO_REASON
+        reason = OPERATOR_STOP
     if reason:
         payload["reason"] = reason
     if stops:

@@ -40,6 +40,18 @@ logger = logging.getLogger(__name__)
 # the verdicts real runs record.
 MAX_WD_JUMP = 100e-6
 
+# A sweep whose scores vary by less than this fraction of the best has no peak:
+# nowhere in the range was sharper than anywhere else (FIB-1519).
+FLAT_SWEEP = 0.01
+
+
+def has_peak(scores: list) -> bool:
+    """Whether a sweep's scores rise to a best one, rather than lying flat."""
+    if len(scores) < 2:
+        return True
+    best = max(scores)
+    return best > 0 and best - min(scores) >= FLAT_SWEEP * best
+
 
 class FocusMethod(NamedEnum, str, Enum):
     """Focus measurement methods for autofocus algorithms."""
@@ -202,6 +214,9 @@ class AutoFocusResult:
     iterations: list[AutoFocusIteration]
     settings: AutoFocusSettings = None
     method: Optional[str] = None
+    # False when the scores were flat: no focus was found, and the working
+    # distance is where the sweep started (`has_peak`).
+    found: bool = True
 
     @property
     def n_iterations(self) -> int:
@@ -247,6 +262,7 @@ class AutoFocusResult:
             "initial_working_distance": self.initial_working_distance,
             "focus_score": self.focus_score,
             "at_edge": self.at_edge,
+            "found": self.found,
             "n_iterations": self.n_iterations,
             "method": self.method,
             "settings": self.settings.to_dict() if self.settings is not None else None,
@@ -323,6 +339,7 @@ class AutoFocusResult:
             iterations=iterations,
             settings=settings,
             method=data.get("method"),
+            found=data.get("found", True),
         )
 
 

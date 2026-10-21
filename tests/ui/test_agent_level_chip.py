@@ -498,6 +498,55 @@ def test_a_request_shows_before_a_suggestion(qapp):
     assert chip.text() == "Agent suggests"
 
 
+_ASKING = {
+    "id": "a1b2",
+    "client": "claude-code 2.1.3",
+    "origin": "this PC",
+    "user": "microscope",
+    "asked_at": 0.0,
+    "name": "claude-code on this PC",
+    "if_allowed": "It can read the session, and acts only at the level you set: "
+    "now Watch, so it can look but not act.",
+}
+
+
+def test_an_agent_asking_to_connect_turns_the_chip_and_the_card_offers_allow(qapp):
+    chip = AgentLevelChip()
+    chip.set_request(_request())
+    chip.set_asking(_ASKING)
+    card = chip.card
+    # Before anything else: nothing else reaches it until it is allowed.
+    assert chip.text() == "Agent asks"
+    assert card._title.text() == "Agent wants to connect"
+    assert card.approve_button is None
+    labels = _labels(card)
+    for shown in ("claude-code 2.1.3, as it names itself", "this PC", "microscope"):
+        assert shown in labels
+    assert _ASKING["if_allowed"] in labels
+    allowed = []
+    chip.allow_clicked.connect(allowed.append)
+    card.allow_button.click()
+    assert allowed == ["a1b2"]
+    chip.set_asking(None)
+    assert card.allow_button is None and card.approve_button is not None
+    chip.deleteLater()
+
+
+def test_an_agent_asking_to_connect_can_be_denied_with_why(qapp):
+    chip = AgentLevelChip()
+    chip.set_asking(_ASKING)
+    card = chip.card
+    denied = []
+    chip.deny_clicked.connect(lambda ask_id, why: denied.append((ask_id, why)))
+    assert card.deny_button.text() == "Deny…"
+    card.deny_button.click()
+    assert card.reason_edit is not None and card.allow_button is None
+    card.reason_edit.setText("not tonight")
+    card.deny_button.click()
+    assert denied == [("a1b2", "not tonight")]
+    chip.deleteLater()
+
+
 def test_the_card_stacks_when_narrow(qapp):
     card = AgentCard()
     card.set_request(_request())
@@ -668,7 +717,7 @@ def test_stop_agent_drops_to_watch_and_is_the_operator_s_on_the_record(main_ui, 
                 {
                     "what": "Stop the agent",
                     "ok": True,
-                    "reason": "none given",
+                    "reason": "Stopped by the operator",
                     "stops": "agent",
                     "previous": "drive",
                     "level": "watch",
@@ -700,6 +749,25 @@ def test_the_window_shows_the_request_and_passes_on_the_decision(main_ui, host):
     chip.reject_clicked.emit("cd34", "not now")
     assert host.requests.decided[-1] == ("reject", "cd34", "not now")
     assert chip.text() == "Agent: Assisting"
+
+
+def test_the_window_shows_an_agent_asking_and_allow_pairs_it(main_ui, host, tmp_path):
+    from fibsem.server.connections import Connections
+    from fibsem.server.pairing import PairedTokens
+
+    host.auth.connections = Connections(PairedTokens(tmp_path / "paired.json"))
+    waiting = host.auth.connections.ask("claude-code 2.1.3", "this PC", "lab", 0)
+    main_ui.agent_host.refresh()
+    chip = main_ui.agent_host.chip
+    assert chip.text() == "Agent asks"
+    assert chip.asking["id"] == waiting["id"]
+    assert "now Watch" in chip.asking["if_allowed"]
+
+    chip.allow_clicked.emit(waiting["id"])
+    (computer,) = host.auth.connections.tokens.computers()
+    assert computer.name == "claude-code on this PC" and computer.role == "agent"
+    assert chip.asking is None
+    assert chip.text() == "Agent: Watching"
 
 
 def test_how_a_request_ended_is_a_toast_once_not_the_status_bar(
