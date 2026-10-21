@@ -7,7 +7,15 @@ import { useFileRead } from "@/lib/files";
 import { itemOf } from "@/lib/route";
 import type { HistoryFilter, ItemDetail, ItemSummary } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { History, NO_FILTER } from "./lamellae/History";
+import { clock, History, NO_FILTER, RUN_STATUS } from "./lamellae/History";
+
+/** A row of /app/experiment/task_history: one run of a task on an item. */
+interface TaskRun {
+  item_name: string;
+  task_name: string;
+  task_status: string;
+  start_timestamp: string | null;
+}
 
 // The defect verdict's mark, as the Qt card draws it.
 const VERDICT: Record<string, [string, string]> = {
@@ -19,11 +27,13 @@ const VERDICT: Record<string, [string, string]> = {
 function LamellaCard({
   item,
   running,
+  last,
   picked,
   onPick,
 }: {
   item: ItemSummary;
   running: string | null;
+  last: TaskRun | undefined;
   picked: boolean;
   onPick: () => void;
 }) {
@@ -38,6 +48,13 @@ function LamellaCard({
     if (picked) ref.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [picked]);
   const p = thumb.data?.preview;
+  // A stopped or failed last run says so; so does a lamella marked failed.
+  const lastWord =
+    last && last.task_status !== "Completed"
+      ? (RUN_STATUS[last.task_status] ?? [last.task_status, ""])
+      : item.is_failure
+        ? RUN_STATUS.Failed
+        : null;
   const defect = detail.data?.defect;
   const verdict = defect ? VERDICT[defect.verdict] : undefined;
   return (
@@ -66,11 +83,10 @@ function LamellaCard({
       <div className="text-[12px]">
         {running ? (
           <span className="text-link">{running} · running</span>
-        ) : item.is_failure ? (
-          <span className="text-destructive">Failed{item.last_completed_task ? ` after ${item.last_completed_task}` : ""}</span>
-        ) : item.last_completed_task ? (
+        ) : last ? (
           <span className="text-muted-foreground">
-            {item.last_completed_task} · {item.last_completed_at}
+            {last.task_name} · {clock(last.start_timestamp ? Date.parse(last.start_timestamp) / 1000 : null)}
+            {lastWord && <span className={lastWord[1]}> · {lastWord[0]}</span>}
           </span>
         ) : (
           <span className="text-muted-foreground">No tasks run yet</span>
@@ -88,6 +104,16 @@ export function LamellaePage() {
     queryFn: () => api<{ items: ItemSummary[] }>("/app/experiment"),
     enabled: !!open,
   });
+  const runs = useQuery({
+    queryKey: ["app/experiment/task_history"],
+    queryFn: () => api<{ items: TaskRun[] }>("/app/experiment/task_history"),
+    enabled: !!open,
+  });
+  const lastRun = new Map<string, TaskRun>();
+  for (const run of runs.data?.items ?? []) {
+    const seen = lastRun.get(run.item_name);
+    if (!seen || (run.start_timestamp ?? "") >= (seen.start_timestamp ?? "")) lastRun.set(run.item_name, run);
+  }
   const [picked, setPicked] = useState<string | null>(itemOf);
   const [filter, setFilter] = useState<HistoryFilter>(NO_FILTER);
   if (status.data && !open) return <div className="p-5 text-muted-foreground">No experiment is open.</div>;
@@ -103,6 +129,7 @@ export function LamellaePage() {
             key={item.item_id}
             item={item}
             running={workflow?.running && workflow.current_item === item.item_name ? workflow.current_task : null}
+            last={lastRun.get(item.item_name)}
             picked={item.item_name === name}
             onPick={() => setPicked(item.item_name)}
           />

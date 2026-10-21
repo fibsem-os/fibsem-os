@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 export const NO_FILTER: HistoryFilter = { show: "all", status: "all", task: null, decided_by: "anyone", order: "oldest" };
 
 // The run's status as the Qt tab says it, and its colour.
-const RUN_STATUS: Record<string, [string, string]> = {
+export const RUN_STATUS: Record<string, [string, string]> = {
   Completed: ["Completed", "text-[var(--fibsem-ok-color)]"],
   Failed: ["Failed", "text-destructive"],
   Cancelled: ["Stopped", "text-[var(--fibsem-semantic-warning-color)]"],
@@ -28,7 +28,7 @@ const OP_ICON: Record<string, [typeof Check, string]> = {
 };
 const SEVERITY: Record<string, number> = { failed: 0, cancelled: 1, skipped: 2 };
 
-function clock(seconds: number | null) {
+export function clock(seconds: number | null) {
   return seconds == null ? "" : new Date(seconds * 1000).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }
 
@@ -147,7 +147,7 @@ function Operations({ run, show }: { run: HistoryRun; show: HistoryFilter["show"
         {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         <OpIcon status={worst} />
         <span className="min-w-0 flex-1 truncate">{run.operations_summary}</span>
-        <span className="tabular-nums">{duration(total || null)}</span>
+        {total > 0 && <span className="shrink-0 tabular-nums">{duration(total)} in operations</span>}
       </button>
       {open && (
         <div className="flex flex-col gap-1 pl-5">
@@ -252,7 +252,7 @@ function FilterMenu({ value, set, tasks }: { value: HistoryFilter; set: (f: Hist
       label="History filter"
       align="right"
       side="below"
-      className="max-h-[70vh] w-56 overflow-auto"
+      className="w-56"
       trigger={(open, toggle) => (
         <Button variant="ghost" onClick={toggle} aria-expanded={open} className={cn(n > 0 && "text-link")}>
           <ListFilter size={14} />

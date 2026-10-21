@@ -23,10 +23,19 @@ const RUN_COLOUR: Record<string, string> = {
 
 const gridPath = (grid: string) => `/app/experiment/grids/${encodeURIComponent(grid)}`;
 
-/** The grid's latest overview, SEM before FIB before FM. */
-function overviewOf(grid: GridSummary): string | null {
+// The overview roles a grid records, in the order the tabs show them.
+const ROLES: [string, string][] = [
+  ["overview_sem", "SEM"],
+  ["overview_fib", "FIB"],
+  ["overview_fm", "FM"],
+];
+
+/** The grid's latest overview of each kind it has, SEM before FIB before FM. */
+function overviewsOf(grid: GridSummary): [string, string][] {
   const o = grid.overviews;
-  return o.overview_sem ?? o.overview_fib ?? Object.values(o)[0] ?? null;
+  const known = ROLES.filter(([role]) => o[role]).map(([role, label]): [string, string] => [label, o[role]]);
+  const others = Object.entries(o).filter(([role]) => !ROLES.some(([r]) => r === role));
+  return [...known, ...others];
 }
 
 function useGridImage(grid: string, filename: string | null) {
@@ -37,11 +46,11 @@ function useGridImage(grid: string, filename: string | null) {
     staleTime: Infinity,
   });
   useEffect(() => () => void (url.data && URL.revokeObjectURL(url.data)), [url.data]);
-  return url.data;
+  return { src: url.data, loading: url.isLoading };
 }
 
 function GridCard({ grid, picked, onPick }: { grid: GridSummary; picked: boolean; onPick: () => void }) {
-  const src = useGridImage(grid.name, overviewOf(grid));
+  const { src, loading } = useGridImage(grid.name, overviewsOf(grid)[0]?.[1] ?? null);
   const quality = QUALITY[grid.quality];
   const status =
     grid.status === "InProgress" && grid.current_task ? (
@@ -64,7 +73,9 @@ function GridCard({ grid, picked, onPick }: { grid: GridSummary; picked: boolean
         {src ? (
           <img className="block size-full object-contain" alt="" src={src} />
         ) : (
-          <div className="flex size-full items-center justify-center text-[12px] text-muted-foreground">No overview yet</div>
+          <div className="flex size-full items-center justify-center text-[12px] text-muted-foreground">
+            {loading ? "Loading overview…" : "No overview yet"}
+          </div>
         )}
       </div>
       <div className="flex items-center gap-2">
@@ -86,7 +97,7 @@ function GridCard({ grid, picked, onPick }: { grid: GridSummary; picked: boolean
 
 /** The overview with the grid's lamellae where they sit: green, red when failed. */
 function Overview({ grid, filename }: { grid: string; filename: string }) {
-  const src = useGridImage(grid, filename);
+  const { src } = useGridImage(grid, filename);
   const markers = useQuery({
     queryKey: ["grid markers", grid, filename],
     queryFn: () => api<GridMarkers>(`${gridPath(grid)}/outputs/${encodeURIComponent(filename)}/markers`),
@@ -99,7 +110,13 @@ function Overview({ grid, filename }: { grid: string; filename: string }) {
   return (
     <div className="flex flex-col gap-2">
       <div className="relative w-full max-w-[880px] overflow-hidden rounded bg-black">
-        {src && <img className="block w-full" alt={filename} src={src} />}
+        {src ? (
+          <img className="block w-full" alt={filename} src={src} />
+        ) : (
+          <div className="flex aspect-[3/2] w-full items-center justify-center text-[12px] text-muted-foreground">
+            Loading overview…
+          </div>
+        )}
         {src && m?.image && (
           <svg className="absolute inset-0 size-full" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="xMidYMid meet">
             {m.markers
@@ -141,7 +158,10 @@ function Overview({ grid, filename }: { grid: string; filename: string }) {
 function GridPanel({ name, go }: { name: string; go: Go }) {
   const detail = useQuery({ queryKey: ["app/experiment/grids", name], queryFn: () => api<GridDetail>(gridPath(name)) });
   const d = detail.data;
-  const overview = d ? overviewOf(d) : null;
+  const overviews = d ? overviewsOf(d) : [];
+  const [kind, setKind] = useState<string | null>(null);
+  const shown = overviews.find(([label]) => label === kind) ?? overviews[0];
+  const overview = shown?.[1] ?? null;
   return (
     <Card className="flex min-w-0 flex-col gap-4">
       <div>
@@ -149,7 +169,31 @@ function GridPanel({ name, go }: { name: string; go: Go }) {
         {d?.description && <div className="text-[12px] text-muted-foreground">{d.description}</div>}
       </div>
       {detail.error && <div className="text-[13px] text-destructive">{detail.error.message}</div>}
-      {overview ? <Overview key={overview} grid={name} filename={overview} /> : d && <div className="text-[13px] text-muted-foreground">No overview yet.</div>}
+      {overviews.length > 1 && (
+        <div role="tablist" aria-label="Overview" className="flex gap-1">
+          {overviews.map(([label]) => (
+            <button
+              key={label}
+              role="tab"
+              aria-selected={label === shown?.[0]}
+              className={cn(
+                "cursor-pointer border-0 bg-transparent px-2.5 py-1 text-[12px]",
+                label === shown?.[0]
+                  ? "text-foreground shadow-[inset_0_-2px_0_var(--primary)]"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => setKind(label)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+      {overview ? (
+        <Overview key={overview} grid={name} filename={overview} />
+      ) : (
+        d && <div className="text-[13px] text-muted-foreground">No overview yet.</div>
+      )}
       {d && (
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">
