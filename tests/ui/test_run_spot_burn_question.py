@@ -30,9 +30,9 @@ from fibsem.acting import TASK, Actor, current_actor
 from fibsem.applications.autolamella.structures import (
     Experiment,
 )
-from fibsem.applications.autolamella.workflows.tasks import base, spot_burn
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.structures import Point
+from fibsem.workflows import site_task
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import (
     ACTION_EDIT,
@@ -42,6 +42,7 @@ from fibsem.workflows.proposals import (
     Decision,
     DecisionOutcome,
 )
+from fibsem.workflows.site_tasks import spot_burn
 from fibsem.workflows.site_tasks.spot_burn import (
     SpotBurnFiducialTask,
     SpotBurnFiducialTaskConfig,
@@ -78,7 +79,7 @@ def window(qapp, tmp_path_factory):
     patches = {
         (spot_burn, "run_spot_burn"): fake_run_spot_burn,
         (spot_burn, "show_after_burn"): lambda microscope: None,
-        (base, "get_task_supervision"): lambda *_: supervision["supervised"],
+        (site_task, "get_task_supervision"): lambda *_: supervision["supervised"],
     }
     originals = {key: getattr(*key) for key in patches}
     for (module_, name), value in patches.items():

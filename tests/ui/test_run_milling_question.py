@@ -25,7 +25,6 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.acting import TASK, Actor, current_actor
-from fibsem.applications.autolamella.workflows.tasks import base
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.applications.autolamella.workflows.tasks.rough import (
     MillRoughTask,
@@ -33,6 +32,7 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
 )
 from fibsem.milling import FibsemMillingStage
 from fibsem.milling.tasks import FibsemMillingTaskConfig
+from fibsem.workflows import site_task
 from fibsem.workflows import task as task_module
 from fibsem.workflows.proposals import (
     ACTION_ACCEPT,
@@ -83,7 +83,7 @@ def ui(qapp, monkeypatch, tmp_path):
     on_mill = []
     monkeypatch.setattr(task_module, "run_milling_task", fake_run_milling_task)
     monkeypatch.setattr(
-        base, "get_task_supervision", lambda *_: supervision["supervised"]
+        site_task, "get_task_supervision", lambda *_: supervision["supervised"]
     )
     with main_window(
         qapp,
