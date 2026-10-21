@@ -259,12 +259,17 @@ def test_the_sidecar_reads_an_evidence_file_only_in_the_working_folder(
     png = base64.b64decode(encoded)
     (work / "overlay.png").write_bytes(png)
     (elsewhere / "secret.png").write_bytes(png)
-    (work / "link.png").symlink_to(elsewhere / "secret.png")
+    outside = [elsewhere / "secret.png", work / ".." / "x"]
+    try:
+        (work / "link.png").symlink_to(elsewhere / "secret.png")
+        outside.append(work / "link.png")
+    except OSError:  # Windows without the privilege to make links
+        pass
     monkeypatch.setenv("FIBSEM_AGENT_WORKDIR", str(work))
 
     body = _evidence_body({"file": str(work / "overlay.png"), "source": "a.tif"})
     assert body == {"source": "a.tif", "upload": encoded}
-    for path in (elsewhere / "secret.png", work / "link.png", work / ".." / "x"):
+    for path in outside:
         refused = _evidence_body({"file": str(path)})
         assert isinstance(refused, _Failure), path
         assert "outside your working folder" in str(refused)
