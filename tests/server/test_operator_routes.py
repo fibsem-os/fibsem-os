@@ -444,3 +444,14 @@ def test_the_operator_declines_the_agent_s_suggestion(server):
     assert answer.status_code == 200, answer.text
     assert proposal.pending
     assert proposal.suggestion.declined_reason == "that is the trench"
+
+
+def test_the_operator_reads_the_agents_session_in_the_cards_words(server):
+    assert server.get("/app/agent", headers=server.operator).json()["session"] is None
+    server.post(
+        "/app/agent/session",
+        headers=server.agent,
+        json={"model": "claude-opus", "goal": "Mill 01", "spent_usd": 1.5},
+    )
+    answer = server.get("/app/agent", headers=server.operator).json()
+    assert answer["session"] == "claude-opus · Mill 01 · $1.50 spent"

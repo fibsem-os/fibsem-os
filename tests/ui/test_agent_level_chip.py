@@ -164,6 +164,29 @@ def test_the_last_heard_line():
     assert last_heard_text(5, "claude-code/2.1.3") == "claude-code · last heard 5 s ago"
 
 
+def test_the_session_line_shows_what_the_agent_reported(qapp):
+    from fibsem.ai.agent.session import session_text
+
+    reported = {"model": "claude-opus", "goal": "Mill 01", "budget_usd": 20.0}
+    assert session_text(None) is None
+    assert session_text({"client": "claude-code"}) is None
+    assert session_text({**reported, "spent_usd": 2.1}) == (
+        "claude-opus · Mill 01 · $2.10 of $20"
+    )
+    assert session_text({"goal": "Mill 01", "spent_usd": 3}) == "Mill 01 · $3 spent"
+    ended = {**reported, "ended": True, "reason": "its budget is spent"}
+    assert session_text(ended) == "claude-opus · Mill 01 · ended: its budget is spent"
+
+    chip = AgentLevelChip(agent_session=lambda: "claude-opus · Mill 01")
+    assert not chip.card.session_label.isVisibleTo(chip.card)
+    chip.refresh_last_heard()
+    assert chip.card.session_label.isVisibleTo(chip.card)
+    assert chip.card.session_label.text() == "claude-opus · Mill 01"
+    chip.card.set_session(None)
+    assert not chip.card.session_label.isVisibleTo(chip.card)
+    chip.deleteLater()
+
+
 def test_with_nothing_waiting_the_card_says_what_the_agent_is_doing(qapp):
     card = AgentCard()
     card.set_now("stable move")
