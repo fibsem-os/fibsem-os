@@ -81,12 +81,16 @@ export interface PairedComputer {
   id: string;
   name: string;
   paired_at: number; // Unix seconds
-  role: "operator" | "agent";
+  role: PairingRole;
+  grants: string[];
 }
+
+export type PairingRole = "operator" | "agent" | "hub";
 
 export interface Pairing {
   open: boolean;
-  role: "operator" | "agent" | null;
+  role: PairingRole | null;
+  grants: string[];
   code: string | null;
   expires_in_s: number;
   computers: PairedComputer[];

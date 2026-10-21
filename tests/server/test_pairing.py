@@ -110,6 +110,7 @@ def test_a_code_expires_after_five_minutes(pairing, clock):
     assert pairing.state() == {
         "open": False,
         "role": None,
+        "grants": [],
         "code": None,
         "expires_in_s": 0.0,
     }

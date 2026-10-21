@@ -5,7 +5,7 @@ import { Facts } from "@/components/ui/card";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { api, forgetToken } from "@/lib/api";
 import { setNoticePrefs, systemNotices, useNoticePrefs } from "@/lib/notify";
-import type { Capabilities, Pairing } from "@/lib/types";
+import type { Capabilities, Pairing, PairingRole } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const SECTIONS = { connections: "Connections", notifications: "Notifications", about: "About" } as const;
@@ -19,7 +19,27 @@ function thisComputer(): string | null {
   }
 }
 
-function Connections() {
+const ROLE_NAMES: Record<PairingRole, string> = { operator: "Operator", agent: "Agent", hub: "Hub" };
+// A hub may start and stop apps on a gateway only with this grant.
+const SWITCH_MODES = "switch_modes";
+
+function GrantToggle({ on, onChange }: { on: boolean; onChange: (on: boolean) => void }) {
+  return (
+    <label className="flex cursor-pointer items-center gap-1.5 text-[13px]">
+      <input
+        type="checkbox"
+        className="accent-primary"
+        checked={on}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      May start and stop apps
+    </label>
+  );
+}
+
+/** The paired computers and pairing a new one: the App Server's operators and
+ * agents, or a gateway's operators and hubs. */
+export function Connections({ roles = ["operator", "agent"] }: { roles?: PairingRole[] }) {
   const client = useQueryClient();
   const pairing = useQuery({
     queryKey: ["pairing"],
@@ -50,7 +70,7 @@ function Connections() {
         <h3 className="m-0 text-[13px] font-semibold text-muted-foreground">Paired computers</h3>
         <div className="flex-1" />
         {!data?.open && (
-          <Button onClick={() => act.mutate({ method: "POST", path: "/pairing", body: { role: "operator" } })}>
+          <Button onClick={() => act.mutate({ method: "POST", path: "/pairing", body: { role: roles[0] } })}>
             Pair a computer…
           </Button>
         )}
@@ -60,23 +80,33 @@ function Connections() {
           <div className="flex flex-col gap-1.5">
             <span className="text-xs text-muted-foreground">Pair as</span>
             <span className="flex gap-1">
-              {(["operator", "agent"] as const).map((role) => (
+              {roles.map((role) => (
                 <Button
                   key={role}
                   variant={data.role === role ? "default" : "ghost"}
                   onClick={() => act.mutate({ method: "POST", path: "/pairing", body: { role } })}
                 >
-                  {role === "operator" ? "Operator" : "Agent"}
+                  {ROLE_NAMES[role]}
                 </Button>
               ))}
             </span>
+            {data.role === "hub" && (
+              <GrantToggle
+                on={data.grants.includes(SWITCH_MODES)}
+                onChange={(on) =>
+                  act.mutate({ method: "POST", path: "/pairing", body: { role: "hub", grants: on ? [SWITCH_MODES] : [] } })
+                }
+              />
+            )}
           </div>
           <div className="flex flex-col gap-0.5">
             <span className="text-[32px] font-semibold tracking-[0.2em] tabular-nums">{data.code}</span>
             <span className="text-xs text-muted-foreground">
               {data.role === "agent"
                 ? `Run fibsem-mcp pair ${data.code} on the agent's computer${pairedAgent ? `. It replaces ${pairedAgent.name}` : ""}`
-                : "Enter it in the other computer's browser"}{" "}
+                : data.role === "hub"
+                  ? "Enter it in the hub's Add instrument"
+                  : "Enter it in the other computer's browser"}{" "}
               · {Math.floor(left / 60)}:{String(left % 60).padStart(2, "0")} left
             </span>
           </div>
@@ -86,7 +116,7 @@ function Connections() {
           </Button>
         </div>
       )}
-      {data && (
+      {data && roles.includes("agent") && (
         <label className="flex items-center gap-2 text-[13px]">
           <input
             type="checkbox"
@@ -117,8 +147,20 @@ function Connections() {
               <span className="text-xs text-muted-foreground">
                 Paired {new Date(computer.paired_at * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
               </span>
+              {computer.role === "hub" && (
+                <GrantToggle
+                  on={computer.grants.includes(SWITCH_MODES)}
+                  onChange={(on) =>
+                    act.mutate({
+                      method: "PATCH",
+                      path: `/pairing/computers/${encodeURIComponent(computer.id)}`,
+                      body: { grants: on ? [SWITCH_MODES] : [] },
+                    })
+                  }
+                />
+              )}
             </span>
-            <span className="text-[13px]">{computer.role === "agent" ? "Agent" : "Operator"}</span>
+            <span className="text-[13px]">{ROLE_NAMES[computer.role]}</span>
             {unpairing === computer.id ? (
               <span className="flex gap-1">
                 <Button
