@@ -1,4 +1,5 @@
-"""Tools → App Server: the server itself -- status, services, the event log.
+"""Tools → App Server: the server itself -- status, services, paired computers,
+the event log.
 
 The App Server is the API inside AutoLamella that the agent, the event log and
 ``FibsemClient`` reach. This dialog is about the server, not the agent
@@ -10,6 +11,7 @@ saved: they are the operator's standing choice, so the next launch starts the
 same way. The agent's level is not: it resets to Watch at every launch.
 """
 
+import time
 from typing import Callable, Optional
 
 from PyQt5.QtCore import QTimer
@@ -50,6 +52,9 @@ MICROSCOPE_TIP = (
     "query the microscope. Changing this restarts a running App Server; a "
     "connected agent carries on. Kept for the next launch."
 )
+
+PAIR_LABEL = "Pair a computer"
+STOP_PAIRING_LABEL = "Stop pairing"
 
 _SECTION_STYLE = (
     f"color: {TEXT_MUTED_COLOR}; font-size: 10px; font-weight: bold; "
@@ -172,6 +177,39 @@ class AppServerDialog(QDialog):
 
         layout.addSpacing(6)
 
+        # --- computers --------------------------------------------------------
+        layout.addWidget(section("Computers"))
+        layout.addWidget(
+            note(
+                "Pair your own computer or a browser: type the code shown here on "
+                "it. It acts as you, as the operator token does. Unpair one to "
+                "cut it off."
+            )
+        )
+        pair_row = QHBoxLayout()
+        self._pair_code = QLabel("")
+        self._pair_code.setStyleSheet(
+            f"color: {TEXT_STRONG_COLOR}; font-size: 20px; font-weight: bold; "
+            "letter-spacing: 4px;"
+        )
+        self._pair_left = note("")
+        pair_row.addWidget(self._pair_code)
+        pair_row.addWidget(self._pair_left, stretch=1)
+        self._btn_pair = QPushButton(PAIR_LABEL)
+        self._btn_pair.setToolTip(
+            "Show a code to type on the other computer. It works once, for 5 minutes."
+        )
+        self._btn_pair.clicked.connect(self._on_pair_clicked)
+        pair_row.addWidget(self._btn_pair)
+        layout.addLayout(pair_row)
+        self._computers = QVBoxLayout()
+        self._computers.setSpacing(2)
+        layout.addLayout(self._computers)
+        # The paired computers as last drawn, so a refresh redraws only a change.
+        self._shown_computers: Optional[tuple] = None
+
+        layout.addSpacing(6)
+
         # --- event log --------------------------------------------------------
         layout.addWidget(section("Event log"))
         layout.addWidget(
@@ -206,9 +244,9 @@ class AppServerDialog(QDialog):
         footer.addWidget(self._btn_close)
         layout.addLayout(footer)
 
-        # Keep "last heard" ticking while the dialog is open.
+        # Keep "last heard" and the pairing countdown ticking while open.
         self._status_timer = QTimer(self)
-        self._status_timer.setInterval(2000)
+        self._status_timer.setInterval(1000)
         self._status_timer.timeout.connect(self.refresh)
         self._status_timer.start()
 
@@ -252,6 +290,7 @@ class AppServerDialog(QDialog):
         self._btn_copy_link.setEnabled(running)
         self._btn_copy_operator.setEnabled(running)
         self._btn_new_operator.setEnabled(running)
+        self._refresh_pairing(self._pairing(host))
         # Nothing to serve while the server is off.
         self._chk_microscope.setEnabled(
             self._chk_enabled.isChecked() or self._set_enabled is None
@@ -275,7 +314,71 @@ class AppServerDialog(QDialog):
         self._agent_label.setText(self.agent_text(host))
         self._agent_label.setStyleSheet(f"color: {TEXT_STRONG_COLOR};")
 
+    @staticmethod
+    def _pairing(host):
+        auth = getattr(host, "auth", None) if host is not None else None
+        return getattr(auth, "pairing", None)
+
+    def _refresh_pairing(self, pairing) -> None:
+        state = pairing.state() if pairing is not None else {"open": False}
+        self._btn_pair.setEnabled(pairing is not None)
+        if state["open"]:
+            left = int(state["expires_in_s"])
+            self._pair_code.setText(state["code"])
+            self._pair_left.setText(f"{left // 60}:{left % 60:02d} left")
+            self._btn_pair.setText(STOP_PAIRING_LABEL)
+        else:
+            self._pair_code.setText("")
+            self._pair_left.setText("")
+            self._btn_pair.setText(PAIR_LABEL)
+        computers = tuple(pairing.tokens.computers()) if pairing is not None else ()
+        if computers != self._shown_computers:
+            self._shown_computers = computers
+            self._draw_computers(pairing, computers)
+
+    def _draw_computers(self, pairing, computers) -> None:
+        while self._computers.count():
+            item = self._computers.takeAt(0)
+            row = item.layout()
+            while row is not None and row.count():
+                widget = row.takeAt(0).widget()
+                if widget is not None:
+                    widget.deleteLater()
+            if item.widget() is not None:
+                item.widget().deleteLater()
+        if not computers:
+            self._computers.addWidget(note("No computers paired."))
+            return
+        for computer in computers:
+            row = QHBoxLayout()
+            paired = time.strftime("%d %b %Y", time.localtime(computer.paired_at))
+            row.addWidget(QLabel(computer.name), stretch=1)
+            row.addWidget(note(f"paired {paired}"))
+            unpair = QPushButton("Unpair")
+            unpair.setToolTip(f"{computer.name}'s token stops working at once.")
+            unpair.clicked.connect(
+                lambda _=False, cid=computer.id: self._on_unpair_clicked(cid)
+            )
+            row.addWidget(unpair)
+            self._computers.addLayout(row)
+
     # --- actions --------------------------------------------------------------
+
+    def _on_pair_clicked(self) -> None:
+        pairing = self._pairing(self._host())
+        if pairing is None:
+            return
+        if pairing.state()["open"]:
+            pairing.close()
+        else:
+            pairing.open()
+        self.refresh()
+
+    def _on_unpair_clicked(self, computer_id: str) -> None:
+        pairing = self._pairing(self._host())
+        if pairing is not None:
+            pairing.tokens.remove(computer_id)
+        self.refresh()
 
     def _on_switch_toggled(self, _checked: bool) -> None:
         self._chk_microscope.setEnabled(

@@ -60,6 +60,7 @@ from fibsem.server.devices import (
 from fibsem.server.discovery import fibsem_folder
 from fibsem.server.models import MicroscopeStateRequest
 from fibsem.server.operator import build_operator_router
+from fibsem.server.pairing_routes import build_pairing_router
 from fibsem.server.parts import served_parts
 from fibsem.server.requests import RequestStore, build_request_router
 from fibsem.structures import BeamType, MicroscopeState
@@ -254,8 +255,14 @@ async def _stop_reason(request: Request):
     if command == "end":
         target, verb = "the milling stage", "End"
     if operator:
+        header = request.headers.get("Authorization", "")
+        computer = request.app.state.auth.paired(header.removeprefix("Bearer "))
         record = action_record(
-            f"{verb} {target}", reason=reason.strip(), stops=action, via="remote"
+            f"{verb} {target}",
+            reason=reason.strip(),
+            stops=action,
+            via="remote",
+            computer=computer.name if computer is not None else None,
         )
     else:
         record = action_record(
@@ -662,6 +669,7 @@ def build_server(
         return {"status": "ok"}
 
     app.include_router(base)
+    app.include_router(build_pairing_router(auth))
     refuse = _refuse(app_context)
     paths = _in_experiment(app_context)
     # The analysis services read saved data and use no device, so they are

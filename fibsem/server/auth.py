@@ -28,7 +28,8 @@ level, Stop agent, approve or reject its request. It also reaches the
 agent's routes as the operator: what it does is the operator's on the record
 and in control. The blocklist still applies. The level never gates it,
 and the agent's token never reaches the operator's routes. One per install, kept on
-disk (`fibsem.server.operator_token`), never in the discovery file.
+disk (`fibsem.server.operator_token`), never in the discovery file. A paired
+computer's token (`fibsem.server.pairing`) is an operator token too.
 """
 
 import hmac
@@ -49,6 +50,7 @@ from fibsem.acting import AGENT, current_actor
 from fibsem.ai.agent.calls import current_call
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.control import MicroscopeBusy
+from fibsem.server.pairing import PairedComputer, Pairing
 
 # What each level reaches, in order: a route needing a level is open at it and
 # every level above.
@@ -79,6 +81,9 @@ class AuthConfig:
     # The operator's token: monitoring reads and the operator's routes
     # (require_operator). None means no operator access from outside the window.
     operator_token: Optional[str] = None
+    # Pairing a computer (fibsem.server.pairing): each paired token is the
+    # operator's. None means nothing can pair.
+    pairing: Optional[Pairing] = None
     # The agent level (FIB-1035): the only gate.
     level: AgentLevel = AgentLevel.WATCH
     # Set by stop_agent, cleared by the next set_level: the operator braked, so a
@@ -156,6 +161,17 @@ class AuthConfig:
             except Exception:  # noqa: BLE001 - a listener never blocks the level
                 logging.exception("Agent level listener failed")
         self._listeners[:] = live
+
+    def is_operator(self, token: Optional[str]) -> bool:
+        """Whether *token* is the operator's: the install's, or a paired
+        computer's."""
+        return _matches(token, self.operator_token) or self.paired(token) is not None
+
+    def paired(self, token: Optional[str]) -> Optional[PairedComputer]:
+        """The paired computer whose token this is, or None."""
+        if self.pairing is None:
+            return None
+        return self.pairing.tokens.match(token)
 
     def reaches(self, needed: AgentLevel) -> bool:
         """Whether the current level opens a route that needs *needed*."""
@@ -320,7 +336,7 @@ def require_level(needed: AgentLevel):
         if not _matches(token, auth.token):
             if _matches(token, auth.dashboard_token):
                 raise _dashboard_refused()
-            if _matches(token, auth.operator_token):
+            if auth.is_operator(token):
                 return
             raise _unauthorized()
         lent = _lent.get()
@@ -390,7 +406,7 @@ def require_operator():
     def dependency(request: Request) -> None:
         auth: AuthConfig = request.app.state.auth
         token = _bearer_token(request)
-        if _matches(token, auth.operator_token):
+        if auth.is_operator(token):
             return
         if _matches(token, auth.token) or _matches(token, auth.dashboard_token):
             raise _operator_only()
@@ -403,7 +419,7 @@ def is_operator_token(auth: AuthConfig, authorization: Optional[str]) -> bool:
     """Whether an ``Authorization`` header carries the operator's token."""
     if authorization is None or not authorization.startswith("Bearer "):
         return False
-    return _matches(authorization[len("Bearer ") :], auth.operator_token)
+    return auth.is_operator(authorization[len("Bearer ") :])
 
 
 def action_name(request: Request) -> str:

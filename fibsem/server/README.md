@@ -53,6 +53,17 @@ To connect from another computer: open an SSH tunnel to the App Server port
 `RemoteMicroscope.connect("http://localhost:8001", token)`, or set
 `FIBSEM_SERVER_URL` and `FIBSEM_SERVER_TOKEN`. The remote computer keeps no copy;
 "New operator token" revokes it.
+Or **pair** the computer, with no token to copy: Tools → App Server → *Pair a
+computer* (or the chat page's Computers panel) shows a 4-digit code for 5
+minutes, and `RemoteMicroscope.pair("1234")` sends it (to the tunnel's end,
+`http://localhost:8001`, unless given a url), keeps the token in
+`~/.fibsem/remote/` and connects; later `RemoteMicroscope.connect()` finds it. A
+browser pairs from the chat page the same way. Each paired computer has its own
+token, an operator token, kept hashed in `~/.fibsem/paired.json`; *Unpair* cuts off
+one. The routes: `POST /pair` `{"code", "name"}` answers `{"token"}` (no token
+needed; 5 wrong codes close pairing), and the operator's `GET`/`POST`/`DELETE
+/pairing` and `DELETE /pairing/computers/{id}`. The headless server prints a
+code only when the chat page asks for one (`POST /pair/request`).
 A long service command (marked `long: true` in the listing: milling's `run`,
 `run_task` and `run_stage`; imaging's `acquire_focus_stack`, `acquire_overview`,
 `fm_auto_focus`, `fm_acquire_image` and `fm_acquire_overview`; alignment's

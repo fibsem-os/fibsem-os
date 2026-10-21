@@ -140,6 +140,13 @@
   .gate input { width:100%; padding:6px 8px; font-family:var(--mono); font-size:12px;
     background:var(--canvas); color:var(--text); border:1px solid var(--border); border-radius:3px; }
   .gate .btn { margin-top:8px; }
+  .gate .code { font-size:20px; letter-spacing:8px; text-align:center; }
+  .gate #ask { margin:0 0 10px; }
+  .gate details { margin-top:18px; color:var(--muted); }
+  .gate summary { cursor:pointer; margin-bottom:8px; }
+  .pair-code { font-family:var(--mono); font-size:26px; letter-spacing:6px; color:var(--strong); }
+  .paired { display:flex; align-items:center; gap:8px; padding:4px 0; border-bottom:1px solid var(--border); font-size:12px; }
+  .paired .name { flex:1; color:var(--strong); }
   @media (max-width:600px) {
     header .controls { margin-left:0; width:100%; }
     .row, .actions .act { grid-template-columns:38px 1fr; }
@@ -248,10 +255,13 @@
    card's rows (GET /app/agent/recent) and writes through the operator's routes,
    so the page and the card say the same thing. The operator token arrives in
    the URL fragment (never sent to the server or its logs), is kept for the
-   tab's session, and stripped from the address bar. */
+   tab's session, and stripped from the address bar. A browser can pair with the
+   code instead: its own token is kept in this browser, so later visits open
+   straight in. */
 
 const $app = document.getElementById("app");
 const KEY = "fibsem-operator-token";
+const PAIRED_KEY = "fibsem-paired-token";
 const LIMIT = 2000;
 let TOKEN = null;
 let since = 0;
@@ -322,18 +332,75 @@ async function api(path, options = {}) {
 }
 
 function forget() {
-  try { sessionStorage.removeItem(KEY); } catch (e) { /* storage off */ }
+  for (const store of [sessionStorage, localStorage]) {
+    try { store.removeItem(KEY); store.removeItem(PAIRED_KEY); } catch (e) { /* storage off */ }
+  }
   TOKEN = null;
-  gate("The operator token was refused. It may have been replaced in Tools → App Server.");
+  gate("This browser's token was refused: it may have been unpaired, or the operator token replaced. Pair it again.");
 }
 
-function gate(note) {
-  $app.innerHTML = `<form class="gate">
-    <h1>Agent chat</h1>
-    <p>${esc(note || "Open this page from the agent card's Chat link, or paste the operator token from Tools → App Server.")}</p>
-    <input id="tok" type="password" placeholder="Operator token" autocomplete="off">
-    <button class="btn primary" type="submit">Open</button></form>`;
-  $app.querySelector("form").onsubmit = e => {
+// What this browser calls itself to the paired list: "Firefox on Linux".
+function browserName() {
+  const ua = navigator.userAgent;
+  const browser = /Edg\//.test(ua) ? "Edge" : /Firefox\//.test(ua) ? "Firefox"
+    : /Chrome\//.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : "A browser";
+  const os = /Windows/.test(ua) ? "Windows" : /Mac OS X/.test(ua) ? "macOS"
+    : /Android/.test(ua) ? "Android" : /iPhone|iPad/.test(ua) ? "iOS" : /Linux/.test(ua) ? "Linux" : "";
+  return os ? `${browser} on ${os}` : browser;
+}
+
+async function unauthed(path, body) {
+  const response = await fetch(path, {
+    method: body === undefined ? "GET" : "POST",
+    headers: { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const answer = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = answer.detail;
+    throw new Error((detail && detail.message) || detail || response.statusText);
+  }
+  return answer;
+}
+
+/* No token: pair this browser with the code. The window shows it under
+   Tools → App Server → Pair a computer; a headless server shows it in its
+   terminal when asked. The operator token still opens the page. */
+async function gate(note) {
+  const can = await unauthed("/pair").catch(() => ({ request: false }));
+  const where = can.request
+    ? `<button class="btn" type="button" id="ask">Show a code in the server's terminal</button>`
+    : `<p>At the microscope PC, open Tools → App Server → Pair a computer, then type its code here.</p>`;
+  $app.innerHTML = `<div class="gate">
+    <h1>Pair this browser</h1>
+    ${note ? `<p>${esc(note)}</p>` : ""}
+    ${where}
+    <form id="pair"><input id="code" class="code" inputmode="numeric" maxlength="4" placeholder="0000" autocomplete="off">
+    <button class="btn primary" type="submit">Pair</button></form>
+    <p id="pair-said" class="muted"></p>
+    <details><summary>Use the operator token instead</summary>
+    <form id="token"><input id="tok" type="password" placeholder="Operator token" autocomplete="off">
+    <button class="btn" type="submit">Open</button></form></details></div>`;
+  const said = text => { $app.querySelector("#pair-said").textContent = text; };
+  const ask = $app.querySelector("#ask");
+  if (ask) ask.onclick = async () => {
+    try {
+      const answer = await unauthed("/pair/request", {});
+      said(answer.opened ? "A code is in the server's terminal: type it above."
+        : "A code is already open, or pairing is resting after wrong codes. Use the code in the terminal.");
+    } catch (e) { said(e.message); }
+  };
+  $app.querySelector("#pair").onsubmit = async e => {
+    e.preventDefault();
+    const code = $app.querySelector("#code").value.trim();
+    if (!code) return;
+    try {
+      const answer = await unauthed("/pair", { code, name: browserName() });
+      try { localStorage.setItem(PAIRED_KEY, answer.token); } catch (err) { /* storage off */ }
+      start(answer.token);
+    } catch (err) { said(err.message); }
+  };
+  $app.querySelector("#token").onsubmit = e => {
     e.preventDefault();
     const value = $app.querySelector("#tok").value.trim();
     if (value) start(value);
@@ -719,12 +786,13 @@ function fillPicture(el, answer) {
   };
 }
 
-/* --- The side panels: Experiment and Microscope, from the bar on the right - */
+/* --- The side panels: Experiment, Microscope and Computers, from the bar on the right - */
 const ICONS = {
   experiment: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3 6.5h6l2 2h10v10.5H3z"/><path d="M3 6.5V5h6l2 2"/></svg>`,
   microscope: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h4l-1 7h-2z"/><path d="M11 10v2"/><circle cx="11" cy="14" r="2"/><path d="M5 21h14"/><path d="M15 9a6 6 0 0 1 1 11"/><path d="M8 18h5"/></svg>`,
+  computers: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="11" rx="1"/><path d="M2 19h20"/></svg>`,
 };
-const PANELS = [["experiment", "Experiment: its folders and images"], ["microscope", "Microscope: what it is and what it shows"]];
+const PANELS = [["experiment", "Experiment: its folders and images"], ["microscope", "Microscope: what it is and what it shows"], ["computers", "Computers: pair one, or unpair one"]];
 let panel = null;
 
 function drawRail() {
@@ -741,6 +809,53 @@ async function openPanel(name) {
   render();
   if (panel === "experiment") await openExperiment();
   else if (panel === "microscope") await readMicroscope(true);
+  else if (panel === "computers") await readComputers();
+}
+
+/* Computers: pairing, as the App Server dialog has it. A code to type on the
+   other computer, and the paired ones with Unpair. */
+let pairing = null, pairingTimer = null;
+
+async function readComputers() {
+  if (panel !== "computers") { clearInterval(pairingTimer); pairingTimer = null; return; }
+  pairing = await api("/pairing").catch(e => ({ error: e.message }));
+  drawComputers();
+  // While a code is open, count it down.
+  if (pairing.open && !pairingTimer) pairingTimer = setInterval(readComputers, 1000);
+  if (!pairing.open && pairingTimer) { clearInterval(pairingTimer); pairingTimer = null; }
+}
+
+function drawComputers() {
+  if (panel !== "computers") return;
+  const p = pairing || {};
+  const parts = [];
+  if (p.error) parts.push(`<p class="muted">${esc(p.error)}</p>`);
+  else {
+    const left = Math.floor(p.expires_in_s || 0);
+    parts.push(`<h3>Pair a computer</h3>`, p.open
+      ? `<div class="pair-code">${esc(p.code)}</div>
+         <p class="muted">Type it on the other computer · ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")} left</p>
+         <button class="btn" id="pair-stop">Stop pairing</button>`
+      : `<p class="muted">A paired computer or browser acts as you. The code works once, for 5 minutes.</p>
+         <button class="btn primary" id="pair-open">Pair a computer</button>`);
+    const rows = (p.computers || []).map(c => `<div class="paired"><span class="name">${esc(c.name)}</span>
+      <span class="muted">paired ${esc(new Date(c.paired_at * 1000).toLocaleDateString())}</span>
+      <button class="btn" data-unpair="${esc(c.id)}">Unpair</button></div>`).join("");
+    parts.push(`<h3>Paired</h3>${rows || `<p class="muted">No computers paired.</p>`}`);
+  }
+  $files.innerHTML = `<div class="inner">${panelBar("Computers", "")}<div class="scope">${parts.join("")}</div></div>`;
+  $files.querySelector("#panel-close").onclick = () => openPanel(null);
+  wirePanelBar();
+  const act = async (method, path) => {
+    try { pairing = await api(path, { method }); } catch (e) { say(e.message, true); }
+    await readComputers();
+  };
+  const open = $files.querySelector("#pair-open"), stop = $files.querySelector("#pair-stop");
+  if (open) open.onclick = () => act("POST", "/pairing");
+  if (stop) stop.onclick = () => act("DELETE", "/pairing");
+  for (const el of $files.querySelectorAll("[data-unpair]")) {
+    el.onclick = () => act("DELETE", `/pairing/computers/${encodeURIComponent(el.dataset.unpair)}`);
+  }
 }
 
 function panelBar(title, detail) {
@@ -1119,6 +1234,7 @@ drawRail();
   let token = fragment.get("token");
   if (token) history.replaceState(null, "", location.pathname);
   if (!token) { try { token = sessionStorage.getItem(KEY); } catch (e) { /* storage off */ } }
+  if (!token) { try { token = localStorage.getItem(PAIRED_KEY); } catch (e) { /* storage off */ } }
   if (token) start(token); else gate();
 })();
 </script>

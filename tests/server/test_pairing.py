@@ -1,0 +1,254 @@
+"""Pairing a computer with a 4-digit code: the code's rules, the routes, and
+`RemoteMicroscope.pair` over a real server.
+
+Skipped when the [server] extra is not installed.
+"""
+
+import json
+import os
+import threading
+
+import pytest
+
+pytest.importorskip("fastapi")
+uvicorn = pytest.importorskip("uvicorn")
+
+from fastapi.testclient import TestClient  # noqa: E402
+
+from fibsem import utils  # noqa: E402
+from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
+from fibsem.client import pairing as client_pairing  # noqa: E402
+from fibsem.client.remote_microscope import RemoteMicroscope  # noqa: E402
+from fibsem.server import AuthConfig, build_server  # noqa: E402
+from fibsem.server.devices import WS_PROTOCOL  # noqa: E402
+from fibsem.server.pairing import (  # noqa: E402
+    MAX_TRIES,
+    PairedTokens,
+    Pairing,
+    PairingRefused,
+)
+
+TOKEN = "agent-token"
+
+
+class Clock:
+    def __init__(self):
+        self.now = 1000.0
+
+    def __call__(self):
+        return self.now
+
+
+@pytest.fixture
+def clock():
+    return Clock()
+
+
+@pytest.fixture
+def pairing(tmp_path, clock):
+    return Pairing(PairedTokens(tmp_path / "paired.json"), clock=clock)
+
+
+def _wrong(code):
+    return f"{(int(code) + 1) % 10000:04d}"
+
+
+# --- the code -----------------------------------------------------------------
+
+
+def test_the_right_code_pairs_once_and_closes_pairing(pairing):
+    code = pairing.open()
+    assert len(code) == 4 and code.isdigit()
+    computer, token = pairing.pair(code, "lab laptop")
+    assert computer.name == "lab laptop"
+    assert pairing.tokens.match(token) == computer
+    assert not pairing.state()["open"]
+    with pytest.raises(PairingRefused) as refused:
+        pairing.pair(code, "another")
+    assert refused.value.error_type == "pairing_closed"
+
+
+def test_wrong_codes_close_pairing_after_five(pairing):
+    code = pairing.open()
+    for _ in range(MAX_TRIES - 1):
+        with pytest.raises(PairingRefused) as refused:
+            pairing.pair(_wrong(code), "x")
+        assert refused.value.error_type == "wrong_code"
+    with pytest.raises(PairingRefused) as refused:
+        pairing.pair(_wrong(code), "x")
+    assert refused.value.error_type == "pairing_closed"
+    # The right code no longer works either.
+    with pytest.raises(PairingRefused):
+        pairing.pair(code, "x")
+    assert pairing.tokens.computers() == []
+
+
+def test_a_code_expires_after_five_minutes(pairing, clock):
+    code = pairing.open()
+    clock.now += 299
+    assert pairing.state()["open"]
+    clock.now += 2
+    assert pairing.state() == {"open": False, "code": None, "expires_in_s": 0.0}
+    with pytest.raises(PairingRefused):
+        pairing.pair(code, "x")
+
+
+def test_tokens_are_kept_hashed_and_unpairing_revokes(tmp_path, pairing):
+    computer, token = pairing.pair(pairing.open(), "laptop")
+    saved = (tmp_path / "paired.json").read_text()
+    assert token not in saved and computer.name in saved
+    assert oct(os.stat(tmp_path / "paired.json").st_mode & 0o777) == "0o600"
+    # Another start reads the same file.
+    again = PairedTokens(tmp_path / "paired.json")
+    assert again.match(token).id == computer.id
+    assert again.remove(computer.id)
+    assert again.match(token) is None
+
+
+def test_a_browser_asks_for_a_code_only_where_it_is_announced(pairing, clock):
+    assert not pairing.request()  # nowhere to show it
+    said = []
+    pairing.announce = said.append
+    assert pairing.request()
+    assert said == [pairing.state()["code"]]
+    # An open code is never replaced by another ask.
+    assert not pairing.request() and len(said) == 1
+    for _ in range(MAX_TRIES):
+        with pytest.raises(PairingRefused):
+            pairing.pair(_wrong(said[0]), "x")
+    # Guessing stays slow: asking again waits an hour.
+    assert not pairing.request()
+    clock.now += 3601
+    assert pairing.request()
+
+
+# --- the routes ---------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def microscope():
+    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
+    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
+    return microscope
+
+
+@pytest.fixture
+def auth(tmp_path):
+    auth = AuthConfig.generate(level="watch", token=TOKEN)
+    auth.operator_token = "install-operator"
+    auth.pairing = Pairing(PairedTokens(tmp_path / "paired.json"))
+    return auth
+
+
+@pytest.fixture
+def http(microscope, auth):
+    return TestClient(build_server(microscope, auth=auth))
+
+
+def _as(token):
+    return {"Authorization": f"Bearer {token}"}
+
+
+def test_a_paired_token_is_the_operators_until_unpaired(http, auth):
+    opened = http.post("/pairing", headers=_as("install-operator")).json()
+    assert opened["open"] and len(opened["code"]) == 4
+    paired = http.post("/pair", json={"code": opened["code"], "name": "laptop"})
+    assert paired.status_code == 200, paired.text
+    token = paired.json()["token"]
+    # The operator's: its routes, and the microscope at Off.
+    auth.set_level(AgentLevel.OFF)
+    assert http.get("/microscope/state", headers=_as(token)).status_code == 200
+    listing = http.get("/pairing", headers=_as(token)).json()
+    assert [c["name"] for c in listing["computers"]] == ["laptop"]
+    assert not listing["open"]
+    unpaired = http.delete(
+        f"/pairing/computers/{paired.json()['id']}", headers=_as("install-operator")
+    )
+    assert unpaired.json()["computers"] == []
+    assert http.get("/microscope/state", headers=_as(token)).status_code == 401
+
+
+def test_the_agent_never_opens_pairing(http):
+    refused = http.post("/pairing", headers=_as(TOKEN))
+    assert refused.status_code == 403
+    assert refused.json()["detail"]["error_type"] == "operator_only"
+
+
+def test_a_wrong_code_and_another_sites_page_are_refused(http, auth):
+    code = auth.pairing.open()
+    wrong = http.post("/pair", json={"code": _wrong(code), "name": "x"})
+    assert wrong.status_code == 403
+    assert wrong.json()["detail"]["error_type"] == "wrong_code"
+    foreign = http.post(
+        "/pair",
+        json={"code": code, "name": "x"},
+        headers={"Origin": "http://evil.example"},
+    )
+    assert foreign.status_code == 403
+    assert foreign.json()["detail"]["error_type"] == "browser_refused"
+    # The chat page, served from the server itself, pairs.
+    page = http.post(
+        "/pair",
+        json={"code": code, "name": "Firefox on Linux"},
+        headers={"Origin": "http://testserver"},
+    )
+    assert page.status_code == 200
+
+
+def test_a_browser_asks_the_headless_server_for_a_code(http, auth):
+    assert http.get("/pair").json() == {"open": False, "request": False}
+    assert http.post("/pair/request").status_code == 404
+    said = []
+    auth.pairing.announce = said.append
+    assert http.get("/pair").json()["request"]
+    assert http.post("/pair/request").json() == {"opened": True}
+    paired = http.post("/pair", json={"code": said[0], "name": "browser"})
+    assert paired.status_code == 200
+
+
+# --- RemoteMicroscope.pair -----------------------------------------------------
+
+
+@pytest.fixture
+def url(microscope, auth):
+    app = build_server(microscope, auth=auth)
+    server = uvicorn.Server(
+        uvicorn.Config(
+            app, host="127.0.0.1", port=0, log_level="warning", ws=WS_PROTOCOL
+        )
+    )
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    while not server.started:
+        assert thread.is_alive(), "App Server failed to start"
+        threading.Event().wait(0.01)
+    yield f"http://127.0.0.1:{server.servers[0].sockets[0].getsockname()[1]}"
+    server.should_exit = True
+    thread.join(timeout=5)
+
+
+def test_a_remote_microscope_pairs_and_later_connects_with_no_code(
+    url, auth, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(client_pairing, "REMOTE_DIR", tmp_path / "remote")
+    monkeypatch.delenv("FIBSEM_SERVER_TOKEN", raising=False)
+    remote = RemoteMicroscope.pair(auth.pairing.open(), url, name="laptop")
+    try:
+        assert remote.get_stage_position() is not None
+    finally:
+        remote.disconnect()
+    (saved,) = (tmp_path / "remote").iterdir()
+    assert json.loads(saved.read_text())["url"] == url
+    assert oct(saved.stat().st_mode & 0o777) == "0o600"
+    again = RemoteMicroscope.connect(url)
+    try:
+        assert auth.paired(again._token).name == "laptop"
+    finally:
+        again.disconnect()
+
+
+def test_a_refused_code_says_why(url, auth, tmp_path, monkeypatch):
+    monkeypatch.setattr(client_pairing, "REMOTE_DIR", tmp_path / "remote")
+    with pytest.raises(PermissionError, match="isn't open"):
+        client_pairing.pair("0000", url)
+    assert not (tmp_path / "remote").exists()
