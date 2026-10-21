@@ -543,8 +543,9 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "pose (move to the FM pose first). Start from the item's objective "
             "position (item_move_to_objective_position) where it has one. A long command: it answers with "
             "its run at once; service_wait_for_run imaging gives the best objective "
-            "position and the scores; service_call_command imaging stop, with a "
-            "reason, ends it."
+            "position and the scores, or status no_focus when the scores were flat "
+            "(the objective goes back where it started: move nearer focus or check "
+            "the channel); service_call_command imaging stop, with a reason, ends it."
         ),
         method="POST",
         path="/microscope/services/imaging/commands/fm_auto_focus",
@@ -579,7 +580,9 @@ TOOLS: Tuple[ToolSpec, ...] = (
             + " path must be a folder inside "
             "the open experiment. A long command: it answers with its run at "
             "once; service_wait_for_run imaging gives the image's path and "
-            "summary; service_call_command imaging stop, with a reason, ends it "
+            "summary, and substituted when a channel's excitation wavelength "
+            "isn't on the filter set and the nearest was used; "
+            "service_call_command imaging stop, with a reason, ends it "
             "before the next frame and saves nothing."
         ),
         method="POST",

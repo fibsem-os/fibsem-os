@@ -7,6 +7,7 @@ that lamella starts its next task. Before FIB-490 only ``post_task`` appended, a
 from the history entirely, leaving the logfile as the only record they happened.
 """
 
+import threading
 from pathlib import Path
 from typing import List
 
@@ -134,3 +135,67 @@ def test_the_failure_hook_sees_the_terminal_status(
     assert len(seen) == 1
     assert seen[0].task_state.status is TaskStatus.Failed
     assert seen[0].error == "stage timeout"
+
+
+class _Stoppable:
+    """A run's manager as a task polls it: its token and whether to unwind."""
+
+    def __init__(self) -> None:
+        self.abort_token = threading.Event()
+        self.experiment = None
+
+    @property
+    def should_abort(self) -> bool:
+        return self.abort_token.is_set()
+
+    def deciders(self) -> tuple:
+        return ()
+
+
+def test_a_stop_during_the_closing_reference_images_lets_the_task_finish(
+    microscope: FibsemMicroscope, tmp_path: Path
+) -> None:
+    """FIB-1523: a Rough Milling that milled every stage, stopped while it took
+    its final reference images, was recorded Cancelled."""
+    manager = _Stoppable()
+    lamella = Lamella(path=tmp_path / "lam", number=0, petname="test")
+    task = MillTrenchTask(
+        microscope=microscope,
+        config=MillTrenchTaskConfig(),
+        lamella=lamella,
+        task_manager=manager,
+    )
+
+    def _run() -> None:
+        task._check_for_abort()  # the work: milled, not stopped
+        manager.abort_token.set()  # Stop, as the closing images start
+        task._acquire_set_of_reference_images(task.config.imaging)
+
+    task._run = _run  # type: ignore[method-assign]
+    task.run()
+
+    entry = lamella.task_history[-1]
+    assert entry.status is TaskStatus.Completed
+    assert entry.outputs["final_sem"] and entry.outputs["final_fib"]
+
+
+def test_a_stop_before_the_closing_images_still_cancels(
+    microscope: FibsemMicroscope, tmp_path: Path
+) -> None:
+    manager = _Stoppable()
+    lamella = Lamella(path=tmp_path / "lam", number=0, petname="test")
+    task = MillTrenchTask(
+        microscope=microscope,
+        config=MillTrenchTaskConfig(),
+        lamella=lamella,
+        task_manager=manager,
+    )
+
+    def _run() -> None:
+        manager.abort_token.set()
+        task.log_status_message("MILL", "Milling...")
+
+    task._run = _run  # type: ignore[method-assign]
+    with pytest.raises(InterruptedError):
+        task.run()
+    assert lamella.task_history[-1].status is TaskStatus.Cancelled

@@ -389,7 +389,7 @@ def test_the_brake_drops_to_watch_and_says_what_it_stopped(session, microscope):
             {
                 "what": "Stop the agent",
                 "ok": True,
-                "reason": "none given",
+                "reason": "Stopped by the operator",
                 "stops": "agent",
                 "previous": "drive",
                 "level": "watch",
@@ -485,7 +485,7 @@ def test_an_operator_stop_is_recorded_by_the_runner(session, microscope):
     session.runner.stop_task(actor="operator", via="Stop Task", task="Trench (01)")
     session.runner.stop()  # unnamed: the agent's stop records itself
     # the operator's Stop buttons ask no reason (FIB-1495)
-    why = {"reason": "none given"}
+    why = {"reason": "Stopped by the operator"}
     run = {
         "what": "Stop the run",
         "ok": True,
