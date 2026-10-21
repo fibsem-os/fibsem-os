@@ -111,7 +111,7 @@ class SpotBurnFiducialTask(AutoLamellaTask):
 
         # restore the full milling-pose state, then align to the stored reference so
         # the burn coordinates land on target (mirrors rough/polishing)
-        self._move_to_milling_pose()
+        self._move_to_pose()
         self._align_reference_image(ALIGNMENT_REFERENCE_IMAGE_FILENAME)
 
         self.config.exposure_time = float(self.config.exposure_time)

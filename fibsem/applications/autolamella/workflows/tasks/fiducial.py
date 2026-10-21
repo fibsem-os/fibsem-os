@@ -207,7 +207,7 @@ class MillFiducialTask(AutoLamellaTask):
         image_settings: ImageSettings = self.config.imaging
 
         # move to lamella milling position
-        self._move_to_milling_pose()
+        self._move_to_pose()
 
         # beam_shift alignment
         if self.config.align_to_reference:

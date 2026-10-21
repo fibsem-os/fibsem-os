@@ -66,7 +66,7 @@ from fibsem.workflows.deciding import ProposalDecisions
 from fibsem.workflows.experiment import BaseExperiment
 from fibsem.workflows.grid.protocol import GridTaskProtocol
 from fibsem.workflows.grids import ExperimentGrids, GridRecord
-from fibsem.workflows.item import ExperimentItem
+from fibsem.workflows.item import SiteItem
 from fibsem.workflows.proposals import (
     Proposal,
     proposals_from_dict,
@@ -645,7 +645,7 @@ _THUMBNAIL_PLACEHOLDER = None
 
 @evented
 @dataclass
-class Lamella(ExperimentItem):
+class Lamella(SiteItem):
     path: Path
     number: int  # TODO: deprecate, use petname instead
     petname: str
@@ -807,17 +807,6 @@ class Lamella(ExperimentItem):
         if not isinstance(value, MicroscopeState):
             raise TypeError("Landing pose must be a MicroscopeState instance.")
         self.poses["LANDING"] = value
-
-    @property
-    def milling_pose(self) -> Optional[MicroscopeState]:
-        return self.poses.get("MILLING", None)
-
-    @milling_pose.setter
-    def milling_pose(self, value: MicroscopeState):
-        """Set the milling pose for the lamella."""
-        if not isinstance(value, MicroscopeState):
-            raise TypeError("Milling pose must be a MicroscopeState instance.")
-        self.poses["MILLING"] = value
 
     @property
     def fluorescence_pose(self) -> Optional[MicroscopeState]:

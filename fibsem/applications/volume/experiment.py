@@ -9,11 +9,12 @@ from typing import Any, ClassVar, Dict, List, Optional
 
 import yaml
 
-from fibsem.applications.volume.position import MILL_POSE, VolumePosition
+from fibsem.applications.volume.position import VolumePosition
 from fibsem.applications.volume.protocol import VolumeProtocol
 from fibsem.structures import FibsemRectangle, MicroscopeState, Point
 from fibsem.workflows.deciding import ProposalDecisions
 from fibsem.workflows.experiment import EXPERIMENT_FILENAME, BaseExperiment
+from fibsem.workflows.item import MILLING_POSE
 from fibsem.workflows.saved_format import check_app
 from fibsem.workflows.status import TaskStatus
 from fibsem.workflows.task_config import TaskConfig
@@ -71,7 +72,7 @@ class VolumeExperiment(ProposalDecisions, BaseExperiment):
             raise ValueError(f"There is already a position named {name!r}.")
         position = VolumePosition(
             name=name,
-            poses={MILL_POSE: mill_pose},
+            poses={MILLING_POSE: mill_pose},
             poi=poi if poi is not None else Point(),
             iterations=iterations,
         )

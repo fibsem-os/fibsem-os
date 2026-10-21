@@ -58,7 +58,7 @@ class MillPolishingTask(AutoLamellaTask):
         image_settings = self.config.imaging
 
         # move to lamella milling position
-        self._move_to_milling_pose()
+        self._move_to_pose()
 
         # beam_shift alignment
         self._align_reference_image(ALIGNMENT_REFERENCE_IMAGE_FILENAME)

@@ -156,7 +156,7 @@ class MillCoincidentTask(AutoLamellaTask):
         image_settings = self.config.imaging
 
         # 1. the milling pose, stage only; tilt lands before the objective goes in
-        self._move_to_milling_pose()
+        self._move_to_pose()
 
         try:
             # 2. objective in and at the height the setup left it

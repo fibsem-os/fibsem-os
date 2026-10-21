@@ -43,6 +43,7 @@ from fibsem.workflows.interaction import (
     _abort_requested,
     ask,
 )
+from fibsem.workflows.item import MILLING_POSE
 from fibsem.workflows.proposals import (
     ACTION_ACCEPT,
     ACTION_EDIT,
@@ -754,6 +755,19 @@ class BaseTask(ABC):
         """
         if self._stop_event is not None and self._stop_event.is_set():
             raise InterruptedError("Workflow aborted by user.")
+
+    def _move_to_pose(self, name: str = MILLING_POSE) -> None:
+        """Move to the item's pose ``name``, the milling pose unless named."""
+        self.log_status_message("MOVE_TO_POSITION", "Moving to Position...")
+        try:
+            pose = self.item.pose(name)
+        except KeyError:
+            raise ValueError(
+                f"{self.item.name} has no {name} pose. Set it before running "
+                f"{self.task_name}."
+            ) from None
+        self.microscope.set_microscope_state(pose)
+        self._check_for_abort()
 
     # -- status, metadata, hooks -----------------------------------------------
 

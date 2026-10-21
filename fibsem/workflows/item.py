@@ -11,9 +11,10 @@ declare the fields and add their own.
 
 from __future__ import annotations
 
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from fibsem.acting import Actor, ActorKind
+from fibsem.structures import FibsemRectangle, MicroscopeState, Point
 from fibsem.workflows.proposals import (
     Proposal,
     current_proposal,
@@ -21,6 +22,9 @@ from fibsem.workflows.proposals import (
     record,
 )
 from fibsem.workflows.status import TaskStatus
+
+# The pose an item is milled at.
+MILLING_POSE = "MILLING"
 
 
 class ExperimentItem:
@@ -119,3 +123,29 @@ class ExperimentItem:
         """Put ``proposal`` on the record as the current one from ``task_name``."""
         proposal.asked_by = Actor.task(task_name)
         return record(self.proposals, proposal)
+
+
+class SiteItem(ExperimentItem):
+    """An item at a site on the sample: a lamella or a volume position. Its
+    ``poses`` by name, a point of interest ``poi`` and an ``alignment_area``, in
+    fractions of the frame. What a task that works at a site reads."""
+
+    poses: Dict[str, MicroscopeState]
+    poi: Point
+    alignment_area: FibsemRectangle
+
+    def pose(self, name: str) -> MicroscopeState:
+        """The pose ``name``. Raises KeyError when the item has none."""
+        if self.poses.get(name) is None:
+            raise KeyError(f"{self.name} has no {name} pose.")
+        return self.poses[name]
+
+    @property
+    def milling_pose(self) -> Optional[MicroscopeState]:
+        return self.poses.get(MILLING_POSE)
+
+    @milling_pose.setter
+    def milling_pose(self, value: MicroscopeState) -> None:
+        if not isinstance(value, MicroscopeState):
+            raise TypeError("Milling pose must be a MicroscopeState instance.")
+        self.poses[MILLING_POSE] = value

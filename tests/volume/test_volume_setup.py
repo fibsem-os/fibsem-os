@@ -6,13 +6,13 @@ import pytest
 from fibsem.applications.volume.manager import VolumeTaskManager
 from fibsem.applications.volume.position import (
     FIB_REFERENCE,
-    MILL_POSE,
     SEM_POSE,
     SEM_REFERENCE,
 )
 from fibsem.applications.volume.tasks import VolumeSetupMillingTask
 from fibsem.structures import Point
 from fibsem.workflows.attention import Attention
+from fibsem.workflows.item import MILLING_POSE
 from fibsem.workflows.proposals import (
     ALIGNMENT_AREA,
     MILLING,
@@ -69,7 +69,7 @@ def test_a_position_is_set_up_once_and_then_sliced(
     ]
     folder = experiment.position_path(aspen)
     assert (folder / FIB_REFERENCE).exists() and (folder / SEM_REFERENCE).exists()
-    assert {MILL_POSE, SEM_POSE} <= set(aspen.poses)
+    assert {MILLING_POSE, SEM_POSE} <= set(aspen.poses)
     # trench, fiducial and face, then a slice each, on both positions
     assert len(milled) == 2 * (3 + 2)
     face = milled[2].stages[0].pattern.point

@@ -41,7 +41,7 @@ class AcquireReferenceImageTask(AutoLamellaTask):
         """Run the task to acquire reference image with the specified settings."""
 
         # move to position
-        self._move_to_milling_pose()
+        self._move_to_pose()
 
         msg = f"Acquire reference image for {self.lamella.name}. Press Continue when ready."
         # The question on the record: the position as arrived at is the

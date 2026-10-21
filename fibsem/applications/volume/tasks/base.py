@@ -79,11 +79,6 @@ class VolumeTask(BaseTask):
         os.makedirs(self._output_dir, exist_ok=True)
         return self._output_dir
 
-    def _move_to_pose(self, name: str) -> None:
-        self.log_status_message("MOVE_TO_POSE", f"Moving to the {name} pose.")
-        self.microscope.set_microscope_state(self.position.pose(name))
-        self._check_for_abort()
-
     def _acquire_reference(
         self, beam_type: BeamType, filename: str, field_of_view: float
     ) -> FibsemImage:

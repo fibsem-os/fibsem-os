@@ -638,15 +638,6 @@ class AutoLamellaTask(BaseTask):
                 exc_info=True,
             )
 
-    def _move_to_milling_pose(self) -> None:
-        """Move to the lamella milling pose."""
-        self.log_status_message("MOVE_TO_POSITION", "Moving to Position...")
-        if self.lamella.milling_pose is None:
-            raise ValueError(
-                f"Milling pose for {self.lamella.name} is not set. Please set the milling pose before milling the lamella."
-            )
-        self.microscope.set_microscope_state(self.lamella.milling_pose)
-
     def _get_stage_position_for_orientation(
         self,
         stage_position: FibsemStagePosition,

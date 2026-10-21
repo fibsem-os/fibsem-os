@@ -69,7 +69,7 @@ def _make_task(tmp_path, *, autofocus: bool):
 
 def _record_run(task, calls):
     """Stub out everything _run does except the autofocus/reference-image ordering."""
-    task._move_to_milling_pose = lambda: calls.append(("move", None))
+    task._move_to_pose = lambda: calls.append(("move", None))
     task._align_reference_image = lambda *a, **k: calls.append(("align", None))
     task._run_autofocus = lambda beam_type, hfw=None: calls.append(
         ("autofocus", (beam_type, hfw))
