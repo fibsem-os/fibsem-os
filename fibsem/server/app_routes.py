@@ -17,12 +17,12 @@ import os
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 
 from fibsem.ai.agent.calls import current_call
 from fibsem.server import files
-from fibsem.server.auth import take_control
+from fibsem.server.auth import refuse_dashboard, take_control
 from fibsem.server.parts import (
     GRIDS,
     ITEMS,
@@ -441,6 +441,7 @@ def build_app_router(context: Any) -> APIRouter:
 
     @router.get("/experiment/files/{path:path}")
     def read_file(
+        request: Request,
         path: str,
         box: Optional[str] = None,
         fraction: Optional[str] = None,
@@ -449,6 +450,7 @@ def build_app_router(context: Any) -> APIRouter:
         experiment: Optional[str] = None,
     ):
         if raw:
+            refuse_dashboard(request)
             # The file as it is, its experiment's folder name and its path in
             # it in the headers: where a fetch keeps it.
             root = _files_answer(experiment, lambda root: root)

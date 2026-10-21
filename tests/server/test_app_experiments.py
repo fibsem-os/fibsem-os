@@ -271,6 +271,15 @@ def test_a_file_is_fetched_raw_and_the_fetch_is_recorded(driver, host, reads):
     # A preview read of the open experiment is not recorded.
     client.get("/app/experiment/files/experiment.yaml")
     assert len(recorded) == 1
+    # The event log's read-only token sees previews, never the files themselves.
+    dashboard = {"Authorization": f"Bearer {client.app.state.auth.dashboard_token}"}
+    looked = client.get("/app/experiment/files/experiment.yaml", headers=dashboard)
+    assert looked.status_code == 200
+    fetched = client.get(
+        "/app/experiment/files/data/raw.bin", params={"raw": True}, headers=dashboard
+    )
+    assert fetched.status_code == 403
+    assert len(recorded) == 1
     folder = client.get("/app/experiment/files/data", params={"raw": True})
     assert folder.status_code == 422
     for path in ("..%2Felsewhere", "/etc/hostname"):

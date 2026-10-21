@@ -409,6 +409,13 @@ def is_operator_token(auth: AuthConfig, authorization: Optional[str]) -> bool:
     return _matches(authorization[len("Bearer ") :], auth.operator_token)
 
 
+def refuse_dashboard(request: Request) -> None:
+    """403 for the dashboard token: for a monitoring GET it may not make (a
+    raw file, which the event log never needs)."""
+    if _matches(_bearer_token(request), request.app.state.auth.dashboard_token):
+        raise _dashboard_refused()
+
+
 def action_name(request: Request) -> str:
     """What a request does, in words, for the record, the log and the toast
     (FIB-1359): "focus sweep", "move stage relative", "set electron imaging
