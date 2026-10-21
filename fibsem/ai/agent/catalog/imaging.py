@@ -103,10 +103,11 @@ def _beam_acquire_image(
     a: Dict[str, Any], ctx: wording.ActionContext
 ) -> Dict[str, Any]:
     settings = a.get("image_settings")
+    saved = f"\nSave it in {a['path']}" if a.get("path") else ""
     if not isinstance(settings, dict) or not settings:
         return {
             "what": wording.beam_name(a),
-            "change": "Take an image, as the beam is set now",
+            "change": "Take an image, as the beam is set now" + saved,
         }
     settings = {**_IMAGE_DEFAULTS, **settings}
     beam = "ion" if str(a.get("beam_type", "")).upper() == "ION" else "electron"
@@ -129,7 +130,7 @@ def _beam_acquire_image(
         # The caveat on a line of its own: a line about it after the fact
         # (Recent) reads the first only.
         "change": f"Take an image: {_image_settings(settings)}\n"
-        "These settings stay on the beam",
+        "These settings stay on the beam" + saved,
         "details": wording.table(("Setting", "Now", "New"), rows),
     }
 
@@ -365,7 +366,12 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "scale (hfw, pixel size). With no image_settings the beam images as it "
             "is set now. image_settings set the beam first and stay set; a field "
             "left out takes its default (resolution [1536, 1024], dwell_time 1e-6, "
-            "hfw 150e-6), not the beam's current value. Nothing is saved."
+            "hfw 150e-6), not the beam's current value. Saved only given path: a "
+            "folder inside the open experiment (relative to it, e.g. "
+            '"02-nice-dassie/checks"), as <filename>_eb or _ib, filename '
+            "defaulting to when it was taken; the answer names the saved file, "
+            "for evidence and item_measure_thickness. Images what the beam is "
+            "centred on: it moves nothing."
         ),
         method="POST",
         path="/microscope/services/imaging/commands/acquire",
@@ -374,13 +380,20 @@ TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "beam_type": "ELECTRON or ION",
             "image_settings": 'optional: ImageSettings fields, e.g. {"hfw": 150e-6, "resolution": [1536, 1024], "dwell_time": 1e-6}',
+            "path": "optional folder inside the open experiment to save into",
+            "filename": "optional file name, without the _eb/_ib suffix (default: the time)",
         },
-        optional=("beam_type", "image_settings"),
+        optional=("beam_type", "image_settings", "path", "filename"),
         line=_beam_acquire_image,
         call=lambda a: (
             {},
             {
-                "kwargs": beam_kwargs(a, image_settings=a.get("image_settings")),
+                "kwargs": beam_kwargs(
+                    a,
+                    image_settings=a.get("image_settings"),
+                    path=a.get("path"),
+                    filename=a.get("filename"),
+                ),
                 "answer": "preview",
             },
         ),

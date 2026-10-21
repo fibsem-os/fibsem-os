@@ -636,10 +636,17 @@ def build_sidecar(client, capabilities):
         return _routed("milling_follow_readings", since=since, timeout=timeout)
 
     def beam_acquire_image(
-        beam_type: str = "ELECTRON", image_settings: Optional[dict] = None
+        beam_type: str = "ELECTRON",
+        image_settings: Optional[dict] = None,
+        path: Optional[str] = None,
+        filename: Optional[str] = None,
     ):
         data, err = _route(
-            "beam_acquire_image", beam_type=beam_type, image_settings=image_settings
+            "beam_acquire_image",
+            beam_type=beam_type,
+            image_settings=image_settings,
+            path=path,
+            filename=filename,
         )
         return err if err else _with_images(data["result"])
 

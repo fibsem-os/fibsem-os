@@ -107,7 +107,9 @@ def _completed(item: dict) -> set:
 def _defect(item: dict) -> str:
     defect = item.get("defect") or {}
     verdict = defect.get("verdict") or "UNASSESSED"
-    if verdict == "UNASSESSED":
+    # UNASSESSED with a reason was left for someone to judge (a lead's stop),
+    # so it is not yield; with none, nobody has looked yet.
+    if verdict == "UNASSESSED" and not defect.get("reason"):
         return ""
     reason = f" ({defect['reason']})" if defect.get("reason") else ""
     return f"{verdict}{reason}"

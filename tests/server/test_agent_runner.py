@@ -195,10 +195,11 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
     )
 
     assert options.permission_mode == "dontAsk"
-    assert options.allowed_tools == ["mcp__fibsem__*", "ToolSearch"] + [
+    assert options.allowed_tools == ["mcp__fibsem__*", "ToolSearch", "SendMessage"] + [
         f"Agent({name})" for name in runner_mod.SPECIALISTS
     ]
-    assert options.tools == ["Skill", "ToolSearch", "Agent"]
+    # SendMessage carries a specialist on (one Verifier per lamella's passes).
+    assert options.tools == ["Skill", "ToolSearch", "Agent", "SendMessage"]
     for tool in ("Bash", "Read", "Grep", "Glob", "Write", "Edit", "WebFetch"):
         assert tool in options.disallowed_tools
     assert options.effort == "high"

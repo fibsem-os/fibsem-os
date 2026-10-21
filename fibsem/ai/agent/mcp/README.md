@@ -127,8 +127,9 @@ fibsem-agent
   runner never sets it.
 - **Tools.** The `mcp__fibsem__*` tools run without a prompt, since the
   server decides what they may do. The agent also has the Skill tool,
-  ToolSearch to find the fibsem tools, and the Agent tool for the checkout's
-  three `autolamella-*` agents (`.claude/agents`). Nothing else, for those
+  ToolSearch to find the fibsem tools, the Agent tool for the checkout's
+  three `autolamella-*` agents (`.claude/agents`), and SendMessage to carry
+  one on (a lamella's polishing passes, one Verifier). Nothing else, for those
   agents either: no shell, no file reads or writes, no web. Nothing waits on
   a permission prompt; anything else is denied. So the offline
   `read_record.py` reader stays with Claude Code.

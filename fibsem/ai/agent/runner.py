@@ -42,12 +42,13 @@ SPECIALISTS = (
 )
 # The server's level gate decides what the fibsem tools may do, so they need no
 # prompt; ToolSearch only finds them.
-ALLOWED_TOOLS = [f"mcp__{SERVER}__*", "ToolSearch"] + [
+ALLOWED_TOOLS = [f"mcp__{SERVER}__*", "ToolSearch", "SendMessage"] + [
     f"Agent({name})" for name in SPECIALISTS
 ]
 # The only built-in tools the agent has: reading its skills, finding the
-# sidecar's tools when the CLI defers them, and calling a specialist.
-BUILT_IN_TOOLS = ["Skill", "ToolSearch", "Agent"]
+# sidecar's tools when the CLI defers them, and calling a specialist or
+# carrying one on (a lamella's later polishing passes, one Verifier).
+BUILT_IN_TOOLS = ["Skill", "ToolSearch", "Agent", "SendMessage"]
 # Named as well, so a CLI that adds one back still refuses it: a specialist
 # that lists a tool gets it unless it is denied here. The CLI's own agents
 # would carry every fibsem tool, without a specialist's limits.

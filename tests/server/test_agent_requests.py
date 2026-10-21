@@ -1475,3 +1475,17 @@ def test_applying_a_correlation_says_how_good_its_fit_is(monkeypatch):
         "\nFit: RMS 1.83 µm, Poor fit (not recommended to continue)"
         "\nWarning: a bad fit; the point may be off"
     )
+
+
+def test_an_action_line_keeps_every_line_of_its_change():
+    """The record's one line for a config edit names every stage it changes,
+    not only the first."""
+    from fibsem.ai.agent.calls import join_line
+
+    change = "Polish 01 · gap 300 nm → 250 nm\nPolish 02 · gap 300 nm → 250 nm"
+    assert join_line("02-nice-dassie · Polishing", change) == (
+        "02-nice-dassie · Polishing · Polish 01 · gap 300 nm → 250 nm; "
+        "Polish 02 · gap 300 nm → 250 nm"
+    )
+    assert join_line("", "Stop") == "Stop"
+    assert join_line(None, None) is None

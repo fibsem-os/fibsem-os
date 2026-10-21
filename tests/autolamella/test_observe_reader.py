@@ -206,3 +206,12 @@ def test_a_preview_is_never_written_into_the_experiment(reader, folder):
     tif = folder / "01-tough-mako" / "ref_Mill Fiducial_final_ib.tif"
     with pytest.raises(SystemExit, match="outside the experiment folder"):
         reader.main([str(folder), "--preview", str(tif), "--out", str(folder / "x")])
+
+
+def test_a_lamella_left_unassessed_with_a_reason_is_not_yield(reader):
+    """A lead's stop for the morning (UNASSESSED, with why) is a defect line;
+    UNASSESSED with no reason is a lamella nobody has judged."""
+    left = {"defect": {"verdict": "UNASSESSED", "reason": "no SEM of the face"}}
+    assert reader._defect(left) == "UNASSESSED (no SEM of the face)"
+    assert reader._defect({"defect": {"verdict": "UNASSESSED"}}) == ""
+    assert reader._defect({}) == ""

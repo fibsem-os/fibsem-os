@@ -230,7 +230,7 @@ is already on the record: a request's reason is kept with it.
 
 Where a site came from (grid, square, rank, why it was chosen) belongs on the
 lamella, not in a note: `item_update` with `{"patch": {"description":
-"..."}}`. When you add a lamella (`item_add`), leave `name` out so it gets the
+"..."}, "version": "..."}`, the version from `item_get`. When you add a lamella (`item_add`), leave `name` out so it gets the
 app's usual name.
 
 ## Reading the experiment

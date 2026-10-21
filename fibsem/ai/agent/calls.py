@@ -82,8 +82,11 @@ def describe(tool: Optional[str], arguments: Mapping[str, Any]) -> Optional[str]
 
 
 def join_line(what: Any, change: Any) -> Optional[str]:
-    """A described action's ``what`` and the first line of its ``change``."""
-    change = str(change or "").split("\n", 1)[0].strip()
+    """A described action's ``what`` and its ``change`` on one line: every line
+    of it, so a config edit of three stages names all three."""
+    change = "; ".join(
+        line.strip() for line in str(change or "").split("\n") if line.strip()
+    )
     what = str(what or "").strip()
     if what and change:
         return f"{what} · {change}"

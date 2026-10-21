@@ -84,22 +84,18 @@ class TestPlacement:
     def test_the_offset_clears_the_marker_whatever_its_size(self):
         """In points, from the end of the marker's arm -- not a count of image pixels."""
         for half in (5.0, 10.0, 40.0):
-            (dx, dy), _, _ = _label_placement(384, 128, _WIDE, marker_half_points=half)
-            assert dx > half and dy > half
+            (dx, _), _, _ = _label_placement(384, 128, _WIDE, marker_half_points=half)
+            assert dx > half
 
     def test_a_marker_near_the_right_edge_is_labelled_to_its_left(self):
         (dx, _), ha, _ = _label_placement(760, 128, _WIDE, marker_half_points=10)
         assert dx < 0 and ha == "right"
 
-    def test_a_marker_near_the_top_is_labelled_below_it(self):
-        """Offsets are in display space, so a negative dy is down the page."""
-        (_, dy), _, va = _label_placement(384, 2, _WIDE, marker_half_points=10)
-        assert dy < 0 and va == "top"
-
-    def test_a_marker_in_open_ground_is_labelled_above_and_to_the_right(self):
-        (dx, dy), ha, va = _label_placement(384, 128, _WIDE, marker_half_points=10)
-        assert dx > 0 and dy > 0
-        assert (ha, va) == ("left", "bottom")
+    def test_the_label_is_level_with_its_marker(self):
+        """Beside the arm, not off on a diagonal where it could be a neighbour's."""
+        for x, y in ((384, 128), (384, 2), (760, 250)):
+            (_, dy), _, va = _label_placement(x, y, _WIDE, marker_half_points=10)
+            assert dy == 0 and va == "center"
 
 
 @pytest.mark.parametrize("render", [plot_minimap, plot_stage_positions_on_image])
@@ -153,8 +149,7 @@ def test_a_description_stays_with_its_name_at_the_edge(overview):
         plt.close(fig)
 
 
-def test_the_name_is_the_line_further_from_the_marker(overview):
-    """Above the marker, the description sits between it and the name."""
+def test_the_description_sits_under_the_name(overview):
     position, _ = _position(overview, "01-lamella", near_right_edge=False)
     fig = plot_minimap(
         overview,
