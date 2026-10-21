@@ -226,6 +226,26 @@ export interface ItemSummary {
   last_completed_at: string | null;
   is_completed: boolean;
   is_failure: boolean;
+  // Volume's positions: slices planned and cut.
+  iterations?: number;
+  slices_cut?: number;
+}
+
+/** One image of an item's stack: a slice, by the iteration that cut it. */
+export interface StackSlice {
+  iteration: number;
+  filename: string;
+  acquired_at: string | null;
+  z: number | null;
+  pixel_size: number | null;
+  hfw: number | null;
+}
+
+/** GET /app/experiment/items/{name}/stack?role=: the item's images of one role, in iteration order. */
+export interface ItemStack {
+  item: string;
+  role: string;
+  slices: StackSlice[];
 }
 
 export interface Defect {
