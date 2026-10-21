@@ -664,12 +664,8 @@ class AppContext:
     def _not_while_running(self, what: str) -> Optional[Dict[str, Any]]:
         """The refusal while a workflow runs (*what* to do when it has
         stopped), or None."""
-        if self._running:
-            return {
-                "error_type": "task_running",
-                "error": f"A workflow is running; {what} when it has stopped.",
-            }
-        return None
+        why = self._runner.run_refusal(what)
+        return {"error_type": "task_running", "error": why} if why else None
 
     def _busy(self, why: str) -> Optional[Dict[str, Any]]:
         """A run_edits refusal as the routes answer it, or None."""
