@@ -91,23 +91,19 @@ def refusal(work: Path, checkout: Path) -> Optional[str]:
     return None
 
 
-def describe(work: Optional[Path]) -> List[str]:
-    """What fibsem-agent says at start about code mode: on or off, and where
-    the agent's code can write and read."""
-    if work is None:
-        if sys.platform == "win32":
-            why = "code mode needs a sandbox, which Windows doesn't have"
-        else:
-            why = "fibsem-agent --code [PATH] gives it them, sandboxed"
-        return [f"Code mode: off. The agent has no shell or file tools ({why})."]
+def describe(work: Optional[Path]) -> str:
+    """Code mode in fibsem-agent's start status."""
+    if work is not None:
+        return f"Available in {work} (sandboxed)"
+    if sys.platform == "win32":
+        return "Not available (no sandbox on Windows)"
+    return "Off (--code to turn it on)"
+
+
+def details() -> List[str]:
+    """For the log: what the agent's code reads, and its Python."""
     readonly = ", ".join(str(path) for path in readable())
-    return [
-        f"Code mode: on. The agent writes and runs code in {work}, sandboxed.",
-        f"  It reads that folder, and {readonly} read only.",
-        "  No network: its code can't reach the App Server or the web; the "
-        "fibsem tools still can.",
-        f"  Its code runs with {sys.executable}.",
-    ]
+    return [f"Code reads, read only: {readonly}", f"Code runs with {sys.executable}"]
 
 
 def _rule(path: Path) -> str:

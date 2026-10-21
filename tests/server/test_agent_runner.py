@@ -342,13 +342,29 @@ def test_fibsem_agent_says_whether_code_mode_is_on(tmp_path, monkeypatch):
     from fibsem.ai.agent import code_mode
 
     monkeypatch.setattr(code_mode.sys, "platform", "darwin")
-    (off,) = code_mode.describe(None)
-    assert off.startswith("Code mode: off") and "--code" in off
+    assert code_mode.describe(None) == "Off (--code to turn it on)"
+    assert code_mode.describe(tmp_path) == f"Available in {tmp_path} (sandboxed)"
     monkeypatch.setattr(code_mode.sys, "platform", "win32")
-    assert "Windows" in code_mode.describe(None)[0]
-    on = "\n".join(code_mode.describe(tmp_path))
-    assert on.startswith("Code mode: on") and str(tmp_path) in on
-    assert sys.executable in on and "No network" in on
+    assert code_mode.describe(None).startswith("Not available")
+
+
+def test_fibsem_agent_starts_with_its_status(tmp_path):
+    import argparse
+
+    args = argparse.Namespace(
+        url=None,
+        model=None,
+        goal="mill 01",
+        max_budget_usd=5.0,
+        max_turns=40,
+        resume=None,
+    )
+    lines = runner_mod.status(args, tmp_path, tmp_path / "a.log", tmp_path / "w")
+    rows = dict(line.split(":", 1) for line in lines)
+    assert rows["Goal"].strip() == "mill 01"
+    assert rows["Session"].strip() == "new"
+    assert rows["Code"].strip().startswith("Available in")
+    assert len({line.index(line.split()[1]) for line in lines}) == 1, "aligned"
 
 
 def test_code_with_no_path_is_the_current_folder(tmp_path, monkeypatch):

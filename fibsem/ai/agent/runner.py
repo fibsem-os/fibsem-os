@@ -928,6 +928,28 @@ def _default_log() -> Path:
     return Path.home() / ".fibsem" / "agent" / f"fibsem-agent-{stamp}.log"
 
 
+def status(args, checkout: Path, log_path: Path, work: Optional[Path]) -> List[str]:
+    """What this run is, at its start: one line each."""
+    from fibsem import __version__
+
+    rows = [
+        ("fibsem", __version__),
+        ("Server", args.url or "this computer's App Server"),
+        ("Model", args.model or "Claude Code's default"),
+        ("Goal", args.goal or "none: the skills decide"),
+        (
+            "Budget",
+            f"${args.max_budget_usd:g} per run, {args.max_turns} tool calls "
+            "per wake-up",
+        ),
+        ("Session", f"resuming {args.resume}" if args.resume else "new"),
+        ("Skills", str(checkout)),
+        ("Code", code_mode.describe(work)),
+        ("Log", str(log_path)),
+    ]
+    return [f"{label + ':':<9}{value}" for label, value in rows]
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="fibsem-agent",
@@ -1020,11 +1042,12 @@ def main(argv=None) -> int:
     log_path = Path(args.log).expanduser() if args.log else _default_log()
     print_fibsem_logo()
     _log_to(log_path)
-    log.info("fibsem-agent: skills from %s, log %s", checkout, log_path)
+    for line in status(args, checkout, log_path, work):
+        log.info(line)
     if work is not None:
         code_mode.prepare(work, checkout, list(SKILLS))
-    for line in code_mode.describe(work):
-        log.info(line)
+        for line in code_mode.details():
+            log.debug(line)
 
     options = build_options(
         checkout,
