@@ -21,7 +21,7 @@ from fibsem.structures import (
     MicroscopeState,
     Point,
 )
-from fibsem.workflows.outputs import RunFiles
+from fibsem.workflows.outputs import RunFiles, StackSlice
 
 if TYPE_CHECKING:
     from fastapi.responses import JSONResponse
@@ -339,6 +339,14 @@ class TaskOutputs(ItemRead):
     completed_tasks: List[str] = field(default_factory=list)
     # each run in order, with its existing files by role (basenames)
     tasks: List[RunFiles] = field(default_factory=list)
+
+
+@dataclass
+class ItemStack(ItemRead):
+    """The images an item's runs recorded under one role, as a stack."""
+
+    role: Optional[str] = None
+    slices: List[StackSlice] = field(default_factory=list)
 
 
 @dataclass

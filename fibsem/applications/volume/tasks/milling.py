@@ -12,12 +12,16 @@ from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning.patterns import RectanglePattern
 from fibsem.milling.tasks import FibsemMillingTaskConfig, run_milling_task
 from fibsem.structures import (
+    BeamType,
     CrossSectionPattern,
     FibsemMillingSettings,
     distance_param,
     param,
 )
 from fibsem.workflows.task_config import TaskConfig
+
+# The FIB image the slice's milling kept after it, when its acquisition takes one.
+SLICE_FIB_ROLE = "slice_fib"
 
 
 def slice_milling() -> FibsemMillingTaskConfig:
@@ -90,3 +94,10 @@ class VolumeFIBMillingTask(VolumeTask):
         self._check_for_abort()
         if task.error is not None:
             raise task.error
+        fib_images = [
+            i
+            for i in task.images
+            if i.metadata is not None and i.metadata.beam_type is BeamType.ION
+        ]
+        if fib_images:
+            self.record_output(SLICE_FIB_ROLE, fib_images[-1])

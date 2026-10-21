@@ -16,7 +16,17 @@ from psygnal.containers import EventedDict
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.acting import Actor
-from fibsem.applications.autolamella.history_rows import (
+from fibsem.applications.autolamella.structures import (
+    Experiment,
+    Lamella,
+)
+from fibsem.applications.autolamella.task_outputs import history_images
+from fibsem.applications.autolamella.workflows.tasks.rough import MillRoughTaskConfig
+from fibsem.applications.autolamella.workflows.tasks.select_position import (
+    SelectMillingPositionTaskConfig,
+)
+from fibsem.workflows.event_recording import EVENTS_FILENAME, read_events
+from fibsem.workflows.history_rows import (
     OUTSIDE_A_TASK,
     HistoryFilter,
     filter_runs,
@@ -28,15 +38,6 @@ from fibsem.applications.autolamella.history_rows import (
     run_record,
     shown_images,
 )
-from fibsem.applications.autolamella.structures import (
-    Experiment,
-    Lamella,
-)
-from fibsem.applications.autolamella.workflows.tasks.rough import MillRoughTaskConfig
-from fibsem.applications.autolamella.workflows.tasks.select_position import (
-    SelectMillingPositionTaskConfig,
-)
-from fibsem.workflows.event_recording import EVENTS_FILENAME, read_events
 from fibsem.workflows.proposals import (
     POINT_OF_INTEREST,
     Decision,
@@ -83,7 +84,11 @@ def test_a_real_run_reads_back_as_one_row_per_run_with_its_alignment(tmp_path):
         lamella.milling_pose = microscope.get_microscope_state()
 
         run_lamellae(microscope, exp, [SETUP, ROUGH])
-        rows = history_rows(lamella, read_events(Path(exp.path) / EVENTS_FILENAME))
+        rows = history_rows(
+            lamella,
+            read_events(Path(exp.path) / EVENTS_FILENAME),
+            history_images(lamella),
+        )
     finally:
         microscope.disconnect()
 
@@ -159,7 +164,11 @@ def test_a_task_run_twice_keeps_both_runs_images_in_their_own_folders(tmp_path):
 
         run_lamellae(microscope, exp, [SETUP])
         run_lamellae(microscope, exp, [SETUP])
-        rows = history_rows(lamella, read_events(Path(exp.path) / EVENTS_FILENAME))
+        rows = history_rows(
+            lamella,
+            read_events(Path(exp.path) / EVENTS_FILENAME),
+            history_images(lamella),
+        )
     finally:
         microscope.disconnect()
 
@@ -220,7 +229,7 @@ def test_a_rerun_takes_the_reference_images_it_wrote_over(tmp_path):
         _run(ROUGH, "second", 10, final_fib=[ref]),
     ]
 
-    first, second = history_rows(lamella, [])
+    first, second = history_rows(lamella, [], history_images(lamella))
 
     assert first.images == [] and first.images_replaced_by == "second"
     assert second.images == [str(lamella.path / ref)]
@@ -237,7 +246,7 @@ def test_a_failed_run_does_not_borrow_an_earlier_runs_images(tmp_path):
         _run(ROUGH, "broke", 10, status=TaskStatus.Failed),
     ]
 
-    ok, broke = history_rows(lamella, [])
+    ok, broke = history_rows(lamella, [], history_images(lamella))
 
     assert ok.images == [str(lamella.path / ref)]
     assert broke.images == [] and broke.status is TaskStatus.Failed
@@ -250,7 +259,7 @@ def test_an_experiment_from_before_recorded_outputs_still_shows_its_images(tmp_p
     ref = _image(lamella, f"ref_{ROUGH}_final_res_01_ib.tif")
     lamella.task_history = [_run(ROUGH, "a", 0), _run(ROUGH, "b", 10)]
 
-    a, b = history_rows(lamella, [])
+    a, b = history_rows(lamella, [], history_images(lamella))
 
     assert a.images == [] and b.images == [str(lamella.path / ref)]
     assert a.images_replaced_by == "b"
@@ -261,7 +270,11 @@ def test_the_run_still_going_is_a_row(tmp_path):
     lamella.task_history = [_run(SETUP, "done", 0)]
     lamella.task_state = _run(ROUGH, "now", 10, status=TaskStatus.InProgress)
 
-    rows = history_rows(lamella, [_event(lamella, "now", "alignment", results=[])])
+    rows = history_rows(
+        lamella,
+        [_event(lamella, "now", "alignment", results=[])],
+        history_images(lamella),
+    )
 
     assert [(r.task_name, r.status) for r in rows] == [
         (SETUP, TaskStatus.Completed),
@@ -306,7 +319,7 @@ def test_each_operation_says_how_it_ended(tmp_path):
         ),
     ]
 
-    (run,) = history_rows(lamella, events)
+    (run,) = history_rows(lamella, events, history_images(lamella))
 
     # in the order they started; all end at once, and only one says when it began
     assert [(op.status, op.detail) for op in run.operations] == [
@@ -357,7 +370,7 @@ def test_an_expanded_operation_lists_each_step_and_why_it_stopped(tmp_path):
         ),
     ]
 
-    (run,) = history_rows(lamella, events)
+    (run,) = history_rows(lamella, events, history_images(lamella))
     align, failed, focus = run.operations
 
     assert operation_facts(align) == [
@@ -382,7 +395,9 @@ def test_only_this_lamellas_operations_are_its_own(tmp_path):
     unstamped = dict(_event(lamella, "r", "alignment"), task=None)
     not_an_operation = _event(lamella, "r", "stage_moved")
 
-    run, outside = history_rows(lamella, [other, unstamped, not_an_operation])
+    run, outside = history_rows(
+        lamella, [other, unstamped, not_an_operation], history_images(lamella)
+    )
 
     assert run.operations == []
     # no task ran it: a row of its own, not the run's (FIB-1375)
@@ -409,7 +424,7 @@ def test_operations_outside_a_task_are_a_row_per_session_among_the_runs(tmp_path
         _outside(lamella, 30, session="s2"),
     ]
 
-    rows = history_rows(lamella, events)
+    rows = history_rows(lamella, events, history_images(lamella))
 
     assert [row.task_name for row in rows] == [
         SETUP,
@@ -450,7 +465,7 @@ def test_an_image_saved_in_the_lamellas_folder_outside_a_task_is_on_its_row(
         ),
     ]
 
-    setup, first, second = history_rows(lamella, events)
+    setup, first, second = history_rows(lamella, events, history_images(lamella))
 
     assert first.images == [stack] and len(first.operations) == 1
     assert first.ended_at == T0 + timedelta(minutes=11)
@@ -469,7 +484,11 @@ def _runs(tmp_path):
         _run(ROUGH, "r1", 10, status=TaskStatus.Failed),
         _run(ROUGH, "r2", 20, status=TaskStatus.Cancelled),
     ]
-    return history_rows(lamella, [_event(lamella, "r1", "alignment", results=[])])
+    return history_rows(
+        lamella,
+        [_event(lamella, "r1", "alignment", results=[])],
+        history_images(lamella),
+    )
 
 
 @pytest.mark.parametrize(
@@ -521,7 +540,7 @@ def test_decided_by_keeps_the_runs_whose_proposals_they_decided(tmp_path):
         _decided("r1", "agent:claude", "operator:pat"),
         _decided("r2", "task:Rough Milling", withdrawn=True),
     ]
-    runs = history_rows(lamella, [])
+    runs = history_rows(lamella, [], history_images(lamella))
 
     def kept(**flt):
         return [r.task_id for r in filter_runs(runs, HistoryFilter(**flt))]
@@ -633,7 +652,7 @@ def test_a_mill_says_how_it_ended_and_each_stage_is_a_line(tmp_path):
     for event, minute in zip(events, (4, 6, 8, 9)):
         event["t"] = _at(minute)
 
-    (run,) = history_rows(lamella, events)
+    (run,) = history_rows(lamella, events, history_images(lamella))
 
     assert [(op.label, op.status, op.detail) for op in run.operations] == [
         ("Mill", "completed", "2 stages"),
@@ -665,7 +684,7 @@ def test_a_mill_comes_before_an_alignment_it_started_before(tmp_path):
     mill = _event(lamella, "r", "milling", status="completed", started_at=_at(1))
     mill["t"] = _at(3)
 
-    (run,) = history_rows(lamella, [drift, mill])
+    (run,) = history_rows(lamella, [drift, mill], history_images(lamella))
 
     assert [op.label for op in run.operations] == ["Mill", "Align (Rough Mill 01)"]
 
@@ -713,7 +732,9 @@ def test_each_stage_s_drift_correction_folds_under_its_mill(tmp_path):
     second = _drift(lamella, "Rough Mill 02", _at(2, 1), _at(2, 4))
     after = _drift(lamella, "something later", _at(4), _at(4, 5))
 
-    (run,) = history_rows(lamella, [own, first, second, _mill(lamella), after])
+    (run,) = history_rows(
+        lamella, [own, first, second, _mill(lamella), after], history_images(lamella)
+    )
 
     # the task's own alignment and one after the mill keep their lines
     assert [op.label for op in run.operations] == [
@@ -736,7 +757,9 @@ def test_a_drift_correction_on_a_stage_boundary_goes_to_the_stage_it_starts(tmp_
     first = _drift(lamella, "Rough Mill 01", _at(1), _at(1, 4))
     second = _drift(lamella, "Rough Mill 02", _at(2), _at(2, 4))
 
-    (run,) = history_rows(lamella, [first, second, _mill(lamella)])
+    (run,) = history_rows(
+        lamella, [first, second, _mill(lamella)], history_images(lamella)
+    )
 
     (mill,) = run.operations
     one, two = milling_stages(mill)
@@ -760,10 +783,10 @@ def test_a_drift_correction_that_went_wrong_shows_on_the_folded_line(tmp_path):
     )
     failed["t"] = _at(2, 2)
 
-    (run,) = history_rows(lamella, [weak, _mill(lamella)])
+    (run,) = history_rows(lamella, [weak, _mill(lamella)], history_images(lamella))
     assert run.operations[0].detail == "2 stages · alignment too weak at Rough Mill 01"
 
-    (run,) = history_rows(lamella, [failed, _mill(lamella)])
+    (run,) = history_rows(lamella, [failed, _mill(lamella)], history_images(lamella))
     assert run.operations[0].detail == "2 stages · alignment failed at Rough Mill 02"
 
 
@@ -775,7 +798,7 @@ def test_a_mill_that_did_not_complete_does_not_add_the_drift(tmp_path):
     mill = _mill(lamella, status="failed", error="RuntimeError: rejected")
     mill["payload"]["stages"][1]["status"] = "failed"
 
-    (run,) = history_rows(lamella, [first, mill])
+    (run,) = history_rows(lamella, [first, mill], history_images(lamella))
 
     (only,) = run.operations
     assert only.detail == "failed at Rough Mill 02: RuntimeError: rejected"
@@ -803,7 +826,7 @@ def test_an_fm_autofocus_has_its_duration_and_figure(tmp_path):
         path=str(saved),
     )
 
-    (run,) = history_rows(lamella, [event])
+    (run,) = history_rows(lamella, [event], history_images(lamella))
 
     (op,) = run.operations
     assert op.label == "Autofocus (FM)" and op.detail == "objective +2.00 µm"
@@ -821,7 +844,7 @@ def test_a_strategy_with_only_facts_says_them_on_its_stage_s_line(tmp_path):
     for stage in mill["payload"]["stages"]:
         stage["strategy"] = {"name": "Standard", "facts": {"Pattern": "Trench"}}
 
-    (run,) = history_rows(lamella, [mill])
+    (run,) = history_rows(lamella, [mill], history_images(lamella))
 
     (op,) = run.operations
     assert op.detail == "2 stages"
@@ -844,7 +867,7 @@ def test_a_strategy_that_says_why_it_stopped_has_its_own_line(tmp_path):
         "figure": str(summary),
     }
 
-    (run,) = history_rows(lamella, [mill])
+    (run,) = history_rows(lamella, [mill], history_images(lamella))
 
     (op,) = run.operations
     # folded, the line still says why it stopped
@@ -881,7 +904,7 @@ def test_each_monitor_says_its_facts_under_its_stage(tmp_path):
         for n in range(2)
     ]
 
-    (run,) = history_rows(lamella, [mill])
+    (run,) = history_rows(lamella, [mill], history_images(lamella))
 
     one, two = milling_stages(run.operations[0])
     assert [(m.name, m.said, m.figure) for m in one.monitors] == [
@@ -901,7 +924,7 @@ def test_a_stage_without_monitors_lists_none(tmp_path):
     mill = _mill(lamella)
     mill["payload"]["stages"][0]["steps"] = [{"index": 0, "monitors": []}]
 
-    (run,) = history_rows(lamella, [mill])
+    (run,) = history_rows(lamella, [mill], history_images(lamella))
 
     assert all(not s.monitors for s in milling_stages(run.operations[0]))
 
@@ -929,7 +952,9 @@ def test_a_run_that_went_to_plan_folds(tmp_path):
     disagree = {"agreement": False, "max_disagreement_px": 9.0}
 
     (run,) = history_rows(
-        lamella, [_aligned(lamella, 0, validation=disagree), _mill(lamella)]
+        lamella,
+        [_aligned(lamella, 0, validation=disagree), _mill(lamella)],
+        history_images(lamella),
     )
 
     assert operations_summary(run) == "2 operations · all completed"
@@ -943,7 +968,7 @@ def test_a_run_that_did_not_opens_and_says_what(tmp_path):
     skipped = _event(lamella, "r", "alignment", status="skipped", reason="no image")
     failed = _mill(lamella, status="failed", error="RuntimeError: rejected")
 
-    (run,) = history_rows(lamella, [skipped, failed])
+    (run,) = history_rows(lamella, [skipped, failed], history_images(lamella))
 
     assert operations_summary(run) == "2 operations · 1 failed · 1 skipped"
     assert operations_need_a_look(run)
@@ -955,7 +980,7 @@ def test_a_weak_or_failed_alignment_opens_its_run(tmp_path):
     lamella.task_history = [_run(ROUGH, "r", 0)]
     weak = _aligned(lamella, 0)
     weak["payload"]["results"][0]["success"] = False
-    (run,) = history_rows(lamella, [weak, _mill(lamella)])
+    (run,) = history_rows(lamella, [weak, _mill(lamella)], history_images(lamella))
     assert operations_need_a_look(run)
 
     in_stage = _event(
@@ -967,6 +992,10 @@ def test_a_weak_or_failed_alignment_opens_its_run(tmp_path):
         started_at=_at(1, 1),
     )
     in_stage["t"] = _at(1, 2)
-    (run,) = history_rows(lamella, [_aligned(lamella, 0), in_stage, _mill(lamella)])
+    (run,) = history_rows(
+        lamella,
+        [_aligned(lamella, 0), in_stage, _mill(lamella)],
+        history_images(lamella),
+    )
     assert len(run.operations) == 2  # the failed one is under its stage
     assert operations_need_a_look(run)

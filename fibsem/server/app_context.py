@@ -24,6 +24,7 @@ from fibsem.server.responses import (
     HistoryRow,
     ImagePayload,
     ItemDetail,
+    ItemStack,
     PixelPoint,
     Queue,
     QueueEntry,
@@ -45,7 +46,7 @@ from fibsem.workflows.experiments import (
     discover_experiments,
     filter_experiments,
 )
-from fibsem.workflows.outputs import files_by_run
+from fibsem.workflows.outputs import files_by_run, recorded_outputs, stack_slices
 from fibsem.workflows.runner import ITEMS, RunRequest, stop_message
 from fibsem.workflows.session import CONFIG, PROTOCOL
 from fibsem.workflows.status import TaskStatus
@@ -412,6 +413,73 @@ class AppContext:
             ],
             tasks=files_by_run(experiment.item_path(item), history),
         )
+
+    def item_stack(self, item_name: str, role: str) -> ItemStack:
+        """The images an item's runs recorded under *role*, in iteration
+        order: a volume position's slices, scrubbed as one stack."""
+
+        def read(experiment, item) -> ItemStack:
+            slices = stack_slices(experiment.item_path(item), item.task_history, role)
+            for entry in slices:
+                entry.z = self.slice_depth(item, entry.iteration)
+            return ItemStack(
+                available=True, item_name=item.name, role=role, slices=slices
+            )
+
+        return self.item_read(item_name, read, ItemStack)
+
+    def slice_depth(self, item, iteration: Optional[int]) -> Optional[float]:
+        """How far into *item* its *iteration* cut, in metres; None when the
+        app doesn't slice."""
+        return None
+
+    def item_history(
+        self, item_name: str, flt: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """The item's History, as the Qt tab builds it: one record per task run
+        (and per session's operations outside a task), with its shown images
+        and operations, through the tab's filter. ``tasks`` names every task
+        the item ran, for a task filter; ``total`` counts the runs unfiltered."""
+        from pathlib import Path
+
+        from fibsem.workflows.event_recording import EVENTS_FILENAME, read_new_events
+        from fibsem.workflows.history_rows import (
+            OPERATION_KINDS,
+            HistoryFilter,
+            filter_runs,
+            history_rows,
+            run_record,
+        )
+
+        experiment = self._experiment
+        if experiment is None:
+            return {"available": False, "item_name": item_name}
+        item, refusal = find_item(experiment, item_name)
+        if refusal:
+            return {"available": False, "item_name": item_name, **refusal}
+        path = Path(experiment.path) / EVENTS_FILENAME
+        events: List[Dict[str, Any]] = []
+        if path.is_file():
+            events, _ = read_new_events(path, 0, OPERATION_KINDS)
+        runs = history_rows(item, events, self.history_images(experiment, item))
+        shown = HistoryFilter.from_dict(flt)
+        return {
+            "available": True,
+            "item_name": item.name,
+            "filter": shown.to_dict(),
+            "tasks": list(dict.fromkeys(run.task_name for run in runs)),
+            "total": len(runs),
+            "runs": [
+                run_record(run, str(experiment.path))
+                for run in filter_runs(runs, shown)
+            ],
+        }
+
+    def history_images(self, experiment, item):
+        """``history_rows``' ``run_images``: what a History row shows for a
+        run. Every file the run recorded; an app narrows it."""
+        root = experiment.item_path(item)
+        return lambda run, fallback: recorded_outputs(root, [run], *run.outputs)
 
     def run_summary(self) -> Dict[str, Any]:
         """The most recent run's outcome table, if a run has happened."""
