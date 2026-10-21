@@ -4,7 +4,9 @@ call raises what the local call would: the remote driver's, and the client's
 
 from typing import Any, Callable, Dict, Optional
 
+from fibsem.acting import ActorKind
 from fibsem.cancellation import NothingToStop, OperationCancelledError
+from fibsem.control import InControl, MicroscopeBusy
 from fibsem.devices.core import (
     DeviceFault,
     ParameterReadOnly,
@@ -46,6 +48,10 @@ def error_from(
         return DeviceFault(message, device=detail.get("device"))
     if kind == "ResourceBusy":
         return ResourceBusy(detail.get("resource"), detail.get("holder"), message)
+    if kind == "microscope_busy":
+        held = detail.get("in_control") or {}
+        by = ActorKind(held.get("by", ActorKind.operator.value))
+        return MicroscopeBusy(InControl(by, held.get("action", ""), since=0.0))
     if kind in _ERRORS:
         return _ERRORS[kind](message)
     return None
