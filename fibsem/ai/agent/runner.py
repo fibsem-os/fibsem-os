@@ -33,36 +33,60 @@ BASE_SKILL = "autolamella-agent"
 SKILLS = (BASE_SKILL,) + tuple(LEVEL_SKILLS.values())
 
 SERVER = "fibsem"
+# The specialists a Run Lead calls (supervise-autolamella, lead mode): the
+# checkout's .claude/agents, each with its own tool list.
+SPECIALISTS = (
+    "autolamella-verifier",
+    "autolamella-investigator",
+    "autolamella-auditor",
+)
 # The server's level gate decides what the fibsem tools may do, so they need no
 # prompt; ToolSearch only finds them.
-ALLOWED_TOOLS = [f"mcp__{SERVER}__*", "ToolSearch"]
-# The only built-in tools the agent has: reading its skills, and finding the
-# sidecar's tools when the CLI defers them.
-BUILT_IN_TOOLS = ["Skill", "ToolSearch"]
-# Named as well, so a CLI that adds one back still refuses it.
+ALLOWED_TOOLS = [f"mcp__{SERVER}__*", "ToolSearch"] + [
+    f"Agent({name})" for name in SPECIALISTS
+]
+# The only built-in tools the agent has: reading its skills, finding the
+# sidecar's tools when the CLI defers them, and calling a specialist.
+BUILT_IN_TOOLS = ["Skill", "ToolSearch", "Agent"]
+# Named as well, so a CLI that adds one back still refuses it: a specialist
+# that lists a tool gets it unless it is denied here. The CLI's own agents
+# would carry every fibsem tool, without a specialist's limits.
 DENIED_TOOLS = [
     "Bash",
     "Read",
+    "Grep",
+    "Glob",
     "Write",
     "Edit",
     "MultiEdit",
     "NotebookEdit",
     "WebFetch",
     "WebSearch",
-    "Agent",
+    "Agent(claude)",
+    "Agent(general-purpose)",
+    "Agent(Explore)",
+    "Agent(Plan)",
+    "Agent(statusline-setup)",
+    "Agent(claude-code-guide)",
 ]
 # Nothing waits on a permission prompt: what is not allowed above is denied.
 PERMISSION_MODE = "dontAsk"
+EFFORTS = ("low", "medium", "high", "xhigh", "max")
+# The agent's own reasoning effort; each specialist sets its own.
+EFFORT = "high"
 
 # The model can't answer until someone fixes the sign-in or the account, so
 # waiting for the next wake-up would wait for ever.
 FATAL_ERRORS = {"authentication_failed", "billing_error"}
 
-# The CLI's environment: no CLAUDE.md (the checkout's is developer guidance)
-# and no auto memory from a developer's sessions in the same folder.
+# The CLI's environment: no CLAUDE.md (the checkout's is developer guidance),
+# no auto memory from a developer's sessions in the same folder, and no
+# background tasks: a specialist answers inside the turn that called it, and
+# one the CLI ran in the background would answer after the turn had ended.
 CLI_ENV = {
     "CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1",
     "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
+    "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
 }
 
 MAX_TURNS = 40  # tool calls per wake-up
@@ -78,8 +102,9 @@ interactive Claude Code session. Nobody is at a terminal.
 arrives as your next message, starting "The watcher printed:". Don't start a \
 watcher, don't loop app_get_events, and don't wait inside a turn: do what the \
 lines call for, then end your turn.
-- Your tools are the mcp__fibsem__* tools and Skill. There is no shell, no \
-file access and no web. Where a skill shows curl, python or a script, use the \
+- Your tools are the mcp__fibsem__* tools, Skill, and Agent for the \
+autolamella-* agents only. There is no shell, no file access and no web, for \
+you or for them. Where a skill shows curl, python or a script, use the \
 matching mcp__fibsem__ tool, or say what you can't do.
 - Your replies go to fibsem-agent's console and log, which the operator may \
 not be reading. Anything the operator must see goes on the record with \
@@ -832,6 +857,7 @@ def build_options(
     max_turns: Optional[int] = MAX_TURNS,
     max_budget_usd: Optional[float] = MAX_BUDGET_USD,
     resume: Optional[str] = None,
+    effort: Optional[str] = EFFORT,
 ):
     """The SDK session: the sidecar as the only MCP server, the project's
     skills and nothing of the user's Claude Code config."""
@@ -870,6 +896,7 @@ def build_options(
         max_turns=max_turns,
         max_budget_usd=max_budget_usd,
         model=model,
+        effort=effort,
         resume=resume,
         stderr=lambda line: log.debug("claude: %s", line.rstrip()),
     )
@@ -917,6 +944,13 @@ def main(argv=None) -> int:
         "--goal",
         default=None,
         help="what the agent is to do, in a sentence; the app shows it",
+    )
+    parser.add_argument(
+        "--effort",
+        choices=EFFORTS,
+        default=EFFORT,
+        help=f"the agent's reasoning effort (default {EFFORT}); each "
+        "specialist sets its own",
     )
     parser.add_argument(
         "--max-turns",
@@ -985,6 +1019,7 @@ def main(argv=None) -> int:
         max_turns=args.max_turns,
         max_budget_usd=args.max_budget_usd,
         resume=args.resume,
+        effort=args.effort,
     )
     agent = SdkAgent(options)
     runner = Runner(
