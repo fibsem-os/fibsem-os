@@ -166,8 +166,12 @@ def settings(work: Path, environ: Mapping[str, str]) -> dict:
             # Sandboxed is what makes a command safe to run unasked.
             "autoAllowBashIfSandboxed": True,
             "network": {"allowedDomains": []},
-            # Read only: writes stay in ``work``.
-            "filesystem": {"allowRead": [str(path) for path in readable()]},
+            "filesystem": {
+                # Read only: writes stay in ``work``.
+                "allowRead": [str(path) for path in readable()],
+                # Not even there: the CLI reads its settings and hooks from it.
+                "denyWrite": [str(work / ".claude")],
+            },
             "credentials": {
                 "envVars": [{"name": name, "mode": "deny"} for name in secrets(environ)]
             },
@@ -194,13 +198,17 @@ def prepare(
 ) -> None:
     """Make ``work`` ready: the agent's skills and specialists copied in from
     the checkout (the CLI reads them from its working folder) and the
-    notebook."""
+    notebook. Its ``.claude`` is rebuilt every start, so nothing else there
+    (a settings file with hooks) outlives a session."""
     work.mkdir(parents=True, exist_ok=True)
-    target = work / ".claude" / "skills"
+    claude = work / ".claude"
+    if claude.is_symlink() or claude.is_file():
+        claude.unlink()
+    elif claude.exists():
+        shutil.rmtree(claude)
+    target = claude / "skills"
     target.mkdir(parents=True, exist_ok=True)
     for name in skills:
-        if (target / name).exists():
-            shutil.rmtree(target / name)
         shutil.copytree(checkout / ".claude" / "skills" / name, target / name)
     if agents:
         (work / ".claude" / "agents").mkdir(exist_ok=True)
