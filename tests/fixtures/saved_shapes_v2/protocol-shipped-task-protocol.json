@@ -665,7 +665,7 @@
         "select_poi": true,
         "sync_fiducial_position": true,
         "sync_fluorescence_pose": false,
-        "use_autofocus": true
+        "use_autofocus": false
       },
       "reference_imaging": {
         "acquire_fib": true,
