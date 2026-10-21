@@ -55,7 +55,9 @@ def build_pairing_router(auth: AuthConfig) -> APIRouter:
         token, with the role pairing was opened for."""
         try:
             computer, token = _pairing(auth).pair(
-                str(body.get("code", "")), str(body.get("name", ""))
+                str(body.get("code", "")),
+                str(body.get("name", "")),
+                str(body.get("browser", "")),
             )
         except PairingRefused as refusal:
             raise _refused(403, refusal.error_type, str(refusal)) from None

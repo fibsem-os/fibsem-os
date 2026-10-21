@@ -20,7 +20,7 @@ function Shell() {
     <div className="flex h-full flex-col md:flex-row">
       <Rail page={page} go={go} openSettings={() => setSettings(true)} />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <TopLine />
+        <TopLine go={go} />
         <div className="min-h-0 flex-1 overflow-auto">
           {page === "microscope" && <MicroscopePage />}
           {page === "experiment" && <ExperimentPage />}

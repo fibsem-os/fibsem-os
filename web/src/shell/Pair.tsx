@@ -8,6 +8,21 @@ interface Paired {
   id: string;
 }
 
+/** This browser's own id, made once and kept: pairing it again replaces its
+ * old row in Settings rather than adding one. */
+function browserId(): string {
+  try {
+    let id = localStorage.getItem("fibsem-browser-id");
+    if (!id) {
+      id = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
+      localStorage.setItem("fibsem-browser-id", id);
+    }
+    return id;
+  } catch {
+    return "";
+  }
+}
+
 /** No token: pair this browser with the code the microscope PC shows. */
 export function Pair({ note }: { note?: string }) {
   const can = useQuery({
@@ -23,7 +38,7 @@ export function Pair({ note }: { note?: string }) {
     event.preventDefault();
     if (!code.trim()) return;
     try {
-      const answer = await unauthed<Paired>("/pair", { code: code.trim(), name: name.trim() });
+      const answer = await unauthed<Paired>("/pair", { code: code.trim(), name: name.trim(), browser: browserId() });
       try {
         localStorage.setItem("fibsem-paired-id", answer.id);
       } catch {

@@ -53,6 +53,21 @@ body {
   font-size: 14px;
 }
 
-* {
-  border-color: var(--border);
+/* In the base layer, so a border colour utility (border-primary) wins over it. */
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+}
+
+/* The agent chip while the agent acts on the microscope: its purple fill
+   fades from Driving's solid to Assisting's tint and back, as the Qt chip does. */
+@keyframes agent-pulse {
+  0%,
+  100% {
+    background-color: var(--fibsem-purple-color);
+  }
+  50% {
+    background-color: color-mix(in srgb, var(--fibsem-purple-color) 35%, transparent);
+  }
 }

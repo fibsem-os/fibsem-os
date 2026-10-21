@@ -18,6 +18,44 @@ export function imageKind(path: string, beam?: unknown): string {
   return "Image";
 }
 
+function clock(iso: unknown): string {
+  if (typeof iso !== "string") return "";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+}
+
+/** One line under a preview, as the Qt image bar says it: the beam or the
+ * channels, field width, pixel size, dwell or exposure, the time, and for FM
+ * the z planes and their step. */
+export function metaLine(path: string, summary: Record<string, unknown> | undefined): string {
+  if (!summary) return "";
+  const shape = summary.shape as number[] | undefined;
+  const pixel = summary.pixel_size as number | null | undefined;
+  const width = (summary.hfw as number | null | undefined) ?? (pixel && shape ? pixel * shape[1] : null);
+  const fm = summary.fm as StackFacts | undefined;
+  const parts: string[] = [];
+  if (fm) {
+    const exposures = [...new Set(fm.channels.map((c) => c.exposure_time).filter((e): e is number => e != null))];
+    parts.push(
+      fm.channels.map((c) => (c.excitation_wavelength != null ? `${c.excitation_wavelength} nm` : c.name)).join(", "),
+      fmt.length(width),
+      pixel ? `${fmt.length(pixel)}/px` : "",
+      exposures.length === 1 ? `${fmt.seconds(exposures[0])} exposure` : "",
+      `${fm.z_planes} ${fm.z_planes === 1 ? "plane" : "planes"}${fm.z_step != null ? ` × ${fmt.length(fm.z_step)}` : ""}`,
+      clock(fm.acquired_at),
+    );
+  } else {
+    const beam = (summary.beam ?? {}) as Record<string, number | null>;
+    parts.push(
+      fmt.length(width),
+      pixel ? `${fmt.length(pixel)}/px` : "",
+      beam.dwell_time ? `${fmt.seconds(beam.dwell_time)} dwell` : "",
+      clock(summary.acquired_at),
+    );
+  }
+  return [imageKind(path, summary.beam_type), ...parts.filter((p) => p && p !== "–")].join(" · ");
+}
+
 export function Legend({ fm }: { fm: StackFacts }) {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px]">
@@ -51,7 +89,7 @@ export function Thumb({ path, onOpen }: { path: string; onOpen: () => void }) {
         {p && <img className="block size-full object-contain" alt={kind} src={`data:image/jpeg;base64,${p.image_b64_jpeg}`} />}
         {read.error && <span className="text-[12px] text-muted-foreground">Not readable</span>}
       </button>
-      <figcaption className="text-[12px] text-muted-foreground">{kind} Image</figcaption>
+      <figcaption className="text-[12px] text-muted-foreground">{metaLine(path, read.data?.summary) || `${kind} Image`}</figcaption>
     </figure>
   );
 }
