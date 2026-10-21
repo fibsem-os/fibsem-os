@@ -233,7 +233,7 @@ def test_a_file_is_fetched_raw_and_the_fetch_is_recorded(driver, host, reads):
     assert recorded == [
         (
             "experiment_file_read",
-            {"experiment": None, "path": "data/raw.bin", "raw": True},
+            {"path": "data/raw.bin", "raw": True},
         )
     ]
     # A preview read of the open experiment is not recorded.
@@ -267,9 +267,9 @@ def test_a_past_experiment_is_read_by_its_path_and_every_read_recorded(
     assert raw.headers["X-Experiment"] == "first"
     assert [kind for kind, _ in recorded] == ["experiment_file_read"] * 5
     assert recorded[-1][1] == {
-        "experiment": first,
         "path": "experiment.yaml",
         "raw": True,
+        "experiment": first,
     }
     # Nothing that is not an experiment the app knows.
     (places / "loose").mkdir()

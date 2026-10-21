@@ -407,10 +407,10 @@ def build_app_router(context: Any) -> APIRouter:
     def _record_read(experiment, path, raw):
         # A past experiment's every read, and every raw file, go on the record.
         if experiment is not None or raw:
-            context.record_event(
-                "experiment_file_read",
-                {"experiment": experiment, "path": path, "raw": raw},
-            )
+            payload = {"path": path, "raw": raw}
+            if experiment is not None:
+                payload["experiment"] = experiment
+            context.record_event("experiment_file_read", payload)
 
     @router.get("/experiment/files")
     def list_files(dir: str = "", experiment: Optional[str] = None):
