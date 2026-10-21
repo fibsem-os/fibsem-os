@@ -196,7 +196,13 @@ function ModeSection({ state }: { state: GatewayState }) {
               )}
             >
               {m.name}
-              {state.mode === m.mode && m.mode !== "off" && <span className="text-xs text-muted-foreground">running</span>}
+              {state.mode === m.mode && m.mode !== "off" && (
+                <span
+                  title="Running"
+                  aria-label="Running"
+                  className="size-2 shrink-0 self-center rounded-full bg-[var(--fibsem-ok-color)]"
+                />
+              )}
             </button>
           ))}
         </nav>
