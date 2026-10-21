@@ -300,6 +300,26 @@ def build_app_router(context: Any) -> APIRouter:
         # outputs listing names — the context refuses anything else.
         return _jpeg_or_404(context.output_image(item_name, filename))
 
+    @router.get("/experiment/items/{item_name}/history", tags=[LAMELLAE])
+    def item_history(
+        item_name: str,
+        show: Optional[str] = None,
+        status: Optional[str] = None,
+        task: Optional[str] = None,
+        decided_by: Optional[str] = None,
+        order: Optional[str] = None,
+    ):
+        return context.item_history(
+            item_name,
+            {
+                "show": show,
+                "status": status,
+                "task": task,
+                "decided_by": decided_by,
+                "order": order,
+            },
+        )
+
     @router.post("/experiment/items/{item_name}/thickness", tags=[LAMELLAE])
     def measure_thickness(item_name: str, body: Dict[str, Any]):
         # Computed over a saved file, nothing moves; a POST because the result

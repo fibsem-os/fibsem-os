@@ -117,23 +117,26 @@ def list_folder(root: Optional[str], path: str = "") -> Dict[str, Any]:
     }
 
 
-def load_image(path: str) -> Tuple[np.ndarray, Any, Optional[float]]:
+def load_image(
+    path: str,
+) -> Tuple[np.ndarray, Any, Optional[float], Optional[Dict[str, Any]]]:
     """A saved image as something viewable: its data (2-D, or RGB), the
-    FibsemImage it is when it is a beam image (else None), and its pixel size in
-    metres when known.
+    FibsemImage it is when it is a beam image (else None), its pixel size in
+    metres when known, and a fluorescence stack's ``stack_facts`` (else None).
 
     Fluorescence stacks (``.ome.tiff``) composite through the FM canvas's own
     projection, so each channel keeps its colour; TIFFs read as FibsemImages;
     anything else (the PNG thumbnails grid tasks write beside their overviews)
     through PIL. Stacks are max-projected; the alpha channel is dropped.
     """
-    from fibsem.fm.preview import is_fluorescence_image, load_projection
+    from fibsem.fm.preview import is_fluorescence_image, load_stack_preview
     from fibsem.structures import FibsemImage
 
     image = None
     pixel_size = None
+    fm = None
     if is_fluorescence_image(path):
-        data, pixel_size = load_projection(path)
+        data, pixel_size, fm = load_stack_preview(path)
     elif path.lower().endswith((".tif", ".tiff")):
         try:
             image = FibsemImage.load(path)
@@ -159,7 +162,7 @@ def load_image(path: str) -> Tuple[np.ndarray, Any, Optional[float]]:
         data = data.max(axis=0)
     if data.ndim == 3 and data.shape[-1] == 4:
         data = data[..., :3]
-    return data, image, pixel_size
+    return data, image, pixel_size, fm
 
 
 def jpeg_preview(path: str, filename: str, max_width: int = 768) -> Dict[str, Any]:
@@ -168,9 +171,11 @@ def jpeg_preview(path: str, filename: str, max_width: int = 768) -> Dict[str, An
     from fibsem.server.images import image_metadata, preview_jpeg_bytes
 
     try:
-        data, image, _ = load_image(path)
+        data, image, pixel_size, fm = load_image(path)
         jpeg, width, height = preview_jpeg_bytes(data, max_width=max_width)
         metadata = image_metadata(image, path) if image is not None else None
+        if fm is not None:
+            metadata = {"fm": fm, "pixel_size": pixel_size}
         if metadata is not None and metadata["pixel_size"] and width:
             # metres per PREVIEW pixel, as image answers carry it.
             metadata["preview_pixelsize"] = (
@@ -237,7 +242,7 @@ def _image_answer(
 ) -> Dict[str, Any]:
     from fibsem.server.images import array_preview_payload, image_metadata
 
-    data, image, pixel_size = load_image(target)
+    data, image, pixel_size, fm = load_image(target)
     source_shape = list(data.shape)
     region = None
     if box is not None or fraction is not None:
@@ -258,6 +263,8 @@ def _image_answer(
             "pixel_size": pixel_size,
             "path": target,
         }
+        if fm is not None:
+            summary["fm"] = fm
     if region is not None:
         # The region in source pixels; its field width, not the image's.
         preview["region"] = region

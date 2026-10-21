@@ -249,6 +249,48 @@ class AutoLamellaAppContext(AppContext):
         ]
         return outputs
 
+    def item_history(
+        self, item_name: str, flt: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """The item's History, as the Qt tab builds it: one record per task run
+        (and per session's operations outside a task), with its shown images
+        and operations, through the tab's filter. ``tasks`` names every task
+        the item ran, for a task filter; ``total`` counts the runs unfiltered."""
+        from pathlib import Path
+
+        from fibsem.applications.autolamella.history_rows import (
+            OPERATION_KINDS,
+            HistoryFilter,
+            filter_runs,
+            history_rows,
+            run_record,
+        )
+        from fibsem.workflows.event_recording import EVENTS_FILENAME, read_new_events
+
+        experiment = self._experiment
+        if experiment is None:
+            return {"available": False, "item_name": item_name}
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
+            return {"available": False, "item_name": item_name, **refusal}
+        path = Path(experiment.path) / EVENTS_FILENAME
+        events: List[Dict[str, Any]] = []
+        if path.is_file():
+            events, _ = read_new_events(path, 0, OPERATION_KINDS)
+        runs = history_rows(lamella, events)
+        shown = HistoryFilter.from_dict(flt)
+        return {
+            "available": True,
+            "item_name": lamella.name,
+            "filter": shown.to_dict(),
+            "tasks": list(dict.fromkeys(run.task_name for run in runs)),
+            "total": len(runs),
+            "runs": [
+                run_record(run, str(experiment.path))
+                for run in filter_runs(runs, shown)
+            ],
+        }
+
     def output_image(
         self, item_name: str, filename: str, max_width: int = 768
     ) -> Dict[str, Any]:
