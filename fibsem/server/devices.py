@@ -109,6 +109,7 @@ from fibsem.devices.wire import (
     FRAMES_MEDIA_TYPE,
     NPY_MEDIA_TYPE,
     Frame,
+    command_kwargs,
     decode_argument,
     decode_kwargs,
     frames_to_bytes,
@@ -762,7 +763,7 @@ def build_device_router(
             raise HTTPException(404, f"'{device}' has no command '{command}'")
         method = getattr(d, command)
         what = f"{noun} {device}.{command}"
-        kwargs = run(lambda: decode_kwargs(method, body.get("kwargs", {})), what)
+        kwargs = run(lambda: command_kwargs(method, body), what)
         if paths is not None:
             kwargs = paths(kwargs)
         check(d, "command", command, kwargs)

@@ -15,7 +15,7 @@ from pydantic import PydanticSchemaGenerationError
 from fibsem.cancellation import OperationCancelledError
 from fibsem.client.transport import ServerError, Transport, error_for
 from fibsem.codec import decode
-from fibsem.devices.wire import to_wire, type_from_path
+from fibsem.devices.wire import command_body, to_wire, type_from_path
 
 RUN_WAIT_S = 60.0  # the most the server waits on a run in one answer
 RUN_TIMEOUT_S = 3600.0
@@ -169,14 +169,11 @@ class Remote:
         """Run a command: its result, a `FibsemImage` for a beam's image, an array
         for a camera's frame, or a `Run` for a long command. A stop takes a
         *reason*, which the operator reads."""
-        body: Dict[str, Any] = {"kwargs": _wire(kwargs)}
-        if reason is not None:
-            body["reason"] = reason
-            if "reason" in self.commands.get(command, {}).get("arguments", {}).get(
-                "properties", {}
-            ):
-                body["kwargs"]["reason"] = reason  # a command that records it too
-        answer = self._transport.fetch("POST", f"{self.path}/commands/{command}", body)
+        answer = self._transport.fetch(
+            "POST",
+            f"{self.path}/commands/{command}",
+            command_body(_wire(kwargs), reason),
+        )
         if not isinstance(answer, dict):  # an image, an array: data, not JSON
             return answer
         if self.commands.get(command, {}).get("long"):
@@ -186,7 +183,7 @@ class Remote:
     def ask(self, query: str, /, **kwargs: Any) -> Any:
         """Ask a query: a read that takes arguments and moves nothing."""
         answer = self._transport.fetch(
-            "POST", f"{self.path}/queries/{query}", {"kwargs": _wire(kwargs)}
+            "POST", f"{self.path}/queries/{query}", command_body(_wire(kwargs))
         )
         return typed(self.returns(query), answer["result"])
 

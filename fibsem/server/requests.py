@@ -45,6 +45,7 @@ from fibsem.ai.agent.catalog.describe import (
 )
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.codec import encode
+from fibsem.devices.wire import command_body
 from fibsem.server.auth import AuthConfig, lending_drive, require_level
 from fibsem.server.responses import (
     ActionView,
@@ -846,7 +847,7 @@ class RequestStore:
         a service query's answer with *kwargs* (a query moves nothing), such as
         which grid an exchange unloads or how long an overview takes."""
         if "/queries/" in path:
-            method, body = "POST", {"kwargs": kwargs or {}}
+            method, body = "POST", command_body(kwargs)
         elif path.endswith("/workflow/grids/plan"):
             # The grid run's plan: a POST that only reads, its body the run's.
             method, body = "POST", dict(kwargs or {})
