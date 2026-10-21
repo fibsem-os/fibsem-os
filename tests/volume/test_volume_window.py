@@ -213,3 +213,49 @@ def test_the_settings_go_with_the_microscope(window, qapp):
     window.system_widget.connect_to_microscope()  # connected: it disconnects
     qapp.processEvents()
     assert tab.task_editor is None
+
+
+def test_the_positions_tab_scrubs_a_positions_slices(window, qapp):
+    from fibsem.applications.volume.manager import VolumeTaskManager
+
+    from .conftest import set_up_position
+
+    experiment = window.experiment
+    set_up_position(experiment, window.microscope, "aspen", iterations=3)
+    set_up_position(experiment, window.microscope, "birch", iterations=5)
+    milling = experiment.task_protocol.task_config["Volume FIB Milling"]
+    milling.milling.acquisition.acquire_fib = True
+    VolumeTaskManager(microscope=window.microscope, experiment=experiment).execute(
+        ["Volume FIB Milling", "Volume SEM Acquisition"], ["aspen"]
+    )
+
+    tab = window.positions_tab
+    tab.refresh()
+    cards = [tab.list.itemWidget(tab.list.item(i)) for i in range(tab.list.count())]
+    assert [c.name.text() for c in cards] == ["aspen", "birch"]
+    assert [c.slices.text() for c in cards] == ["3 of 3 slices", "0 of 5 slices"]
+    assert not cards[0].thumb.pixmap().isNull()
+    assert cards[1].state.text() == "Not started"
+
+    scrubber = tab.scrubber
+    assert tab.selected == "aspen"
+    # Follow: on the newest slice
+    assert scrubber.index == 2
+    thickness = milling.slice_thickness
+    assert scrubber.readout.text().startswith(
+        f"Slice 3 of 3 · z {2 * thickness * 1e6:.1f} µm"
+    )
+    scrubber.step(-1)
+    assert scrubber.index == 1
+    assert not scrubber.follow.isChecked()
+    assert scrubber.readout.text().startswith("Slice 2 of 3")
+
+    assert not scrubber.fib_button.isHidden()
+    scrubber.fib_button.click()
+    assert [s.filename for s in scrubber.slices][0].endswith("_ib.tif")
+    assert scrubber.index == 1
+
+    tab.list.setCurrentRow(1)
+    assert tab.title.text() == "birch"
+    assert scrubber.slices == []
+    assert scrubber.image.text() == "No slices yet"
