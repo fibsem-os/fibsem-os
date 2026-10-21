@@ -1,0 +1,24 @@
+# The pull request body becomes the squash commit, so it is checked like one: the
+# Release-Note trailer is its last paragraph (git reads no trailer with prose after
+# it) and it carries no AI attribution. Runs on every edit of the body, so a fix is a
+# click away and needs no push.
+
+name: PR body
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+jobs:
+  release-note:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # The body goes in through the environment, never into the shell line.
+      - name: Check the body
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: python .github/scripts/check_pr_body.py
