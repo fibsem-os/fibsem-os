@@ -88,9 +88,7 @@ class VolumeWindow(AppWindow):
     def _create_tabs(self) -> None:
         self.panel = MicroscopePanel(
             self.session,
-            experiment_tab=lambda panel: PositionsPanel(
-                self.session, panel, view_controller=self._view_controller
-            ),
+            experiment_tab=lambda panel: PositionsPanel(self.session, panel),
             view_controller=self._view_controller,
             overview_acquiring=lambda: False,
         )

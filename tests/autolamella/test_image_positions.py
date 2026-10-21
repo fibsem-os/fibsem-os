@@ -10,13 +10,13 @@ from datetime import datetime
 import numpy as np
 import tifffile as tff
 
-from fibsem.applications.autolamella.image_positions import (
+from fibsem.structures import FibsemImage, FibsemStagePosition, MicroscopeState
+from fibsem.workflows.image_positions import (
     PositionMatch,
     compare_positions,
     latest_image_at,
     read_image_position,
 )
-from fibsem.structures import FibsemImage, FibsemStagePosition, MicroscopeState
 
 POSE = FibsemStagePosition(
     x=100e-6, y=-50e-6, z=20e-6, r=0.0, t=math.radians(18), coordinate_system="RAW"
