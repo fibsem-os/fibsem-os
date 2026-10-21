@@ -212,14 +212,27 @@ On the METEOR's Linux PC:
 4. **Serve the FM:**
 
    ```bash
-   python -m fibsem.server.devices --serve odemis-fm --host 0.0.0.0 --port 8765
+   python -m fibsem.server.devices --serve odemis-fm --port 8765
    ```
 
-   If odemis cannot be imported or does not answer, this stops with a message
-   saying which. From the support PC, `http://<METEOR PC address>:8765/health`
-   should report `"ok": true`.
+   It listens on this PC only (`127.0.0.1`). The support PC reaches it through
+   an SSH tunnel, which encrypts the traffic:
 
-5. **Open the port to the support PC only**, for example with `ufw`:
+   ```bash
+   ssh -N -L 8765:localhost:8765 <user>@<METEOR PC address>   # on the support PC
+   ```
+
+   and its FM entry names `address: 127.0.0.1`. When the two PCs are cabled
+   to each other with nothing else on that link, `--host <METEOR PC address on
+   that link>` serves straight to the support PC instead. Don't use
+   `--host 0.0.0.0`: it listens on every network the PC is on, and the traffic
+   is not encrypted.
+
+   If odemis cannot be imported or does not answer, this stops with a message
+   saying which. From the support PC, `http://<address>:8765/health` should
+   report `"ok": true`.
+
+5. **With `--host`, open the port to the support PC only**, for example with `ufw`:
 
    ```bash
    sudo ufw allow from <support PC address> to any port 8765 proto tcp

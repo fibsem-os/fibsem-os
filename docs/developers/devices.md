@@ -848,8 +848,13 @@ A device server makes devices on one computer available to the microscope on
 another, as the METEOR's FM is on the computer that drives the beams:
 
 ```bash
-python -m fibsem.server.devices --serve odemis-fm --host 0.0.0.0 --port 8765
+python -m fibsem.server.devices --serve odemis-fm --port 8765
 ```
+
+It listens on its own computer only; the microscope's computer reaches it through an
+SSH tunnel, or over a private cable with `--host <address on that link>`. Not
+`--host 0.0.0.0`: that listens on every network and nothing is encrypted
+(INSTALLATION.md, "Delmic METEOR").
 
 On the microscope's computer, the `fm` entry names `driver: remote` and the server's
 `address` and `port`, as in the example under
