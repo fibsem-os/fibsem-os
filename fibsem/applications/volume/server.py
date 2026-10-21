@@ -4,6 +4,7 @@ each position edit made by the experiment's own method (its refusals, one save).
 Per-position task configs are refused with why: positions share the protocol's.
 """
 
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -16,17 +17,34 @@ from fibsem.server.app_context import (
     item_pose_positions,
 )
 from fibsem.server.files import jpeg_preview
+from fibsem.server.responses import ExperimentSummary, ItemDetail, SummaryRow
 from fibsem.structures import FibsemRectangle, FibsemStagePosition, Point
 from fibsem.util.timestamps import to_iso
 from fibsem.workflows.attention import Attention
-from fibsem.workflows.outputs import files_by_run, item_output_named, saved_file
+from fibsem.workflows.outputs import item_output_named, saved_file
 from fibsem.workflows.protocol_files import record_recent
-from fibsem.workflows.status import TaskStatus
 
 __all__ = ["VolumeAppContext", "serve"]
 
 # What apply_item_patch edits, each by its experiment method.
 POSITION_PATCH_FIELDS = ("name", "iterations", "poi", "alignment_area")
+
+
+@dataclass
+class PositionRow(SummaryRow):
+    iterations: int = 0
+    slices_cut: int = 0
+
+
+@dataclass
+class PositionSummary(ExperimentSummary):
+    items: List[PositionRow] = field(default_factory=list)
+
+
+@dataclass
+class PositionDetail(ItemDetail):
+    iterations: Optional[int] = None
+    slices_cut: Optional[int] = None
 
 
 def _not_served(what: str) -> Dict[str, Any]:
@@ -68,45 +86,15 @@ class VolumeAppContext(AppContext):
             )
         return {"available": True, "name": protocol.name, "tasks": tasks}
 
-    def experiment_summary(self) -> Dict[str, Any]:
-        experiment = self._experiment
-        if experiment is None:
-            return {"available": False, "items": []}
-        items = [
-            {
-                "experiment_name": experiment.name,
-                "item_name": p.name,
-                "item_id": p.id,
-                "iterations": p.iterations,
-                "slices_cut": experiment.slices_cut(p),
-                "failed": any(s.status is TaskStatus.Failed for s in p.task_history),
-            }
-            for p in experiment.positions
-        ]
-        return {"available": True, "items": items}
+    summary_type = PositionSummary
+    item_detail_type = PositionDetail
 
-    def task_history(self) -> Dict[str, Any]:
-        experiment = self._experiment
-        if experiment is None:
-            return {"available": False, "items": []}
-        items = [
-            {
-                "item_name": p.name,
-                "item_id": p.id,
-                "task_name": s.name,
-                "task_id": s.task_id,
-                "task_type": s.task_type,
-                "iteration": s.iteration,
-                "task_status": s.status.name,
-                "task_status_message": s.status_message,
-                "start_timestamp": to_iso(s.start_timestamp),
-                "end_timestamp": to_iso(s.end_timestamp),
-            }
-            for p in experiment.positions
-            for s in p.task_history
-        ]
-        items.sort(key=lambda r: r["start_timestamp"] or "")
-        return {"available": True, "items": items}
+    def summary_row(self, experiment, item) -> PositionRow:
+        return PositionRow(
+            **vars(super().summary_row(experiment, item)),
+            iterations=item.iterations,
+            slices_cut=experiment.slices_cut(item),
+        )
 
     # --- experiment and protocol files -----------------------------------------
 
@@ -130,27 +118,14 @@ class VolumeAppContext(AppContext):
 
     # --- Items ------------------------------------------------------------------
 
-    def item_detail(self, item_name: str) -> Dict[str, Any]:
-        experiment = self._experiment
-        if experiment is None:
-            return {"available": False, "item_name": item_name}
-        position, refusal = find_item(experiment, item_name)
-        if refusal:
-            return {"available": False, "item_name": item_name, **refusal}
-        return {
-            "available": True,
-            "item_name": position.name,
-            "id": position.id,
-            "description": position.description,
-            # metres, in the milling frame; each slice steps down from it
-            "poi": position.poi.to_dict(),
-            # fractions of the FIB frame, origin top-left
-            "alignment_area": position.alignment_area.to_dict(),
-            "iterations": position.iterations,
-            "slices_cut": experiment.slices_cut(position),
-            "poses": item_pose_positions(position),
-            "version": self._version(position),
-        }
+    def detail_of(self, experiment, item) -> PositionDetail:
+        detail = super().detail_of(experiment, item)
+        detail.iterations = item.iterations
+        detail.slices_cut = experiment.slices_cut(item)
+        return detail
+
+    def item_version(self, item) -> str:
+        return self._version(item)
 
     @staticmethod
     def _version(position) -> str:
@@ -164,23 +139,6 @@ class VolumeAppContext(AppContext):
                 "poses": item_pose_positions(position),
             }
         )
-
-    def task_outputs(self, item_name: str) -> Dict[str, Any]:
-        experiment = self._experiment
-        if experiment is None:
-            return {"available": False, "item_name": item_name}
-        position, refusal = find_item(experiment, item_name)
-        if refusal:
-            return {"available": False, "item_name": item_name, **refusal}
-        history = list(position.task_history)
-        return {
-            "available": True,
-            "item_name": item_name,
-            "completed_tasks": [
-                s.name for s in history if s.status is TaskStatus.Completed
-            ],
-            "tasks": files_by_run(experiment.position_path(position), history),
-        }
 
     def output_image(
         self, item_name: str, filename: str, max_width: int = 768

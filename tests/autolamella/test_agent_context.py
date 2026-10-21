@@ -17,6 +17,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
+from fibsem.codec import encode
 from fibsem.structures import MicroscopeState
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.status import TaskStatus
@@ -41,6 +42,11 @@ def microscope():
     return microscope
 
 
+def _plain(value):
+    """A context read as the wire carries it."""
+    return value if isinstance(value, dict) else encode(value)
+
+
 def _assert_json_safe(payload):
     json.dumps(payload)  # raises on anything a wire client couldn't carry
 
@@ -48,19 +54,19 @@ def _assert_json_safe(payload):
 def test_every_method_tolerates_an_empty_host():
     ctx = AutoLamellaAppContext(stub_session())
     payloads = [
-        ctx.status(),
-        ctx.queue(),
-        ctx.experiment_summary(),
-        ctx.task_history(),
+        _plain(ctx.status()),
+        _plain(ctx.queue()),
+        _plain(ctx.experiment_summary()),
+        _plain(ctx.task_history()),
         ctx.run_summary(),
         ctx.protocol(),
-        ctx.task_outputs("anything"),
-        ctx.item_detail("anything"),
+        _plain(ctx.task_outputs("anything")),
+        _plain(ctx.item_detail("anything")),
     ]
     for payload in payloads:
         _assert_json_safe(payload)
-    assert ctx.status()["experiment"] is None
-    assert ctx.queue() == {"available": False, "items": [], "version": None}
+    assert _plain(ctx.status())["experiment"] is None
+    assert _plain(ctx.queue()) == {"available": False, "items": [], "version": None}
 
 
 def test_resolution_is_call_time_not_construction_time(experiment):
@@ -68,11 +74,11 @@ def test_resolution_is_call_time_not_construction_time(experiment):
     # new binding, not the one from construction (the ScriptContext hazard).
     host = stub_session()
     ctx = AutoLamellaAppContext(host)
-    assert ctx.status()["experiment"] is None
+    assert _plain(ctx.status())["experiment"] is None
     host.experiment = experiment
-    assert ctx.status()["experiment"]["name"] == "agent-context-exp"
+    assert _plain(ctx.status())["experiment"]["name"] == "agent-context-exp"
     host.experiment = None
-    assert ctx.status()["experiment"] is None
+    assert _plain(ctx.status())["experiment"] is None
 
 
 def test_status_and_summaries_reflect_a_real_experiment(experiment):
@@ -80,11 +86,11 @@ def test_status_and_summaries_reflect_a_real_experiment(experiment):
     host.experiment = experiment
     ctx = AutoLamellaAppContext(host)
 
-    status = ctx.status()
+    status = _plain(ctx.status())
     assert status["experiment"]["num_items"] == 2
     assert status["workflow"]["running"] is False
 
-    summary = ctx.experiment_summary()
+    summary = _plain(ctx.experiment_summary())
     assert summary["available"] is True
     assert len(summary["items"]) == 2
     _assert_json_safe(summary)
@@ -100,7 +106,7 @@ def test_task_outputs_for_a_real_item_and_a_missing_one(experiment):
     ctx = AutoLamellaAppContext(host)
 
     name = experiment.positions[0].name
-    payload = ctx.task_outputs(name)
+    payload = _plain(ctx.task_outputs(name))
     assert payload["available"] is True
     assert payload["item_name"] == name
     assert payload["final_reference_images"] == []  # nothing has run
@@ -113,11 +119,11 @@ def test_task_outputs_for_a_real_item_and_a_missing_one(experiment):
     experiment.positions[0].task_history.append(
         TaskState(name="Rough Milling", status=TaskStatus.Completed)
     )
-    completed = ctx.task_outputs(name)
+    completed = _plain(ctx.task_outputs(name))
     assert completed["completed_tasks"] == ["Rough Milling"]
     _assert_json_safe(completed)
 
-    missing = ctx.task_outputs("no-such-item")
+    missing = _plain(ctx.task_outputs("no-such-item"))
     assert missing["available"] is False
     assert "no-such-item" in missing["error"]
 
@@ -167,7 +173,7 @@ def test_output_image_renders_recorded_outputs_only(experiment):
     assert missing["available"] is False
 
     # task_outputs keeps the per-run grouping: which task produced which file.
-    payload = ctx.task_outputs(lamella.name)
+    payload = _plain(ctx.task_outputs(lamella.name))
     assert payload["tasks"] == [
         {
             "name": "Rough Milling",
@@ -233,7 +239,7 @@ def test_item_detail_serves_the_durable_item_facts(experiment):
     lamella.milling_angle = 15.0
     lamella.milling_pose = MicroscopeState()
 
-    detail = ctx.item_detail(lamella.name)
+    detail = _plain(ctx.item_detail(lamella.name))
     assert detail["available"] is True
     assert detail["item_name"] == lamella.name
     assert detail["poi"] == {"x": 1.5e-6, "y": -2.5e-6, "name": None}
@@ -243,7 +249,7 @@ def test_item_detail_serves_the_durable_item_facts(experiment):
     assert "MILLING" in detail["poses"]
     _assert_json_safe(detail)
 
-    missing = ctx.item_detail("no-such-item")
+    missing = _plain(ctx.item_detail("no-such-item"))
     assert missing["available"] is False
     assert "no-such-item" in missing["error"]
 
@@ -410,7 +416,7 @@ def test_queue_snapshot_uses_item_name_vocabulary(experiment, microscope):
     host.runner.manager = manager
     ctx = AutoLamellaAppContext(host)
 
-    queue = ctx.queue()
+    queue = _plain(ctx.queue())
     assert queue["available"] is True
     assert len(queue["items"]) == 4  # 2 tasks x 2 items
     first = queue["items"][0]
@@ -420,7 +426,7 @@ def test_queue_snapshot_uses_item_name_vocabulary(experiment, microscope):
     assert queue["version"] == manager.queue.version
     _assert_json_safe(queue)
 
-    status = ctx.status()
+    status = _plain(ctx.status())
     assert status["workflow"]["queue_total"] == 4
     assert status["workflow"]["current_task"] is None  # nothing running
 

@@ -59,8 +59,8 @@ def test_the_device_server_describes_the_driver_and_the_hints(microscope):
     from fibsem.server.devices import describe_device
 
     described = describe_device(microscope.beams[BeamType.ELECTRON])
-    assert described["driver"] == "Demo"
-    assert "display" in described["parameters"]["hfw"]
+    assert described.driver == "Demo"
+    assert described.parameters["hfw"].display is not None
 
 
 def test_a_plugin_imports_what_it_needs_from_fibsem_devices():

@@ -24,6 +24,7 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
+from fibsem.codec import encode
 from fibsem.structures import MicroscopeState
 from tests.fixtures.main_window import close_window
 
@@ -41,15 +42,19 @@ def ui(qapp):
 
 def test_a_fresh_window_satisfies_the_host_contract(ui):
     ctx = AutoLamellaAppContext(ui.session)
-    status = ctx.status()
+    status = encode(ctx.status())
     json.dumps(status)
     assert status["microscope_connected"] is False
     assert status["experiment"] is None
     assert status["workflow"]["running"] is False
-    assert ctx.queue()["available"] is False
+    assert ctx.queue().available is False
     assert ctx.run_summary()["available"] is False
     # No images until a microscope connects: unavailable, not an error.
-    assert ctx.display_images() == {"available": False, "sem": None, "fib": None}
+    assert encode(ctx.display_images()) == {
+        "available": False,
+        "sem": None,
+        "fib": None,
+    }
 
 
 def test_display_images_are_the_sessions_latest_images(ui):
@@ -67,7 +72,7 @@ def test_display_images_are_the_sessions_latest_images(ui):
     with ui.session.changed.blocked():
         ui.session.microscope = object()
         try:
-            payload = ctx.display_images()
+            payload = encode(ctx.display_images())
         finally:
             ui.session.microscope = None
     json.dumps(payload)
@@ -91,10 +96,10 @@ def test_an_adopted_experiment_is_visible_through_the_facade(ui, tmp_path):
     ctx = AutoLamellaAppContext(ui.session)
     ui.experiment = exp
 
-    status = ctx.status()
+    status = encode(ctx.status())
     assert status["experiment"]["name"] == "host-exp"
     assert status["experiment"]["num_items"] == 1
-    assert ctx.task_outputs(exp.positions[0].name)["available"] is True
+    assert ctx.task_outputs(exp.positions[0].name).available is True
 
 
 class _Dialog:

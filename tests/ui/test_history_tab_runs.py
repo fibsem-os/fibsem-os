@@ -232,6 +232,8 @@ def test_the_filter_is_remembered_for_the_next_time(widget, qapp, lamella, prefe
         "show": "all",
         "status": "failed",
         "task": POLISH,
+        "decided_by": "anyone",
+        "order": "oldest",
     }
     again = LamellaTaskImageWidget()
     try:
@@ -248,6 +250,10 @@ def test_the_filter_is_remembered_for_the_next_time(widget, qapp, lamella, prefe
 def test_the_menu_lists_the_lamellas_tasks(widget):
     texts = [a.text() for a in widget._filter_button.menu().actions()]
     assert texts == [
+        "ORDER",
+        "Oldest first",
+        "Newest first",
+        "",
         "SHOW",
         "Everything",
         "Images only",
@@ -262,6 +268,11 @@ def test_the_menu_lists_the_lamellas_tasks(widget):
         "All tasks",
         ROUGH,
         POLISH,
+        "",
+        "DECIDED BY",
+        "Anyone",
+        "The agent",
+        "The operator",
         "",
         "Reset filters",
     ]

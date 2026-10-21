@@ -5,13 +5,23 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from typing import List, Optional
+from typing import Annotated, ClassVar, List, Optional
 
+import jsonschema
 import numpy as np
 import pytest
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
-from fibsem.codec import Array, NamedEnum, Tagged, Timestamp, decode, encode, saved
+from fibsem.codec import (
+    Array,
+    NamedEnum,
+    NotSaved,
+    Tagged,
+    Timestamp,
+    decode,
+    encode,
+    saved,
+)
 
 
 class Beam(NamedEnum, Enum):
@@ -231,3 +241,79 @@ def test_saved_refuses_a_required_key_that_is_absent():
     with pytest.raises(ValidationError, match="missing y"):
         decode(Required, {"x": 1.0})
     assert Required() == Required(0.0, 0.0)  # a new instance still has defaults
+
+
+@dataclass
+class Strategy(Tagged, ABC):
+    TYPE_KEY: ClassVar[str] = "name"
+    SAVED_UNDER: ClassVar[str] = "config"
+
+
+@dataclass
+class Fast(Strategy):
+    speed: float = 1.0
+
+
+@dataclass
+class Plan:
+    drawing: Drawing = field(default_factory=Drawing)
+    strategy: Strategy = field(default_factory=Fast)
+    picture: Optional[Picture] = None
+    when: Optional[Timestamp] = None
+    scratch: Annotated[Optional[str], NotSaved] = None
+
+
+def _schema(type_, mode):
+    return TypeAdapter(type_).json_schema(mode=mode)
+
+
+@pytest.mark.parametrize("mode", ["validation", "serialization"])
+def test_a_tagged_base_has_one_schema_variant_per_subclass(mode):
+    schema = _schema(Drawing, mode)
+    variants = schema["$defs"]["Shape"]["oneOf"]
+    assert [v["properties"]["type"] for v in variants] == [
+        {"const": "Square"},
+        {"const": "Disc"},
+    ]
+    assert all(v["required"][0] == "type" for v in variants)
+
+
+@pytest.mark.parametrize("mode", ["validation", "serialization"])
+def test_what_encode_writes_matches_the_schema(mode):
+    plan = Plan(
+        Drawing([Square(side=2.0), Disc()]),
+        Fast(3.0),
+        Picture(np.eye(2)),
+        datetime(2026, 10, 21, tzinfo=timezone.utc),
+        scratch="not saved",
+    )
+    data = encode(plan)
+    jsonschema.validate(data, _schema(Plan, mode))
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(
+            {"drawing": {"shapes": [{"type": "Hexagon"}]}}, _schema(Plan, mode)
+        )
+
+
+def test_a_tagged_base_saved_under_a_key_nests_the_fields_there():
+    variant = _schema(Strategy, "serialization")["oneOf"][0]
+    assert variant["properties"]["name"] == {"const": "Fast"}
+    assert "config" in variant["properties"]
+
+
+def test_an_array_and_a_timestamp_have_json_types():
+    props = _schema(Plan, "serialization")["$defs"]["Picture"]["properties"]
+    assert props["pixels"]["type"] == "array"
+    when = _schema(Plan, "serialization")["properties"]["when"]["anyOf"][0]
+    assert when["type"] == "string"
+
+
+def test_a_field_not_saved_is_left_out_of_the_written_schema():
+    assert "scratch" not in _schema(Plan, "serialization")["properties"]
+
+
+def test_a_saved_class_schema_names_its_saved_keys():
+    for mode in ("validation", "serialization"):
+        props = _schema(Saved, mode)["properties"]
+        assert "image" in props and "image_settings" not in props
+    assert set(_schema(Required, "validation")["required"]) == {"x", "y"}

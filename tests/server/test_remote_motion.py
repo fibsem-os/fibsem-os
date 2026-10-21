@@ -34,6 +34,7 @@ from fibsem.server.devices import (  # noqa: E402
     demo_devices,
     describe_device,
 )
+from fibsem.server.responses import Range  # noqa: E402
 from fibsem.structures import (  # noqa: E402
     ChamberState,
     DeviceEntry,
@@ -199,10 +200,7 @@ def test_an_unbounded_axis_crosses_the_wire_as_unbounded(served):
     here.position._metadata_source = lambda: ParameterMetadata(limits=limits)
     here.position.refresh_metadata()
     description = describe_device(here)
-    assert description["parameters"]["position"]["limits"]["r"] == {
-        "min": None,
-        "max": None,
-    }
+    assert description.parameters["position"].limits["r"] == Range(None, None)
     remote["stage"].position.refresh_metadata()
     assert remote["stage"].position.limits["r"].max == math.inf
     assert remote["stage"].position.limits["r"].min == -math.inf
