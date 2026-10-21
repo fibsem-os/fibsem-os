@@ -176,9 +176,9 @@ position or a POI, check focus, contrast and coincidence as *Before a position o
 a POI* says:
 the fresh SEM and FIB images and any `stage_stable_move` or
 `stage_vertical_move` go in one request, and you file the decision only once
-both beams agree. And *When to propose auto*: propose switching the milling
-tasks to auto only after one lamella's mills all passed first time; the
-switch is a request too, and so is turning supervision back on.
+both beams agree. And *When to propose auto*: propose switching a task to auto
+only after one lamella passed it first time, and never Setup or Polishing;
+the switch is a request too, and so is turning supervision back on.
 
 When you can't judge a proposal, don't suggest or file a decision. Tell the operator
 what you see and that it's theirs, and put that on the record with
