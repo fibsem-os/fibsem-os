@@ -11,11 +11,9 @@ saved: they are the operator's standing choice, so the next launch starts the
 same way. The agent's level is not: it resets to Watch at every launch.
 """
 
-import time
 from typing import Callable, Optional
 
 from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QFontDatabase
 from PyQt5.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -24,12 +22,12 @@ from PyQt5.QtWidgets import (
     QLabel,
     QPushButton,
     QVBoxLayout,
-    QWidget,
 )
 
 from fibsem.server.hosting import event_log_url
 from fibsem.ui import stylesheets
 from fibsem.ui.agent.level_chip import last_heard_text
+from fibsem.ui.agent.pairing_widgets import PairedList, PairingCode
 from fibsem.ui.tokens import (
     ACCENT_COLOR,
     OK_COLOR,
@@ -62,7 +60,6 @@ MICROSCOPE_TIP = (
 )
 
 PAIR_LABEL = "Pair a computer"
-STOP_PAIRING_LABEL = "Stop pairing"
 COPY_TOKEN_LABEL = "Copy token"
 
 _LINK_STYLE = (
@@ -194,32 +191,19 @@ class AppServerDialog(QDialog):
         operator_row.addWidget(self._btn_copy_operator)
         operator_row.addWidget(self._btn_new_operator)
         operator_row.addStretch(1)
-        self._btn_pair = QPushButton(PAIR_LABEL)
-        self._btn_pair.setToolTip(
+        self._pair = PairingCode(
+            self._pairing,
+            PAIR_LABEL,
             "Show a code to type on another computer or in the chat page: it "
-            "gets a token of its own and acts as you. Works once, for 5 minutes."
+            "gets a token of its own and acts as you. Works once, for 5 minutes.",
+            changed=self.refresh,
         )
-        self._btn_pair.clicked.connect(self._on_pair_clicked)
+        self._btn_pair = self._pair.button
         operator_row.addWidget(self._btn_pair)
         layout.addLayout(operator_row)
-        code_row = QHBoxLayout()
-        self._pair_code = QLabel("")
-        font = QFontDatabase.systemFont(QFontDatabase.FixedFont)
-        font.setPointSize(18)
-        font.setBold(True)
-        font.setLetterSpacing(font.AbsoluteSpacing, 6)
-        self._pair_code.setFont(font)
-        self._pair_code.setStyleSheet(f"color: {TEXT_STRONG_COLOR};")
-        self._pair_left = note("")
-        code_row.addWidget(self._pair_code)
-        code_row.addWidget(self._pair_left)
-        code_row.addStretch(1)
-        layout.addLayout(code_row)
-        self._computers = QVBoxLayout()
-        self._computers.setSpacing(2)
-        layout.addLayout(self._computers)
-        # The paired computers as last drawn, so a refresh redraws only a change.
-        self._shown_computers: Optional[tuple] = None
+        layout.addLayout(self._pair.code_row)
+        self._computers = PairedList(self._pairing, changed=self.refresh)
+        layout.addWidget(self._computers)
 
         layout.addSpacing(6)
 
@@ -277,7 +261,8 @@ class AppServerDialog(QDialog):
         self._btn_event_log.setEnabled(running)
         self._btn_copy_operator.setEnabled(running)
         self._btn_new_operator.setEnabled(running)
-        self._refresh_pairing(self._pairing())
+        self._pair.refresh()
+        self._computers.refresh()
         # Nothing to serve while the server is off.
         self._chk_microscope.setEnabled(
             self._chk_enabled.isChecked() or self._set_enabled is None
@@ -361,62 +346,6 @@ class AppServerDialog(QDialog):
     def _pairing(self):
         host = self._host()
         return getattr(getattr(host, "auth", None), "pairing", None)
-
-    def _refresh_pairing(self, pairing) -> None:
-        state = pairing.state() if pairing is not None else {"open": False}
-        self._btn_pair.setEnabled(pairing is not None)
-        self._pair_code.setVisible(state["open"])
-        self._pair_left.setVisible(state["open"])
-        if state["open"]:
-            left = int(state["expires_in_s"])
-            self._pair_code.setText(state["code"])
-            self._pair_left.setText(f"{left // 60}:{left % 60:02d} left")
-            self._btn_pair.setText(STOP_PAIRING_LABEL)
-        else:
-            self._btn_pair.setText(PAIR_LABEL)
-        computers = tuple(pairing.tokens.computers()) if pairing is not None else ()
-        if computers != self._shown_computers:
-            self._shown_computers = computers
-            self._draw_computers(computers)
-
-    def _draw_computers(self, computers) -> None:
-        while self._computers.count():
-            widget = self._computers.takeAt(0).widget()
-            if widget is not None:
-                widget.deleteLater()
-        for computer in computers:
-            row = QWidget()
-            line = QHBoxLayout(row)
-            line.setContentsMargins(0, 0, 0, 0)
-            line.addWidget(QLabel(computer.name), stretch=1)
-            paired = time.strftime("%d %b", time.localtime(computer.paired_at))
-            line.addWidget(note(f"paired {paired}"))
-            unpair = IconToolButton(
-                icon="mdi:link-variant-off",
-                tooltip=f"Unpair {computer.name}: its token stops working at once",
-                size=22,
-            )
-            unpair.clicked.connect(
-                lambda _=False, cid=computer.id: self._on_unpair_clicked(cid)
-            )
-            line.addWidget(unpair)
-            self._computers.addWidget(row)
-
-    def _on_pair_clicked(self) -> None:
-        pairing = self._pairing()
-        if pairing is None:
-            return
-        if pairing.state()["open"]:
-            pairing.close()
-        else:
-            pairing.open()
-        self.refresh()
-
-    def _on_unpair_clicked(self, computer_id: str) -> None:
-        pairing = self._pairing()
-        if pairing is not None:
-            pairing.tokens.remove(computer_id)
-        self.refresh()
 
     def _restore_copy_operator(self) -> None:
         self._btn_copy_operator.setText(COPY_TOKEN_LABEL)

@@ -814,8 +814,8 @@ async function openPanel(name) {
   else if (panel === "computers") await readComputers();
 }
 
-/* Computers: pairing, as the App Server dialog has it. A code to type on the
-   other computer, and the paired ones with Unpair. */
+/* Computers: pairing, as the App Server dialog and Connect an agent have it. A
+   code to type on the other computer, and the paired ones with Unpair. */
 let pairing = null, pairingTimer = null;
 
 async function readComputers() {
@@ -834,13 +834,17 @@ function drawComputers() {
   if (p.error) parts.push(`<p class="muted">${esc(p.error)}</p>`);
   else {
     const left = Math.floor(p.expires_in_s || 0);
+    const where = p.role === "agent"
+      ? `On that computer: <code>fibsem-mcp pair ${esc(p.code)}</code>`
+      : "Type it on the other computer";
     parts.push(`<h3>Pair a computer</h3>`, p.open
       ? `<div class="pair-code">${esc(p.code)}</div>
-         <p class="muted">Type it on the other computer · ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")} left</p>
+         <p class="muted">${where} · ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")} left</p>
          <button class="btn" id="pair-stop">Stop pairing</button>`
-      : `<p class="muted">A paired computer or browser acts as you. The code works once, for 5 minutes.</p>
-         <button class="btn primary" id="pair-open">Pair a computer</button>`);
-    const rows = (p.computers || []).map(c => `<div class="paired"><span class="name">${esc(c.name)}</span>
+      : `<p class="muted">A paired computer or browser acts as you; a paired agent is gated by the level. The code works once, for 5 minutes.</p>
+         <button class="btn primary" id="pair-open">Pair a computer</button>
+         <button class="btn" id="pair-agent">Pair an agent</button>`);
+    const rows = (p.computers || []).map(c => `<div class="paired"><span class="name">${esc(c.name)}${c.role === "agent" ? ` <span class="muted">agent</span>` : ""}</span>
       <span class="muted">paired ${esc(new Date(c.paired_at * 1000).toLocaleDateString())}</span>
       <button class="btn" data-unpair="${esc(c.id)}">Unpair</button></div>`).join("");
     parts.push(`<h3>Paired</h3>${rows || `<p class="muted">No computers paired.</p>`}`);
@@ -848,12 +852,14 @@ function drawComputers() {
   $files.innerHTML = `<div class="inner">${panelBar("Computers", "")}<div class="scope">${parts.join("")}</div></div>`;
   $files.querySelector("#panel-close").onclick = () => openPanel(null);
   wirePanelBar();
-  const act = async (method, path) => {
-    try { pairing = await api(path, { method }); } catch (e) { say(e.message, true); }
+  const act = async (method, path, body) => {
+    try { pairing = await api(path, { method, body: body && JSON.stringify(body) }); } catch (e) { say(e.message, true); }
     await readComputers();
   };
   const open = $files.querySelector("#pair-open"), stop = $files.querySelector("#pair-stop");
+  const agent = $files.querySelector("#pair-agent");
   if (open) open.onclick = () => act("POST", "/pairing");
+  if (agent) agent.onclick = () => act("POST", "/pairing", { role: "agent" });
   if (stop) stop.onclick = () => act("DELETE", "/pairing");
   for (const el of $files.querySelectorAll("[data-unpair]")) {
     el.onclick = () => act("DELETE", `/pairing/computers/${encodeURIComponent(el.dataset.unpair)}`);

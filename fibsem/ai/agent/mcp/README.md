@@ -41,13 +41,18 @@ claude mcp add -s user fibsem -- fibsem-mcp
 agent* in the Agent chip's *Connect an agent…* gives the same setup with the
 absolute path filled in, for the agent to run itself. Same-machine setups need
 nothing more: the sidecar autodiscovers the running
-server. For a server on another machine (or a non-default setup):
+server. For a server on another machine, pair once: *Pair an agent* in
+*Connect an agent…* (or the chat page's Computers panel) shows a code, and
 
 ```bash
-claude mcp add -s user fibsem -- fibsem-mcp --url http://microscope-pc:8001 --token <token>
+fibsem-mcp pair 1234            # the SSH tunnel's end, http://localhost:8001
+fibsem-mcp pair 1234 --url http://microscope-pc:8001
 ```
 
-(`FIBSEM_SERVER_URL` / `FIBSEM_SERVER_TOKEN` environment variables also work.)
+keeps this computer's own agent token in `~/.fibsem/agent/`. Every later launch
+reads it with no token passed; *Unpair* on the PC cuts that agent off. With a
+url other than the tunnel's, register the sidecar with `--url` too.
+(`--token`, or `FIBSEM_SERVER_URL` / `FIBSEM_SERVER_TOKEN`, still work for scripts.)
 
 For Claude Desktop, merge this into the `mcpServers` already in
 `claude_desktop_config.json` (don't replace the file):
@@ -154,8 +159,8 @@ fibsem-agent
   session cleanly; a second Ctrl-C ends it at once. The log names the session
   id, and `--resume <id>` carries it on after a restart. The watcher starts
   again from then, so the agent is told to re-read where things stand.
-- **From another machine**, pass `--url` and put the token in
-  `FIBSEM_SERVER_TOKEN`, never on the command line.
+- **From another machine**, pair once with `fibsem-mcp pair <code>`, and pass
+  `--url` if it isn't the tunnel's end.
 
 ## Order and troubleshooting
 

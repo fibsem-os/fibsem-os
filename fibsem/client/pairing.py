@@ -1,8 +1,11 @@
 """This computer's side of pairing (`fibsem.server.pairing`): send the code the
 microscope PC shows, and keep the token it answers for later connections.
 
-The token is kept per server in ``~/.fibsem/remote/<host>_<port>.json``, written
-``0600``. The url defaults to the SSH tunnel's end, ``http://localhost:8001``.
+The token is kept per server, written ``0600``: an operator's in
+``~/.fibsem/remote/<host>_<port>.json`` (`RemoteMicroscope` reads it), an
+agent's in ``~/.fibsem/agent/`` (the sidecar reads it, through `resolve`), so
+an agent never picks up the operator's. The url defaults to the SSH tunnel's
+end, ``http://localhost:8001``.
 """
 
 from __future__ import annotations
@@ -18,10 +21,11 @@ import httpx
 
 from fibsem.server.discovery import DISCOVERY_DIR
 
-__all__ = ["DEFAULT_URL", "pair", "paired_token"]
+__all__ = ["DEFAULT_URL", "agent_token", "pair", "paired_token"]
 
 DEFAULT_URL = "http://localhost:8001"
 REMOTE_DIR = DISCOVERY_DIR / "remote"
+AGENT_DIR = DISCOVERY_DIR / "agent"
 
 
 def _file(url: str, folder: Optional[Path] = None) -> Path:
@@ -31,7 +35,7 @@ def _file(url: str, folder: Optional[Path] = None) -> Path:
 
 
 def paired_token(url: str, folder: Optional[Path] = None) -> Optional[str]:
-    """The token this computer was paired with at *url*, or None."""
+    """The operator token this computer was paired with at *url*, or None."""
     try:
         with open(_file(url, folder)) as f:
             token = json.load(f).get("token")
@@ -40,14 +44,20 @@ def paired_token(url: str, folder: Optional[Path] = None) -> Optional[str]:
     return token if isinstance(token, str) and token else None
 
 
+def agent_token(url: str) -> Optional[str]:
+    """The agent token this computer was paired with at *url*, or None."""
+    return paired_token(url, AGENT_DIR)
+
+
 def pair(
     code: str,
     url: str = DEFAULT_URL,
     name: Optional[str] = None,
     folder: Optional[Path] = None,
-) -> str:
+) -> "tuple[str, str]":
     """Pair this computer with the App Server at *url* using the *code* it
-    shows, keep the token and return it. *name* is what the paired list calls
+    shows, keep the token and return it with its role (``operator`` or
+    ``agent``, as pairing was opened). *name* is what the paired list calls
     this computer: its host name by default. A refusal (closed, expired, wrong
     code) raises ``PermissionError`` with the server's words."""
     url = url.rstrip("/")
@@ -64,6 +74,9 @@ def pair(
             message = response.text
         raise PermissionError(f"Pairing refused: {message}")
     token = response.json()["token"]
+    role = response.json().get("role", "operator")
+    if folder is None:
+        folder = AGENT_DIR if role == "agent" else REMOTE_DIR
     path = _file(url, folder)
     path.parent.mkdir(parents=True, exist_ok=True)
     # Created user-only, never readable by others even for a moment.
@@ -71,4 +84,4 @@ def pair(
     with os.fdopen(fd, "w") as f:
         json.dump({"url": url, "token": token}, f, indent=2)
     os.chmod(path, 0o600)
-    return token
+    return token, role

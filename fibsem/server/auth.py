@@ -28,8 +28,10 @@ level, Stop agent, approve or reject its request. It also reaches the
 agent's routes as the operator: what it does is the operator's on the record
 and in control. The blocklist still applies. The level never gates it,
 and the agent's token never reaches the operator's routes. One per install, kept on
-disk (`fibsem.server.operator_token`), never in the discovery file. A paired
-computer's token (`fibsem.server.pairing`) is an operator token too.
+disk (`fibsem.server.operator_token`), never in the discovery file. A computer
+paired as the operator (`fibsem.server.pairing`) holds an operator token too; one
+paired as an agent holds an agent token, gated by the level like the App
+Server's own.
 """
 
 import hmac
@@ -51,7 +53,7 @@ from fibsem.ai.agent.calls import current_call
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.control import MicroscopeBusy
 from fibsem.server.leases import LEASE_HEADER
-from fibsem.server.pairing import PairedComputer, Pairing
+from fibsem.server.pairing import AGENT, OPERATOR, PairedComputer, Pairing
 
 # What each level reaches, in order: a route needing a level is open at it and
 # every level above.
@@ -101,6 +103,9 @@ class AuthConfig:
     # Self-reported, so a label for the operator, not an identity: every client
     # shares the one token.
     agent_client: Optional[str] = None
+    # The paired computer the agent's last request came from; None for the
+    # App Server's own agent token.
+    agent_computer: Optional[str] = None
     # The agent's session as its harness reports it (fibsem.server.agent_session):
     # model, goal, budget and spend. Self-reported, like agent_client.
     agent_session: Optional[Dict[str, Any]] = None
@@ -109,7 +114,9 @@ class AuthConfig:
         default_factory=list, repr=False, compare=False
     )
 
-    def mark_seen(self, user_agent: Optional[str] = None) -> None:
+    def mark_seen(
+        self, user_agent: Optional[str] = None, token: Optional[str] = None
+    ) -> None:
         """Record that the token holder just made a request. Any thread —
         a float rebind is atomic, and readers only ever want 'roughly now'.
 
@@ -117,6 +124,8 @@ class AuthConfig:
         Anything else (``fibsem-mcp watch``, curl) keeps the name already
         known: those are the same agent's other hands."""
         self.last_seen_monotonic = time.monotonic()
+        computer = self.paired(token) if token is not None else None
+        self.agent_computer = computer.name if computer is not None else None
         client = client_from_user_agent(user_agent)
         if client is not None:
             self.agent_client = client
@@ -167,9 +176,20 @@ class AuthConfig:
         self._listeners[:] = live
 
     def is_operator(self, token: Optional[str]) -> bool:
-        """Whether *token* is the operator's: the install's, or a paired
-        computer's."""
-        return _matches(token, self.operator_token) or self.paired(token) is not None
+        """Whether *token* is the operator's: the install's, or a computer's
+        paired as the operator."""
+        if _matches(token, self.operator_token):
+            return True
+        computer = self.paired(token)
+        return computer is not None and computer.role == OPERATOR
+
+    def is_agent(self, token: Optional[str]) -> bool:
+        """Whether *token* is an agent's: the App Server's own, or a computer's
+        paired as an agent."""
+        if _matches(token, self.token):
+            return True
+        computer = self.paired(token)
+        return computer is not None and computer.role == AGENT
 
     def paired(self, token: Optional[str]) -> Optional[PairedComputer]:
         """The paired computer whose token this is, or None."""
@@ -337,7 +357,7 @@ def require_level(needed: AgentLevel):
     def dependency(request: HTTPConnection) -> None:
         auth: AuthConfig = request.app.state.auth
         token = _bearer_token(request)
-        if not _matches(token, auth.token):
+        if not auth.is_agent(token):
             if _matches(token, auth.dashboard_token):
                 raise _dashboard_refused()
             if auth.is_operator(token):
@@ -348,7 +368,7 @@ def require_level(needed: AgentLevel):
         # refusal below is still the agent talking. An approved request's call
         # is the app's doing, not the agent's.
         if not lent:
-            auth.mark_seen(request.headers.get("User-Agent"))
+            auth.mark_seen(request.headers.get("User-Agent"), token)
         if auth.level is AgentLevel.OFF:
             raise HTTPException(
                 status_code=403,
@@ -410,7 +430,7 @@ def require_token():
     def dependency(request: Request) -> None:
         auth: AuthConfig = request.app.state.auth
         token = _bearer_token(request)
-        if _matches(token, auth.token) or auth.is_operator(token):
+        if auth.is_agent(token) or auth.is_operator(token):
             return
         if _matches(token, auth.dashboard_token):
             raise _dashboard_refused()
@@ -428,7 +448,7 @@ def require_operator():
         token = _bearer_token(request)
         if auth.is_operator(token):
             return
-        if _matches(token, auth.token) or _matches(token, auth.dashboard_token):
+        if auth.is_agent(token) or _matches(token, auth.dashboard_token):
             raise _operator_only()
         raise _unauthorized()
 

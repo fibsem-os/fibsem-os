@@ -75,7 +75,10 @@ token, an operator token, kept hashed in `~/.fibsem/paired.json`; *Unpair* cuts 
 one. The routes: `POST /pair` `{"code", "name"}` answers `{"token"}` (no token
 needed; 5 wrong codes close pairing), and the operator's `GET`/`POST`/`DELETE
 /pairing` and `DELETE /pairing/computers/{id}`. The headless server prints a
-code only when the chat page asks for one (`POST /pair/request`).
+code only when the chat page asks for one (`POST /pair/request`). An agent pairs
+the same way: *Pair an agent* (`POST /pairing` `{"role": "agent"}`) gives a code
+for `fibsem-mcp pair`, and that computer's token is an agent's, gated by the
+level, with its name on the agent's records.
 A long service command (marked `long: true` in the listing: milling's `run`,
 `run_task` and `run_stage`; imaging's `acquire_focus_stack`, `acquire_overview`,
 `fm_auto_focus`, `fm_acquire_image` and `fm_acquire_overview`; alignment's

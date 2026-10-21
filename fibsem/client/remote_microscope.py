@@ -77,7 +77,8 @@ class RemoteMicroscope(FibsemMicroscope):
         """Pair this computer with the App Server at *url* (the SSH tunnel's end
         by default) using the code its Pair a computer shows, and connect. The
         token is kept, so later ``connect(url)`` needs no code."""
-        return RemoteMicroscope.connect(url, pair(code, url, name))
+        token, _ = pair(code, url, name)
+        return RemoteMicroscope.connect(url, token)
 
     @property
     def client(self) -> FibsemClient:

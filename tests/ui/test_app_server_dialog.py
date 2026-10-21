@@ -322,18 +322,40 @@ def test_a_computer_is_paired_and_unpaired_from_the_dialog(qapp, host, tmp_path)
     assert not dialog._btn_pair.isEnabled()
     host.auth.pairing = Pairing(PairedTokens(tmp_path / "paired.json"))
     dialog.refresh()
-    assert not dialog._pair_code.isVisibleTo(dialog)
+    assert not dialog._pair.code.isVisibleTo(dialog)
     dialog._btn_pair.click()
     code = host.auth.pairing.state()["code"]
-    assert dialog._pair_code.text() == code
-    assert dialog._pair_left.text().endswith("left")
+    assert dialog._pair.code.text() == code
+    assert dialog._pair.left.text().endswith("left")
     assert dialog._btn_pair.text() == "Stop pairing"
     host.auth.pairing.pair(code, "lab laptop")
     dialog.refresh()
-    assert not dialog._pair_code.isVisibleTo(dialog)
+    assert not dialog._pair.code.isVisibleTo(dialog)
     assert dialog._btn_pair.text() == "Pair a computer"
-    row = dialog._computers.itemAt(0).widget().layout()
+    row = dialog._computers.layout().itemAt(0).widget().layout()
     assert row.itemAt(0).widget().text() == "lab laptop"
     row.itemAt(2).widget().click()
     assert host.auth.pairing.tokens.computers() == []
     dialog.deleteLater()
+
+
+def test_an_agent_is_paired_from_connect_an_agent_only(qapp, host, tmp_path):
+    from fibsem.server.pairing import PairedTokens, Pairing
+
+    host.auth.pairing = Pairing(PairedTokens(tmp_path / "paired.json"))
+    agent = ConnectAgentDialog(lambda: host)
+    server = AppServerDialog(lambda: host)
+    agent._pair.button.click()
+    code = host.auth.pairing.state()["code"]
+    assert agent._pair_command.text() == f"On that computer: fibsem-mcp pair {code}"
+    server.refresh()
+    # Pairing open for an agent is not the App Server dialog's.
+    assert not server._pair.code.isVisibleTo(server)
+    assert server._btn_pair.text() == "Pair a computer"
+    host.auth.pairing.pair(code, "mac mini")
+    agent.refresh()
+    server.refresh()
+    assert agent._agents.layout().count() == 1
+    assert server._computers.layout().count() == 0
+    agent.deleteLater()
+    server.deleteLater()

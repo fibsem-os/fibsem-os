@@ -158,11 +158,15 @@ class AppServerHost:
         return self.auth.seconds_since_seen()
 
     def agent_client(self) -> Optional[str]:
-        """The MCP client the agent's sidecar named ("claude-code/2.1.3"), or
+        """The MCP client the agent's sidecar named ("claude-code/2.1.3"), and
+        the paired computer it runs on ("claude-code/2.1.3 on mac-mini"), or
         None if the server isn't running or no sidecar has named one."""
         if not self.running or self.auth is None:
             return None
-        return self.auth.agent_client
+        client, computer = self.auth.agent_client, self.auth.agent_computer
+        if computer is None:
+            return client
+        return f"{client} on {computer}" if client else computer
 
     def new_operator_token(self) -> Optional[str]:
         """Replace the operator token, on disk and on the running server: the

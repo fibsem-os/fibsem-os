@@ -2,13 +2,13 @@
 operator opens pairing, sees the paired computers and unpairs one
 (``/pairing``). See `fibsem.server.pairing`."""
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from fibsem.server.auth import AuthConfig, require_operator
-from fibsem.server.pairing import Pairing, PairingRefused
+from fibsem.server.pairing import ROLES, Pairing, PairingRefused
 
 __all__ = ["build_pairing_router"]
 
@@ -52,14 +52,19 @@ def build_pairing_router(auth: AuthConfig) -> APIRouter:
     @router.post("/pair", dependencies=[Depends(_same_origin)])
     def pair(body: Dict[str, Any]):
         """Unauthenticated: pair with the code, answering this computer's
-        token, the operator's."""
+        token, with the role pairing was opened for."""
         try:
             computer, token = _pairing(auth).pair(
                 str(body.get("code", "")), str(body.get("name", ""))
             )
         except PairingRefused as refusal:
             raise _refused(403, refusal.error_type, str(refusal)) from None
-        return {"token": token, "id": computer.id, "name": computer.name}
+        return {
+            "token": token,
+            "id": computer.id,
+            "name": computer.name,
+            "role": computer.role,
+        }
 
     @router.post("/pair/request", dependencies=[Depends(_same_origin)])
     def request_code():
@@ -88,10 +93,14 @@ def build_pairing_router(auth: AuthConfig) -> APIRouter:
         return _listing(_pairing(auth))
 
     @operator.post("")
-    def open_pairing():
-        """Open pairing with a new code."""
+    def open_pairing(body: Optional[Dict[str, Any]] = None):
+        """Open pairing with a new code: for the operator's app, or with
+        ``{"role": "agent"}`` for an agent."""
         pairing = _pairing(auth)
-        pairing.open()
+        role = (body or {}).get("role", "operator")
+        if role not in ROLES:
+            raise _refused(422, "bad_role", f"Pairing is for one of {list(ROLES)}.")
+        pairing.open(role)
         return _listing(pairing)
 
     @operator.delete("")
