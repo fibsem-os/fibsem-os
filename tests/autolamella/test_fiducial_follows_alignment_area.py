@@ -15,9 +15,6 @@ from fibsem.applications.autolamella.protocol.constants import (
     MILL_ROUGH_KEY,
 )
 from fibsem.applications.autolamella.structures import Lamella
-from fibsem.applications.autolamella.workflows.tasks.base import (
-    ALIGNMENT_REFERENCE_IMAGE_FILENAME,
-)
 from fibsem.applications.autolamella.workflows.tasks.fiducial import (
     MillFiducialTaskConfig,
     fiducial_point_in_alignment_area,
@@ -30,6 +27,7 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
 )
 from fibsem.milling.patterning.utils import get_patterns_bounding_box
 from fibsem.structures import FibsemImage, FibsemRectangle, Point
+from fibsem.workflows.task import ALIGNMENT_REFERENCE_IMAGE_FILENAME
 from tests.autolamella._on_the_record import manager_for
 from tests.protocols import planned, task_protocol
 

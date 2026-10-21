@@ -290,7 +290,7 @@ def experiment(tmp_path):
         Experiment,
         Lamella,
     )
-    from fibsem.applications.autolamella.workflows.tasks.reference_image import (
+    from fibsem.workflows.site_tasks.reference_image import (
         AcquireReferenceImageConfig,
     )
 

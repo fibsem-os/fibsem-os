@@ -7,7 +7,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import ClassVar, Optional
 
-from fibsem.applications.volume.position import MILL_POSE, SEM_POSE
+from fibsem.applications.volume.position import SEM_POSE
 from fibsem.applications.volume.tasks.base import VolumeTask
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning.patterns import FiducialPattern, RectanglePattern
@@ -142,7 +142,7 @@ class VolumeSetupMillingTask(VolumeTask):
 
     def _run(self) -> None:
         name, fov = self.position.name, self.config.field_of_view
-        self._move_to_pose(MILL_POSE)
+        self._move_to_pose()
         self._acquire_reference(BeamType.ION, "ref_setup_start", fov)
         self._confirm_position(f"Confirm the milling position of {name}.")
 
@@ -159,7 +159,7 @@ class VolumeSetupMillingTask(VolumeTask):
         self._acquire_alignment_reference_image(
             ImageSettings(), fov, self.position.alignment_area
         )
-        self.position.poses[MILL_POSE] = self.microscope.get_microscope_state()
+        self.position.milling_pose = self.microscope.get_microscope_state()
 
     def _mill_at(
         self, milling: FibsemMillingTaskConfig, poi: Optional[Point], msg: str

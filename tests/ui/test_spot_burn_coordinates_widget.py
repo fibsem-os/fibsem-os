@@ -23,9 +23,6 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QApplication
 
-from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
-    SpotBurnFiducialTaskConfig,
-)
 from fibsem.imaging.spot import SpotBurnSettings
 from fibsem.structures import BeamType, FibsemImage, Point
 from fibsem.ui.icon import fibsem_icon
@@ -36,6 +33,9 @@ from fibsem.ui.widgets.canvas.quad_view import (
 )
 from fibsem.ui.widgets.custom_widgets import IconToolButton
 from fibsem.ui.widgets.spot_burn_coordinates_widget import SpotBurnCoordinatesWidget
+from fibsem.workflows.site_tasks.spot_burn import (
+    SpotBurnFiducialTaskConfig,
+)
 from tests.fixtures.app_session import app_session
 
 _app = QApplication.instance() or QApplication(sys.argv)

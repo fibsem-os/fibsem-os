@@ -6,7 +6,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import ClassVar
 
-from fibsem.applications.volume.position import FIB_REFERENCE, MILL_POSE
+from fibsem.applications.volume.position import FIB_REFERENCE
 from fibsem.applications.volume.tasks.base import VolumeTask
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning.patterns import RectanglePattern
@@ -68,8 +68,8 @@ class VolumeFIBMillingTask(VolumeTask):
     config: VolumeFIBMillingTaskConfig
 
     def _run(self) -> None:
-        self._move_to_pose(MILL_POSE)
-        self._align_to_reference(FIB_REFERENCE)
+        self._move_to_pose()
+        self._align_reference_image(FIB_REFERENCE, required=True)
 
         config = deepcopy(self.config.milling)
         poi = self.position.slice_poi(self.slice, self.config.slice_thickness)

@@ -13,10 +13,10 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.applications.autolamella.workflows.tasks.base import (
     AutoLamellaTask,
-    get_task_supervision,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.workflows.attention import Attention
+from fibsem.workflows.site_task import get_task_supervision
 from tests.protocols import add_planned, planned
 
 TASK = "Rough Milling"

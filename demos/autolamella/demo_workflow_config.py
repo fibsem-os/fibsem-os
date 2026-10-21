@@ -20,10 +20,10 @@ from fibsem.applications.autolamella.ui.workflow.task_editor import (
     WorkflowTaskEditorWidget,
 )
 from fibsem.applications.autolamella.ui.workflow.task_list import WorkflowTaskList
-from fibsem.applications.autolamella.workflows.tasks.reference_image import (
+from fibsem.workflows.attention import Attention
+from fibsem.workflows.site_tasks.reference_image import (
     AcquireReferenceImageConfig,
 )
-from fibsem.workflows.attention import Attention
 from fibsem.workflows.task_config import TaskPlan
 
 SAMPLE_PROTOCOL = AutoLamellaTaskProtocol(

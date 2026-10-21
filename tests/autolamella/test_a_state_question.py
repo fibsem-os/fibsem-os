@@ -19,10 +19,6 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
-from fibsem.applications.autolamella.workflows.tasks.reference_image import (
-    AcquireReferenceImageConfig,
-    AcquireReferenceImageTask,
-)
 from fibsem.structures import FibsemStagePosition
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import (
@@ -30,6 +26,10 @@ from fibsem.workflows.proposals import (
     Decision,
     DecisionOutcome,
     compute_delta,
+)
+from fibsem.workflows.site_tasks.reference_image import (
+    AcquireReferenceImageConfig,
+    AcquireReferenceImageTask,
 )
 from tests.protocols import planned, task_protocol
 
@@ -66,7 +66,7 @@ def _task(microscope, exp) -> AcquireReferenceImageTask:
     return AcquireReferenceImageTask(
         microscope=microscope,
         config=lamella.task_config[REF],
-        lamella=lamella,
+        item=lamella,
         task_manager=manager,
     )
 

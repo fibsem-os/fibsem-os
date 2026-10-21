@@ -5,14 +5,15 @@ the points are placed on), and the `_run_autofocus` helper — which until now r
 `self.image_settings`, an attribute the base class never defines.
 """
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
-from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
+from fibsem.structures import BeamType, Point
+from fibsem.workflows.site_tasks.spot_burn import (
     SpotBurnFiducialTaskConfig,
 )
-from fibsem.structures import BeamType, Point
 
 # --- config -----------------------------------------------------------------
 
@@ -54,7 +55,7 @@ def test_autofocus_is_not_part_of_the_run_payload():
 
 def _make_task(tmp_path, *, autofocus: bool):
     from fibsem.applications.autolamella.structures import Lamella
-    from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
+    from fibsem.workflows.site_tasks.spot_burn import (
         SpotBurnFiducialTask,
     )
 
@@ -64,12 +65,14 @@ def _make_task(tmp_path, *, autofocus: bool):
         autofocus=autofocus,
         coordinates=[Point(0.5, 0.5)],
     )
-    return SpotBurnFiducialTask(microscope=MagicMock(), config=config, lamella=lamella)
+    # The experiment says where the lamella's files go.
+    experiment = SimpleNamespace(item_path=lambda item: item.path)
+    return SpotBurnFiducialTask(MagicMock(), config, lamella, experiment=experiment)
 
 
 def _record_run(task, calls):
     """Stub out everything _run does except the autofocus/reference-image ordering."""
-    task._move_to_milling_pose = lambda: calls.append(("move", None))
+    task._move_to_pose = lambda: calls.append(("move", None))
     task._align_reference_image = lambda *a, **k: calls.append(("align", None))
     task._run_autofocus = lambda beam_type, hfw=None: calls.append(
         ("autofocus", (beam_type, hfw))
@@ -233,7 +236,7 @@ def test_run_autofocus_skips_cleanly_when_the_sweep_is_declined(tmp_path, monkey
     task._run_autofocus(BeamType.ION, hfw=150e-6)  # must not raise
 
     assert any("skipped" in str(m).lower() for m in messages)
-    assert not os.path.exists(os.path.join(task.lamella.path, "autofunctions"))
+    assert not os.path.exists(os.path.join(task.item.path, "autofunctions"))
 
 
 def test_run_autofocus_tells_the_sweep_where_to_save_its_run(tmp_path, monkeypatch):

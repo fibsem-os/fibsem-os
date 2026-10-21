@@ -698,11 +698,11 @@ def test_the_card_s_picture_is_the_image_with_its_marks_drawn():
 
 def test_a_task_config_edit_draws_the_milling_as_it_would_be_and_as_it_is():
     # FIB-1411: pattern edits through item_update_task_config showed nothing.
-    from fibsem.applications.autolamella.workflows.tasks.basic_milling import (
-        BasicMillingTaskConfig,
+    from fibsem.workflows.site_tasks.mill import (
+        MillTaskConfig,
     )
 
-    config = BasicMillingTaskConfig()
+    config = MillTaskConfig()
     width = config.milling["milling"].stages[0].pattern.width
     asked = []
 
@@ -723,7 +723,7 @@ def test_a_task_config_edit_draws_the_milling_as_it_would_be_and_as_it_is():
                 "tool": "item_update_task_config",
                 "arguments": {
                     "item_name": "01-full-magpie",
-                    "task_name": "Basic Milling",
+                    "task_name": "Mill",
                     "patch": {"milling.milling.stages.0.pattern.width": width * 2},
                     "version": "v",
                 },
@@ -731,7 +731,7 @@ def test_a_task_config_edit_draws_the_milling_as_it_would_be_and_as_it_is():
         ],
     }
     previews.show_request(request)
-    assert asked == [("01-full-magpie", "Basic Milling")]
+    assert asked == [("01-full-magpie", "Mill")]
     _, grey = _layer(previews.request_picture, CURRENT_COLOUR)
     _, purple = _layer(previews.request_picture)
     assert purple.patterns[0].width == pytest.approx(width * 2)

@@ -14,9 +14,6 @@ from fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence import
 from fibsem.applications.autolamella.workflows.tasks.fiducial import (
     MillFiducialTaskConfig,
 )
-from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
-    SpotBurnFiducialTaskConfig,
-)
 from fibsem.fm.structures import (
     AutoFocusSettings,
     ChannelSettings,
@@ -25,6 +22,9 @@ from fibsem.fm.structures import (
 )
 from fibsem.fm.timing import estimate_acquisition_time, estimate_autofocus_time
 from fibsem.structures import Point
+from fibsem.workflows.site_tasks.spot_burn import (
+    SpotBurnFiducialTaskConfig,
+)
 
 
 def _base_reference(cfg) -> float:

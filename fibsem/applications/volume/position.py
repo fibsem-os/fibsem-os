@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, ClassVar, Dict, List, Optional, Sequence, Tuple
 
 from psygnal import evented
 
@@ -16,13 +16,12 @@ from fibsem.structures import (
     Point,
 )
 from fibsem.util.timestamps import now, to_datetime, to_iso
-from fibsem.workflows.item import ExperimentItem
+from fibsem.workflows.item import MILLING_POSE, SiteItem
 from fibsem.workflows.proposals import Proposal, proposals_from_dict, proposals_to_dict
 from fibsem.workflows.status import TaskState, TaskStatus
 
-# The poses a position keeps: where it is milled, and where its face is imaged
-# (the milling pose when it has none of its own).
-MILL_POSE = "MILL"
+# The pose a position's face is imaged at: the milling pose when it has none
+# of its own.
 SEM_POSE = "SEM_IMAGING"
 
 # The alignment references a position's tasks align to, in its folder.
@@ -32,7 +31,7 @@ SEM_REFERENCE = "ref_alignment_eb.tif"
 
 @evented
 @dataclass
-class VolumePosition(ExperimentItem):
+class VolumePosition(SiteItem):
     """A site cut into ``iterations`` slices, each one iteration of its tasks.
 
     What a slice needs is worked out from the record, not counted on the
@@ -41,6 +40,7 @@ class VolumePosition(ExperimentItem):
     the same answer the run would have.
     """
 
+    item_type: ClassVar[str] = "position"
     name: str
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     description: str = ""
@@ -65,10 +65,8 @@ class VolumePosition(ExperimentItem):
     def pose(self, name: str) -> MicroscopeState:
         """The pose ``name``; the imaging pose falls back to the milling pose."""
         if name == SEM_POSE and SEM_POSE not in self.poses:
-            name = MILL_POSE
-        if name not in self.poses:
-            raise KeyError(f"{self.name} has no {name} pose.")
-        return self.poses[name]
+            name = MILLING_POSE
+        return super().pose(name)
 
     def slice_poi(self, iteration: int, slice_thickness: float) -> Point:
         """Where slice ``iteration`` (from 0) is milled: ``poi`` moved down

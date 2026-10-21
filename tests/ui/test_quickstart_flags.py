@@ -22,7 +22,7 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.applications.autolamella.ui.launch import _parse_args
 from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
-from fibsem.applications.autolamella.workflows.tasks.reference_image import (
+from fibsem.workflows.site_tasks.reference_image import (
     AcquireReferenceImageConfig,
 )
 from tests.fixtures.main_window import close_window

@@ -5,7 +5,7 @@ import yaml
 
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.volume.experiment import PROTOCOL_FILENAME, VolumeExperiment
-from fibsem.applications.volume.position import MILL_POSE, SEM_POSE, VolumePosition
+from fibsem.applications.volume.position import SEM_POSE, VolumePosition
 from fibsem.applications.volume.protocol import VolumeProtocol
 from fibsem.applications.volume.tasks import (
     VolumeFIBMillingTaskConfig,
@@ -14,6 +14,7 @@ from fibsem.applications.volume.tasks import (
 from fibsem.structures import FibsemStagePosition, MicroscopeState, Point
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.experiment import load_experiment
+from fibsem.workflows.item import MILLING_POSE
 from fibsem.workflows.saved_format import WrongApplication
 from fibsem.workflows.status import TaskState, TaskStatus
 
@@ -99,11 +100,11 @@ def test_a_position_saves_under_positions(experiment, tmp_path):
 
 
 def test_the_imaging_pose_falls_back_to_the_milling_pose():
-    position = VolumePosition(name="aspen", poses={MILL_POSE: _state(1e-3)})
+    position = VolumePosition(name="aspen", poses={MILLING_POSE: _state(1e-3)})
 
-    assert position.pose(SEM_POSE) is position.poses[MILL_POSE]
+    assert position.pose(SEM_POSE) is position.poses[MILLING_POSE]
     with pytest.raises(KeyError, match="MILL"):
-        VolumePosition(name="birch").pose(MILL_POSE)
+        VolumePosition(name="birch").pose(MILLING_POSE)
 
 
 def test_each_slice_moves_the_poi_down_the_face():

@@ -2439,9 +2439,6 @@ def render_correlation(h: Harness) -> None:
     from fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence import (
         AcquireFluorescenceImageConfig,
     )
-    from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
-        SpotBurnFiducialTaskConfig,
-    )
     from fibsem.correlation.structures import PointType
     from fibsem.fm.structures import (
         REFLECTION,
@@ -2452,6 +2449,9 @@ def render_correlation(h: Harness) -> None:
     from fibsem.structures import BeamType, ImageSettings, Point
     from fibsem.ui.correlation.widgets import correlation_tab_widget as ctw
     from fibsem.workflows.attention import Attention
+    from fibsem.workflows.site_tasks.spot_burn import (
+        SpotBurnFiducialTaskConfig,
+    )
     from fibsem.workflows.task_config import TaskPlan
 
     h.first_run(False)

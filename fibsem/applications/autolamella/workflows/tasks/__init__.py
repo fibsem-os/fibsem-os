@@ -9,6 +9,8 @@ import typing
 from typing import TYPE_CHECKING, Any, Dict, Tuple, Type
 
 from fibsem.plugins.loader import PluginRecord, PluginRegistry, subclass_of
+from fibsem.workflows.site_task import SiteTask
+from fibsem.workflows.site_tasks import BUILTIN_SITE_TASKS
 
 if TYPE_CHECKING:
     from psygnal.containers import EventedDict
@@ -29,8 +31,6 @@ from fibsem.applications.autolamella.workflows.tasks.tasks import (
     AcquireReferenceImageConfig,
     AcquireReferenceImageTask,
     AutoLamellaTask,
-    BasicMillingTask,
-    BasicMillingTaskConfig,
     MillCoincidentTask,
     MillCoincidentTaskConfig,
     MillFiducialTask,
@@ -75,16 +75,14 @@ class TaskNotRegisteredError(Exception):
 
 
 # Built-in tasks registry
-BUILTIN_TASKS: Dict[str, Type[AutoLamellaTask]] = {
+BUILTIN_TASKS: Dict[str, Type[SiteTask]] = {
+    **BUILTIN_SITE_TASKS,
     MillTrenchTaskConfig.task_type: MillTrenchTask,
     MillUndercutTaskConfig.task_type: MillUndercutTask,
     MillRoughTaskConfig.task_type: MillRoughTask,
     MillPolishingTaskConfig.task_type: MillPolishingTask,
     MillPerforationTaskConfig.task_type: MillPerforationTask,
-    SpotBurnFiducialTaskConfig.task_type: SpotBurnFiducialTask,
     MillFiducialTaskConfig.task_type: MillFiducialTask,
-    AcquireReferenceImageConfig.task_type: AcquireReferenceImageTask,
-    BasicMillingTaskConfig.task_type: BasicMillingTask,
     SelectMillingPositionTaskConfig.task_type: SelectMillingPositionTask,
     "SETUP_LAMELLA": MillFiducialTask,  # BACKWARDS_COMPATIBILITY,
     SelectFluorescencePositionConfig.task_type: SelectFluorescencePositionTask,

@@ -67,7 +67,8 @@ class VolumeTaskManager(BaseTaskManager):
     def _per_slice(self, task_name: str) -> bool:
         config = self.experiment.task_protocol.task_config.get(task_name)
         task_cls = None if config is None else VOLUME_TASK_PLUGINS.get(config.task_type)
-        return task_cls is None or task_cls.per_slice
+        # A shared site task runs once, before the slices, unless it says so.
+        return task_cls is None or getattr(task_cls, "per_slice", False)
 
     def _setup_remaining(self, item_name: str) -> List[str]:
         """The run's setup tasks whose latest run on the position did not

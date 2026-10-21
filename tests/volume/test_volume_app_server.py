@@ -80,7 +80,7 @@ def test_a_position_is_added_at_a_stage_position_and_saved(agent, experiment):
 
     assert added["item"]["item_name"] == "aspen"
     saved = VolumeExperiment.load(experiment.path).get_position_by_name("aspen")
-    assert saved.pose("MILL").stage_position.x == pytest.approx(1e-4)
+    assert saved.pose("MILLING").stage_position.x == pytest.approx(1e-4)
     assert (
         agent.post("/app/experiment/items", json={"name": "aspen"}).status_code == 422
     )

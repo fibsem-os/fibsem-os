@@ -23,12 +23,12 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.applications.autolamella.ui.workflow.lamella_run import (
     LamellaWorkflowWidget,
 )
-from fibsem.applications.autolamella.workflows.tasks.reference_image import (
-    AcquireReferenceImageConfig,
-)
 from fibsem.ui.stylesheets import NAPARI_STYLE
 from fibsem.util.timestamps import now
 from fibsem.workflows.attention import Attention
+from fibsem.workflows.site_tasks.reference_image import (
+    AcquireReferenceImageConfig,
+)
 from fibsem.workflows.status import TaskState, TaskStatus
 
 # ── sample data ──────────────────────────────────────────────────────────────

@@ -7,11 +7,6 @@ from dataclasses import dataclass, field
 from typing import ClassVar, Optional, Type
 
 from fibsem import timing
-from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
-from fibsem.applications.autolamella.workflows.tasks.base import (
-    ALIGNMENT_REFERENCE_IMAGE_FILENAME,
-    AutoLamellaTask,
-)
 from fibsem.imaging.spot import SpotBurnSettings, run_spot_burn, show_after_burn
 from fibsem.structures import BeamType, Display, Point, param
 from fibsem.workflows.interaction import (
@@ -28,10 +23,12 @@ from fibsem.workflows.proposals import (
     SPOT_BURN,
     DecisionOutcome,
 )
+from fibsem.workflows.site_task import SiteTask, SiteTaskConfig
+from fibsem.workflows.task import ALIGNMENT_REFERENCE_IMAGE_FILENAME
 
 
 @dataclass
-class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
+class SpotBurnFiducialTaskConfig(SiteTaskConfig):
     """Configuration for the SpotBurnFiducialTask."""
 
     task_type: ClassVar[str] = "SPOT_BURN_FIDUCIAL"
@@ -96,7 +93,7 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
         self.exposure_time = settings.exposure_time
 
 
-class SpotBurnFiducialTask(AutoLamellaTask):
+class SpotBurnFiducialTask(SiteTask):
     """Task to mill spot fiducial markers for correlation."""
 
     asks = (SPOT_BURN,)
@@ -111,7 +108,7 @@ class SpotBurnFiducialTask(AutoLamellaTask):
 
         # restore the full milling-pose state, then align to the stored reference so
         # the burn coordinates land on target (mirrors rough/polishing)
-        self._move_to_milling_pose()
+        self._move_to_pose()
         self._align_reference_image(ALIGNMENT_REFERENCE_IMAGE_FILENAME)
 
         self.config.exposure_time = float(self.config.exposure_time)
@@ -149,11 +146,11 @@ class SpotBurnFiducialTask(AutoLamellaTask):
         """
         responder = self.responder
         settings = self.config.to_settings()
-        msg = f"Place points for the spot burn of {self.lamella.name}."
+        msg = f"Place points for the spot burn of {self.item.name}."
         burned, passes, error, refused, watched = settings, 0, None, None, False
         if not settings.coordinates and self.unasked_reason(SPOT_BURN):
             logging.warning(
-                f"No spot burn coordinates set for {self.lamella.name}; "
+                f"No spot burn coordinates set for {self.item.name}; "
                 "skipping spot burn."
             )
             return

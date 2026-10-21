@@ -440,13 +440,11 @@ def test_an_area_patch_moves_the_fiducial_not_milled_yet(ui, qapp):
     left the fiducial at the old centre (FIB-1430)."""
     from fibsem import acquire
     from fibsem.applications.autolamella.protocol.constants import FIDUCIAL_KEY
-    from fibsem.applications.autolamella.workflows.tasks.base import (
-        ALIGNMENT_REFERENCE_IMAGE_FILENAME,
-    )
     from fibsem.applications.autolamella.workflows.tasks.fiducial import (
         MillFiducialTaskConfig,
     )
     from fibsem.structures import BeamType, FibsemRectangle, ImageSettings
+    from fibsem.workflows.task import ALIGNMENT_REFERENCE_IMAGE_FILENAME
 
     lamella = ui.experiment.positions[0]
     fiducial = "Mill Fiducial"

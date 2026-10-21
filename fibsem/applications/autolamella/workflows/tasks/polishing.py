@@ -10,11 +10,11 @@ from fibsem.applications.autolamella.workflows._default_milling_config import (
     DEFAULT_MILLING_CONFIG,
 )
 from fibsem.applications.autolamella.workflows.tasks.base import (
-    ALIGNMENT_REFERENCE_IMAGE_FILENAME,
     AutoLamellaTask,
 )
 from fibsem.structures import Display, param
 from fibsem.workflows.proposals import MILLING
+from fibsem.workflows.task import ALIGNMENT_REFERENCE_IMAGE_FILENAME
 
 
 @dataclass
@@ -58,7 +58,7 @@ class MillPolishingTask(AutoLamellaTask):
         image_settings = self.config.imaging
 
         # move to lamella milling position
-        self._move_to_milling_pose()
+        self._move_to_pose()
 
         # beam_shift alignment
         self._align_reference_image(ALIGNMENT_REFERENCE_IMAGE_FILENAME)
