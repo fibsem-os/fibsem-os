@@ -10,8 +10,10 @@ import logging
 import os
 import re
 import socket
+import sys
 import threading
 import time
+from pathlib import Path
 
 import pytest
 
@@ -226,6 +228,8 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
     assert options.verbatim_prompts
     assert options.max_turns == runner_mod.MAX_TURNS
     assert options.max_budget_usd == runner_mod.MAX_BUDGET_USD
+    # A tool result with an image in it is more than the SDK's 1 MB default.
+    assert options.max_buffer_size >= 16 * 1024 * 1024
     # No developer CLAUDE.md or auto memory in an operator's agent.
     assert options.env == {
         "CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1",
@@ -250,6 +254,140 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
     assert "Skill(autolamella-agent)" in allowed and "mcp__fibsem__*" in allowed
     assert "bypassPermissions" not in command
     assert not any("t0k" in part for part in command), "the token is in argv"
+
+
+def test_code_mode_is_sandboxed_in_its_work_folder(tmp_path, monkeypatch):
+    pytest.importorskip("claude_agent_sdk")
+    import json
+
+    from fibsem.ai.agent import code_mode
+
+    monkeypatch.setenv("SOME_SERVICE_TOKEN", "x")
+    checkout = runner_mod.find_checkout()
+    work = tmp_path / "work"
+    code_mode.prepare(
+        work, checkout, list(runner_mod.SKILLS), list(runner_mod.SPECIALISTS)
+    )
+    options = runner_mod.build_options(checkout, token="t0k", work=work)
+
+    # The skills are read from the work folder, which is the CLI's.
+    assert options.cwd == str(work)
+    for skill in runner_mod.SKILLS:
+        assert (work / ".claude" / "skills" / skill / "SKILL.md").is_file()
+    assert (work / "notebook" / "INDEX.md").is_file()
+    for agent in runner_mod.SPECIALISTS:
+        assert (work / ".claude" / "agents" / f"{agent}.md").is_file()
+
+    assert options.permission_mode == "dontAsk"
+    for tool in ("Bash", "Read", "Write", "Edit", "Glob", "Grep"):
+        assert tool in options.tools
+    for tool in ("WebFetch", "WebSearch", "Agent(general-purpose)"):
+        assert tool in options.disallowed_tools
+    assert "Bash" not in options.disallowed_tools
+    # Writes in the work folder only.
+    rule = f"/{work.as_posix()}/**"
+    assert f"Edit({rule})" in options.allowed_tools
+    assert "Write" not in options.allowed_tools and "Edit" not in options.allowed_tools
+
+    settings = json.loads(options.settings)
+    assert settings["permissions"]["blockReadsOutsideWorkingDirectories"] is True
+    assert (
+        f"Edit(/{(work / '.claude').as_posix()}/**)"
+        in (settings["permissions"]["deny"])
+    )
+    sandbox = settings["sandbox"]
+    assert sandbox["enabled"] and sandbox["failIfUnavailable"]
+    assert sandbox["allowUnsandboxedCommands"] is False
+    assert sandbox["network"]["allowedDomains"] == []
+    hidden = {entry["name"] for entry in sandbox["credentials"]["envVars"]}
+    assert {
+        "ANTHROPIC_API_KEY",
+        "CLAUDE_CODE_MESSAGING_TOKEN",
+        "FIBSEM_SERVER_TOKEN",
+        "SOME_SERVICE_TOKEN",
+    } <= hidden
+    assert all(entry["mode"] == "deny" for entry in sandbox["credentials"]["envVars"])
+
+    assert options.env["FIBSEM_AGENT_WORKDIR"] == str(work)
+    assert options.env["MPLCONFIGDIR"].startswith(str(work))
+    prompt = options.system_prompt["append"]
+    assert str(work) in prompt and "no network" in prompt
+    # Its code runs with fibsem-agent's own environment, read only.
+    assert sys.executable in prompt
+    readable = sandbox["filesystem"]["allowRead"]
+    assert any(Path(sys.prefix).resolve().is_relative_to(path) for path in readable)
+    import fibsem
+
+    package = Path(fibsem.__file__).resolve()
+    assert any(package.is_relative_to(path) for path in readable)
+    assert "There is no shell" not in prompt
+
+    # On the CLI's command line, as flag settings, which a project's own
+    # settings can't loosen; the token still isn't in argv.
+    from claude_agent_sdk._internal.transport.subprocess_cli import (
+        SubprocessCLITransport,
+    )
+
+    transport = SubprocessCLITransport("", options)
+    transport._cli_path = "claude"
+    command = transport._build_command()
+    assert json.loads(command[command.index("--settings") + 1]) == settings
+    assert not any("t0k" in part for part in command), "the token is in argv"
+
+
+def test_code_mode_needs_a_folder_of_its_own(tmp_path, monkeypatch):
+    from fibsem.ai.agent import code_mode
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    checkout = tmp_path / "fibsem-os"
+    work = tmp_path / "home" / "fibsem-work"
+    monkeypatch.setattr(code_mode.sys, "platform", "darwin")
+    assert code_mode.refusal(work, checkout) is None
+    for wrong in (tmp_path / "home", Path("/"), tmp_path, checkout / "sub"):
+        assert code_mode.refusal(wrong, checkout), wrong
+    # fibsem-agent's own environment can't be in the agent's folder.
+    monkeypatch.setattr(code_mode.sys, "prefix", str(work / "env"))
+    assert "Python" in code_mode.refusal(work, checkout)
+    monkeypatch.setattr(code_mode.sys, "platform", "win32")
+    assert "sandbox" in code_mode.refusal(work, checkout)
+
+
+def test_fibsem_agent_says_whether_code_mode_is_on(tmp_path, monkeypatch):
+    from fibsem.ai.agent import code_mode
+
+    monkeypatch.setattr(code_mode.sys, "platform", "darwin")
+    assert code_mode.describe(None) == "Off (--code to turn it on)"
+    assert code_mode.describe(tmp_path) == f"Available in {tmp_path} (sandboxed)"
+    monkeypatch.setattr(code_mode.sys, "platform", "win32")
+    assert code_mode.describe(None).startswith("Not available")
+
+
+def test_fibsem_agent_starts_with_its_status(tmp_path):
+    import argparse
+
+    args = argparse.Namespace(
+        url=None,
+        model=None,
+        goal="mill 01",
+        max_budget_usd=5.0,
+        max_turns=40,
+        resume=None,
+    )
+    lines = runner_mod.status(
+        args, tmp_path, tmp_path / "a.log", tmp_path / "w", "abc-123"
+    )
+    rows = dict(line.split(":", 1) for line in lines)
+    assert rows["Goal"].strip() == "mill 01"
+    assert rows["Session"].strip() == "abc-123 (new)"
+    assert rows["Code"].strip().startswith("Available in")
+    assert len({line.index(line.split()[1]) for line in lines}) == 1, "aligned"
+
+
+def test_code_with_no_path_is_the_current_folder(tmp_path, monkeypatch):
+    from fibsem.ai.agent import code_mode
+
+    monkeypatch.chdir(tmp_path)
+    assert code_mode.workdir(".") == tmp_path.resolve()
 
 
 # --- the specialists ------------------------------------------------------------
@@ -509,6 +647,25 @@ def test_the_session_is_reported_to_the_app_after_each_turn_and_at_the_end(sessi
     kinds = [e["kind"] for e in session.recorder.buffer.events_since(0)["events"]]
     assert kinds.count("agent_session_started") == 1
     assert kinds.count("agent_session_ended") == 1
+
+
+def test_the_runner_reports_the_goal_once_and_leaves_later_ones_to_the_agent():
+    class Client:
+        def __init__(self):
+            self.bodies = []
+
+        def request(self, method, path, json=None, timeout=None):
+            self.bodies.append(json)
+
+    runner = Runner(ScriptedAgent(), lambda: None, goal="Mill 01")
+    runner._client = client = Client()
+    asyncio.run(runner._report())
+    asyncio.run(runner._report())
+    asyncio.run(runner._report(ended=True))
+    assert client.bodies[0]["goal"] == "Mill 01"
+    # A goal the operator explicitly gives later is the agent's to report.
+    assert all("goal" not in body for body in client.bodies[1:])
+    assert "explicitly" in runner_mod.RUNNER_PROMPT
 
 
 # --- ending -------------------------------------------------------------------

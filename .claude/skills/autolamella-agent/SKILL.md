@@ -39,8 +39,8 @@ On the curl path your own harness may gate commands that change state: a
 permission prompt for the operator in an interactive session, a hard denial
 when running on your own. Treat a harness denial exactly like a server 403:
 stop and ask, and never repackage the call to get past it. Under
-`fibsem-agent` there is no shell, so there is no curl path: the MCP tools are
-the way in.
+`fibsem-agent` there is no curl path, even in code mode (its shell has no
+network): the MCP tools are the way in.
 
 Read `server_get_capabilities` (`/capabilities`) before anything else:
 
@@ -251,7 +251,7 @@ Every read works at Watch.
 | Grids on the hardware now | `grid_get_inventory` (which grid is loaded), `grid_get_current` |
 | Any other file | `experiment_list_files`, `experiment_read_file`, `experiment_crop_image` |
 | A file for your own code | `experiment_fetch_file` saves it as it is on your machine |
-| A past experiment | the same tools with `experiment`, its `relative_path` from `experiment_list_all`; only one the operator named, and every read goes on the record |
+| A past experiment | the same tools with `experiment`, its `relative_path` from `experiment_list_all`; only one the operator named or their goal asks for, and every read goes on the record |
 
 **Check an image's age before judging it.** Images carry `acquired_at`. One
 that predates what you are judging (a mill, a move) is the wrong frame: on
