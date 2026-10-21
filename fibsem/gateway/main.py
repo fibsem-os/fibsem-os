@@ -141,7 +141,7 @@ def quit_gateway(gateway: Gateway) -> None:
 def _run_tray(gateway: Gateway, auth, port: int) -> bool:
     """The tray's event loop until Quit; False when Qt or a tray isn't there."""
     try:
-        from fibsem.gateway.tray import run_tray
+        from fibsem.gateway.ui.tray import run_tray
     except ImportError:
         return False
     return run_tray(gateway, auth, port)

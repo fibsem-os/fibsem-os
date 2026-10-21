@@ -7,7 +7,7 @@ pytest.importorskip("fastapi")
 
 from fibsem.gateway.gateway import HEADLESS, OFF, WINDOW, Gateway  # noqa: E402
 from fibsem.gateway.server import GatewayAuth  # noqa: E402
-from fibsem.gateway.tray import GatewayTray, mode_colour  # noqa: E402
+from fibsem.gateway.ui.tray import GatewayTray, mode_colour  # noqa: E402
 from fibsem.theme.tokens import PRIMARY_COLOR, SEMANTIC_WARNING_COLOR  # noqa: E402
 
 
@@ -53,7 +53,7 @@ def test_a_window_is_stopped_at_the_window(tray):
 
 
 def test_pairing_a_hub_opens_a_code_with_its_grant(tray, monkeypatch):
-    from fibsem.gateway import tray as tray_module
+    from fibsem.gateway.ui import tray as tray_module
 
     shown = []
     monkeypatch.setattr(
