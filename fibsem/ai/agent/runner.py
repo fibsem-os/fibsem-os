@@ -103,8 +103,20 @@ REREAD_LEVEL = (
 log = logging.getLogger("fibsem.agent.runner")
 
 
-def kickoff(resumed: bool = False) -> str:
-    """The first turn: the skills, the level, and where things stand."""
+def kickoff(resumed: bool = False, goal: Optional[str] = None) -> str:
+    """The first turn: the skills, the level, and where things stand, and the
+    goal the operator gave, if any."""
+    prompt = _kickoff(resumed)
+    if goal:
+        prompt += (
+            f"\n\nYour goal, from the operator who started you: {goal}\n"
+            "Work toward it within your level, and say so when it is done or "
+            "can't be done."
+        )
+    return prompt
+
+
+def _kickoff(resumed: bool) -> str:
     if resumed:
         return (
             "fibsem-agent restarted and resumed this session. Its watcher started "
@@ -298,11 +310,21 @@ def _close(client) -> None:
 
 
 def _reachable(client) -> bool:
-    """Whether the App Server answers this client, at any level."""
+    """Whether the App Server answers this client, at any level; a warning
+    when it runs other fibsem code than fibsem-agent."""
+    from fibsem.server.discovery import code_mismatch
+
     try:
         response = client.request("GET", "/capabilities", timeout=10.0)
     except Exception:
         return False
+    if response.status_code == 200:
+        try:
+            warning = code_mismatch(response.json(), "fibsem-agent")
+        except Exception:  # noqa: BLE001 - a warning never costs the connection
+            warning = None
+        if warning:
+            log.warning(warning)
     return response.status_code != 401 and response.status_code < 500
 
 
@@ -314,6 +336,10 @@ class Runner:
     ``interrupt()`` and ``close()``. ``connect`` gives the watch's client,
     or None while no server is known. ``run()`` returns the exit code: 0
     when stopped, 1 when the app or the agent is gone, 2 when the budget is.
+
+    After every turn, and as it ends, the runner reports the session to the
+    App Server (``POST /app/agent/session``): its id, model, goal, budget and
+    spend, so the operator sees them in the app.
     """
 
     def __init__(
@@ -324,8 +350,17 @@ class Runner:
         server_wait_s: float = SERVER_WAIT_S,
         poll_s: float = watch_mod.POLL_S,
         retry_s: Optional[float] = None,
+        goal: Optional[str] = None,
+        budget_usd: Optional[float] = None,
     ) -> None:
         self._agent = agent
+        self._goal = goal
+        self._budget_usd = budget_usd
+        # The App Server's client, once one answers: the session is reported on it.
+        self._client = None
+        self._turns = 0
+        self._spent_usd: Optional[float] = None
+        self._end_reason = "stopped at fibsem-agent"
         self._connect = connect
         self._resumed = resumed
         self._server_wait_s = server_wait_s
@@ -362,7 +397,7 @@ class Runner:
             return self._code
         try:
             await self._agent.start()
-            prompt = kickoff(self._resumed)
+            prompt = kickoff(self._resumed, self._goal)
             while prompt is not None and await self._turn(prompt):
                 prompt = await self._next_prompt()
         except Exception:
@@ -371,6 +406,8 @@ class Runner:
                 raise
             log.debug("The agent's process ended as it stopped.", exc_info=True)
         finally:
+            # Before the watcher stops: stopping it closes the client.
+            await self._report(ended=True)
             if self._watcher is not None:
                 self._watcher.stop()
             try:
@@ -405,6 +442,7 @@ class Runner:
             client = await self._wait_for_server(deadline)
             if client is None:
                 return False
+            self._client = client
             self._start_watcher(client)
             while True:
                 item = await self._get()
@@ -438,10 +476,14 @@ class Runner:
             end = await self._agent.turn(prompt)
         finally:
             interrupter.cancel()
+        self._turns += 1
+        if end.cost_usd is not None:
+            self._spent_usd = end.cost_usd
         if self._stopping.is_set():
             return False
         session = end.session_id or getattr(self._agent, "session_id", None)
         if end.error in FATAL_ERRORS:
+            self._end_reason = f"the model can't answer ({end.error})"
             log.error(
                 "The model can't answer (%s); fibsem-agent stops. Set "
                 "ANTHROPIC_API_KEY to a Claude API key (or configure Bedrock or "
@@ -451,6 +493,7 @@ class Runner:
             self._code = 1
             return False
         if end.subtype == "error_max_budget_usd":
+            self._end_reason = "its budget is spent"
             log.error(
                 "The budget is spent (--max-budget-usd); fibsem-agent stops. "
                 "Raise it and --resume %s to carry on.",
@@ -459,6 +502,7 @@ class Runner:
             self._code = 2
             return False
         if end.subtype == "no_result":
+            self._end_reason = "the agent's process ended"
             log.error(
                 "The agent's process ended without finishing its turn; "
                 "fibsem-agent stops. --resume %s carries the session on.",
@@ -473,7 +517,34 @@ class Runner:
             )
         elif end.subtype != "success":
             log.warning("The turn ended with %s.", end.subtype)
+        await self._report()
         return True
+
+    async def _report(self, ended: bool = False) -> None:
+        """The session as it stands, to the App Server; a refusal or a server
+        that is gone costs nothing."""
+        client = self._client
+        if client is None:
+            return
+        body = {
+            "session_id": getattr(self._agent, "session_id", None),
+            "model": getattr(self._agent, "model", None),
+            "goal": self._goal,
+            "budget_usd": self._budget_usd,
+            "spent_usd": self._spent_usd,
+            "turns": self._turns,
+        }
+        body = {key: value for key, value in body.items() if value is not None}
+        if ended:
+            body.update(ended=True, reason=self._end_reason)
+
+        def post():
+            try:
+                client.request("POST", "/app/agent/session", json=body, timeout=10.0)
+            except Exception:
+                log.debug("Reporting the session failed.", exc_info=True)
+
+        await asyncio.get_running_loop().run_in_executor(None, post)
 
     async def _interrupt_on_stop(self) -> None:
         await self._stopping.wait()
@@ -546,10 +617,12 @@ class Runner:
         """The watch gave up: wait for the app to come back and watch again,
         or end the run. The turn says what the agent missed."""
         self._watcher.stop()
+        self._end_reason = "the app could not be watched"
         log.warning("The watcher stopped: the app can't be watched.")
         started = time.monotonic()
         if not await self._watch():
             return None
+        self._end_reason = "stopped at fibsem-agent"
         # A restarted app starts its own session, at Watch.
         self._wakes = Wakes()
         back = (
@@ -603,6 +676,7 @@ class SdkAgent:
         self._options = options
         self._client = None
         self.session_id: Optional[str] = options.resume
+        self.model: Optional[str] = options.model
         self.introduced = False
 
     async def start(self) -> None:
@@ -681,6 +755,7 @@ def _show(message, agent: SdkAgent) -> None:
         if message.subtype == "init" and not agent.introduced:
             agent.introduced = True
             agent.session_id = data.get("session_id") or agent.session_id
+            agent.model = data.get("model") or agent.model
             log.info("Session %s", agent.session_id)
             tools = data.get("tools") or []
             ours = [tool for tool in tools if tool.startswith(f"mcp__{SERVER}__")]
@@ -839,6 +914,11 @@ def main(argv=None) -> int:
     )
     parser.add_argument("--model", default=None, help="model (default: the CLI's)")
     parser.add_argument(
+        "--goal",
+        default=None,
+        help="what the agent is to do, in a sentence; the app shows it",
+    )
+    parser.add_argument(
         "--max-turns",
         type=int,
         default=MAX_TURNS,
@@ -912,6 +992,8 @@ def main(argv=None) -> int:
         lambda: watch_mod.connect(args.url, token),
         resumed=args.resume is not None,
         server_wait_s=args.server_wait,
+        goal=args.goal,
+        budget_usd=args.max_budget_usd,
     )
 
     def on_interrupt(signum, frame):

@@ -40,7 +40,7 @@ import weakref
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Callable, Iterator, List, Optional
+from typing import Any, Callable, Dict, Iterator, List, Optional
 
 from fastapi import HTTPException, Request
 from starlette.requests import HTTPConnection
@@ -49,6 +49,7 @@ from fibsem.acting import AGENT, current_actor
 from fibsem.ai.agent.calls import current_call
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.control import MicroscopeBusy
+from fibsem.server.leases import LEASE_HEADER
 
 # What each level reaches, in order: a route needing a level is open at it and
 # every level above.
@@ -95,6 +96,9 @@ class AuthConfig:
     # Self-reported, so a label for the operator, not an identity: every client
     # shares the one token.
     agent_client: Optional[str] = None
+    # The agent's session as its harness reports it (fibsem.server.agent_session):
+    # model, goal, budget and spend. Self-reported, like agent_client.
+    agent_session: Optional[Dict[str, Any]] = None
     # Called after each level change and on Stop agent (on_level_change).
     _listeners: List[Callable[[], Optional[Callable]]] = field(
         default_factory=list, repr=False, compare=False
@@ -383,6 +387,22 @@ def require_monitoring():
     return dependency
 
 
+def require_token():
+    """A valid agent or operator token at any level, Off included: for giving
+    control up, which, like a stop, is never refused. The dashboard's is refused."""
+
+    def dependency(request: Request) -> None:
+        auth: AuthConfig = request.app.state.auth
+        token = _bearer_token(request)
+        if _matches(token, auth.token) or _matches(token, auth.operator_token):
+            return
+        if _matches(token, auth.dashboard_token):
+            raise _dashboard_refused()
+        raise _unauthorized()
+
+    return dependency
+
+
 def require_operator():
     """The operator's routes' dependency: the operator token, whatever the
     agent's level. The agent's and the dashboard's tokens are refused (403)."""
@@ -404,6 +424,13 @@ def is_operator_token(auth: AuthConfig, authorization: Optional[str]) -> bool:
     if authorization is None or not authorization.startswith("Bearer "):
         return False
     return _matches(authorization[len("Bearer ") :], auth.operator_token)
+
+
+def refuse_dashboard(request: Request) -> None:
+    """403 for the dashboard token: for a monitoring GET it may not make (a
+    raw file, which the event log never needs)."""
+    if _matches(_bearer_token(request), request.app.state.auth.dashboard_token):
+        raise _dashboard_refused()
 
 
 def action_name(request: Request) -> str:
@@ -451,22 +478,18 @@ def take_control(request: Request):
     told, not held. During a run's question, the run has lent control, so the
     request borrows it.
     """
+    lease_id = request.headers.get(LEASE_HEADER)
+    if lease_id is not None:
+        # Inside a lease the caller holds (`fibsem.server.leases`): nothing to take.
+        request.state.control_entry = caller_lease(request, lease_id).entry
+        yield
+        return
     control = request.app.state.microscope.control
     taking = control.take(current_actor() or AGENT, described_action(request))
     try:
         entry = taking.__enter__()
     except MicroscopeBusy as busy:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "error_type": "microscope_busy",
-                "message": str(busy),
-                "in_control": {
-                    "by": busy.in_control.by,
-                    "action": busy.in_control.action,
-                },
-            },
-        ) from None
+        raise busy_refusal(busy) from None
     once = threading.Lock()
 
     def release() -> None:
@@ -483,6 +506,33 @@ def take_control(request: Request):
     finally:
         if not getattr(request.state, "control_adopted", False):
             release()
+
+
+def busy_refusal(busy: MicroscopeBusy) -> HTTPException:
+    """The 409 a take refused with: who is in control, doing what."""
+    return HTTPException(
+        status_code=409,
+        detail={
+            "error_type": "microscope_busy",
+            "message": str(busy),
+            "in_control": {"by": busy.in_control.by, "action": busy.in_control.action},
+        },
+    )
+
+
+def caller_lease(request: Request, lease_id: str):
+    """The caller's live lease *lease_id*, or 409: given up, or another's."""
+    lease = request.app.state.leases.get(lease_id)
+    if lease is None or lease.entry.by != (current_actor() or AGENT):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error_type": "lease_gone",
+                "message": "This control lease was given up (released, or "
+                "idle too long); take control again.",
+            },
+        )
+    return lease
 
 
 def adopt_control(request: Request) -> Optional[Callable[[], None]]:

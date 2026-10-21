@@ -29,7 +29,9 @@ from fibsem import __version__
 from fibsem.acting import AGENT, OPERATOR, acting, current_actor
 from fibsem.ai.agent import blocklist
 from fibsem.ai.agent.calls import calling, current_call, from_headers
+from fibsem.control import STOP_COMMANDS, MicroscopeBusy
 from fibsem.microscope import FibsemMicroscope
+from fibsem.server.agent_session import build_agent_session_router
 from fibsem.server.app_routes import (
     build_app_config_router,
     build_app_control_router,
@@ -42,10 +44,13 @@ from fibsem.server.auth import (
     AuthConfig,
     action_name,
     adopt_control,
+    busy_refusal,
+    caller_lease,
     drive_is_lent,
     is_operator_token,
     require_level,
     require_monitoring,
+    require_token,
     take_control,
 )
 from fibsem.server.devices import (
@@ -58,7 +63,8 @@ from fibsem.server.devices import (
     stream_live,
 )
 from fibsem.server.discovery import fibsem_folder
-from fibsem.server.models import MicroscopeStateRequest
+from fibsem.server.leases import LEASE_HEADER, Leases
+from fibsem.server.models import ControlRequest, MicroscopeStateRequest
 from fibsem.server.operator import build_operator_router
 from fibsem.server.parts import served_parts
 from fibsem.server.requests import RequestStore, build_request_router, turned_away
@@ -98,11 +104,6 @@ class _RefusingRoute(APIRoute):
 
         return refusing
 
-
-# Device and service commands that stop something (an FM z-stack stops through
-# `imaging.stop`; milling's `end` ends the stage keeping what it milled). No
-# control taken, so never refused by the running move or mill.
-STOP_COMMANDS = frozenset(("stop", "stop_live", "end"))
 
 # The instrument half of the API; /app is the application's.
 MICROSCOPE = "/microscope"
@@ -516,6 +517,7 @@ def build_server(
     app.add_middleware(_AgentActs)
     app.state.auth = auth
     app.state.microscope = microscope
+    app.state.leases = Leases(microscope.control) if microscope is not None else None
     # The app the operator works in, as the agent's refusals name it.
     app.state.app_name = getattr(app_context, "app_name", None) or "fibsemOS"
     app.state.app_context = app_context
@@ -656,6 +658,47 @@ def build_server(
             allowed=lambda: auth.reaches(AgentLevel.WATCH),
         )
 
+    # Who is in control, and a lease on it for calls that must not interleave
+    # with anyone's (`fibsem.server.leases`): taken and renewed at Drive, given
+    # up at any level, like a stop.
+    @whole.get("/control", dependencies=[Depends(require_monitoring())])
+    def get_control(request: Request):
+        current = microscope.control.current
+        lease = app.state.leases.get(request.headers.get(LEASE_HEADER))
+        return {
+            "in_control": None
+            if current is None
+            else {"by": current.by, "action": current.action, "since": current.since},
+            "yours": lease is not None and lease.entry is current,
+        }
+
+    @whole.post("/control", dependencies=[Depends(_drive)])
+    def take_lease(body: ControlRequest):
+        try:
+            lease = app.state.leases.take(current_actor() or AGENT, body.action)
+        except MicroscopeBusy as busy:
+            raise busy_refusal(busy) from None
+        return {"lease": lease.id, "idle_s": app.state.leases.idle_s}
+
+    @whole.put("/control/{lease}", dependencies=[Depends(_drive)])
+    def renew_lease(request: Request, lease: str):
+        caller_lease(request, lease)
+        return {"status": "ok"}
+
+    @whole.delete("/control/{lease}", dependencies=[Depends(require_token())])
+    def release_lease(lease: str):
+        return {"released": app.state.leases.release(lease)}
+
+    # A run waiting on a question lends its lease, as a local run lends.
+    @whole.post("/control/{lease}/lend", dependencies=[Depends(_drive)])
+    def lend_lease(request: Request, lease: str):
+        app.state.leases.lend(caller_lease(request, lease).id)
+        return {"status": "ok"}
+
+    @whole.delete("/control/{lease}/lend", dependencies=[Depends(require_token())])
+    def end_lend(lease: str):
+        return {"ended": app.state.leases.end_lend(lease)}
+
     # Restores beams and stage in their set order: Drive, and control of the
     # microscope, like any command.
     @whole.put(
@@ -784,6 +827,10 @@ def build_server(
             ),
         )
         app.include_router(build_request_router(app.state.requests))
+        # The agent's own report of its session: model, goal, budget, spend.
+        app.include_router(
+            build_agent_session_router(getattr(app_context, "record_event", None))
+        )
     if operator is not None:
         app.include_router(build_operator_router(operator))
     return app

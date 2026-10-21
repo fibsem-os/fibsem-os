@@ -47,6 +47,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
 # someone decides. Path parameter names don't matter.
 NOT_TOOLS: Dict[str, str] = {
     "GET /health": "Open liveness check, no token; the agent's first read is server_get_capabilities.",
+    "GET /app/agent/session": "The agent's own report, read back by the app and the dashboard; the agent knows what it reported.",
     "GET /dashboard/log": "The operator's event log page, HTML; app_get_events is the agent's read.",
     "GET /chat": "The operator's chat with the agent, HTML; it calls the operator's routes.",
     "POST /app/experiment/evidence": "Every acting tool's evidence argument: the sidecar keeps it here first, then the call cites it.",
@@ -57,6 +58,12 @@ NOT_TOOLS: Dict[str, str] = {
     "GET /microscope/services/{service}/{parameter}/metadata": "service_list carries limits, choices and settable.",
     "GET /microscope/devices/{device}/values": "Not decided yet; device_get_parameter reads one value at a time.",
     "GET /microscope/services/{service}/values": "Not decided yet; service_get_parameter reads one value at a time.",
+    "GET /microscope/control": "A remote app's control lease, held by its client (RemoteMicroscope.control); each agent call takes control itself.",
+    "POST /microscope/control": "A remote app's control lease, held by its client (RemoteMicroscope.control); each agent call takes control itself.",
+    "PUT /microscope/control/{lease}": "A remote app's control lease, held by its client (RemoteMicroscope.control); each agent call takes control itself.",
+    "DELETE /microscope/control/{lease}": "A remote app's control lease, held by its client (RemoteMicroscope.control); each agent call takes control itself.",
+    "POST /microscope/control/{lease}/lend": "A remote app's control lease, held by its client (RemoteMicroscope.control); each agent call takes control itself.",
+    "DELETE /microscope/control/{lease}/lend": "A remote app's control lease, held by its client (RemoteMicroscope.control); each agent call takes control itself.",
     # The analysis services (fibsem.services.analysis): each query the agent
     # uses is a named tool (correlation_correlate, ...); the generic routes are
     # for scripts and the browser monitor.

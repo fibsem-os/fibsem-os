@@ -80,6 +80,7 @@ from fibsem.structures import (
 )
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui import utils as ui_utils
+from fibsem.ui.control import control_of
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.tokens import (
     ACCENT_COLOR,
@@ -3593,7 +3594,7 @@ class FibsemOverviewWidget(QWidget):
         worker = FunctionWorker(self.session.move_to, position)
         worker.errored.connect(self._on_move_errored)
         worker.finished.connect(self._on_move_finished)
-        worker.start()
+        worker.start(control=control_of(self.microscope), action="move stage")
 
     def _on_move_errored(self, error: object) -> None:
         """The stage did not get there. Say that, rather than falling quiet."""
@@ -3946,7 +3947,9 @@ class FibsemOverviewWidget(QWidget):
         self._worker = FunctionWorker(
             self._acquire_worker, settings, deepcopy(self._run_centre)
         )
-        self._worker.start()
+        self._worker.start(
+            control=control_of(self.microscope), action="acquire overview"
+        )
 
     def _confirm(self, settings: OverviewAcquisitionSettings) -> bool:
         """Show what is about to happen, and let it be called off.

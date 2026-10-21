@@ -19,6 +19,7 @@ from fibsem.milling.progress import (
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import MillingState
 from fibsem.ui import stylesheets
+from fibsem.ui.control import control_of
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.util.durations import format_duration_precise
 from fibsem.workflows.actions import record_operator_action
@@ -210,20 +211,22 @@ class FibsemMillingWidget2(QWidget):
         self._milling_thread = FunctionWorker(
             self._milling_worker, self.microscope, config, output_dir
         )
-        # Both of these used to run from inside the worker's `finally`, which put the
-        # widget update on the worker thread. Connected here in the order they used to
-        # happen in: the controls have to be unlocked before anything acts on
-        # `finished_milling_signal`, which listeners take to mean "fully complete".
-        self._milling_thread.finished.connect(self._update_button_states)
-        self._milling_thread.finished.connect(self.finished_milling_signal.emit)
+        # A method, not the signal's emit: Qt drops it with the widget, so a run
+        # that ends after the widget is gone calls nothing.
+        self._milling_thread.finished.connect(self._on_milling_finished)
 
-        self._milling_thread.start()
+        self._milling_thread.start(control=control_of(self.microscope), action="mill")
 
         # Lock the controls now rather than waiting for the first progress signal to
         # arrive -- preparing the milling conditions takes seconds, and the editor was
         # live for all of them. `config` above is already built, so a late edit could
         # not have reached this run anyway; what it could do is be written back after.
         self._update_button_states()
+
+    def _on_milling_finished(self) -> None:
+        # Unlock the controls first: listeners take the signal to mean "fully complete".
+        self._update_button_states()
+        self.finished_milling_signal.emit()
 
     def _milling_worker(
         self,

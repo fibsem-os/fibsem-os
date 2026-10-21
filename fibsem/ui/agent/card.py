@@ -640,6 +640,10 @@ class AgentCard(QFrame):
         head.addWidget(self.float_button)
         self.head = head
         layout.addLayout(head)
+        # The agent's session as it reported it: model, goal, spend.
+        self.session_label = _ElidedLabel(TEXT_MUTED_COLOR)
+        self.session_label.hide()
+        layout.addWidget(self.session_label)
 
         # What the agent is doing on the microscope, at every level (FIB-1414):
         # under the title, beside whatever waits.
@@ -918,6 +922,11 @@ class AgentCard(QFrame):
         self.heard_label.setText(text or last_heard_text(None))
         self.connect_link.setVisible(not heard)
         self.message_row.setVisible(heard)
+
+    def set_session(self, text: Optional[str]) -> None:
+        """The agent's session in one line, or none shown."""
+        self.session_label.setText(text or "")
+        self.session_label.setVisible(bool(text))
 
     # --- layout ---------------------------------------------------------------
 

@@ -1,13 +1,14 @@
 """The volume app over the App Server: the /app core and the Items part, with
 each position edit made by the experiment's own method (its refusals, one save).
 
-Not yet served for volume, and refused with why: adding tasks, workflow
-options, the experiment and protocol files, and per-position task configs
-(positions share the protocol's).
+Per-position task configs are refused with why: positions share the protocol's.
 """
 
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+from fibsem.applications.volume.experiment import VolumeExperiment
+from fibsem.applications.volume.protocol import PROTOCOL_FOLDER, VolumeProtocol
 from fibsem.server.app_context import (
     AppContext,
     content_hash,
@@ -19,6 +20,7 @@ from fibsem.structures import FibsemRectangle, FibsemStagePosition, Point
 from fibsem.util.timestamps import to_iso
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.outputs import files_by_run, item_output_named, saved_file
+from fibsem.workflows.protocol_files import record_recent
 from fibsem.workflows.status import TaskStatus
 
 __all__ = ["VolumeAppContext", "serve"]
@@ -106,28 +108,25 @@ class VolumeAppContext(AppContext):
         items.sort(key=lambda r: r["start_timestamp"] or "")
         return {"available": True, "items": items}
 
-    # --- not served for volume yet ------------------------------------------------
+    # --- experiment and protocol files -----------------------------------------
 
-    def protocols(self) -> Dict[str, Any]:
-        return {"folder": None, "protocols": []}
+    protocol_type = VolumeProtocol
 
-    def create_experiment(self, name, protocol=None, description=None):
-        return _not_served("create experiments over the App Server")
+    def _protocol_folder(self) -> Optional[str]:
+        return PROTOCOL_FOLDER
 
-    def load_experiment(self, path):
-        return _not_served("load experiments over the App Server")
+    def _new_experiment(self, directory, name, protocol, metadata):
+        experiment = VolumeExperiment.create(
+            Path(directory), name, metadata=metadata, task_protocol=protocol
+        )
+        record_recent(experiment)
+        return experiment
 
-    def load_protocol(self, protocol):
-        return _not_served("load protocols")
-
-    def save_protocol_as(self, name, overwrite=False):
-        return _not_served("save protocols")
-
-    def add_task(self, task_type, task_name):
-        return _not_served("add tasks")
-
-    def set_workflow_options(self, **options):
-        return _not_served("set workflow options")
+    def _load_for_adoption(self, path):
+        try:
+            return VolumeExperiment.load(Path(path)), None
+        except Exception as exc:  # noqa: BLE001 - a broken file is a data fact
+            return None, f"could not load {path}: {exc}"
 
     # --- Items ------------------------------------------------------------------
 

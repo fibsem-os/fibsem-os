@@ -38,6 +38,27 @@ def _no_suggestion(verb: str) -> DecisionResult:
     )
 
 
+def _dollars(value: float) -> str:
+    return f"${value:.0f}" if float(value).is_integer() else f"${value:.2f}"
+
+
+def session_text(session: Optional[Dict[str, Any]]) -> Optional[str]:
+    """ "claude-opus · Mill 01 and 02 · $2.10 of $20" from the agent's reported
+    session (``fibsem.server.agent_session``); None when it reported none."""
+    if not session:
+        return None
+    parts = [session[key] for key in ("model", "goal") if session.get(key)]
+    spent, budget = session.get("spent_usd"), session.get("budget_usd")
+    if spent is not None and budget is not None:
+        parts.append(f"{_dollars(spent)} of {_dollars(budget)}")
+    elif spent is not None:
+        parts.append(f"{_dollars(spent)} spent")
+    if session.get("ended"):
+        reason = session.get("reason")
+        parts.append(f"ended: {reason}" if reason else "ended")
+    return " · ".join(parts) or None
+
+
 class AgentSession:
     """The agent as the operator meets it, over one :class:`AppSession`: the
     App Server it reaches the session through, its level and its requests."""
@@ -486,6 +507,22 @@ class AgentSession:
             return host.agent_seconds_since_seen()
         except Exception:
             return None
+
+    def reported_session(self) -> Optional[dict]:
+        """The agent's session as it reported it: model, goal, budget and
+        spend (``fibsem.server.agent_session``), or None."""
+        host = self._session.app_server
+        if host is None:
+            return None
+        try:
+            return host.agent_session()
+        except Exception:
+            return None
+
+    def session_text(self) -> Optional[str]:
+        """The reported session in one line, as the card and the chat show
+        it, or None."""
+        return session_text(self.reported_session())
 
     def client(self) -> Optional[str]:
         """The MCP client the agent's sidecar named, or None."""

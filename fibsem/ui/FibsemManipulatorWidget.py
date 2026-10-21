@@ -13,6 +13,7 @@ from fibsem.structures import (
     MicroscopeSettings,
 )
 from fibsem.ui import notification_service, stylesheets
+from fibsem.ui.control import control_of, operator_acts
 from fibsem.ui.utils import install_wheel_blocker_recursive, message_box_ui
 
 if TYPE_CHECKING:
@@ -241,7 +242,12 @@ class FibsemManipulatorWidget(QtWidgets.QWidget):
                 position = FibsemManipulatorPosition(
                     x=dx, y=dy, z=dz, r=dr, coordinate_system="STAGE"
                 )
-                self.microscope.move_manipulator_relative(position=position)
+                operator_acts(
+                    control_of(self.microscope),
+                    "move the manipulator",
+                    self.microscope.move_manipulator_relative,
+                    position=position,
+                )
             except Exception as e:
                 error_message = f"Error moving manipulator (Relative): {str(e)}"
                 logging.error(error_message)
@@ -249,8 +255,13 @@ class FibsemManipulatorWidget(QtWidgets.QWidget):
 
         else:
             try:
-                self.microscope.move_manipulator_corrected(
-                    dx=dx, dy=dy, beam_type=beam_type
+                operator_acts(
+                    control_of(self.microscope),
+                    "move the manipulator",
+                    self.microscope.move_manipulator_corrected,
+                    dx=dx,
+                    dy=dy,
+                    beam_type=beam_type,
                 )
             except Exception as e:
                 error_message = f"Error moving manipulator (Corrected): {str(e)}"
@@ -284,8 +295,12 @@ class FibsemManipulatorWidget(QtWidgets.QWidget):
 
     def insert_retract_manipulator(self):
 
+        control = control_of(self.microscope)
         if self._inserted():
-            self.microscope.retract_manipulator()
+            if not operator_acts(
+                control, "retract the manipulator", self.microscope.retract_manipulator
+            ):
+                return
             self.insertManipulator_button.setText("Insert")
             self.manipulatorStatus_label.setText("Manipulator Status: Retracted")
             self.insertManipulator_button.setStyleSheet(
@@ -295,7 +310,10 @@ class FibsemManipulatorWidget(QtWidgets.QWidget):
             self._hide_show_buttons(show=False)
 
         else:
-            self.microscope.insert_manipulator()
+            if not operator_acts(
+                control, "insert the manipulator", self.microscope.insert_manipulator
+            ):
+                return
             self.insertManipulator_button.setText("Retract")
             self.manipulatorStatus_label.setText("Manipulator Status: Inserted")
             self.insertManipulator_button.setStyleSheet(
@@ -326,17 +344,28 @@ class FibsemManipulatorWidget(QtWidgets.QWidget):
         if name in self.named_positions:
             # the instrument's own position: the driver knows how to get there
             try:
-                position = self.microscope.move_manipulator_to_named_position(name)
+                moved = operator_acts(
+                    control_of(self.microscope),
+                    f"move the manipulator to {name}",
+                    self.microscope.move_manipulator_to_named_position,
+                    name,
+                )
             except Exception as e:
                 error_message = f"Error moving manipulator to {name}: {e}"
                 logging.error(error_message)
                 notification_service.show_toast(error_message, "error")
                 return
-            logging.info(f"Moved to named position {name} at {position}")
+            if moved:
+                logging.info(f"Moved to named position {name}")
             self.update_ui()
             return
 
         position = self.saved_positions[name]
         logging.info(f"Moving to saved position {name} at {position}")
-        self.microscope.move_manipulator_absolute(position=position)
+        operator_acts(
+            control_of(self.microscope),
+            f"move the manipulator to {name}",
+            self.microscope.move_manipulator_absolute,
+            position=position,
+        )
         self.update_ui()

@@ -23,6 +23,7 @@ from typing import Any, Dict, Optional
 from urllib.parse import urlsplit
 
 from fibsem.client import FibsemClient
+from fibsem.client.control import RemoteControl
 from fibsem.client.transport import NO_SERVER, ServerUnreachable, resolve
 from fibsem.drivers.remote.devices import REMOTE_FM_PARTS, DeviceClient
 from fibsem.drivers.remote.services import connect_remote_services
@@ -83,6 +84,8 @@ class RemoteMicroscope(FibsemMicroscope):
 
         client = DeviceClient(ip_address, port, token=self._token, root=ROOT)
         self._client = client
+        # Control is the server's: a run here holds it there, by a lease.
+        self.control = RemoteControl(client._transport)
         try:
             self.system = self.client.system
             self.system.info.ip_address = ip_address

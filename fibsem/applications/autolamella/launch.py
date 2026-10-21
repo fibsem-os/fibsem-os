@@ -14,6 +14,7 @@ from fibsem.applications.autolamella import experiment_setup
 from fibsem.applications.autolamella.server.context import AutoLamellaAppContext
 from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
 from fibsem.server import headless
+from fibsem.workflows import protocol_files
 from fibsem.workflows.experiment import EXPERIMENT_FILENAME
 
 __all__ = ["main", "serve"]
@@ -104,7 +105,7 @@ def _experiment(args: argparse.Namespace):
             return None, f"no experiment at {folder}; add --create to make one."
     experiment, why = experiment_setup.load_for_adoption(path)
     if experiment is not None:
-        experiment_setup.record_recent(experiment)
+        protocol_files.record_recent(experiment)
     return experiment, why
 
 

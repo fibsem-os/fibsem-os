@@ -15,6 +15,7 @@ from fibsem.devices.beam import STANDARD_RESOLUTIONS, Beam
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamSettings, BeamType, Parameter, Point, Resolution
 from fibsem.ui import notification_service
+from fibsem.ui.control import control_of, operator_acts
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.utils import find_data, install_wheel_blocker
 from fibsem.ui.widgets.custom_widgets import _create_combobox_control
@@ -197,34 +198,39 @@ class FibsemBeamSettingsWidget(QWidget):
 
     def _on_hfw_changed(self, value: float):
         hfw = self._to_si("hfw", value)
-        self.microscope.set_field_of_view(hfw, self.beam_type)
+        if not self._set("field width", self.microscope.set_field_of_view, hfw):
+            return
         self._record("field width", "hfw", hfw)
         self.settings_changed.emit(self.get_settings())
 
     def _on_dwell_time_changed(self, value: float):
         dwell_time = self._to_si("dwell_time", value)
-        self.microscope.set_dwell_time(dwell_time, self.beam_type)
+        if not self._set("dwell time", self.microscope.set_dwell_time, dwell_time):
+            return
         self._record("dwell time", "dwell_time", dwell_time)
         self.settings_changed.emit(self.get_settings())
 
     def _on_resolution_changed(self, index: int):
         resolution = self.resolution_combo.itemData(index)
         if resolution is not None:
-            self.microscope.set_resolution(resolution, self.beam_type)
+            if not self._set("resolution", self.microscope.set_resolution, resolution):
+                return
             self._record("resolution", "resolution", list(resolution))
             self.settings_changed.emit(self.get_settings())
 
     def _on_beam_current_changed(self, index: int):
         current = self.beam_current_combo.itemData(index)
         if current is not None:
-            self.microscope.set_beam_current(current, self.beam_type)
+            if not self._set("beam current", self.microscope.set_beam_current, current):
+                return
             self._record("beam current", "current", current)
             self.settings_changed.emit(self.get_settings())
 
     def _on_beam_voltage_changed(self, index: int):
         voltage = self.beam_voltage_combo.itemData(index)
         if voltage is not None:
-            self.microscope.set_beam_voltage(voltage, self.beam_type)
+            if not self._set("beam voltage", self.microscope.set_beam_voltage, voltage):
+                return
             self._populate_currents()  # the current choices follow the voltage
             self._record("beam voltage", "voltage", voltage)
             self.settings_changed.emit(self.get_settings())
@@ -242,7 +248,7 @@ class FibsemBeamSettingsWidget(QWidget):
         worker.returned.connect(lambda _result, p=preset: self._on_preset_applied(p))
         worker.errored.connect(lambda exc, p=preset: self._on_preset_failed(p, exc))
         worker.finished.connect(lambda: self.preset_combo.setEnabled(True))
-        worker.start()
+        worker.start(control=control_of(self.microscope), action="set beam preset")
 
     def _on_preset_applied(self, preset: str) -> None:
         self._record("preset", "preset", preset)
@@ -266,7 +272,8 @@ class FibsemBeamSettingsWidget(QWidget):
 
     def _on_working_distance_changed(self, value: float):
         wd = self._to_si("working_distance", value)
-        self.microscope.set_working_distance(wd, self.beam_type)
+        if not self._set("working distance", self.microscope.set_working_distance, wd):
+            return
         self._record("working distance", "working_distance", wd)
         self.settings_changed.emit(self.get_settings())
 
@@ -304,7 +311,10 @@ class FibsemBeamSettingsWidget(QWidget):
         """Apply the settled Shift+scroll target to hardware. No large-change confirmation —
         WD is beam focus (lens), not a physical objective, so a big move isn't a collision risk."""
         target_m = self._to_si("working_distance", self._wd_wheel_target_mm)
-        self.microscope.set_working_distance(target_m, self.beam_type)
+        if not self._set(
+            "working distance", self.microscope.set_working_distance, target_m
+        ):
+            return
         self._record(
             "working distance", "working_distance", target_m, via="Shift+scroll"
         )
@@ -312,6 +322,17 @@ class FibsemBeamSettingsWidget(QWidget):
             self.microscope.get_working_distance(self.beam_type)
         )
         self.settings_changed.emit(self.get_settings())
+
+    def _set(self, label: str, setter, value) -> bool:
+        """Write ``value`` holding control (FIB-1488). Refused, the controls show
+        the beam's values again."""
+        action = f"set the {self.beam_type.name} {label}"
+        if operator_acts(
+            control_of(self.microscope), action, setter, value, self.beam_type
+        ):
+            return True
+        self.update_from_settings(self.microscope.get_beam_settings(self.beam_type))
+        return False
 
     def _record(self, label: str, setting: str, value, via: str = "Beam settings"):
         record_operator_action(
@@ -331,19 +352,22 @@ class FibsemBeamSettingsWidget(QWidget):
 
     def _on_scan_rotation_changed(self, value: float):
         rotation = self._to_si("scan_rotation", value)
-        self.microscope.set_scan_rotation(rotation, self.beam_type)
+        if not self._set("scan rotation", self.microscope.set_scan_rotation, rotation):
+            return
         self._record("scan rotation", "scan_rotation", rotation)
         self.settings_changed.emit(self.get_settings())
 
     def _on_shift_changed(self):
         shift = self._read_point("shift")
-        self.microscope.set_beam_shift(shift, self.beam_type)
+        if not self._set("beam shift", self.microscope.set_beam_shift, shift):
+            return
         self._record("beam shift", "shift", shift.to_dict())
         self.settings_changed.emit(self.get_settings())
 
     def _on_stigmation_changed(self):
         stigmation = self._read_point("stigmation")
-        self.microscope.set_stigmation(stigmation, self.beam_type)
+        if not self._set("stigmation", self.microscope.set_stigmation, stigmation):
+            return
         self._record("stigmation", "stigmation", stigmation.to_dict())
         self.settings_changed.emit(self.get_settings())
 

@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from fibsem.acting import AGENT  # noqa: E402
 from fibsem.applications.volume.experiment import VolumeExperiment  # noqa: E402
 from fibsem.applications.volume.server import VolumeAppContext  # noqa: E402
+from fibsem.applications.volume.tasks import VolumeFIBMillingTaskConfig  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.structures import FibsemStagePosition, Point  # noqa: E402
 from fibsem.workflows.attention import Attention  # noqa: E402
@@ -217,13 +218,30 @@ def test_a_task_config_patch_names_the_version_it_read(agent, experiment):
     assert supervision.status_code == 422
 
 
-def test_what_volume_does_not_serve_yet_says_so(agent):
-    answer = agent.post(
+def test_a_task_is_added_from_the_volume_registry(agent, experiment):
+    task_type = VolumeFIBMillingTaskConfig.task_type
+    body = {"task_type": task_type, "task_name": " Mill again "}
+
+    added = _ok(agent.post("/app/experiment/protocol/tasks", json=body))
+
+    assert added["task_names"][-1] == "Mill again"
+    saved = _saved_protocol(experiment)
+    assert saved.task_config["Mill again"].task_type == task_type
+    assert saved.get_attention("Mill again") is Attention.supervised
+    again = agent.post("/app/experiment/protocol/tasks", json=body)
+    assert again.status_code == 422
+    unknown = agent.post(
         "/app/experiment/protocol/tasks",
-        json={"task_type": "VOLUME_MILLING", "task_name": "again"},
+        json={"task_type": "NOPE", "task_name": "x"},
     )
-    assert answer.status_code == 422
-    assert "Volume does not" in answer.json()["detail"]["message"]
+    assert unknown.status_code == 404
+    assert task_type in unknown.json()["detail"]["task_type_names"]
+
+
+def test_turning_the_beams_off_is_saved_with_the_protocol(agent, experiment):
+    _ok(agent.post("/app/workflow/options", json={"turn_beams_off": True}))
+
+    assert VolumeExperiment.load(experiment.path).turns_beams_off
 
 
 def test_an_agent_runs_a_position_from_set_up_to_its_last_slice(

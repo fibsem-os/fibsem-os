@@ -18,6 +18,7 @@ from fibsem.structures import (
 )
 from fibsem.ui import notification_service
 from fibsem.ui import stylesheets as stylesheets
+from fibsem.ui.control import control_of
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.qt.threading import thread_worker
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, _SpinnerLabel
@@ -463,7 +464,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         worker.finished.connect(
             lambda: self._on_auto_function_finished("AutoContrast", beam_type=beam_type)
         )
-        worker.start()
+        worker.start(control=control_of(self.microscope), action="autocontrast")
 
     def run_autofocus(self) -> None:
         """Run autofocus for the selected beam type."""
@@ -476,7 +477,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         worker.finished.connect(
             lambda: self._on_auto_function_finished("AutoFocus", beam_type=beam_type)
         )
-        worker.start()
+        worker.start(control=control_of(self.microscope), action="autofocus")
 
     @thread_worker
     def _autocontrast_worker(self, beam_type: BeamType):
@@ -732,7 +733,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         # start the acquisition worker
         worker = self.acquisition_worker(self.image_settings, both=both)
         worker.finished.connect(lambda: self.acquisition_finished(beams))
-        worker.start()
+        worker.start(control=control_of(self.microscope), action="acquire images")
 
     @thread_worker
     def acquisition_worker(self, image_settings: ImageSettings, both: bool = False):

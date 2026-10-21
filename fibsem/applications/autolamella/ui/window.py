@@ -25,10 +25,7 @@ from PyQt5.QtWidgets import (
 import fibsem.config as fibsem_cfg
 from fibsem.acting import OPERATOR
 from fibsem.applications.autolamella import config as cfg
-from fibsem.applications.autolamella.experiment_setup import (
-    adopt_protocol,
-    load_for_adoption,
-)
+from fibsem.applications.autolamella.experiment_setup import load_for_adoption
 from fibsem.applications.autolamella.poses import remove_lamella
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
@@ -87,6 +84,7 @@ from fibsem.workflows.grid.naming import (
     record_inventoried_grids,
     rename_and_save_grid,
 )
+from fibsem.workflows.protocol_files import adopt_protocol
 from fibsem.workflows.session import (
     CONFIG,
     EXPERIMENT,

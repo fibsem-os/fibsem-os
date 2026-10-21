@@ -87,6 +87,32 @@ class AppContext:
         experiment = self._experiment
         return str(experiment.path) if experiment is not None else None
 
+    def experiment_root(self, experiment: Optional[str] = None) -> Optional[str]:
+        """The folder an experiment's files are read from: the open one's, or
+        *experiment*, a past one by its path from the recents or the
+        experiments folder (its folder or experiment.yaml). Raises
+        ``FileRefusal`` for any other."""
+        from fibsem.server.files import FileRefusal
+
+        if experiment is None:
+            return self.experiment_path
+        wanted = os.path.normcase(os.path.realpath(experiment))
+        for entry in self.recent_experiments():
+            yaml = os.path.normcase(os.path.realpath(entry["path"]))
+            if wanted in (yaml, os.path.dirname(yaml)):
+                return os.path.dirname(entry["path"])
+        found = self._under_experiments_folder(experiment)
+        if found is not None and os.path.basename(found) == "experiment.yaml":
+            found = os.path.dirname(found)
+        if found is None or not os.path.isfile(os.path.join(found, "experiment.yaml")):
+            raise FileRefusal(
+                404,
+                "not_found",
+                f"No experiment at {experiment}: give a path from "
+                "experiment_list_recent or experiment_list_all.",
+            )
+        return found
+
     def picture_sources(self) -> Optional[Any]:
         """What the agent's pictures read from the experiment (its items'
         images, configs and poses; see ``ai.agent.pictures``), or None."""
@@ -961,6 +987,207 @@ class AppContext:
             "queue_version": edit.version,
         }
 
+    # --- experiments and protocols: the File menu, for an agent at Drive ---------
+    #
+    # Kept to known places (Patrick's call, 2026-10-14; widened 2026-10-20): a new
+    # experiment goes anywhere under the experiments folder, a load is a recent
+    # experiment or one under that folder, and a protocol is one of the files in
+    # the app's protocol folder, by name (discovery, above, lists the
+    # experiments). An app says where its protocols are and how its experiments
+    # are made and loaded; one with no protocol_type has none.
+
+    protocol_type = None
+
+    def _protocol_folder(self) -> Optional[str]:
+        return None
+
+    def _default_protocol_path(self) -> Optional[str]:
+        """The protocol a new experiment starts with; None for the protocol
+        type's default."""
+        return None
+
+    def _new_experiment(self, directory: str, name: str, protocol, metadata):
+        """A new experiment in *directory* with *protocol*, saved and recorded
+        as the most recent."""
+        raise NotImplementedError
+
+    def _load_for_adoption(self, path: str):
+        """The experiment at *path* to open, and None; or None and why not."""
+        raise NotImplementedError
+
+    def _no_files(self) -> Optional[Dict[str, Any]]:
+        if self.protocol_type is None:
+            return {
+                "error_type": "invalid",
+                "error": f"{self.app_name} has no experiment or protocol files.",
+            }
+        return None
+
+    def _listed_protocols(self) -> List[Dict[str, Any]]:
+        from fibsem.workflows.protocol_files import list_protocols
+
+        folder = self._protocol_folder()
+        return list_protocols(folder, self._default_protocol_path()) if folder else []
+
+    def protocols(self) -> Dict[str, Any]:
+        """The protocol files an agent may load or create an experiment with."""
+        return {
+            "folder": self._protocol_folder(),
+            "protocols": self._listed_protocols(),
+        }
+
+    def _protocol_or_refusal(self, name: Optional[str]):
+        if name is None:
+            path = self._default_protocol_path()
+            if path is None:
+                return self.protocol_type.default(), None
+        else:
+            path = next(
+                (p["path"] for p in self._listed_protocols() if p["name"] == name),
+                None,
+            )
+        if path is None:
+            return None, {
+                "error_type": "not_found",
+                "error": f"No protocol named {name!r} in the protocol folder.",
+                "protocol_names": [p["name"] for p in self._listed_protocols()],
+            }
+        try:
+            return self.protocol_type.load(path), None
+        except Exception as exc:  # noqa: BLE001 - a broken file is a data fact
+            return None, {
+                "error_type": "invalid",
+                "error": f"Could not load the protocol {path}: {exc}",
+            }
+
+    def _adopt(self, experiment) -> None:
+        """Make *experiment* the open one, as the dialogs' OK does."""
+        self._agent_call(lambda: self._session.adopt(experiment))
+
+    def create_experiment(
+        self,
+        name: str,
+        protocol: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Create an experiment at *name*, a folder path under the experiments
+        folder (made as needed), and open it, with *protocol* from the protocol
+        folder (the default protocol when omitted). An existing folder is
+        refused, never overwritten."""
+        from fibsem.workflows.experiments import DEFAULT_MAX_DEPTH
+
+        refusal = self._no_files() or self._session_refusal()
+        if refusal:
+            return refusal
+        parts = (name or "").replace("\\", "/").split("/")
+        path = self._under_experiments_folder(name or "")
+        if any(p in ("", ".", "..") for p in parts) or path is None:
+            return {
+                "error_type": "invalid",
+                "error": "name is a folder, or a path of folders, under the "
+                f"experiments folder {self._experiments_folder()}.",
+            }
+        if len(parts) > DEFAULT_MAX_DEPTH:
+            return {
+                "error_type": "invalid",
+                "error": f"At most {DEFAULT_MAX_DEPTH} folders deep, so "
+                "experiment_list_all finds it again.",
+            }
+        if os.path.exists(path):
+            return {"error_type": "invalid", "error": f"{path} exists."}
+        task_protocol, refusal = self._protocol_or_refusal(protocol)
+        if refusal:
+            return refusal
+        metadata = {"description": description} if description else None
+        experiment = self._new_experiment(
+            os.path.dirname(path), os.path.basename(path), task_protocol, metadata
+        )
+        self._adopt(experiment)
+        return {"applied": True, "experiment": self.experiment_summary()}
+
+    def load_experiment(self, path: str) -> Dict[str, Any]:
+        """Open a recent experiment (``path`` as the recent list gives it) or
+        one under the experiments folder (its folder or experiment.yaml,
+        relative to that folder or absolute), as the Load dialog does. One the
+        app cannot open is refused."""
+        from fibsem.workflows.experiment import EXPERIMENT_FILENAME
+        from fibsem.workflows.protocol_files import record_recent
+
+        refusal = self._no_files() or self._session_refusal()
+        if refusal:
+            return refusal
+        recent = [entry["path"] for entry in self.recent_experiments()]
+        if path not in recent:
+            found = self._under_experiments_folder(path)
+            if found is not None and os.path.isdir(found):
+                found = os.path.join(found, EXPERIMENT_FILENAME)
+            if (
+                found is None
+                or os.path.basename(found) != EXPERIMENT_FILENAME
+                or (not os.path.isfile(found))
+            ):
+                return {
+                    "error_type": "not_found",
+                    "error": "Not a recent experiment or one under the "
+                    f"experiments folder {self._experiments_folder()}; the "
+                    "operator opens any other from the Load dialog.",
+                    "recent_paths": recent,
+                }
+            path = found
+        experiment, why = self._load_for_adoption(path)
+        if experiment is None:
+            return {"error_type": "invalid", "error": f"Not loaded: {why}."}
+        self._adopt(experiment)
+        record_recent(experiment)
+        return {"applied": True, "experiment": self.experiment_summary()}
+
+    def load_protocol(self, protocol: str) -> Dict[str, Any]:
+        """Load a protocol from the protocol folder into the open experiment, as
+        the Load Protocol dialog does: it replaces the experiment's protocol and
+        is saved beside it."""
+        from fibsem.workflows.protocol_files import adopt_protocol
+
+        refusal = self._no_files() or self._session_refusal()
+        if refusal:
+            return refusal
+        experiment = self._experiment
+        if experiment is None:
+            return {"error_type": "not_found", "error": "No experiment is loaded."}
+        task_protocol, refusal = self._protocol_or_refusal(protocol)
+        if refusal:
+            return refusal
+        self._agent_call(lambda: adopt_protocol(self._session, task_protocol))
+        return {"applied": True, "protocol": self.protocol()}
+
+    def save_protocol_as(self, name: str, overwrite: bool = False) -> Dict[str, Any]:
+        """Save the experiment's protocol to the protocol folder as *name*, as
+        Export Protocol does, so a later experiment can be created with it or
+        load it. Refused when the file exists, unless *overwrite*."""
+        from fibsem.workflows.protocol_files import protocol_file_for
+
+        refusal = self._no_files()
+        if refusal:
+            return refusal
+        experiment = self._experiment
+        protocol = getattr(experiment, "task_protocol", None) if experiment else None
+        if protocol is None:
+            return {"error_type": "not_found", "error": "No experiment is loaded."}
+        try:
+            path = protocol_file_for(self._protocol_folder(), name)
+        except ValueError as exc:
+            return {"error_type": "invalid", "error": str(exc)}
+        if os.path.exists(path) and not overwrite:
+            return {
+                "error_type": "invalid",
+                "error": f"{os.path.basename(path)} already exists in the protocol "
+                "folder; pass overwrite to replace it.",
+                "protocol_names": [p["name"] for p in self._listed_protocols()],
+            }
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        protocol.save(path)
+        self.record_event("workflow_changed", {"field": "protocol_saved", "path": path})
+        return {"saved": True, "name": os.path.basename(path), "path": path}
+
     # --- the protocol: its tasks, their order, requirements, schedule and
     # supervision, and each task's settings. Saved with the protocol at once.
 
@@ -1145,6 +1372,66 @@ class AppContext:
             logging.exception("save after a protocol change failed; applied in memory")
             return False
         return True
+
+    def set_workflow_options(self, **options: Any) -> Dict[str, Any]:
+        """Set the workflow's run options, as its options panel does, and like
+        the operator's it persists with the protocol. Any of:
+
+        - ``show_run_summary``: whether the window's run summary dialog opens
+          when a run ends. Off leaves the run-end toast and its Show summary link: an agent
+          starting many short runs turns it off so no dialog stands over the
+          window (FIB-1376).
+        - ``turn_beams_off``: whether the beams are turned off when a run ends.
+
+        Each is read when it applies (a run's end), so a change
+        takes effect from then, mid-run included; plain rebinds, so no GUI
+        marshal, like ``set_task_schedule``.
+        """
+        experiment = self._experiment
+        protocol = getattr(experiment, "task_protocol", None) if experiment else None
+        if getattr(protocol, "options", None) is None:
+            return {"available": False, "applied": False}
+        for name, value in options.items():
+            setattr(protocol.options, name, value)
+        saved = self._save_protocol(experiment)
+        for name, value in options.items():
+            self.record_event("workflow_changed", {"field": name, "value": value})
+        return {"available": True, "applied": True, "saved": saved, **options}
+
+    def add_task(self, task_type: str, task_name: str) -> Dict[str, Any]:
+        """Add a task of a type the protocol registers
+        (``experiment.add_task``), as the protocol editor's Add Task does: its
+        default settings, at the end of the workflow."""
+        experiment, _, refusal = self._workflow_edit("add tasks")
+        if refusal:
+            return refusal
+        types = sorted(experiment.task_protocol.task_classes())
+        if task_type not in types:
+            return {
+                "error_type": "not_found",
+                "error": f"No task type {task_type!r}.",
+                "task_type_names": types,
+            }
+
+        def add():
+            try:
+                experiment.add_task(task_type, task_name)
+            except ValueError as exc:
+                return str(exc)
+            return self._protocol_changed(
+                experiment, {"field": "tasks", "added": task_name.strip()}
+            )
+
+        saved = self._agent_call(add)
+        if isinstance(saved, str):
+            return {"error_type": "invalid", "error": saved}
+        return {
+            "applied": True,
+            "saved": saved,
+            "task_name": task_name.strip(),
+            "task_type": task_type,
+            "task_names": experiment.task_protocol.workflow_config.workflow,
+        }
 
     def remove_task(self, task_name: str) -> Dict[str, Any]:
         """Remove a task from the protocol and the workflow

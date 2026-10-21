@@ -33,6 +33,7 @@ from PyQt5.QtWidgets import (
 from fibsem.services.sample_handling import GridMagazine
 from fibsem.structures import GridSlot, SampleGrid
 from fibsem.ui import stylesheets
+from fibsem.ui.control import control_of
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.qt.threading import thread_worker
 from fibsem.ui.tokens import (
@@ -447,7 +448,7 @@ class SampleLoaderWidget(QWidget):
             self._microscope.sample_handling.run_inventory()
             self._scanned_at = datetime.now()
 
-        self._start(job, "Scanning the magazine…", "Scan complete.")
+        self._start(job, "Scanning the magazine…", "Scan complete.", acts=True)
 
     def _on_load(self, slot: GridSlot) -> None:
         loader = self.loader
@@ -458,7 +459,7 @@ class SampleLoaderWidget(QWidget):
         def job() -> None:
             loader.load_grid(slot.name)
 
-        self._start(job, f"Loading {name}…", f"{name} is loaded.")
+        self._start(job, f"Loading {name}…", f"{name} is loaded.", acts=True)
 
     def _on_unload(self, slot: GridSlot) -> None:
         loader = self.loader
@@ -469,7 +470,9 @@ class SampleLoaderWidget(QWidget):
         def job() -> None:
             loader.unload_grid()
 
-        self._start(job, f"Unloading {name}…", f"{name} returned to the magazine.")
+        self._start(
+            job, f"Unloading {name}…", f"{name} returned to the magazine.", acts=True
+        )
 
     def _confirm(self, title: str, text: str) -> bool:
         """Yes/No before an action that moves the loader. Answered without a
@@ -483,7 +486,11 @@ class SampleLoaderWidget(QWidget):
             == QMessageBox.Yes
         )
 
-    def _start(self, job: Callable[[], None], doing: str, done: str) -> None:
+    def _start(
+        self, job: Callable[[], None], doing: str, done: str, acts: bool = False
+    ) -> None:
+        """Run *job* off the GUI thread; one that ``acts`` on the loader holds
+        control of the microscope while it runs."""
         if self._busy:
             return
         self._set_busy(True)
@@ -503,7 +510,10 @@ class SampleLoaderWidget(QWidget):
         worker.errored.connect(self._on_errored)
         worker.finished.connect(self._on_finished)
         self._worker = worker  # keep it alive; only signals cross back
-        worker.start()
+        worker.start(
+            control=control_of(self._microscope) if acts else None,
+            action=doing.rstrip("…"),
+        )
 
     @thread_worker
     def _job_worker(self, job: Callable[[], None]) -> None:

@@ -55,6 +55,8 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
             "stopped": bool(auth.stopped) if auth is not None else False,
             "last_heard_s": agent.seconds_since_seen(),
             "client": agent.client(),
+            # The agent's session as it reported it, in the card's words.
+            "session": agent.session_text(),
             "request": request.to_dict() if request is not None else None,
             "suggestion": agent.suggestion(),
             "now": agent.now(),

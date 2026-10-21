@@ -11,6 +11,7 @@ from superqt import QDoubleSlider
 from fibsem.devices.beam import Beam
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, FibsemDetectorSettings, Parameter
+from fibsem.ui.control import control_of, operator_acts
 from fibsem.ui.utils import install_wheel_blocker
 from fibsem.ui.widgets.form_builder import parameter_spec
 from fibsem.workflows.actions import record_operator_action
@@ -145,7 +146,10 @@ class FibsemDetectorSettingsWidget(QWidget):
     def _on_type_changed(self, detector_type: str):
         if not detector_type:
             return
-        self.microscope.set_detector_type(detector_type, self.beam_type)
+        if not self._set(
+            "detector type", self.microscope.set_detector_type, detector_type
+        ):
+            return
         # the modes depend on the type: the device has read them again
         self._populate_modes()
         self._record("detector type", "type", detector_type)
@@ -154,19 +158,33 @@ class FibsemDetectorSettingsWidget(QWidget):
     def _on_mode_changed(self, mode: str):
         if not mode:
             return
-        self.microscope.set_detector_mode(mode, self.beam_type)
+        if not self._set("detector mode", self.microscope.set_detector_mode, mode):
+            return
         self._record("detector mode", "mode", mode)
         self.settings_changed.emit(self.get_settings())
 
     def _on_brightness_changed(self, value: float):
-        self.microscope.set_detector_brightness(value, self.beam_type)
+        if not self._set("brightness", self.microscope.set_detector_brightness, value):
+            return
         self._record("brightness", "brightness", value)
         self.settings_changed.emit(self.get_settings())
 
     def _on_contrast_changed(self, value: float):
-        self.microscope.set_detector_contrast(value, self.beam_type)
+        if not self._set("contrast", self.microscope.set_detector_contrast, value):
+            return
         self._record("contrast", "contrast", value)
         self.settings_changed.emit(self.get_settings())
+
+    def _set(self, label: str, setter, value) -> bool:
+        """Write ``value`` holding control (FIB-1488). Refused, the controls show
+        the detector's values again."""
+        action = f"set the {self.beam_type.name} {label}"
+        if operator_acts(
+            control_of(self.microscope), action, setter, value, self.beam_type
+        ):
+            return True
+        self.update_from_settings(self.microscope.get_detector_settings(self.beam_type))
+        return False
 
     def _record(self, label: str, setting: str, value) -> None:
         record_operator_action(

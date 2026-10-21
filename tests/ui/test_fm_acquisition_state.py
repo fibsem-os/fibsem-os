@@ -96,8 +96,8 @@ def no_worker(monkeypatch):
         def __init__(self, *args, **kwargs):
             pass
 
-        def start(self):
-            pass
+        def start(self, **_):
+            return True
 
         def is_alive(self):
             return True

@@ -9,7 +9,6 @@ from typing import Optional
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from fibsem.applications.autolamella import config as cfg
-from fibsem.applications.autolamella.experiment_setup import record_recent
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
@@ -38,6 +37,7 @@ from fibsem.ui.widgets.custom_widgets import TitledPanel
 from fibsem.util.system import directory_size
 from fibsem.util.timestamps import format_time
 from fibsem.utils import format_bytes
+from fibsem.workflows.protocol_files import record_recent
 
 # Error message constants
 ERROR_PROTOCOL_NOT_FOUND_TITLE = "Protocol Not Found"

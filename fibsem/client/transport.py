@@ -9,7 +9,9 @@ import io
 import json
 import logging
 import os
-from typing import Any, Dict, Mapping, Optional, Tuple
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import Any, Dict, Iterator, Mapping, Optional, Tuple
 
 import httpx
 import numpy as np
@@ -25,6 +27,7 @@ from fibsem.devices.wire import (
 )
 from fibsem.server.discovery import read_discovery_file
 from fibsem.server.images import TIFF_MEDIA_TYPE
+from fibsem.server.leases import LEASE_HEADER
 from fibsem.server.operator_token import read_operator_token
 from fibsem.structures import FibsemImage
 
@@ -83,6 +86,21 @@ def resolve(
     if found is not None:
         return url or found["url"], token or found["token"]
     return None
+
+
+# The control lease this thread of control holds (`fibsem.client.control`): its
+# requests carry it, so they run inside it.
+_lease: ContextVar[Optional[str]] = ContextVar("fibsem_lease", default=None)
+
+
+@contextmanager
+def in_lease(lease: Optional[str]) -> Iterator[None]:
+    """Send this thread of control's requests inside *lease*, for the block."""
+    token = _lease.set(lease)
+    try:
+        yield
+    finally:
+        _lease.reset(token)
 
 
 def resolve_operator(
@@ -195,6 +213,12 @@ class Transport:
     def _attempt(
         self, method: str, path: str, kwargs: Dict[str, Any]
     ) -> httpx.Response:
+        lease = _lease.get()
+        if lease is not None:
+            kwargs = {
+                **kwargs,
+                "headers": {**(kwargs.get("headers") or {}), LEASE_HEADER: lease},
+            }
         try:
             response = self._http.request(method, path, **kwargs)
         except httpx.ConnectError:  # nothing was sent
