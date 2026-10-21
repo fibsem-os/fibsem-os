@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 // Pages are paths under /ui/; the server answers index.html for each.
-export const PAGES = ["microscope", "experiment", "lamellae", "grids", "agent"] as const;
+export const PAGES = ["microscope", "experiment", "lamellae", "grids", "positions", "agent"] as const;
 export type Page = (typeof PAGES)[number];
 
 export function pageOf(path: string): Page {
