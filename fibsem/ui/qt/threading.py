@@ -153,9 +153,9 @@ class FunctionWorker(QObject):
         ``finished``, as for a failed body. The operator's own clicks never refuse
         each other: an image during their mill goes ahead.
         """
+        self._context = contextvars.copy_context()
         if control is not None and not self._take(control, action):
             return False
-        self._context = contextvars.copy_context()
         _ACTIVE_WORKERS.add(self)
         # Released on the GUI thread once the worker is done (self lives there).
         self.finished.connect(lambda: _ACTIVE_WORKERS.discard(self))
@@ -183,18 +183,23 @@ class FunctionWorker(QObject):
             self._thread.join(timeout)
 
     def _take(self, control: "Control", action: str) -> bool:
+        # Taken in the body's context, so what the take sets there (a remote
+        # microscope's lease) is the body's and goes with it.
         taking = control.take(OPERATOR, action, join=True)
         try:
-            taking.__enter__()
-        except MicroscopeBusy as busy:
+            self._context.run(taking.__enter__)
+        except Exception as error:  # noqa: BLE001 - refused or unreachable: said
             from fibsem.ui.control import refused
 
-            if not self.receivers(self.errored):
-                refused(busy)
-            self.errored.emit(busy)
+            if isinstance(error, MicroscopeBusy) and not self.receivers(self.errored):
+                refused(error)
+            elif not isinstance(error, MicroscopeBusy):
+                logging.warning("could not take control for %s: %s", action, error)
+            self.errored.emit(error)
             self.finished.emit()
             return False
-        self._release = lambda: taking.__exit__(None, None, None)
+        context = self._context
+        self._release = lambda: context.run(taking.__exit__, None, None, None)
         return True
 
     def _run(self) -> None:
