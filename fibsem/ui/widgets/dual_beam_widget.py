@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import (
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamSettings, BeamType, FibsemDetectorSettings
 from fibsem.ui import stylesheets
+from fibsem.ui.control import control_of, operator_acts
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.widgets.beam_widget import FibsemBeamWidget
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel
@@ -172,24 +173,32 @@ class FibsemDualBeamWidget(QWidget):
     def _on_beam_on_clicked(self):
         bt = self.beam_type
         if self.microscope.is_on(bt):
-            self.microscope.turn_off(bt)
-            what = f"Turn the {bt.name} beam off"
+            fn, what = self.microscope.turn_off, f"Turn the {bt.name} beam off"
         else:
-            self.microscope.turn_on(bt)
-            what = f"Turn the {bt.name} beam on"
+            fn, what = self.microscope.turn_on, f"Turn the {bt.name} beam on"
+        done = operator_acts(
+            control_of(self.microscope), what[0].lower() + what[1:], fn, bt
+        )
         self.sync_beam_status()
-        record_operator_action(self.microscope, what, via="Beam on/off", beam=bt.name)
+        if done:
+            record_operator_action(
+                self.microscope, what, via="Beam on/off", beam=bt.name
+            )
 
     def _on_beam_blanked_clicked(self):
         bt = self.beam_type
         if self.microscope.is_blanked(bt):
-            self.microscope.unblank(bt)
-            what = f"Unblank the {bt.name} beam"
+            fn, what = self.microscope.unblank, f"Unblank the {bt.name} beam"
         else:
-            self.microscope.blank(bt)
-            what = f"Blank the {bt.name} beam"
+            fn, what = self.microscope.blank, f"Blank the {bt.name} beam"
+        done = operator_acts(
+            control_of(self.microscope), what[0].lower() + what[1:], fn, bt
+        )
         self.sync_beam_status()
-        record_operator_action(self.microscope, what, via="Blank/unblank", beam=bt.name)
+        if done:
+            record_operator_action(
+                self.microscope, what, via="Blank/unblank", beam=bt.name
+            )
 
     def _on_refresh_clicked(self):
         self.sync_from_microscope()
