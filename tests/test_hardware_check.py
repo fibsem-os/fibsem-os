@@ -199,26 +199,37 @@ def test_out_of_range():
 
 
 def test_acquire_needs_yes_from_the_command_line(monkeypatch, capsys):
-    monkeypatch.setattr("sys.argv", ["fibsem-cli", "check", "--level", "acquire"])
     with pytest.raises(SystemExit) as exit:
-        cli.main()
+        cli.main(["check", "--level", "acquire"])
     assert exit.value.code == 2
     assert "--yes" in capsys.readouterr().err
 
 
-def test_the_command_prints_the_report_and_fails_on_a_failed_step(
+def test_the_command_checks_through_the_app_server_and_fails_on_a_failed_step(
     microscope, monkeypatch, tmp_path, capsys
 ):
-    args = cli._build_parser().parse_args(
-        ["check", "--level", "settings", "--json", str(tmp_path / "report.json")]
-    )
-    assert cli.cmd_check(microscope, None, args) == 0
-    assert "0 failed" in capsys.readouterr().out
-    assert json.loads((tmp_path / "report.json").read_text())["passed"] is True
+    """``fibsem-cli check`` checks the server's devices, as the operator."""
+    pytest.importorskip("uvicorn")
+    from fibsem.server import AuthConfig, build_server
+    from tests.fixtures.app_server import serving
 
-    power = microscope.fm.devices["light_source"].parameters["power"]
-    monkeypatch.setattr(power, "_write", lambda value: None)
-    assert cli.cmd_check(microscope, None, args) == 1
+    auth = AuthConfig.generate(level="watch", token="agent")
+    auth.operator_token = "operator"
+    argv = ["check", "--level", "settings", "--json", str(tmp_path / "report.json")]
+    with serving(build_server(microscope, auth=auth)) as url:
+        monkeypatch.setenv("FIBSEM_SERVER_URL", url)
+        monkeypatch.setenv("FIBSEM_OPERATOR_TOKEN", "operator")
+        with pytest.raises(SystemExit) as exit:
+            cli.main(argv)
+        assert exit.value.code == 0, capsys.readouterr()
+        assert "0 failed" in capsys.readouterr().out
+        assert json.loads((tmp_path / "report.json").read_text())["passed"] is True
+
+        power = microscope.fm.devices["light_source"].parameters["power"]
+        monkeypatch.setattr(power, "_write", lambda value: None)
+        with pytest.raises(SystemExit) as exit:
+            cli.main(argv)
+        assert exit.value.code == 1
 
 
 def test_same_compares_small_si_values_relatively():

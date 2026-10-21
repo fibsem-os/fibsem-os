@@ -293,6 +293,26 @@ lists where each key went.
   a grid" when no grid can be found for it. Clicking a lamella selects it. Nothing on the
   page moves the stage. Overviews from the fluorescence Overview tab are not shown yet.
 
+### fibsem-cli
+
+- **`fibsem-cli` acts through the App Server, as the operator.** It no longer connects
+  to the microscope itself: it reaches the App Server running on this machine (or
+  `--url`) with the operator token, so its moves and writes take the same routes as the
+  window and the agent, with the server's checks, blocklist and record. `--manufacturer`,
+  `--ip-address` and `--config` are gone from it (the headless servers keep them).
+- `move absolute` is the safe move, and crosses to another device by the traverse.
+  `move orientation` and `move device` are new. `set-beam` refuses a read-only or
+  invalid value and says when a value was clipped to its limits. `beam` blanks and
+  unblanks; turning a beam on or off stays at the microscope.
+- Every length is in µm and dwell times in µs (`acquire --hfw` was in metres). `acquire
+  --out DIR` saves the images on this machine.
+- `device` and `service` reach any device or service by name: list, show, get, set,
+  call (a long command is waited for; Ctrl-C stops it), ask.
+- `experiments` lists the app's experiments folder (`GET /app/experiment/all`, which now
+  takes `instrument`, `operator`, `since` and `until`, and gives each experiment's
+  operator, serial and `relative_path`). `--root` and `--recent` are gone.
+- `check` checks the devices the App Server serves.
+
 ### Changes to what v0.5.2 shipped
 
 - **Grid boundaries and holder slot markers are drawn when the holder has a calibrated

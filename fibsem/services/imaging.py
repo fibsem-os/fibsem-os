@@ -200,7 +200,9 @@ class Imaging(Service):
             self.autocontrast(beam_type, image_settings.reduced_area)
         image = self.acquire(beam_type, image_settings)
         path = (
-            image.save(path=_save_path(image_settings)) if image_settings.save else None
+            image.save(path=image_save_path(image_settings))
+            if image_settings.save
+            else None
         )
         self.session.record("image_acquired", acquisition_record(image, path))
         return image
@@ -294,7 +296,7 @@ class Imaging(Service):
         metadata.image_settings.reduced_area = None
         stacked = FibsemImage(data=data, metadata=metadata)
         if image_settings.save:
-            stacked.save(_save_path(image_settings))
+            stacked.save(image_save_path(image_settings))
         return stacked
 
     @command(long=True)
@@ -893,7 +895,7 @@ def _overview_answer(result: "OverviewResult", image: Any) -> Dict[str, Any]:
     }
 
 
-def _save_path(image_settings: ImageSettings) -> str:
+def image_save_path(image_settings: ImageSettings) -> str:
     """Where an image taken with ``image_settings`` is saved:
     ``<path>/<filename>_eb``, or ``_ib`` for the ion beam.
 

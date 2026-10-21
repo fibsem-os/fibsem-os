@@ -4,10 +4,9 @@ argparse parses a subcommand into a fresh namespace and then copies every
 attribute of it over the root parser's. The connection arguments were one parser
 used as a parent of both, so a flag given *before* the subcommand was overwritten
 by the subparser that had simply defaulted it -- silently, with nothing logged
-and nothing failing. ``fibsem-cli --manufacturer Thermo info`` connected to the
-Demo simulator; ``--config`` was dropped on the floor. ``main()`` hands all four
-straight to ``setup_session()``, so the wrong value was acted on, not merely
-displayed.
+and nothing failing: ``fibsem-cli --manufacturer Thermo info`` once connected to
+the Demo simulator. The same holds for ``--url`` and ``--token`` now: the wrong
+server would be acted on, not merely displayed.
 
 These pin both positions for every connection argument, and sweep every
 subcommand so the fix cannot be half-reverted for one of them. See
@@ -15,7 +14,6 @@ subcommand so the fix cannot be half-reverted for one of them. See
 """
 
 import argparse
-from pathlib import Path
 
 import pytest
 
@@ -23,18 +21,21 @@ from fibsem import cli
 
 # flag argv, namespace attribute, value once given, value when absent
 CONNECTION_FLAGS = [
-    # input is the historical spelling on purpose: the parser normalises it, so
-    # the parsed value is canonical
-    (["--manufacturer", "Thermo"], "manufacturer", "ThermoFisher", "Demo"),
-    (["--ip-address", "10.0.0.1"], "ip_address", "10.0.0.1", "localhost"),
-    (["--config", "/tmp/scope.yaml"], "config_path", Path("/tmp/scope.yaml"), None),
+    (["--url", "http://pc:8001"], "url", "http://pc:8001", None),
+    (["--token", "secret"], "token", "secret", None),
     (["--debug"], "debug", True, False),
 ]
 _IDS = [dest for _, dest, _, _ in CONNECTION_FLAGS]
 
 # Subcommands with required positionals. Nothing to do with connection
 # arguments; they just have to be supplied to reach a successful parse.
-POSITIONALS = {"beam": ["on"], "mill-angle": ["18"]}
+POSITIONALS = {
+    "beam": ["blank"],
+    "mill-angle": ["18"],
+    "move": ["relative"],
+    "device": ["list"],
+    "service": ["list"],
+}
 
 
 def _parse(*argv):
@@ -70,7 +71,7 @@ def test_the_declared_default_still_applies_when_the_flag_is_absent(
     """Suppressing the subparsers' defaults must not suppress them everywhere.
 
     The root parser's copy is the one that guarantees the attribute exists at
-    all; without it every ``args.manufacturer`` in main() becomes an
+    all; without it every ``args.url`` in main() becomes an
     AttributeError.
     """
     assert getattr(_parse("info"), dest) == absent
@@ -78,8 +79,8 @@ def test_the_declared_default_still_applies_when_the_flag_is_absent(
 
 def test_the_flag_after_the_subcommand_wins_when_given_in_both_positions():
     """The more specific position, and the one that already worked."""
-    args = _parse("--manufacturer", "Thermo", "info", "--manufacturer", "Tescan")
-    assert args.manufacturer == "Tescan"
+    args = _parse("--url", "http://a", "info", "--url", "http://b")
+    assert args.url == "http://b"
 
 
 @pytest.mark.parametrize("subcommand", _subcommand_names())
@@ -90,8 +91,8 @@ def test_every_subcommand_honours_a_flag_given_before_it(subcommand):
     ``_build_connection_parser()`` instead of the shared suppressed ``conn`` --
     would reintroduce the bug for that one subcommand only.
     """
-    argv = ["--manufacturer", "Thermo", subcommand, *POSITIONALS.get(subcommand, [])]
-    assert _parse(*argv).manufacturer == "ThermoFisher"
+    argv = ["--url", "http://pc", subcommand, *POSITIONALS.get(subcommand, [])]
+    assert _parse(*argv).url == "http://pc"
 
 
 def test_the_sweep_covers_every_subcommand():
@@ -102,8 +103,8 @@ def test_the_sweep_covers_every_subcommand():
     """
     for subcommand in _subcommand_names():
         argv = [
-            "--manufacturer",
-            "Thermo",
+            "--url",
+            "http://pc",
             subcommand,
             *POSITIONALS.get(subcommand, []),
         ]
