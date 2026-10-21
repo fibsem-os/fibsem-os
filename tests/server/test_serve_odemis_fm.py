@@ -12,6 +12,7 @@ pytest.importorskip("fastapi")
 
 from fibsem.server import devices as server_devices  # noqa: E402
 from fibsem.server.devices import device_health, odemis_fm_devices  # noqa: E402
+from fibsem.server.responses import DeviceHealth  # noqa: E402
 from tests.fm import _odemis_stubs as stubs  # noqa: E402
 
 
@@ -50,7 +51,7 @@ def test_the_odemis_fm_is_served_as_its_parts(odemis_stubs):
         "light_source",
         "objective",
     ]
-    assert device_health(devices["fm"]) == {"ok": True, "detail": None}
+    assert device_health(devices["fm"]) == DeviceHealth(ok=True, detail=None)
 
 
 def test_health_reports_an_fm_that_stopped_answering(odemis_stubs):
@@ -59,8 +60,8 @@ def test_health_reports_an_fm_that_stopped_answering(odemis_stubs):
 
     health = device_health(devices["fm"])
 
-    assert health["ok"] is False
-    assert "did not answer" in health["detail"]
+    assert health.ok is False
+    assert "did not answer" in health.detail
 
 
 def test_an_odemis_backend_that_is_not_running_is_named(odemis_stubs):

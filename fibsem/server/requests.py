@@ -44,7 +44,14 @@ from fibsem.ai.agent.catalog.describe import (
     describe_actions,
 )
 from fibsem.ai.agent.levels import AgentLevel
+from fibsem.codec import encode
 from fibsem.server.auth import AuthConfig, lending_drive, require_level
+from fibsem.server.responses import (
+    ActionView,
+    AgentRequestView,
+    RequestList,
+    answer,
+)
 from fibsem.workflows.actions import ACTION, action_record
 from fibsem.workflows.evidence import EvidenceRefused, frame_path
 from fibsem.workflows.evidence import load as load_evidence
@@ -90,16 +97,19 @@ class Action:
     # Every value, for the operator's "Show details": {columns, rows}, or None.
     details: Optional[Dict[str, Any]] = None
 
+    def view(self) -> ActionView:
+        return ActionView(
+            self.tool,
+            self.arguments,
+            self.method,
+            self.path,
+            self.what,
+            self.change,
+            self.details,
+        )
+
     def to_dict(self) -> Dict[str, Any]:
-        return {
-            "tool": self.tool,
-            "arguments": self.arguments,
-            "method": self.method,
-            "path": self.path,
-            "what": self.what,
-            "change": self.change,
-            "details": self.details,
-        }
+        return encode(self.view())
 
 
 @dataclass
@@ -131,23 +141,26 @@ class AgentRequest:
     _abort: Optional[str] = field(default=None, repr=False)
     _done: threading.Event = field(default_factory=threading.Event, repr=False)
 
+    def view(self) -> AgentRequestView:
+        return AgentRequestView(
+            request_id=self.id,
+            status=self.status,
+            reason=self.reason,
+            actions=[a.view() for a in self.actions],
+            created_at=self.created_at,
+            decided_by=self.decided_by,
+            decided_at=self.decided_at,
+            reject_reason=self.reject_reason,
+            cancel_reason=self.cancel_reason,
+            results=list(self.results),
+            expires_at=self.expires_at,
+            on_expiry=self.on_expiry if self.expires_at is not None else None,
+            image=self.image or None,
+            evidence=self.evidence,
+        )
+
     def to_dict(self) -> Dict[str, Any]:
-        return {
-            "request_id": self.id,
-            "status": self.status,
-            "reason": self.reason,
-            "actions": [a.to_dict() for a in self.actions],
-            "created_at": self.created_at,
-            "decided_by": self.decided_by,
-            "decided_at": self.decided_at,
-            "reject_reason": self.reject_reason,
-            "cancel_reason": self.cancel_reason,
-            "results": list(self.results),
-            "expires_at": self.expires_at,
-            "on_expiry": self.on_expiry if self.expires_at is not None else None,
-            **({"image": self.image} if self.image else {}),
-            "evidence": self.evidence,
-        }
+        return encode(self.view())
 
 
 async def _asgi_call(app, method: str, path: str, body, token: str, query: str = ""):
@@ -953,7 +966,7 @@ def build_request_router(store: RequestStore) -> APIRouter:
     def _refused(refusal: RequestRefused) -> HTTPException:
         return HTTPException(status_code=refusal.status_code, detail=refusal.detail)
 
-    @router.post("/requests", status_code=202)
+    @router.post("/requests", status_code=202, response_model=AgentRequestView)
     def create_request(request: Request, body: Dict[str, Any]):
         auth: AuthConfig = request.app.state.auth
         if auth.level is not AgentLevel.ASSIST:
@@ -979,21 +992,21 @@ def build_request_router(store: RequestStore) -> APIRouter:
             )
         except RequestRefused as refusal:
             raise _refused(refusal)
-        return created.to_dict()
+        return answer(created.view(), status_code=202)
 
-    @router.post("/requests/{request_id}/withdraw")
+    @router.post("/requests/{request_id}/withdraw", response_model=AgentRequestView)
     def withdraw_request(request_id: str, body: Dict[str, Any]):
         try:
             withdrawn = store.withdraw(request_id, body.get("reason"))
         except RequestRefused as refusal:
             raise _refused(refusal)
-        return withdrawn.to_dict()
+        return answer(withdrawn.view())
 
-    @router.get("/requests")
+    @router.get("/requests", response_model=RequestList)
     def list_requests():
-        return {"requests": [r.to_dict() for r in store.recent()]}
+        return answer(RequestList([r.view() for r in store.recent()]))
 
-    @router.get("/requests/{request_id}")
+    @router.get("/requests/{request_id}", response_model=AgentRequestView)
     def get_request(request_id: str):
         found = store.get(request_id)
         if found is None:
@@ -1004,6 +1017,6 @@ def build_request_router(store: RequestStore) -> APIRouter:
                     "message": f"No request {request_id!r}.",
                 },
             )
-        return found.to_dict()
+        return answer(found.view())
 
     return router

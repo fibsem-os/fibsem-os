@@ -123,6 +123,28 @@ def test_status_and_queue_over_http(client):
     assert queue["available"] is False  # no run yet
 
 
+def test_an_items_history_comes_through_the_tabs_filter(client, host):
+    from fibsem.workflows.status import TaskState, TaskStatus
+
+    lamella = host.experiment.positions[0]
+    lamella.task_history.append(
+        TaskState(name="Setup", task_id="a", status=TaskStatus.Completed)
+    )
+    lamella.task_history.append(
+        TaskState(name="Rough", task_id="b", status=TaskStatus.Failed)
+    )
+    url = f"/app/experiment/items/{lamella.name}/history"
+    body = client.get(url, headers=AUTH).json()
+    assert body["tasks"] == ["Setup", "Rough"] and body["total"] == 2
+    assert [r["task_name"] for r in body["runs"]] == ["Setup", "Rough"]
+    assert body["filter"]["order"] == "oldest"
+    newest = client.get(url, headers=AUTH, params={"order": "newest"}).json()
+    assert [r["task_name"] for r in newest["runs"]] == ["Rough", "Setup"]
+    failed = client.get(url, headers=AUTH, params={"status": "failed"}).json()
+    assert [r["status"] for r in failed["runs"]] == ["Failed"]
+    assert failed["total"] == 2
+
+
 def test_task_outputs_round_trip(client, host):
     name = host.experiment.positions[0].name
     payload = client.get(f"/app/experiment/items/{name}/outputs", headers=AUTH).json()
@@ -1003,6 +1025,12 @@ def test_fm_overview_previews_in_colour_and_places_markers(
     top_left, bottom_right = rgb[8, 8], rgb[56, 56]
     assert top_left[0] > 150 and top_left[1] < 80  # red corner
     assert bottom_right[1] > 150 and bottom_right[0] < 80  # green corner
+    # what the legend needs: the channels as drawn, and the z planes
+    from fibsem.server.app_routes import IMAGE_METADATA_HEADER
+
+    fm = json.loads(served.headers[IMAGE_METADATA_HEADER])["fm"]
+    assert [c["name"] for c in fm["channels"]] == [c.name for c in metadata.channels]
+    assert fm["z_planes"] == data.shape[-3]
 
     markers = client.get(
         "/app/experiment/grids/grid-aspen/outputs/overview.ome.tiff/markers",

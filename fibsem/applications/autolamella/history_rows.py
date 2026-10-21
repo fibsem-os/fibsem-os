@@ -21,16 +21,18 @@ from __future__ import annotations
 import math
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from fibsem.acting import AGENT, OPERATOR
 from fibsem.applications.autolamella.structures import Lamella
 from fibsem.applications.autolamella.task_outputs import (
     final_reference_images,
     fluorescence_images,
 )
 from fibsem.cancellation import CANCELLED, COMPLETED, FAILED, SKIPPED
+from fibsem.fm.preview import is_fluorescence_image
 from fibsem.util.timestamps import to_datetime
 from fibsem.workflows.status import TaskState, TaskStatus
 
@@ -40,6 +42,9 @@ from fibsem.workflows.status import TaskState, TaskStatus
 OPERATION_KINDS = ("alignment", "autofocus", "fm_autofocus", "milling")
 
 _BEAM = {"ELECTRON": "SEM", "ION": "FIB"}
+
+# The final images a row shows: the last SEM and FIB.
+_SHOWN_PAIR = 2
 
 # The row holding a session's operations that ran outside any task.
 OUTSIDE_A_TASK = "Outside a task"
@@ -134,6 +139,8 @@ class HistoryRun:
     # A session's operations outside any task, not a run: it has no status and
     # no images of its own.
     outside_task: bool = False
+    # Who decided what the run proposed: "agent", "operator", both or neither.
+    decided_by: Tuple[str, ...] = ()
 
     @property
     def duration(self) -> Optional[float]:
@@ -149,19 +156,30 @@ class HistoryFilter:
     ``show``: ``all``, ``images`` (runs that left images, without their
     operations) or ``operations`` (runs that recorded operations, without
     images). ``status``: ``all``, ``failed`` or ``cancelled``. ``task``: one
-    task name, or None for every task.
+    task name, or None for every task. ``decided_by``: ``anyone``, ``agent`` or
+    ``operator``, the runs whose proposals they decided. ``order``: ``oldest``
+    or ``newest`` first.
     """
 
     show: str = "all"
     status: str = "all"
     task: Optional[str] = None
+    decided_by: str = "anyone"
+    order: str = "oldest"
 
     @property
     def active(self) -> bool:
-        return self != HistoryFilter()
+        """Whether it hides any run; the order hides none."""
+        return replace(self, order="oldest") != HistoryFilter()
 
     def to_dict(self) -> Dict[str, Any]:
-        return {"show": self.show, "status": self.status, "task": self.task}
+        return {
+            "show": self.show,
+            "status": self.status,
+            "task": self.task,
+            "decided_by": self.decided_by,
+            "order": self.order,
+        }
 
     @classmethod
     def from_dict(cls, data: Optional[Dict[str, Any]]) -> "HistoryFilter":
@@ -171,10 +189,14 @@ class HistoryFilter:
         show = data.get("show")
         status = data.get("status")
         task = data.get("task")
+        decided_by = data.get("decided_by")
+        order = data.get("order")
         return cls(
             show=show if show in ("all", "images", "operations") else "all",
             status=status if status in ("all", "failed", "cancelled") else "all",
             task=task if isinstance(task, str) and task else None,
+            decided_by=decided_by if decided_by in ("agent", "operator") else "anyone",
+            order=order if order == "newest" else "oldest",
         )
 
 
@@ -185,7 +207,7 @@ _STATUS_OF_FILTER = {
 
 
 def filter_runs(runs: List[HistoryRun], flt: HistoryFilter) -> List[HistoryRun]:
-    """The runs ``flt`` lets through, in order. A task filter names a task the
+    """The runs ``flt`` lets through, in its order. A task filter names a task the
     lamella has not run lets nothing through, rather than everything."""
     wanted = _STATUS_OF_FILTER.get(flt.status)
     kept = []
@@ -198,8 +220,10 @@ def filter_runs(runs: List[HistoryRun], flt: HistoryFilter) -> List[HistoryRun]:
             continue
         if flt.show == "operations" and not run.operations:
             continue
+        if flt.decided_by != "anyone" and flt.decided_by not in run.decided_by:
+            continue
         kept.append(run)
-    return kept
+    return kept[::-1] if flt.order == "newest" else kept
 
 
 def history_rows(
@@ -251,6 +275,7 @@ def history_rows(
         operations[task_id] = _fold_drift(ops)
 
     images, replaced_by = _images_by_run(lamella, runs)
+    deciders = _deciders_by_run(lamella)
     rows = [
         HistoryRun(
             task_id=run.task_id,
@@ -263,6 +288,7 @@ def history_rows(
             images=images.get(run.task_id, []),
             operations=operations.get(run.task_id, []),
             images_replaced_by=replaced_by.get(run.task_id),
+            decided_by=deciders.get(run.task_id, ()),
         )
         for run in runs
     ]
@@ -287,6 +313,21 @@ def history_rows(
     return rows
 
 
+def _deciders_by_run(lamella: Lamella) -> Dict[str, Tuple[str, ...]]:
+    """By run, who decided its proposals: the agent, the operator or both. A
+    withdrawn proposal was decided by no one."""
+    deciders: Dict[str, set] = {}
+    for proposal in lamella.proposals:
+        if not proposal.task_id or proposal.withdrawn:
+            continue
+        for decision in proposal.decisions:
+            if decision.actor.kind in (AGENT, OPERATOR):
+                deciders.setdefault(proposal.task_id, set()).add(
+                    str(decision.actor.kind)
+                )
+    return {task_id: tuple(sorted(kinds)) for task_id, kinds in deciders.items()}
+
+
 def _insert_by_start(rows: List[HistoryRun], row: HistoryRun) -> None:
     """Put *row* before the first row that started after it: the runs keep the
     order they ran in, and one with no start is never stepped over."""
@@ -305,6 +346,15 @@ def _insert_by_start(rows: List[HistoryRun], row: HistoryRun) -> None:
 
 def _when(moment: Optional[datetime]) -> Optional[float]:
     return moment.timestamp() if moment is not None else None
+
+
+def shown_images(run: HistoryRun) -> List[str]:
+    """The images a run's row shows: the last SEM/FIB pair (the highest
+    magnification of a multi-FOV set), then its fluorescence stacks. The pair is
+    picked before the stacks are added, so a stack never displaces it."""
+    finals = [p for p in run.images if not is_fluorescence_image(p)]
+    stacks = [p for p in run.images if is_fluorescence_image(p)]
+    return finals[-_SHOWN_PAIR:] + stacks
 
 
 def operations_need_a_look(run: HistoryRun) -> bool:
@@ -772,3 +822,60 @@ def _mm(value: Any) -> str:
         return f"{float(value) * 1e3:.3f}"
     except (TypeError, ValueError):
         return "?"
+
+
+def run_record(run: HistoryRun, root: str) -> Dict[str, Any]:
+    """A run as plain data, for clients that are not the Qt tab: what its row,
+    folded line and opened operations say. Files are relative to ``root`` (the
+    experiment folder), so the experiment's files route serves them."""
+
+    def where(path: Optional[str]) -> Optional[str]:
+        return os.path.relpath(path, root) if path else None
+
+    def operation(op: HistoryOperation) -> Dict[str, Any]:
+        record = {
+            "kind": op.kind,
+            "label": op.label,
+            "status": op.status,
+            "detail": op.detail,
+            "started_at": _when(op.started_at),
+            "ended_at": _when(op.ended_at),
+            "facts": [list(fact) for fact in operation_facts(op)],
+            "figure": where(op.plot),
+            "stages": [],
+        }
+        if op.kind == "milling":
+            record["stages"] = [
+                {
+                    "name": stage.name,
+                    "text": stage.text,
+                    "strategy": stage.strategy,
+                    "said": stage.said,
+                    "figure": where(stage.figure),
+                    "monitors": [
+                        {"name": m.name, "said": m.said, "figure": where(m.figure)}
+                        for m in stage.monitors
+                    ],
+                    "drift": [operation(d) for d in stage.drift],
+                }
+                for stage in milling_stages(op)
+            ]
+        return record
+
+    return {
+        "task_id": run.task_id,
+        "task_name": run.task_name,
+        "task_type": run.task_type,
+        "status": run.status.name,
+        "status_message": run.status_message,
+        "started_at": _when(run.started_at),
+        "ended_at": _when(run.ended_at),
+        "duration": run.duration,
+        "images": [where(path) for path in shown_images(run)],
+        "images_replaced_by": run.images_replaced_by,
+        "outside_task": run.outside_task,
+        "decided_by": list(run.decided_by),
+        "operations_summary": operations_summary(run) if run.operations else "",
+        "operations_open": operations_need_a_look(run),
+        "operations": [operation(op) for op in run.operations],
+    }

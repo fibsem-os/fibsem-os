@@ -13,8 +13,29 @@ from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
 from fibsem.acting import Actor
+from fibsem.codec import decode, encode
 from fibsem.geometry.saved_images import image_point_to_stage_position, stage_projector
-from fibsem.structures import BeamType
+from fibsem.server.responses import (
+    AppStatus,
+    Asking,
+    DisplayImages,
+    ExperimentRef,
+    ExperimentSummary,
+    HistoryRow,
+    ImagePayload,
+    ItemDetail,
+    PixelPoint,
+    Queue,
+    QueueEntry,
+    SavedImageMetadata,
+    SavedImagePixels,
+    SavedImagePosition,
+    SummaryRow,
+    TaskHistory,
+    TaskOutputs,
+    WorkflowState,
+)
+from fibsem.structures import BeamType, FibsemStagePosition
 from fibsem.util.records import dataframe_records
 from fibsem.util.timestamps import to_iso, wall_time_of
 from fibsem.workflows.actions import NOTE, note_record
@@ -24,11 +45,18 @@ from fibsem.workflows.experiments import (
     discover_experiments,
     filter_experiments,
 )
+from fibsem.workflows.outputs import files_by_run
 from fibsem.workflows.runner import ITEMS, RunRequest
 from fibsem.workflows.session import CONFIG, PROTOCOL
 from fibsem.workflows.status import TaskStatus
 
-__all__ = ["AppContext", "content_hash", "find_item", "item_pose_positions"]
+__all__ = [
+    "AppContext",
+    "content_hash",
+    "find_item",
+    "item_pose_positions",
+    "item_poses",
+]
 
 
 def content_hash(data) -> str:
@@ -41,14 +69,18 @@ def content_hash(data) -> str:
     ).hexdigest()[:16]
 
 
-def item_pose_positions(item) -> Dict[str, Any]:
+def item_poses(item) -> Dict[str, Optional[FibsemStagePosition]]:
     """Where each of an item's poses puts the stage, by pose name (None where a
     pose has no position): the item document's ``poses``."""
-    poses = {}
-    for pose_name, pose in dict(item.poses).items():
-        position = getattr(pose, "stage_position", None)
-        poses[pose_name] = position.to_dict() if position is not None else None
-    return poses
+    return {
+        pose_name: getattr(pose, "stage_position", None)
+        for pose_name, pose in dict(item.poses).items()
+    }
+
+
+def item_pose_positions(item) -> Dict[str, Any]:
+    """`item_poses` as plain data, for a document's version."""
+    return encode(item_poses(item))
 
 
 def find_item(experiment, item_name: str):
@@ -63,6 +95,33 @@ def find_item(experiment, item_name: str):
         "error": f"No item named {item_name!r} in this experiment.",
         "item_names": [p.name for p in positions],
     }
+
+
+def is_failure(item) -> bool:
+    """Whether *item* failed: its own flag where it keeps one (a lamella), else
+    whether a run of it failed."""
+    flag = getattr(item, "is_failure", None)
+    if flag is not None:
+        return bool(flag)
+    return any(s.status is TaskStatus.Failed for s in item.task_history)
+
+
+def history_row(item, state) -> HistoryRow:
+    """One run of *item* (*state*, a ``TaskState``) as task_history lists it."""
+    return HistoryRow(
+        item_name=item.name,
+        item_id=item.id,
+        task_name=state.name,
+        task_id=state.task_id,
+        task_type=state.task_type,
+        task_status=state.status.name,
+        task_status_message=state.status_message,
+        iteration=state.iteration,
+        start_timestamp=to_iso(state.start_timestamp),
+        end_timestamp=to_iso(state.end_timestamp),
+        completed_at=state.completed_at,
+        duration=state.duration,
+    )
 
 
 class AppContext:
@@ -123,7 +182,7 @@ class AppContext:
         the session's plain one. Raises OSError when it cannot be made."""
         return self._session.recording_experiment()
 
-    def image_metadata(self, path: str) -> Dict[str, Any]:
+    def image_metadata(self, path: str) -> Any:
         """A saved beam image's full metadata, as its file records it, for a
         path inside the open experiment only (the agent's drill-down behind
         the short block every image answer carries)."""
@@ -138,7 +197,7 @@ class AppContext:
                 "error_type": "not_found",
                 "message": f"{path} carries no beam image metadata.",
             }
-        return {"path": path, "metadata": image.metadata.to_dict()}
+        return SavedImageMetadata(path, image.metadata)
 
     def _experiment_image(self, path: str):
         """``(real path, None)`` for a file inside the open experiment, else
@@ -155,7 +214,7 @@ class AppContext:
             return None, {"error_type": "not_found", "message": f"{path} is a folder."}
         return target, None
 
-    def image_stage_position(self, path: str, px=None, fraction=None) -> Dict[str, Any]:
+    def image_stage_position(self, path: str, px=None, fraction=None) -> Any:
         """The stage position under a point of any saved image in the
         experiment, beam or fluorescence, through the same projection the
         overview canvases use, built from the image's own metadata: it converts
@@ -169,11 +228,9 @@ class AppContext:
             position = image_point_to_stage_position(target, px=px, fraction=fraction)
         except ValueError as exc:
             return {"error_type": "invalid", "message": str(exc)}
-        return {"path": path, "stage_position": position.to_dict()}
+        return SavedImagePosition(path, position)
 
-    def image_pixels(
-        self, path: str, stage_positions: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
+    def image_pixels(self, path: str, stage_positions: List[Dict[str, Any]]) -> Any:
         """Where each stage position falls on a saved image in the experiment,
         in source pixels, with the image's scale block. A position the image
         cannot place (no geometry for it) answers its reason instead."""
@@ -192,16 +249,12 @@ class AppContext:
             try:
                 point = project(position)
             except Exception as exc:  # noqa: BLE001 - per-position answer
-                points.append({"px": None, "reason": str(exc)})
+                points.append(PixelPoint(reason=str(exc)))
                 continue
             x, y = float(point.x), float(point.y)
-            points.append(
-                {
-                    "px": [x, y],
-                    "inside": 0 <= x <= block["width"] and 0 <= y <= block["height"],
-                }
-            )
-        return {"path": path, "image": block, "points": points}
+            inside = 0 <= x <= block["width"] and 0 <= y <= block["height"]
+            points.append(PixelPoint(px=[x, y], inside=inside))
+        return SavedImagePixels(path, block, points)
 
     @property
     def _runner(self):
@@ -221,73 +274,144 @@ class AppContext:
 
     # --- status ---------------------------------------------------------------
 
-    def status(self) -> Dict[str, Any]:
+    def status(self) -> AppStatus:
         """What the app is doing right now, at a glance."""
         experiment = self._experiment
-        running = self._running
-        payload: Dict[str, Any] = {
-            "microscope_connected": self._microscope is not None,
-            "experiment": None,
-            "workflow": {
-                "running": running,
-                "current_task": None,
-                "current_item": None,
-                "queue_total": None,
-                "queue_version": None,
-                "asking": [],
-            },
-        }
+        status = AppStatus(
+            microscope_connected=self._microscope is not None,
+            experiment=None,
+            workflow=WorkflowState(running=self._running),
+        )
         if experiment is not None:
-            payload["experiment"] = {
-                "name": experiment.name,
-                "path": str(experiment.path),
-                "num_items": len(experiment.positions),
-            }
+            status.experiment = ExperimentRef(
+                experiment.name, str(experiment.path), len(experiment.positions)
+            )
             # The proposals a task is stopped on, for an agent that has just
             # connected: their events are behind its cursor.
-            payload["workflow"]["asking"] = [
-                {
-                    "item_id": item.id,
-                    "item_name": item.name,
-                    "task_name": task_name,
-                    "proposal_id": proposal.id,
-                }
+            status.workflow.asking = [
+                Asking(item.id, item.name, task_name, proposal.id)
                 for item, task_name, proposal in experiment.pending_proposals()
                 if proposal.asking
             ]
         manager = self._manager
         if manager is not None:
             items = manager.queue.items  # thread-safe copy under the queue's lock
-            payload["workflow"]["queue_total"] = len(items)
-            payload["workflow"]["queue_version"] = manager.queue.version
+            status.workflow.queue_total = len(items)
+            status.workflow.queue_version = manager.queue.version
             active = next(
                 (i for i in items if i.status is TaskStatus.InProgress),
                 None,
             )
             if active is not None:
-                payload["workflow"]["current_task"] = active.task_name
-                payload["workflow"]["current_item"] = active.item_name
-        return payload
+                status.workflow.current_task = active.task_name
+                status.workflow.current_item = active.item_name
+        return status
 
-    def queue(self) -> Dict[str, Any]:
+    def queue(self) -> Queue:
         """The live work queue: id-anchored items plus the mutation version."""
         manager = self._manager
         if manager is None:
-            return {"available": False, "items": [], "version": None}
-        items = manager.queue.items
-        return {
-            "available": True,
-            "version": manager.queue.version,
-            "items": [
-                {
-                    "id": item.id,
-                    "item_name": item.item_name,
-                    "task_name": item.task_name,
-                    "status": item.status.name,
-                }
-                for item in items
+            return Queue(available=False)
+        return Queue(
+            available=True,
+            version=manager.queue.version,
+            items=[
+                QueueEntry(item.id, item.item_name, item.task_name, item.status.name)
+                for item in manager.queue.items
             ],
-        }
+        )
+
+    # --- the experiment ---------------------------------------------------------
+
+    # What each app's reads answer: an app with facts of its own subclasses them.
+    summary_type = ExperimentSummary
+    item_detail_type = ItemDetail
+    task_outputs_type = TaskOutputs
+
+    def summary_row(self, experiment, item) -> SummaryRow:
+        """*item*'s row of the experiment summary; an app adds its facts."""
+        last = item.last_completed_task
+        return SummaryRow(
+            experiment_name=experiment.name,
+            item_name=item.name,
+            item_id=item.id,
+            is_failure=is_failure(item),
+            last_completed_task=last.name if last is not None else None,
+            last_completed_at=last.completed_at if last is not None else None,
+        )
+
+    def experiment_summary(self) -> ExperimentSummary:
+        experiment = self._experiment
+        if experiment is None:
+            return self.summary_type(available=False)
+        return self.summary_type(
+            available=True,
+            items=[self.summary_row(experiment, p) for p in experiment.positions],
+        )
+
+    def task_history(self) -> TaskHistory:
+        """Every run of every item, in the order they started."""
+        experiment = self._experiment
+        if experiment is None:
+            return TaskHistory(available=False)
+        rows = [
+            (s.start_timestamp, history_row(p, s))
+            for p in experiment.positions
+            for s in p.task_history
+        ]
+        # Through POSIX time, so old naive stamps and aware ones still compare.
+        rows.sort(key=lambda r: r[0].timestamp() if r[0] else float("inf"))
+        return TaskHistory(available=True, items=[row for _, row in rows])
+
+    def item_read(self, item_name: str, read: Callable[[Any, Any], Any], type_):
+        """*read*(experiment, item) for the item named *item_name*, or *type_*
+        saying it isn't there and which items are."""
+        experiment = self._experiment
+        if experiment is None:
+            return type_(available=False, item_name=item_name)
+        item, refusal = find_item(experiment, item_name)
+        if refusal:
+            return type_(available=False, item_name=item_name, **refusal)
+        return read(experiment, item)
+
+    def item_detail(self, item_name: str) -> ItemDetail:
+        """The durable facts about one item, as a curated snapshot: every
+        field is wire contract. Files are task_outputs; history task_history."""
+        return self.item_read(item_name, self.detail_of, self.item_detail_type)
+
+    def detail_of(self, experiment, item) -> ItemDetail:
+        """*item*'s detail; an app adds its facts."""
+        return self.item_detail_type(
+            available=True,
+            item_name=item.name,
+            id=item.id,
+            description=item.description,
+            poi=getattr(item, "poi", None),
+            alignment_area=getattr(item, "alignment_area", None),
+            poses=item_poses(item),
+            version=self.item_version(item),
+        )
+
+    def item_version(self, item) -> str:
+        """The item document's version: patches echo it."""
+        raise NotImplementedError
+
+    def task_outputs(self, item_name: str) -> TaskOutputs:
+        """The files an item's tasks produced, existence-checked, per run in
+        run order: which task produced which image."""
+        return self.item_read(item_name, self.outputs_of, self.task_outputs_type)
+
+    def outputs_of(self, experiment, item) -> TaskOutputs:
+        """*item*'s outputs; an app adds its own."""
+        history = list(item.task_history)
+        return self.task_outputs_type(
+            available=True,
+            item_name=item.name,
+            completed_tasks=[
+                s.name for s in history if s.status is TaskStatus.Completed
+            ],
+            tasks=files_by_run(experiment.item_path(item), history),
+        )
 
     def run_summary(self) -> Dict[str, Any]:
         """The most recent run's outcome table, if a run has happened."""
@@ -374,7 +498,7 @@ class AppContext:
 
     # --- instrument-adjacent (cached only, never a hardware call) --------------
 
-    def display_images(self) -> Dict[str, Any]:
+    def display_images(self) -> DisplayImages:
         """The SEM/FIB images the GUI is displaying right now, as previews.
 
         This is the display cache, not an acquisition: nothing touches
@@ -390,12 +514,17 @@ class AppContext:
 
         images = self._latest_images
         if images is None:
-            return {"available": False, "sem": None, "fib": None}
-        return {
-            "available": True,
-            "sem": image_payload(images.get(BeamType.ELECTRON)),
-            "fib": image_payload(images.get(BeamType.ION)),
-        }
+            return DisplayImages(available=False)
+
+        def preview(beam_type):
+            payload = image_payload(images.get(beam_type))
+            return decode(ImagePayload, payload) if payload is not None else None
+
+        return DisplayImages(
+            available=True,
+            sem=preview(BeamType.ELECTRON),
+            fib=preview(BeamType.ION),
+        )
 
     @property
     def _latest_images(self):
@@ -1103,7 +1232,7 @@ class AppContext:
             os.path.dirname(path), os.path.basename(path), task_protocol, metadata
         )
         self._adopt(experiment)
-        return {"applied": True, "experiment": self.experiment_summary()}
+        return {"applied": True, "experiment": encode(self.experiment_summary())}
 
     def load_experiment(self, path: str) -> Dict[str, Any]:
         """Open a recent experiment (``path`` as the recent list gives it) or
@@ -1139,7 +1268,7 @@ class AppContext:
             return {"error_type": "invalid", "error": f"Not loaded: {why}."}
         self._adopt(experiment)
         record_recent(experiment)
-        return {"applied": True, "experiment": self.experiment_summary()}
+        return {"applied": True, "experiment": encode(self.experiment_summary())}
 
     def load_protocol(self, protocol: str) -> Dict[str, Any]:
         """Load a protocol from the protocol folder into the open experiment, as

@@ -92,6 +92,7 @@ from fastapi.responses import Response
 
 from fibsem.ai.agent.calls import current_call
 from fibsem.cancellation import NothingToStop, OperationCancelledError
+from fibsem.codec import encode
 from fibsem.devices.core import (
     Device,
     DeviceFault,
@@ -127,6 +128,23 @@ from fibsem.server.images import (
     tiff_bytes,
 )
 from fibsem.server.pairing_routes import build_pairing_router
+from fibsem.server.responses import (
+    CommandDescription,
+    DeviceDescription,
+    DeviceHealth,
+    Health,
+    Limits,
+    MetadataAnswer,
+    ParameterDescription,
+    QueryDescription,
+    Range,
+    ResultAnswer,
+    RunAnswer,
+    RunEnvelope,
+    ValueAnswer,
+    Values,
+    answer,
+)
 from fibsem.structures import FibsemImage
 
 # Before uvicorn 0.54 its default websockets implementation imports websockets.legacy,
@@ -199,12 +217,12 @@ def _bound(value: Any) -> Any:
     return None if isinstance(value, float) and math.isinf(value) else value
 
 
-def _limits_to_wire(limits: Any) -> Any:
+def _limits_to_wire(limits: Any) -> Optional[Limits]:
     """``_limits_to_dict``'s output with each infinite end as None."""
     if limits is None:
         return None
     if set(limits) == {"min", "max"}:
-        return {end: _bound(value) for end, value in limits.items()}
+        return Range(_bound(limits["min"]), _bound(limits["max"]))
     return {name: _limits_to_wire(limit) for name, limit in limits.items()}
 
 
@@ -241,55 +259,58 @@ def never_allowed(device: Device, kind: str, name: str, why: str) -> str:
     return f"The agent may not run {device.name}.{name}, at any level: {why}."
 
 
-def describe_device(device: Device, refuse: Optional[Refuse] = None) -> Dict[str, Any]:
+def describe_device(
+    device: Device, refuse: Optional[Refuse] = None
+) -> DeviceDescription:
     """A device's parameters, commands, queries and facts. With *refuse*, each
     parameter and command also says whether the agent may use it (``agent``):
     a parameter it may read but never set is ``settable`` and ``agent: false``."""
 
-    def agent(kind: str, name: str, settable: bool = True) -> Dict[str, bool]:
+    def agent(kind: str, name: str, settable: bool = True) -> Optional[bool]:
         if refuse is None:
-            return {}
+            return None
         # A parameter nobody can set is only read, and reads are never refused.
-        return {"agent": not settable or refuse(device, kind, name, {}) is None}
+        return not settable or refuse(device, kind, name, {}) is None
 
-    return {
-        "name": device.name,
-        "class": type(device).__name__,
-        "driver": getattr(device, "driver", None),
-        "type": getattr(device, "entry_type", None),
-        "parameters": {
-            name: {
-                **info,
-                "type_path": _type_path(device, name),
-                "limits": _limits_to_wire(info["limits"]),
-                "choices": _choices_to_wire(info["choices"]),
-                **agent("write", name, info["settable"]),
-            }
+    return DeviceDescription(
+        name=device.name,
+        class_=type(device).__name__,
+        driver=getattr(device, "driver", None),
+        type=getattr(device, "entry_type", None),
+        parameters={
+            name: ParameterDescription(
+                **{
+                    **info,
+                    "limits": _limits_to_wire(info["limits"]),
+                    "choices": _choices_to_wire(info["choices"]),
+                },
+                type_path=_type_path(device, name),
+                agent=agent("write", name, info["settable"]),
+            )
             for name, info in device.describe().items()
         },
-        "commands": {
-            name: {
-                "signature": info.signature,
-                "arguments": _arguments(device, name),
-                "returns": _returns(device, name),
-                "available": info.available,
-                **agent("command", name),
-                # Answered at once with a run id on the App Server.
-                **({"long": True} if info.long else {}),
-            }
+        commands={
+            name: CommandDescription(
+                signature=info.signature,
+                arguments=_arguments(device, name),
+                returns=_returns(device, name),
+                available=info.available,
+                agent=agent("command", name),
+                long=info.long,
+            )
             for name, info in device.commands.items()
         },
-        "queries": {
-            name: {
-                "signature": info.signature,
-                "arguments": _arguments(device, name),
-                "returns": _returns(device, name),
-                "available": info.available,
-            }
+        queries={
+            name: QueryDescription(
+                signature=info.signature,
+                arguments=_arguments(device, name),
+                returns=_returns(device, name),
+                available=info.available,
+            )
             for name, info in getattr(device, "queries", {}).items()
         },
-        "facts": _facts(device),
-    }
+        facts=_facts(device),
+    )
 
 
 def _arguments(device: Device, name: str) -> Dict[str, Any]:
@@ -323,28 +344,28 @@ def _returns(device: Device, name: str) -> Optional[str]:
         return None
 
 
-def metadata_payload(metadata: ParameterMetadata) -> Dict[str, Any]:
-    return {
-        "limits": _limits_to_wire(_limits_to_dict(metadata.limits)),
-        "choices": _choices_to_wire(metadata.choices),
-        "settable": metadata.settable,
-        "native_max": metadata.native_max,
-        "native_unit": metadata.native_unit,
-    }
+def metadata_payload(metadata: ParameterMetadata) -> MetadataAnswer:
+    return MetadataAnswer(
+        limits=_limits_to_wire(_limits_to_dict(metadata.limits)),
+        choices=_choices_to_wire(metadata.choices),
+        settable=metadata.settable,
+        native_max=metadata.native_max,
+        native_unit=metadata.native_unit,
+    )
 
 
-def device_health(device: Device) -> Dict[str, Any]:
+def device_health(device: Device) -> DeviceHealth:
     """A driver that can tell whether its hardware answers defines ``check_health()``,
     returning None when fine or a reason when not. Without one, a device is as healthy
     as the server serving it."""
     check = getattr(device, "check_health", None)
     if check is None:
-        return {"ok": True, "detail": None}
+        return DeviceHealth(ok=True)
     try:
         problem = check()
     except Exception as error:
         problem = f"{type(error).__name__}: {error}"
-    return {"ok": problem is None, "detail": problem}
+    return DeviceHealth(ok=problem is None, detail=problem)
 
 
 # How many events may wait for one client before its stream is closed.
@@ -378,14 +399,14 @@ async def stream_events(
         else:
             queue.put_nowait(event)
 
-    def follow(noun, source, signal, kind, encode, name=None) -> None:
+    def follow(noun, source, signal, kind, as_wire, name=None) -> None:
         def publish(parameter: str, *args: Any) -> None:
             try:
                 event = {
                     noun: source.name,
                     "parameter": parameter,
                     "kind": kind,
-                    "value": jsonable_encoder(encode(*args)),
+                    "value": jsonable_encoder(as_wire(*args)),
                 }
                 loop.call_soon_threadsafe(offer, event)
             except Exception:  # noqa: BLE001 - the emitter must not pay for it
@@ -401,7 +422,13 @@ async def stream_events(
     for noun, by_name in sources.items():
         for source in list(by_name.values()):
             follow(noun, source, source.changed, "changed", to_wire)
-            follow(noun, source, source.metadata_changed, "metadata", metadata_payload)
+            follow(
+                noun,
+                source,
+                source.metadata_changed,
+                "metadata",
+                lambda metadata: encode(metadata_payload(metadata)),
+            )
             for name in getattr(source, "remote_signals", ()):
                 follow(
                     noun, source, getattr(source, name), "signal", _signal_value, name
@@ -524,6 +551,10 @@ RUN_WAIT_CAP_S = 60.0
 _NO_BODY = Body(default={})
 
 
+# What a command answers that is not JSON: a beam's image, a z-stack, an array.
+BINARY_ANSWERS = (TIFF_MEDIA_TYPE, FRAMES_MEDIA_TYPE, NPY_MEDIA_TYPE)
+
+
 def build_device_router(
     devices: Callable[[], Mapping[str, Device]],
     read: Sequence[Any] = (),
@@ -593,20 +624,35 @@ def build_device_router(
         except Exception as error:
             raise answer_for_error(error, what) from None
 
-    @router.get(prefix, dependencies=list(read if listing is None else listing))
-    def list_devices() -> Dict[str, Any]:
-        return {name: describe_device(d, refuse) for name, d in devices().items()}
+    @router.get(
+        prefix,
+        dependencies=list(read if listing is None else listing),
+        response_model=Dict[str, DeviceDescription],
+    )
+    def list_devices() -> Response:
+        return answer(
+            {name: describe_device(d, refuse) for name, d in devices().items()},
+            Dict[str, DeviceDescription],
+        )
 
-    @router.get(prefix + "/{device}", dependencies=list(read))
-    def get_device(device: str) -> Dict[str, Any]:
-        return describe_device(lookup(device), refuse)
+    @router.get(
+        prefix + "/{device}",
+        dependencies=list(read),
+        response_model=DeviceDescription,
+    )
+    def get_device(device: str) -> Response:
+        return answer(describe_device(lookup(device), refuse))
 
     if long_commands:
         # Before /{parameter}, which would otherwise take "run" as a name.
-        @router.get(prefix + "/{device}/run", dependencies=list(read))
+        @router.get(
+            prefix + "/{device}/run",
+            dependencies=list(read),
+            response_model=RunEnvelope,
+        )
         def read_run(
             device: str, run_id: Optional[str] = None, wait: float = 0.0
-        ) -> Dict[str, Any]:
+        ) -> Response:
             """The latest run of a long command, whoever started it, waiting up
             to *wait* seconds (at most a minute) for it to end; with *run_id*,
             for that run."""
@@ -620,11 +666,13 @@ def build_device_router(
                         "message": f"{noun} {device} has run no long command",
                     },
                 )
-            return {"run": run_answer(device, found)}
+            return answer(RunEnvelope(run_answer(device, found)))
 
     # Before /{parameter}, which would otherwise take "values" as a name.
-    @router.get(prefix + "/{device}/values", dependencies=list(read))
-    def read_values(device: str) -> Dict[str, Any]:
+    @router.get(
+        prefix + "/{device}/values", dependencies=list(read), response_model=Values
+    )
+    def read_values(device: str) -> Response:
         """Every parameter's value in one call; those this backend lacks are
         named apart, not failed."""
         d = lookup(device)
@@ -638,32 +686,44 @@ def build_device_router(
             except Exception as error:
                 raise answer_for_error(error, f"{noun} {device}.{name}") from None
             values[name] = to_wire(value)
-        return {"values": jsonable_encoder(values), "unavailable": unavailable}
+        return answer(Values(values, unavailable))
 
-    @router.get(prefix + "/{device}/{parameter}", dependencies=list(read))
-    def read_parameter(device: str, parameter: str) -> Dict[str, Any]:
+    @router.get(
+        prefix + "/{device}/{parameter}",
+        dependencies=list(read),
+        response_model=ValueAnswer,
+    )
+    def read_parameter(device: str, parameter: str) -> Response:
         value = run(
             lambda: parameter_of(device, parameter).get_value(),
             f"{noun} {device}.{parameter}",
         )
-        return {"value": to_wire(value)}
+        return answer(ValueAnswer(to_wire(value)))
 
-    @router.put(prefix + "/{device}/{parameter}", dependencies=list(write))
-    def write_parameter(
-        device: str, parameter: str, body: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    @router.put(
+        prefix + "/{device}/{parameter}",
+        dependencies=list(write),
+        response_model=ValueAnswer,
+    )
+    def write_parameter(device: str, parameter: str, body: Dict[str, Any]) -> Response:
         what = f"{noun} {device}.{parameter}"
         param = run(lambda: parameter_of(device, parameter), what)
         check(lookup(device), "write", parameter, {})
         value = run(lambda: decode_argument(parameter, param.type, body["value"]), what)
-        return {"value": to_wire(run(lambda: param.set_value(value), what))}
+        return answer(ValueAnswer(to_wire(run(lambda: param.set_value(value), what))))
 
-    @router.get(prefix + "/{device}/{parameter}/metadata", dependencies=list(read))
-    def metadata(device: str, parameter: str) -> Dict[str, Any]:
-        return metadata_payload(
-            run(
-                lambda: parameter_of(device, parameter).metadata,
-                f"{noun} {device}.{parameter}",
+    @router.get(
+        prefix + "/{device}/{parameter}/metadata",
+        dependencies=list(read),
+        response_model=MetadataAnswer,
+    )
+    def metadata(device: str, parameter: str) -> Response:
+        return answer(
+            metadata_payload(
+                run(
+                    lambda: parameter_of(device, parameter).metadata,
+                    f"{noun} {device}.{parameter}",
+                )
             )
         )
 
@@ -688,7 +748,12 @@ def build_device_router(
         # A structure with to_dict answers that (an autofocus result, its summary).
         return jsonable_encoder(to_wire(result))
 
-    @router.post(prefix + "/{device}/commands/{command}", dependencies=list(command))
+    @router.post(
+        prefix + "/{device}/commands/{command}",
+        dependencies=list(command),
+        response_model=ResultAnswer,
+        responses={200: {"content": {media: {} for media in BINARY_ANSWERS}}},
+    )
     def call(
         request: Request, device: str, command: str, body: Dict[str, Any] = _NO_BODY
     ) -> Any:
@@ -724,14 +789,14 @@ def build_device_router(
             )
             if agent_call is not None:
                 agent_call.run_id = started.run_id  # its run's events say how it went
-            return {"result": started.to_dict()}
+            return answer(ResultAnswer(started.to_dict()))
         result = shown(run(lambda: method(**kwargs), what))
         headers = {}
         # "answer": "preview" asks for what an agent reads. Otherwise the data
         # itself, for programs.
         preview = body.get("answer") == "preview"
         if (preview and is_image_result(result)) or is_image_list(result):
-            return {"result": json_answer(result, preview)}
+            return answer(ResultAnswer(json_answer(result, preview)))
         if isinstance(result, FibsemImage):  # a beam's image: TIFF
             return Response(tiff_bytes(result), media_type=TIFF_MEDIA_TYPE)
         if (
@@ -751,32 +816,36 @@ def build_device_router(
             return Response(
                 buffer.getvalue(), media_type=NPY_MEDIA_TYPE, headers=headers
             )
-        return {"result": json_answer(result, preview)}
+        return answer(ResultAnswer(json_answer(result, preview)))
 
     # Each ended run's answer, made once (its images' previews, and its
     # error's answer, which logs it): the latest per device.
-    answers: Dict[str, Tuple[str, Dict[str, Any]]] = {}
+    answers: Dict[str, Tuple[str, RunAnswer]] = {}
     answers_lock = threading.Lock()
 
-    def run_answer(device: str, found: Run) -> Dict[str, Any]:
+    def run_answer(device: str, found: Run) -> RunAnswer:
         """*found* as the route answers it: its result as a command's answer
         would carry it, and its error as a refusal does."""
         if found.state == RUNNING:
-            return found.to_dict()
+            return RunAnswer(**found.to_dict())
         with answers_lock:
             made = answers.get(device)
             if made is not None and made[0] == found.run_id:
                 return made[1]
-            answer = found.to_dict()
-            answer["result"] = json_answer(found.result, preview=True)
+            ended = RunAnswer(**found.to_dict())
+            ended.result = json_answer(found.result, preview=True)
             if found.exception is not None:
                 what = f"{noun} {device}.{found.command}"
-                answer["error"] = answer_for_error(found.exception, what).detail
-            answers[device] = (found.run_id, answer)
-            return answer
+                ended.error = answer_for_error(found.exception, what).detail
+            answers[device] = (found.run_id, ended)
+            return ended
 
-    @router.post(prefix + "/{device}/queries/{query}", dependencies=list(read))
-    def ask(device: str, query: str, body: Dict[str, Any] = _NO_BODY) -> Dict[str, Any]:
+    @router.post(
+        prefix + "/{device}/queries/{query}",
+        dependencies=list(read),
+        response_model=ResultAnswer,
+    )
+    def ask(device: str, query: str, body: Dict[str, Any] = _NO_BODY) -> Response:
         d = lookup(device)
         if query not in getattr(d, "queries", {}):
             raise HTTPException(404, f"'{device}' has no query '{query}'")
@@ -789,7 +858,7 @@ def build_device_router(
         result = run(lambda: method(**kwargs), what)
         # A query is asked by an agent: an image (a pattern preview) comes back
         # as one it reads.
-        return {"result": json_answer(result, preview=True)}
+        return answer(ResultAnswer(json_answer(result, preview=True)))
 
     return router
 
@@ -823,11 +892,11 @@ def build_device_app(
     token = Depends(require_operator())
     app.include_router(build_pairing_router(auth))
 
-    @app.get("/health", dependencies=[token])
-    def health() -> Dict[str, Any]:
+    @app.get("/health", dependencies=[token], response_model=Health)
+    def health() -> Response:
         """Up, and for each device whether its driver can reach the hardware."""
         devices = {name: device_health(d) for name, d in by_name.items()}
-        return {"ok": all(d["ok"] for d in devices.values()), "devices": devices}
+        return answer(Health(all(d.ok for d in devices.values()), devices))
 
     app.include_router(build_device_router(lambda: by_name), dependencies=[token])
 

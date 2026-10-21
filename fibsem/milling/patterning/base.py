@@ -85,6 +85,12 @@ class BasePattern(Tagged, Configurable, ABC, Generic[TFibsemPatternSettings]):
             )
         return pattern
 
+    @classmethod
+    def tagged_variants(cls) -> Dict[str, type]:
+        from fibsem.milling.patterning import get_patterns
+
+        return dict(get_patterns())
+
     def to_dict(self) -> Dict[str, Any]:
         return encode(self, BasePattern)
 

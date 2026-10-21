@@ -46,7 +46,8 @@ One line per entry: what it is, and its file.
 """
 
 PROMPT = """\
-- Your tools are the mcp__fibsem__* tools, Skill, and code mode's shell, \
+- Your tools are the mcp__fibsem__* tools, Skill, Agent for the \
+autolamella-* agents only, and code mode's shell, \
 Read, Write and Edit, which work in {work} only, in a sandbox with no \
 network: code can't reach the App Server or the web, so the mcp__fibsem__* \
 tools are the only way to the microscope and its data. \
@@ -188,9 +189,12 @@ def env(work: Path) -> dict:
     }
 
 
-def prepare(work: Path, checkout: Path, skills: List[str]) -> None:
-    """Make ``work`` ready: the agent's skills copied in from the checkout
-    (the CLI reads them from its working folder) and the notebook."""
+def prepare(
+    work: Path, checkout: Path, skills: List[str], agents: List[str] = ()
+) -> None:
+    """Make ``work`` ready: the agent's skills and specialists copied in from
+    the checkout (the CLI reads them from its working folder) and the
+    notebook."""
     work.mkdir(parents=True, exist_ok=True)
     target = work / ".claude" / "skills"
     target.mkdir(parents=True, exist_ok=True)
@@ -198,6 +202,13 @@ def prepare(work: Path, checkout: Path, skills: List[str]) -> None:
         if (target / name).exists():
             shutil.rmtree(target / name)
         shutil.copytree(checkout / ".claude" / "skills" / name, target / name)
+    if agents:
+        (work / ".claude" / "agents").mkdir(exist_ok=True)
+    for name in agents:
+        shutil.copyfile(
+            checkout / ".claude" / "agents" / f"{name}.md",
+            work / ".claude" / "agents" / f"{name}.md",
+        )
     notebook = work / NOTEBOOK
     notebook.mkdir(exist_ok=True)
     if not (notebook / INDEX).exists():

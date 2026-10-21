@@ -197,10 +197,17 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
     )
 
     assert options.permission_mode == "dontAsk"
-    assert options.allowed_tools == ["mcp__fibsem__*", "ToolSearch"]
-    assert options.tools == ["Skill", "ToolSearch"]
-    for tool in ("Bash", "Read", "Write", "Edit", "WebFetch", "WebSearch"):
+    assert options.allowed_tools == ["mcp__fibsem__*", "ToolSearch"] + [
+        f"Agent({name})" for name in runner_mod.SPECIALISTS
+    ]
+    assert options.tools == ["Skill", "ToolSearch", "Agent"]
+    for tool in ("Bash", "Read", "Grep", "Glob", "Write", "Edit", "WebFetch"):
         assert tool in options.disallowed_tools
+    assert options.effort == "high"
+    # The CLI's own agents are refused: only the specialists are called, and
+    # each answers inside the turn that called it.
+    for agent in ("general-purpose", "claude", "Explore"):
+        assert f"Agent({agent})" in options.disallowed_tools
     assert set(options.skills) == {
         "autolamella-agent",
         "observe-autolamella",
@@ -225,6 +232,7 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
     assert options.env == {
         "CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1",
         "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
+        "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
         "FIBSEM_SERVER_URL": "http://127.0.0.1:9",
         "FIBSEM_SERVER_TOKEN": "t0k",
     }
@@ -255,7 +263,9 @@ def test_code_mode_is_sandboxed_in_its_work_folder(tmp_path, monkeypatch):
     monkeypatch.setenv("SOME_SERVICE_TOKEN", "x")
     checkout = runner_mod.find_checkout()
     work = tmp_path / "work"
-    code_mode.prepare(work, checkout, list(runner_mod.SKILLS))
+    code_mode.prepare(
+        work, checkout, list(runner_mod.SKILLS), list(runner_mod.SPECIALISTS)
+    )
     options = runner_mod.build_options(checkout, token="t0k", work=work)
 
     # The skills are read from the work folder, which is the CLI's.
@@ -263,11 +273,13 @@ def test_code_mode_is_sandboxed_in_its_work_folder(tmp_path, monkeypatch):
     for skill in runner_mod.SKILLS:
         assert (work / ".claude" / "skills" / skill / "SKILL.md").is_file()
     assert (work / "notebook" / "INDEX.md").is_file()
+    for agent in runner_mod.SPECIALISTS:
+        assert (work / ".claude" / "agents" / f"{agent}.md").is_file()
 
     assert options.permission_mode == "dontAsk"
     for tool in ("Bash", "Read", "Write", "Edit", "Glob", "Grep"):
         assert tool in options.tools
-    for tool in ("WebFetch", "WebSearch", "Agent"):
+    for tool in ("WebFetch", "WebSearch", "Agent(general-purpose)"):
         assert tool in options.disallowed_tools
     assert "Bash" not in options.disallowed_tools
     # Writes in the work folder only.
@@ -374,6 +386,79 @@ def test_code_with_no_path_is_the_current_folder(tmp_path, monkeypatch):
 
     monkeypatch.chdir(tmp_path)
     assert code_mode.workdir(".") == tmp_path.resolve()
+
+
+# --- the specialists ------------------------------------------------------------
+
+# Read-only, but it saves its result beside the image it measured.
+MEASURES = {"item_measure_thickness"}
+# Only the Run Lead decides, starts, stops, mills, edits and keeps the record.
+LEAD_ONLY = {
+    "proposal_decide",
+    "proposal_suggest",
+    "request_create",
+    "experiment_add_note",
+    "item_update_task_config",
+    "item_remove",
+    "milling_run_stage",
+    "milling_run_task",
+    "milling_stop",
+    "milling_end",
+}
+
+
+def _specialists():
+    """Each agent file's frontmatter, by its file name."""
+    import yaml
+
+    checkout = runner_mod.find_checkout()
+    agents = {}
+    for path in sorted((checkout / ".claude" / "agents").glob("autolamella-*.md")):
+        _, front, _ = path.read_text(encoding="utf-8").split("---\n", 2)
+        agents[path.stem] = yaml.safe_load(front)
+    return agents
+
+
+def _tools(front):
+    return [tool.strip() for tool in front["tools"].split(",")]
+
+
+def test_the_runner_allows_the_specialists_the_checkout_defines():
+    agents = _specialists()
+    assert set(agents) == set(runner_mod.SPECIALISTS)
+    for name, front in agents.items():
+        assert front["name"] == name
+        assert front["description"]
+
+
+def test_a_specialist_has_only_tools_that_exist_and_the_runner_can_refuse():
+    from fibsem.ai.agent.catalog import CATALOG
+
+    catalog = {spec.name for spec in CATALOG}
+    for name, front in _specialists().items():
+        for tool in _tools(front):
+            if tool.startswith("mcp__fibsem__"):
+                assert tool.removeprefix("mcp__fibsem__") in catalog, (name, tool)
+            else:
+                # An agent gets a tool it lists unless the runner denies it.
+                assert tool in runner_mod.DENIED_TOOLS, (name, tool)
+
+
+def test_only_the_run_lead_decides_and_its_agents_only_read():
+    from fibsem.ai.agent.catalog import CATALOG
+
+    read_only = {spec.name for spec in CATALOG if spec.read_only}
+    for name, front in _specialists().items():
+        fibsem = {
+            tool.removeprefix("mcp__fibsem__")
+            for tool in _tools(front)
+            if tool.startswith("mcp__fibsem__")
+        }
+        assert not fibsem & LEAD_ONLY, (name, fibsem & LEAD_ONLY)
+        assert not {t for t in fibsem if t.startswith(("workflow_", "protocol_"))} - (
+            read_only
+        ), name
+        assert fibsem <= read_only | MEASURES, (name, fibsem - read_only)
 
 
 # --- turning lines into turns -------------------------------------------------
