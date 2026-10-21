@@ -1,51 +1,56 @@
-"""fibsem-cli — command-line interface for fibsemOS microscope control."""
+"""fibsem-cli: the microscope from a terminal, through the App Server.
+
+Every microscope command is a call on the App Server, as the operator: the routes
+the agent's tools take, with the server's checks, blocklist and record. The
+server is the one the flags name, else the one running on this machine.
+``experiment list-all`` asks the app the server hosts; ``plugins`` and ``--version``
+describe this install and need no server.
+"""
 
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import math
-import os
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 
-from fibsem import acquire, utils
-from fibsem.drivers import registry
 from fibsem.structures import (
-    BeamSettings,
     BeamType,
-    FibsemDetectorSettings,
+    FibsemImage,
     FibsemStagePosition,
     ImageSettings,
+    MicroscopeState,
     Resolution,
 )
-from fibsem.util.timestamps import format_time
+
+BEAMS = {"electron": BeamType.ELECTRON, "ion": BeamType.ION}
+
+NO_SERVER = (
+    "no App Server found. Open the app with the App Server on, or run "
+    "fibsem-autolamella-server; or give --url and --token (the operator token: "
+    "Tools > App Server > Copy operator token)."
+)
+MICROSCOPE_OFF = (
+    "the App Server doesn't serve the microscope: turn on its microscope setting "
+    "in Tools > App Server."
+)
+STOP_REASON = "stopped from fibsem-cli"
 
 # ---------------------------------------------------------------------------
-# Unit helpers
+# Units and output
 # ---------------------------------------------------------------------------
 
 
-def _um_to_m(v: Optional[float]) -> Optional[float]:
+def _micro(v: Optional[float]) -> Optional[float]:
     return v * 1e-6 if v is not None else None
 
 
-def _deg_to_rad(v: Optional[float]) -> Optional[float]:
+def _rad(v: Optional[float]) -> Optional[float]:
     return math.radians(v) if v is not None else None
-
-
-def _m_to_mm(v: Optional[float]) -> Optional[float]:
-    return v * 1e3 if v is not None else None
-
-
-def _m_to_um(v: Optional[float]) -> Optional[float]:
-    return v * 1e6 if v is not None else None
-
-
-def _rad_to_deg(v: Optional[float]) -> Optional[float]:
-    return math.degrees(v) if v is not None else None
 
 
 def _parse_resolution(s: str) -> tuple:
@@ -58,288 +63,316 @@ def _parse_resolution(s: str) -> tuple:
         )
 
 
-# ---------------------------------------------------------------------------
-# Output helpers
-# ---------------------------------------------------------------------------
-
-
 def _print_stage_position(pos: FibsemStagePosition) -> None:
     print("Stage Position")
-    for axis, val, unit, is_angle in [
-        ("x", pos.x, "mm", False),
-        ("y", pos.y, "mm", False),
-        ("z", pos.z, "mm", False),
-        ("rotation", pos.r, "deg", True),
-        ("tilt", pos.t, "deg", True),
+    for axis, val, is_angle in [
+        ("x", pos.x, False),
+        ("y", pos.y, False),
+        ("z", pos.z, False),
+        ("r", pos.r, True),
+        ("t", pos.t, True),
     ]:
         if val is None:
-            print(f"  {axis:<12}: None")
+            print(f"  {axis}: -")
         elif is_angle:
-            print(f"  {axis:<12}: {_rad_to_deg(val):8.2f} deg")
+            print(f"  {axis}: {math.degrees(val):.4f} deg")
         else:
-            mm = _m_to_mm(val)
-            um = _m_to_um(val)
-            print(f"  {axis:<12}: {mm:10.3f} mm  ({um:10.3f} um)")
-    if pos.coordinate_system:
-        print(f"  coordinate_system: {pos.coordinate_system}")
+            print(f"  {axis}: {val * 1e6:.2f} um")
 
 
 def _fmt_current(amps: Optional[float]) -> str:
     if amps is None:
-        return "None"
-    if abs(amps) < 1e-9:
-        return f"{amps * 1e12:.2f} pA"
-    if abs(amps) < 1e-6:
-        return f"{amps * 1e9:.2f} nA"
-    return f"{amps * 1e6:.2f} uA"
+        return "-"
+    for unit, scale in (("nA", 1e-9), ("pA", 1e-12)):
+        if abs(amps) >= scale:
+            return f"{amps / scale:.2f} {unit}"
+    return f"{amps:.3e} A"
 
 
-def _print_beam_settings(
-    label: str,
-    beam: BeamSettings,
-    detector: FibsemDetectorSettings,
-    is_on: Optional[bool],
-    is_blanked: Optional[bool],
-) -> None:
-    print(f"{label} Beam")
-    wd = (
-        f"{beam.working_distance * 1e3:.3f} mm"
-        if beam.working_distance is not None
-        else "None"
-    )
-    hfw = f"{beam.hfw * 1e6:.2f} um" if beam.hfw is not None else "None"
-    kv = f"{beam.voltage / 1e3:.2f} kV" if beam.voltage is not None else "None"
-    dt = f"{beam.dwell_time * 1e6:.2f} us" if beam.dwell_time is not None else "None"
-    res = (
-        f"{beam.resolution[0]} x {beam.resolution[1]}"
-        if beam.resolution is not None
-        else "None"
-    )
-    rot = (
-        f"{_rad_to_deg(beam.scan_rotation):.2f} deg"
-        if beam.scan_rotation is not None
-        else "None"
-    )
-    print(f"  voltage:           {kv}")
-    print(f"  current:           {_fmt_current(beam.beam_current)}")
-    print(f"  working_distance:  {wd}")
-    print(f"  hfw:               {hfw}")
-    print(f"  resolution:        {res}")
-    print(f"  dwell_time:        {dt}")
-    print(f"  scan_rotation:     {rot}")
-    if beam.preset is not None:
-        print(f"  preset:            {beam.preset}")
-    print("  Detector")
-    print(f"    type:       {detector.type}")
-    print(f"    mode:       {detector.mode}")
-    print(
-        f"    contrast:   {detector.contrast:.2f}    brightness: {detector.brightness:.2f}"
-    )
-    on_str = "ON" if is_on else ("OFF" if is_on is not None else "unknown")
-    blanked_str = (
-        "yes" if is_blanked else ("no" if is_blanked is not None else "unknown")
-    )
-    print(f"  power:             {on_str}")
-    print(f"  blanked:           {blanked_str}")
+def _print_beam(name: str, state: MicroscopeState, beam: str, on, blanked) -> None:
+    settings = getattr(state, f"{beam}_beam")
+    detector = getattr(state, f"{beam}_detector")
+    if settings is None:
+        return
+    print(name)
+    if settings.voltage is not None:
+        print(f"  voltage:    {settings.voltage / 1e3:.2f} kV")
+    print(f"  current:    {_fmt_current(settings.beam_current)}")
+    if settings.hfw is not None:
+        print(f"  hfw:        {settings.hfw * 1e6:.2f} um")
+    if settings.working_distance is not None:
+        print(f"  wd:         {settings.working_distance * 1e3:.4f} mm")
+    if detector is not None:
+        print(f"  detector:   {detector.type} / {detector.mode}")
+        print(f"  contrast:   {detector.contrast:.3f}")
+        print(f"  brightness: {detector.brightness:.3f}")
+    print(f"  on:         {_yes_no(on)}")
+    print(f"  blanked:    {_yes_no(blanked)}")
 
 
-def _print_image_result(image, beam_type: BeamType) -> None:
+def _yes_no(value: Optional[bool]) -> str:
+    return "unknown" if value is None else ("yes" if value else "no")
+
+
+def _print_image(image: FibsemImage, label: str) -> None:
     h, w = image.data.shape[:2]
-    print(f"Acquired {beam_type.name} image")
+    print(f"Acquired {label} image")
     print(f"  shape:       {w} x {h}")
-    md = image.metadata
-    if md and md.image_settings:
-        s = md.image_settings
+    s = image.metadata.image_settings if image.metadata else None
+    if s is not None:
         print(f"  hfw:         {s.hfw * 1e6:.2f} um")
         print(f"  dwell_time:  {s.dwell_time * 1e6:.2f} us")
-        if s.save and s.path:
-            suffix = "eb" if beam_type == BeamType.ELECTRON else "ib"
-            saved = Path(s.path) / f"{s.filename}_{suffix}.tif"
-            print(f"  saved:       {saved}")
-        else:
-            print("  saved:       False")
 
 
-# ---------------------------------------------------------------------------
-# Subcommand handlers
-# ---------------------------------------------------------------------------
+def _show(result: Any) -> None:
+    """A command's result, as readably as its type allows."""
+    from fibsem.devices.wire import to_wire
 
-
-def cmd_acquire(microscope, settings, args) -> int:
-    res_w, res_h = args.resolution
-
-    image_settings = ImageSettings(
-        resolution=(res_w, res_h),
-        dwell_time=args.dwell_time,
-        hfw=args.hfw,
-        autocontrast=args.autocontrast,
-        save=args.save,
-        filename=args.filename,
-        path=args.path,
-    )
-
-    beams = []
-    if args.beam in ("electron", "both"):
-        beams.append(BeamType.ELECTRON)
-    if args.beam in ("ion", "both"):
-        beams.append(BeamType.ION)
-
-    for beam_type in beams:
-        image_settings.beam_type = beam_type
-        image = acquire.acquire_image(microscope, image_settings)
-        _print_image_result(image, beam_type)
-
-    return 0
-
-
-def cmd_move(microscope, settings, args) -> int:
-    if args.mode == "absolute":
-        current = microscope.get_stage_position()
-        target = FibsemStagePosition(
-            x=_um_to_m(args.x) if args.x is not None else current.x,
-            y=_um_to_m(args.y) if args.y is not None else current.y,
-            z=_um_to_m(args.z) if args.z is not None else current.z,
-            r=_deg_to_rad(args.rotation) if args.rotation is not None else current.r,
-            t=_deg_to_rad(args.tilt) if args.tilt is not None else current.t,
-        )
-        microscope.move_stage_absolute(target)
+    if result is None:
+        print("done")
+    elif isinstance(result, FibsemStagePosition):
+        _print_stage_position(result)
+    elif isinstance(result, FibsemImage):
+        _print_image(result, "an")
     else:
-        delta = FibsemStagePosition(
-            x=_um_to_m(args.x),
-            y=_um_to_m(args.y),
-            z=_um_to_m(args.z),
-            r=_deg_to_rad(args.rotation),
-            t=_deg_to_rad(args.tilt),
+        try:
+            print(json.dumps(to_wire(result), indent=2, default=str))
+        except Exception:
+            print(result)
+
+
+def _parse_value(text: str) -> Any:
+    """A value given on the command line: JSON when it reads as JSON
+    (``1e-9``, ``true``, ``[1536, 1024]``), else the text itself."""
+    try:
+        return json.loads(text)
+    except ValueError:
+        return text
+
+
+def _parse_kwargs(text: Optional[str]) -> Dict[str, Any]:
+    """``--kwargs``: a JSON object, or ``@file`` with one (``.json``, ``.yaml``)."""
+    if text is None:
+        return {}
+    if text.startswith("@"):
+        path = Path(text[1:])
+        content = path.read_text()
+        if path.suffix in (".yaml", ".yml"):
+            import yaml
+
+            kwargs = yaml.safe_load(content)
+        else:
+            kwargs = json.loads(content)
+    else:
+        kwargs = json.loads(text)
+    if not isinstance(kwargs, dict):
+        raise ValueError("--kwargs is an object of argument names to values")
+    return kwargs
+
+
+# ---------------------------------------------------------------------------
+# Connecting
+# ---------------------------------------------------------------------------
+
+
+def _address(args) -> tuple:
+    """(url, token): the App Server's, with the operator's token."""
+    from fibsem.client.transport import resolve_operator
+
+    resolved = resolve_operator(args.url, args.token)
+    if resolved is None:
+        raise _CliError(NO_SERVER)
+    return resolved
+
+
+def _client(args):
+    from fibsem import __version__
+    from fibsem.client import FibsemClient
+
+    url, token = _address(args)
+    return FibsemClient(url, token, user_agent=f"fibsem-cli/{__version__}")
+
+
+class _CliError(RuntimeError):
+    """A refusal this command words itself."""
+
+
+# ---------------------------------------------------------------------------
+# Microscope commands: each one route the agent's tools take
+# ---------------------------------------------------------------------------
+
+
+def _beams(beam_type: str):
+    """(device name, BeamType) for ``--beam-type``: ELECTRON, ION or BOTH."""
+    return [(n, b) for n, b in BEAMS.items() if beam_type in (b.name, "BOTH")]
+
+
+def cmd_microscope_get_info(client, args) -> int:
+    info = client.info()
+    print(
+        f"{info.get('manufacturer')} {info.get('model')}  "
+        f"serial {info.get('serial_number')}  software {info.get('software_version')}"
+    )
+    return 0
+
+
+def cmd_microscope_get_state(client, args) -> int:
+    state = client.state()
+    ts = datetime.fromtimestamp(state.timestamp).strftime("%Y-%m-%d %H:%M:%S")
+    print(f"Microscope State  [{ts}]")
+    print()
+    if state.stage_position is not None:
+        _print_stage_position(state.stage_position)
+        print()
+    for name, beam_type in BEAMS.items():
+        if name not in client.devices:
+            continue
+        beam = client.devices[name]
+        on = beam.get("on") if "on" in beam.parameters else None
+        blanked = beam.get("blanked") if "blanked" in beam.parameters else None
+        _print_beam(beam_type.name, state, name, on, blanked)
+        print()
+    return 0
+
+
+def cmd_stage_get_position(client, args) -> int:
+    _print_stage_position(client.devices["stage"].get("position"))
+    return 0
+
+
+def _axes(args) -> Dict[str, Optional[float]]:
+    return {
+        "x": _micro(args.x),
+        "y": _micro(args.y),
+        "z": _micro(args.z),
+        "r": _rad(args.r),
+        "t": _rad(args.t),
+    }
+
+
+def cmd_stage_move_absolute(client, args) -> int:
+    """The safe move (`StageMovement.safe_absolute_stage_movement`): flat for a
+    large rotation, rotation first, the traverse to another device. An axis
+    left out stays where it is."""
+    current = client.devices["stage"].get("position")
+    target = FibsemStagePosition(
+        **{
+            axis: getattr(current, axis) if value is None else value
+            for axis, value in _axes(args).items()
+        }
+    )
+    movement = client.services["stage_movement"]
+    _print_stage_position(movement.safe_absolute_stage_movement(stage_position=target))
+    return 0
+
+
+def cmd_stage_move_relative(client, args) -> int:
+    movement = client.services["stage_movement"]
+    _print_stage_position(
+        movement.move_relative(delta=FibsemStagePosition(**_axes(args)))
+    )
+    return 0
+
+
+def cmd_stage_move_to_orientation(client, args) -> int:
+    movement = client.services["stage_movement"]
+    _print_stage_position(movement.move_to_orientation(orientation=args.orientation))
+    return 0
+
+
+def cmd_stage_move_to_device(client, args) -> int:
+    client.services["stage_movement"].move_to_device(device=args.device)
+    _print_stage_position(client.devices["stage"].get("position"))
+    return 0
+
+
+def cmd_stage_move_to_milling_angle(client, args) -> int:
+    print(f"Moving to milling angle {args.milling_angle:.2f} deg...")
+    at_target = client.services["stage_movement"].move_to_milling_angle(
+        milling_angle=args.milling_angle, rotation=args.rotation
+    )
+    print(f"Done ({'at target' if at_target else 'WARNING: not at target angle'}).")
+    _print_stage_position(client.devices["stage"].get("position"))
+    return 0
+
+
+def cmd_beam_acquire_image(client, args) -> int:
+    from fibsem.services.imaging import image_save_path
+
+    imaging = client.services["imaging"]
+    for _, beam_type in _beams(args.beam_type):
+        settings = ImageSettings(
+            resolution=args.resolution,
+            dwell_time=_micro(args.dwell_time),
+            hfw=_micro(args.hfw),
+            autocontrast=args.autocontrast,
+            beam_type=beam_type,
         )
-        microscope.move_stage_relative(delta)
-
-    pos = microscope.get_stage_position()
-    print("Move complete.")
-    _print_stage_position(pos)
+        image = imaging.acquire(beam_type=beam_type, image_settings=settings)
+        _print_image(image, beam_type.name)
+        if args.out is not None:
+            settings.path, settings.filename = str(args.out), args.filename
+            print(f"  saved:       {image.save(path=image_save_path(settings))}")
     return 0
 
 
-def cmd_position(microscope, settings, args) -> int:
-    pos = microscope.get_stage_position()
-    _print_stage_position(pos)
-    return 0
-
-
-def cmd_beam(microscope, settings, args) -> int:
-    beams = []
-    if args.beam in ("electron", "both"):
-        beams.append(BeamType.ELECTRON)
-    if args.beam in ("ion", "both"):
-        beams.append(BeamType.ION)
-
-    for beam_type in beams:
-        name = beam_type.name
-        if args.action == "on":
-            microscope.turn_on(beam_type)
-        elif args.action == "off":
-            microscope.turn_off(beam_type)
-        elif args.action == "blank":
-            microscope.blank(beam_type)
-        elif args.action == "unblank":
-            microscope.unblank(beam_type)
-        on = microscope.is_on(beam_type)
-        blanked = microscope.is_blanked(beam_type)
-        on_str = "ON" if on else "OFF"
-        blanked_str = "blanked" if blanked else "unblanked"
-        print(f"{name}: {on_str}, {blanked_str}")
-
-    return 0
-
-
-def cmd_autofocus(microscope, _settings, args) -> int:
-    beam_type = BeamType.ELECTRON if args.beam == "electron" else BeamType.ION
+def cmd_beam_auto_focus(client, args) -> int:
+    name, beam_type = _beams(args.beam_type)[0]
     print(f"Running autofocus on {beam_type.name} beam...")
-    microscope.auto_focus(beam_type)
-    wd = microscope.get_working_distance(beam_type)
+    client.services["imaging"].auto_focus(beam_type=beam_type)
+    wd = client.devices[name].get("working_distance")
     print(f"Done. Working distance: {wd * 1e3:.4f} mm")
     return 0
 
 
-def cmd_autocontrast(microscope, _settings, args) -> int:
-    beams = []
-    if args.beam in ("electron", "both"):
-        beams.append(BeamType.ELECTRON)
-    if args.beam in ("ion", "both"):
-        beams.append(BeamType.ION)
-
-    for beam_type in beams:
+def cmd_beam_auto_contrast(client, args) -> int:
+    for name, beam_type in _beams(args.beam_type):
         print(f"Running autocontrast on {beam_type.name} beam...")
-        microscope.autocontrast(beam_type)
-        det = microscope.get_detector_settings(beam_type)
-        print(f"Done. contrast: {det.contrast:.3f}  brightness: {det.brightness:.3f}")
-
+        client.services["imaging"].autocontrast(beam_type=beam_type)
+        detector = getattr(client.state(), f"{name}_detector")
+        print(
+            f"Done. contrast: {detector.contrast:.3f}  "
+            f"brightness: {detector.brightness:.3f}"
+        )
     return 0
 
 
-def cmd_mill_angle(microscope, _settings, args) -> int:
-    print(f"Moving to milling angle {args.angle:.2f} deg...")
-    at_target = microscope.move_to_milling_angle(args.angle, args.rotation)
-    pos = microscope.get_stage_position()
-    status = "at target" if at_target else "WARNING: not at target angle"
-    print(f"Done ({status}).")
-    _print_stage_position(pos)
+def cmd_beam_blank(client, args) -> int:
+    """The beam's own blank or unblank command (``args.command``)."""
+    for name, beam_type in _beams(args.beam_type):
+        beam = client.devices[name]
+        beam.call(args.command)
+        print(f"{beam_type.name}: {'blanked' if beam.get('blanked') else 'unblanked'}")
     return 0
 
 
-def cmd_set_beam(microscope, _settings, args) -> int:
-    beam_type = BeamType.ELECTRON if args.beam == "electron" else BeamType.ION
-
-    if args.voltage is not None:
-        v = args.voltage * 1e3  # kV → V
-        actual = microscope.set_beam_voltage(v, beam_type)
-        print(f"voltage:  {actual / 1e3:.2f} kV")
-
-    if args.current is not None:
-        actual = microscope.set_beam_current(args.current, beam_type)
-        print(f"current:  {_fmt_current(actual)}")
-
-    if args.hfw is not None:
-        hfw = _um_to_m(args.hfw)
-        actual = microscope.set_field_of_view(hfw, beam_type)
-        print(f"hfw:      {actual * 1e6:.2f} um")
-
-    return 0
-
-
-def cmd_info(microscope, _settings, _args) -> int:
-    state = microscope.get_microscope_state()
-    ts = datetime.fromtimestamp(state.timestamp).strftime("%Y-%m-%d %H:%M:%S")
-    print(f"Microscope State  [{ts}]")
-    print()
-
-    if state.stage_position is not None:
-        _print_stage_position(state.stage_position)
-        print()
-
-    for beam_type, beam_settings, detector in [
-        (BeamType.ELECTRON, state.electron_beam, state.electron_detector),
-        (BeamType.ION, state.ion_beam, state.ion_detector),
+def cmd_beam_set_parameters(client, args) -> int:
+    """Each write is the server's: checked against the beam's limits and
+    choices, a read-only one refused."""
+    beam = client.devices[_beams(args.beam_type)[0][0]]
+    for parameter, value, show in [
+        (
+            "voltage",
+            None if args.voltage is None else args.voltage * 1e3,
+            lambda v: f"{v / 1e3:.2f} kV",
+        ),
+        ("current", args.current, _fmt_current),
+        ("hfw", _micro(args.hfw), lambda v: f"{v * 1e6:.2f} um"),
     ]:
-        if beam_settings is None:
+        if value is None:
             continue
-        try:
-            is_on = microscope.is_on(beam_type)
-            is_blanked = microscope.is_blanked(beam_type)
-        except Exception:
-            is_on, is_blanked = None, None
-        _print_beam_settings(beam_type.name, beam_settings, detector, is_on, is_blanked)
-        print()
-
+        written = beam.set(parameter, value)
+        clipped = "" if math.isclose(written, value) else "  (clipped to its limits)"
+        print(f"{parameter + ':':9s} {show(written)}{clipped}")
     return 0
 
 
-def cmd_check(microscope, _settings, args) -> int:
-    """Run the hardware check and print its report. Exits 1 if a step failed."""
-    import json
-
+def cmd_hardware_check(client, args) -> int:
+    """Run the hardware check on the server's devices and print its report.
+    Exits 1 if a step failed."""
+    from fibsem.client.remote_microscope import RemoteMicroscope
     from fibsem.tools.hardware_check import Level, run_hardware_check
 
-    level = Level(args.level)
     on_frame = None
     if args.save_frame is not None:
 
@@ -347,7 +380,11 @@ def cmd_check(microscope, _settings, args) -> int:
             image.save(str(args.save_frame))
             print(f"frame saved: {args.save_frame}")
 
-    report = run_hardware_check(microscope, level, on_frame=on_frame)
+    microscope = RemoteMicroscope.connect(*_address(args))
+    try:
+        report = run_hardware_check(microscope, Level(args.level), on_frame=on_frame)
+    finally:
+        microscope.disconnect()
     print(report.format())
     if args.json is not None:
         args.json.write_text(json.dumps(report.to_dict(), indent=2))
@@ -355,26 +392,163 @@ def cmd_check(microscope, _settings, args) -> int:
     return 0 if report.passed else 1
 
 
+# --- the server's protocol, generically: devices and services by name ----------
+
+
+def _remotes(client, args):
+    return client.devices if args.noun == "device" else client.services
+
+
+def cmd_remote_list(client, args) -> int:
+    for name, remote in _remotes(client, args).items():
+        print(f"  {name:20s} {remote.description.get('class', '')}")
+    return 0
+
+
+def cmd_remote_describe(client, args) -> int:
+    remote = _remotes(client, args)[args.name]
+    print(f"{args.name} ({remote.description.get('class', '')})")
+    print("parameters:")
+    for parameter, value in remote.values().items():
+        settable = remote.parameters.get(parameter, {}).get("settable", True)
+        print(f"  {parameter:24s} {value!r}{'' if settable else '  (read-only)'}")
+    for kind, names in (("commands", remote.commands), ("queries", remote.queries)):
+        print(f"{kind}: {', '.join(sorted(names)) or '-'}")
+    return 0
+
+
+def cmd_remote_get_parameter(client, args) -> int:
+    _show(_remotes(client, args)[args.name].get(args.parameter))
+    return 0
+
+
+def cmd_remote_set_parameter(client, args) -> int:
+    remote = _remotes(client, args)[args.name]
+    _show(remote.set(args.parameter, _parse_value(args.value)))
+    return 0
+
+
+def cmd_remote_call_query(client, args) -> int:
+    remote = _remotes(client, args)[args.name]
+    _show(remote.ask(args.query, **_parse_kwargs(args.kwargs)))
+    return 0
+
+
+def cmd_remote_call_command(client, args) -> int:
+    """A command; a long one runs on the server, and is waited for here. Ctrl-C
+    stops it with the service's own stop."""
+    from fibsem.client import Run
+
+    remote = _remotes(client, args)[args.name]
+    result = remote.call(args.command, **_parse_kwargs(args.kwargs))
+    if isinstance(result, Run):
+        print(f"{result}: running (Ctrl-C stops it)")
+        try:
+            while result.refresh(wait=5.0) == "running":
+                pass
+        except KeyboardInterrupt:
+            if "stop" not in remote.commands:
+                raise
+            remote.call("stop", reason=STOP_REASON)
+            print(f"{result}: stop sent")
+            result.refresh(wait=30.0)
+        print(f"{result}: {result.state}")
+        result = result.wait()
+    _show(result)
+    return 0
+
+
+# --- the app's experiments ---------------------------------------------------
+
+
+def _since(args) -> Optional[str]:
+    """--days / --since as one lower bound (an ISO time), or None."""
+    if args.days is not None and args.since is not None:
+        raise ValueError("--days and --since both set a start; use one or the other")
+    if args.days is not None:
+        return (datetime.now() - timedelta(days=args.days)).isoformat()
+    return args.since
+
+
+def cmd_experiment_list_all(client, args) -> int:
+    """The experiments under the experiments folder of the app the server
+    hosts (`experiment_list_all`), narrowed to an instrument, an operator or a
+    time window. Answers "what did this microscope do this week?" (FIB-457)."""
+    try:
+        since = _since(args)
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    filters = {
+        "instrument": args.instrument,
+        "operator": args.operator,
+        "since": since,
+        "until": args.until,
+    }
+    answer = client.app.call(
+        "experiment_list_all", **{k: v for k, v in filters.items() if v is not None}
+    )
+    experiments = answer["items"]
+    folder = answer.get("folder")
+
+    if not experiments:
+        print(f"No experiments found in {folder}")
+        return 0
+    if args.group:
+        groups: Dict[Optional[str], list] = {}
+        for e in experiments:
+            groups.setdefault(e.get("instrument_serial"), []).append(e)
+        for serial, group in groups.items():
+            model = next(
+                (e["instrument_model"] for e in group if e["instrument_model"]), None
+            )
+            heading = f"{model} ({serial})" if serial else "No session recorded"
+            print(f"\n{heading} — {len(group)} experiment(s)")
+            _print_experiments(group)
+    else:
+        _print_experiments(experiments)
+    print(f"\n{len(experiments)} experiment(s) in {folder}")
+    return 0
+
+
+def _print_experiments(experiments) -> None:
+    """One row each: when, what, which app, where it ran, who ran it, how many
+    items it has."""
+    from fibsem.util.timestamps import format_time, to_datetime
+
+    for e in experiments:
+        created = to_datetime(e.get("created_at"))
+        when = format_time(created, "%Y-%m-%d %H:%M") if created else "unknown"
+        # Written before the session record: no instrument and no operator, shown
+        # as "-" so missing doesn't look like empty.
+        instrument = e.get("instrument_model") or "-"
+        if e.get("instrument_serial"):
+            instrument = f"{instrument}/{e['instrument_serial']}"
+        note = "" if e.get("available", True) else "  [unreadable]"
+        print(
+            f"  {when}  {e['name'][:28]:28s} {(e.get('app') or '-')[:12]:12s} "
+            f"{instrument[:24]:24s} {(e.get('operator') or '-')[:16]:16s} "
+            f"{e.get('num_items', 0):3d} items{note}"
+        )
+        print(f"      {e.get('relative_path') or e['path']}")
+
+
+# ---------------------------------------------------------------------------
+# This install: no server
+# ---------------------------------------------------------------------------
+
+
 def cmd_plugins(args) -> int:
     """Print what resolved under each entry point group.
 
-    A plugin registered under a mistyped group name fails completely silently:
-    nothing iterates unknown groups, so there is no error to log and the user
-    sees only that their plugin never appeared. Printing the literal group
-    strings is the whole diagnostic -- they can diff them against their own
-    pyproject in the same terminal.
-
-    Takes no microscope: see _add_plugins_parser.
+    A plugin registered under a mistyped group name fails silently: nothing
+    iterates unknown groups. Printing the literal group strings is the whole
+    diagnostic -- they can diff them against their own pyproject.
     """
     from fibsem.plugins.report import collect_extensions, render_report
 
-    # Loading the registries logs a full traceback per broken plugin. Those are
-    # the very failures this command reports in one readable line each, and
-    # dumping them above the report would bury it. Nothing is lost: --debug
-    # brings the tracebacks back for when the one-line reason is not enough.
-    #
-    # Safe to do here only because importing fibsem.cli does not pull in any of
-    # the three registries, so nothing has loaded yet at this point.
+    # Loading the registries logs a traceback per broken plugin, the failures
+    # this command reports in one line each; --debug brings them back.
     if not args.debug:
         logging.disable(logging.CRITICAL)
     try:
@@ -394,225 +568,178 @@ def cmd_plugins(args) -> int:
 def _build_connection_parser(*, defaults: bool = True) -> argparse.ArgumentParser:
     """The connection arguments, shared by the root parser and every subcommand.
 
-    Built twice, and the difference is load-bearing. argparse parses a subcommand
-    into a fresh namespace and then copies every attribute of it over the root's,
-    so an argument the subparser merely *defaulted* silently overwrites the same
-    argument the root actually *parsed*. With one copy of this parser as a parent
-    of both, every connection flag given before the subcommand reverted without a
-    word: ``fibsem-cli --manufacturer Thermo info`` connected to the Demo
-    simulator, and ``--config`` was ignored outright.
-
-    So the root parser gets the copy carrying the real defaults -- that copy is
-    what guarantees the attribute exists at all -- and the subparsers get the copy
-    whose defaults are ``SUPPRESS``, which leaves each attribute absent unless
-    the flag was actually passed. Both positions then work, and when a flag is
-    given in both the one after the subcommand wins.
+    Built twice on purpose. argparse copies a subcommand's namespace over the
+    root's, so a flag the subparser merely defaulted would overwrite the same
+    flag given before the subcommand. The root's copy holds the real defaults;
+    the subparsers' holds ``SUPPRESS``, leaving the attribute absent unless the
+    flag was passed. Both positions then work; after the subcommand wins.
     """
     p = argparse.ArgumentParser(add_help=False)
 
     def default(value):
-        """The declared default, or nothing at all in the subparsers' copy."""
         return value if defaults else argparse.SUPPRESS
 
     p.add_argument(
-        "--manufacturer",
-        default=default("Demo"),
-        # normalise BEFORE the choices check, so historical spellings
-        # (--manufacturer Thermo) keep working while --help shows canonical
-        type=registry.normalize_name,
-        choices=registry.registered_manufacturers(),
-        help="Microscope manufacturer (default: Demo)",
-    )
-    p.add_argument(
-        "--ip-address",
-        default=default("localhost"),
-        dest="ip_address",
-        help="Microscope IP address (default: localhost)",
-    )
-    p.add_argument(
-        "--config",
+        "--url",
         default=default(None),
-        dest="config_path",
-        type=Path,
-        metavar="PATH",
-        help="Path to microscope config YAML",
+        help="The App Server (default: FIBSEM_SERVER_URL, else the one running "
+        "on this machine)",
+    )
+    p.add_argument(
+        "--token",
+        default=default(None),
+        help="The operator token (default: FIBSEM_OPERATOR_TOKEN, else this "
+        "install's operator token)",
     )
     p.add_argument(
         "--debug",
         action="store_true",
         default=default(False),
-        help="Enable debug logging",
+        help="Enable debug logging and show tracebacks",
     )
     return p
 
 
-def _add_acquire_parser(sub, conn) -> None:
-    p = sub.add_parser(
-        "acquire", parents=[conn], help="Acquire one or both beam images"
-    )
+def _beam_type(p, *, both: bool) -> None:
+    choices = ["ELECTRON", "ION"] + (["BOTH"] if both else [])
     p.add_argument(
-        "--beam",
-        choices=["electron", "ion", "both"],
-        default="electron",
-        help="Which beam(s) to image (default: electron)",
+        "--beam-type",
+        type=str.upper,
+        choices=choices,
+        default="ELECTRON",
+        help=f"{', '.join(choices)} (default: ELECTRON)",
     )
+
+
+def _add_axes(p) -> None:
+    for axis in ("x", "y", "z"):
+        p.add_argument(f"--{axis}", type=float, metavar="UM", help=f"{axis} in µm")
+    p.add_argument("--r", type=float, metavar="DEG", help="rotation in degrees")
+    p.add_argument("--t", type=float, metavar="DEG", help="tilt in degrees")
+
+
+def _group(sub, conn, name: str, help: str):
+    """A command group (``stage``, ``beam``, ...) and the adder of its commands,
+    each with the connection flags."""
+    group = sub.add_parser(name, parents=[conn], help=help)
+    verbs = group.add_subparsers(dest="command_name", metavar="COMMAND", required=True)
+
+    def add(verb: str, func, help: str, **kwargs):
+        p = verbs.add_parser(verb, parents=[conn], help=help, **kwargs)
+        p.set_defaults(func=func)
+        return p
+
+    return group, add
+
+
+# Commands are named as the agent's tools are (`<group>_<verb>[_<object>]`,
+# fibsem.ai.agent.catalog), hyphenated: `stage move-absolute` is stage_move_absolute.
+
+
+def _add_microscope_parsers(sub, conn) -> None:
+    _, add = _group(sub, conn, "microscope", "The microscope: who it is, its state")
+    add("get-info", cmd_microscope_get_info, "Manufacturer, model, serial, software")
+    add("get-state", cmd_microscope_get_state, "The stage position and both beams")
+
+    _, add = _group(sub, conn, "stage", "The stage: where it is, moves")
+    add("get-position", cmd_stage_get_position, "The stage position")
+    _add_axes(
+        add(
+            "move-absolute",
+            cmd_stage_move_absolute,
+            "Move safely to a position; axes left out stay. Crosses to another "
+            "device by the traverse",
+        )
+    )
+    _add_axes(
+        add(
+            "move-relative", cmd_stage_move_relative, "Move the stage axes by an offset"
+        )
+    )
+    p = add(
+        "move-to-orientation",
+        cmd_stage_move_to_orientation,
+        "Move to an orientation (SEM, FIB, ...)",
+    )
+    p.add_argument("orientation")
+    p = add("move-to-device", cmd_stage_move_to_device, "Travel to a device (FM, ...)")
+    p.add_argument("device")
+    p = add(
+        "move-to-milling-angle",
+        cmd_stage_move_to_milling_angle,
+        "Tilt the stage to a milling angle",
+    )
+    p.add_argument("milling_angle", type=float, metavar="DEG", help="in degrees")
     p.add_argument(
-        "--hfw",
+        "--rotation",
         type=float,
-        default=150e-6,
-        metavar="METRES",
-        help="Horizontal field width in metres (default: 150e-6)",
+        metavar="DEG",
+        help="rotation in degrees (default: the rotation reference)",
+    )
+
+    _, add = _group(sub, conn, "beam", "The beams: images, focus, contrast, settings")
+    p = add(
+        "acquire-image", cmd_beam_acquire_image, "Acquire an image of one or both beams"
+    )
+    _beam_type(p, both=True)
+    p.add_argument(
+        "--hfw", type=float, default=150.0, metavar="UM", help="in µm (default: 150)"
     )
     p.add_argument(
         "--resolution",
         type=_parse_resolution,
         default="1536x1024",
         metavar="WxH",
-        help="Image resolution as WxH (default: 1536x1024)",
+        help="(default: 1536x1024)",
     )
     p.add_argument(
         "--dwell-time",
         type=float,
-        default=1e-6,
+        default=1.0,
         dest="dwell_time",
-        metavar="SECONDS",
-        help="Pixel dwell time in seconds (default: 1e-6)",
+        metavar="US",
+        help="in µs (default: 1)",
     )
+    p.add_argument("--autocontrast", action="store_true", help="Autocontrast first")
     p.add_argument(
-        "--autocontrast",
-        action="store_true",
-        default=False,
-        help="Apply automatic contrast enhancement",
-    )
-    p.add_argument(
-        "--save",
-        action="store_true",
-        default=False,
-        help="Save image(s) to disk (requires --path)",
-    )
-    p.add_argument(
-        "--path",
+        "--out",
         type=Path,
-        default=None,
-        help="Directory to save images (required if --save)",
+        metavar="DIR",
+        help="Save the image(s) here, on this machine",
     )
     p.add_argument(
-        "--filename",
-        type=str,
-        default="image",
-        help="Output filename stem (default: image)",
+        "--filename", default="image", help="Saved file stem (default: image)"
     )
-    p.set_defaults(func=cmd_acquire)
+    _beam_type(add("auto-focus", cmd_beam_auto_focus, "Focus a beam"), both=False)
+    _beam_type(
+        add("auto-contrast", cmd_beam_auto_contrast, "The instrument's autocontrast"),
+        both=True,
+    )
+    for verb in ("blank", "unblank"):
+        p = add(verb, cmd_beam_blank, f"{verb.capitalize()} a beam")
+        p.set_defaults(command=verb)
+        _beam_type(p, both=True)
+    p = add(
+        "set-parameters",
+        cmd_beam_set_parameters,
+        "Set a beam's voltage, current or field width",
+    )
+    _beam_type(p, both=False)
+    p.add_argument("--voltage", type=float, metavar="KV", help="in kV")
+    p.add_argument(
+        "--current", type=float, metavar="AMPS", help="in A (100e-12 is 100 pA)"
+    )
+    p.add_argument("--hfw", type=float, metavar="UM", help="in µm")
 
-
-def _add_move_parser(sub, conn) -> None:
     p = sub.add_parser(
-        "move", parents=[conn], help="Move the stage (absolute or relative)"
-    )
-    p.add_argument(
-        "--mode",
-        choices=["absolute", "relative"],
-        default="relative",
-        help="Move mode (default: relative)",
-    )
-    p.add_argument(
-        "--x",
-        type=float,
-        default=None,
-        metavar="MICROMETRES",
-        help="X position/delta in micrometres",
-    )
-    p.add_argument(
-        "--y",
-        type=float,
-        default=None,
-        metavar="MICROMETRES",
-        help="Y position/delta in micrometres",
-    )
-    p.add_argument(
-        "--z",
-        type=float,
-        default=None,
-        metavar="MICROMETRES",
-        help="Z position/delta in micrometres",
-    )
-    p.add_argument(
-        "--rotation",
-        type=float,
-        default=None,
-        metavar="DEGREES",
-        help="Rotation (r) in degrees",
-    )
-    p.add_argument(
-        "--tilt",
-        type=float,
-        default=None,
-        metavar="DEGREES",
-        help="Tilt (t) in degrees",
-    )
-    p.set_defaults(func=cmd_move)
-
-
-def _add_position_parser(sub, conn) -> None:
-    p = sub.add_parser("position", parents=[conn], help="Print current stage position")
-    p.set_defaults(func=cmd_position)
-
-
-def _add_beam_parser(sub, conn) -> None:
-    p = sub.add_parser("beam", parents=[conn], help="Control beam power and blanking")
-    p.add_argument(
-        "action",
-        choices=["on", "off", "blank", "unblank"],
-        help="Action to perform",
-    )
-    p.add_argument(
-        "--beam",
-        choices=["electron", "ion", "both"],
-        default="electron",
-        help="Which beam(s) to control (default: electron)",
-    )
-    p.set_defaults(func=cmd_beam)
-
-
-def _add_autofocus_parser(sub, conn) -> None:
-    p = sub.add_parser("autofocus", parents=[conn], help="Run autofocus on a beam")
-    p.add_argument(
-        "--beam",
-        choices=["electron", "ion"],
-        default="electron",
-        help="Which beam to autofocus (default: electron)",
-    )
-    p.set_defaults(func=cmd_autofocus)
-
-
-def _add_autocontrast_parser(sub, conn) -> None:
-    p = sub.add_parser(
-        "autocontrast", parents=[conn], help="Run autocontrast on a beam"
-    )
-    p.add_argument(
-        "--beam",
-        choices=["electron", "ion", "both"],
-        default="electron",
-        help="Which beam(s) to run autocontrast on (default: electron)",
-    )
-    p.set_defaults(func=cmd_autocontrast)
-
-
-def _add_info_parser(sub, conn) -> None:
-    p = sub.add_parser("info", parents=[conn], help="Print full microscope state")
-    p.set_defaults(func=cmd_info)
-
-
-def _add_check_parser(sub, conn) -> None:
-    p = sub.add_parser(
-        "check",
+        "hardware-check",
         parents=[conn],
         help="Check that fibsemOS drives the hardware correctly",
-        description="Check each device: read every parameter (read); for the "
-        "fluorescence microscope and devices whose driver adds steps, also change "
-        "each setting, read it back and put it back (settings), and take one frame, "
-        "which turns the light on (acquire). No level moves the objective or the "
-        "stage.",
+        description="Check each device the App Server serves: read every parameter "
+        "(read); for the fluorescence microscope and devices whose driver adds "
+        "steps, also change each setting, read it back and put it back "
+        "(settings), and take one frame, which turns the light on (acquire). No "
+        "level moves the objective or the stage.",
     )
     p.add_argument(
         "--level",
@@ -626,201 +753,71 @@ def _add_check_parser(sub, conn) -> None:
         help="Confirm the acquire level: the light comes on and exposes the sample",
     )
     p.add_argument(
-        "--json",
-        type=Path,
-        default=None,
-        metavar="PATH",
-        help="Also save the report as JSON",
+        "--json", type=Path, metavar="PATH", help="Also save the report as JSON"
     )
     p.add_argument(
         "--save-frame",
         type=Path,
-        default=None,
         metavar="PATH",
         help="Save the frame the acquire level takes, as a TIFF",
     )
-    p.set_defaults(func=cmd_check)
+    p.set_defaults(func=cmd_hardware_check)
 
 
-def _add_mill_angle_parser(sub, conn) -> None:
-    p = sub.add_parser("mill-angle", parents=[conn], help="Move stage to milling angle")
-    p.add_argument(
-        "angle", type=float, metavar="DEGREES", help="Target milling angle in degrees"
-    )
-    p.add_argument(
-        "--rotation",
-        type=float,
-        default=None,
-        metavar="DEGREES",
-        help="Target rotation in degrees (default: uses rotation_reference from config)",
-    )
-    p.set_defaults(func=cmd_mill_angle)
-
-
-def _experiment_roots(args) -> "list[str]":
-    """Where to look, given what the user asked for.
-
-    Defaults to the experiment directory they have configured, falling back to
-    the packaged default. Neither is authoritative -- experiments can be created
-    anywhere -- which is why --root exists and why the command says how many
-    places it actually looked.
-    """
-    from fibsem import config as cfg
-
-    if args.root:
-        return list(args.root)
-
-    prefs = cfg.load_user_preferences()
-    configured = prefs.experiment.default_experiment_directory
-    return [configured or cfg.AUTOLAMELLA_LOG_PATH]
-
-
-def _since_timestamp(args) -> Optional[float]:
-    """Resolve --days / --since into one lower bound, or None."""
-    if args.days is not None and args.since is not None:
-        raise ValueError("--days and --since both set a start; use one or the other")
-    if args.days is not None:
-        return (datetime.now() - timedelta(days=args.days)).timestamp()
-    if args.since is not None:
-        return datetime.strptime(args.since, "%Y-%m-%d").timestamp()
-    return None
-
-
-def cmd_experiments(args) -> int:
-    """List experiments, optionally narrowed to one instrument or time window.
-
-    Answers "what did this microscope do this week?" for the roots it is given.
-    It cannot answer it for the whole facility: nothing records where experiments
-    are created, so this is only ever as complete as the places it looked. The
-    summary line says how many that was, so an empty answer reads as "not here"
-    rather than "never happened". See FIB-457.
-
-    Takes no microscope: this is a question about files.
-    """
-    from fibsem.applications.autolamella.tools.experiments import (
-        created_order,
-        discover_experiments,
-        filter_experiments,
-        group_by_instrument,
-        recent_experiments,
-    )
-
-    try:
-        since = _since_timestamp(args)
-    except ValueError as e:
-        print(f"error: {e}")
-        return 2
-
-    roots = _experiment_roots(args)
-    found = {}
-    for root in roots:
-        for experiment in discover_experiments(root):
-            found[os.path.realpath(experiment.path)] = experiment
-    if args.recent:
-        for experiment in recent_experiments():
-            found.setdefault(os.path.realpath(experiment.path), experiment)
-
-    experiments = filter_experiments(
-        sorted(found.values(), key=created_order, reverse=True),
-        instrument=args.instrument,
-        operator=args.operator,
-        since=since,
-        until=(
-            datetime.strptime(args.until, "%Y-%m-%d").timestamp()
-            if args.until
-            else None
-        ),
-    )
-
-    if not experiments:
-        print(f"No experiments found in {len(roots)} location(s): {', '.join(roots)}")
-        return 0
-
-    if args.group:
-        for serial, group in group_by_instrument(experiments).items():
-            model = next(
-                (e.instrument_model for e in group if e.instrument_model), None
+def _add_remote_parsers(sub, conn) -> None:
+    """``device`` and ``service``: the server's protocol, by name."""
+    for noun, plural in (("device", "devices"), ("service", "services")):
+        group, add = _group(sub, conn, noun, f"The microscope's {plural}, by name")
+        group.set_defaults(noun=noun)
+        add("list", cmd_remote_list, f"The {plural} it serves")
+        add(
+            "describe", cmd_remote_describe, "Its parameters' values, commands, queries"
+        ).add_argument("name")
+        p = add("get-parameter", cmd_remote_get_parameter, "Read a parameter")
+        p.add_argument("name")
+        p.add_argument("parameter")
+        p = add(
+            "set-parameter", cmd_remote_set_parameter, "Write a parameter (SI units)"
+        )
+        p.add_argument("name")
+        p.add_argument("parameter")
+        p.add_argument("value", help="JSON (1e-9, true, [1536, 1024]) or text")
+        for verb, what, func in (
+            ("call-command", "command", cmd_remote_call_command),
+            ("call-query", "query", cmd_remote_call_query),
+        ):
+            p = add(verb, func, f"Run a {what}")
+            p.add_argument("name")
+            p.add_argument(what)
+            p.add_argument(
+                "--kwargs",
+                metavar="JSON|@FILE",
+                help="Its arguments: a JSON object, or @file (.json, .yaml)",
             )
-            heading = f"{model} ({serial})" if serial else "No session recorded"
-            print(f"\n{heading} — {len(group)} experiment(s)")
-            _print_experiments(group)
-    else:
-        _print_experiments(experiments)
-
-    print(f"\n{len(experiments)} experiment(s) in {len(roots)} location(s)")
-    return 0
 
 
-def _print_experiments(experiments) -> None:
-    """One row each: when, what, where it ran, who ran it, how much was in it."""
-    for e in experiments:
-        when = (
-            format_time(e.created_at, "%Y-%m-%d %H:%M") if e.created_at else "unknown"
-        )
-        # An experiment written before the session record has no instrument and no
-        # operator. Shown as "-" rather than blank so the column stays readable and
-        # missing does not look like empty.
-        instrument = e.instrument_model or "-"
-        if e.instrument_serial:
-            instrument = f"{instrument}/{e.instrument_serial}"
-        note = "" if e.available else "  [unreadable]"
-        print(
-            f"  {when}  {e.name[:28]:28s} {instrument[:24]:24s} "
-            f"{(e.operator or '-')[:16]:16s} {e.num_lamella:3d} lamella{note}"
-        )
-        print(f"      {os.path.dirname(e.path)}")
-
-
-def _add_experiments_parser(sub) -> None:
-    """Enumerate experiments on disk.
-
-    Deliberately takes no connection arguments, for the same reason as `plugins`:
-    this is a question about files, usually asked away from the instrument, and
-    requiring a microscope to answer "what ran last week" would make it useless
-    where it is most wanted.
-    """
-    p = sub.add_parser(
-        "experiments",
-        help="List experiments on disk, by instrument or time window",
+def _add_experiment_parsers(sub, conn) -> None:
+    _, add = _group(sub, conn, "experiment", "The app's experiments")
+    p = add(
+        "list-all",
+        cmd_experiment_list_all,
+        "The experiments folder's experiments, by instrument or time window",
     )
     p.add_argument(
-        "--root",
-        action="append",
-        metavar="PATH",
-        help="Directory to search; repeatable. Defaults to your configured "
-        "experiment directory",
+        "--instrument", metavar="SERIAL|MODEL", help="Only those run on this instrument"
     )
-    p.add_argument(
-        "--recent",
-        action="store_true",
-        help="Also include experiments this machine has opened, which may live "
-        "outside any searched root (last 10 only)",
-    )
-    p.add_argument(
-        "--instrument",
-        metavar="SERIAL|MODEL",
-        help="Only experiments run on this instrument",
-    )
-    p.add_argument(
-        "--operator", metavar="NAME", help="Only experiments run by this operator"
-    )
+    p.add_argument("--operator", metavar="NAME", help="Only those run by this operator")
     p.add_argument("--days", type=int, metavar="N", help="Only the last N days")
     p.add_argument("--since", metavar="YYYY-MM-DD", help="Only on or after this date")
     p.add_argument("--until", metavar="YYYY-MM-DD", help="Only on or before this date")
     p.add_argument(
         "--group", action="store_true", help="Group the listing by instrument"
     )
-    p.set_defaults(func=cmd_experiments, needs_microscope=False)
 
 
 def _add_plugins_parser(sub) -> None:
-    """List what resolved under each entry point group.
-
-    Deliberately takes no connection arguments: diagnosing a plugin is usually
-    done away from the instrument, and requiring a microscope to answer "did my
-    plugin load?" would make the command useless in exactly the situation it
-    exists for. ``main()`` dispatches it before connecting.
-    """
+    """Takes no connection arguments: diagnosing a plugin is usually done away
+    from the instrument."""
     p = sub.add_parser(
         "plugins",
         help="List registered patterns, strategies and tasks, and where they came from",
@@ -834,55 +831,16 @@ def _add_plugins_parser(sub) -> None:
     p.add_argument(
         "--debug",
         action="store_true",
-        # Declared here because taking no connection arguments means `plugins
-        # --debug` -- the position every other subcommand accepts, and the one a
-        # user reaches for -- would otherwise be an unrecognized argument. The
-        # root parser still supplies the default, hence SUPPRESS: same reason as
-        # the subparsers' copy of the connection arguments, see
-        # _build_connection_parser.
+        # SUPPRESS: the root parser supplies the default (_build_connection_parser).
         default=argparse.SUPPRESS,
         help="Show the full traceback for each plugin that failed to load",
     )
-    p.set_defaults(func=cmd_plugins, needs_microscope=False)
-
-
-def _add_set_beam_parser(sub, conn) -> None:
-    p = sub.add_parser(
-        "set-beam", parents=[conn], help="Set beam voltage, current, or HFW"
-    )
-    p.add_argument(
-        "--beam",
-        choices=["electron", "ion"],
-        default="electron",
-        help="Which beam to configure (default: electron)",
-    )
-    p.add_argument(
-        "--voltage", type=float, default=None, metavar="KV", help="Beam voltage in kV"
-    )
-    p.add_argument(
-        "--current",
-        type=float,
-        default=None,
-        metavar="AMPS",
-        help="Beam current in amps (e.g. 100e-12 for 100 pA)",
-    )
-    p.add_argument(
-        "--hfw",
-        type=float,
-        default=None,
-        metavar="MICROMETRES",
-        help="Horizontal field width in µm",
-    )
-    p.set_defaults(func=cmd_set_beam)
+    p.set_defaults(func=cmd_plugins, needs_server=False)
 
 
 class _VersionAction(argparse.Action):
-    """Print the version, revision and branch, then exit.
-
-    A custom action rather than ``action="version"`` so the git lookup happens
-    only when --version is actually passed, instead of on every CLI invocation.
-    It exits during parsing, before the required-subcommand check.
-    """
+    """Print the version, revision and branch, then exit. The git lookup
+    happens only when --version is passed."""
 
     def __init__(self, option_strings, dest, **kwargs):
         super().__init__(option_strings, dest, nargs=0, **kwargs)
@@ -898,13 +856,10 @@ class _VersionAction(argparse.Action):
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    # Two copies on purpose, not an oversight: the root parser holds the real
-    # defaults, the subcommands hold suppressed ones so they cannot overwrite a
-    # flag the root already parsed. See _build_connection_parser.
     conn = _build_connection_parser(defaults=False)
     root = argparse.ArgumentParser(
         prog="fibsem-cli",
-        description="fibsemOS command-line interface for FIB/SEM microscope control",
+        description="fibsemOS from a terminal, through the App Server, as the operator",
         parents=[_build_connection_parser()],
     )
     root.add_argument(
@@ -912,20 +867,12 @@ def _build_parser() -> argparse.ArgumentParser:
         action=_VersionAction,
         help="Print the fibsemOS version and exit",
     )
-    root.set_defaults(needs_microscope=True)
+    root.set_defaults(needs_server=True)
     sub = root.add_subparsers(dest="subcommand", metavar="SUBCOMMAND")
     sub.required = True
-    _add_acquire_parser(sub, conn)
-    _add_move_parser(sub, conn)
-    _add_position_parser(sub, conn)
-    _add_beam_parser(sub, conn)
-    _add_autofocus_parser(sub, conn)
-    _add_autocontrast_parser(sub, conn)
-    _add_info_parser(sub, conn)
-    _add_check_parser(sub, conn)
-    _add_mill_angle_parser(sub, conn)
-    _add_set_beam_parser(sub, conn)
-    _add_experiments_parser(sub)
+    _add_microscope_parsers(sub, conn)
+    _add_remote_parsers(sub, conn)
+    _add_experiment_parsers(sub, conn)
     _add_plugins_parser(sub)
     return root
 
@@ -935,59 +882,56 @@ def _build_parser() -> argparse.ArgumentParser:
 # ---------------------------------------------------------------------------
 
 
-def main() -> None:
+def _said(error: Exception) -> str:
+    """What to print for a failed call: the server's refusal as it words it,
+    with what to do for the ones this command can say."""
+    from fibsem.client import ServerError, ServerUnreachable
+
+    if isinstance(error, ServerUnreachable):
+        return f"{error}\n{NO_SERVER}"
+    if isinstance(error, ServerError) and error.error_type == "microscope_off":
+        return MICROSCOPE_OFF
+    return str(error)
+
+
+def main(argv=None) -> None:
     parser = _build_parser()
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+    logging.basicConfig(level=logging.DEBUG if args.debug else logging.WARNING)
 
-    if args.subcommand == "acquire" and args.save and args.path is None:
-        parser.error("--save requires --path to be specified")
-
-    if args.subcommand == "move":
-        if all(v is None for v in [args.x, args.y, args.z, args.rotation, args.tilt]):
-            parser.error(
-                "move: at least one of --x, --y, --z, --rotation, --tilt must be specified"
-            )
-
-    if args.subcommand == "check":
+    if getattr(args, "func", None) in (
+        cmd_stage_move_absolute,
+        cmd_stage_move_relative,
+    ):
+        if all(v is None for v in _axes(args).values()):
+            parser.error("at least one of --x, --y, --z, --r, --t must be specified")
+    if args.subcommand == "hardware-check":
         if args.level == "acquire" and not args.yes:
             parser.error(
-                "check: the acquire level turns the light on and exposes whatever "
+                "hardware-check: the acquire level turns the light on and exposes whatever "
                 "is under the objective; add --yes to run it"
             )
         if args.save_frame is not None and args.level != "acquire":
-            parser.error("check: --save-frame needs --level acquire")
+            parser.error("hardware-check: --save-frame needs --level acquire")
 
-    # Subcommands that answer a question about this install rather than about a
-    # microscope run before the connection attempt. `plugins` in particular has
-    # to work with nothing plugged in -- it exists to explain why something is
-    # missing, and demanding hardware first would make it useless.
-    if not args.needs_microscope:
-        try:
-            sys.exit(args.func(args))
-        except Exception as e:
-            print(f"error: {e}", file=sys.stderr)
-            sys.exit(1)
-
+    client = None
     try:
-        microscope, settings = utils.setup_session(
-            manufacturer=args.manufacturer,
-            ip_address=args.ip_address,
-            config_path=args.config_path,
-            debug=args.debug,
-        )
-    except Exception as e:
-        print(f"error: failed to connect to microscope: {e}", file=sys.stderr)
-        sys.exit(1)
-
-    try:
-        exit_code = args.func(microscope, settings, args)
+        if not args.needs_server:
+            exit_code = args.func(args)
+        else:
+            client = _client(args)
+            exit_code = args.func(client, args)
+    except KeyboardInterrupt:
+        sys.exit(130)
     except Exception as e:
         if args.debug:
             raise
-        print(f"error: {e}", file=sys.stderr)
+        print(f"error: {_said(e)}", file=sys.stderr)
         sys.exit(1)
-    else:
-        sys.exit(exit_code)
+    finally:
+        if client is not None:
+            client.close()
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":

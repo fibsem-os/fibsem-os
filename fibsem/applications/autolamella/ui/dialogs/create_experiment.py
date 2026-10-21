@@ -11,7 +11,6 @@ from PyQt5 import QtCore, QtWidgets
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.experiment_setup import (
     create_experiment,
-    default_experiment_directory,
     default_protocol_path,
 )
 from fibsem.applications.autolamella.structures import (
@@ -30,6 +29,7 @@ from fibsem.ui.tokens import ERROR_COLOR, TEXT_MUTED_COLOR, WARN_COLOR
 from fibsem.ui.widgets.custom_widgets import QDirectoryLineEdit, TitledPanel
 from fibsem.util.system import DiskSpace, FreeSpaceLevel, disk_space
 from fibsem.utils import format_bytes
+from fibsem.workflows.experiments import default_experiment_directory
 
 # What an experiment costs on disk, per lamella. Measured 2026-09-21 over the four
 # completed lamellae in the real experiments under `tmp/`: 224, 256, 302 and 378 MB.

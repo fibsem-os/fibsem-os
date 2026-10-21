@@ -53,6 +53,9 @@ To connect from another computer: open an SSH tunnel to the App Server port
 `RemoteMicroscope.connect("http://localhost:8001", token)`, or set
 `FIBSEM_SERVER_URL` and `FIBSEM_SERVER_TOKEN`. The remote computer keeps no copy;
 "New operator token" revokes it.
+`fibsem-cli` is such a client: on the PC it finds the App Server and reads the
+operator token itself (`resolve_operator`); elsewhere it takes `--url` and
+`--token`, or `FIBSEM_SERVER_URL` and `FIBSEM_OPERATOR_TOKEN`.
 Or **pair** the computer, with no token to copy: Tools → App Server → *Pair a
 computer* (or the chat page's Computers panel) shows a 4-digit code for 5
 minutes, and `RemoteMicroscope.pair("1234")` sends it (to the tunnel's end,

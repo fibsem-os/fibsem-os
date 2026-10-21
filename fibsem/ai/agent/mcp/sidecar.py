@@ -1209,8 +1209,16 @@ def build_sidecar(client, capabilities):
     def experiment_list_recent():
         return _app_get("/app/experiment/recent")
 
-    def experiment_list_all():
-        return _app_get("/app/experiment/all")
+    def experiment_list_all(
+        instrument: Optional[str] = None,
+        operator: Optional[str] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+    ):
+        return _app_get(
+            "/app/experiment/all?"
+            + _query(instrument=instrument, operator=operator, since=since, until=until)
+        )
 
     def protocol_list():
         return _app_get("/app/experiment/protocols")

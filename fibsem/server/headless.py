@@ -5,17 +5,52 @@ part every app's headless command shares (``fibsem-volume``,
 import argparse
 import logging
 import threading
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 from fibsem import utils
 from fibsem.server.agent_setup import setup_text
 from fibsem.workflows.session import AppSession
 
-__all__ = ["connect", "open_session", "serve_until_stopped"]
+__all__ = ["connect", "connection_parser", "open_session", "serve_until_stopped"]
+
+
+def connection_parser() -> argparse.ArgumentParser:
+    """The flags that name the microscope a headless command connects to, as a
+    parent parser: ``--manufacturer`` (Demo by default), ``--ip-address``,
+    ``--config``, ``--debug``."""
+    from fibsem.drivers import registry
+
+    p = argparse.ArgumentParser(add_help=False)
+    p.add_argument(
+        "--manufacturer",
+        default="Demo",
+        # normalise BEFORE the choices check, so historical spellings
+        # (--manufacturer Thermo) keep working while --help shows canonical
+        type=registry.normalize_name,
+        choices=registry.registered_manufacturers(),
+        help="Microscope manufacturer (default: Demo)",
+    )
+    p.add_argument(
+        "--ip-address",
+        default="localhost",
+        dest="ip_address",
+        help="Microscope IP address (default: localhost)",
+    )
+    p.add_argument(
+        "--config",
+        default=None,
+        dest="config_path",
+        type=Path,
+        metavar="PATH",
+        help="Path to microscope config YAML",
+    )
+    p.add_argument("--debug", action="store_true", help="Enable debug logging")
+    return p
 
 
 def connect(args: argparse.Namespace) -> Any:
-    """The microscope the connection flags name (``fibsem.cli``'s, Demo by
+    """The microscope the connection flags name (`connection_parser`, Demo by
     default)."""
     microscope, _ = utils.setup_session(
         manufacturer=args.manufacturer,

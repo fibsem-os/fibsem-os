@@ -587,43 +587,8 @@ class AutoLamellaAppContext(AppContext):
     #
     # Kept to known places (Patrick's call, 2026-10-14; widened 2026-10-20): a new
     # experiment goes anywhere under the experiments folder, a load is a recent
-    # experiment or one under that folder, and a protocol is one of the files in
-    # the protocol folder, by name.
-
-    def _experiments_folder(self) -> str:
-        """Where the agent creates and finds experiments: the session's folder,
-        else the default experiments folder."""
-        from fibsem.applications.autolamella import experiment_setup
-
-        return (
-            self._session.experiments_folder
-            or experiment_setup.default_experiment_directory()
-        )
-
-    def saved_experiments(self) -> Dict[str, Any]:
-        """Every experiment under the experiments folder, newest first."""
-        from fibsem.applications.autolamella.tools.experiments import (
-            discover_experiments,
-        )
-
-        folder = self._experiments_folder()
-        return {
-            "folder": folder,
-            "items": [self.experiment_entry(s) for s in discover_experiments(folder)],
-        }
-
-    def _under_experiments_folder(self, path: str) -> Optional[str]:
-        """*path* (relative to the experiments folder, or absolute) when it is
-        inside that folder, links followed; else None."""
-        import os
-
-        folder = os.path.realpath(self._experiments_folder())
-        target = os.path.realpath(os.path.join(folder, path))
-        try:
-            inside = os.path.commonpath([target, folder]) == folder
-        except ValueError:  # another drive
-            return None
-        return target if inside and target != folder else None
+    # experiment or one under that folder (AppContext lists them), and a protocol
+    # is one of the files in the protocol folder, by name.
 
     def protocols(self) -> Dict[str, Any]:
         """The protocol files an agent may load or create an experiment with."""
@@ -676,9 +641,7 @@ class AutoLamellaAppContext(AppContext):
         import os
 
         from fibsem.applications.autolamella import experiment_setup
-        from fibsem.applications.autolamella.tools.experiments import (
-            DEFAULT_MAX_DEPTH,
-        )
+        from fibsem.workflows.experiments import DEFAULT_MAX_DEPTH
 
         refusal = self._session_refusal()
         if refusal:

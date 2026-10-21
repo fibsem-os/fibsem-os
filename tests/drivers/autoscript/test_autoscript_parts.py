@@ -89,7 +89,16 @@ def test_connect_builds_the_chamber_and_the_manipulator(recording):
     devices = recording["facts"]["devices"]
     assert devices["chamber"] == "AutoscriptChamber"
     assert devices["manipulator"] == "AutoscriptManipulator"
-    assert devices["chamber_parameters"] == ["pressure", "state"]
+    # The recording fake answers every member, so the cryo reads bind too; its
+    # sensor list names no stage or shield, so the temperatures do not.
+    assert devices["chamber_parameters"] == [
+        "heat_exchanger_on",
+        "n2_flow",
+        "n2_flow_on",
+        "pressure",
+        "state",
+        "touch_alarm",
+    ]
     assert devices["manipulator_parameters"] == ["position", "state"]
 
 
