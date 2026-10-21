@@ -1,7 +1,7 @@
 ---
 name: autolamella-verifier
 description: AutoLamella second opinion for the Run Lead on the run's key decisions - the site list, each Setup placement, and every polishing pass that would mill. Given what the decision was based on and the decision, never the reasoning, it agrees or names its concern. Read-only; a disagreement is a veto.
-tools: mcp__fibsem__proposal_list, mcp__fibsem__app_get_log, mcp__fibsem__item_list, mcp__fibsem__item_get, mcp__fibsem__item_get_task_config, mcp__fibsem__item_list_outputs, mcp__fibsem__item_get_output_image, mcp__fibsem__item_measure_thickness, mcp__fibsem__milling_preview_patterns, mcp__fibsem__milling_check_stages, mcp__fibsem__grid_list, mcp__fibsem__grid_get_markers, mcp__fibsem__experiment_read_file, mcp__fibsem__experiment_crop_image, mcp__fibsem__experiment_get_image_metadata, mcp__fibsem__experiment_render_markers, Read
+tools: mcp__fibsem__proposal_list, mcp__fibsem__app_get_log, mcp__fibsem__item_list, mcp__fibsem__item_get, mcp__fibsem__item_get_task_config, mcp__fibsem__item_list_outputs, mcp__fibsem__item_get_output_image, mcp__fibsem__item_measure_thickness, mcp__fibsem__milling_preview_patterns, mcp__fibsem__milling_check_stages, mcp__fibsem__grid_list, mcp__fibsem__grid_get_markers, mcp__fibsem__experiment_read_file, mcp__fibsem__experiment_crop_image, mcp__fibsem__experiment_get_image_metadata, Read
 model: opus
 effort: high
 skills: autolamella-agent, supervise-autolamella

@@ -36,33 +36,24 @@ SERVER = "fibsem"
 # The specialists a Run Lead calls (supervise-autolamella, lead mode): the
 # checkout's .claude/agents, each with its own tool list.
 SPECIALISTS = (
-    "autolamella-surveyor",
-    "autolamella-placement",
-    "autolamella-checker",
-    "autolamella-pilot",
-    "autolamella-pass-judge",
     "autolamella-verifier",
-    "autolamella-scheduler",
+    "autolamella-investigator",
     "autolamella-auditor",
 )
 # The server's level gate decides what the fibsem tools may do, so they need no
 # prompt; ToolSearch only finds them.
-# A tool answer too large to show, the CLI saves to a file and answers its
-# path. Read is allowed for those files; a rule's path doesn't hold Read to
-# them, so the runner's Read gate (saved_tool_answer) does.
-READ_TOOL_RESULTS = "Read(~/.claude/projects/**/tool-results/**)"
-ALLOWED_TOOLS = [f"mcp__{SERVER}__*", "ToolSearch", READ_TOOL_RESULTS] + [
+ALLOWED_TOOLS = [f"mcp__{SERVER}__*", "ToolSearch"] + [
     f"Agent({name})" for name in SPECIALISTS
 ]
 # The only built-in tools the agent has: reading its skills, finding the
-# sidecar's tools when the CLI defers them, calling a specialist, and reading
-# a saved tool answer.
-BUILT_IN_TOOLS = ["Skill", "ToolSearch", "Agent", "Read"]
+# sidecar's tools when the CLI defers them, and calling a specialist.
+BUILT_IN_TOOLS = ["Skill", "ToolSearch", "Agent"]
 # Named as well, so a CLI that adds one back still refuses it: a specialist
 # that lists a tool gets it unless it is denied here. The CLI's own agents
 # would carry every fibsem tool, without a specialist's limits.
 DENIED_TOOLS = [
     "Bash",
+    "Read",
     "Grep",
     "Glob",
     "Write",
@@ -83,10 +74,6 @@ PERMISSION_MODE = "dontAsk"
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 # The agent's own reasoning effort; each specialist sets its own.
 EFFORT = "high"
-READ_REFUSED = (
-    "Read opens only a tool answer the CLI saved to a file. Read the "
-    "experiment with the mcp__fibsem__ tools."
-)
 
 # The model can't answer until someone fixes the sign-in or the account, so
 # waiting for the next wake-up would wait for ever.
@@ -115,10 +102,9 @@ interactive Claude Code session. Nobody is at a terminal.
 arrives as your next message, starting "The watcher printed:". Don't start a \
 watcher, don't loop app_get_events, and don't wait inside a turn: do what the \
 lines call for, then end your turn.
-- Your tools are the mcp__fibsem__* tools, Skill, Agent for the \
-autolamella-* specialists only, and Read for a tool answer the CLI saved to a \
-file. There is no shell, no other file access and no web, for you or for \
-them. Where a skill shows curl, python or a script, use the \
+- Your tools are the mcp__fibsem__* tools, Skill, and Agent for the \
+autolamella-* agents only. There is no shell, no file access and no web, for \
+you or for them. Where a skill shows curl, python or a script, use the \
 matching mcp__fibsem__ tool, or say what you can't do.
 - Your replies go to fibsem-agent's console and log, which the operator may \
 not be reading. Anything the operator must see goes on the record with \
@@ -140,36 +126,6 @@ REREAD_LEVEL = (
 )
 
 log = logging.getLogger("fibsem.agent.runner")
-
-
-def saved_tool_answer(path: str, claude_dir: Optional[str] = None) -> bool:
-    """Whether ``path`` is a tool answer the CLI saved to a file: inside a
-    ``tool-results`` folder under its ``projects``, links and ``..``
-    resolved first."""
-    if claude_dir is None:
-        claude_dir = os.environ.get("CLAUDE_CONFIG_DIR") or str(Path.home() / ".claude")
-    projects = Path(os.path.realpath(claude_dir)) / "projects"
-    real = Path(os.path.realpath(os.path.expanduser(path)))
-    try:
-        folders = real.relative_to(projects).parts[:-1]
-    except ValueError:
-        return False
-    return "tool-results" in folders
-
-
-async def _gate_read(input_data, tool_use_id, context) -> dict:
-    """The PreToolUse hook on Read, the agent's and every specialist's."""
-    path = (input_data.get("tool_input") or {}).get("file_path") or ""
-    if saved_tool_answer(str(path)):
-        return {}
-    log.warning("Read refused: %s", path)
-    return {
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "deny",
-            "permissionDecisionReason": READ_REFUSED,
-        }
-    }
 
 
 def kickoff(resumed: bool = False, goal: Optional[str] = None) -> str:
@@ -905,7 +861,7 @@ def build_options(
 ):
     """The SDK session: the sidecar as the only MCP server, the project's
     skills and nothing of the user's Claude Code config."""
-    from claude_agent_sdk import ClaudeAgentOptions, HookMatcher
+    from claude_agent_sdk import ClaudeAgentOptions
 
     command = sidecar_command()
     server = {"type": "stdio", "command": command[0], "args": command[1:]}
@@ -928,7 +884,6 @@ def build_options(
         permission_mode=PERMISSION_MODE,
         mcp_servers={SERVER: server},
         env=env,
-        hooks={"PreToolUse": [HookMatcher(matcher="Read", hooks=[_gate_read])]},
         # Only the server above: not a `fibsem` registered in ~/.claude.json.
         strict_mcp_config=True,
         system_prompt={
