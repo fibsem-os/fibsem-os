@@ -23,6 +23,7 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
     Experiment,
 )
+from fibsem.client.pairing import keep_agent_token  # noqa: E402
 from fibsem.client.transport import Transport  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.server.discovery import write_discovery_file  # noqa: E402
@@ -97,6 +98,8 @@ def _serve(microscope, tmp_path, event_buffer):
 def app(microscope, tmp_path, discovery):
     server, thread, app = _serve(microscope, tmp_path, EventBuffer())
     write_discovery_file("127.0.0.1", app.port, app.auth, path=discovery)
+    # The operator allowed this agent: its token is kept for the server.
+    keep_agent_token(f"http://127.0.0.1:{app.port}", TOKEN)
     yield app
     server.should_exit = True
     thread.join(timeout=5)
@@ -573,6 +576,7 @@ def test_an_end_event_beats_the_fallback(app):
 def test_evicted_events_print_a_gap_then_carry_on(microscope, tmp_path, discovery):
     server, thread, app = _serve(microscope, tmp_path, EventBuffer(maxlen=3))
     write_discovery_file("127.0.0.1", app.port, app.auth, path=discovery)
+    keep_agent_token(f"http://127.0.0.1:{app.port}", TOKEN)
 
     def burst():
         for i in range(5):
@@ -651,11 +655,12 @@ def test_resuming_with_a_seq_from_before_a_restart_says_so(app):
     ]
 
 
-def test_a_401_rereads_discovery_and_carries_on(app, discovery):
+def test_a_401_rereads_the_kept_token_and_carries_on(app, discovery):
     def rotate():
-        # A restart that kept the address but changed the token.
+        # The agent was allowed again, from another of its programs: the token
+        # kept for the server changed.
         app.auth.token = "rotated"
-        write_discovery_file("127.0.0.1", app.port, app.auth, path=discovery)
+        keep_agent_token(f"http://127.0.0.1:{app.port}", "rotated")
         app.buffer.append("workflow_completed", {})
 
     code, lines = _watch({2: rotate})
@@ -741,6 +746,7 @@ def test_without_an_event_stream_the_poll_parks_and_the_watch_ends(
 ):
     server, thread, app = _serve(microscope, tmp_path, None)
     write_discovery_file("127.0.0.1", app.port, app.auth, path=discovery)
+    keep_agent_token(f"http://127.0.0.1:{app.port}", TOKEN)
     try:
         client = watch_mod.connect()
         # FIB-870: no buffer still honours the timeout, so a client that

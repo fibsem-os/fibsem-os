@@ -38,7 +38,7 @@ def microscope():
 
 @pytest.fixture
 def auth():
-    return AuthConfig(token=AGENT, dashboard_token=DASHBOARD)
+    return AuthConfig(token=AGENT, dashboard_token=DASHBOARD, connect_token="c" * 43)
 
 
 @pytest.fixture
@@ -106,10 +106,11 @@ def test_a_bare_auth_config_gives_no_dashboard_access(microscope):
     assert AuthConfig.generate().dashboard_token is not None
 
 
-def test_the_discovery_file_carries_only_the_agent_token(tmp_path, auth):
+def test_the_discovery_file_carries_only_the_connect_token(tmp_path, auth):
     path = write_discovery_file("127.0.0.1", 8001, auth, path=tmp_path / "d.json")
     text = path.read_text()
-    assert AGENT in text and DASHBOARD not in text
+    assert auth.connect_token in text
+    assert AGENT not in text and DASHBOARD not in text
 
 
 def test_the_sidecar_names_the_agent_and_other_clients_keep_it(client, auth):

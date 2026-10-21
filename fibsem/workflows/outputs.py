@@ -98,6 +98,49 @@ def files_by_run(root: Any, runs: Iterable[TaskState]) -> List[RunFiles]:
     return entries
 
 
+@dataclass
+class StackSlice:
+    """One image of an item's stack: the file one run recorded under a role."""
+
+    iteration: Optional[int]
+    filename: str
+    # ISO 8601: when the image was acquired, else when its run ended
+    acquired_at: Optional[str] = None
+    # metres
+    pixel_size: Optional[float] = None
+    hfw: Optional[float] = None
+    # metres into the item, when the app knows its slice thickness
+    z: Optional[float] = None
+
+
+def stack_slices(root: Any, runs: Iterable[TaskState], role: str) -> List[StackSlice]:
+    """The existing files the runs recorded under *role*, in iteration order
+    (runs without one last, in run order), each with its image's scale and
+    time. A file whose metadata can't be read keeps those None."""
+    from fibsem.structures import FibsemImageMetadata
+    from fibsem.util.timestamps import to_iso
+
+    slices = []
+    for run in runs:
+        for relpath in run.outputs.get(role, []):
+            path = os.path.join(root, relpath)
+            if not os.path.isfile(path):
+                continue
+            metadata = FibsemImageMetadata.read(path)
+            acquired_at = metadata.acquisition_datetime if metadata else None
+            slices.append(
+                StackSlice(
+                    iteration=run.iteration,
+                    filename=os.path.basename(relpath),
+                    acquired_at=to_iso(acquired_at or run.end_timestamp),
+                    pixel_size=metadata.pixel_size.x if metadata else None,
+                    hfw=metadata.image_settings.hfw if metadata else None,
+                )
+            )
+    # stable: files of the same iteration keep their run order
+    return sorted(slices, key=lambda s: (s.iteration is None, s.iteration or 0))
+
+
 def all_item_outputs(experiment: "BaseExperiment", item: Any) -> List[str]:
     """Every existing file an item's runs recorded, under any role."""
     roles = {role for run in item.task_history for role in run.outputs}

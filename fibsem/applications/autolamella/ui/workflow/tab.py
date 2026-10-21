@@ -23,6 +23,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.acting import OPERATOR
+from fibsem.applications.autolamella.ui.common.run_refusal import refused_during_run
 from fibsem.applications.autolamella.ui.grids.run import GridWorkflowWidget
 from fibsem.applications.autolamella.ui.grids.screen import (
     ScreenGridsDialog,
@@ -94,8 +95,10 @@ class WorkflowTab(QWidget):
 
         self.lamella_workflow_widget = LamellaWorkflowWidget()
         # Each task or workflow change is saved to the experiment's protocol.
+        self.lamella_workflow_widget.task_remove_requested.connect(
+            self._on_task_removed
+        )
         for signal in (
-            self.lamella_workflow_widget.task_remove_requested,
             self.lamella_workflow_widget.workflow_name_changed,
             self.lamella_workflow_widget.workflow_description_changed,
             self.lamella_workflow_widget.workflow_options_changed,
@@ -442,11 +445,32 @@ class WorkflowTab(QWidget):
         protocol.workflow_config.tasks[:] = self.lamella_workflow_widget.get_tasks()
         self._on_config_changed(protocol.workflow_config)
 
+    def _put_back_if_running(self, what: str) -> bool:
+        """Refuse *what* while a run is on, as the App Server does, and put
+        the list back as the protocol has it, after the edit has finished."""
+        if not refused_during_run(self._session.runner, what):
+            return False
+        config = self._session.experiment.task_protocol.workflow_config
+        QTimer.singleShot(
+            0, lambda: self.lamella_workflow_widget.set_workflow_config(config)
+        )
+        return True
+
+    def _on_task_removed(self, *_args) -> None:
+        experiment = self._session.experiment
+        if experiment is None or experiment.task_protocol is None:
+            return
+        if self._put_back_if_running("remove tasks"):
+            return
+        self._save_workflow_config()
+
     def _on_task_added(self, task) -> None:
         """A task added to the plan from the protocol's tasks: supervised until
         someone says otherwise."""
         experiment = self._session.experiment
         if experiment is None or experiment.task_protocol is None:
+            return
+        if self._put_back_if_running("add tasks"):
             return
         protocol = experiment.task_protocol
         protocol.workflow_config.tasks[:] = self.lamella_workflow_widget.get_tasks()
@@ -498,6 +522,8 @@ class WorkflowTab(QWidget):
         does. A task dragged above one it requires is put back, and says why."""
         experiment = self._session.experiment
         if experiment is None or experiment.task_protocol is None:
+            return
+        if self._put_back_if_running("reorder tasks"):
             return
         config = experiment.task_protocol.workflow_config
         why = experiment.task_protocol.reorder([task.name for task in tasks])

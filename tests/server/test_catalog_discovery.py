@@ -185,7 +185,9 @@ def test_discovery_round_trip(tmp_path):
     data = read_discovery_file(path)
     assert data is not None
     assert data["url"] == "http://127.0.0.1:8001"  # 0.0.0.0 is not connectable
-    assert data["token"] == "secret"
+    # Only the connect token: an agent on this PC asks to be allowed.
+    assert data["connect_token"] == auth.connect_token
+    assert "secret" not in path.read_text()
     assert "level" not in data  # live in /capabilities, never stale here
     if os.name != "nt":
         assert (path.stat().st_mode & 0o777) == 0o600
@@ -213,18 +215,22 @@ def test_discovery_finds_the_current_name_then_the_legacy_one(tmp_path, monkeypa
     monkeypatch.setattr(discovery, "LEGACY_DISCOVERY_FILE", legacy)
     assert discovery.read_discovery_file() is None
 
-    write_discovery_file("127.0.0.1", 8001, AuthConfig(token="old"), path=legacy)
-    assert discovery.read_discovery_file()["token"] == "old"
+    old = AuthConfig(token="t", connect_token="old")
+    write_discovery_file("127.0.0.1", 8001, old, path=legacy)
+    assert discovery.read_discovery_file()["connect_token"] == "old"
 
-    write_discovery_file("127.0.0.1", 8002, AuthConfig(token="new"), path=current)
-    assert discovery.read_discovery_file()["token"] == "new"
+    new = AuthConfig(token="t", connect_token="new")
+    write_discovery_file("127.0.0.1", 8002, new, path=current)
+    assert discovery.read_discovery_file()["connect_token"] == "new"
 
     # Writing and removing with no path touch only the current name.
     remove_discovery_file()
     assert not current.exists() and legacy.exists()
-    write_discovery_file("127.0.0.1", 8003, AuthConfig(token="again"))
+    write_discovery_file(
+        "127.0.0.1", 8003, AuthConfig(token="t", connect_token="again")
+    )
     assert current.exists()
-    assert discovery.read_discovery_file()["token"] == "again"
+    assert discovery.read_discovery_file()["connect_token"] == "again"
 
 
 def test_every_tool_an_agent_asks_for_says_its_action():

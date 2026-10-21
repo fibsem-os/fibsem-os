@@ -37,7 +37,8 @@ export function Rail({ page, go, openSettings }: { page: Page; go: (page: Page) 
     queryKey: ["app/agent"],
     queryFn: () => api<AgentState>("/app/agent"),
   });
-  const waiting = agent.data?.request?.status === "pending" || agent.data?.suggestion ? 1 : 0;
+  const waiting =
+    agent.data?.request?.status === "pending" || agent.data?.suggestion || agent.data?.asking ? 1 : 0;
   return (
     <nav
       aria-label="Pages"
