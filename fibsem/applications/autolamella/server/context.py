@@ -125,6 +125,9 @@ class AutoLamellaAppContext(AppContext):
 
     app_name = "AutoLamella"
 
+    def picture_sources(self) -> _task_outputs.PreviewSources:
+        return _task_outputs.PreviewSources(lambda: self._experiment)
+
     # --- experiment record ----------------------------------------------------
 
     def experiment_summary(self) -> Dict[str, Any]:

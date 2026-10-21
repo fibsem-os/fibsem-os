@@ -80,6 +80,11 @@ class AppContext:
         experiment = self._experiment
         return str(experiment.path) if experiment is not None else None
 
+    def picture_sources(self) -> Optional[Any]:
+        """What the agent's pictures read from the experiment (its items'
+        images, configs and poses; see ``ai.agent.pictures``), or None."""
+        return None
+
     def recording_experiment(self):
         """The experiment what the agent asks is recorded on: the open one, or
         the session's plain one. Raises OSError when it cannot be made."""

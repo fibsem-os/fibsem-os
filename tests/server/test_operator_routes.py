@@ -306,8 +306,8 @@ def test_missing_evidence_is_not_found(server):
     assert answer.status_code == 404
 
 
-def test_the_card_s_picture_as_the_window_drew_it(server):
-    # No window, no picture.
+def test_the_card_s_picture_as_the_session_drew_it(server):
+    # Nothing waiting, no picture.
     assert (
         server.get("/app/agent/pictures/request", headers=server.operator).status_code
         == 404
@@ -328,6 +328,51 @@ def test_the_card_s_picture_as_the_window_drew_it(server):
     }
     server.session.agent.set_picture("request", None)
     assert server.get("/app/agent", headers=server.operator).json()["pictures"] == {}
+
+
+def test_the_session_draws_a_waiting_request_without_a_window(server):
+    """FIB-1500: headless, the chat page shows the same picture the card
+    would: the session draws it as the request is filed."""
+    from fibsem.structures import BeamType, FibsemImage
+
+    server.session.images.set(
+        FibsemImage.generate_blank_image(resolution=(300, 200), hfw=100e-6),
+        BeamType.ION,
+    )
+    server.session.agent.keep_pictures()
+    try:
+        server.put(
+            "/app/agent/level", headers=server.operator, json={"level": "assist"}
+        )
+        answer = server.post(
+            "/app/agent/requests",
+            headers=server.agent,
+            json={
+                "actions": [{"tool": "item_add", "arguments": {}}],
+                "reason": "a lamella where the stage is",
+            },
+        )
+        assert answer.status_code == 202, answer.text
+        deadline = time.monotonic() + 10
+        while server.session.agent.picture("request") is None:
+            assert time.monotonic() < deadline, "no picture was drawn"
+            time.sleep(0.1)
+        picture = server.get(
+            "/app/agent/pictures/request", headers=server.operator
+        ).json()
+        assert base64.b64decode(picture["image_b64_png"]).startswith(b"\x89PNG")
+        assert picture["caption"].startswith("FIB")
+        server.post(
+            f"/app/agent/requests/{answer.json()['request_id']}/reject",
+            headers=server.operator,
+            json={"reason": "not now"},
+        )
+        deadline = time.monotonic() + 10
+        while server.session.agent.picture("request") is not None:
+            assert time.monotonic() < deadline, "the picture stayed up"
+            time.sleep(0.1)
+    finally:
+        server.session.agent.stop_pictures()
 
 
 def test_the_chat_page_is_served(server):

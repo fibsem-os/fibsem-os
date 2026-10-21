@@ -33,7 +33,7 @@ click does is the window's.
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from PyQt5.QtCore import QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import (
@@ -41,7 +41,6 @@ from PyQt5.QtGui import (
     QImage,
     QKeyEvent,
     QMouseEvent,
-    QPainter,
     QPixmap,
 )
 from PyQt5.QtWidgets import (
@@ -103,8 +102,6 @@ WHY_LINES = 3
 # details open, or narrow, they stack and the image takes the card's width.
 PICTURE_MIN = 420
 STEPS_MIN = 300
-# The legend drawn on the image: this size on screen, however wide it shows.
-LEGEND_PX = 11
 # The image, clicked: at most this wide.
 ENLARGED_WIDTH = 1024
 
@@ -509,47 +506,23 @@ class _Details(QScrollArea):
         self.setFixedHeight(height + self.horizontalScrollBar().sizeHint().height())
 
 
-def drawn_picture(image: QImage, width: int, legend: Sequence = ()) -> QPixmap:
-    """*image* *width* wide with its legend, `LEGEND_PX` on screen."""
-    from fibsem.ui.agent.previews import draw_legend
-
+def drawn_picture(image: QImage, width: int) -> QPixmap:
+    """*image* *width* wide."""
     pixmap = QPixmap.fromImage(image)
     if pixmap.width() != width:
         pixmap = pixmap.scaledToWidth(width, Qt.SmoothTransformation)  # type: ignore
-    if legend:
-        painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.Antialiasing)
-        draw_legend(painter, legend, LEGEND_PX)
-        painter.end()
     return pixmap
 
 
-def picture_png(image: QImage, legend: Sequence = (), width: int = 560) -> bytes:
-    """The card's picture as a PNG, its legend drawn on it, at most *width*
-    wide: for the chat page."""
-    from PyQt5.QtCore import QBuffer, QByteArray, QIODevice
-
-    pixmap = drawn_picture(image, max(1, min(width, image.width())), legend)
-    data = QByteArray()
-    buffer = QBuffer(data)
-    buffer.open(QIODevice.WriteOnly)
-    pixmap.save(buffer, "PNG")
-    buffer.close()
-    return bytes(data)
-
-
 class _Picture(QLabel):
-    """An image scaled to its column, its legend drawn on it; a click shows it
+    """An image scaled to its column; a click shows it
     at full size."""
 
-    def __init__(
-        self, image: QImage, width: int, caption: str, legend: Sequence = ()
-    ) -> None:
+    def __init__(self, image: QImage, width: int, caption: str) -> None:
         super().__init__()
         self.setObjectName("agentImage")
         self._image = image
         self._caption = caption
-        self._legend = tuple(legend)
         self.set_width(width)
         self.setCursor(Qt.PointingHandCursor)  # type: ignore
         # What it is ("FIB · 07:41"): here, and the enlarged window's title.
@@ -565,11 +538,11 @@ class _Picture(QLabel):
             return
         pixmap = self._drawn(width)
         self.setPixmap(pixmap)
-        # All of it: squeezed, the label would show its middle and cut the legend.
+        # All of it: squeezed, the label would show its middle.
         self.setFixedHeight(pixmap.height())
 
     def _drawn(self, width: int) -> QPixmap:
-        return drawn_picture(self._image, width, self._legend)
+        return drawn_picture(self._image, width)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         if event.button() == Qt.LeftButton:  # type: ignore
@@ -896,12 +869,10 @@ class AgentCard(QFrame):
         image: Optional[QImage],
         caption: str = "",
         suggestion: bool = False,
-        legend: Sequence = (),
     ) -> None:
         """The image the waiting request's (or, *suggestion*, the suggestion's)
-        values were measured on, drawn on it, with what it is
-        ("FIB · 07:41") and its *legend* (`previews.draw_legend`'s
-        entries); None for none, *caption* then why there is none."""
+        values were measured on, drawn on it with its legend, and what it is
+        ("FIB · 07:41"); None for none, *caption* then why there is none."""
         key = "suggestion" if suggestion else "request"
         if image is None or image.isNull():
             had = self._images.pop(key, None) is not None
@@ -912,7 +883,7 @@ class AgentCard(QFrame):
                 return
         else:
             self._notes.pop(key, None)
-            self._images[key] = (image, caption, tuple(legend))
+            self._images[key] = (image, caption)
         self._render()
 
     def set_now(self, action: Optional[str]) -> None:
@@ -1265,15 +1236,15 @@ class AgentCard(QFrame):
         )
 
     def _add_picture(self, column: QVBoxLayout, image: str) -> None:
-        """The *image* the values were measured on (FIB-1411), its legend on it."""
+        """The *image* the values were measured on (FIB-1411)."""
         if image not in self._images:
             if self._notes.get(image):
                 column.addWidget(
                     _label(self._notes[image], TEXT_MUTED_COLOR, small=True, wrap=True)
                 )
             return
-        picture, caption, legend = self._images[image]
-        label = _Picture(picture, self._picture_width(), caption, legend)
+        picture, caption = self._images[image]
+        label = _Picture(picture, self._picture_width(), caption)
         self.image_label = label
         column.addWidget(label)
 
@@ -1321,11 +1292,12 @@ class AgentCard(QFrame):
 
     def _evidence_image(self, evidence: Dict[str, Any]) -> Optional[QImage]:
         """*evidence*'s image with its marks, read once per piece of evidence."""
-        from fibsem.ui.agent.previews import evidence_picture
+        from fibsem.ai.agent.drawing import evidence_png
 
         key = evidence.get("evidence_id")
         if key not in self._evidence_images:
-            self._evidence_images[key] = evidence_picture(evidence)
+            png = evidence_png(evidence)
+            self._evidence_images[key] = QImage.fromData(png, "PNG") if png else None
         return self._evidence_images[key]
 
     def open_evidence(self, evidence: Dict[str, Any], caption: str = "") -> QDialog:
