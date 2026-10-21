@@ -396,8 +396,8 @@ def _neighbours(sites, fit):
 
 TIER_COLOURS = {
     "middle": (60, 200, 90),
-    "near_bar": (230, 70, 60),
-    "on_bar": (70, 120, 255),
+    "near_bar": (245, 160, 40),
+    "on_bar": (230, 60, 50),
     None: (160, 160, 160),
 }
 
@@ -408,9 +408,10 @@ def sites_picture(
     margin: float = DEFAULT_MARGIN,
     max_width: int = 1536,
 ) -> Tuple[bytes, bytes]:
-    """The overview with the fitted bars shaded blue, the margin beside them red
-    (the worse zone), and each site numbered in its tier's colour: green clear,
-    red near a bar, blue on one. Answers (PNG, JPEG preview)."""
+    """The overview with the fitted bars shaded red, the margin beside them
+    orange, and each site numbered in its tier's colour: green clear, orange
+    near a bar, red on one. A fit that isn't good says so in the corner.
+    Answers (PNG, JPEG preview)."""
     from PIL import Image, ImageDraw
 
     data = fit.data
@@ -448,6 +449,8 @@ def sites_picture(
             (x - radius, y - radius, x + radius, y + radius), outline=colour, width=3
         )
         draw.text((x + radius + 2, y - radius - 2), str(n), fill=colour)
+    if fit.confidence != "good":
+        draw.text((8, 8), f"bar fit {fit.confidence}", fill=(255, 255, 255))
     png, jpeg = io.BytesIO(), io.BytesIO()
     picture.save(png, format="PNG")
     picture.save(jpeg, format="JPEG", quality=85)
