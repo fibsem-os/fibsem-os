@@ -26,8 +26,13 @@ microscope* there serves the routes the microscope tools reach; the Agent chip
 sets what the agent may do with them.
 
 - While running, the server writes `~/.fibsem/app-server.json`
-  (url + token) so local clients connect without copying anything, and
-  refuses to start if another live server owns that file.
+  (url + a connect token) so local clients find it without copying anything,
+  and refuses to start if another live server owns that file.
+- The connect token only asks to connect. The sidecar's first call (or
+  `fibsem-mcp --check`) puts **Agent wants to connect** on the agent card;
+  once the operator clicks Allow it gets a token of its own, kept in
+  `~/.fibsem/agent/`, and later launches don't ask. Until then a call answers
+  `connect_waiting`.
 - It binds `127.0.0.1` by default; exposing it on the LAN is an explicit
   choice, and the token then travels as cleartext HTTP.
 

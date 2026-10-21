@@ -284,6 +284,10 @@ class AppServerHost:
             from fibsem.server.pairing import PairedTokens, Pairing
 
             self.auth.pairing = Pairing(PairedTokens(self._paired_path))
+        if self.auth.connections is None:
+            from fibsem.server.connections import Connections
+
+            self.auth.connections = Connections(self.auth.pairing.tokens)
         recorder = session.recorder
         if recorder is not None:
             # The app's stream: already fed, and not ours to detach on stop.
@@ -343,8 +347,8 @@ class AppServerHost:
         )
         self._wrote_discovery = True
         atexit.register(self._remove_discovery)
-        # Never the token: it is in the discovery file (0600) and behind
-        # Connect an agent…, and a log is read by more people than either.
+        # Never a token: a log is read by more people than the discovery
+        # file (0600).
         logging.info(
             "App Server on %s — agent level: %s", self.url, self.auth.level.value
         )

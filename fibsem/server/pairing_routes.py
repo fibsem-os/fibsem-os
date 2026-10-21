@@ -1,13 +1,15 @@
-"""Pairing's routes: a computer pairs with the code (``/pair``), and the
+"""Pairing's routes: a computer pairs with the code (``/pair``), an agent on
+this PC asks to connect with the discovery file's token (``/connect``), and the
 operator opens pairing, sees the paired computers and unpairs one
-(``/pairing``). See `fibsem.server.pairing`."""
+(``/pairing``). See `fibsem.server.pairing` and `fibsem.server.connections`."""
 
 from typing import Any, Dict, Optional
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from fibsem.server.auth import AuthConfig, require_operator
+from fibsem.server.auth import AuthConfig, client_from_user_agent, require_operator
+from fibsem.server.connections import ASK_WAIT_S
 from fibsem.server.pairing import ROLES, Pairing, PairingRefused
 
 __all__ = ["build_pairing_router"]
@@ -79,6 +81,33 @@ def build_pairing_router(auth: AuthConfig) -> APIRouter:
                 "Open pairing at the microscope PC: Tools → App Server → Pair a computer.",
             )
         return {"opened": pairing.request()}
+
+    @router.post("/connect")
+    def connect(request: Request, body: Optional[Dict[str, Any]] = None):
+        """With the discovery file's connect token: ask the operator to allow
+        this agent, waiting up to ``wait_s`` (at most 25 s) for an answer.
+        ``{"state": "allowed", "token", "name"}``, ``{"state": "denied",
+        "message", "retry_in_s"}``, or ``{"state": "waiting", "id"}`` to ask
+        again."""
+        header = request.headers.get("Authorization", "")
+        if not auth.is_connect(header.removeprefix("Bearer ")):
+            raise _refused(
+                401, "unauthorized", "Ask with the token in the discovery file."
+            )
+        if auth.connections is None:
+            raise _refused(404, "connect_off", "This server doesn't take asks.")
+        body = body or {}
+        try:
+            wait_s = min(ASK_WAIT_S, max(0.0, float(body.get("wait_s", ASK_WAIT_S))))
+        except (TypeError, ValueError):
+            wait_s = ASK_WAIT_S
+        client = client_from_user_agent(request.headers.get("User-Agent"))
+        return auth.connections.ask(
+            client.replace("/", " ") if client else str(body.get("client", "")),
+            str(body.get("origin", "")),
+            str(body.get("user", "")),
+            wait_s=wait_s,
+        )
 
     operator = APIRouter(prefix="/pairing", dependencies=[Depends(require_operator())])
 

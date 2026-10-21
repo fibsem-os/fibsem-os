@@ -3,10 +3,11 @@
 Opened from the agent chip's menu (FIB-1035): the agent's page, separate from
 Tools → App Server, which is about the server. It holds the sidecar's absolute
 path and one "Copy for your agent" text: pasted into an agent, it registers the
-sidecar, checks the connection and reports its level. An agent on another
-computer pairs with a code (``fibsem-mcp pair``) and gets a token of its own;
-the agent token stays for scripts. The level is shown, not set: the chip is the
-one place it changes.
+sidecar, checks the connection and reports its level. An agent on this PC asks
+to connect, and the operator allows it on the agent card; one on another
+computer pairs with a code (``fibsem-mcp pair``). Either gets a token of its
+own, listed here with Unpair. The level is shown, not set: the chip is the one
+place it changes.
 """
 
 from pathlib import Path
@@ -32,15 +33,11 @@ from fibsem.ui import stylesheets
 from fibsem.ui.agent.app_server_dialog import note, section
 from fibsem.ui.agent.level_chip import LEVEL_WORDS
 from fibsem.ui.agent.pairing_widgets import PairedList, PairingCode
-from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
     BORDER_COLOR,
-    GRAY_ICON_COLOR,
-    OK_COLOR,
     PANEL_COLOR,
     TEXT_COLOR,
 )
-from fibsem.ui.widgets.custom_widgets import IconToolButton
 
 __all__ = ["ConnectAgentDialog"]
 
@@ -51,20 +48,18 @@ _FIELD_STYLE = (
 )
 
 
-def _field(text: str = "", secret: bool = False) -> QLineEdit:
+def _field(text: str = "") -> QLineEdit:
     field = QLineEdit(text)
     field.setReadOnly(True)
     field.setStyleSheet(_FIELD_STYLE)
     # The system's fixed-width face, set in code: QSS font-family takes a single
     # family, which cannot be right cross-platform.
     field.setFont(QFontDatabase.systemFont(QFontDatabase.FixedFont))
-    if secret:
-        field.setEchoMode(QLineEdit.Password)
     return field
 
 
 class ConnectAgentDialog(QDialog):
-    """The agent token, the sidecar, and how to register it."""
+    """The sidecar, how to register it, and the agents allowed to connect."""
 
     def __init__(
         self,
@@ -116,7 +111,8 @@ class ConnectAgentDialog(QDialog):
                 "Paste it into Claude Code: the agent registers the sidecar, checks "
                 "the connection and tells you its level. On this machine the "
                 "sidecar finds the App Server by itself, through "
-                "~/.fibsem/app-server.json, and finds it again after a restart."
+                "~/.fibsem/app-server.json. The first time, it asks to connect: "
+                "click Allow on the agent card."
             )
         )
 
@@ -140,34 +136,12 @@ class ConnectAgentDialog(QDialog):
         self._pair_command = note("")
         self._pair_command.setTextInteractionFlags(Qt.TextSelectableByMouse)
         layout.addWidget(self._pair_command)
+        layout.addSpacing(6)
+        layout.addWidget(section("Allowed agents"))
         self._agents = PairedList(self._pairing, role=AGENT, changed=self.refresh)
         layout.addWidget(self._agents)
 
         layout.addSpacing(6)
-
-        # --- the token --------------------------------------------------------
-        layout.addWidget(section("Agent token"))
-        token_row = QHBoxLayout()
-        token_row.setSpacing(6)
-        self._token_edit = _field(secret=True)
-        # checked-state swap is the widget's own machinery — icons and colours
-        # both, so a toggle can never drop to the black default.
-        self._btn_reveal = IconToolButton(
-            icon="mdi:eye-outline",
-            checked_icon="mdi:eye-off-outline",
-            tooltip="Show the token",
-            checked_tooltip="Hide the token",
-            checkable=True,
-            size=26,
-        )
-        self._btn_copy_token = IconToolButton(
-            icon="mdi:content-copy", tooltip="Copy the token", size=26
-        )
-        token_row.addWidget(self._token_edit, stretch=1)
-        token_row.addWidget(self._btn_reveal)
-        token_row.addWidget(self._btn_copy_token)
-        layout.addLayout(token_row)
-        layout.addWidget(note("For scripts. New each time AutoLamella starts."))
 
         footer = QHBoxLayout()
         footer.addStretch(1)
@@ -177,8 +151,6 @@ class ConnectAgentDialog(QDialog):
         footer.addWidget(self._btn_close)
         layout.addLayout(footer)
 
-        self._btn_reveal.toggled.connect(self._on_reveal_toggled)
-        self._btn_copy_token.clicked.connect(self._on_copy_token)
         # A pairing code's time left ticks while open.
         self._timer = QTimer(self)
         self._timer.setInterval(1000)
@@ -205,16 +177,9 @@ class ConnectAgentDialog(QDialog):
         auth = getattr(host, "auth", None)
         if auth is None:
             self._level_label.setText("The App Server isn't running.")
-            self._token_edit.setText("")
-            self._token_edit.setEnabled(False)
-            self._btn_reveal.setEnabled(False)
-            self._btn_copy_token.setEnabled(False)
             return
         level = auth.level or AgentLevel.WATCH
         self._level_label.setText(LEVEL_WORDS[level])
-        self._token_edit.setText(auth.token)
-        for widget in (self._token_edit, self._btn_reveal, self._btn_copy_token):
-            widget.setEnabled(True)
 
     # --- actions --------------------------------------------------------------
 
@@ -235,20 +200,3 @@ class ConnectAgentDialog(QDialog):
                 self._sidecar, getattr(host, "url", None), pythonpath=dev_checkout()
             )
         )
-
-    def _on_reveal_toggled(self, show: bool) -> None:
-        self._token_edit.setEchoMode(QLineEdit.Normal if show else QLineEdit.Password)
-
-    def _on_copy_token(self) -> None:
-        if not self._copy(self._token_edit.text()):
-            return
-        # A moment of confirmation, then back — the tooltip carries the words.
-        self._btn_copy_token.setIcon(fibsem_icon("mdi:check", color=OK_COLOR))
-        self._btn_copy_token.setToolTip("Copied")
-        QTimer.singleShot(1500, self._restore_copy_button)
-
-    def _restore_copy_button(self) -> None:
-        self._btn_copy_token.setIcon(
-            fibsem_icon("mdi:content-copy", color=GRAY_ICON_COLOR)
-        )
-        self._btn_copy_token.setToolTip("Copy the token")

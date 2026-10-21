@@ -1,7 +1,8 @@
 """The operator's routes: what the agent chip and card do, from outside the window.
 
 The web page (or the operator's own script) messages the agent, sets its level,
-stops it, and approves or rejects its request. Each route calls the
+stops it, allows or denies an agent asking to connect, and approves or rejects
+its request. Each route calls the
 :class:`~fibsem.ai.agent.session.AgentSession` function the window's control
 calls, so both record the same thing. Behind the operator token only
 (``require_operator``): the agent's token is refused, so the agent can't
@@ -23,6 +24,8 @@ from fibsem.server.requests import RequestRefused
 from fibsem.server.responses import (
     AgentStopped,
     AgentView,
+    ConnectAskView,
+    ConnectionDecided,
     ConnectText,
     EvidenceView,
     LevelOption,
@@ -66,6 +69,7 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
         request = agent.current()
         suggestion = agent.suggestion()
         waiting = agent.waiting()
+        asking = agent.asking()
         return answer(
             AgentView(
                 experiment=agent.experiment_name(),
@@ -97,6 +101,7 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
                     )
                     for level in AgentLevel
                 ],
+                asking=ConnectAskView(**asking) if asking else None,
             )
         )
 
@@ -186,6 +191,26 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
         stopped = agent.stop()
         level = agent.level.value if agent.level is not None else None
         return answer(AgentStopped(stopped, level))
+
+    @router.post("/connections/{ask_id}/allow", response_model=ConnectionDecided)
+    def allow_connection(ask_id: str):
+        """Allow the agent asking to connect, as the card's Allow: a token of
+        its own, listed with Unpair."""
+        try:
+            name = agent.allow_connection(ask_id)
+        except LookupError as exc:
+            raise _refused(404, "not_found", str(exc))
+        return answer(ConnectionDecided(ask_id, True, name))
+
+    @router.post("/connections/{ask_id}/deny", response_model=ConnectionDecided)
+    def deny_connection(ask_id: str, body: Optional[Dict[str, Any]] = None):
+        """Refuse the agent asking to connect, with the operator's reason."""
+        reason = _text(body or {}, "reason", required=False)
+        try:
+            agent.deny_connection(ask_id, reason)
+        except LookupError as exc:
+            raise _refused(404, "not_found", str(exc))
+        return answer(ConnectionDecided(ask_id, False))
 
     def _store() -> None:
         if agent.requests is None:

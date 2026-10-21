@@ -1,7 +1,7 @@
 import { Check, ChevronDown, ChevronRight, X } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import type { AgentRequest, AgentState, RequestAction, Suggestion } from "@/lib/types";
+import type { AgentRequest, AgentState, ConnectAsk, RequestAction, Suggestion } from "@/lib/types";
 import { useAct } from "./act";
 import { CardPicture, EvidenceImage } from "./Pictures";
 
@@ -37,15 +37,17 @@ function Details({ details }: { details: NonNullable<RequestAction["details"]> }
   );
 }
 
-/** Reject… or Decline… asks why first, then sends it with the refusal. */
+/** Reject…, Decline… or Deny… asks why first, then sends it with the refusal. */
 function Decide({
   approve,
   refuse,
   refuseWord,
+  approveWord = "Approve",
 }: {
   approve: () => void;
   refuse: (reason: string) => void;
   refuseWord: string;
+  approveWord?: string;
 }) {
   const [asking, setAsking] = useState(false);
   const [reason, setReason] = useState("");
@@ -69,7 +71,7 @@ function Decide({
   return (
     <div className="flex flex-wrap gap-2">
       <Button variant="primary" onClick={approve}>
-        Approve
+        {approveWord}
       </Button>
       <Button onClick={() => setAsking(true)}>{refuseWord}…</Button>
     </div>
@@ -217,6 +219,46 @@ export function SuggestionCard({ suggestion, agent }: { suggestion: Suggestion; 
         approve={() => act(`/app/agent/suggestions/${id}/approve`)}
         refuse={(reason) =>
           act(`/app/agent/suggestions/${id}/decline`, {
+            method: "POST",
+            body: JSON.stringify({ reason }),
+          })
+        }
+      />
+      {error && <div className="text-[13px] text-destructive">{error}</div>}
+    </article>
+  );
+}
+
+/** An agent on this PC asking to connect: until it is allowed it reaches nothing. */
+export function ConnectCard({ ask }: { ask: ConnectAsk }) {
+  const { act, error } = useAct();
+  const id = encodeURIComponent(ask.id);
+  const rows: [string, string][] = [
+    ["Agent", `${ask.client}, as it names itself`],
+    ["From", ask.origin],
+    ["Runs as", ask.user],
+  ];
+  return (
+    <article aria-label="Waiting on you" className={card}>
+      <span className={title}>Agent wants to connect</span>
+      <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[13px]">
+        {rows.map(([heading, value]) => (
+          <div key={heading} className="contents">
+            <dt className="text-muted-foreground">{heading}</dt>
+            <dd className="m-0 min-w-0 break-words">{value}</dd>
+          </div>
+        ))}
+      </dl>
+      <div className="text-[13px]">
+        <span className="text-muted-foreground">If you allow it: </span>
+        {ask.if_allowed}
+      </div>
+      <Decide
+        approveWord="Allow"
+        refuseWord="Deny"
+        approve={() => act(`/app/agent/connections/${id}/allow`)}
+        refuse={(reason) =>
+          act(`/app/agent/connections/${id}/deny`, {
             method: "POST",
             body: JSON.stringify({ reason }),
           })

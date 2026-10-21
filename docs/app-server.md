@@ -227,7 +227,13 @@ registers the sidecar by its absolute path, checks the connection with
 which entry to merge into `mcpServers` in its config file. The token isn't
 in the text: the running server writes a discovery file
 (`~/.fibsem/app-server.json`; `agent-server.json` before v0.6.0, still read)
-that the `fibsem-mcp` sidecar finds by itself. By hand, that's:
+that the `fibsem-mcp` sidecar finds by itself. Its token only asks to connect:
+the first time, the agent card shows **Agent wants to connect**, naming the
+client, where it connects from and the PC user it runs as. **Allow** gives it a
+token of its own, kept in `~/.fibsem/agent/`, so later connections don't ask;
+it is listed under *Connect an agent… → Allowed agents* with Unpair. **Deny…**
+refuses it, with your reason, and it can ask again after a minute. By hand,
+registering the sidecar is:
 
 ```bash
 claude mcp add -s user fibsem -- fibsem-mcp
@@ -236,14 +242,15 @@ claude mcp add -s user fibsem -- fibsem-mcp
 `-s user` registers it for all your projects; without it, `claude mcp add`
 covers only the current directory's project.
 
-**From another machine** — copy the agent token from *Connect an agent…* and
+**From another machine** — click *Pair an agent* in *Connect an agent…*,
+run `fibsem-mcp pair <code>` on that machine with the code it shows, and
 point the sidecar at the microscope PC:
 
 ```bash
-claude mcp add -s user fibsem -- fibsem-mcp --url http://<microscope-pc>:8001 --token <token>
+claude mcp add -s user fibsem -- fibsem-mcp --url http://<microscope-pc>:8001
 ```
 
-(Or set `FIBSEM_SERVER_URL` and `FIBSEM_SERVER_TOKEN`.) The server binds to
+(Or set `FIBSEM_SERVER_URL`.) The server binds to
 localhost by default; reaching it from another machine means running it on a
 reachable address — do that only on a network you trust, because the
 connection is plain HTTP: anyone who can read the traffic can read the token.
@@ -253,9 +260,11 @@ bearer token — the sidecar is convenience, not a requirement.
 
 ## The security model, briefly
 
-- **Two tokens per session**, generated fresh at server start: the agent's,
-  shown only in *Connect an agent…*, and the event log's, which reads the
-  monitoring routes and nothing else. No token, no access.
+- **A token per agent.** An agent on this PC asks to connect and you allow it;
+  one on another computer pairs with a code. Either gets a token of its own,
+  listed with Unpair. The discovery file's token only asks. The event log has
+  its own token, which reads the monitoring routes and nothing else. No
+  token, no access.
 - **Access fails closed.** Reading needs a valid token and a level above Off;
   acting needs Drive; using the microscope needs Drive and the microscope
   served.
@@ -278,7 +287,10 @@ bearer token — the sidecar is convenience, not a requirement.
   but no microscope is connected yet; it starts when one connects.
 - *The sidecar exits with "no server found"* — it waited for a server that
   never appeared; start AutoLamella (with the feature on) first, or pass
-  `--url`/`--token` explicitly.
+  `--url` explicitly.
+- *A tool says "Waiting for the operator to allow this agent"* — the agent
+  card shows **Agent wants to connect**: click Allow, and the agent's next
+  call goes through.
 - *The agent says it can't act* — it is at Watch. Raise it from the Agent chip
   if you want it to: to Assist, where it asks you before each action, or Drive; refusals name the level (`level`, or `ask_first` at Assist),
   a stop (`agent_stopped`) or Off (`agent_off`).

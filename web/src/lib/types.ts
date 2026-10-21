@@ -132,6 +132,22 @@ export interface Suggestion {
 }
 
 /** GET /app/agent: the agent as the chip and card show it. */
+/** An agent on this PC asking to connect, on GET /app/agent. */
+export interface ConnectAsk {
+  id: string;
+  /** As it names itself. */
+  client: string;
+  /** "this PC", or an address over SSH. */
+  origin: string;
+  /** The PC user it runs as. */
+  user: string;
+  asked_at: number;
+  /** What the allowed agents' list will call it. */
+  name: string;
+  /** What allowing it means at the level now. */
+  if_allowed: string;
+}
+
 export interface AgentState {
   experiment: string | null;
   level: AgentLevel | null;
@@ -145,6 +161,7 @@ export interface AgentState {
   waiting: { proposal: string; who: string } | null;
   pictures: Partial<Record<"request" | "suggestion", { caption?: string; image: boolean; version: number }>>;
   levels: LevelChoice[];
+  asking: ConnectAsk | null;
 }
 
 /** One row of GET /app/agent/recent. */

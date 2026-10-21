@@ -205,25 +205,20 @@ def test_agent_text_reports_when_the_agent_was_last_heard_from():
 # --- Connect an agent --------------------------------------------------------
 
 
-def test_connect_shows_the_level_read_only_and_the_token_hidden(qapp, host, tmp_path):
-    from PyQt5.QtWidgets import QLineEdit
-
+def test_connect_shows_the_level_read_only_and_no_token(qapp, host, tmp_path):
     dialog = ConnectAgentDialog(lambda: host, sidecar=tmp_path / "fibsem-mcp")
     assert dialog._level_label.text() == "Agent: Watching"
     host.auth.set_level(AgentLevel.DRIVE)
     dialog.refresh()
     assert dialog._level_label.text() == "Agent: Driving"
-    assert dialog._token_edit.text() == "tok"
-    assert dialog._token_edit.echoMode() == QLineEdit.Password
-    dialog._btn_reveal.setChecked(True)
-    assert dialog._token_edit.echoMode() == QLineEdit.Normal
+    # An agent on this PC asks to connect: there is no token to hand out.
+    assert not hasattr(dialog, "_token_edit")
     dialog.deleteLater()
 
 
-def test_connect_without_a_server_has_no_token(qapp, tmp_path):
+def test_connect_without_a_server_says_so(qapp, tmp_path):
     dialog = ConnectAgentDialog(lambda: None, sidecar=tmp_path / "fibsem-mcp")
-    assert dialog._token_edit.text() == ""
-    assert not dialog._btn_copy_token.isEnabled()
+    assert dialog._level_label.text() == "The App Server isn't running."
     dialog.deleteLater()
 
 

@@ -217,6 +217,8 @@ class AgentLevelChip(QPushButton):
     chat_clicked = pyqtSignal()
     approve_clicked = pyqtSignal(str)  # request id
     reject_clicked = pyqtSignal(str, str)  # request id, the operator's reason
+    allow_clicked = pyqtSignal(str)  # the ask to connect's id
+    deny_clicked = pyqtSignal(str, str)  # its id, the operator's reason
     suggestion_approved = pyqtSignal()  # the suggestion shown
     suggestion_declined = pyqtSignal(str)  # the suggestion shown, the operator's why
     message_sent = pyqtSignal(str)  # the operator's message to the agent
@@ -235,6 +237,7 @@ class AgentLevelChip(QPushButton):
         self._level: Optional[AgentLevel] = None
         self._request: Optional[Dict[str, Any]] = None
         self._suggestion: Optional[Dict[str, str]] = None
+        self._asking: Optional[Dict[str, Any]] = None
         self.setCursor(Qt.PointingHandCursor)  # type: ignore
         self._acting = False
         self._pulse_ms = 0
@@ -250,6 +253,8 @@ class AgentLevelChip(QPushButton):
         self.card.connect_clicked.connect(self._closing(self.connect_clicked))
         self.card.approve_clicked.connect(self._on_approve)
         self.card.reject_clicked.connect(self._on_reject)
+        self.card.allow_clicked.connect(self._on_allow)
+        self.card.deny_clicked.connect(self._on_deny)
         self.card.suggestion_approved.connect(self._closing(self.suggestion_approved))
         self.card.suggestion_declined.connect(self._on_decline)
         # The card stays open: the operator may write again.
@@ -302,6 +307,23 @@ class AgentLevelChip(QPushButton):
         ) != shown
         self._request = dict(request) if request is not None else None
         self.card.set_request(self._request)
+        self._paint()
+        self._fit_popup()
+        if arrived:
+            self._ask_for_attention()
+
+    @property
+    def asking(self) -> Optional[Dict[str, Any]]:
+        return self._asking
+
+    def set_asking(self, asking: Optional[Dict[str, Any]]) -> None:
+        """Show an agent on this PC asking to connect, or None for none.
+        Does not emit: this is the window telling the chip."""
+        arrived = asking is not None and (asking or {}).get("id") != (
+            self._asking or {}
+        ).get("id")
+        self._asking = dict(asking) if asking is not None else None
+        self.card.set_asking(self._asking)
         self._paint()
         self._fit_popup()
         if arrived:
@@ -364,7 +386,10 @@ class AgentLevelChip(QPushButton):
         if self._level is None:
             return
         text, style, tooltip = _LEVELS[self._level]
-        if self._request is not None:
+        if self._asking is not None:
+            text, style = "Agent asks", REQUEST_CHIP
+            tooltip = "An agent asks to connect: click to see which, and decide"
+        elif self._request is not None:
             text, style = chip_request_text(self._request), REQUEST_CHIP
             tooltip = "The agent is asking: click to see what, and decide"
         elif self._suggestion is not None:
@@ -448,9 +473,9 @@ class AgentLevelChip(QPushButton):
             panel.hide()
 
     def _card_width(self) -> int:
-        """Wide while a request or a suggestion waits, else narrow (no narrower
-        than the stacked card needs)."""
-        if self._request is not None or self._suggestion is not None:
+        """Wide while an ask, a request or a suggestion waits, else narrow (no
+        narrower than the stacked card needs)."""
+        if any(x is not None for x in (self._asking, self._request, self._suggestion)):
             return WIDE_WIDTH
         return max(NARROW_WIDTH, self.card.minimumSizeHint().width() + 2)
 
@@ -495,6 +520,14 @@ class AgentLevelChip(QPushButton):
     def _on_reject(self, request_id: str, reason: str) -> None:
         self.popup.close()
         self.reject_clicked.emit(request_id, reason)
+
+    def _on_allow(self, ask_id: str) -> None:
+        self.popup.close()
+        self.allow_clicked.emit(ask_id)
+
+    def _on_deny(self, ask_id: str, reason: str) -> None:
+        self.popup.close()
+        self.deny_clicked.emit(ask_id, reason)
 
     def refresh_last_heard(self) -> None:
         try:

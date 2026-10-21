@@ -54,6 +54,7 @@ NOT_TOOLS: Dict[str, str] = {
     "GET /ui/{}": "The web app's pages and assets, served like GET /ui.",
     "GET /pair": "Pairing a computer with the operator's code: a person's computer, not the agent.",
     "POST /pair": "Pairing a computer with the operator's code: a person's computer, not the agent.",
+    "POST /connect": "An agent on this PC asking to connect, with the discovery file's token: the client asks itself before any tool runs.",
     "POST /pair/request": "A browser asks the headless server for a pairing code: a person, not the agent.",
     "GET /pairing": "The operator's pairing (operator token only): the agent's token is refused.",
     "POST /pairing": "The operator opens pairing (operator token only): the agent's token is refused.",

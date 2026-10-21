@@ -47,6 +47,24 @@ LEVEL_WORDS = {
     AgentLevel.ASSIST: "Agent: Assisting",
     AgentLevel.DRIVE: "Agent: Driving",
 }
+# What an agent asking to connect could do once allowed, at the level now.
+_ALLOWED_AT = {
+    AgentLevel.OFF: "now Off, so it can do nothing",
+    AgentLevel.WATCH: "now Watch, so it can look but not act",
+    AgentLevel.ASSIST: "now Assist, so it asks you before it acts",
+    AgentLevel.DRIVE: "now Drive, so it can act on the microscope",
+}
+
+
+def if_allowed(level: AgentLevel) -> str:
+    """What allowing an agent to connect means, at *level*: the card's words."""
+    return (
+        "It can read the session, and acts only at the level you set: "
+        f"{_ALLOWED_AT[AgentLevel(level)]}. It stays allowed until you unpair "
+        "it in Connect an agent."
+    )
+
+
 LEVEL_TIPS = {
     AgentLevel.OFF: "No access",
     AgentLevel.WATCH: "Read only",
