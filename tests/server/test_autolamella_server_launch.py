@@ -75,7 +75,9 @@ def test_a_new_experiment_is_served_and_the_operator_hands_over(
     assert [p.name for p in experiment.positions] == ["site-a"]
     assert (folder / "protocol.yaml").is_file()
     assert fibsem_cfg.get_last_experiment_file() == str(folder / "experiment.yaml")
-    assert "/chat#token=" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    # The plain chat address: the token stays out of the terminal.
+    assert "/chat (Pair this browser)" in out and "#token=" not in out
 
 
 def test_with_no_folder_none_is_open_and_last_opens_the_most_recent(

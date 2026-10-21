@@ -18,12 +18,14 @@ microscope PC: what a service saves is saved there.
 from __future__ import annotations
 
 import logging
+import os
 from types import MappingProxyType
 from typing import Any, Dict, Optional
 from urllib.parse import urlsplit
 
 from fibsem.client import FibsemClient
 from fibsem.client.control import RemoteControl
+from fibsem.client.pairing import DEFAULT_URL, pair, paired_token
 from fibsem.client.transport import NO_SERVER, ServerUnreachable, resolve
 from fibsem.drivers.remote.devices import REMOTE_FM_PARTS, DeviceClient
 from fibsem.drivers.remote.services import connect_remote_services
@@ -42,7 +44,15 @@ class RemoteMicroscope(FibsemMicroscope):
     def __init__(self, url: Optional[str] = None, token: Optional[str] = None):
         """The App Server at *url* with *token*; with neither, the one this
         machine's environment or discovery file names (`transport.resolve`).
-        `connect_to_microscope` reaches it."""
+        `connect_to_microscope` reaches it. With no token, the one this
+        computer was paired with (`pair`) at *url*, or at the SSH tunnel's end.
+
+        Only the operator's app reads a paired token: it is the operator's, so
+        an agent's client never finds it (`transport.resolve` doesn't look)."""
+        if token is None and not os.environ.get("FIBSEM_SERVER_TOKEN"):
+            where = url or os.environ.get("FIBSEM_SERVER_URL") or DEFAULT_URL
+            if (paired := paired_token(where)) is not None:
+                url, token = where, paired
         resolved = resolve(url, token)
         if resolved is None:
             raise ServerUnreachable(NO_SERVER)
@@ -59,6 +69,15 @@ class RemoteMicroscope(FibsemMicroscope):
         split = urlsplit(microscope.url)
         microscope.connect_to_microscope(split.hostname, split.port or 80)
         return microscope
+
+    @staticmethod
+    def pair(
+        code: str, url: str = DEFAULT_URL, name: Optional[str] = None
+    ) -> "RemoteMicroscope":
+        """Pair this computer with the App Server at *url* (the SSH tunnel's end
+        by default) using the code its Pair a computer shows, and connect. The
+        token is kept, so later ``connect(url)`` needs no code."""
+        return RemoteMicroscope.connect(url, pair(code, url, name))
 
     @property
     def client(self) -> FibsemClient:

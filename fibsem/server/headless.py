@@ -11,7 +11,6 @@ from typing import Any, Callable, Optional
 
 from fibsem import utils
 from fibsem.server.agent_setup import setup_text
-from fibsem.server.hosting import chat_url
 from fibsem.workflows.session import AppSession
 
 __all__ = ["connect", "connection_parser", "open_session", "serve_until_stopped"]
@@ -74,6 +73,11 @@ def open_session(microscope, experiment=None) -> AppSession:
     return session
 
 
+def announce_code(code: str) -> None:
+    """A code a browser asked for, shown only in this terminal."""
+    print(f"A browser asked to pair. Pairing code: {code} (5 minutes).", flush=True)
+
+
 def serve_until_stopped(
     session,
     serve: Callable[[Any], bool],
@@ -90,7 +94,12 @@ def serve_until_stopped(
     experiment = session.experiment
     what = experiment.name if experiment is not None else "no experiment"
     print(f"Serving {what} at {host.url} (agent at Watch).")
-    print(f"Chat and level controls: {chat_url(host)}")
+    # The plain address, never the token: scrollback and service logs keep it.
+    print(f"Chat and level controls: {host.url}/chat (Pair this browser)")
+    pairing = host.auth.pairing
+    if pairing is not None:
+        # Seeing this terminal is the proof: the code shows only here.
+        pairing.announce = announce_code
     print(setup_text(host.url) or "fibsem-mcp is not installed beside this Python.")
     stop = stop or threading.Event()
     _stop_on_terminate(stop)

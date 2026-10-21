@@ -115,6 +115,11 @@ class AppServerHost:
             if discovery_path is not None
             else None
         )
+        self._paired_path = (
+            Path(discovery_path).parent / "paired.json"
+            if discovery_path is not None
+            else None
+        )
         self._server = None
         # The running app: the window reads the agent's requests from it.
         self._app = None
@@ -271,6 +276,10 @@ class AppServerHost:
             from fibsem.server.operator_token import load_operator_token
 
             self.auth.operator_token = load_operator_token(self._operator_token_path)
+        if self.auth.pairing is None:
+            from fibsem.server.pairing import PairedTokens, Pairing
+
+            self.auth.pairing = Pairing(PairedTokens(self._paired_path))
         recorder = session.recorder
         if recorder is not None:
             # The app's stream: already fed, and not ours to detach on stop.
