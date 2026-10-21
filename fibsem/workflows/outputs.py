@@ -106,3 +106,14 @@ def item_output_named(
         ),
         None,
     )
+
+
+def saved_file(experiment: "BaseExperiment", folder: str, path: str) -> Optional[str]:
+    """The file at *path* under *folder*, saved outside any task (an image the
+    agent took); None when there is none, or *path* leads out of the
+    experiment."""
+    root = os.path.realpath(experiment.path)
+    target = os.path.realpath(os.path.join(folder, path))
+    if os.path.commonpath([root, target]) != root or not os.path.isfile(target):
+        return None
+    return target

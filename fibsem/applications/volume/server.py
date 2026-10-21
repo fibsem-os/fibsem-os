@@ -18,7 +18,7 @@ from fibsem.server.files import jpeg_preview
 from fibsem.structures import FibsemRectangle, FibsemStagePosition, Point
 from fibsem.util.timestamps import to_iso
 from fibsem.workflows.attention import Attention
-from fibsem.workflows.outputs import files_by_run, item_output_named
+from fibsem.workflows.outputs import files_by_run, item_output_named, saved_file
 from fibsem.workflows.status import TaskStatus
 
 __all__ = ["VolumeAppContext", "serve"]
@@ -192,7 +192,9 @@ class VolumeAppContext(AppContext):
         position, refusal = find_item(experiment, item_name)
         if refusal:
             return {"available": False, "jpeg": None, **refusal}
-        path = item_output_named(experiment, position, filename)
+        path = item_output_named(experiment, position, filename) or saved_file(
+            experiment, experiment.position_path(position), filename
+        )
         if path is None:
             return {
                 "available": True,

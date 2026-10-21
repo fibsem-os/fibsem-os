@@ -674,8 +674,9 @@ class AgentPictures:
             frame, beam = self._measured_on(
                 marks, bool(patterns or milled or before or kept)
             )
-            if passed or kept:
-                # A pass's patterns, on the image the pass was asked on.
+            if passed or kept or not marks:
+                # A pass's patterns, or a decision with nothing to mark, on the
+                # image it was asked on.
                 found = self._pass_frame(request)
                 if found is not None:
                     frame, beam, pass_title = found

@@ -87,7 +87,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="grid_get_output_image",
-        description="One saved overview (mosaic) of a grid, as an image you can look at: a 768 px JPEG preview of a file grid_list / grid_get lists. A preview, not the data; grid_get_markers places the items on it. A beam image comes with its metadata block (pixel size, preview_pixelsize, stage position, beam, detector). An unlisted name is refused with the valid ones.",
+        description="One saved overview (mosaic) of a grid, as an image you can look at: a 768 px JPEG preview of a file grid_list / grid_get lists. A preview, not the data; grid_get_markers places the items on it. A beam image comes with its metadata block (pixel size, preview_pixelsize, stage position, beam, detector). A name it neither lists nor finds in the experiment is refused with the valid ones.",
         method="GET",
         path="/app/experiment/grids/{grid_name}/outputs/{filename}",
         level="watch",
@@ -95,12 +95,12 @@ TOOLS: Tuple[ToolSpec, ...] = (
         part=GRIDS,
         params={
             "grid_name": "the grid name",
-            "filename": "an overview basename from grid_list / grid_get",
+            "filename": "an overview basename from grid_list / grid_get, or any saved image's path in the experiment",
         },
     ),
     ToolSpec(
         name="grid_get_stage_position",
-        description="The stage position under a point of a recorded grid overview: the inverse of grid_get_markers, from the overview's own metadata, so it holds wherever the stage is now. Give x, y in source pixels (as the markers use), or fx, fy from 0 to 1 for a point read off a preview. Nothing moves.",
+        description="The stage position under a point of a grid overview (one grid_get lists, or any saved image in the experiment): the inverse of grid_get_markers, from the overview's own metadata, so it holds wherever the stage is now. Give x, y in source pixels (as the markers use), or fx, fy from 0 to 1 for a point read off a preview. Nothing moves.",
         method="GET",
         path="/app/experiment/grids/{grid_name}/outputs/{filename}/stage_position",
         level="watch",
@@ -108,7 +108,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         part=GRIDS,
         params={
             "grid_name": "the grid name",
-            "filename": "an overview basename from grid_list / grid_get",
+            "filename": "an overview basename from grid_list / grid_get, or any saved image's path in the experiment",
             "x": "source-pixel x (with y)",
             "y": "source-pixel y, +y down (with x)",
             "fx": "fraction across the image, 0-1 (with fy)",
@@ -118,7 +118,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="grid_get_markers",
-        description="Where the experiment's items fall on one recorded overview, in source-image pixels with each item's status, plus the image's scale block (size, pixel size, field width, stage position). Computed server-side; never re-derive stage geometry. Items that cannot be placed are listed with the reason.",
+        description="Where the experiment's items fall on one overview (one grid_get lists, or any saved image in the experiment), in source-image pixels with each item's status, plus the image's scale block (size, pixel size, field width, stage position). Computed server-side; never re-derive stage geometry. Items that cannot be placed are listed with the reason.",
         method="GET",
         path="/app/experiment/grids/{grid_name}/outputs/{filename}/markers",
         level="watch",
@@ -126,7 +126,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         part=GRIDS,
         params={
             "grid_name": "the grid name",
-            "filename": "an overview basename from grid_list / grid_get",
+            "filename": "an overview basename from grid_list / grid_get, or any saved image's path in the experiment",
         },
     ),
     ToolSpec(
