@@ -1,16 +1,18 @@
 """Connect an agent: everything needed to point an agent at this App Server.
 
 Opened from the agent chip's menu (FIB-1035): the agent's page, separate from
-Tools → App Server, which is about the server. It holds the agent token, the
-sidecar's absolute path and one "Copy for your agent" text: pasted into an
-agent, it registers the sidecar, checks the connection and reports its level. The level is shown, not set: the chip is the one place it
-changes.
+Tools → App Server, which is about the server. It holds the sidecar's absolute
+path and one "Copy for your agent" text: pasted into an agent, it registers the
+sidecar, checks the connection and reports its level. An agent on another
+computer pairs with a code (``fibsem-mcp pair``) and gets a token of its own;
+the agent token stays for scripts. The level is shown, not set: the chip is the
+one place it changes.
 """
 
 from pathlib import Path
 from typing import Callable, Optional
 
-from PyQt5.QtCore import QTimer
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QFontDatabase
 from PyQt5.QtWidgets import (
     QApplication,
@@ -25,9 +27,11 @@ from PyQt5.QtWidgets import (
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.server.agent_setup import agent_setup_text, sidecar_path
 from fibsem.server.discovery import dev_checkout
+from fibsem.server.pairing import AGENT
 from fibsem.ui import stylesheets
 from fibsem.ui.agent.app_server_dialog import note, section
 from fibsem.ui.agent.level_chip import LEVEL_WORDS
+from fibsem.ui.agent.pairing_widgets import PairedList, PairingCode
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
     BORDER_COLOR,
@@ -85,7 +89,7 @@ class ConnectAgentDialog(QDialog):
         layout.addWidget(
             note(
                 "Change the level from the Agent chip in the status bar. "
-                "“Agent” is any client holding the agent token below."
+                "“Agent” is any client holding an agent token."
             )
         )
 
@@ -118,6 +122,29 @@ class ConnectAgentDialog(QDialog):
 
         layout.addSpacing(6)
 
+        # --- another computer -----------------------------------------------
+        layout.addWidget(section("Another computer"))
+        pair_row = QHBoxLayout()
+        self._pair = PairingCode(
+            self._pairing,
+            "Pair an agent",
+            "Show a code for an agent on another computer: it gets a token of "
+            "its own, gated by the level. Works once, for 5 minutes.",
+            role=AGENT,
+            changed=self.refresh,
+        )
+        pair_row.addWidget(self._pair.button)
+        pair_row.addStretch(1)
+        layout.addLayout(pair_row)
+        layout.addLayout(self._pair.code_row)
+        self._pair_command = note("")
+        self._pair_command.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        layout.addWidget(self._pair_command)
+        self._agents = PairedList(self._pairing, role=AGENT, changed=self.refresh)
+        layout.addWidget(self._agents)
+
+        layout.addSpacing(6)
+
         # --- the token --------------------------------------------------------
         layout.addWidget(section("Agent token"))
         token_row = QHBoxLayout()
@@ -140,12 +167,7 @@ class ConnectAgentDialog(QDialog):
         token_row.addWidget(self._btn_reveal)
         token_row.addWidget(self._btn_copy_token)
         layout.addLayout(token_row)
-        layout.addWidget(
-            note(
-                "New each time AutoLamella starts. Copy it only to connect an "
-                "agent from another machine: fibsem-mcp --url <url> --token <token>."
-            )
-        )
+        layout.addWidget(note("For scripts. New each time AutoLamella starts."))
 
         footer = QHBoxLayout()
         footer.addStretch(1)
@@ -157,6 +179,11 @@ class ConnectAgentDialog(QDialog):
 
         self._btn_reveal.toggled.connect(self._on_reveal_toggled)
         self._btn_copy_token.clicked.connect(self._on_copy_token)
+        # A pairing code's time left ticks while open.
+        self._timer = QTimer(self)
+        self._timer.setInterval(1000)
+        self._timer.timeout.connect(self.refresh)
+        self._timer.start()
         self.refresh()
 
     def _host(self):
@@ -165,7 +192,15 @@ class ConnectAgentDialog(QDialog):
             return None
         return host
 
+    def _pairing(self):
+        return getattr(getattr(self._host(), "auth", None), "pairing", None)
+
     def refresh(self) -> None:
+        self._pair.refresh()
+        self._agents.refresh()
+        code = self._pair.code.text() if self._pair.is_open() else ""
+        self._pair_command.setVisible(bool(code))
+        self._pair_command.setText(f"On that computer: fibsem-mcp pair {code}")
         host = self._host()
         auth = getattr(host, "auth", None)
         if auth is None:

@@ -8,14 +8,18 @@ whatever the agent's level: the level changes mid-session, and the server's
 403 says what is needed (FIB-1035).
 
 Connection resolution, in order: ``--url``/``--token`` arguments, the
-``FIBSEM_SERVER_URL``/``FIBSEM_SERVER_TOKEN`` environment variables, then the
-same-machine discovery file a running server maintains.
+``FIBSEM_SERVER_URL``/``FIBSEM_SERVER_TOKEN`` environment variables, the token
+``fibsem-mcp pair`` kept, then the same-machine discovery file a running server
+maintains.
 
 Register with Claude Code:
 
     claude mcp add -s user fibsem -- fibsem-mcp
-    # or explicitly:
-    claude mcp add -s user fibsem -- fibsem-mcp --url http://microscope-pc:8001 --token <token>
+
+From another computer, pair once with the code Connect an agent shows (the url
+defaults to the SSH tunnel's end, http://localhost:8001):
+
+    fibsem-mcp pair 1234 [--url http://microscope-pc:8001]
 
 Requires the [mcp] extra (Python 3.10+): pip install fibsem[mcp]
 
@@ -1879,8 +1883,38 @@ def _watch_argv(argv):
     return None
 
 
+def _pair(argv) -> int:
+    """``fibsem-mcp pair <code>``: pair this computer's agent, once, by hand."""
+    from fibsem.client.pairing import DEFAULT_URL, pair
+
+    parser = argparse.ArgumentParser(
+        prog="fibsem-mcp pair",
+        description="Pair this computer's agent with an App Server, using the "
+        "code its Connect an agent shows. Later launches need no token.",
+    )
+    parser.add_argument("code")
+    parser.add_argument(
+        "--url", default=DEFAULT_URL, help=f"App Server URL (default {DEFAULT_URL})"
+    )
+    parser.add_argument(
+        "--name", default=None, help="this computer's name (default: its host name)"
+    )
+    args = parser.parse_args(argv)
+    try:
+        _, role = pair(args.code, args.url, args.name)
+    except (PermissionError, OSError) as exc:
+        print(f"fibsem-mcp: {exc}", file=sys.stderr)
+        return 1
+    print(
+        f"fibsem-mcp: paired with {args.url} as {'an agent' if role == 'agent' else 'the operator'}."
+    )
+    return 0
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:1] == ["pair"]:
+        sys.exit(_pair(argv[1:]))
     watch_argv = _watch_argv(argv)
     if watch_argv is not None:
         # Before the mcp import: watching needs only HTTP (FIB-1269).
@@ -1896,7 +1930,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(
         description="MCP sidecar for a fibsem server",
         epilog="fibsem-mcp watch: print one line per app event worth waking "
-        "an agent for (fibsem-mcp watch --help).",
+        "an agent for (fibsem-mcp watch --help). fibsem-mcp pair <code>: pair "
+        "this computer's agent (fibsem-mcp pair --help).",
     )
     parser.add_argument(
         "--url", default=None, help="Server URL, e.g. http://127.0.0.1:8001"

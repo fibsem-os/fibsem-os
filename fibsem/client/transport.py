@@ -17,6 +17,7 @@ import httpx
 import numpy as np
 
 from fibsem import __version__
+from fibsem.client.pairing import DEFAULT_URL, agent_token
 from fibsem.devices.errors import error_from
 from fibsem.devices.wire import (
     FRAME_METADATA_HEADER,
@@ -75,16 +76,22 @@ class ServerError(RuntimeError):
 def resolve(
     url: Optional[str] = None, token: Optional[str] = None
 ) -> Optional[Tuple[str, str]]:
-    """The server's url and token: as given, else from the environment, else from
-    the discovery file the App Server on this machine writes. None when none is
-    known (yet)."""
+    """The server's url and token: as given, else from the environment, else the
+    agent token this computer was paired with there (`fibsem.client.pairing`),
+    else from the discovery file the App Server on this machine writes, else
+    the agent token paired at the SSH tunnel's end. None when none is known
+    (yet). Never an operator's paired token."""
     url = url or os.environ.get("FIBSEM_SERVER_URL")
     token = token or os.environ.get("FIBSEM_SERVER_TOKEN")
+    if url and not token:
+        token = agent_token(url)
     if url and token:
         return url, token
     found = read_discovery_file()
     if found is not None:
         return url or found["url"], token or found["token"]
+    if not url and (paired := agent_token(DEFAULT_URL)) is not None:
+        return DEFAULT_URL, token or paired
     return None
 
 

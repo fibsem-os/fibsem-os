@@ -22,6 +22,7 @@ from fibsem.client.remote_microscope import RemoteMicroscope  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.server.devices import WS_PROTOCOL  # noqa: E402
 from fibsem.server.pairing import (  # noqa: E402
+    AGENT,
     MAX_TRIES,
     PairedTokens,
     Pairing,
@@ -88,7 +89,12 @@ def test_a_code_expires_after_five_minutes(pairing, clock):
     clock.now += 299
     assert pairing.state()["open"]
     clock.now += 2
-    assert pairing.state() == {"open": False, "code": None, "expires_in_s": 0.0}
+    assert pairing.state() == {
+        "open": False,
+        "role": None,
+        "code": None,
+        "expires_in_s": 0.0,
+    }
     with pytest.raises(PairingRefused):
         pairing.pair(code, "x")
 
@@ -263,3 +269,54 @@ def test_a_paired_computer_gives_its_control_lease_up_at_off(http, auth):
     auth.set_level(AgentLevel.OFF)
     released = http.delete(f"/microscope/control/{lease}", headers=_as(token))
     assert released.json() == {"released": True}
+
+
+# --- agents -------------------------------------------------------------------
+
+
+def test_a_paired_agent_is_gated_by_the_level_until_unpaired(http, auth):
+    opened = http.post(
+        "/pairing", json={"role": "agent"}, headers=_as("install-operator")
+    ).json()
+    assert opened["role"] == AGENT
+    paired = http.post("/pair", json={"code": opened["code"], "name": "mac mini"})
+    assert paired.json()["role"] == AGENT
+    token = paired.json()["token"]
+    assert http.get("/microscope/state", headers=_as(token)).status_code == 200
+    assert auth.agent_computer == "mac mini"
+    refused = http.get("/pairing", headers=_as(token))
+    assert refused.json()["detail"]["error_type"] == "operator_only"
+    auth.set_level(AgentLevel.OFF)
+    off = http.get("/microscope/state", headers=_as(token))
+    assert off.json()["detail"]["error_type"] == "agent_off"
+    auth.set_level(AgentLevel.WATCH)
+    http.delete(
+        f"/pairing/computers/{paired.json()['id']}", headers=_as("install-operator")
+    )
+    assert http.get("/microscope/state", headers=_as(token)).status_code == 401
+    # The App Server's own agent token names no computer.
+    http.get("/microscope/state", headers=_as(TOKEN))
+    assert auth.agent_computer is None
+
+
+def test_pairing_is_for_the_operator_or_an_agent(http):
+    refused = http.post(
+        "/pairing", json={"role": "admin"}, headers=_as("install-operator")
+    )
+    assert refused.status_code == 422
+
+
+def test_fibsem_mcp_pair_keeps_the_agent_token_apart(url, auth, tmp_path, monkeypatch):
+    from fibsem.ai.agent.mcp.sidecar import _pair
+    from fibsem.client.transport import resolve
+
+    monkeypatch.setattr(client_pairing, "REMOTE_DIR", tmp_path / "remote")
+    monkeypatch.setattr(client_pairing, "AGENT_DIR", tmp_path / "agent")
+    monkeypatch.delenv("FIBSEM_SERVER_TOKEN", raising=False)
+    monkeypatch.delenv("FIBSEM_SERVER_URL", raising=False)
+    assert _pair([auth.pairing.open(AGENT), "--url", url, "--name", "mac mini"]) == 0
+    _, token = resolve(url)
+    assert auth.paired(token).role == AGENT
+    # The operator's app finds no token of its own there.
+    assert client_pairing.paired_token(url) is None
+    assert _pair(["0000", "--url", url]) == 1

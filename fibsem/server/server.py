@@ -12,7 +12,6 @@ another command is in control it is refused with a structured ``409
 microscope_busy`` naming who, rather than interleaved or queued.
 """
 
-import hmac
 import json
 import logging
 from typing import Any, Callable, Dict, Mapping, Optional
@@ -447,8 +446,9 @@ class _AgentActs:
             path = scope.get("path", "")
             auth = scope["app"].state.auth
             token = Headers(scope=scope).get("authorization", "")
+            token = token.removeprefix("Bearer ")
             if (
-                not hmac.compare_digest(token, f"Bearer {auth.token}")
+                not auth.is_agent(token)
                 or status in (401, 403)
                 or call.run_id is not None
                 or call.recorded
@@ -471,6 +471,9 @@ class _AgentActs:
                 level=call.level,
                 evidence=call.evidence,
             )
+            computer = auth.paired(token)
+            if computer is not None:
+                payload["computer"] = computer.name
             if call.tool:
                 payload["tool"] = call.tool
             if call.arguments:

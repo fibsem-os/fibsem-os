@@ -2,9 +2,10 @@
 
 The operator opens pairing (the App Server dialog, the chat page, or the
 headless server's terminal), and the other computer sends the code with a name
-(``POST /pair``). It gets a token of its own, which is the operator's: the
-operator's app on another computer, or a browser. **Unpair** revokes one
-computer without touching the others.
+(``POST /pair``). It gets a token of its own, with the role pairing was opened
+for: the operator's (the operator's app on another computer, or a browser), or
+an agent's, which the agent level gates as the App Server's own agent token.
+**Unpair** revokes one computer without touching the others.
 
 A code is 4 digits, lives 5 minutes, and dies after 5 wrong tries, so one
 opening is 1 in 2,000 to guess. Tokens are kept hashed on the serving PC
@@ -27,7 +28,15 @@ from typing import Callable, Dict, List, Optional
 
 from fibsem.server.discovery import DISCOVERY_DIR
 
-__all__ = ["CODE_TTL_S", "MAX_TRIES", "PairedComputer", "PairedTokens", "Pairing"]
+__all__ = [
+    "AGENT",
+    "CODE_TTL_S",
+    "MAX_TRIES",
+    "OPERATOR",
+    "PairedComputer",
+    "PairedTokens",
+    "Pairing",
+]
 
 PAIRED_FILE = DISCOVERY_DIR / "paired.json"
 CODE_DIGITS = 4
@@ -36,6 +45,10 @@ MAX_TRIES = 5
 # A code opened from an unpaired browser (headless) that died of wrong tries
 # keeps the next one shut this long: guessing stays slow.
 REQUEST_LOCKOUT_S = 3600.0
+# What a paired token is: the operator's, or an agent's.
+OPERATOR = "operator"
+AGENT = "agent"
+ROLES = (OPERATOR, AGENT)
 
 
 class PairingRefused(Exception):
@@ -52,15 +65,22 @@ def _hash(token: str) -> str:
 
 @dataclass(frozen=True)
 class PairedComputer:
-    """One paired computer: its id, the name it gave, and when it paired."""
+    """One paired computer: its id, the name it gave, when it paired, and
+    whether it is the operator or an agent."""
 
     id: str
     name: str
     paired_at: float
     token_hash: str
+    role: str = OPERATOR
 
     def to_dict(self) -> dict:
-        return {"id": self.id, "name": self.name, "paired_at": self.paired_at}
+        return {
+            "id": self.id,
+            "name": self.name,
+            "paired_at": self.paired_at,
+            "role": self.role,
+        }
 
 
 class PairedTokens:
@@ -94,15 +114,16 @@ class PairedTokens:
             )
         os.chmod(self._path, 0o600)
 
-    def add(self, name: str) -> "tuple[PairedComputer, str]":
-        """Pair a computer named *name*: its record and its token, which is
-        shown once and kept only hashed here."""
+    def add(self, name: str, role: str = OPERATOR) -> "tuple[PairedComputer, str]":
+        """Pair a computer named *name* as *role*: its record and its token,
+        which is shown once and kept only hashed here."""
         token = secrets.token_urlsafe(32)
         computer = PairedComputer(
             id=secrets.token_hex(4),
             name=name,
             paired_at=time.time(),
             token_hash=_hash(token),
+            role=role,
         )
         with self._lock:
             self._computers[computer.id] = computer
@@ -148,6 +169,7 @@ class Pairing:
         self._clock = clock
         self._lock = threading.Lock()
         self._code: Optional[str] = None
+        self._role = OPERATOR
         self._expires = 0.0
         self._tries = 0
         self._requested = False
@@ -173,13 +195,16 @@ class Pairing:
             self._code = None
         return self._code is not None
 
-    def open(self) -> str:
-        """Open pairing with a new code; one already open is replaced."""
-        return self._open(requested=False)
+    def open(self, role: str = OPERATOR) -> str:
+        """Open pairing with a new code for *role*; one already open is replaced."""
+        if role not in ROLES:
+            raise ValueError(f"No pairing role {role!r}")
+        return self._open(requested=False, role=role)
 
-    def _open(self, requested: bool) -> str:
+    def _open(self, requested: bool, role: str = OPERATOR) -> str:
         with self._lock:
             self._code = f"{secrets.randbelow(10**CODE_DIGITS):0{CODE_DIGITS}d}"
+            self._role = role
             self._expires = self._clock() + self._ttl_s
             self._tries = 0
             self._requested = requested
@@ -209,11 +234,12 @@ class Pairing:
             self._changed()
 
     def state(self) -> dict:
-        """``{"open", "code", "expires_in_s"}``; the code only while open."""
+        """``{"open", "role", "code", "expires_in_s"}``; the code only while open."""
         with self._lock:
             live = self._live()
             return {
                 "open": live,
+                "role": self._role if live else None,
                 "code": self._code if live else None,
                 "expires_in_s": max(0.0, self._expires - self._clock())
                 if live
@@ -243,6 +269,7 @@ class Pairing:
                 died = True
             else:
                 self._code = None
+                role = self._role
                 died = False
         if died:
             logging.warning("Pairing closed after %d wrong codes", MAX_TRIES)
@@ -252,7 +279,7 @@ class Pairing:
                 "Too many wrong codes: pairing closed. Open it again at the "
                 "microscope PC.",
             )
-        paired = self.tokens.add(name)
-        logging.info("Paired a computer: %s", paired[0].name)
+        paired = self.tokens.add(name, role)
+        logging.info("Paired %s as %s", paired[0].name, role)
         self._changed()
         return paired
