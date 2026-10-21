@@ -68,6 +68,7 @@ def _grid_remove(a: Dict[str, Any], ctx: wording.ActionContext) -> Dict[str, Any
 TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="grid_list",
+        returns="Grids",
         description="Every grid the experiment records: quality verdict, task status, completed tasks, linked item count, and the basename of its latest SEM/FIB/FM overview by role. Records only — not the live slot inventory (grid_get_inventory).",
         method="GET",
         path="/app/experiment/grids",
@@ -77,6 +78,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="grid_get",
+        returns="GridDetail",
         description="One grid: its summary plus every task run with the files it recorded by role, and the names of the items linked to it.",
         method="GET",
         path="/app/experiment/grids/{grid_name}",
@@ -100,6 +102,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="grid_get_stage_position",
+        returns="OverviewStagePosition",
         description="The stage position under a point of a grid overview (one grid_get lists, or any saved image in the experiment): the inverse of grid_get_markers, from the overview's own metadata, so it holds wherever the stage is now. Give x, y in source pixels (as the markers use), or fx, fy from 0 to 1 for a point read off a preview. Nothing moves.",
         method="GET",
         path="/app/experiment/grids/{grid_name}/outputs/{filename}/stage_position",
@@ -118,6 +121,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="grid_get_markers",
+        returns="GridMarkers",
         description="Where the experiment's items fall on one overview (one grid_get lists, or any saved image in the experiment), in source-image pixels with each item's status, plus the image's scale block (size, pixel size, field width, stage position). Computed server-side; never re-derive stage geometry. Items that cannot be placed are listed with the reason.",
         method="GET",
         path="/app/experiment/grids/{grid_name}/outputs/{filename}/markers",
@@ -131,6 +135,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="grid_add",
+        returns="GridEdit",
         description=(
             "Record every grid in the inventory that the experiment has no record "
             "of, as the Grids tab's inventory read does: the loader's last scan "
@@ -146,6 +151,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="grid_rename",
+        returns="GridEdit",
         description=(
             "Rename a grid as the Grids tab's Rename does: the slot that holds it "
             "first (the loader's slot description, or the holder's record), then "
@@ -167,6 +173,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="grid_set_quality",
+        returns="GridEdit",
         description="Judge a grid, as its card's quality menu does: GOOD, REWORK or FAILED with a reason the operator reads, or UNASSESSED to clear it. Signed as the agent's; saved.",
         method="POST",
         path="/app/experiment/grids/{grid_name}/quality",
@@ -183,6 +190,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="grid_set_note",
+        returns="GridEdit",
         description="Keep a note on a grid's record, as the Grids tab's Note does; an empty note clears it. Apart from the verdict, so judging the grid again keeps it. Saved, and a note (not a clearing) goes on the record as your note on the grid.",
         method="POST",
         path="/app/experiment/grids/{grid_name}/note",
@@ -197,6 +205,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="grid_remove",
+        returns="GridEdit",
         description="Stop tracking a grid, as the Grids tab's Remove does: its files stay on disk, and its lamellae stay with no grid (answered as items_without_grid). Refused while a run is on it or one of its lamellae.",
         method="DELETE",
         path="/app/experiment/grids/{grid_name}",

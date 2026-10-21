@@ -45,6 +45,7 @@ from fibsem.ai.agent.catalog import (
     route_call,
     tools_for_capabilities,
 )
+from fibsem.client.app import App
 from fibsem.client.transport import ServerUnreachable, Transport
 
 # How long start-up looks for the server before answering the MCP client anyway:
@@ -303,6 +304,11 @@ def _call(client, method, path, payload=None):
         resp = client.request(method, path, **kwargs)
     except ServerUnreachable as exc:
         return None, _Failure(str(exc))
+    return _answer(resp)
+
+
+def _answer(resp):
+    """A response as (data, err): its JSON, or its refusal as `_Failure` text."""
     if resp.status_code >= 400:
         return None, _refusal(resp)
     try:
@@ -382,6 +388,7 @@ def build_sidecar(client, capabilities):
 
     mcp = Sidecar("fibsem")
     _name_the_client(mcp, client)
+    app = App(client)
 
     def _json_tool(name, payload_fn=None):
         spec = by_name[name]
@@ -404,7 +411,28 @@ def build_sidecar(client, capabilities):
         except ValueError as exc:
             # Refused before it reached the server: an error, as a 422 would be.
             return None, _Failure(f"refused: {exc}")
+        if by_name[tool_name].router == "app":
+            return _sent(tool_name, arguments)
         return _call(client, method, path, body)
+
+    def _send(tool_name, arguments):
+        """An app tool's call through the app's client: its response, the
+        headers naming the agent's own call as `_call` names it."""
+        tool = _calling.get()
+        headers = headers_for(*tool, evidence=_citing.get()) if tool else {}
+        return app.send(tool_name, arguments, headers=headers)
+
+    def _sent(tool_name, arguments):
+        try:
+            resp = _send(tool_name, arguments)
+        except ServerUnreachable as exc:
+            return None, _Failure(str(exc))
+        return _answer(resp)
+
+    def _app(tool_name, /, **arguments):
+        """An app tool's answer, or its refusal."""
+        data, err = _route(tool_name, **arguments)
+        return err if err else data
 
     def _routed(tool_name, key=None, /, **arguments):
         """A routed tool's answer, its route's result under *key* when given; an
@@ -440,9 +468,9 @@ def build_sidecar(client, capabilities):
         ended: Optional[bool] = None,
         reason: Optional[str] = None,
     ):
-        return _app_post(
-            "/app/agent/session",
-            _given(
+        return _app(
+            "server_report_session",
+            **_given(
                 session_id=session_id,
                 model=model,
                 goal=goal,
@@ -898,31 +926,23 @@ def build_sidecar(client, capabilities):
         """The *params* that are given (not None): a body that leaves out the rest."""
         return {k: v for k, v in params.items() if v is not None}
 
-    def _app_get(path):
-        data, err = _call(client, "GET", path)
-        return err if err else data
-
-    def _app_post(path, body=None):
-        data, err = _call(client, "POST", path, body)
-        return err if err else data
-
     def app_get_status():
-        return _app_get("/app/workflow/status")
+        return _app("app_get_status")
 
     def workflow_get_queue():
-        return _app_get("/app/workflow/queue")
+        return _app("workflow_get_queue")
 
     def item_list():
-        return _app_get("/app/experiment")
+        return _app("item_list")
 
     def experiment_get_task_history():
-        return _app_get("/app/experiment/task_history")
+        return _app("experiment_get_task_history")
 
     def workflow_get_summary():
-        return _app_get("/app/workflow/summary")
+        return _app("workflow_get_summary")
 
     def protocol_get():
-        return _app_get("/app/experiment/protocol")
+        return _app("protocol_get")
 
     def app_get_log(
         task_id: Optional[str] = None,
@@ -931,11 +951,13 @@ def build_sidecar(client, capabilities):
         level: Optional[str] = None,
         lines: int = 200,
     ):
-        return _app_get(
-            "/app/log?"
-            + _query(
-                task_id=task_id, since=since, until=until, level=level, lines=lines
-            )
+        return _app(
+            "app_get_log",
+            task_id=task_id,
+            since=since,
+            until=until,
+            level=level,
+            lines=lines,
         )
 
     def item_list_outputs(item_name: str):
@@ -967,9 +989,10 @@ def build_sidecar(client, capabilities):
 
     def item_get_output_image(item_name: str, filename: str):
         # The route answers image/jpeg for the dashboard's <img>, so this reads
-        # the bytes itself rather than through _call. Basenames carry spaces.
-        path = f"/app/experiment/items/{quote(item_name, safe='')}/outputs/{quote(filename, safe='')}"
-        resp = client.request("GET", path)
+        # the bytes itself rather than through _answer.
+        resp = _send(
+            "item_get_output_image", dict(item_name=item_name, filename=filename)
+        )
         if resp.status_code >= 400:
             return _refusal(resp)
         meta = {"item_name": item_name, "filename": filename, **_image_header(resp)}
@@ -989,7 +1012,7 @@ def build_sidecar(client, capabilities):
         )
 
     def experiment_get_image_metadata(path: str):
-        return _app_get("/app/experiment/images/metadata?" + urlencode({"path": path}))
+        return _app("experiment_get_image_metadata", path=path)
 
     def experiment_get_image_stage_position(
         path: str,
@@ -998,10 +1021,8 @@ def build_sidecar(client, capabilities):
         fx: Optional[float] = None,
         fy: Optional[float] = None,
     ):
-        query = {"path": path, "x": x, "y": y, "fx": fx, "fy": fy}
-        return _app_get(
-            "/app/experiment/images/stage_position?"
-            + urlencode({k: v for k, v in query.items() if v is not None})
+        return _app(
+            "experiment_get_image_stage_position", path=path, x=x, y=y, fx=fx, fy=fy
         )
 
     def experiment_render_markers(path: str, grid_name: Optional[str] = None):
@@ -1010,34 +1031,29 @@ def build_sidecar(client, capabilities):
         )
 
     def experiment_get_image_pixels(path: str, stage_positions: list):
-        return _app_post(
-            "/app/experiment/images/pixels",
-            {"path": path, "stage_positions": [dict(p) for p in stage_positions]},
+        return _app(
+            "experiment_get_image_pixels",
+            path=path,
+            stage_positions=[dict(p) for p in stage_positions],
         )
 
     def _region(values):
         return None if values is None else ",".join(str(float(v)) for v in values)
 
-    def _file_url(path, **query):
-        # Every character quoted, so an absolute path an image answer gave
-        # reaches the route whole.
-        url = "/app/experiment/files/" + quote(str(path), safe="")
-        query = _query(**query)
-        return url + ("?" + query if query else "")
-
     def _read_file(path, box=None, fraction=None, experiment=None):
         """The file route's answer for *path*: (data, err)."""
-        url = _file_url(
-            path, box=_region(box), fraction=_region(fraction), experiment=experiment
+        return _route(
+            "experiment_read_file",
+            path=str(path),
+            box=_region(box),
+            fraction=_region(fraction),
+            experiment=experiment,
         )
-        return _call(client, "GET", url)
 
     def experiment_list_files(
         dir: Optional[str] = None, experiment: Optional[str] = None
     ):
-        return _app_get(
-            "/app/experiment/files?" + _query(dir=dir, experiment=experiment)
-        )
+        return _app("experiment_list_files", dir=dir, experiment=experiment)
 
     def experiment_read_file(path: str, experiment: Optional[str] = None):
         data, err = _read_file(path, experiment=experiment)
@@ -1054,8 +1070,9 @@ def build_sidecar(client, capabilities):
 
     def experiment_fetch_file(path: str, experiment: Optional[str] = None):
         try:
-            resp = client.request(
-                "GET", _file_url(path, raw="true", experiment=experiment)
+            resp = _send(
+                "experiment_fetch_file",
+                dict(path=str(path), raw="true", experiment=experiment),
             )
         except ServerUnreachable as exc:
             return _Failure(str(exc))
@@ -1077,7 +1094,7 @@ def build_sidecar(client, capabilities):
             # first tool call does.
             return []
         try:
-            data, err = _call(client, "GET", "/app/experiment/files")
+            data, err = _sent("experiment_list_files", {})
         except Exception:  # noqa: BLE001 - no server: a listing with no files
             return []
         if err:
@@ -1113,15 +1130,16 @@ def build_sidecar(client, capabilities):
         return _routed("item_get", item_name=item_name)
 
     def grid_list():
-        return _app_get("/app/experiment/grids")
+        return _app("grid_list")
 
     def grid_get(grid_name: str):
         return _routed("grid_get", grid_name=grid_name)
 
     def grid_get_output_image(grid_name: str, filename: str):
         # A JPEG, like an item's output image.
-        path = f"/app/experiment/grids/{quote(grid_name, safe='')}/outputs/{quote(filename, safe='')}"
-        resp = client.request("GET", path)
+        resp = _send(
+            "grid_get_output_image", dict(grid_name=grid_name, filename=filename)
+        )
         if resp.status_code >= 400:
             return _refusal(resp)
         meta = {"grid_name": grid_name, "filename": filename, **_image_header(resp)}
@@ -1135,11 +1153,14 @@ def build_sidecar(client, capabilities):
         fx: Optional[float] = None,
         fy: Optional[float] = None,
     ):
-        query = {"x": x, "y": y, "fx": fx, "fy": fy}
-        return _app_get(
-            f"/app/experiment/grids/{quote(grid_name, safe='')}/outputs/"
-            f"{quote(filename, safe='')}/stage_position?"
-            + urlencode({k: v for k, v in query.items() if v is not None})
+        return _app(
+            "grid_get_stage_position",
+            grid_name=grid_name,
+            filename=filename,
+            x=x,
+            y=y,
+            fx=fx,
+            fy=fy,
         )
 
     def grid_get_markers(grid_name: str, filename: str):
@@ -1157,11 +1178,11 @@ def build_sidecar(client, capabilities):
         body = {"text": str(text), "item_name": item_name}
         if reply_to:
             body["reply_to"] = str(reply_to)
-        return _app_post("/app/experiment/notes", body)
+        return _app("experiment_add_note", **body)
 
     def request_create(actions: list, reason: str):
         body = {"actions": list(actions), "reason": str(reason)}
-        return _app_post("/app/agent/requests", body)
+        return _app("request_create", **body)
 
     def request_withdraw(request_id: str, reason: str):
         return _routed("request_withdraw", request_id=request_id, reason=str(reason))
@@ -1171,7 +1192,7 @@ def build_sidecar(client, capabilities):
         return _routed("request_get", request_id=request_id)
 
     def request_list():
-        data, err = _call(client, "GET", "/app/agent/requests")
+        data, err = _route("request_list")
         return err if err else _with_images(data)
 
     def item_add(
@@ -1179,9 +1200,8 @@ def build_sidecar(client, capabilities):
         stage_position: Optional[dict] = None,
         overview: Optional[dict] = None,
     ):
-        return _app_post(
-            "/app/experiment/items",
-            {"name": name, "stage_position": stage_position, "overview": overview},
+        return _app(
+            "item_add", name=name, stage_position=stage_position, overview=overview
         )
 
     def item_remove(item_name: str):
@@ -1248,9 +1268,8 @@ def build_sidecar(client, capabilities):
         )
 
     def protocol_set_schedule(task_name: str, scheduled_at: Optional[str] = None):
-        return _app_post(
-            "/app/workflow/schedule",
-            {"task_name": task_name, "scheduled_at": scheduled_at},
+        return _app(
+            "protocol_set_schedule", task_name=task_name, scheduled_at=scheduled_at
         )
 
     def item_update(item_name: str, patch: dict, version: str):
@@ -1278,7 +1297,7 @@ def build_sidecar(client, capabilities):
         )
 
     def experiment_list_recent():
-        return _app_get("/app/experiment/recent")
+        return _app("experiment_list_recent")
 
     def experiment_list_all(
         instrument: Optional[str] = None,
@@ -1286,24 +1305,26 @@ def build_sidecar(client, capabilities):
         since: Optional[str] = None,
         until: Optional[str] = None,
     ):
-        return _app_get(
-            "/app/experiment/all?"
-            + _query(instrument=instrument, operator=operator, since=since, until=until)
+        return _app(
+            "experiment_list_all",
+            instrument=instrument,
+            operator=operator,
+            since=since,
+            until=until,
         )
 
     def protocol_list():
-        return _app_get("/app/experiment/protocols")
+        return _app("protocol_list")
 
     def experiment_create(
         name: str, protocol: Optional[str] = None, description: Optional[str] = None
     ):
-        return _app_post(
-            "/app/experiment/create",
-            {"name": name, "protocol": protocol, "description": description},
+        return _app(
+            "experiment_create", name=name, protocol=protocol, description=description
         )
 
     def grid_add():
-        return _app_post("/app/experiment/grids")
+        return _app("grid_add")
 
     def grid_rename(grid_name: str, name: str):
         return _routed("grid_rename", grid_name=grid_name, name=name)
@@ -1320,18 +1341,13 @@ def build_sidecar(client, capabilities):
         return _routed("grid_remove", grid_name=grid_name)
 
     def protocol_add_task(task_type: str, task_name: str):
-        return _app_post(
-            "/app/experiment/protocol/tasks",
-            {"task_type": task_type, "task_name": task_name},
-        )
+        return _app("protocol_add_task", task_type=task_type, task_name=task_name)
 
     def protocol_remove_task(task_name: str):
         return _routed("protocol_remove_task", task_name=task_name)
 
     def protocol_reorder_tasks(order: list):
-        return _app_post(
-            "/app/experiment/protocol/tasks/reorder", {"order": list(order)}
-        )
+        return _app("protocol_reorder_tasks", order=list(order))
 
     def protocol_set_task_requirements(
         task_name: str, requires: Optional[list] = None, required: Optional[bool] = None
@@ -1351,22 +1367,18 @@ def build_sidecar(client, capabilities):
         poi: Optional[dict] = None,
         alignment_area: Optional[dict] = None,
     ):
-        given = {
-            "use_petname": use_petname,
-            "name_prefix": name_prefix,
-            "poi": poi,
-            "alignment_area": alignment_area,
-        }
-        return _app_post(
-            "/app/experiment/protocol/lamella_defaults",
-            {k: v for k, v in given.items() if v is not None},
+        return _app(
+            "protocol_set_lamella_defaults",
+            **_given(
+                use_petname=use_petname,
+                name_prefix=name_prefix,
+                poi=poi,
+                alignment_area=alignment_area,
+            ),
         )
 
     def protocol_save(name: str, overwrite: bool = False):
-        return _app_post(
-            "/app/experiment/protocol/save",
-            {"name": name, "overwrite": bool(overwrite)},
-        )
+        return _app("protocol_save", name=name, overwrite=bool(overwrite))
 
     def protocol_get_grid_task_config(task_name: str):
         return _routed("protocol_get_grid_task_config", task_name=task_name)
@@ -1380,9 +1392,7 @@ def build_sidecar(client, capabilities):
         )
 
     def protocol_reorder_grid_tasks(order: list):
-        return _app_post(
-            "/app/experiment/grid_protocol/tasks/reorder", {"order": list(order)}
-        )
+        return _app("protocol_reorder_grid_tasks", order=list(order))
 
     def protocol_set_grid_task_requirements(task_name: str, requires: list):
         return _routed(
@@ -1392,34 +1402,37 @@ def build_sidecar(client, capabilities):
         )
 
     def experiment_load(path: str):
-        return _app_post("/app/experiment/load", {"path": path})
+        return _app("experiment_load", path=path)
 
     def protocol_load(protocol: str):
-        return _app_post("/app/experiment/protocol/load", {"protocol": protocol})
+        return _app("protocol_load", protocol=protocol)
 
     def app_get_events(since: int = 0, timeout: float = 0.0):
-        return _app_get(f"/app/events?since={since}&timeout={timeout}")
+        return _app("app_get_events", since=since, timeout=timeout)
 
     def workflow_stop(reason: str):
-        return _app_post("/app/workflow/stop", {"reason": reason})
+        return _app("workflow_stop", reason=reason)
 
     def workflow_stop_task(item_name: str, task_name: str, reason: str):
-        return _app_post(
-            "/app/workflow/stop_task",
-            {"item_name": item_name, "task_name": task_name, "reason": reason},
+        return _app(
+            "workflow_stop_task",
+            item_name=item_name,
+            task_name=task_name,
+            reason=reason,
         )
 
     def workflow_queue_grids(task_names: list, grid_names: list):
-        return _app_post(
-            "/app/workflow/queue/grids",
-            {"task_names": list(task_names), "grid_names": list(grid_names)},
+        return _app(
+            "workflow_queue_grids",
+            task_names=list(task_names),
+            grid_names=list(grid_names),
         )
 
     def workflow_start(task_names: list, item_names: list = None):  # noqa: RUF013
         payload = {"task_names": list(task_names)}
         if item_names is not None:
             payload["item_names"] = list(item_names)
-        return _app_post("/app/workflow/start", payload)
+        return _app("workflow_start", **payload)
 
     def workflow_plan_grids(
         task_names: list, grid_names: list = None, screen_all: bool = False
@@ -1427,7 +1440,7 @@ def build_sidecar(client, capabilities):
         payload = {"task_names": list(task_names), "screen_all": bool(screen_all)}
         if grid_names is not None:
             payload["grid_names"] = list(grid_names)
-        return _app_post("/app/workflow/grids/plan", payload)
+        return _app("workflow_plan_grids", **payload)
 
     def workflow_start_grids(
         task_names: list,
@@ -1444,7 +1457,7 @@ def build_sidecar(client, capabilities):
         }
         if grid_names is not None:
             payload["grid_names"] = list(grid_names)
-        return _app_post("/app/workflow/grids/start", payload)
+        return _app("workflow_start_grids", **payload)
 
     def workflow_set_options(
         show_run_summary: Optional[bool] = None,
@@ -1455,26 +1468,31 @@ def build_sidecar(client, capabilities):
             payload["show_run_summary"] = bool(show_run_summary)
         if turn_beams_off is not None:
             payload["turn_beams_off"] = bool(turn_beams_off)
-        return _app_post("/app/workflow/options", payload)
+        return _app("workflow_set_options", **payload)
 
     def protocol_set_supervision(task_name: str, supervise: bool):
-        payload = {"task_name": task_name, "supervise": bool(supervise)}
-        return _app_post("/app/experiment/protocol/supervision", payload)
+        return _app(
+            "protocol_set_supervision", task_name=task_name, supervise=bool(supervise)
+        )
 
     def workflow_requeue(item_name: str, task_name: str, front: bool = False):
-        return _app_post(
-            "/app/workflow/queue/requeue",
-            {"item_name": item_name, "task_name": task_name, "front": bool(front)},
+        return _app(
+            "workflow_requeue",
+            item_name=item_name,
+            task_name=task_name,
+            front=bool(front),
         )
 
     def workflow_edit_queue(item_name: str, task_name: str, action: str):
-        return _app_post(
-            "/app/workflow/queue/edit",
-            {"item_name": item_name, "task_name": task_name, "action": action},
+        return _app(
+            "workflow_edit_queue",
+            item_name=item_name,
+            task_name=task_name,
+            action=action,
         )
 
     def app_get_display_images():
-        data, err = _call(client, "GET", "/app/experiment/images", None)
+        data, err = _route("app_get_display_images")
         if err:
             return err
         # The previews travel as MCP images so the agent sees them directly;
@@ -1490,7 +1508,7 @@ def build_sidecar(client, capabilities):
         return content
 
     def proposal_list():
-        data, err = _call(client, "GET", "/app/workflow/proposals")
+        data, err = _route("proposal_list")
         return err if err else _with_images(data)
 
     def proposal_decide(
@@ -1524,7 +1542,7 @@ def build_sidecar(client, capabilities):
             body["action"] = str(action)
         if patch is not None:
             body["patch"] = dict(patch)
-        return _app_post("/app/workflow/decide", body)
+        return _app("proposal_decide", **body)
 
     def proposal_suggest(
         item_id: str,
@@ -1551,7 +1569,7 @@ def build_sidecar(client, capabilities):
             body["patch"] = dict(patch)
         if action:
             body["action"] = str(action)
-        return _app_post("/app/workflow/proposals/suggest", body)
+        return _app("proposal_suggest", **body)
 
     implementations = {
         fn.__name__: fn

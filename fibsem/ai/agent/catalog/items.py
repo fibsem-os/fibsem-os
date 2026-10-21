@@ -235,6 +235,7 @@ def _item_reorder_milling_stages(
 TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="item_list",
+        returns="ExperimentSummary",
         description="Per-item summary of the open experiment.",
         method="GET",
         path="/app/experiment",
@@ -243,6 +244,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="item_get",
+        returns="ItemDetail",
         description="Everything durable about one item: status, failure flag, POI, alignment area, milling angle, and where its poses put the stage.",
         method="GET",
         path="/app/experiment/items/{item_name}",
@@ -253,6 +255,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="item_list_outputs",
+        returns="TaskOutputs",
         description="The files an item's task runs produced (reference images by role). tasks has every run with its status; completed_tasks names only the runs that completed.",
         method="GET",
         path="/app/experiment/items/{item_name}/outputs",
@@ -276,6 +279,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="item_get_history",
+        returns="ItemHistory",
         description="The lamella's History, as the operator's History tab shows it: one run per task run (plus each session's operations outside a task), each with status, times, who decided its proposals, its shown images (paths relative to the experiment folder) and its operations (align, autofocus, mill with each stage's strategy and monitors), filtered as the tab filters. operations_open says a run's operations need a look (one did not complete).",
         method="GET",
         path="/app/experiment/items/{item_name}/history",
@@ -294,6 +298,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="item_measure_thickness",
+        returns="Thickness",
         description="The lamella's thickness, read off any saved FIB image of the item inside the experiment (full resolution): a task's reference (item_list_outputs names them; they sit in the item's folder, <item_name>/<file>) or one you took at the item's milling position. The bright band between the trenches, its width at half its peak brightness column by column, in a window around the item's POI (a point in the image's own frame, so the image must be centred where the item's tasks image it), sized from the item's own trench patterns (window_from says; width_um / height_um override). Answers thickness in nm (mean, median, min, max, by thirds), wedge (nm per um along the lamella), angle_deg (the band's rotation, counter-clockwise), straightness, centre_offset_nm (band above the POI is positive), continuity (columns dropped and where: holes or breaks), contrast (band vs trench brightness), other_bands (other bright lines in the window, e.g. trench residue, with their offsets from the POI), resolution (band_px, flagged under 8 px with a suggested field width), uncertainty_nm (one pixel) and warnings (low_contrast under a 2x ratio, several_bands, under_resolved, no_band: check the image before using the numbers), plus a plot: the window with the band's edges, and thickness along the lamella. A top-down estimate. Nothing moves; the result (data.json, window.tif, plot.png) is saved in a thickness folder beside the image, at saved_to, and replaced when the same image is measured again.",
         method="POST",
         path="/app/experiment/items/{item_name}/thickness",
@@ -310,6 +315,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="item_get_task_config",
+        returns="TaskConfigRead",
         description="One item's own copy of a task configuration (what its run actually executes — tasks may have rewritten it mid-run), with a version token naming exactly this state of it.",
         method="GET",
         path="/app/experiment/items/{item_name}/task_config/{task_name}",
@@ -323,6 +329,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="item_apply_protocol",
+        returns="ConfigEdit",
         description="Re-copy protocol task configs onto an existing item (protocol-level edits only reach items created after them; this brings an existing item up to date). Wholesale replace of that item's copies for the named tasks — omit task_names for all. Running tasks are refused.",
         method="POST",
         path="/app/experiment/items/{item_name}/apply_protocol",
@@ -338,6 +345,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="item_add",
+        returns="ItemEdit",
         description="Add a lamella, as the Lamella tab's Add does: at the stage position now (no where; refused while a workflow runs, since the run moves the stage), at stage_position, or under a point of a grid overview (overview = {grid_name, filename: one grid_get lists or any saved image's path in the experiment, px: [x, y] source pixels or fraction: [x, y] 0-1}), which also puts it on that grid. Its poses, milling angle and grid are worked out as for a click, and it is saved. Leave name out: the app's item names (petnames) are the house style; put where the site came from in its description with item_update. Answers with the new item.",
         method="POST",
         path="/app/experiment/items",
@@ -354,6 +362,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="item_remove",
+        returns="ItemEdit",
         description="Remove a lamella from the experiment, as its row's Remove does. Its files stay on disk. Refused for the lamella a run is working on.",
         method="DELETE",
         path="/app/experiment/items/{item_name}",
@@ -365,6 +374,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="item_move_to_pose",
+        returns="ItemEdit",
         description="Move the stage to one of a lamella's poses (MILLING, FLUORESCENCE, ... as item_get lists), through the safe move that goes flat before a large rotation. Answers with the stage position after."
         + RETRACT_FIRST_SAFE_MOVE,
         method="POST",
@@ -378,6 +388,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="item_set_pose",
+        returns="ItemEdit",
         description="Set the stage position now as one of a lamella's poses, as the tab's Set pose does. Setting MILLING moves the lamella: its milling angle and fluorescence pose follow. Saved; answers with the item.",
         method="POST",
         path="/app/experiment/items/{item_name}/poses/{pose}",
@@ -389,6 +400,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="item_apply_correlation",
+        returns="ConfigEdit",
         description="Move a lamella's point of interest to a saved correlation's target, as the correlation tab's Continue does: run_path is a run folder in the lamella's Correlation folder, as correlation_correlate saves it with lamella_path. The patterns that follow the point move with it; the correlation is recorded with its run. Saved; answers with the changes.",
         method="POST",
         path="/app/experiment/items/{item_name}/correlation",
@@ -403,6 +415,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="item_set_objective_position",
+        returns="ItemEdit",
         description="Store the FM objective's position now on a lamella's fluorescence pose, as the tab's Use current does: where it is when inserted, else its focus position. Saved. Refused while a workflow runs, since the run moves the objective.",
         method="POST",
         path="/app/experiment/items/{item_name}/objective_position",
@@ -414,6 +427,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="item_set_objective_position_on_all",
+        returns="ItemEdit",
         description="Store a lamella's stored objective position on every lamella with a fluorescence pose, as its Apply to All Lamella does, except the lamella a run is working on (answered as skipped). Refused when it has none stored. Saved; answers with how many it was stored on.",
         method="POST",
         path="/app/experiment/items/{item_name}/objective_position/apply_to_all",
@@ -425,6 +439,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="item_set_position",
+        returns="ItemEdit",
         description="Move a lamella to a point, as moving it on an overview does: to stage_position, or under a point of a grid overview (overview = {grid_name, filename: one grid_get lists or any saved image's path in the experiment, px: [x, y] source pixels or fraction: [x, y] 0-1}). A point on the fluorescence side moves its fluorescence pose and the milling pose follows; otherwise its milling pose moves, with its milling angle, and the fluorescence pose follows. The stage does not move. Refused for the lamella a run is working on. Saved; answers with the item.",
         method="POST",
         path="/app/experiment/items/{item_name}/position",
@@ -441,6 +456,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="item_move_to_objective_position",
+        returns="ItemEdit",
         description="Move the FM objective to the position stored on a lamella's fluorescence pose, as the tab's objective Move to does: the objective only, not the stage. Refused when nothing is stored or the objective is not inserted.",
         method="POST",
         path="/app/experiment/items/{item_name}/objective/move_to",
@@ -453,6 +469,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="item_reorder_milling_stages",
+        returns="ConfigEdit",
         description="Reorder the milling stages inside one of an item's task configs ('run the stress relief first'). order must be exactly the current stage names in their new sequence — this can never add, drop, or duplicate a stage. Echo the version from item_get_task_config; stale is refused.",
         method="POST",
         path="/app/experiment/items/{item_name}/task_config/{task_name}/stages/reorder",
@@ -470,6 +487,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="item_update",
+        returns="ItemEdit",
         description="Patch an item's own document with dotted-path edits: poi.x/poi.y (metres, milling frame), alignment_area.left/top/width/height (frame fractions), description, defect.verdict (UNASSESSED/GOOD/REWORK/FAILED) and defect.reason. milling_angle is read-only: it is an outcome of the Setup task, not an input. Echo the version from item_get — a mismatch is refused (409 stale_config); the version also changes when a pose moves, since a POI is in the milling frame. Tasks re-record geometry at their own moments, so an edit here is what the NEXT run starts from, not a permanent override.",
         method="POST",
         path="/app/experiment/items/{item_name}",
@@ -485,6 +503,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="item_update_task_config",
+        returns="ConfigEdit",
         description="Patch an item's task config with dotted-path edits (e.g. {'milling.mill_rough.stages.0.pattern.depth': 2e-6}). Echo the version from item_get_task_config — a mismatch is refused (409 stale_config): re-read and re-patch. A task currently running for that item is refused (it already copied its config); pending tasks pick the change up at start. Values are validated against the live field's type and declared bounds; the response echoes every change old -> new. Some tasks edit other configs as they run: Setup moves the fiducial to the centre of the alignment area (sync_fiducial_position), Rough Milling moves the Polishing patterns to its own position (sync_polishing_position); turn the sync off in that task's config to keep a hand edit.",
         method="POST",
         path="/app/experiment/items/{item_name}/task_config/{task_name}",

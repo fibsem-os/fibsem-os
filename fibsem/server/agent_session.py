@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.server.auth import AuthConfig, require_level
+from fibsem.server.responses import AgentSession
 
 SESSION_STARTED = "agent_session_started"
 SESSION_GOAL = "agent_session_goal"
@@ -107,7 +108,7 @@ def build_agent_session_router(
         prefix="/app/agent", dependencies=[Depends(require_level(AgentLevel.WATCH))]
     )
 
-    @router.post("/session")
+    @router.post("/session", response_model=AgentSession)
     def report_session(request: Request, body: Dict[str, Any]):
         auth: AuthConfig = request.app.state.auth
         session, kinds = report(auth, body)
@@ -120,7 +121,7 @@ def build_agent_session_router(
                 logging.debug("could not record %s", kind, exc_info=True)
         return {"session": session}
 
-    @router.get("/session")
+    @router.get("/session", response_model=AgentSession)
     def get_session(request: Request):
         auth: AuthConfig = request.app.state.auth
         return {"session": auth.agent_session}

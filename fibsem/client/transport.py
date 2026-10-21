@@ -252,13 +252,7 @@ class Transport:
         response = self.request(
             method, path, json=body, params=params, headers=headers, **extra
         )
-        if response.is_success:
-            return read(response)
-        try:
-            detail = response.json().get("detail", response.text)
-        except (ValueError, AttributeError):  # not JSON: an unhandled server error
-            detail = response.text
-        raise error_for(f"{method} {path}", response.status_code, detail)
+        return answer_of(response, f"{method} {path}")
 
     def close(self) -> None:
         self._http.close()
@@ -268,6 +262,18 @@ class Transport:
 
     def __exit__(self, *exc_info: Any) -> None:
         self.close()
+
+
+def answer_of(response: httpx.Response, what: str) -> Any:
+    """*response* as data (`read`), or the error it answers raised (`error_for`),
+    *what* naming the call."""
+    if response.is_success:
+        return read(response)
+    try:
+        detail = response.json().get("detail", response.text)
+    except (ValueError, AttributeError):  # not JSON: an unhandled server error
+        detail = response.text
+    raise error_for(what, response.status_code, detail)
 
 
 def read(response: httpx.Response) -> Any:

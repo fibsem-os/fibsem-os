@@ -36,6 +36,20 @@ def answer(value: Any, type_: Any = None, status_code: int = 200) -> JSONRespons
     return JSONResponse(encode(value, type_), status_code=status_code)
 
 
+def answer_class(returns: Any, answer_types: Dict[type, type]) -> Any:
+    """The class an app answers for *returns*: its own subclass of a base class
+    it maps (*answer_types*, `AppContext.answer_types`), and a generic answer
+    of one (`ItemEdit`) with the app's classes in it."""
+    if returns in answer_types:
+        return answer_types[returns]
+    parameters = getattr(returns, "__parameters__", ())
+    if parameters:
+        return returns[
+            tuple(answer_types.get(p.__bound__, p.__bound__) for p in parameters)
+        ]
+    return returns
+
+
 @dataclass
 class Status:
     status: str = "ok"
@@ -1103,6 +1117,12 @@ class AgentStopped:
 class RequestDecided:
     id: str
     approved: bool
+
+
+@dataclass
+class AgentSession:
+    # what the agent reported of its session, None before it has
+    session: Optional[Dict[str, Any]] = None
 
 
 @dataclass

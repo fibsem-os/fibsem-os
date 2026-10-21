@@ -28,7 +28,7 @@ class _FakeClient:
         self.user_agent = None
         self.closed = False
 
-    def request(self, method, path, json=None, timeout=None):
+    def request(self, method, path, **kwargs):
         result = self._responses.pop(0)
         if isinstance(result, Exception):
             raise result

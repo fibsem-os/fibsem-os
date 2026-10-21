@@ -412,3 +412,24 @@ def test_every_app_route_declares_its_answer(client):
         if model is None and path not in images and not path.startswith("/app/agent")
     ]
     assert untyped == []
+
+
+def test_each_app_tool_returns_its_route_s_class(client):
+    """`ToolSpec.returns` names what the tool's route answers, as the app
+    writes it (`answer_class`)."""
+    import re
+
+    from fibsem.ai.agent.catalog import CATALOG
+    from fibsem.server.responses import answer_class
+
+    def shape(path):
+        return re.sub(r"\{[^}]*\}", "{}", path)
+
+    models = {(m, shape(p)): model for (m, p), model in _models(client).items()}
+    types = client.app.state.app_context.answer_types
+    for spec in CATALOG:
+        if spec.router != "app":
+            continue
+        model = models[spec.method, shape(spec.path)]
+        expected = answer_class(spec.answers, types) if spec.returns else None
+        assert model == expected, spec.name

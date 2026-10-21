@@ -4,13 +4,26 @@ Its calls are the agent's tools (`fibsem.ai.agent.catalog`), so a script, an app
 the PC and the agent make the same calls, with the same arguments.
 """
 
+import logging
 from functools import partial
 from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import quote
 
+import httpx
+
 from fibsem.ai.agent.calls import headers_for
-from fibsem.ai.agent.catalog import ToolSpec, route_call, tools_for_capabilities
-from fibsem.client.transport import Transport
+from fibsem.ai.agent.catalog import (
+    CATALOG,
+    ToolSpec,
+    route_call,
+    tools_for_capabilities,
+)
+from fibsem.client.transport import Transport, answer_of
+from fibsem.codec import decode
+from fibsem.devices.wire import type_from_path
+from fibsem.server.responses import answer_class
+
+_APP_TOOLS = {spec.name: spec for spec in CATALOG if spec.router == "app"}
 
 
 class App:
@@ -18,14 +31,17 @@ class App:
     lists, read once on first use (`refresh` reads them again).
 
     Each of its tools is a method: ``app.proposal_list()``,
-    ``app.item_get_detail(item_name="Lamella-01")``. An acting call names its tool
-    to the server, which says it in the operator's words.
+    ``app.item_get(item_name="Lamella-01")``, answering the class its route
+    declares, as the app writes it (an AutoLamella item is a ``LamellaDetail``).
+    An acting call names its tool to the server, which says it in the operator's
+    words.
     """
 
     def __init__(self, transport: Transport):
         self._transport = transport
         self._capabilities: Optional[Dict[str, Any]] = None
         self._tools: Dict[str, ToolSpec] = {}
+        self._answer_types: Dict[type, type] = {}
 
     def refresh(self) -> None:
         capabilities = self._transport.fetch("GET", "/capabilities")
@@ -35,6 +51,7 @@ class App:
             for spec in tools_for_capabilities(capabilities)
             if spec.router == "app"
         }
+        self._answer_types = _answer_types(capabilities.get("answer_types") or {})
 
     def _read(self) -> Dict[str, Any]:
         if self._capabilities is None:
@@ -63,19 +80,46 @@ class App:
         return self._tools
 
     def call(self, tool: str, /, **arguments: Any) -> Any:
-        """Call *tool* with its arguments: the answer as data, a refusal raised
-        as the exception it names."""
+        """Call *tool* with its arguments: the answer as the class its route
+        declares, a refusal raised as the exception it names."""
         spec = self.tools.get(tool)
         if spec is None:
             raise AttributeError(self._missing(tool))
-        method, path, body = route_call(
-            spec, arguments, encode=lambda value: quote(value, safe="")
-        )
+        data = self.fetch(tool, **arguments)
+        if not spec.returns:
+            return data
+        return decode(answer_class(spec.answers, self._answer_types), data)
+
+    def fetch(self, tool: str, /, **arguments: Any) -> Any:
+        """*tool*'s answer as the server sent it (JSON data), a refusal raised."""
+        method, path = self._route(tool, arguments)[:2]
+        return answer_of(self.send(tool, arguments), f"{method} {path}")
+
+    def send(
+        self,
+        tool: str,
+        arguments: Dict[str, Any],
+        evidence: Optional[str] = None,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> httpx.Response:
+        """The server's answer to *tool* with *arguments*, whatever its status.
+        An acting call names its tool, and the *evidence* it cites, to the
+        server, or sends *headers* in their place. Raises ValueError for
+        arguments its route cannot take."""
+        method, path, body = self._route(tool, arguments)
         if method == "GET":  # a read's other arguments are its query
-            return self._transport.fetch(method, path, params=body)
-        return self._transport.fetch(
-            method, path, body, headers=headers_for(tool, arguments)
-        )
+            query = {k: v for k, v in (body or {}).items() if v is not None}
+            return self._transport.request(method, path, params=query or None)
+        if headers is None:
+            headers = headers_for(tool, arguments, evidence=evidence)
+        return self._transport.request(method, path, json=body, headers=headers)
+
+    @staticmethod
+    def _route(tool: str, arguments: Dict[str, Any]):
+        spec = _APP_TOOLS.get(tool)
+        if spec is None:
+            raise AttributeError(f"no app tool '{tool}'")
+        return route_call(spec, arguments, encode=lambda value: quote(value, safe=""))
 
     def _missing(self, tool: str) -> str:
         if not self.served:
@@ -94,3 +138,19 @@ class App:
 
     def __repr__(self) -> str:
         return f"<App {self.name!r} parts={self.parts}>"
+
+
+def _answer_types(paths: Dict[str, str]) -> Dict[type, type]:
+    """The app's own answer classes /capabilities names (by type path), each
+    for the base class it stands for. One this fibsem can't import, or that
+    isn't the base's subclass, is left out: its answers read as the base."""
+    found = {}
+    for base_path, own_path in paths.items():
+        try:
+            base, own = type_from_path(base_path), type_from_path(own_path)
+        except (ValueError, ImportError, AttributeError):
+            logging.debug("no answer class %s here", own_path, exc_info=True)
+            continue
+        if isinstance(own, type) and isinstance(base, type) and issubclass(own, base):
+            found[base] = own
+    return found

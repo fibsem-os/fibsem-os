@@ -485,7 +485,7 @@ def cmd_experiment_list_all(client, args) -> int:
         "since": since,
         "until": args.until,
     }
-    answer = client.app.call(
+    answer = client.app.fetch(
         "experiment_list_all", **{k: v for k, v in filters.items() if v is not None}
     )
     experiments = answer["items"]
