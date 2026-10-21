@@ -1,3 +1,6 @@
+import pytest
+from pydantic import ValidationError
+
 from fibsem.milling.base import (
     FibsemMillingStage,
     MillingStrategy,
@@ -131,3 +134,11 @@ def test_a_strategy_sharing_a_config_class_keeps_its_name(monkeypatch):
     restored = FibsemMillingStage.from_dict(stage.to_dict())
     assert type(restored.get_strategy()) is _Shared
     assert restored.to_dict()["strategy"]["name"] == "SharesStandardsConfig"
+
+
+@pytest.mark.parametrize("key", ["name", "milling", "pattern"])
+def test_a_saved_stage_missing_a_key_it_cannot_mill_without_is_refused(key):
+    saved = FibsemMillingStage(pattern=RectanglePattern(width=10, height=5)).to_dict()
+    del saved[key]
+    with pytest.raises(ValidationError, match=f"missing {key}"):
+        FibsemMillingStage.from_dict(saved)

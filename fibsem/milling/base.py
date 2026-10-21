@@ -305,7 +305,7 @@ def _same_strategy(a: MillingStrategyConfig, b: MillingStrategyConfig) -> bool:
 
 # A stage saved without its alignment block reads it as a saved alignment would
 # without its keys: off (`MillingAlignment`), not a new stage's default.
-@saved(absent={"alignment": {}})
+@saved(required=("name", "milling", "pattern"), absent={"alignment": {}})
 @dataclass
 class FibsemMillingStage(Configurable):
     name: str = "Milling Stage"
