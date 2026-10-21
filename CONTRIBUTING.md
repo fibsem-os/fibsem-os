@@ -75,7 +75,10 @@ unrecorded.
 
 ### Housekeeping
 
-- No AI or assistant attribution in commit messages or pull request bodies.
+- No AI or assistant attribution in commit messages or pull request bodies. That includes
+  `Co-authored-by` and `Claude-Session` trailers on branch commits: a squash merge collects
+  them and appends them after the body, which pushes the `Release-Note:` out of the last
+  paragraph. The `PR body` check fails a pull request whose body has either problem.
 - This repository is public. Keep user names, site names and instrument identifiers out of
   commit messages, pull request bodies and code comments.
 

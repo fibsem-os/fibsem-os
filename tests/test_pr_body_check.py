@@ -1,0 +1,67 @@
+import importlib.util
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+SPEC = importlib.util.spec_from_file_location(
+    "check_pr_body", ROOT / ".github" / "scripts" / "check_pr_body.py"
+)
+check = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(check)
+
+
+def test_a_release_note_as_the_last_paragraph_passes():
+    body = "Before: x.\n\nAfter: y.\n\nRelease-Note: Toasts show on the right window.\n"
+    assert check.problems(body) == []
+
+
+def test_none_counts_as_a_release_note():
+    assert check.problems("A refactor.\n\nRelease-Note: none") == []
+
+
+def test_a_missing_release_note_is_named():
+    (why,) = check.problems("Before: x.\n\nAfter: y.")
+    assert "no `Release-Note:`" in why
+
+
+def test_prose_after_the_release_note_hides_the_trailer():
+    body = "Release-Note: Something.\n\nAlso this.\n"
+    (why,) = check.problems(body)
+    assert "not the last paragraph" in why
+
+
+def test_the_squash_dialogs_appended_trailers_are_refused():
+    body = (
+        "Before: x.\n\nRelease-Note: Something.\n\n---------\n\n"
+        "Co-authored-by: Claude <noreply@anthropic.com>\n"
+    )
+    found = check.problems(body)
+    assert any("AI attribution" in why for why in found)
+    assert any("not the last paragraph" in why for why in found)
+
+
+def test_the_github_tools_footer_is_refused():
+    body = "Release-Note: none\n\nGenerated with [Claude Code](https://claude.com/claude-code)"
+    assert any("AI attribution" in why for why in check.problems(body))
+
+
+def test_windows_line_endings_are_fine():
+    assert check.problems("Before.\r\n\r\nRelease-Note: none\r\n") == []
+
+
+def test_the_projects_header_is_not_attribution():
+    body = (
+        '<!-- claude-projects-attribution: {"github_login":"x"} -->\n'
+        "_Requested by **Patrick** · [project thread](https://claude.ai/code/project/c?thread=m)_\n\n"
+        "Before: x.\n\nRelease-Note: none\n"
+    )
+    assert check.problems(body) == []
+
+
+def test_a_session_link_after_the_release_note_is_refused():
+    body = (
+        "Before: x.\n\nRelease-Note: none\n\n"
+        "🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n"
+        "https://claude.ai/code/session_0123\n"
+    )
+    found = check.problems(body)
+    assert any("AI attribution" in why for why in found)
