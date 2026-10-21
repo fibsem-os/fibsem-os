@@ -90,11 +90,21 @@ class GatewayApp:
 
 
 @dataclass
+class Configuration:
+    """A microscope configuration the window offers too (user-configurations.yaml)."""
+
+    name: str
+    path: str
+    default: bool = False
+
+
+@dataclass
 class GatewayState:
     mode: str
     version: str
     app: Optional[str] = None
     experiment: Optional[str] = None
+    configuration: Optional[str] = None
     pid: Optional[int] = None
     since: Optional[float] = None
     who: Optional[str] = None
@@ -103,6 +113,7 @@ class GatewayState:
     holder: Optional[Holder] = None
     last_exit: Optional[LastExit] = None
     apps: List[GatewayApp] = field(default_factory=list)
+    configurations: List[Configuration] = field(default_factory=list)
 
 
 @dataclass
@@ -134,6 +145,27 @@ def read_gateway_file(path: Optional[Path] = None) -> Optional[dict]:
     if not isinstance(data, dict) or "url" not in data:
         return None
     return data if _pid_alive(data.get("pid")) else None
+
+
+def configurations() -> List[Configuration]:
+    """The microscope configurations saved on this PC, read afresh so one
+    added in the window shows without restarting the gateway."""
+    import yaml
+
+    from fibsem import config as cfg
+
+    try:
+        saved = cfg.load_yaml(cfg.USER_CONFIGURATIONS_PATH)
+    except (OSError, ValueError, yaml.YAMLError):
+        saved = cfg.DEFAULT_USER_CONFIGURATION_YAML
+    default = saved.get("default")
+    found = []
+    for name, entry in (saved.get("configurations") or {}).items():
+        path = (entry or {}).get("path") or cfg.MICROSCOPE_CONFIGURATION_PATH
+        found.append(Configuration(name=name, path=str(path), default=name == default))
+    if found and not any(c.default for c in found):
+        found[0].default = True
+    return found
 
 
 def _python() -> str:
@@ -175,6 +207,7 @@ class Gateway:
         connection: Optional[List[str]] = None,
         home: Optional[Path] = None,
         app_registry: Callable[[], Dict[str, App]] = apps,
+        saved_configurations: Callable[[], List[Configuration]] = configurations,
         discovery: Callable[[], Optional[dict]] = read_discovery_file,
         running: Callable[[str, Optional[str]], bool] = workflow_running,
         python: Optional[str] = None,
@@ -183,6 +216,7 @@ class Gateway:
         self._connection = list(connection or [])
         self._home = Path(home) if home is not None else DISCOVERY_DIR
         self._apps = app_registry
+        self._configurations = saved_configurations
         self._discovery = discovery
         self._running = running
         self._python = python or _python()
@@ -211,6 +245,7 @@ class Gateway:
             GatewayApp(key=key, name=app.name, headless=app.serve is not None)
             for key, app in self._apps().items()
         ]
+        state.configurations = self._configurations()
         return state
 
     def history(self, limit: int = HISTORY_SHOWN) -> History:
@@ -250,14 +285,17 @@ class Gateway:
         experiment: Optional[str] = None,
         last: bool = False,
         force: bool = False,
+        configuration: Optional[str] = None,
     ) -> GatewayState:
-        """Go to *mode*, stopping the current one first. Raises
-        `GatewayRefused` when the switch can't be made."""
+        """Go to *mode*, stopping the current one first; a headless app
+        connects with *configuration* (a saved one's name; the default when
+        left out). Raises `GatewayRefused` when the switch can't be made."""
         if mode not in MODES:
             raise GatewayRefused(422, "bad_mode", f"Modes are {list(MODES)}.")
         if mode == OFF:
             return self.stop(who, via, force)
         chosen = self._app(app, mode)
+        config = self._configuration(configuration) if mode == HEADLESS else None
         with self._take(who, via, mode, app, experiment):
             if self._state.mode != OFF:
                 self._stop_current(force)
@@ -269,7 +307,14 @@ class Gateway:
                     f"Another App Server (pid {holder.pid}) holds the microscope: "
                     "close it at the PC first.",
                 )
-            self._start(mode, key=app, app=chosen, experiment=experiment, last=last)
+            self._start(
+                mode,
+                key=app,
+                app=chosen,
+                experiment=experiment,
+                last=last,
+                config=config,
+            )
             self._record(OFF, mode, who, via, "started", app, experiment)
             with self._lock:
                 self._state.who, self._state.via = who, via
@@ -308,6 +353,17 @@ class Gateway:
                 )
             self._record(OFF, WINDOW, who, via, "claimed", app, None)
             return self.state()
+
+    def _configuration(self, name: Optional[str]) -> Optional[Configuration]:
+        saved = self._configurations()
+        if name is None:
+            return next((c for c in saved if c.default), None)
+        found = next((c for c in saved if c.name == name), None)
+        if found is None:
+            raise GatewayRefused(
+                422, "bad_configuration", f"No configuration {name!r}."
+            )
+        return found
 
     def _app(self, key: Optional[str], mode: str) -> App:
         found = self._apps().get(key or "")
@@ -357,6 +413,7 @@ class Gateway:
         app: App,
         experiment: Optional[str],
         last: bool,
+        config: Optional[Configuration] = None,
     ) -> None:
         stamp = time.strftime("%Y%m%d-%H%M%S")
         logs = self._home / "logs" / "gateway"
@@ -379,6 +436,7 @@ class Gateway:
                 str(stop_file),
                 app.serve,
                 *args,
+                *(["--config", config.path] if config else []),
                 *self._connection,
             ]
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -400,6 +458,7 @@ class Gateway:
                 version=self._state.version,
                 app=key,
                 experiment=experiment or ("last" if last else None),
+                configuration=config.name if config else None,
                 pid=proc.pid,
                 since=time.time(),
                 last_exit=self._state.last_exit,

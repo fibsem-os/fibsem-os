@@ -14,6 +14,7 @@ from fibsem.gateway.gateway import (
     HEADLESS,
     OFF,
     WINDOW,
+    Configuration,
     Gateway,
     GatewayRefused,
 )
@@ -58,6 +59,10 @@ def _gateway(tmp_path, fakes, serve="serve", stop_wait_s=20.0):
         connection=["--manufacturer", "Demo"],
         home=tmp_path,
         app_registry=lambda: registry,
+        saved_configurations=lambda: [
+            Configuration("arctis", "/configs/arctis.yaml", default=True),
+            Configuration("demo", "/configs/demo.yaml"),
+        ],
         discovery=lambda: fakes.found,
         running=lambda url, token: fakes.running,
         stop_wait_s=stop_wait_s,
@@ -87,7 +92,9 @@ def test_headless_starts_the_apps_serve_and_stops_it_cleanly(tmp_path, fakes):
     state = gateway.stop("mac-mini", "hub")
     assert state.mode == OFF
     assert state.last_exit.code == 0 and not state.last_exit.killed
-    assert "serving exp-1 --manufacturer Demo" in _log(state)
+    assert "serving exp-1 --config /configs/arctis.yaml --manufacturer Demo" in _log(
+        state
+    )
     switches = gateway.history().switches
     assert [(s.to_mode, s.who, s.result) for s in switches] == [
         (OFF, "mac-mini", "stopped"),
@@ -104,6 +111,18 @@ def test_last_runs_the_most_recent_experiment(tmp_path, fakes):
         == "last"
     )
     assert "serving --last" in _log(gateway.stop("operator", "page"))
+
+
+def test_headless_connects_with_the_configuration_picked(tmp_path, fakes):
+    gateway = _gateway(tmp_path, fakes)
+    state = gateway.switch(
+        HEADLESS, "operator", "page", app="stand-in", last=True, configuration="demo"
+    )
+    assert state.configuration == "demo"
+    assert "--config /configs/demo.yaml" in _log(gateway.stop("operator", "page"))
+    with pytest.raises(GatewayRefused) as refused:
+        gateway.switch(HEADLESS, "operator", "page", app="stand-in", configuration="x")
+    assert refused.value.error_type == "bad_configuration"
 
 
 def test_an_app_that_wont_stop_is_killed(tmp_path, fakes):

@@ -16,14 +16,17 @@ installed, nothing changes: desktop launches work as they always have.
 ## Installing it
 
 ```
-fibsem-gateway install --manufacturer Thermo --ip-address 192.168.0.1
+fibsem-gateway install
 ```
 
 On Windows this puts a "fibsemOS Gateway" shortcut in your Startup folder, so the gateway
 starts when you log on, with a tray icon and no console. It needs no admin rights.
-`fibsem-gateway uninstall` removes it. The connection flags are the ones
-`fibsem-autolamella-server` takes, and the gateway passes them to the headless app. To run
-it once by hand: `fibsem-gateway run` (add `--no-tray` with no desktop).
+`fibsem-gateway uninstall` removes it. To run it once by hand: `fibsem-gateway run` (add
+`--no-tray` with no desktop).
+
+A headless app connects with one of the microscope configurations saved on this PC, the
+ones the window offers: the default unless the page picks another. Connection flags given
+to `install` or `run` (`--manufacturer`, `--ip-address`) override the configuration's.
 
 The gateway listens on this PC only (`http://127.0.0.1:8010`). Another computer reaches it
 over an SSH tunnel, as it reaches the App Server.

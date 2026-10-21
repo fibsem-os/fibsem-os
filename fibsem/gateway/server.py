@@ -157,8 +157,8 @@ def build_gateway_app(gateway: Gateway, auth: GatewayAuth) -> FastAPI:
 
     @app.post("/gateway/mode", response_model=GatewayState)
     def set_mode(body: Dict[str, Any], found: Caller = Depends(switcher)):
-        """``{mode, app, experiment | last, force}``: stop the current mode and
-        start this one."""
+        """``{mode, app, experiment | last, configuration, force}``: stop the
+        current mode and start this one."""
         return _act(
             found,
             body,
@@ -170,6 +170,7 @@ def build_gateway_app(gateway: Gateway, auth: GatewayAuth) -> FastAPI:
                 experiment=body.get("experiment"),
                 last=bool(body.get("last", False)),
                 force=force,
+                configuration=body.get("configuration"),
             ),
         )
 

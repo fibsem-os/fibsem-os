@@ -48,9 +48,17 @@ class FakeGateway:
         return GatewayState(mode=call[0], version="test", who=call[1])
 
     def switch(
-        self, mode, who, via, app=None, experiment=None, last=False, force=False
+        self,
+        mode,
+        who,
+        via,
+        app=None,
+        experiment=None,
+        last=False,
+        force=False,
+        configuration=None,
     ):
-        return self._do(mode, who, via, app, experiment, last, force)
+        return self._do(mode, who, via, app, experiment, last, force, configuration)
 
     def stop(self, who, via, force=False):
         return self._do(OFF, who, via, force)
@@ -86,12 +94,18 @@ def test_the_operator_switches_and_forces(setup):
     client, gateway, _ = setup
     r = client.post(
         "/gateway/mode",
-        json={"mode": HEADLESS, "app": "autolamella", "last": True, "force": True},
+        json={
+            "mode": HEADLESS,
+            "app": "autolamella",
+            "last": True,
+            "force": True,
+            "configuration": "arctis",
+        },
         headers=_as(OPERATOR_TOKEN),
     )
     assert r.status_code == 200
     assert gateway.calls == [
-        (HEADLESS, "operator", "page", "autolamella", None, True, True)
+        (HEADLESS, "operator", "page", "autolamella", None, True, True, "arctis")
     ]
 
 

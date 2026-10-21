@@ -13,6 +13,7 @@ interface GatewayState {
   version: string;
   app: string | null;
   experiment: string | null;
+  configuration: string | null;
   pid: number | null;
   since: number | null;
   who: string | null;
@@ -21,6 +22,7 @@ interface GatewayState {
   holder: { pid: number; url: string } | null;
   last_exit: { mode: Mode; app: string | null; code: number | null; at: number; killed: boolean; log: string | null } | null;
   apps: { key: string; name: string; headless: boolean }[];
+  configurations: { name: string; path: string; default: boolean }[];
 }
 
 interface Switch {
@@ -48,6 +50,9 @@ function ModeCards({ state }: { state: GatewayState }) {
   const client = useQueryClient();
   const [app, setApp] = useState(state.apps[0]?.key ?? "");
   const [experiment, setExperiment] = useState("");
+  const [configuration, setConfiguration] = useState(
+    state.configurations.find((c) => c.default)?.name ?? "",
+  );
   const act = useMutation({
     mutationFn: ({ path, body }: { path: string; body: unknown }) =>
       api<GatewayState>(path, { method: "POST", body: JSON.stringify(body) }),
@@ -61,7 +66,12 @@ function ModeCards({ state }: { state: GatewayState }) {
   const start = (mode: Mode) =>
     act.mutate({
       path: "/gateway/mode",
-      body: { mode, app, ...(experiment.trim() ? { experiment: experiment.trim() } : { last: true }) },
+      body: {
+        mode,
+        app,
+        ...(mode === "headless" && configuration ? { configuration } : {}),
+        ...(experiment.trim() ? { experiment: experiment.trim() } : { last: true }),
+      },
     });
 
   return (
@@ -83,7 +93,13 @@ function ModeCards({ state }: { state: GatewayState }) {
               <span className="text-xs text-muted-foreground">{what}</span>
               {on && mode !== "off" && (
                 <span className="text-xs">
-                  {[state.app, state.experiment, state.who && `by ${state.who}`, state.since && when(state.since)]
+                  {[
+                    state.app,
+                    state.experiment,
+                    state.configuration,
+                    state.who && `by ${state.who}`,
+                    state.since && when(state.since),
+                  ]
                     .filter(Boolean)
                     .join(" · ")}
                 </span>
@@ -109,6 +125,22 @@ function ModeCards({ state }: { state: GatewayState }) {
             {state.apps.map((a) => (
               <option key={a.key} value={a.key}>
                 {a.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+          Microscope configuration (headless)
+          <select
+            value={configuration}
+            onChange={(event) => setConfiguration(event.target.value)}
+            title={state.configurations.find((c) => c.name === configuration)?.path}
+            className="rounded border border-input bg-background px-2 py-1.5 text-[13px] text-foreground"
+          >
+            {state.configurations.map((c) => (
+              <option key={c.name} value={c.name}>
+                {c.name}
+                {c.default ? " (default)" : ""}
               </option>
             ))}
           </select>
