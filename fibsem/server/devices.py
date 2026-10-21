@@ -31,8 +31,9 @@ types a local device would.
 
 The same routes are mounted in the App Server (``fibsem.server.server``) under
 ``/microscope/devices`` over ``microscope.devices``, behind its bearer token and level,
-with the events at ``WS /microscope/events``. Served here on their own, they have no
-authentication yet, nor a one-commander lease.
+with the events at ``WS /microscope/events``. Served here on their own, every
+route and stream needs this install's token or a paired computer's
+(`fibsem.server.device_auth`); there is no one-commander lease.
 
 Try it on one computer:
 
@@ -44,7 +45,7 @@ Try it on one computer:
 On a METEOR's Linux PC, serving its real FM to the PC that drives the beams (see
 INSTALLATION.md, "Delmic METEOR"):
 
-    python -m fibsem.server.devices --serve odemis-fm   # reached over an SSH tunnel
+    python -m fibsem.server.devices --serve odemis-fm --pair  # shows a pairing code
 
     from fibsem.drivers.remote.devices import connect_remote_beams   # terminal 2
     beams = connect_remote_beams("127.0.0.1", 8765)
@@ -61,6 +62,7 @@ import logging
 import math
 import threading
 from functools import partial
+from pathlib import Path
 from typing import (
     Any,
     Callable,
@@ -78,6 +80,7 @@ import uvicorn
 from fastapi import (
     APIRouter,
     Body,
+    Depends,
     FastAPI,
     HTTPException,
     Request,
@@ -113,6 +116,9 @@ from fibsem.devices.wire import (
     type_path,
 )
 from fibsem.schema import arguments_schema
+from fibsem.server import device_auth
+from fibsem.server.auth import require_operator
+from fibsem.server.device_auth import DeviceAuth, read_device_token
 from fibsem.server.images import (
     TIFF_MEDIA_TYPE,
     image_answer,
@@ -120,6 +126,7 @@ from fibsem.server.images import (
     is_image_result,
     tiff_bytes,
 )
+from fibsem.server.pairing_routes import build_pairing_router
 from fibsem.structures import FibsemImage
 
 # Before uvicorn 0.54 its default websockets implementation imports websockets.legacy,
@@ -804,24 +811,31 @@ def live_source(devices: Mapping[str, Device], name: str) -> Any:
     return device
 
 
-def build_device_app(devices: Iterable[Device]) -> FastAPI:
-    """The server's routes over these devices, looked up by ``device.name``."""
+def build_device_app(
+    devices: Iterable[Device], auth: Optional[DeviceAuth] = None
+) -> FastAPI:
+    """The server's routes over these devices, looked up by ``device.name``,
+    behind *auth*: this install's token and paired computers by default."""
     by_name: Dict[str, Device] = {device.name: device for device in devices}
+    auth = auth if auth is not None else DeviceAuth.from_disk()
     app = FastAPI(title="fibsem devices")
+    app.state.auth = auth
+    token = Depends(require_operator())
+    app.include_router(build_pairing_router(auth))
 
-    @app.get("/health")
+    @app.get("/health", dependencies=[token])
     def health() -> Dict[str, Any]:
         """Up, and for each device whether its driver can reach the hardware."""
         devices = {name: device_health(d) for name, d in by_name.items()}
         return {"ok": all(d["ok"] for d in devices.values()), "devices": devices}
 
-    app.include_router(build_device_router(lambda: by_name))
+    app.include_router(build_device_router(lambda: by_name), dependencies=[token])
 
-    @app.websocket("/events")
+    @app.websocket("/events", dependencies=[token])
     async def events(websocket: WebSocket) -> None:
         await stream_events(websocket, {"device": by_name})
 
-    @app.websocket("/devices/{device}/live")
+    @app.websocket("/devices/{device}/live", dependencies=[token])
     async def live(websocket: WebSocket, device: str) -> None:
         await stream_live(websocket, live_source(by_name, device))
 
@@ -832,10 +846,14 @@ class DeviceServer:
     """Runs the app with uvicorn on a background thread, for tests and scripts."""
 
     def __init__(
-        self, devices: Iterable[Device], host: str = "127.0.0.1", port: int = 0
+        self,
+        devices: Iterable[Device],
+        host: str = "127.0.0.1",
+        port: int = 0,
+        auth: Optional[DeviceAuth] = None,
     ):
         config = uvicorn.Config(
-            build_device_app(devices),
+            build_device_app(devices, auth),
             host=host,
             port=port,
             log_level="warning",
@@ -980,6 +998,17 @@ def main(argv: Optional[List[str]] = None) -> None:
         help="fm, odemis-fm: the flip that puts the camera's frames into the "
         "stage's axes, from how it is mounted",
     )
+    parser.add_argument(
+        "--token-file",
+        default=None,
+        help="where this install's token is kept (default "
+        "~/.fibsem/device-server-token.json); made on first start",
+    )
+    parser.add_argument(
+        "--pair",
+        action="store_true",
+        help="show a pairing code for another computer (5 minutes, works once)",
+    )
     args = parser.parse_args(argv)
     if args.serve is None:
         args.serve = [] if args.config else ["beams"]
@@ -1008,10 +1037,22 @@ def main(argv: Optional[List[str]] = None) -> None:
             logging.error(e)
             raise SystemExit(1) from e
     devices: Mapping[str, Device] = {d.name: d for d in served}
+    token_file = (
+        Path(args.token_file) if args.token_file else device_auth.DEVICE_TOKEN_FILE
+    )
+    if read_device_token(token_file) is None:
+        print(f"Made this Device Server's token, kept in {token_file}.")
+    auth = DeviceAuth.from_disk(token_file)
+    if args.pair:
+        print(
+            f"Pairing code: {auth.pairing.open()} (5 minutes). Put it in the "
+            "other computer's remote entry as code:, or send it with "
+            "fibsem.client.pairing.pair(code, url)."
+        )
     logging.info(f"serving {sorted(devices)} on http://{args.host}:{args.port}")
     try:
         uvicorn.run(
-            build_device_app(devices.values()),
+            build_device_app(devices.values(), auth),
             host=args.host,
             port=args.port,
             ws=WS_PROTOCOL,

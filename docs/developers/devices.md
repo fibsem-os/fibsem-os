@@ -916,7 +916,12 @@ Each entry is built by its own driver with no microscope (`BuildContext.microsco
 `None`), so a builder must not need one; what it registers with `on_disconnect` runs
 when the server stops. Roles are not bound on the server: the coordinator binds them.
 
-The server has no authentication yet. Keep it on the microscope's private network.
+Every route and stream needs a token: the one the server keeps for its install
+(`~/.fibsem/device-server-token.json`, made on first start), which a client on the
+same computer reads by itself, or one paired with a code (`--pair` prints it; the
+remote entry's `code:` pairs once and keeps the token). An entry may also state
+`token:`. Keep it on the microscope's private network all the same: the traffic is
+not encrypted.
 
 ### Over the App Server
 

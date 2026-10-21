@@ -261,3 +261,21 @@ def destroy_widgets_after_test(qapp):
             widget.close()
             widget.deleteLater()
     QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _isolate_device_server_token(tmp_path_factory):
+    """Keep every test's Device Server token and pairings out of ~/.fibsem: a
+    server and its client on one machine share the token file, and no
+    test reads a developer's paired tokens. Session-scoped,
+    as module-scoped fixtures start Device Servers."""
+    import fibsem.client.pairing as client_pairing
+    import fibsem.server.device_auth as device_auth
+
+    directory = tmp_path_factory.mktemp("fibsem-home")
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(device_auth, "DEVICE_TOKEN_FILE", directory / "device-token.json")
+        mp.setattr(device_auth, "DEVICE_PAIRED_FILE", directory / "device-paired.json")
+        mp.setattr(client_pairing, "REMOTE_DIR", directory / "remote")
+        mp.setattr(client_pairing, "AGENT_DIR", directory / "agent")
+        yield

@@ -443,7 +443,7 @@ def require_operator():
     """The operator's routes' dependency: the operator token, whatever the
     agent's level. The agent's and the dashboard's tokens are refused (403)."""
 
-    def dependency(request: Request) -> None:
+    def dependency(request: HTTPConnection) -> None:
         auth: AuthConfig = request.app.state.auth
         token = _bearer_token(request)
         if auth.is_operator(token):

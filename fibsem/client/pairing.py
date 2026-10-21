@@ -21,7 +21,7 @@ import httpx
 
 from fibsem.server.discovery import DISCOVERY_DIR
 
-__all__ = ["DEFAULT_URL", "agent_token", "pair", "paired_token"]
+__all__ = ["DEFAULT_URL", "agent_token", "device_server_token", "pair", "paired_token"]
 
 DEFAULT_URL = "http://localhost:8001"
 REMOTE_DIR = DISCOVERY_DIR / "remote"
@@ -85,3 +85,18 @@ def pair(
         json.dump({"url": url, "token": token}, f, indent=2)
     os.chmod(path, 0o600)
     return token, role
+
+
+def device_server_token(url: str, code: Optional[str] = None) -> Optional[str]:
+    """The token for the Device Server at *url*: the one this computer was
+    paired with there, else one paired now with *code*, else the token of a
+    Device Server on this computer (`fibsem.server.device_auth`). None when
+    there is none."""
+    from fibsem.server.device_auth import read_device_token
+
+    paired = paired_token(url)
+    if paired is not None:
+        return paired
+    if code:
+        return pair(str(code), url)[0]
+    return read_device_token()

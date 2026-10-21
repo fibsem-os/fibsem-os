@@ -50,7 +50,9 @@ class Unit(Device):
 
 @pytest.fixture
 def client():
-    with TestClient(build_device_app([Unit("unit").connect()])) as client:
+    app = build_device_app([Unit("unit").connect()])
+    with TestClient(app) as client:
+        client.headers["Authorization"] = f"Bearer {app.state.auth.token}"
         yield client
 
 
