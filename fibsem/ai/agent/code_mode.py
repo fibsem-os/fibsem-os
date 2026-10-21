@@ -23,10 +23,11 @@ from typing import List, Mapping, Optional
 CODE_TOOLS = ["Bash", "Read", "Write", "Edit", "Glob", "Grep"]
 
 # Unset in every sandboxed command, with any other variable whose name says
-# it is a secret.
+# it is a secret. Some the CLI sets itself, after these settings are written.
 SECRETS = (
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
+    "CLAUDE_CODE_MESSAGING_TOKEN",
     "CLAUDE_CODE_OAUTH_TOKEN",
     "FIBSEM_SERVER_TOKEN",
 )
@@ -52,6 +53,12 @@ tools are the only way to the microscope and its data. \
 experiment_fetch_file saves a file under fetched/ for your code. Run Python \
 with {python}: it has fibsem and what fibsem-agent's environment has. You \
 can't install anything: say what you are missing.
+- Notes go on the open experiment's record. A note can't cite another \
+experiment's file as its source: attach your own image (a plot, a crop) and \
+name the experiment and file in the text.
+- You can't ask and wait inside a turn. When you need the operator's choice \
+(which experiment, which file), put the question on the record with \
+experiment_add_note, end your turn, and act only on their answer.
 - Your notebook is notebook/. Read notebook/INDEX.md before your first \
 analysis. Write lessons and scripts worth reusing there, one line each in \
 INDEX.md. Only conclusions go on the record: a note and one evidence image."""

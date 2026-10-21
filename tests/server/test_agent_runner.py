@@ -286,7 +286,12 @@ def test_code_mode_is_sandboxed_in_its_work_folder(tmp_path, monkeypatch):
     assert sandbox["allowUnsandboxedCommands"] is False
     assert sandbox["network"]["allowedDomains"] == []
     hidden = {entry["name"] for entry in sandbox["credentials"]["envVars"]}
-    assert {"ANTHROPIC_API_KEY", "FIBSEM_SERVER_TOKEN", "SOME_SERVICE_TOKEN"} <= hidden
+    assert {
+        "ANTHROPIC_API_KEY",
+        "CLAUDE_CODE_MESSAGING_TOKEN",
+        "FIBSEM_SERVER_TOKEN",
+        "SOME_SERVICE_TOKEN",
+    } <= hidden
     assert all(entry["mode"] == "deny" for entry in sandbox["credentials"]["envVars"])
 
     assert options.env["FIBSEM_AGENT_WORKDIR"] == str(work)
