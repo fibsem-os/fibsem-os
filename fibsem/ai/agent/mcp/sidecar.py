@@ -35,7 +35,7 @@ import os
 import re
 import sys
 from contextvars import ContextVar
-from typing import Annotated, Any, List, Optional, Tuple
+from typing import Annotated, Any, Dict, List, Optional, Tuple
 from urllib.parse import quote, unquote
 
 from fibsem.ai.agent.calls import headers_for
@@ -618,6 +618,10 @@ def build_sidecar(client, capabilities):
         fm_points: list,
         poi_points: list,
         lamella_path: str = "",
+        fm_surface_point: Optional[List[float]] = None,
+        fib_surface_point: Optional[List[float]] = None,
+        ri: Optional[Dict[str, float]] = None,
+        ri_factor: Optional[float] = None,
     ):
         arguments = dict(
             fib_image_path=fib_image_path,
@@ -626,9 +630,21 @@ def build_sidecar(client, capabilities):
             fm_points=fm_points,
             poi_points=poi_points,
         )
-        if lamella_path:
-            arguments["lamella_path"] = lamella_path
+        optional = dict(
+            lamella_path=lamella_path or None,
+            fm_surface_point=fm_surface_point,
+            fib_surface_point=fib_surface_point,
+            ri=ri,
+            ri_factor=ri_factor,
+        )
+        arguments.update({k: v for k, v in optional.items() if v is not None})
         return _routed("correlation_correlate", "correlation", **arguments)
+
+    def correlation_find_spot_burns(lamella_path: str, fib_image_path: str = ""):
+        arguments = dict(lamella_path=lamella_path)
+        if fib_image_path:
+            arguments["fib_image_path"] = fib_image_path
+        return _routed("correlation_find_spot_burns", "spot_burns", **arguments)
 
     def correlation_refine_point(
         image_path: str,
@@ -1681,6 +1697,7 @@ def build_sidecar(client, capabilities):
             correlation_correlate,
             correlation_refine_point,
             correlation_predict,
+            correlation_find_spot_burns,
             milling_check_stages,
             milling_list_options,
             device_call_query,

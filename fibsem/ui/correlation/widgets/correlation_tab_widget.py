@@ -91,6 +91,8 @@ from fibsem.correlation.history import (
     discover_project,
     experiment_and_lamella_dirs,
     find_spot_burns,
+    spot_burn_field_width_mismatch,
+    spot_burns_on,
 )
 from fibsem.correlation.point_fit import FitStatus, PointFitResult, refine_point
 from fibsem.correlation.points import (
@@ -3069,18 +3071,16 @@ class CorrelationTabWidget(QWidget):
         """
         if self._session.fib_image is None or not coordinates:
             return
-        mismatch = self._spot_burn_field_width_mismatch()
+        mismatch = spot_burn_field_width_mismatch(
+            self._spot_burn_field_width, self._session.fib_image
+        )
         if mismatch is not None:
             self._lbl_status.setText(mismatch)
             notification_service.show_toast(mismatch, "warning")
             return
-        h, w = self._session.fib_image.data.shape[:2]
         fib_coords = [
-            Coordinate(
-                point=PointXYZ(x=pt.x * w, y=pt.y * h, z=0.0),
-                point_type=PointType.FIB,
-            )
-            for pt in coordinates
+            Coordinate(point=point, point_type=PointType.FIB)
+            for point in spot_burns_on(coordinates, self._session.fib_image)
         ]
         self.set_data(
             CorrelationInputData(
@@ -3091,28 +3091,6 @@ class CorrelationTabWidget(QWidget):
         )
         self._discard_result()
         self.data_changed.emit(self.data)
-
-    def _spot_burn_field_width_mismatch(self) -> Optional[str]:
-        """Why the burns cannot be seeded on this FIB image, or None.
-
-        The coordinates are fractions of the image the burns were placed on, so
-        they land right on any image with the same field width, at any
-        resolution, and nowhere useful on one at another: 1.5x out from the
-        centre on a 150 um image of a 100 um pattern (FIB-1233). Unknown on
-        either side is not a reason to refuse.
-        """
-        placed = self._spot_burn_field_width
-        settings = getattr(
-            getattr(self._session.fib_image, "metadata", None), "image_settings", None
-        )
-        loaded = getattr(settings, "hfw", None)
-        if not placed or not loaded or abs(loaded - placed) <= 0.01 * placed:
-            return None
-        return (
-            f"Spot burns not seeded: they were placed on a {placed * 1e6:.0f} µm "
-            f"image, and this FIB image is {loaded * 1e6:.0f} µm. Choose a "
-            f"{placed * 1e6:.0f} µm FIB image to seed them."
-        )
 
     def add_lamella_setup(
         self,

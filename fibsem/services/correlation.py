@@ -30,7 +30,8 @@ DEFAULT_METHOD = {"fib": "Hole", "fm": "Gaussian"}
 class Correlation(Service):
     """FM to FIB correlation: ``correlate`` fits the transform and maps the
     points of interest, ``refine_point`` moves one picked point onto the
-    feature under it, ``predict`` maps more FM points through a saved run."""
+    feature under it, ``predict`` maps more FM points through a saved run and
+    ``spot_burns`` finds a lamella's burned fiducials."""
 
     def __init__(self, name: str = "correlation", **kwargs: Any):
         super().__init__(name, **kwargs)
@@ -44,6 +45,10 @@ class Correlation(Service):
         fm_points: List[List[float]],
         poi_points: List[List[float]],
         lamella_path: Optional[str] = None,
+        fm_surface_point: Optional[List[float]] = None,
+        fib_surface_point: Optional[List[float]] = None,
+        ri: Optional[Dict[str, float]] = None,
+        ri_factor: Optional[float] = None,
     ) -> Dict[str, Any]:
         """Fit the FM->FIB transform to fiducial pairs and map the points of
         interest into the FIB image.
@@ -59,12 +64,29 @@ class Correlation(Service):
         the lamella's Correlation folder with an overlay to look at. Without it,
         the fit starts from the images' geometry and nothing is saved.
 
+        A surface point corrects the depth for refractive index, as the tab's
+        RI panel does, and only one may be given. *fm_surface_point*, ``(x, y,
+        z)`` in the FM stack, scales the points of interest's depth about it
+        before the fit (pre). *fib_surface_point*, ``(x, y)`` in the FIB image,
+        moves the first point of interest about it after the fit (post). The
+        factor is ζ from the lookup table for the experiment protocol's RI
+        settings (the defaults without a lamella), with any of *ri*'s keys
+        (``tilt_deg``, ``depth_um``, ``na``, ``n2``, ``wavelength_um``) over
+        them, at tilt 0 for pre; *ri_factor* gives the factor itself instead.
+
         Answers the RMS error, each point of interest in FIB image pixels and in
         metres from the image centre, the verdict (good, check, bad, with its
-        reasons), what the fit started from, and the saved paths.
+        reasons), what the fit started from, any RI correction (its mode,
+        factor and parameters, and the first point of interest before it), and
+        the saved paths.
         """
+        from fibsem.correlation.config import CorrelationConfig
         from fibsem.correlation.export import save_overlay
-        from fibsem.correlation.history import CORRELATION_FILENAME, new_run_dir
+        from fibsem.correlation.history import (
+            CORRELATION_FILENAME,
+            experiment_correlation_config,
+            new_run_dir,
+        )
         from fibsem.correlation.prior import experiment_runs
         from fibsem.correlation.session import CorrelationSession, load_fm_stack
         from fibsem.correlation.structures import Coordinate, PointType, PointXYZ
@@ -81,13 +103,45 @@ class Correlation(Service):
                 out.append(Coordinate(PointXYZ(x, y, z), kind))
             return out
 
+        if fm_surface_point is not None and fib_surface_point is not None:
+            raise ValueError(
+                "give one surface point: fm_surface_point corrects the depths "
+                "before the fit, fib_surface_point the target after it"
+            )
+        surface = (
+            fm_surface_point if fm_surface_point is not None else fib_surface_point
+        )
+        if surface is None and (ri or ri_factor is not None):
+            raise ValueError(
+                "ri and ri_factor correct about a surface point: give "
+                "fm_surface_point or fib_surface_point"
+            )
+        config = (
+            experiment_correlation_config(lamella_path)
+            if lamella_path
+            else CorrelationConfig()
+        )
+        if surface is not None:
+            config.ri = _ri_settings(config.ri, ri)
+
         session = CorrelationSession()
+        session.config = config
         session.fib_image = FibsemImage.load(fib_image_path)
         session.fm_image = load_fm_stack(fm_image_path)
         session.points.add_many(
             coordinates(fib_points, PointType.FIB, 2)
             + coordinates(fm_points, PointType.FM, 3)
             + coordinates(poi_points, PointType.POI, 3)
+            + (
+                coordinates([fm_surface_point], PointType.SURFACE_FM, 3)
+                if fm_surface_point is not None
+                else []
+            )
+            + (
+                coordinates([fib_surface_point], PointType.SURFACE, 2)
+                if fib_surface_point is not None
+                else []
+            )
         )
         if not session.can_run():
             raise ValueError(
@@ -98,7 +152,14 @@ class Correlation(Service):
             session.prior_runs = experiment_runs(
                 os.path.dirname(os.path.abspath(lamella_path)), lamella_path
             )
+        if fm_surface_point is not None:
+            params, factor = _ri_factor(config.ri, ri_factor, pre=True)
+            session.arm_pre_correction(factor, params, computed=ri_factor is None)
         result = session.run()
+        if fib_surface_point is not None:
+            _, factor = _ri_factor(config.ri, ri_factor, pre=False)
+            session.apply_post_correction(factor)
+            result = session.result
 
         data = session.data
         answer = _summary(result, data, session.last_seed)
@@ -187,12 +248,95 @@ class Correlation(Service):
             "points": [_point(p) for p in fm_to_fib(state.result, fm_points)],
         }
 
+    @query
+    def spot_burns(
+        self, lamella_path: str, fib_image_path: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """The spot-burn fiducials of the lamella at *lamella_path*, from its
+        spot-burn task, as the tab seeds its FIB fiducials: fractions (0 to 1)
+        of the image they were placed on, and that image's field width. With
+        *fib_image_path*, also as pixels of that FIB image, or why not (it is
+        another field width). ``reason`` says why there are none."""
+        from fibsem.correlation.history import (
+            spot_burn_field_width_mismatch,
+            spot_burn_pattern,
+            spot_burns_on,
+        )
+
+        coords, width, reason = spot_burn_pattern(lamella_path)
+        answer: Dict[str, Any] = {
+            "fractions": [[c.x, c.y] for c in coords],
+            "field_width_m": width,
+            "reason": reason,
+        }
+        if fib_image_path and coords:
+            from fibsem.structures import FibsemImage
+
+            image = FibsemImage.load(fib_image_path)
+            mismatch = spot_burn_field_width_mismatch(width, image)
+            answer["fib_px"] = (
+                None if mismatch else [[p.x, p.y] for p in spot_burns_on(coords, image)]
+            )
+            answer["reason"] = mismatch or ""
+        return answer
+
 
 def _point(poi: Any) -> Dict[str, Any]:
     """A mapped point: FIB image pixels, and metres from the image centre."""
     return {
         "image_px": [poi.image_px.x, poi.image_px.y],
         "px_m": [poi.px_m.x, poi.px_m.y],
+    }
+
+
+def _ri_settings(saved: Any, overrides: Optional[Dict[str, float]]) -> Any:
+    """*saved* RI settings with *overrides*' values over them."""
+    from fibsem.correlation.config import RISettings
+
+    keys = ("tilt_deg", "depth_um", "na", "n2", "wavelength_um")
+    unknown = sorted(set(overrides or {}) - set(keys))
+    if unknown:
+        raise ValueError(f"ri takes {', '.join(keys)}; not {', '.join(unknown)}")
+    return RISettings.from_dict(
+        {**saved.to_dict(), **{k: float(v) for k, v in (overrides or {}).items()}}
+    )
+
+
+def _ri_factor(settings: Any, given: Optional[float], pre: bool) -> Any:
+    """The optical parameters and the RI factor for *settings*: *given* when
+    there is one, else ζ from the lookup table. Pre-correction acts along the
+    optical axis, so its tilt is 0, as the tab's is."""
+    import dataclasses
+
+    from fibsem.correlation.refractive_index import get_lut, zeta_params_from_settings
+
+    params = zeta_params_from_settings(settings)
+    if pre:
+        params = dataclasses.replace(params, tilt_deg=0.0)
+    if given is not None:
+        return params, float(given)
+    try:
+        return params, get_lut().lookup_params(params)
+    except ValueError as exc:
+        raise ValueError(
+            f"the RI settings are outside the lookup table ({exc}); "
+            "see the ri ranges, or give ri_factor"
+        ) from exc
+
+
+def _ri_answer(result: Any) -> Optional[Dict[str, Any]]:
+    """The refractive-index correction applied to *result*, or None."""
+    if result.refractive_index_correction_factor is None:
+        return None
+    return {
+        "mode": result.refractive_index_correction_mode,
+        "factor": result.refractive_index_correction_factor,
+        "params": result.input_data.ri_pre_correction_params
+        if result.input_data is not None
+        else None,
+        "poi_uncorrected": _point(result.poi_uncorrected[0])
+        if result.poi_uncorrected
+        else None,
     }
 
 
@@ -240,4 +384,5 @@ def _summary(result: Any, data: Any, seed: Any) -> Dict[str, Any]:
         "verdict": judged,
         "started_from": started,
         "placement_offset_um": result.placement_offset,
+        "ri_correction": _ri_answer(result),
     }

@@ -21,12 +21,14 @@ import glob
 import logging
 import os
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from fibsem.constants import DATETIME_FILE
+from fibsem.correlation.config import CorrelationConfig
 from fibsem.correlation.structures import (
     CorrelationResult,
     CorrelationState,
+    PointXYZ,
     load_correlation_file,
 )
 from fibsem.structures import Point
@@ -34,6 +36,7 @@ from fibsem.structures import Point
 CORRELATION_DIRNAME = "Correlation"
 CORRELATION_FILENAME = "correlation.json"
 EXPERIMENT_FILENAME = "experiment.yaml"
+PROTOCOL_FILENAME = "protocol.yaml"
 
 # The project file before it was consolidated (FIB-264): still *read* for
 # back-compat with projects saved by earlier versions; nothing writes them now.
@@ -270,12 +273,46 @@ def _discover_correlation_files(directory: str) -> Dict[str, Optional[str]]:
     }
 
 
+def experiment_correlation_config(project_dir: str) -> CorrelationConfig:
+    """The correlation settings of the experiment above ``project_dir``: its
+    protocol's ``correlation`` section, as the protocol editor hands the tab,
+    or the defaults when there is no experiment, protocol or section."""
+    import yaml
+
+    experiment_dir, _ = experiment_and_lamella_dirs(project_dir)
+    if experiment_dir is None:
+        return CorrelationConfig()
+    path = os.path.join(experiment_dir, PROTOCOL_FILENAME)
+    try:
+        with open(path) as fh:
+            protocol = yaml.safe_load(fh)
+    except FileNotFoundError:
+        return CorrelationConfig()
+    except Exception:
+        logging.warning(
+            "Could not read %s; using the default correlation settings", path
+        )
+        return CorrelationConfig()
+    section = protocol.get("correlation") if isinstance(protocol, dict) else None
+    return CorrelationConfig.from_dict(section)
+
+
 def find_spot_burns(project_dir: str) -> Tuple[List[Point], str]:
-    """The spot-burn pattern for the lamella a project folder belongs to.
+    """The spot-burn pattern for the lamella a project folder belongs to:
+    :func:`spot_burn_pattern` without the field width."""
+    coords, _, reason = spot_burn_pattern(project_dir)
+    return coords, reason
+
+
+def spot_burn_pattern(project_dir: str) -> Tuple[List[Point], Optional[float], str]:
+    """The spot-burn pattern for the lamella a project folder belongs to: its
+    coordinates (fractions, 0 to 1, of the image they were placed on), that
+    image's field width in metres (None when not recorded), and why there is
+    no pattern ("" when there is one).
 
     Walks up from ``project_dir`` to the experiment file, matches the lamella by
     its folder name, and reads the spot-burn task's coordinates. Returns
-    ``([], reason)`` when any of that is missing, so the caller can say why
+    ``([], None, reason)`` when any of that is missing, so the caller can say why
     there is no pattern. The standalone launcher's stand-in for what the
     protocol editor passes to the correlation tab's ``add_lamella_setup``.
     """
@@ -283,14 +320,14 @@ def find_spot_burns(project_dir: str) -> Tuple[List[Point], str]:
 
     experiment_dir, lamella_dir = experiment_and_lamella_dirs(project_dir)
     if experiment_dir is None:
-        return [], "no experiment.yaml above the project folder"
+        return [], None, "no experiment.yaml above the project folder"
     experiment_file = os.path.join(experiment_dir, EXPERIMENT_FILENAME)
     lamella_name = os.path.basename(lamella_dir) if lamella_dir else None
     try:
         with open(experiment_file) as fh:
             experiment = yaml.safe_load(fh)
     except Exception as exc:
-        return [], f"could not read {experiment_file}: {exc}"
+        return [], None, f"could not read {experiment_file}: {exc}"
     positions = experiment.get("positions", []) if isinstance(experiment, dict) else []
     for position in positions:
         name = position.get("petname") or position.get("name")
@@ -306,11 +343,43 @@ def find_spot_burns(project_dir: str) -> Tuple[List[Point], str]:
             ):
                 continue
             coords = [Point(x=c["x"], y=c["y"]) for c in cfg.get("coordinates", [])]
+            imaging = cfg.get("reference_imaging") or {}
+            width = imaging.get("field_of_view1") if isinstance(imaging, dict) else None
             if coords:
-                return coords, ""
-            return [], f"{lamella_name}: spot-burn task has no coordinates"
-        return [], f"{lamella_name}: no spot-burn task in the experiment"
-    return [], f"{lamella_name!r} is not a lamella in {experiment_file}"
+                return coords, width or None, ""
+            return [], None, f"{lamella_name}: spot-burn task has no coordinates"
+        return [], None, f"{lamella_name}: no spot-burn task in the experiment"
+    return [], None, f"{lamella_name!r} is not a lamella in {experiment_file}"
+
+
+def spot_burn_field_width_mismatch(
+    placed: Optional[float], fib_image: Any
+) -> Optional[str]:
+    """Why spot burns placed on an image *placed* metres wide cannot be seeded
+    on *fib_image*, or None.
+
+    The coordinates are fractions of the image the burns were placed on, so
+    they land right on any image with the same field width, at any
+    resolution, and nowhere useful on one at another: 1.5x out from the
+    centre on a 150 um image of a 100 um pattern (FIB-1233). Unknown on
+    either side is not a reason to refuse.
+    """
+    settings = getattr(getattr(fib_image, "metadata", None), "image_settings", None)
+    loaded = getattr(settings, "hfw", None)
+    if not placed or not loaded or abs(loaded - placed) <= 0.01 * placed:
+        return None
+    return (
+        f"Spot burns not seeded: they were placed on a {placed * 1e6:.0f} µm "
+        f"image, and this FIB image is {loaded * 1e6:.0f} µm. Choose a "
+        f"{placed * 1e6:.0f} µm FIB image to seed them."
+    )
+
+
+def spot_burns_on(coordinates: Sequence[Point], fib_image: Any) -> List[PointXYZ]:
+    """Spot-burn *coordinates* (fractions of the image they were placed on) as
+    pixels of *fib_image*, an image of the same field width."""
+    h, w = fib_image.data.shape[:2]
+    return [PointXYZ(x=pt.x * w, y=pt.y * h, z=0.0) for pt in coordinates]
 
 
 def _images_beside_a_run(lamella_dir: str) -> Dict[str, Optional[str]]:
