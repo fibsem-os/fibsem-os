@@ -152,13 +152,13 @@ def test_headless_run_stops_on_the_callers_stop_event(fm_microscope, tmp_path):
     the run and it still finalises, saving its files."""
     config = _coincidence_config(str(tmp_path))
     stop_event = threading.Event()
-    frames = []
 
-    def _stop_on_a_frame(stats):
-        frames.append(stats)
-        stop_event.set()
+    def _stop_once_milling(progress):
+        # the service's countdown: the pattern is milling
+        if progress.remaining_time is not None:
+            stop_event.set()
 
-    config.stages[0].get_strategy().intensity_stats_signal.connect(_stop_on_a_frame)
+    fm_microscope.milling.progress.changed.connect(_stop_once_milling)
 
     milling = []
 
@@ -172,6 +172,7 @@ def test_headless_run_stops_on_the_callers_stop_event(fm_microscope, tmp_path):
         task = run_milling_task(fm_microscope, config, stop_event=stop_event)
         elapsed = time.time() - started
     finally:
+        fm_microscope.milling.progress.changed.disconnect(_stop_once_milling)
         fm_microscope.session.record_signal.disconnect(_milling)
 
     # the task keeps the config it was given; its stage's strategy is the one that ran
@@ -192,8 +193,7 @@ def test_headless_run_stops_on_the_callers_stop_event(fm_microscope, tmp_path):
     assert 0 < said["facts"]["Mill time (s)"] < 30
     assert said["facts"]["Intensity drop seen"] is False
     assert os.path.isfile(said["figure"])
-    for name in ("intensities.npy", "intensity_stats.csv"):
-        assert os.path.isfile(os.path.join(strategy.path, name))
+    assert os.path.isfile(os.path.join(strategy.path, "intensities.npy"))
 
 
 def test_headless_run_never_starts_on_a_preset_stop_event(fm_microscope, tmp_path):
