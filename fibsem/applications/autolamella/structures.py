@@ -84,6 +84,7 @@ from fibsem.workflows.task_config import (
 if TYPE_CHECKING:
     import numpy as np
 
+    from fibsem.fm.structures import FluorescenceImage
     from fibsem.microscope import FibsemMicroscope
 
 
@@ -817,7 +818,7 @@ class Lamella(SiteItem):
                 _THUMBNAIL_PLACEHOLDER = _make_thumbnail_placeholder()
             return _THUMBNAIL_PLACEHOLDER
 
-    def save_thumbnail(self, image: "FibsemImage") -> None:
+    def save_thumbnail(self, image: Union["FibsemImage", "FluorescenceImage"]) -> None:
         """Save a thumbnail of the given image to disk as thumbnail.png.
 
         Written to a temporary file and moved into place, so a reader never sees a
@@ -833,11 +834,19 @@ class Lamella(SiteItem):
 
         Written at display size rather than at the acquired resolution -- see
         `_THUMBNAIL_MAX_EDGE`. This is a thumbnail, not a copy of the frame; the frame
-        itself is saved separately by the task that acquired it.
+        itself is saved separately by the task that acquired it. A fluorescence
+        stack's thumbnail is its projection, as the FM canvas draws it.
         """
+        from fibsem.fm.preview import composite_projection
+        from fibsem.fm.structures import FluorescenceImage
         from fibsem.imaging.thumbnail import write_thumbnail
 
-        write_thumbnail(image.filtered_data, os.path.join(self.path, "thumbnail.png"))
+        data = (
+            composite_projection(image)
+            if isinstance(image, FluorescenceImage)
+            else image.filtered_data
+        )
+        write_thumbnail(data, os.path.join(self.path, "thumbnail.png"))
 
     # def get_task_config_by_type(self, task_type: Type['AutoLamellaTaskConfig']) -> Dict[str, AutoLamellaTaskConfig]:
     #     """Get the task configuration by type."""

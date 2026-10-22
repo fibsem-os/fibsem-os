@@ -1728,3 +1728,74 @@ def test_the_thickness_window_comes_from_the_trench_patterns():
     assert width == pytest.approx(9e-6)
     assert height == pytest.approx(3e-6)
     assert Lamella.trench_window(SimpleNamespace(task_config={})) is None
+
+
+def test_a_fluorescence_stack_reads_one_plane_in_some_channels(client, host):
+    """The files route shows a stack's max projection, or plane z in the named
+    channels; its fm block says how sharp each plane is. The agent's read tool
+    sends the same arguments."""
+    import numpy as np
+
+    from fibsem.fm.structures import (
+        FluorescenceChannelMetadata,
+        FluorescenceImage,
+        FluorescenceImageMetadata,
+    )
+
+    data = np.zeros((2, 5, 32, 32), dtype=np.uint16)
+    data[0, 1, 8:12, 8:12] = 4000
+    data[1, 3, 20:24, 20:24] = 4000
+    channels = [
+        FluorescenceChannelMetadata(
+            name=name,
+            excitation_wavelength=488.0,
+            power=0.5,
+            exposure_time=0.1,
+            gain=1.0,
+            offset=0.0,
+            color=colour,
+        )
+        for name, colour in (("GFP", "green"), ("Reflection", "gray"))
+    ]
+    metadata = FluorescenceImageMetadata(
+        acquisition_datetime="2026-01-01T00:00:00",
+        pixel_size_x=1e-7,
+        pixel_size_y=1e-7,
+        resolution=(32, 32),
+        channels=channels,
+        z_positions=[i * 5e-7 for i in range(5)],
+    )
+    path = Path(host.experiment.path) / "stack.ome.tiff"
+    FluorescenceImage(data=data, metadata=metadata).save(str(path))
+    (Path(host.experiment.path) / "notes.md").write_text("# notes\n")
+    url = "/app/experiment/files/stack.ome.tiff"
+
+    whole = client.get(url, headers=AUTH).json()
+    assert whole["summary"]["preview_of"] == {"z": None, "channels": None}
+    gfp, reflection = whole["summary"]["fm"]["channels"]
+    assert gfp["sharpest_plane"] == 1 and reflection["sharpest_plane"] == 3
+    assert len(gfp["sharpness"]) == 5
+
+    one = client.get(url, params={"z": 3, "channels": "Reflection"}, headers=AUTH)
+    assert one.status_code == 200, one.text
+    assert one.json()["summary"]["preview_of"] == {"z": 3, "channels": ["Reflection"]}
+    assert one.json()["preview"]["image_b64_jpeg"] != whole["preview"]["image_b64_jpeg"]
+
+    for params, says in (
+        ({"z": 5}, "plane 5 is outside"),
+        ({"channels": "DAPI"}, "no channel DAPI"),
+    ):
+        refused = client.get(url, params=params, headers=AUTH)
+        assert refused.status_code == 422 and says in refused.text
+    for other in ("notes.md",):
+        refused = client.get(
+            f"/app/experiment/files/{other}", params={"z": 0}, headers=AUTH
+        )
+        assert refused.status_code == 422
+
+    from fibsem.client.tools import route
+
+    _, _, query = route(
+        "experiment_read_file", {"path": "stack.ome.tiff", "z": 3, "channels": "GFP"}
+    )
+    assert query == {"z": 3, "channels": "GFP"}

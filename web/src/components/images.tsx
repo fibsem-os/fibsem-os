@@ -3,11 +3,14 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Facts } from "@/components/ui/card";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { useFileRead } from "@/lib/files";
+import { Stepper } from "@/components/stepper";
+import { type StackView, useFileRead } from "@/lib/files";
 import * as fmt from "@/lib/format";
 import type { StackFacts } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 const BEAM: Record<string, string> = { ELECTRON: "SEM", ION: "FIB" };
+const WHOLE: StackView = { z: null, channels: null };
 
 /** SEM / FIB / FM, from the file's own record, else its name. */
 export function imageKind(path: string, beam?: unknown): string {
@@ -56,20 +59,98 @@ export function metaLine(path: string, summary: Record<string, unknown> | undefi
   return [imageKind(path, summary.beam_type), ...parts.filter((p) => p && p !== "–")].join(" · ");
 }
 
-export function Legend({ fm }: { fm: StackFacts }) {
+function planeLine(fm: StackFacts, z: number | null) {
+  if (z == null) return `Max projection of ${fm.z_planes} ${fm.z_planes === 1 ? "plane" : "planes"}${fm.z_step != null ? ` · ${fmt.length(fm.z_step)} step` : ""}`;
+  const from = fm.z_positions ? Math.abs(fm.z_positions[z] - fm.z_positions[0]) : fm.z_step != null ? z * fm.z_step : null;
+  return `Plane ${z + 1} of ${fm.z_planes}${z > 0 && from != null ? ` · ${fmt.length(from)} from plane 1` : ""}`;
+}
+
+/** The stack's channels, and what of it is shown. With *view*, each channel is
+ * a checkbox, at least one stays on. */
+export function Legend({ fm, view, setView }: { fm: StackFacts; view?: StackView; setView?: (v: StackView) => void }) {
+  const shown = (name: string) => !view?.channels || view.channels.includes(name);
+  const toggle = (name: string) => {
+    if (!view || !setView) return;
+    const on = fm.channels.map((c) => c.name).filter((n) => (n === name ? !shown(n) : shown(n)));
+    if (on.length) setView({ ...view, channels: on.length === fm.channels.length ? null : on });
+  };
+  const pick = !!setView && fm.channels.length > 1;
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px]">
-      {fm.channels.map((c) => (
-        <span key={c.name} className="flex items-center gap-1.5">
-          <span className="inline-block size-2.5 rounded-sm" style={{ background: c.color }} />
-          {c.name}
-          {c.excitation_wavelength != null && <span className="text-muted-foreground">{c.excitation_wavelength} nm</span>}
-        </span>
-      ))}
-      <span className="text-muted-foreground">
-        Max projection of {fm.z_planes} {fm.z_planes === 1 ? "plane" : "planes"}
-        {fm.z_step != null && ` · ${fmt.length(fm.z_step)} step`}
-      </span>
+    <div className="flex flex-col gap-1.5 text-[12px]">
+      <div className={cn("flex gap-x-4 gap-y-1", pick ? "flex-col" : "flex-wrap items-center")}>
+        {fm.channels.map((c) => {
+          const label = (
+            <>
+              <span className="inline-block size-2.5 rounded-sm" style={{ background: c.color }} />
+              {c.name}
+              {c.excitation_wavelength != null && <span className="text-muted-foreground">{c.excitation_wavelength} nm</span>}
+            </>
+          );
+          return pick ? (
+            <label key={c.name} className="flex cursor-pointer items-center gap-1.5">
+              <input type="checkbox" className="m-0 accent-[var(--primary)]" checked={shown(c.name)} onChange={() => toggle(c.name)} />
+              {label}
+            </label>
+          ) : (
+            <span key={c.name} className="flex items-center gap-1.5">
+              {label}
+            </span>
+          );
+        })}
+      </div>
+      <span className="text-muted-foreground">{planeLine(fm, view?.z ?? null)}</span>
+    </div>
+  );
+}
+
+/** Max projection or one plane, and which plane: the stack's z, as Qt's FM view steps it. */
+function Planes({ fm, view, setView }: { fm: StackFacts; view: StackView; setView: (v: StackView) => void }) {
+  const z = view.z ?? fm.channels.find((c) => c.sharpest_plane != null)?.sharpest_plane ?? 0;
+  // How sharp each plane is in the channels shown, 1 the sharpest of them.
+  const shown = fm.channels.filter((c) => c.sharpness && (!view.channels || view.channels.includes(c.name)));
+  const sharpness = Array.from({ length: fm.z_planes }, (_, i) => Math.max(0, ...shown.map((c) => c.sharpness![i] ?? 0)));
+  const go = (i: number) => setView({ ...view, z: Math.max(0, Math.min(fm.z_planes - 1, i)) });
+  return (
+    <div className="flex flex-col gap-2">
+      <div role="group" aria-label="Planes" className="flex gap-1">
+        {(
+          [
+            [true, "Max projection"],
+            [false, "One plane"],
+          ] as const
+        ).map(([projection, label]) => (
+          <button
+            key={label}
+            aria-pressed={(view.z == null) === projection}
+            onClick={() => setView({ ...view, z: projection ? null : z })}
+            className={cn(
+              "cursor-pointer border-0 bg-transparent px-2 py-1 text-[12px]",
+              (view.z == null) === projection
+                ? "text-foreground shadow-[inset_0_-2px_0_var(--primary)]"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <Stepper compact at={z} count={fm.z_planes} noun="plane" go={go} />
+      {shown.length > 0 && (
+        <div className="flex h-6 items-end gap-0.5" title="How sharp each plane is: pick one to show it">
+          {sharpness.map((v, i) => (
+            <button
+              key={i}
+              aria-label={`Plane ${i + 1}, sharpness ${v.toFixed(2)}`}
+              onClick={() => go(i)}
+              className={cn(
+                "min-w-0 flex-1 cursor-pointer rounded-[1px] border-0 p-0",
+                view.z === i ? "bg-[var(--primary)]" : "bg-border hover:bg-muted-foreground",
+              )}
+              style={{ height: `${20 + 80 * v}%` }}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -120,10 +201,22 @@ export function ImageViewer({ paths, at, onClose }: { paths: string[]; at: numbe
     if (at != null) setIndex(at);
   }
   const path = at == null ? null : paths[index];
-  const read = useFileRead(path, 1600);
+  const [view, setView] = useState<StackView>(WHOLE);
+  const [viewOf, setViewOf] = useState(path);
+  if (path !== viewOf) {
+    setViewOf(path);
+    setView(WHOLE);
+  }
+  const read = useFileRead(path, 1600, view);
   const p = read.data?.preview;
   const fm = read.data?.summary?.fm;
+  const stack = fm && fm.z_planes > 1 ? fm : undefined;
   const step = (by: number) => setIndex((i) => (i + by + paths.length) % paths.length);
+  const plane = (by: number) => {
+    if (!stack) return;
+    const from = view.z ?? stack.channels.find((c) => c.sharpest_plane != null)?.sharpest_plane ?? 0;
+    setView({ ...view, z: Math.max(0, Math.min(stack.z_planes - 1, view.z == null ? from : from + by)) });
+  };
   const name = path?.split("/").pop() ?? "";
   return (
     <Dialog open={at != null} onOpenChange={(open) => !open && onClose()}>
@@ -131,8 +224,13 @@ export function ImageViewer({ paths, at, onClose }: { paths: string[]; at: numbe
         <div
           className="grid gap-4 md:grid-cols-[minmax(0,1fr)_240px]"
           onKeyDown={(e) => {
+            if (e.target instanceof HTMLInputElement) return;
             if (e.key === "ArrowLeft") step(-1);
-            if (e.key === "ArrowRight") step(1);
+            else if (e.key === "ArrowRight") step(1);
+            else if (e.key === "ArrowUp" && stack) plane(1);
+            else if (e.key === "ArrowDown" && stack) plane(-1);
+            else return;
+            e.preventDefault();
           }}
         >
           <div className="flex min-h-[240px] items-center justify-center bg-black p-2">
@@ -144,7 +242,8 @@ export function ImageViewer({ paths, at, onClose }: { paths: string[]; at: numbe
           </div>
           <div className="flex flex-col gap-3 px-4 pb-4 md:pt-2 md:pl-0">
             <Facts rows={metadata(read.data?.summary, read.data?.size)} />
-            {fm && <Legend fm={fm} />}
+            {fm && <Legend fm={fm} view={view} setView={setView} />}
+            {stack && <Planes fm={stack} view={view} setView={setView} />}
             <div className="text-[12px] break-all text-muted-foreground">{path}</div>
             {paths.length > 1 && (
               <div className="mt-auto flex items-center gap-2">

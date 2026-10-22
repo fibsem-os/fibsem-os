@@ -622,6 +622,8 @@ def build_app_router(context: Any) -> APIRouter:
         box: Optional[str] = None,
         fraction: Optional[str] = None,
         width: Optional[int] = None,
+        z: Optional[int] = None,
+        channels: Optional[str] = None,
         raw: bool = False,
         experiment: Optional[str] = None,
     ):
@@ -641,6 +643,8 @@ def build_app_router(context: Any) -> APIRouter:
             )
         # A region is "x,y,width,height": source pixels (box) or 0-1 (fraction).
         # width: the preview's at most, for a thumbnail or a full-size view.
+        # A fluorescence stack: plane z (0 the first; none, the max projection)
+        # in channels, comma-separated names (none, all).
         answer = _files_answer(
             experiment,
             files.read,
@@ -648,6 +652,8 @@ def build_app_router(context: Any) -> APIRouter:
             box=_numbers(box),
             fraction=_numbers(fraction),
             max_width=files.preview_width(width),
+            z=z,
+            channels=[c for c in (channels or "").split(",") if c] or None,
         )
         _record_read(experiment, path, False)
         return answer

@@ -8,6 +8,12 @@ from fibsem.ai.agent.catalog.spec import ToolSpec
 from fibsem.server.parts import GRIDS, LAMELLAE, MILLING_STAGES
 from fibsem.util import wording
 
+# A fluorescence stack's plane and channels, as the files route reads them.
+_STACK_PARAMS = {
+    "z": "a fluorescence stack's plane to show, 0 the first (default: the max projection over z)",
+    "channels": "the fluorescence channels to show, by name, as its fm block lists them (default: all)",
+}
+
 
 def _options_line(a: Dict[str, Any]) -> str:
     """The workflow options a call sets, in one line."""
@@ -550,16 +556,17 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="experiment_read_file",
         returns="FileRead",
-        description="One file of the open experiment: text (yaml, json, log, md, csv) as text, up to 512 KB; an image (tif, png, jpg) as a 768 px preview you can look at, with its metadata block; a folder as its listing. Previews and metadata: for detail in part of an image, experiment_crop_image; for the file itself, to work on with your own code, experiment_fetch_file. Paths outside the experiment are refused.",
+        description="One file of the open experiment: text (yaml, json, log, md, csv) as text, up to 512 KB; an image (tif, png, jpg) as a 768 px preview you can look at, with its metadata block; a folder as its listing. A fluorescence stack (.ome.tiff) shows the max projection of every channel; give z for one plane and channels for some of them. Its metadata's fm block lists the channels, z_positions, and each channel's sharpness per plane (1 the sharpest) and sharpest_plane. Previews and metadata: for detail in part of an image, experiment_crop_image; for the file itself, to work on with your own code, experiment_fetch_file. Paths outside the experiment are refused.",
         method="GET",
         path="/app/experiment/files/{path}",
         level="watch",
         router="app",
         params={
             "path": "a path from experiment_list_files, or an image path an image answer gave",
+            **_STACK_PARAMS,
             "experiment": "optional: a past experiment to read instead of the open one, by its relative_path from experiment_list_all (or its path from experiment_list_recent); only one the operator named. Every read of it goes on the record",
         },
-        optional=("experiment",),
+        optional=("z", "channels", "experiment"),
     ),
     ToolSpec(
         name="experiment_fetch_file",
@@ -587,9 +594,10 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "path": "an image path from experiment_list_files, or one an image answer gave",
             "box": "[x, y, width, height] in source pixels (instead of fraction)",
             "fraction": "[left, top, width, height] as fractions of the image, 0 to 1 (instead of box)",
+            **_STACK_PARAMS,
             "experiment": "optional: a past experiment to read instead of the open one, by its relative_path from experiment_list_all (or its path from experiment_list_recent); only one the operator named. Every read of it goes on the record",
         },
-        optional=("box", "fraction", "experiment"),
+        optional=("box", "fraction", "z", "channels", "experiment"),
     ),
     ToolSpec(
         name="protocol_get_task_config",
