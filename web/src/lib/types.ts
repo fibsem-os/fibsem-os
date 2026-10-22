@@ -239,9 +239,13 @@ export interface StackFacts {
     excitation_wavelength: number | null;
     emission: string | null;
     exposure_time?: number | null;
+    // per plane, 1 the sharpest; absent for a single plane
+    sharpness?: number[];
+    sharpest_plane?: number;
   }[];
   z_planes: number;
   z_step: number | null;
+  z_positions?: number[] | null;
   acquired_at?: string | null;
 }
 

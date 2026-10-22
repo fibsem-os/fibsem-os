@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, Pause, Play } from "lucide-react";
+import { Pause, Play } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { Stepper } from "@/components/stepper";
 import { Button } from "@/components/ui/button";
 import { api, imageUrl } from "@/lib/api";
 import type { ItemStack, StackSlice } from "@/lib/types";
@@ -202,53 +203,36 @@ export function Scrubber({ name, planned, running }: { name: string; planned?: n
           </div>
         )}
       </div>
-      <div className="flex items-center gap-2">
-        <Button
-          className="size-11 shrink-0 p-0"
-          aria-label="Previous slice"
-          onClick={() => user(at - 1)}
-          disabled={at === 0}
-        >
-          <ChevronLeft size={16} className="mx-auto" />
-        </Button>
-        <Button
-          className="size-11 shrink-0 p-0"
-          aria-label={playing ? "Pause" : "Play"}
-          onClick={() => setPlaying(!playing)}
-          disabled={stack.length < 2}
-        >
-          {playing ? <Pause size={16} className="mx-auto" /> : <Play size={16} className="mx-auto" />}
-        </Button>
-        <Button
-          className="size-11 shrink-0 p-0"
-          aria-label="Next slice"
-          onClick={() => user(at + 1)}
-          disabled={at === stack.length - 1}
-        >
-          <ChevronRight size={16} className="mx-auto" />
-        </Button>
-        <input
-          type="range"
-          aria-label="Slice"
-          className="mx-1.5 h-11 min-w-20 flex-1 accent-[var(--primary)]"
-          min={0}
-          max={stack.length - 1}
-          value={at}
-          onChange={(e) => user(Number(e.target.value))}
-        />
-        {running && (
+      <Stepper
+        at={at}
+        count={stack.length}
+        noun="slice"
+        go={user}
+        between={
           <Button
-            className={cn("h-11 shrink-0 px-3.5", following && "border-primary text-foreground")}
-            aria-pressed={following}
-            onClick={() => {
-              setPlaying(false);
-              setIteration(following ? slice.iteration : null);
-            }}
+            className="size-11 shrink-0 p-0"
+            aria-label={playing ? "Pause" : "Play"}
+            onClick={() => setPlaying(!playing)}
+            disabled={stack.length < 2}
           >
-            Follow
+            {playing ? <Pause size={16} className="mx-auto" /> : <Play size={16} className="mx-auto" />}
           </Button>
-        )}
-      </div>
+        }
+        after={
+          running && (
+            <Button
+              className={cn("h-11 shrink-0 px-3.5", following && "border-primary text-foreground")}
+              aria-pressed={following}
+              onClick={() => {
+                setPlaying(false);
+                setIteration(following ? slice.iteration : null);
+              }}
+            >
+              Follow
+            </Button>
+          )
+        }
+      />
       <div className="flex gap-1.5 overflow-x-auto">
         {stack.slice(Math.max(0, at - AHEAD), at + AHEAD + 1).map((s) => (
           <Thumb key={s.filename} name={name} slice={s} on={s === slice} pick={() => user(stack.indexOf(s))} />
