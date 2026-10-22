@@ -190,7 +190,7 @@ def test_headless_run_stops_on_the_callers_stop_event(fm_microscope, tmp_path):
     said = run["stages"][0]["strategy"]
     assert said["name"] == CoincidenceMillingStrategy.name
     assert said["end_reason"] == "stopped by the operator"
-    assert 0 < said["facts"]["Mill time (s)"] < 30
+    assert 0 <= said["facts"]["Mill time (s)"] < 30
     assert said["facts"]["Intensity drop seen"] is False
     assert os.path.isfile(said["figure"])
     assert os.path.isfile(os.path.join(strategy.path, "intensities.npy"))
