@@ -1496,14 +1496,19 @@ def build_app_config_router(context: Any) -> APIRouter:
                 },
             )
         if not result.get("applied") and result.get("error"):
+            # a refusal says what it is (volume's "not served" is invalid); a
+            # bare error is a name that is not there
+            error_type = result.get("error_type") or "not_found"
             detail: Dict[str, Any] = {
-                "error_type": "not_found",
+                "error_type": error_type,
                 "message": result["error"],
             }
             for key in ("item_names", "task_names"):
                 if key in result:
                     detail[key] = result[key]
-            raise HTTPException(status_code=404, detail=detail)
+            raise HTTPException(
+                status_code=_REFUSAL_STATUS.get(error_type, 404), detail=detail
+            )
         return result
 
     return _served(router, context)

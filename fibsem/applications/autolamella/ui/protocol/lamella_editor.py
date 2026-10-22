@@ -48,8 +48,9 @@ from fibsem.applications.autolamella.task_outputs import (
     lamella_images,
     latest_task_image,
 )
-from fibsem.applications.autolamella.ui.protocol.edit_recording import PendingEdits
-from fibsem.applications.autolamella.ui.protocol.editor import TaskConfigEditor
+from fibsem.applications.autolamella.ui.protocol.editor import (
+    AutoLamellaTaskConfigEditor,
+)
 from fibsem.applications.autolamella.workflows.tasks.tasks import (
     AcquireFluorescenceImageConfig,
     SpotBurnFiducialTaskConfig,
@@ -63,6 +64,7 @@ from fibsem.structures import (
     Point,
 )
 from fibsem.ui import notification_service, stylesheets
+from fibsem.ui.edit_recording import PendingEdits
 from fibsem.ui.tokens import (
     BORDER_COLOR,
     CANVAS_BG,
@@ -333,7 +335,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
     def _create_widgets(self):
         """Create the widgets for the protocol editor."""
 
-        self.task_editor = TaskConfigEditor(
+        self.task_editor = AutoLamellaTaskConfigEditor(
             self.session, self.microscope, self._edits, "item", parent=self
         )
         # drive patterns/reposition on the FIB canvas (not napari)

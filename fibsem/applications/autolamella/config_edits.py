@@ -2,9 +2,9 @@
 
 The App Server's config edits: patch an item's task config, the protocol's,
 or the item's own fields; reorder a milling config's stages; re-copy the
-protocol onto an item. The editors' task config edits, copy onto other
-lamellae and global edit of the reference imaging are here too, beside the
-agent's, and the save a config edit makes (:func:`save_edits`). Each agent
+protocol onto an item. The editors' copy onto other lamellae and global
+edit of the reference imaging are here too, beside the agent's; their task
+config write and its save are ``fibsem.server.task_configs``'. Each agent
 edit runs where the experiment is edited (``session.run_edit``), checks the
 version it was written against beside the apply, saves, and is recorded as the agent's edit (FIB-1034, FIB-1062). A
 window writes its editors' pending edits before any edit runs (its executor)
@@ -21,19 +21,18 @@ import logging
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from fibsem.acting import AGENT, acting
-from fibsem.applications.autolamella.edit_recording import (
-    PendingEdits,
-    serialise,
-    touch_agent_patch,
-)
 from fibsem.server.app_context import content_hash, find_item, item_pose_positions
 from fibsem.server.config_patch import PatchError, apply_patch, check_patch
 from fibsem.server.task_configs import (
     config_version,
     patch_config,
     plain_changes,
+    save_edits,
+    save_experiment,
+    task_config_at,
     workflow_field_refusal,
 )
+from fibsem.workflows.edit_recording import PendingEdits
 from fibsem.workflows.status import TaskStatus
 
 # The item-document fields an agent may patch: what a lamella IS — geometry,
@@ -84,6 +83,47 @@ def apply_agent_edit(
             edits.flush()
 
 
+def touch_agent_patch(
+    edits: PendingEdits,
+    experiment: Any,
+    level: str,
+    item_name: str,
+    task_name: str,
+    patch: Any,
+) -> None:
+    """Touch what an agent's config edit at *level* can change
+    (``config_edits.apply_agent_edit``)."""
+    try:
+        if level == "protocol":
+            configs = experiment.task_protocol.task_config
+            edits.touch(
+                None, task_name, "protocol.task_config", lambda: configs.get(task_name)
+            )
+            return
+        lamella = experiment.get_lamella_by_name(item_name)
+        if lamella is None:
+            return
+        if level == "item_fields":
+            fields = {str(path).split(".", 1)[0] for path in patch or {}}
+            for field in fields:
+                edits.touch(
+                    lamella,
+                    None,
+                    field,
+                    lambda field=field: getattr(lamella, field, None),
+                )
+            # the patterns synced to them move with them
+            if {"poi", "alignment_area"} & fields:
+                edits.touch_patterns(lamella)
+            return
+        tasks = [task_name]
+        if level == "apply_protocol":
+            tasks = list((patch or {}).get("task_names") or lamella.task_config)
+        edits.touch_task_configs([lamella], tasks)
+    except Exception:  # noqa: BLE001 - recording must not matter
+        logging.debug("could not note what an agent patch changes", exc_info=True)
+
+
 def _apply(experiment, level, item_name, task_name, patch, version) -> dict:
     if experiment is None:
         return {"applied": False, "error": "no experiment is loaded"}
@@ -94,63 +134,6 @@ def _apply(experiment, level, item_name, task_name, patch, version) -> dict:
     if level == "apply_protocol":
         return apply_protocol_to_item(experiment, item_name, patch.get("task_names"))
     return patch_task_config(experiment, level, item_name, task_name, patch, version)
-
-
-def _save(experiment, what: str, save_protocol: bool = False) -> bool:
-    """Persist now: an agent's edit has no editor's debounced save to ride, so
-    without this write a restart silently reverts it."""
-    try:
-        experiment.save(save_protocol=save_protocol)
-        return True
-    except Exception:
-        logging.exception(
-            f"save after {what} failed; the change is applied in memory but "
-            "not yet on disk"
-        )
-        return False
-
-
-def task_config_at(experiment, level: str, item_name: str, task_name: str):
-    """The task config an edit at *level* names: an item's (``item``) or the
-    protocol's, with the lamella holding it (None for the protocol's), and
-    None; or None, None and the refusal, as an answer's fields."""
-    if level == "protocol":
-        protocol = getattr(experiment, "task_protocol", None)
-        config_map = getattr(protocol, "task_config", None)
-        if config_map is None:
-            return None, None, {"error": "no protocol is loaded"}
-        config = dict(config_map).get(task_name)
-        if config is None:
-            return (
-                None,
-                None,
-                {
-                    "error": f"No task named {task_name!r} in the protocol.",
-                    "task_names": list(config_map.keys()),
-                },
-            )
-        return None, config, None
-    lamella, refusal = find_item(experiment, item_name)
-    if refusal:
-        return None, None, refusal
-    config = dict(lamella.task_config).get(task_name)
-    if config is None:
-        return (
-            None,
-            None,
-            {
-                "error": f"No task config named {task_name!r} on {item_name!r}.",
-                "task_names": list(lamella.task_config.keys()),
-            },
-        )
-    return lamella, config, None
-
-
-def save_edits(experiment, level: str, what: str = "config edit") -> bool:
-    """Write the experiment after an edit at *level*, with the protocol file
-    for the protocol's: an agent's edit at once, an editor's once its edits
-    settle (``ui/protocol/edit_recording.py``)."""
-    return _save(experiment, what, level == "protocol")
 
 
 def patch_task_config(
@@ -183,59 +166,6 @@ def patch_task_config(
     if level == "item":
         result["item_name"] = item_name
     return result
-
-
-def set_task_config_values(
-    experiment,
-    level: str,
-    item_name: str,
-    task_name: str,
-    values: Dict[str, Any],
-    edits: PendingEdits,
-) -> dict:
-    """Set *values* on one task config, as the editors do: each by its path (a
-    field, or ``milling.<key>`` for one milling config), whole and copied, so
-    the config never shares an object with the form that sent it.
-
-    Each value that changes is touched on *edits* first, under its path
-    (``protocol.``-prefixed for the protocol's). No version check: an editor
-    writes the config it shows, and is redrawn when anything else writes it.
-    Not saved here: the editor saves (:func:`save_edits`) once its edits
-    settle."""
-    lamella, config, refusal = task_config_at(experiment, level, item_name, task_name)
-    if refusal:
-        return {"applied": False, **refusal}
-    changes = []
-    for path, value in values.items():
-        *parents, leaf = path.split(".")
-        owner = config
-        for part in parents:
-            owner = _value_at(owner, part)
-        old = _value_at(owner, leaf)
-        if serialise(old) == serialise(value):
-            continue
-        target = path if level == "item" else f"protocol.{path}"
-        edits.touch(
-            lamella,
-            task_name,
-            target,
-            lambda owner=owner, leaf=leaf: _value_at(owner, leaf),
-        )
-        if isinstance(owner, dict):
-            owner[leaf] = copy.deepcopy(value)
-        else:
-            setattr(owner, leaf, copy.deepcopy(value))
-        changes.append((path, old, value))
-    if changes:
-        where = f"{item_name} / {task_name}" if level == "item" else task_name
-        logging.info(
-            f"config edit ({level}): {where}: " + ", ".join(p for p, _o, _n in changes)
-        )
-    return {"applied": True, "task_name": task_name, "changes": plain_changes(changes)}
-
-
-def _value_at(owner: Any, name: str) -> Any:
-    return owner[name] if isinstance(owner, dict) else getattr(owner, name)
 
 
 # The workflow fields a task-config patch may not set, and the verb that sets each.
@@ -272,7 +202,7 @@ def patch_item_fields(experiment, item_name: str, patch: dict, version: str) -> 
         return {"applied": False, **refusal}
     result = edit_item_fields(lamella, patch, version)
     if result["applied"]:
-        result["saved"] = _save(experiment, "agent item patch")
+        result["saved"] = save_experiment(experiment, "agent item patch")
     return result
 
 
@@ -506,7 +436,7 @@ def copy_task_configs(
         source_lamella_name=source_name,
         update_base_protocol=update_base_protocol,
     )
-    return count, _save(experiment, "config apply", update_base_protocol)
+    return count, save_experiment(experiment, "config apply", update_base_protocol)
 
 
 def set_reference_imaging(
@@ -541,7 +471,7 @@ def set_reference_imaging(
                 skipped.append((lamella.name, task_name))
                 continue
             _set_imaging(lamella_config, reference_imaging, milling_fov)
-    _save(experiment, "global edit", save_protocol=True)
+    save_experiment(experiment, "global edit", save_protocol=True)
     return milling, skipped
 
 

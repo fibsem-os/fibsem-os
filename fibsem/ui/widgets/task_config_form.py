@@ -26,6 +26,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.ui.widgets.custom_widgets import TitledPanel, align_form
 from fibsem.ui.widgets.form_builder import Control, FormDefaults, build_control
 from fibsem.workflows.task_config import TaskConfig
@@ -59,7 +60,8 @@ def build_parameter_rows(config: TaskConfig, grid: QGridLayout) -> List[_Row]:
 
     for name in config.parameters:
         spec = specs[name]
-        if spec.hidden:
+        # a milling config has its own editor, beside this form
+        if spec.hidden or isinstance(getattr(config, name), FibsemMillingTaskConfig):
             continue
 
         control = build_control(

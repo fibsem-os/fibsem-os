@@ -1,7 +1,7 @@
 """The editors' edits, recorded and saved once they settle: ``SETTLE_MS`` after
 the last touch or save asked for, or on :meth:`PendingEdits.flush`. The record
-itself is ``fibsem.applications.autolamella.edit_recording``'s; the save is
-``config_edits.save_edits``."""
+itself is ``fibsem.workflows.edit_recording``'s; the save is
+``task_configs.save_edits``."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from typing import Any, Callable, Optional, Tuple
 
 from PyQt5.QtCore import QObject, QTimer
 
-from fibsem.applications.autolamella import edit_recording
-from fibsem.applications.autolamella.config_edits import save_edits
+from fibsem.server.task_configs import save_edits
+from fibsem.workflows import edit_recording
 
 # Long enough to swallow a run of field edits, short enough that the window a
 # crash could take an edit from stays small. Every place where waiting longer

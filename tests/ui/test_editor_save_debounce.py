@@ -44,10 +44,10 @@ from PyQt5.QtWidgets import QApplication
 
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.ui.protocol import lamella_editor as editor_module
-from fibsem.applications.autolamella.ui.protocol.edit_recording import SETTLE_MS
 from fibsem.applications.autolamella.ui.protocol.lamella_editor import (
     AutoLamellaProtocolEditorWidget,
 )
+from fibsem.ui.edit_recording import SETTLE_MS
 
 _app = QApplication.instance() or QApplication(sys.argv)
 

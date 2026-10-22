@@ -1,10 +1,12 @@
 """The volume window's Protocol tab: the protocol's tasks in run order, with
 when each needs a person, Add Task, and Edit Task for what a task requires and
-when it may start. Ticked tasks are the ones Run runs.
+when it may start. Ticked tasks are the ones Run runs. The task clicked shows
+its settings beside the list, once a microscope is connected.
 
-Every edit is a ``workflow_edits`` function, the one the App Server's protocol
-edits call, saved with the protocol and recorded. A refusal is said on a toast
-and the list is drawn again from the protocol.
+Every edit to the tasks is a ``workflow_edits`` function, the one the App
+Server's protocol edits call, saved with the protocol and recorded. A refusal
+is said on a toast and the list is drawn again from the protocol. The settings
+are the shared task editor's, written as the App Server's config edits are.
 """
 
 from __future__ import annotations
@@ -12,10 +14,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, List, Optional
 
 from PyQt5.QtCore import QTimer
-from PyQt5.QtWidgets import QDialog, QHBoxLayout, QWidget
+from PyQt5.QtWidgets import QDialog, QHBoxLayout, QScrollArea, QVBoxLayout, QWidget
 
 from fibsem.ui import notification_service
+from fibsem.ui.edit_recording import PendingEdits
 from fibsem.ui.widgets.workflow.add_task_dialog import AddTaskDialog
+from fibsem.ui.widgets.workflow.task_config_editor import TaskConfigEditor
 from fibsem.ui.widgets.workflow.task_editor_dialog import TaskEditorDialog
 from fibsem.ui.widgets.workflow.task_list import WorkflowTaskList
 from fibsem.workflows import workflow_edits
@@ -23,11 +27,13 @@ from fibsem.workflows.attention import Attention
 from fibsem.workflows.task_config import TaskPlan
 
 if TYPE_CHECKING:
+    from fibsem.microscope import FibsemMicroscope
     from fibsem.workflows.session import AppSession
 
 __all__ = ["ProtocolTab"]
 
-TASK_LIST_WIDTH = 560
+TASK_LIST_WIDTH = 480
+SETTINGS_WIDTH = 400
 
 
 class ProtocolTab(QWidget):
@@ -35,20 +41,62 @@ class ProtocolTab(QWidget):
         super().__init__(parent)
         self.session = session
         self.tasks = WorkflowTaskList()
-        self.tasks.setMaximumWidth(TASK_LIST_WIDTH)
+        self.tasks.setFixedWidth(TASK_LIST_WIDTH)
         self._editor = TaskEditorDialog(self)
+        # Each settings edit, for the experiment's record (FIB-1034).
+        self._edits = PendingEdits(
+            lambda: self.session.microscope, via="protocol editor", parent=self
+        )
+        self.task_editor: Optional[TaskConfigEditor] = None
 
-        layout = QHBoxLayout(self)
-        layout.addWidget(self.tasks, 1)
-        layout.addStretch(0)
+        self._settings = QScrollArea()
+        self._settings.setWidgetResizable(True)
+        self._settings.setFixedWidth(SETTINGS_WIDTH)
+        self._settings.setVisible(False)
+        self._layout = QHBoxLayout(self)
+        self._layout.addWidget(self.tasks)
+        self._layout.addWidget(self._settings)
+        self._layout.addStretch(1)
 
         self.tasks.add_task_clicked.connect(self._on_add)
         self.tasks.attention_toggled.connect(self._on_attention)
         self.tasks.edit_requested.connect(self._on_edit)
         self.tasks.order_changed.connect(self._on_reorder)
+        self.tasks.current_changed.connect(lambda _task: self._show_settings())
         self._editor.editor.apply_clicked.connect(self._on_edited)
         self._editor.remove_requested.connect(self._on_remove)
         self.refresh()
+
+    def set_microscope(self, microscope: Optional["FibsemMicroscope"]) -> None:
+        """The settings need the microscope (the milling editor's): built on the
+        first, told of a reconnect, dropped when it goes."""
+        if microscope is None:
+            if self.task_editor is not None:
+                self._edits.flush()
+                self._layout.removeWidget(self.task_editor.milling)
+                self.task_editor.milling.deleteLater()
+                self._settings.takeWidget().deleteLater()
+                self.task_editor = None
+            self._settings.setVisible(False)
+            return
+        if self.task_editor is not None:
+            self.task_editor.set_microscope(microscope)
+            return
+        self.task_editor = TaskConfigEditor(
+            self.session, microscope, self._edits, "protocol"
+        )
+        column = QWidget()
+        stack = QVBoxLayout(column)
+        stack.setContentsMargins(0, 0, 0, 0)
+        stack.addWidget(self.task_editor)
+        stack.addStretch(1)
+        self._settings.setWidget(column)
+        self._layout.insertWidget(2, self.task_editor.milling, 1)
+        self._show_settings()
+
+    def flush_pending_save(self) -> None:
+        """Record and write the settings edits still settling."""
+        self._edits.flush()
 
     @property
     def protocol(self):
@@ -64,10 +112,21 @@ class ProtocolTab(QWidget):
             self.tasks.clear()
             return
         fresh = not self.tasks.get_tasks()
+        current = self.tasks.current_task()
         self.tasks.set_protocol(protocol)
         self.tasks.set_config(protocol.workflow_config)
         if fresh:
             self.tasks.set_all_selected(True)
+        self.tasks.set_current(current.name if current is not None else None)
+        self._show_settings()
+
+    def _show_settings(self) -> None:
+        """The current task's settings, or none."""
+        if self.task_editor is None:
+            return
+        task = self.tasks.current_task() if self.protocol is not None else None
+        config = self.task_editor.show_task(task.name if task is not None else None)
+        self._settings.setVisible(config is not None)
 
     def selected_task_names(self) -> List[str]:
         """The ticked tasks, in run order."""

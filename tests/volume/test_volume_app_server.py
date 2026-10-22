@@ -359,3 +359,15 @@ def test_a_task_never_goes_before_or_requires_a_later_task(agent, experiment):
     assert later.status_code == 422
     assert "can only require" in later.json()["detail"]["message"]
     assert _saved_protocol(experiment).ordered_task_names == order
+
+
+def test_a_per_position_config_edit_is_refused_as_invalid_not_missing(agent):
+    _add(agent, "aspen")
+    refused = agent.post(
+        f"/app/experiment/items/aspen/task_config/{MILL}",
+        json={"patch": {"slice_thickness": 1e-7}, "version": "v"},
+    )
+    assert refused.status_code == 422
+    detail = refused.json()["detail"]
+    assert detail["error_type"] == "invalid"
+    assert "positions share the protocol's" in detail["message"]

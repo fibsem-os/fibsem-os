@@ -25,8 +25,9 @@ from fibsem.applications.autolamella.ui.protocol.dialogs import (
     ProtocolDetailsDialog,
     ProtocolHeaderWidget,
 )
-from fibsem.applications.autolamella.ui.protocol.edit_recording import PendingEdits
-from fibsem.applications.autolamella.ui.protocol.editor import TaskConfigEditor
+from fibsem.applications.autolamella.ui.protocol.editor import (
+    AutoLamellaTaskConfigEditor,
+)
 from fibsem.applications.autolamella.ui.protocol.lamella_template import (
     LamellaDefaultConfigWidget,
 )
@@ -36,6 +37,7 @@ from fibsem.applications.autolamella.workflows.tasks.tasks import (
 )
 from fibsem.structures import BeamType, FibsemImage
 from fibsem.ui import stylesheets
+from fibsem.ui.edit_recording import PendingEdits
 from fibsem.ui.tokens import (
     BORDER_COLOR,
     NEUTRAL_200,
@@ -196,7 +198,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         )
         self.setStyleSheet(stylesheets.NAPARI_STYLE)
 
-        self.task_editor: Optional[TaskConfigEditor] = None
+        self.task_editor: Optional[AutoLamellaTaskConfigEditor] = None
         self.microscope = self.session.microscope  # type: ignore[assignment]
         self.experiment: "Experiment" = self.session.experiment  # type: ignore[assignment]
 
@@ -257,7 +259,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
         # Task forms (Column 2), and their milling editor (Column 3 — no
         # controller, config panels only)
-        self.task_editor = TaskConfigEditor(
+        self.task_editor = AutoLamellaTaskConfigEditor(
             self.session, self.microscope, self._edits, "protocol", parent=self
         )
 

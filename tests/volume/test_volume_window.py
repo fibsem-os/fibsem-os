@@ -149,3 +149,67 @@ def test_the_point_picked_on_the_fib_image_is_the_positions(window, toasts):
     assert window.experiment.positions[0].poi == Point(1e-6, -2e-6)
     assert panel.poi_label.text() == "x 1.00 µm · y -2.00 µm"
     assert toasts == []
+
+
+def test_the_task_clicked_shows_its_settings_and_writes_them(window, qapp, monkeypatch):
+    import copy
+
+    tab = window.protocol_tab
+    config = window.experiment.task_protocol.task_config["Volume FIB Milling"]
+    recorded = []
+    monkeypatch.setattr(
+        window.microscope,
+        "record_event",
+        lambda kind, payload: recorded.append(payload),
+    )
+
+    tab.tasks.set_current("Volume FIB Milling")
+    editor = tab.task_editor
+    assert editor.task_name == "Volume FIB Milling"
+    # the milling has its own editor, not a row of the form
+    assert [row.field for row in editor.parameters._rows] == ["slice_thickness"]
+    assert editor.milling_choice.isHidden()
+    assert editor.reference_imaging.isHidden()
+
+    editor.set_values({"slice_thickness": 300e-9})
+    sent = copy.deepcopy(config.milling)
+    sent.field_of_view = 80e-6
+    editor.milling.settings_changed.emit(sent)
+    assert config.slice_thickness == 300e-9
+    assert config.milling.field_of_view == 80e-6
+    assert config.milling is not sent
+
+    tab.flush_pending_save()
+    assert sorted(p["target"] for p in recorded) == [
+        "protocol.milling",
+        "protocol.slice_thickness",
+    ]
+
+
+def test_a_task_with_several_millings_picks_the_one_shown(window):
+    tab = window.protocol_tab
+    config = window.experiment.task_protocol.task_config["Setup FIB Milling Position"]
+    tab.tasks.set_current("Setup FIB Milling Position")
+    editor = tab.task_editor
+    combo = editor._milling_combo
+    assert not editor.milling_choice.isHidden()
+    assert [combo.itemText(i) for i in range(combo.count())] == [
+        "Trench",
+        "Fiducial",
+        "Face",
+    ]
+
+    combo.setCurrentIndex(2)
+    sent = editor.milling.get_config()
+    sent.field_of_view = 90e-6
+    editor.milling.settings_changed.emit(sent)
+    assert config.face.field_of_view == 90e-6
+    assert config.trench.field_of_view != 90e-6
+
+
+def test_the_settings_go_with_the_microscope(window, qapp):
+    tab = window.protocol_tab
+    assert tab.task_editor is not None
+    window.system_widget.connect_to_microscope()  # connected: it disconnects
+    qapp.processEvents()
+    assert tab.task_editor is None
