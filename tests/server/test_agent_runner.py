@@ -338,6 +338,63 @@ def test_code_mode_is_sandboxed_in_its_work_folder(tmp_path, monkeypatch):
     assert not any("t0k" in part for part in command), "the token is in argv"
 
 
+def test_files_mode_reads_and_writes_its_folder_and_runs_nothing(tmp_path):
+    pytest.importorskip("claude_agent_sdk")
+    import json
+
+    from fibsem.ai.agent import code_mode
+
+    checkout = runner_mod.find_checkout()
+    work = tmp_path / "work"
+    code_mode.prepare(
+        work, checkout, list(runner_mod.SKILLS), list(runner_mod.SPECIALISTS)
+    )
+    options = runner_mod.build_options(checkout, work=work, code=False)
+
+    assert options.cwd == str(work)
+    for tool in ("Read", "Write", "Edit", "Glob", "Grep"):
+        assert tool in options.tools
+    # No shell: not given, not allowed, and still denied.
+    assert "Bash" not in options.tools
+    assert "Bash" not in options.allowed_tools
+    assert "Bash" in options.disallowed_tools
+    assert f"Edit(/{work.as_posix()}/**)" in options.allowed_tools
+    settings = json.loads(options.settings)
+    assert settings["permissions"]["blockReadsOutsideWorkingDirectories"] is True
+    assert (
+        f"Edit(/{(work / '.claude').as_posix()}/**)"
+        in (settings["permissions"]["deny"])
+    )
+    # Nothing runs, so there is no sandbox to need.
+    assert "sandbox" not in settings
+    prompt = options.system_prompt["append"]
+    assert str(work) in prompt and "can't run code" in prompt
+    assert "Run Python" not in prompt and "notebook/INDEX.md" in prompt
+
+
+def test_files_mode_works_on_windows_but_still_needs_a_folder_of_its_own(
+    tmp_path, monkeypatch
+):
+    from fibsem.ai.agent import code_mode
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    checkout = tmp_path / "fibsem-os"
+    work = tmp_path / "home" / "fibsem-work"
+    monkeypatch.setattr(code_mode.sys, "platform", "win32")
+    assert code_mode.refusal(work, checkout, code=False) is None
+    for wrong in (tmp_path / "home", tmp_path, checkout / "sub"):
+        assert code_mode.refusal(wrong, checkout, code=False), wrong
+    assert code_mode.describe(work, code=False) == (
+        f"Off; reads and writes files in {work} (--files)"
+    )
+
+
+def test_code_and_files_are_one_or_the_other(capsys):
+    with pytest.raises(SystemExit):
+        runner_mod.main(["--code", "a", "--files", "b"])
+    assert "use one of them" in capsys.readouterr().err
+
+
 def test_code_mode_rebuilds_its_claude_folder_every_start(tmp_path):
     """A settings file (or anything else) left in work/.claude doesn't reach
     the next session: only the skills and specialists are there."""

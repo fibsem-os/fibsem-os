@@ -44,6 +44,12 @@ stop and ask, and never repackage the call to get past it. Under
 `fibsem-agent` there is no curl path, even in code mode (its shell has no
 network): the MCP tools are the way in.
 
+`fibsem-agent` may give you a folder of your own, named in its prompt. With
+`--files` you read and write files there and run nothing: there is no shell.
+With `--code` you also have a shell there, sandboxed. Either way, keep your
+notebook there, and `experiment_fetch_file` saves files under `fetched/` for
+you to read.
+
 Read `server_get_capabilities` (`/capabilities`) before anything else:
 
 - `routers.app` must be true, or no application is hosted and there is no
@@ -255,7 +261,7 @@ Every read works at Watch.
 | Grids | `grid_list`, `grid_get`, `grid_get_markers`, `experiment_render_markers` |
 | Grids on the hardware now | `grid_get_inventory` (which grid is loaded), `grid_get_current` |
 | Any other file | `experiment_list_files`, `experiment_read_file`, `experiment_crop_image` |
-| A file for your own code | `experiment_fetch_file` saves it as it is on your machine |
+| A file to read in your own folder | `experiment_fetch_file` saves it as it is on your machine |
 | A past experiment | the same tools with `experiment`, its `relative_path` from `experiment_list_all`; only one the operator named or their goal asks for, and every read goes on the record |
 
 **Check an image's age before judging it.** Images carry `acquired_at`. One
