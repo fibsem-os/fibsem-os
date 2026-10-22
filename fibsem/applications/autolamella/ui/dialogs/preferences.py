@@ -37,6 +37,11 @@ _LBL_SOUND = "Enable Sound Notifications"
 _TIP_SOUND = "Play an audio alert when the workflow requires the user's attention."
 _LBL_BORDER = "Enable Workflow Border"
 _TIP_BORDER = "Highlight the viewport border while an automated workflow is running."
+_LBL_TOAST_PROBLEMS = "Toasts for Problems Only"
+_TIP_TOAST_PROBLEMS = (
+    "Pop up only errors, warnings and the end of a run. Everything else still goes "
+    "to the notification bell. Useful while an agent or a long run is working."
+)
 _LBL_CARD_MODE = "Lamella Card Layout"
 _TIP_CARD_MODE = (
     "How each lamella is drawn in the Lamella tab's strip: a large thumbnail, a "
@@ -140,6 +145,8 @@ class PreferencesDialog(QDialog):
         self._chk_sound.setToolTip(_TIP_SOUND)
         self._chk_border = QCheckBox()
         self._chk_border.setToolTip(_TIP_BORDER)
+        self._chk_toast_problems = QCheckBox()
+        self._chk_toast_problems.setToolTip(_TIP_TOAST_PROBLEMS)
         self._chk_dev_mode = QCheckBox()
         self._chk_dev_mode.setToolTip(_TIP_DEV_MODE)
         # The one display preference that is not a yes/no. Its values are carried as
@@ -151,6 +158,7 @@ class PreferencesDialog(QDialog):
             self._combo_card_mode.addItem(card_mode_label(mode), mode)
         display_form.addRow(_LBL_SOUND, self._chk_sound)
         display_form.addRow(_LBL_BORDER, self._chk_border)
+        display_form.addRow(_LBL_TOAST_PROBLEMS, self._chk_toast_problems)
         display_form.addRow(_LBL_CARD_MODE, self._combo_card_mode)
         display_form.addRow(_LBL_DEV_MODE, self._chk_dev_mode)
         self._chk_update_check = QCheckBox()
@@ -225,6 +233,7 @@ class PreferencesDialog(QDialog):
         d = prefs.display
         self._chk_sound.setChecked(d.sound_enabled)
         self._chk_border.setChecked(d.border_enabled)
+        self._chk_toast_problems.setChecked(d.toast_problems_only)
         self._chk_dev_mode.setChecked(d.dev_mode)
         card_index = self._combo_card_mode.findData(d.lamella_card_mode)
         if card_index == -1:
@@ -297,6 +306,7 @@ class PreferencesDialog(QDialog):
         d = prefs.display
         d.sound_enabled = self._chk_sound.isChecked()
         d.border_enabled = self._chk_border.isChecked()
+        d.toast_problems_only = self._chk_toast_problems.isChecked()
         d.dev_mode = self._chk_dev_mode.isChecked()
         d.lamella_card_mode = self._combo_card_mode.currentData()
 

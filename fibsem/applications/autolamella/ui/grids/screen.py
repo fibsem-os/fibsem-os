@@ -38,9 +38,6 @@ from fibsem.applications.autolamella.ui.workflow.preflight import (
     grid_run_summary,
     run_ending,
 )
-from fibsem.applications.autolamella.workflows.tasks.attendance import (
-    grid_run_attendance,
-)
 from fibsem.structures import BeamType, GridInventoryEntry, GridSlotState
 from fibsem.ui import stylesheets
 from fibsem.ui.control import control_of
@@ -59,6 +56,9 @@ from fibsem.ui.widgets.preflight import (
     warning_label,
 )
 from fibsem.ui.widgets.sample_holder_widget import _NAME_FIELD_STYLE
+from fibsem.workflows.attendance import (
+    grid_run_attendance,
+)
 from fibsem.workflows.estimate import RunEstimate
 from fibsem.workflows.grid.naming import grid_has_run, is_default_grid_name
 from fibsem.workflows.grid.screening import (

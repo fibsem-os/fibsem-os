@@ -15,7 +15,6 @@ from PyQt5.QtCore import QObject, Qt
 from PyQt5.QtWidgets import QMessageBox, QWidget
 
 from fibsem.acting import AGENT, OPERATOR
-from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
 from fibsem.ui import notification_service
 from fibsem.ui.widgets.run_border import RunBorder, run_border_state
 from fibsem.ui.widgets.status_bar import FibsemStatusBar
@@ -26,14 +25,15 @@ from fibsem.ui.widgets.workflow_summary_dialog import (
 )
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.runner import GRIDS, RunRequest
+from fibsem.workflows.site_task import get_task_supervision
 from fibsem.workflows.status import TaskStatus
 from fibsem.workflows.workflow_edits import set_supervision
 
 if TYPE_CHECKING:
     import pandas as pd
 
-    from fibsem.applications.autolamella.ui.run.attention import AttentionRouter
     from fibsem.ui.qt.run_bridge import RunRelay
+    from fibsem.ui.run.attention import AttentionRouter
     from fibsem.workflows.session import AppSession
     from fibsem.workflows.status import WorkflowStatusEvent, WorkflowStatusUpdate
 
@@ -319,7 +319,7 @@ class RunView(QObject):
         elif note:
             self._status_bar.show_failure("Run stalled", note)
         elif runner.last_summary is None or runner.last_summary.empty:
-            notification_service.show_toast("Workflow finished.")
+            notification_service.show_toast("Workflow finished.", always=True)
 
     def show_summary(self) -> None:
         """Toast the end of the last workflow, and open its summary unless the
@@ -356,6 +356,7 @@ class RunView(QObject):
                 "Show summary",
                 lambda: self._open_summary(summary, note),
             ),
+            always=True,
         )
         experiment = self._session.experiment
         protocol = experiment.task_protocol if experiment is not None else None

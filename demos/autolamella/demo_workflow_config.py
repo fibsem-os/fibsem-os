@@ -16,10 +16,10 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
 )
-from fibsem.applications.autolamella.ui.workflow.task_editor import (
+from fibsem.ui.widgets.workflow.task_editor import (
     WorkflowTaskEditorWidget,
 )
-from fibsem.applications.autolamella.ui.workflow.task_list import WorkflowTaskList
+from fibsem.ui.widgets.workflow.task_list import WorkflowTaskList
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.site_tasks.reference_image import (
     AcquireReferenceImageConfig,

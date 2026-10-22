@@ -90,11 +90,15 @@ function Action({ row }: { row: RecentRow }) {
   );
 }
 
-/** A run of actions in one line, "4 actions, 1 refused"; open while one still runs. */
+/** A run of actions in one line, "4 actions, 1 refused". A run seen running stays
+ * open when it finishes, so the list doesn't jump; the reader folds it. */
 function Actions({ rows, folded }: { rows: RecentRow[]; folded: boolean }) {
   const live = rows.some((r) => r.tone === "running" || r.tone === "waiting");
-  const [open, setOpen] = useState<boolean | null>(null);
-  const shown = !folded || (open ?? live);
+  const [open, setOpen] = useState(live);
+  useEffect(() => {
+    if (live) setOpen(true);
+  }, [live]);
+  const shown = !folded || open;
   const counts = new Map<string, number>();
   for (const r of rows) if (r.tone !== "ok") counts.set(r.outcome, (counts.get(r.outcome) ?? 0) + 1);
   const summary = [
@@ -193,14 +197,23 @@ function Record({ rows, lines, show }: { rows: RecentRow[]; lines: TranscriptLin
   const out: JSX.Element[] = [];
   let run: RecentRow[] = [];
   let working: TranscriptLine[] = [];
+  // Keyed by what a row says, not where it sits: the oldest rows drop off the
+  // window, and a run keyed by position would lose whether the reader opened it.
+  const seen = new Map<string, number>();
+  const keyOf = (row: RecentRow) => {
+    const base = `${row.kind}|${row.when}|${row.text}`;
+    const n = seen.get(base) ?? 0;
+    seen.set(base, n + 1);
+    return `${base}|${n}`;
+  };
   const end = () => {
-    if (run.length) out.push(<Actions key={`a${out.length}`} rows={run} folded={show === "all"} />);
+    if (run.length) out.push(<Actions key={keyOf(run[0])} rows={run} folded={show === "all"} />);
     run = [];
   };
   const endWorking = () => {
     if (working.length) {
       end();
-      out.push(<Working key={`w${out.length}`} lines={working} folded={show === "all"} />);
+      out.push(<Working key={`w|${working[0].session_id}|${working[0].seq ?? working[0].t}`} lines={working} folded={show === "all"} />);
     }
     working = [];
   };
@@ -215,7 +228,7 @@ function Record({ rows, lines, show }: { rows: RecentRow[]; lines: TranscriptLin
       if (show !== "conversation") run.push(row);
     } else if (show !== "actions") {
       end();
-      out.push(<Message key={`m${out.length}`} row={row} />);
+      out.push(<Message key={keyOf(row)} row={row} />);
     }
   }
   end();

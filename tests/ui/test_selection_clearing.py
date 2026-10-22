@@ -31,7 +31,7 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.applications.autolamella.ui.lamella.cards import LamellaCardContainer
 from fibsem.applications.autolamella.ui.lamella.rows import LamellaListWidget
-from fibsem.applications.autolamella.ui.workflow.task_list import WorkflowTaskList
+from fibsem.ui.widgets.workflow.task_list import WorkflowTaskList
 from fibsem.workflows.task_config import TaskPlan
 
 

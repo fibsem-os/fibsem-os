@@ -34,7 +34,6 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.structures import Experiment
-from fibsem.applications.autolamella.ui.protocol.dialogs import AddTaskDialog
 from fibsem.ui.tokens import NEUTRAL_200, TEXT_MUTED_COLOR, WARN_COLOR
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
@@ -44,6 +43,7 @@ from fibsem.ui.widgets.custom_widgets import (
 from fibsem.ui.widgets.fibsem_overview_settings_widget import (
     FibsemOverviewSettingsWidget,
 )
+from fibsem.ui.widgets.workflow.add_task_dialog import AddTaskDialog
 from fibsem.workflows.grid import (
     BeamOverviewGridTaskConfig,
     FluorescenceOverviewGridTaskConfig,

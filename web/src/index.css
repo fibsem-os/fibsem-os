@@ -60,6 +60,34 @@ body {
   }
 }
 
+/* Scroll bars as the Qt app draws them: a thin border-coloured handle, no
+   arrows, no trough. Windows otherwise shows its own light bars. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  min-height: 24px;
+  border: 2px solid transparent;
+  border-radius: 5px;
+  background: var(--border) padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--muted-foreground);
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+/* Firefox has no ::-webkit-scrollbar; Chromium would drop it for these. */
+@supports (-moz-appearance: none) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+}
+
 /* The agent chip while the agent acts on the microscope: its purple fill
    fades from Driving's solid to Assisting's tint and back, as the Qt chip does. */
 @keyframes agent-pulse {

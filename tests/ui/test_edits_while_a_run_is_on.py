@@ -35,7 +35,7 @@ def window(qapp, tmp_path):
         experiment.positions.append(lamella)
     ui.experiment = experiment
     ui.session.runner = StubRunner(ui.session)
-    ui.panel.experiment_tab.update_lamella_combobox()  # listed before the run
+    ui.panel.experiment_tab.update_items()  # listed before the run
     yield ui
     close_window(ui)
 
@@ -43,7 +43,7 @@ def window(qapp, tmp_path):
 def _select(window, name):
     tab = window.panel.experiment_tab
     tab.lamella_list.select(name)
-    tab.update_lamella_ui()
+    tab.update_selected()
     return tab
 
 

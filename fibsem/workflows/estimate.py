@@ -8,7 +8,7 @@ and quoting ``now + Σ`` would be wrong by the length of that wait.
 Everything here is plain data, so it can be checked against a real experiment
 without a microscope or a widget. Per-step durations come from each config's
 ``estimated_duration`` (see :mod:`fibsem.timing`); who has to be there while the
-run goes is not an estimate and is not here (``tasks/attendance.py``).
+run goes is not an estimate and is not here (``fibsem/workflows/attendance.py``).
 
 See FIB-666.
 """

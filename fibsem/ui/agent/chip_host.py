@@ -191,7 +191,7 @@ class AgentChipHost(QObject):
         result = self._agent.approve_suggestion(self._suggested[2])
         if not result.applied:
             notification_service.show(
-                f"Could not approve the agent's suggestion: {result.reason}", "info"
+                f"Could not approve the agent's suggestion: {result.reason}", "warning"
             )
         self._show_suggestion()
 
@@ -240,7 +240,7 @@ class AgentChipHost(QObject):
         try:
             name = self._agent.allow_connection(ask_id)
         except LookupError as exc:
-            notification_service.show(f"Could not allow the agent: {exc}", "info")
+            notification_service.show(f"Could not allow the agent: {exc}", "warning")
         else:
             notification_service.show(f"{name} can connect", "info")
         self.refresh()
@@ -250,7 +250,7 @@ class AgentChipHost(QObject):
         try:
             self._agent.deny_connection(ask_id, reason)
         except LookupError as exc:
-            notification_service.show(f"Could not deny the agent: {exc}", "info")
+            notification_service.show(f"Could not deny the agent: {exc}", "warning")
         self.refresh()
 
     def _show_request(self) -> None:

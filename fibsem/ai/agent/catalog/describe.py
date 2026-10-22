@@ -244,7 +244,7 @@ def _objective_state(read: Optional[wording.Reader]) -> Optional[str]:
 
 
 def _inserts_objective(tool: str, arguments: Dict[str, Any]) -> bool:
-    return (
+    return tool == "fm_insert_objective" or (
         tool == "device_call_command"
         and (arguments or {}).get("device") == "objective"
         and (arguments or {}).get("command") == "insert"

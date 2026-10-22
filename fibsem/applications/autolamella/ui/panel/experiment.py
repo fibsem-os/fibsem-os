@@ -43,6 +43,8 @@ __all__ = ["ExperimentTab"]
 
 
 class ExperimentTab(QWidget):
+    title = "Experiment"
+
     def __init__(
         self,
         session: "AppSession",
@@ -86,7 +88,7 @@ class ExperimentTab(QWidget):
         # second full `experiment.save()` for one toggled icon, which is 0.8 s of frozen
         # GUI at 100 lamella (FIB-682). Every other host of this list keeps its own
         # handler, because nothing else is listening for them (FIB-564).
-        self.lamella_list.lamella_selected.connect(self.update_lamella_ui)
+        self.lamella_list.lamella_selected.connect(self.update_selected)
 
         self.selected_lamella = SelectedLamellaController(
             self.selected_lamella_widget,
@@ -124,7 +126,7 @@ class ExperimentTab(QWidget):
 
         self.lamella_list.setEnabled(is_experiment_ready)
 
-        # clear the panel when no lamella is selected; populated by update_lamella_ui otherwise
+        # clear the panel when no lamella is selected; populated by update_selected otherwise
         if not has_lamella:
             self.selected_lamella_widget.set_lamella(None)
 
@@ -132,9 +134,9 @@ class ExperimentTab(QWidget):
 
         # Current Lamella Status
         if has_lamella and self.experiment is not None:
-            self.update_lamella_ui()
+            self.update_selected()
 
-    def update_lamella_combobox(self, latest: bool = False):
+    def update_items(self, latest: bool = False):
         if self.experiment is None:
             return
         if self.session.runner.is_running:
@@ -150,7 +152,7 @@ class ExperimentTab(QWidget):
             self.experiment.positions, preferred_name=preferred
         )
 
-    def update_lamella_ui(self, _lamella=None):
+    def update_selected(self, _lamella=None):
         # set the info for the current selected lamella
         if self.experiment is None or self.experiment.positions == []:
             return
@@ -248,7 +250,7 @@ class ExperimentTab(QWidget):
             marked_at=marked_at,
             grid_id=grid_id,
         )
-        self.update_lamella_combobox(latest=True)
+        self.update_items(latest=True)
         self.refresh()
 
         return lamella
@@ -283,7 +285,7 @@ class ExperimentTab(QWidget):
         if not remove_lamella(self.experiment, lamella):
             return
         logging.debug("Lamella removed from experiment")
-        self.update_lamella_combobox(latest=True)
+        self.update_items(latest=True)
         self.refresh()
 
     def update_lamella_position_ui(self):
@@ -327,7 +329,7 @@ class ExperimentTab(QWidget):
             deepcopy(self.microscope.get_microscope_state()),
         )
 
-        self.update_lamella_combobox()
+        self.update_items()
         self.refresh()
 
     def get_selected_lamella(self) -> Optional[Lamella]:
