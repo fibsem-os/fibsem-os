@@ -36,7 +36,7 @@
   "geometry": null,
   "pixel_size_x": 1e-07,
   "pixel_size_y": 1e-07,
-  "pixel_size_z": 9.99999999999994e-05,
+  "pixel_size_z": 0.00010000000000000026,
   "resolution": [
     512,
     256
