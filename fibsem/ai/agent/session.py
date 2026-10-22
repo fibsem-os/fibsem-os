@@ -102,6 +102,9 @@ def session_facts(session: Optional[Dict[str, Any]]) -> List[Tuple[str, str]]:
     if session.get("code") is True:
         where = f" in {session['workdir']}" if session.get("workdir") else ""
         facts.append(("Code", f"On{where} (sandboxed)"))
+    elif session.get("files") is True:
+        where = f" in {session['workdir']}" if session.get("workdir") else ""
+        facts.append(("Code", f"Off; reads and writes files{where}"))
     elif session.get("code") is False:
         facts.append(("Code", "Off"))
     if session.get("skills"):

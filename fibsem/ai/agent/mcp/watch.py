@@ -355,8 +355,11 @@ def _alignment_line(event, data):
 def _stage_part(stage):
     """A stage's part of the MILL ENDED line, with why it ended other than by
     milling its patterns out: a skipped stage's reason, else its end's
-    (``ended by monitor:FM Intensity: intensity drop``)."""
+    (``ended by monitor:FM Intensity: intensity drop``). A current the beam
+    snapped to another it lists is said in brackets."""
     part = f"{stage.get('name')}={stage.get('status')}"
+    if stage.get("current_warning"):
+        part += f" [{stage['current_warning']}]"
     end = stage.get("end") or {}
     if stage.get("reason"):
         return f"{part} ({stage['reason']})"

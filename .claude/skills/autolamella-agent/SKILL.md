@@ -44,6 +44,12 @@ stop and ask, and never repackage the call to get past it. Under
 `fibsem-agent` there is no curl path, even in code mode (its shell has no
 network): the MCP tools are the way in.
 
+`fibsem-agent` may give you a folder of your own, named in its prompt. With
+`--files` you read and write files there and run nothing: there is no shell.
+With `--code` you also have a shell there, sandboxed. Either way, keep your
+notebook there, and `experiment_fetch_file` saves files under `fetched/` for
+you to read.
+
 Read `server_get_capabilities` (`/capabilities`) before anything else:
 
 - `routers.app` must be true, or no application is hosted and there is no
@@ -255,7 +261,7 @@ Every read works at Watch.
 | Grids | `grid_list`, `grid_get`, `grid_get_markers`, `experiment_render_markers` |
 | Grids on the hardware now | `grid_get_inventory` (which grid is loaded), `grid_get_current` |
 | Any other file | `experiment_list_files`, `experiment_read_file`, `experiment_crop_image` |
-| A file for your own code | `experiment_fetch_file` saves it as it is on your machine |
+| A file to read in your own folder | `experiment_fetch_file` saves it as it is on your machine |
 | A past experiment | the same tools with `experiment`, its `relative_path` from `experiment_list_all`; only one the operator named or their goal asks for, and every read goes on the record |
 
 **Check an image's age before judging it.** Images carry `acquired_at`. One
@@ -482,8 +488,13 @@ operator): the watcher prints `MILL STAGE STARTED` for each stage and `MILL
 ENDED` with each stage's outcome. Check the `current` and `depth` on each
 stage's line against what the protocol or you meant to mill; if they are
 wrong, stop the mill as your level allows (see *Stopping*) and tell the
-operator. Collect the result with `service_wait_for_run` milling, with the
-line's `run` as `run_id`, or without one for the mill going on.
+operator. The beam mills only at currents it lists: ask for another and it
+mills at the nearest one, and `MILL ENDED` says so in brackets after that
+stage (each stage's record has `milling_current_used`). Ask only for listed
+currents, and when a stage ran at another than you meant, say so before
+you judge what it milled (a 60 pA polish ran at 30 pA on a real run).
+Collect the result with `service_wait_for_run` milling, with the line's
+`run` as `run_id`, or without one for the mill going on.
 
 **What tasks move for you.** Some tasks edit other configs as they run, so
 check the next one before you rely on an edit you made by hand. Setup moves
@@ -499,8 +510,11 @@ mills, each `{name, config}` in its `monitors`. `milling_list_options` lists
 them with their config fields; you pick one by name and set its config, never
 supply code. FM Intensity watches the fluorescence under the mill and triggers
 on a drop. It needs an Arctis whose software restrictions on running the FM
-while milling an operator has disabled: if they haven't, don't use it. SEM
-Peek pauses the mill every `interval` seconds of milled time for an SEM image.
+while milling an operator has disabled: if they haven't, don't use it. It is
+experimental: never turn it on yourself, at any level. Propose it, and use
+it only after the operator says yes for this run; then help them set it up
+(which stage, the area to watch, the drop settings).
+SEM Peek pauses the mill every `interval` seconds of milled time for an SEM image.
 RTM, listed only where the instrument has it, reads what the ion beam reads
 back from the patterns as they mill; each reading carries every pattern's
 mean value, by its draw index. It only watches: it never ends a stage.
@@ -524,6 +538,8 @@ The same rules apply in the Polishing task's milling proposal and by hand
   250-300 nm gap there; other instruments differ, so measure, don't assume.
 - Preview every step's patterns on a fresh ion image first
   (`milling_preview_patterns`), and look at where they land.
+- Polish in passes at least 1 µm deep, each placed from a fresh 50 µm ion
+  image. 0.4 µm passes at 10 pA removed nothing seven times out of seven.
 - Re-align to the reference before every step. Below about 300 nm, if the
   alignment methods disagree, align again before milling. For polish passes,
   set the Polishing task's `alignment.full_frame_below` (80 pA, say) rather
@@ -540,6 +556,19 @@ The same rules apply in the Polishing task's milling proposal and by hand
   band is tilted enough to leave a wedge, say so before thinning further.
 - Report each step: current, gap, time, the alignment residual, the band
   measured, what the SEM showed.
+
+**Align to the image you placed on.** A task's own alignment before milling
+corrects only the shift from changing to the milling current, against an
+image it takes there and then; the item's stored reference may be older than
+your placement. When you place or move patterns on a new ion image, save that
+image (`beam_acquire_image` with a path) and `alignment_align_to_reference` to
+it right before the mill, so the patterns land where you put them.
+
+**Rough milling.** Run the rough stages in the protocol's order (Rough Mill
+01 before Rough Mill 02), and tell the operator before you turn one off.
+Once the slab is under about 1.5 µm, don't add rough rounds: thin with the
+polishing stages. An extra rough round on a real run cut through the slab
+and left a double lamella.
 
 **Aligning to a reference.** To bring the view back onto a saved image (a
 task's reference from `item_list_outputs`, or one you saved),
@@ -565,7 +594,16 @@ misleading numbers on a real run; take a cleaner image), `several_bands`
 (another bright line in the window, listed in `other_bands`: residue in a
 trench or a stepped wall). Check the answer on the image before you use it:
 the band it finds may be the wrong one, and then its `centre_offset` is wrong
-too (a polish window moved by it landed on trench residue).
+too (a polish window moved by it landed on trench residue). Compare readings
+only across images of similar contrast, at a 20 µm field width: on a real
+run one lamella read 226 nm on a high-contrast image and 305-341 nm on
+low-contrast ones. A number that moves with contrast is not a measurement;
+image again before acting on it.
+
+**Reading an FM stack.** Judge a target from its planes, not the max
+projection: `experiment_read_file` with `z` (and `channels`) shows one plane,
+and the metadata gives each channel's `sharpest_plane`. The projection hides
+which depth a spot is at and whether a neighbour sits above it.
 
 **Correlating FM to FIB.** `correlation_correlate` fits a saved FM stack to
 a saved FIB image from fiducial pairs you give (FIB pixels; FM pixels and
@@ -576,7 +614,9 @@ earlier runs and is saved where the correlation tab finds it. A verdict of
 `check` or `bad` names the fiducial to look at. The answer does not move the
 lamella's POI: `item_apply_correlation` with the run's `run_path` does, as the
 tab's Continue (Drive; at Assist, ask). Only move it on a `good` verdict, or
-when the operator agrees.
+when the operator agrees. For a target at depth, give `fm_surface_point`
+(the sample surface in the stack) so its depth is corrected for refractive
+index; without it the target's depth is the stack's, uncorrected.
 
 **Overviews and focus stacks.** `beam_acquire_overview` images a grid of
 tiles around where the stage is and stitches them; the stage moves to each

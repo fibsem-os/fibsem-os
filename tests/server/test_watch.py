@@ -895,6 +895,43 @@ def test_a_mill_line_names_the_item_and_a_failure():
     ]
 
 
+def test_a_mill_line_says_when_the_beam_snapped_the_current():
+    """A 60 pA stage ran at the 30 pA the beam lists, and nothing said so."""
+    warning = (
+        "60 pA is not a current the milling beam lists; the nearest it lists: "
+        "30 pA and 100 pA. The beam is at 30 pA."
+    )
+    lines = []
+    watch_mod._print_events(
+        [
+            {
+                "seq": 1,
+                "kind": "milling",
+                "payload": {
+                    "milling_run_id": "r1",
+                    "milling_task_name": "Mill Polish",
+                    "status": "completed",
+                    "stages": [
+                        {
+                            "name": "Polish",
+                            "status": "completed",
+                            "milling_current": 60e-12,
+                            "milling_current_used": 30e-12,
+                            "current_warning": warning,
+                        }
+                    ],
+                },
+            }
+        ],
+        0,
+        lines.append,
+    )
+    assert lines == [
+        "MILL ENDED 'Mill Polish' status=completed run=r1 "
+        f"stages: Polish=completed [{warning}]"
+    ]
+
+
 def test_a_question_held_before_the_watch_started_is_its_first_line(app):
     """An agent that reconnects to a held run is told what the run is held
     on: the question was asked before this watch began, so its event is

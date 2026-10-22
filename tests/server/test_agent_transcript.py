@@ -117,13 +117,22 @@ def test_the_agent_says_what_it_can_do_and_the_chip_lists_it():
     off, _ = report(auth, {"session_id": "def", "code": False, "resumed": True})
     facts = dict(session_facts(off))
     assert facts["Code"] == "Off" and facts["Session id"] == "def (resumed)"
+    files, _ = report(auth, {"session_id": "f", "files": True, "workdir": "/w"})
+    assert dict(session_facts(files))["Code"] == "Off; reads and writes files in /w"
     # Claude Code says none of it: nothing to list but what it reported.
     assert session_facts({"model": "m"}) == [("Model", "m")]
     assert session_facts(None) == []
 
 
 @pytest.mark.parametrize(
-    "body", [{"code": "yes"}, {"skills": "a"}, {"skills": [1]}, {"resumed": 1}]
+    "body",
+    [
+        {"code": "yes"},
+        {"files": "yes"},
+        {"skills": "a"},
+        {"skills": [1]},
+        {"resumed": 1},
+    ],
 )
 def test_a_bad_capability_is_refused(body):
     from fastapi import HTTPException

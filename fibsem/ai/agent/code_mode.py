@@ -8,6 +8,11 @@ fibsem-agent's own Python environment, which it can read but not change. The
 sandbox must start, or the CLI refuses the command: code never runs
 unconfined. There is no sandbox on Windows, so code mode is macOS and Linux
 only.
+
+``fibsem-agent --files [PATH]`` is the same without the shell: the agent reads
+and writes files in PATH (its notebook, what it fetched) and runs nothing, so
+it needs no sandbox and works on Windows too. The folder rules are Claude
+Code's permission rules, the same as code mode's file tools.
 """
 
 import json
@@ -19,8 +24,10 @@ import sys
 from pathlib import Path
 from typing import List, Mapping, Optional
 
-# The code tools on top of the runner's own.
-CODE_TOOLS = ["Bash", "Read", "Write", "Edit", "Glob", "Grep"]
+# The file tools on top of the runner's own, and the code tools: those and a
+# shell.
+FILE_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep"]
+CODE_TOOLS = ["Bash"] + FILE_TOOLS
 
 # Unset in every sandboxed command, with any other variable whose name says
 # it is a secret. Some the CLI sets itself, after these settings are written.
@@ -45,7 +52,7 @@ One line per entry: what it is, and its file.
 ## Scripts
 """
 
-PROMPT = """\
+CODE_PROMPT = """\
 - Your tools are the mcp__fibsem__* tools, Skill, Agent for the \
 autolamella-* agents only, and code mode's shell, \
 Read, Write and Edit, which work in {work} only, in a sandbox with no \
@@ -54,6 +61,16 @@ tools are the only way to the microscope and its data. \
 experiment_fetch_file saves a file under fetched/ for your code. Run Python \
 with {python}: it has fibsem and what fibsem-agent's environment has. You \
 can't install anything: say what you are missing.
+"""
+FILES_PROMPT = """\
+- Your tools are the mcp__fibsem__* tools, Skill, Agent for the \
+autolamella-* agents only, and Read, Write and Edit, which work in {work} \
+only. There is no shell and no web: you can't run code. Where a skill shows \
+curl, python or a script, use the matching mcp__fibsem__ tool, or say what \
+you can't do. experiment_fetch_file saves a file under fetched/ for you to \
+Read.
+"""
+PROMPT = """\
 - Notes go on the open experiment's record. A note can't cite another \
 experiment's file as its source: attach your own image (a plot, a crop) and \
 name the experiment and file in the text.
@@ -67,9 +84,20 @@ analysis. Write lessons and scripts worth reusing there, one line each in \
 INDEX.md. Only conclusions go on the record: a note and one evidence image."""
 
 
-def refusal(work: Path, checkout: Path) -> Optional[str]:
-    """Why code mode can't run in ``work``, or None."""
-    if sys.platform == "win32":
+def prompt(work: Path, code: bool = True) -> str:
+    """What the agent is told about its folder: code mode's or files-only."""
+    tools = CODE_PROMPT if code else FILES_PROMPT
+    return tools.format(work=work, python=sys.executable) + PROMPT
+
+
+def tools(code: bool = True) -> List[str]:
+    return list(CODE_TOOLS if code else FILE_TOOLS)
+
+
+def refusal(work: Path, checkout: Path, code: bool = True) -> Optional[str]:
+    """Why code mode (files-only mode, without ``code``) can't run in
+    ``work``, or None."""
+    if code and sys.platform == "win32":
         return (
             "Code mode needs Claude Code's sandbox, which Windows doesn't have: "
             "run fibsem-agent --code on macOS or Linux."
@@ -77,7 +105,7 @@ def refusal(work: Path, checkout: Path) -> Optional[str]:
     home = Path.home().resolve()
     if work in (home, Path(work.anchor)) or home.is_relative_to(work):
         return (
-            f"Code mode would let the agent read and write all of {work}: give "
+            f"The agent would read and write all of {work}: give "
             "it a folder of its own, such as ~/fibsem-work."
         )
     # What runs outside the sandbox must not be the agent's to change.
@@ -92,8 +120,10 @@ def refusal(work: Path, checkout: Path) -> Optional[str]:
     return None
 
 
-def describe(work: Optional[Path]) -> str:
+def describe(work: Optional[Path], code: bool = True) -> str:
     """Code mode in fibsem-agent's start status."""
+    if work is not None and not code:
+        return f"Off; reads and writes files in {work} (--files)"
     if work is not None:
         return f"Available in {work} (sandboxed)"
     if sys.platform == "win32":
@@ -134,10 +164,10 @@ def readable() -> List[Path]:
     return found
 
 
-def allowed_tools(work: Path) -> List[str]:
-    """The code tools, writes in ``work`` only."""
-    return [
-        "Bash",
+def allowed_tools(work: Path, code: bool = True) -> List[str]:
+    """The code tools (the file tools, without ``code``), writes in ``work``
+    only."""
+    return ["Bash"] * code + [
         "Read",
         "Glob",
         "Grep",
@@ -146,18 +176,22 @@ def allowed_tools(work: Path) -> List[str]:
     ]
 
 
-def settings(work: Path, environ: Mapping[str, str]) -> dict:
+def settings(work: Path, environ: Mapping[str, str], code: bool = True) -> dict:
     """The CLI's settings for code mode, given on its command line, where a
-    project's own settings can't loosen them."""
+    project's own settings can't loosen them. Without ``code`` nothing runs,
+    so there is no sandbox to set."""
     claude = _rule(work / ".claude")
+    permissions = {
+        # The Read, Glob and Grep tools, and the sandbox: home and other
+        # user folders are unreadable outside ``work``.
+        "blockReadsOutsideWorkingDirectories": True,
+        # Its skills and settings stay as fibsem-agent put them.
+        "deny": [f"Edit({claude})"],
+    }
+    if not code:
+        return {"permissions": permissions}
     return {
-        "permissions": {
-            # The Read, Glob and Grep tools, and the sandbox: home and other
-            # user folders are unreadable outside ``work``.
-            "blockReadsOutsideWorkingDirectories": True,
-            # Its skills and settings stay as fibsem-agent put them.
-            "deny": [f"Edit({claude})"],
-        },
+        "permissions": permissions,
         "sandbox": {
             "enabled": True,
             # No sandbox, no command: never unconfined.
@@ -179,8 +213,8 @@ def settings(work: Path, environ: Mapping[str, str]) -> dict:
     }
 
 
-def settings_json(work: Path, environ: Mapping[str, str]) -> str:
-    return json.dumps(settings(work, environ))
+def settings_json(work: Path, environ: Mapping[str, str], code: bool = True) -> str:
+    return json.dumps(settings(work, environ, code))
 
 
 def env(work: Path) -> dict:

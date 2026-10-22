@@ -195,7 +195,26 @@ def acquire_z_stack(
         # restore objective to initial position
         microscope.objective.move_absolute(z_init)
 
-        return FluorescenceImage.create_multi_channel_image(images)
+        image = FluorescenceImage.create_multi_channel_image(images)
+        _warn_if_off_step(image, zparams.zstep)
+        return image
+
+
+# How far a stack's measured mean step may be from the step asked for before it
+# is logged: the planes did not land where they were sent.
+Z_STEP_TOLERANCE = 0.1
+
+
+def _warn_if_off_step(image: FluorescenceImage, zstep: float) -> None:
+    measured = image.metadata.pixel_size_z
+    if measured is None or zstep <= 0:
+        return
+    if abs(measured - zstep) > Z_STEP_TOLERANCE * zstep:
+        logging.warning(
+            f"z-stack: the objective moved {measured * 1e9:.0f} nm per plane on "
+            f"average, not the {zstep * 1e9:.0f} nm asked for; positions read "
+            f"back: {[round(z * 1e9) for z in image.metadata.z_positions or []]} nm"
+        )
 
 
 def record_fluorescence_image(

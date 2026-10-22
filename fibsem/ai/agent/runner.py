@@ -9,6 +9,7 @@ decides what the agent may do, and the runner never sets the level. Needs the
     fibsem-agent
     fibsem-agent --resume <session id>
     cd ~/fibsem-work && fibsem-agent --code   # it writes and runs code, sandboxed
+    fibsem-agent --files ~/fibsem-work         # it reads and writes files there, runs nothing
 """
 
 import argparse
@@ -135,14 +136,12 @@ you or for them. Where a skill shows curl, python or a script, use the \
 matching mcp__fibsem__ tool, or say what you can't do."""
 
 
-def runner_prompt(work: Optional[Path] = None) -> str:
-    """What the runner tells the agent about itself; in code mode, about its
-    work folder too."""
+def runner_prompt(work: Optional[Path] = None, code: bool = True) -> str:
+    """What the runner tells the agent about itself; with a work folder (code
+    mode, or files only), about it too."""
     if work is None:
         return RUNNER_PROMPT.format(tools=NO_CODE)
-    return RUNNER_PROMPT.format(
-        tools=code_mode.PROMPT.format(work=work, python=sys.executable)
-    )
+    return RUNNER_PROMPT.format(tools=code_mode.prompt(work, code))
 
 
 REREAD_PROPOSALS = (
@@ -1009,11 +1008,12 @@ def build_options(
     effort: Optional[str] = EFFORT,
     work: Optional[Path] = None,
     session_id: Optional[str] = None,
+    code: bool = True,
 ):
     """The SDK session: the sidecar as the only MCP server, the project's
     skills and nothing of the user's Claude Code config. With ``work``, code
     mode: the code tools, sandboxed, in ``work`` (``code_mode.prepare`` has
-    copied the skills there)."""
+    copied the skills there); without ``code``, the file tools only."""
     from claude_agent_sdk import ClaudeAgentOptions
 
     command = sidecar_command()
@@ -1029,10 +1029,11 @@ def build_options(
     settings = None
     if work is not None:
         env.update(code_mode.env(work))
-        tools = BUILT_IN_TOOLS + code_mode.CODE_TOOLS
-        allowed = ALLOWED_TOOLS + code_mode.allowed_tools(work)
-        denied = [tool for tool in DENIED_TOOLS if tool not in code_mode.CODE_TOOLS]
-        settings = code_mode.settings_json(work, {**os.environ, **env})
+        given = code_mode.tools(code)
+        tools = BUILT_IN_TOOLS + given
+        allowed = ALLOWED_TOOLS + code_mode.allowed_tools(work, code)
+        denied = [tool for tool in DENIED_TOOLS if tool not in given]
+        settings = code_mode.settings_json(work, {**os.environ, **env}, code)
     return ClaudeAgentOptions(
         cwd=str(work or checkout),
         # The checkout's .claude/skills (CLAUDE.md is off, see CLI_ENV), and none of
@@ -1051,7 +1052,7 @@ def build_options(
         system_prompt={
             "type": "preset",
             "preset": "claude_code",
-            "append": runner_prompt(work),
+            "append": runner_prompt(work, code),
         },
         # Watcher lines carry operator-typed text: never expand an @path in it.
         verbatim_prompts=True,
@@ -1092,7 +1093,12 @@ def _default_log() -> Path:
 
 
 def status(
-    args, checkout: Path, log_path: Path, work: Optional[Path], session_id: str
+    args,
+    checkout: Path,
+    log_path: Path,
+    work: Optional[Path],
+    session_id: str,
+    code: bool = True,
 ) -> List[str]:
     """What this run is, at its start: one line each."""
     from fibsem import __version__
@@ -1109,7 +1115,7 @@ def status(
         ),
         ("Session", f"{session_id} ({'resumed' if args.resume else 'new'})"),
         ("Skills", str(checkout)),
-        ("Code", code_mode.describe(work)),
+        ("Code", code_mode.describe(work, code)),
         ("Log", str(log_path)),
     ]
     return [f"{label + ':':<9}{value}" for label, value in rows]
@@ -1180,7 +1186,18 @@ def main(argv=None) -> int:
         help="code mode: the agent writes and runs its own code in PATH (the "
         "current folder if none), sandboxed (macOS and Linux only)",
     )
+    parser.add_argument(
+        "--files",
+        nargs="?",
+        const=".",
+        default=None,
+        metavar="PATH",
+        help="the agent reads and writes files in PATH (the current folder if "
+        "none) and runs nothing: no shell",
+    )
     args = parser.parse_args(argv)
+    if args.code and args.files:
+        parser.error("--code already gives the agent its files: use one of them")
 
     try:
         import claude_agent_sdk  # noqa: F401
@@ -1203,9 +1220,10 @@ def main(argv=None) -> int:
         )
         return 1
     work = None
-    if args.code:
-        work = code_mode.workdir(args.code)
-        refused = code_mode.refusal(work, checkout)
+    code = bool(args.code)
+    if args.code or args.files:
+        work = code_mode.workdir(args.code or args.files)
+        refused = code_mode.refusal(work, checkout, code)
         if refused:
             print(refused, file=sys.stderr)
             return 1
@@ -1216,7 +1234,7 @@ def main(argv=None) -> int:
     _log_to(log_path)
     # A new session's id is chosen here, so the status can name it.
     session_id = args.resume or str(uuid.uuid4())
-    for line in status(args, checkout, log_path, work, session_id):
+    for line in status(args, checkout, log_path, work, session_id, code):
         log.info(line)
     if work is not None:
         code_mode.prepare(work, checkout, list(SKILLS), list(SPECIALISTS))
@@ -1234,6 +1252,7 @@ def main(argv=None) -> int:
         effort=args.effort,
         work=work,
         session_id=None if args.resume else session_id,
+        code=code,
     )
     agent = SdkAgent(options)
     runner = Runner(
@@ -1245,7 +1264,8 @@ def main(argv=None) -> int:
         budget_usd=args.max_budget_usd,
         about={
             "harness": "fibsem-agent",
-            "code": work is not None,
+            "code": work is not None and code,
+            "files": work is not None and not code,
             "workdir": str(work) if work is not None else None,
             "effort": args.effort,
             "skills": list(SKILLS),
