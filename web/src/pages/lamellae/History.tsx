@@ -192,14 +192,13 @@ function Run({
       )}
       {show !== "images" && <Operations run={run} show={show} />}
       {show !== "operations" &&
-        !run.outside_task &&
         (run.images.length ? (
           <div className="grid max-w-[880px] grid-cols-2 gap-2">
             {run.images.map((path) => (
               <Thumb key={path} path={path} onOpen={() => openImage(path)} />
             ))}
           </div>
-        ) : (
+        ) : run.outside_task ? null : (
           <div className="text-[12px] text-muted-foreground">
             {run.images_replaced_by ? `Images replaced by the ${later ? `${clock(later.started_at)} ` : "later "}run.` : "No images recorded."}
           </div>
@@ -301,7 +300,7 @@ export function History({ name, filter, setFilter }: { name: string; filter: His
   });
   const [viewing, setViewing] = useState<number | null>(null);
   const runs = history.data?.runs ?? [];
-  const images = filter.show === "operations" ? [] : runs.flatMap((r) => (r.outside_task ? [] : r.images));
+  const images = filter.show === "operations" ? [] : runs.flatMap((r) => r.images);
   const shown = runs.length;
   return (
     <div className="flex min-w-0 flex-col gap-3">
