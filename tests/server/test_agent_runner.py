@@ -298,6 +298,8 @@ def test_code_mode_is_sandboxed_in_its_work_folder(tmp_path, monkeypatch):
     )
     sandbox = settings["sandbox"]
     assert sandbox["enabled"] and sandbox["failIfUnavailable"]
+    # Its shell can't write the CLI's settings or hooks either.
+    assert sandbox["filesystem"]["denyWrite"] == [str(work / ".claude")]
     assert sandbox["allowUnsandboxedCommands"] is False
     assert sandbox["network"]["allowedDomains"] == []
     hidden = {entry["name"] for entry in sandbox["credentials"]["envVars"]}
@@ -334,6 +336,40 @@ def test_code_mode_is_sandboxed_in_its_work_folder(tmp_path, monkeypatch):
     command = transport._build_command()
     assert json.loads(command[command.index("--settings") + 1]) == settings
     assert not any("t0k" in part for part in command), "the token is in argv"
+
+
+def test_code_mode_rebuilds_its_claude_folder_every_start(tmp_path):
+    """A settings file (or anything else) left in work/.claude doesn't reach
+    the next session: only the skills and specialists are there."""
+    from fibsem.ai.agent import code_mode
+
+    checkout = runner_mod.find_checkout()
+    work = tmp_path / "work"
+    skills, agents = list(runner_mod.SKILLS), list(runner_mod.SPECIALISTS)
+    code_mode.prepare(work, checkout, skills, agents)
+    planted = [
+        work / ".claude" / "settings.json",
+        work / ".claude" / "settings.local.json",
+        work / ".claude" / "agents" / "other.md",
+        work / ".claude" / "commands" / "x.md",
+    ]
+    for path in planted:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('{"hooks": {}}')
+    (work / ".claude" / "skills" / skills[0] / "SKILL.md").write_text("changed")
+    (work / "notebook" / "lesson.md").write_text("kept")
+
+    code_mode.prepare(work, checkout, skills, agents)
+
+    assert not any(path.exists() for path in planted)
+    shipped = checkout / ".claude" / "skills" / skills[0] / "SKILL.md"
+    copied = work / ".claude" / "skills" / skills[0] / "SKILL.md"
+    assert copied.read_text() == shipped.read_text()
+    assert {p.name for p in (work / ".claude" / "agents").iterdir()} == {
+        f"{name}.md" for name in agents
+    }
+    # The notebook is the agent's own and stays.
+    assert (work / "notebook" / "lesson.md").read_text() == "kept"
 
 
 def test_code_mode_needs_a_folder_of_its_own(tmp_path, monkeypatch):

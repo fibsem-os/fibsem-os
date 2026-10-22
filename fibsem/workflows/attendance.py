@@ -24,12 +24,9 @@ from fibsem.workflows.proposals import (
 from fibsem.workflows.proposals import kind_label as proposal_kind_label
 
 if TYPE_CHECKING:
-    from fibsem.applications.autolamella.structures import (
-        AutoLamellaTaskConfig,
-        AutoLamellaTaskProtocol,
-    )
-    from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
     from fibsem.workflows.grid.protocol import GridTaskProtocol
+    from fibsem.workflows.task import BaseTask
+    from fibsem.workflows.task_config import TaskConfig, TaskProtocol
 
 # How a kind is said to the operator. A kind asked mid-run is what the person
 # is needed for; a kind left for afterwards is what waits on them.
@@ -79,8 +76,8 @@ class Attendance:
 
 
 def attendance(
-    task_cls: Type["AutoLamellaTask"],
-    config: Optional["AutoLamellaTaskConfig"],
+    task_cls: Type["BaseTask"],
+    config: Optional["TaskConfig"],
     attention: Attention,
     *,
     task_name: str = "",
@@ -94,17 +91,13 @@ def attendance(
     )
 
 
-def attendance_for(
-    protocol: "AutoLamellaTaskProtocol", task_name: str
-) -> Optional[Attendance]:
+def attendance_for(protocol: "TaskProtocol", task_name: str) -> Optional[Attendance]:
     """The attendance of the task ``task_name`` names in ``protocol``, or None
     when the protocol has no config for it or its type is not registered."""
-    from fibsem.applications.autolamella.workflows.tasks import get_tasks
-
     config = protocol.task_config.get(task_name)
     if config is None:
         return None
-    task_cls = get_tasks().get(config.task_type)
+    task_cls = protocol.task_classes().get(config.task_type)
     if task_cls is None:
         return None
     return attendance(
@@ -135,7 +128,7 @@ class RunAttendance:
 
 
 def run_attendance(
-    protocol: "AutoLamellaTaskProtocol", task_names: Sequence[str]
+    protocol: "TaskProtocol", task_names: Sequence[str]
 ) -> RunAttendance:
     """What a run of ``task_names`` needs from a person."""
     lines = {}

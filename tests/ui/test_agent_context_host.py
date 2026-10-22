@@ -122,18 +122,20 @@ class _Dialog:
 
 @pytest.fixture
 def toasts(monkeypatch):
-    from fibsem.applications.autolamella.ui.run import view as ui_module
+    from fibsem.ui.run import view as ui_module
 
     _Dialog.opened = []
     monkeypatch.setattr(ui_module, "WorkflowSummaryDialog", _Dialog)
     shown = []
-    monkeypatch.setattr(
-        ui_module.notification_service,
-        "show",
-        lambda message, notification_type="info", temporary=False, action=None: (
-            shown.append((message, notification_type, action))
-        ),
-    )
+
+    def show(
+        message, notification_type="info", temporary=False, action=None, always=False
+    ):
+        # A run's end pops up even with toasts for problems only.
+        assert always, "the run-end toast must be marked always"
+        shown.append((message, notification_type, action))
+
+    monkeypatch.setattr(ui_module.notification_service, "show", show)
     return shown
 
 

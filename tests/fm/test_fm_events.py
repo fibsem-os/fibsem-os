@@ -117,7 +117,11 @@ def _af_settings():
     )
 
 
-def test_fm_autofocus_records_where_it_moved_the_objective(microscope, tmp_path):
+def test_fm_autofocus_records_where_it_moved_the_objective(
+    microscope, tmp_path, monkeypatch
+):
+    # The sim's frames can score flat, which records no focus (FIB-1519).
+    monkeypatch.setattr("fibsem.fm.calibration.has_peak", lambda scores: True)
     recorder = EventRecorder(microscope, experiment_path=tmp_path)
     try:
         result = run_coarse_fine_autofocus(
