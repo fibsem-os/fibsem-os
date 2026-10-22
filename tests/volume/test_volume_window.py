@@ -151,16 +151,16 @@ def test_the_point_picked_on_the_fib_image_is_the_positions(window, toasts):
     assert toasts == []
 
 
-def test_the_task_clicked_shows_its_settings_and_writes_them(
-    window, qapp, monkeypatch
-):
+def test_the_task_clicked_shows_its_settings_and_writes_them(window, qapp, monkeypatch):
     import copy
 
     tab = window.protocol_tab
     config = window.experiment.task_protocol.task_config["Volume FIB Milling"]
     recorded = []
     monkeypatch.setattr(
-        window.microscope, "record_event", lambda kind, payload: recorded.append(payload)
+        window.microscope,
+        "record_event",
+        lambda kind, payload: recorded.append(payload),
     )
 
     tab.tasks.set_current("Volume FIB Milling")
