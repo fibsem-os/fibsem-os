@@ -2614,15 +2614,17 @@ class AutoscriptFM(FM):
     def _live_frame(self) -> np.ndarray:
         from autoscript_sdb_microscope_client.enumerations import ImagingState
 
-        if self._channel.connection.imaging.state != ImagingState.ACQUIRING:
-            # Stopped from outside (the microscope's own UI): end live view as the old
-            # loop did, light off and acquisition stopped.
-            self.stop_live()
-            raise RuntimeError("The FM acquisition stopped; live view has ended.")
+        imaging = self._channel.connection.imaging
         with self._channel.lock:
             # Re-forced each frame, as the old loop does: something may have taken it.
+            # The state is read on the FM view, not whichever view a beam read left.
             self._channel.set_active_channel()
-            return self._channel.connection.imaging.get_image().data
+            if imaging.state == ImagingState.ACQUIRING:
+                return imaging.get_image().data
+        # Stopped from outside (the microscope's own UI): end live view as the old
+        # loop did, light off and acquisition stopped.
+        self.stop_live()
+        raise RuntimeError("The FM acquisition stopped; live view has ended.")
 
     def _stop_live(self) -> None:
         self.light_source.stop_emission()

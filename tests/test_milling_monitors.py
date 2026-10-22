@@ -219,6 +219,22 @@ def test_a_failing_required_monitor_fails_the_step_before_it_mills(
     assert "start" not in service.steps
 
 
+def test_a_required_monitor_fails_the_step_for_itself_when_the_stop_raises(
+    scripted, registered, monkeypatch
+):
+    registered(BrokenRequired)
+    service = scripted([RUNNING, RUNNING])
+
+    def stop():
+        raise RuntimeError("no connection")
+
+    monkeypatch.setattr(service, "_stop", stop)
+    stage = _stage(MillingMonitorConfig().made_for(BrokenRequired))
+    with pytest.raises(MillingStepFailed, match="BrokenRequired failed: no camera"):
+        _mill(service, stage)
+    assert "start" not in service.steps
+
+
 def test_a_stage_saves_its_monitors_and_drops_unknown_ones(registered, caplog):
     registered(Ends)
     stage = _stage(EndsConfig(interval=5, on_trigger="suggest"))
@@ -550,3 +566,49 @@ def test_milled_time_is_measured_with_its_pauses_left_out(monkeypatch):
     step.count_milled_time(False)
     now[0] += 4
     assert step.milled_time() == 6
+
+
+class PauseRaises(Pausing):
+    """A driver whose pause raises (Tescan pausing an idle DrawBeam)."""
+
+    def _pause(self):
+        raise RuntimeError("DrawBeam is idle")
+
+
+def test_a_pause_that_raises_leaves_the_step_to_finish(
+    scripted, registered, monkeypatch
+):
+    import threading
+
+    import tests.test_milling_run as run_tests
+
+    registered(Look)
+    monkeypatch.setattr(run_tests, "Scripted", PauseRaises)
+    service = scripted([RUNNING] * 8)
+    done = []
+    mill = threading.Thread(
+        target=lambda: done.append(_mill(service, _stage(LookConfig(interval=2)))),
+        daemon=True,
+    )
+    mill.start()
+    mill.join(timeout=10)
+
+    assert done, "the step never ended: the state monitor stopped looking"
+    status, step = done[0]
+    assert status == "completed" and step.end.kind == "finished"
+    (record,) = step.to_dict()["monitors"]
+    assert record["error"] == "RuntimeError: DrawBeam is idle"
+    assert not step.pausing.is_set()
+
+
+def test_a_pause_that_raises_does_not_leave_the_step_pausing():
+    step, milling = _step()
+
+    def broken():
+        raise RuntimeError("DrawBeam is idle")
+
+    milling._pause = broken
+    with pytest.raises(RuntimeError, match="idle"):
+        with step.paused("look"):
+            pass
+    assert not step.pausing.is_set() and not step.pauses

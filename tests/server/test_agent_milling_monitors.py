@@ -14,6 +14,7 @@ pytest.importorskip("httpx")  # TestClient transport
 
 from psygnal import Signal  # noqa: E402
 
+from fibsem.ai.agent.catalog import route_call  # noqa: E402
 from fibsem.ai.agent.mcp import watch as watch_mod  # noqa: E402
 from fibsem.milling.base import FibsemMillingStage  # noqa: E402
 from fibsem.milling.monitors import FmIntensityMonitor  # noqa: E402
@@ -24,7 +25,7 @@ from fibsem.milling.tasks import (  # noqa: E402
     patch_milling_config,
 )
 from tests.server.test_agent_gap_tools import _ok, driving  # noqa: E402, F401
-from tests.server.test_grid_tools import _call, arctis  # noqa: E402, F401
+from tests.server.test_grid_tools import TOOLS, _call, arctis  # noqa: E402, F401
 
 RUN = "/microscope/services/milling/run"
 
@@ -44,6 +45,11 @@ class DroppingFM:
 
     def __init__(self):
         self._stop = threading.Event()
+        self._stop.set()
+
+    @property
+    def is_streaming(self):
+        return not self._stop.is_set()
 
     def start_acquisition(self, channel_settings=None):
         self._stop.clear()
@@ -141,7 +147,12 @@ def test_the_agent_ends_a_stage_its_monitor_suggests_ending(
     assert suggestion is not None, "the monitor suggested the drop"
     assert suggestion["notable"] and suggestion["reading"]["on_trigger"] == "suggest"
 
-    _ok(_call(driving, "milling_end", reason="the fluorescence dropped"))
+    # Who ended it is the caller's mark, not what the body says.
+    method, path, body = route_call(
+        TOOLS["milling_end"], {"reason": "the fluorescence dropped"}
+    )
+    body["kwargs"]["by"] = "operator"
+    _ok(driving.request(method, path, json=body))
 
     ended = driving.get(RUN, params={"run_id": run_id, "wait": 10}).json()["run"]
     assert ended["state"] == "done", ended

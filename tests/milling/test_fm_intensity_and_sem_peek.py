@@ -52,7 +52,8 @@ class Frame:
 
 
 class FakeFM:
-    """An FM whose frames the test feeds, one at each of the mill's waits."""
+    """An FM whose frames the test feeds, one at each of the mill's waits; the
+    last level goes on once they run out, and no levels give no frames."""
 
     from psygnal import Signal
 
@@ -61,19 +62,24 @@ class FakeFM:
     def __init__(self, levels):
         self.levels = list(levels)
         self.calls = []
+        self.is_streaming = False
 
     def start_acquisition(self, channel_settings=None):
         self.calls.append("start")
+        self.is_streaming = True
 
     def stop_acquisition(self):
         self.calls.append("stop")
+        self.is_streaming = False
 
     def set_active_channel(self):
         self.calls.append("view")
 
     def feed(self):
-        if self.levels:
-            self.acquisition_signal.emit(Frame(self.levels.pop(0)))
+        if not self.is_streaming or not self.levels:
+            return
+        level = self.levels.pop(0) if len(self.levels) > 1 else self.levels[0]
+        self.acquisition_signal.emit(Frame(level))
 
 
 @pytest.fixture
@@ -89,6 +95,8 @@ def with_fm(scripted, monkeypatch):
 
         def fed(seconds):
             fm.feed()
+            # Real time too, for the monitor's frame watch.
+            time.sleep(0.002)
             wait(seconds)
 
         service._wait = fed
@@ -149,6 +157,52 @@ def test_fm_intensity_without_an_fm_fails_the_step_before_it_mills(
     with pytest.raises(MillingStepFailed, match="needs a fluorescence microscope"):
         _mill(service, _stage(_fm()), tmp_path)
     assert "start" not in service.steps
+
+
+@pytest.fixture
+def watching_often(monkeypatch):
+    monkeypatch.setattr(FmIntensityMonitor, "look_interval", 0.005)
+
+
+def test_fm_intensity_with_no_frames_fails_the_step(with_fm, tmp_path, watching_often):
+    from fibsem.services.milling import MillingStepFailed
+
+    service, fm = with_fm([], estimate=50.0)
+    with pytest.raises(MillingStepFailed, match="no FM frame in 10 s of milling"):
+        _mill(service, _stage(_fm()), tmp_path)
+    assert "stop" in service.steps
+    assert fm.calls[-1] == "stop"
+
+
+def test_fm_intensity_fails_the_step_when_the_live_view_stops(
+    with_fm, tmp_path, watching_often
+):
+    from fibsem.services.milling import MillingStepFailed
+
+    service, fm = with_fm([100] * 3, estimate=50.0)
+    feed = fm.feed
+
+    def dies():
+        feed()
+        if len(fm.levels) == 1:
+            fm.is_streaming = False
+
+    fm.feed = dies
+    with pytest.raises(MillingStepFailed, match="the FM live view stopped"):
+        _mill(service, _stage(_fm()), tmp_path)
+
+
+def test_fm_intensity_rides_the_operator_s_live_view_and_leaves_it_on(
+    with_fm, tmp_path
+):
+    service, fm = with_fm([100] * 5, estimate=5.0)
+    fm.is_streaming = True
+
+    _, step = _mill(service, _stage(_fm()), tmp_path)
+
+    assert step.end.kind == "finished"
+    assert "start" not in fm.calls and "stop" not in fm.calls
+    assert fm.is_streaming
 
 
 def test_both_are_built_in_and_their_configs_round_trip():

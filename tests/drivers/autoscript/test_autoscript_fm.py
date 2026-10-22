@@ -232,10 +232,18 @@ def test_live_view_starts_and_stops_as_the_old_fast_acquisition(recording):
     # have taken the view since the last one.
     for side in ("old", "new"):
         log = live[side][1]
-        frames = [i for i, entry in enumerate(log) if entry[1] == "imaging.get_image"]
-        assert all(
-            log[i - 2][1:3] == ["imaging.set_active_view", [FM_VIEW]] for i in frames
-        ), side
+        for i, entry in enumerate(log):
+            if entry[1] != "imaging.get_image":
+                continue
+            selected = max(
+                j for j in range(i) if log[j][1] == "imaging.set_active_view"
+            )
+            assert log[selected][2] == [FM_VIEW], side
+            if side == "new":
+                # The live state is read on the FM view, after selecting it: a beam
+                # read in between (the mill's state poll) must not end live view.
+                reads = [e[1] for e in log[selected:i] if e[0] == "get"]
+                assert reads == ["imaging.state"]
     old_calls = [entry[1] for entry in live["old"][1] if entry[0] == "call"]
     assert old_calls.count(LIGHT_OFF) == 3  # the power write's, then twice on stop
 
