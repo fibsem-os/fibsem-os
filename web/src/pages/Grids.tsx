@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { metaLine } from "@/components/images";
 import { Card, CardTitle } from "@/components/ui/card";
 import { api, imageUrl } from "@/lib/api";
@@ -46,7 +46,6 @@ function useGridImage(grid: string, filename: string | null) {
     enabled: !!filename,
     staleTime: Infinity,
   });
-  useEffect(() => () => void (url.data && URL.revokeObjectURL(url.data)), [url.data]);
   return { src: url.data, loading: url.isLoading };
 }
 
