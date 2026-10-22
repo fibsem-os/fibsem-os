@@ -401,6 +401,35 @@ def test_sidecar_grows_the_app_tools_from_capabilities(client):
     assert "router-exp" in text
 
 
+def test_app_tools_answer_their_route_s_json(client, host):
+    """An app tool calls through client.app: its text is the route's JSON as
+    sent, a read's arguments are its query, and a refusal reads as before."""
+    pytest.importorskip("mcp")
+    from mcp.server.mcpserver.exceptions import ToolError
+
+    from fibsem.ai.agent.mcp.sidecar import build_sidecar
+
+    client.headers["Authorization"] = f"Bearer {TOKEN}"
+    sidecar = build_sidecar(client, client.get("/capabilities").json())
+
+    def answer(tool, **arguments):
+        result = asyncio.run(sidecar.call_tool(tool, arguments))
+        if isinstance(result, tuple):
+            result = result[0]
+        return json.loads(list(getattr(result, "content", result))[0].text)
+
+    assert answer("item_list") == client.get("/app/experiment").json()
+    name = host.experiment.positions[0].name
+    history = answer("item_get_history", item_name=name, order="newest")
+    assert history["filter"]["order"] == "newest"
+
+    with pytest.raises(ToolError) as refused:
+        answer("item_get_output_image", item_name=name, filename="nope.tif")
+    detail = client.get(f"/app/experiment/items/{name}/outputs/nope.tif").json()
+    detail = detail["detail"]
+    assert f"refused (404): {json.dumps(detail)}" in str(refused.value)
+
+
 def test_events_long_poll_over_http(client, event_buffer):
     empty = client.get("/app/events?since=0&timeout=0", headers=AUTH).json()
     assert empty["available"] is True

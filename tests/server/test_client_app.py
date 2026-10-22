@@ -76,19 +76,24 @@ def test_the_app_offers_the_core_and_its_parts(client):
 
 
 def test_a_read_takes_its_path_values(client):
-    assert client.app.app_get_status()["experiment"]["name"] == "client-exp"
-    (item,) = client.app.item_list()["items"]
-    name = item["item_name"]
-    assert client.app.item_get(item_name=name)["item_name"] == name
+    from fibsem.applications.autolamella.server.context import LamellaDetail
+
+    assert client.app.app_get_status().experiment.name == "client-exp"
+    (item,) = client.app.item_list().items
+    detail = client.app.item_get(item_name=item.item_name)
+    # as the app writes it, with its own facts
+    assert isinstance(detail, LamellaDetail)
+    assert detail.item_name == item.item_name
+    assert client.app.fetch("item_get", item_name=item.item_name)["id"] == detail.id
 
 
 def test_a_call_lands_and_a_read_takes_its_query(client):
-    assert client.app.experiment_add_note(text="checked from the client")["recorded"]
+    assert client.app.experiment_add_note(text="checked from the client").recorded
     events = client.app.app_get_events(since=0)
-    (note,) = [e for e in events["events"] if e["kind"] == "note"]
+    (note,) = [e for e in events.events if e["kind"] == "note"]
     assert note["payload"]["text"] == "checked from the client"
-    later = client.app.app_get_events(since=events["latest_seq"])
-    assert later["events"] == []
+    later = client.app.app_get_events(since=events.latest_seq)
+    assert later.events == []
 
 
 def test_a_refusal_raises(client, auth):
@@ -110,7 +115,7 @@ class _CoreOnly:
 def test_a_part_the_app_lacks_is_not_offered(microscope, auth):
     with _client(microscope, auth, _CoreOnly()) as client:
         assert client.app.parts == []
-        assert client.app.app_get_status() == {"core": True}
+        assert client.app.fetch("app_get_status") == {"core": True}
         assert "grid_list" not in client.app.tools
         with pytest.raises(AttributeError, match="no tool 'grid_list'"):
             client.app.grid_list()

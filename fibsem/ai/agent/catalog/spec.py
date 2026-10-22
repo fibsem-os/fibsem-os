@@ -38,6 +38,18 @@ class ToolSpec:
     call: Optional[
         Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict]]]
     ] = field(default=None, compare=False)
+    # The class its route answers, by its name in `fibsem.server.responses`
+    # (`answer_class` writes it as the app's); "" for an image.
+    returns: str = ""
+
+    @property
+    def answers(self) -> Any:
+        """The class named by ``returns``, or None for an image."""
+        if not self.returns:
+            return None
+        from fibsem.server import responses
+
+        return getattr(responses, self.returns)
 
     @property
     def level_note(self) -> str:

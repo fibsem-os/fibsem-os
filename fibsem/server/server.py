@@ -29,6 +29,7 @@ from fibsem.acting import AGENT, OPERATOR, acting, current_actor
 from fibsem.ai.agent import blocklist
 from fibsem.ai.agent.calls import calling, current_call, from_headers
 from fibsem.control import HOLD_COMMANDS, STOP_COMMANDS, MicroscopeBusy
+from fibsem.devices.wire import type_path
 from fibsem.microscope import FibsemMicroscope
 from fibsem.server.agent_session import build_agent_session_router
 from fibsem.server.agent_transcript import build_agent_transcript_router
@@ -637,6 +638,12 @@ def build_server(
             "app_name": app.state.app_name,
             # The optional /app parts this app serves (fibsem.server.parts).
             "parts": served_parts(app_context),
+            # The app's own answer classes, by the base class each stands for
+            # (`AppContext.answer_types`), so a client decodes the app's facts.
+            "answer_types": {
+                type_path(base): type_path(own)
+                for base, own in getattr(app_context, "answer_types", {}).items()
+            },
             # The agent level (FIB-1035): what the agent may do right now.
             "level": auth.level.value,
             # The code the server runs, so a sidecar can tell it imports

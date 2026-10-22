@@ -209,6 +209,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="server_report_session",
+        returns="AgentSession",
         description="Tell the app about your session, so the operator sees who is working and toward what: your session id and model when you start, the goal you were given, and your budget and spend if your harness tracks them. Fields you leave out keep their last value; a new session_id starts a new session. fibsem-agent reports for you after every turn: under it, call this only with goal, when the operator explicitly gives you a new goal. Pass ended: true, with a reason, when you stop.",
         method="POST",
         path="/app/agent/session",
