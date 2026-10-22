@@ -49,7 +49,7 @@ SEQUENCE = textwrap.dedent(
     def open_use_and_close():
         window = Window()
         notification_service.show_toast("hello", "info")
-        assert window.received == [("hello", "info", True)], window.received
+        assert window.received == [("hello", "info", True, False)], window.received
         window.close()
         window.deleteLater()
         QApplication.sendPostedEvents(None, QEvent.DeferredDelete)

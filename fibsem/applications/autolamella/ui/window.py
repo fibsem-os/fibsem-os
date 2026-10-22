@@ -237,6 +237,7 @@ class AutoLamellaWindow(QMainWindow):
         self.sync_app_server_with_preference()
         d = self._preferences.display
         self.run_border.set_on(d.border_enabled)
+        self.toast_manager.problems_only = d.toast_problems_only
         # The lamella strip's density. Guarded because _apply_preferences also runs
         # before the Lamella tab is built.
         if hasattr(self, "lamella_tab"):
@@ -251,16 +252,20 @@ class AutoLamellaWindow(QMainWindow):
         duration: int = 5000,
         temporary: bool = False,
         action=None,
+        always: bool = False,
     ):
         """Show a toast notification, with an optional (text, callback) link.
 
-        Unconditional: there is no longer a preference for turning toasts off, so the
-        branch that used to route a suppressed message to the notification bell has
-        gone with it. Nothing is lost -- `ToastManager.show_toast` records every
-        non-temporary message in the bell itself.
+        `ToastManager.show_toast` records every non-temporary message in the
+        notification bell, whether or not it pops up.
         """
         self.toast_manager.show_toast(
-            message, notification_type, duration, temporary=temporary, action=action
+            message,
+            notification_type,
+            duration,
+            temporary=temporary,
+            action=action,
+            always=always,
         )
 
     def _on_generate_grid_report(self):
@@ -1790,7 +1795,7 @@ class AutoLamellaWindow(QMainWindow):
         """Export the current protocol to file."""
 
         if self.experiment is None or self.experiment.task_protocol is None:
-            notification_service.show_toast("No protocol loaded.", "info")
+            notification_service.show_toast("No protocol loaded.", "warning")
             return
 
         protocol_path = fui.open_save_file_dialog(
@@ -1810,15 +1815,16 @@ class AutoLamellaWindow(QMainWindow):
         )
 
     def _on_notification_service(
-        self, message: str, notification_type: str, temporary: bool
+        self, message: str, notification_type: str, temporary: bool, always: bool
     ) -> None:
-        self.show_toast(message, notification_type, temporary=temporary)
+        self.show_toast(message, notification_type, temporary=temporary, always=always)
 
     def _on_notification_service_action(
         self,
         message: str,
         notification_type: str,
         temporary: bool,
+        always: bool,
         action_text: str,
         callback,
     ) -> None:
@@ -1827,6 +1833,7 @@ class AutoLamellaWindow(QMainWindow):
             notification_type,
             temporary=temporary,
             action=(action_text, callback),
+            always=always,
         )
 
     def closeEvent(self, event):

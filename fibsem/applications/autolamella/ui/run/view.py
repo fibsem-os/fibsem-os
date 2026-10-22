@@ -319,7 +319,7 @@ class RunView(QObject):
         elif note:
             self._status_bar.show_failure("Run stalled", note)
         elif runner.last_summary is None or runner.last_summary.empty:
-            notification_service.show_toast("Workflow finished.")
+            notification_service.show_toast("Workflow finished.", always=True)
 
     def show_summary(self) -> None:
         """Toast the end of the last workflow, and open its summary unless the
@@ -356,6 +356,7 @@ class RunView(QObject):
                 "Show summary",
                 lambda: self._open_summary(summary, note),
             ),
+            always=True,
         )
         experiment = self._session.experiment
         protocol = experiment.task_protocol if experiment is not None else None
