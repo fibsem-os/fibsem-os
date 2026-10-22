@@ -41,7 +41,7 @@ from fibsem.workflows.attendance import (
     attendance_for,
 )
 from fibsem.workflows.attention import Attention
-from fibsem.workflows.task_config import RunPlan, TaskConfig, TaskPlan, TaskProtocol
+from fibsem.workflows.task_config import RunPlan, TaskPlan, TaskProtocol
 
 # The dependency column: present, but never competing with the name it belongs to.
 # Fixed width, so the entries line up down the list and the text elides inside it
@@ -153,9 +153,9 @@ class WorkflowTaskRowWidget(QWidget):
     """One task: its name, what it waits for, and one chip for when a person
     is involved (Automated / Supervised), plus schedule, edit, remove.
 
-    Reads the task's attention and requirements from its *config* (None for a
-    task the protocol has no config for). The chip changes nothing itself: it
-    emits ``attention_toggled`` for the host to apply.
+    Reads the task's attention and requirements from its plan entry. The chip
+    changes nothing itself: it emits ``attention_toggled`` for the host to
+    apply.
     """
 
     attention_toggled = pyqtSignal(object)  # TaskPlan
@@ -165,13 +165,11 @@ class WorkflowTaskRowWidget(QWidget):
     def __init__(
         self,
         task: TaskPlan,
-        config: Optional[TaskConfig],
         checked: bool = True,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self.task = task
-        self.config = config
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
         layout = QHBoxLayout(self)
@@ -255,14 +253,14 @@ class WorkflowTaskRowWidget(QWidget):
 
     @property
     def attention(self) -> Attention:
-        return self.config.attention if self.config is not None else Attention.automated
+        return self.task.attention
 
     @property
     def requires(self) -> List[str]:
-        return list(self.config.requires) if self.config is not None else []
+        return list(self.task.requires)
 
     def refresh(self) -> None:
-        """Re-read all display fields from the stored task and its config."""
+        """Re-read all display fields from the stored task."""
         self.name_label.setText(self.task.name)
         requires = _requires_text(self.task, self.requires, self.requires_label.font())
         self.requires_label.setText(requires)
@@ -312,7 +310,7 @@ class _WorkflowTaskListHeader(ListHeader):
 
 class WorkflowTaskList(QWidget):
     """The tasks of a run plan, each with its name, what it requires, its
-    attention chip, and edit; their configs are the protocol's."""
+    attention chip, and edit."""
 
     attention_toggled = pyqtSignal(object)  # TaskPlan
     edit_requested = pyqtSignal(object)  # TaskPlan
@@ -327,8 +325,7 @@ class WorkflowTaskList(QWidget):
 
         self._remove_allowed = True
         self._checked: Dict[int, bool] = {}  # id(task) -> checked
-        # The protocol the tasks belong to, for each task's config and what its
-        # type asks: the plan alone names tasks.
+        # The protocol the tasks belong to, for what each task's type asks.
         self._protocol: Optional[TaskProtocol] = None
 
         layout = QVBoxLayout(self)
@@ -383,7 +380,7 @@ class WorkflowTaskList(QWidget):
 
     def add_task(self, task: TaskPlan, checked: bool = False) -> WorkflowTaskRowWidget:
         self._checked[id(task)] = checked
-        row = WorkflowTaskRowWidget(task, self._config_for(task), checked)
+        row = WorkflowTaskRowWidget(task, checked)
         item = QListWidgetItem()
         item.setData(Qt.ItemDataRole.UserRole, task)
         item.setSizeHint(QSize(0, _ROW_HEIGHT))
@@ -394,10 +391,6 @@ class WorkflowTaskList(QWidget):
         self._refresh_attendance()
         self._sync_select_all()
         return row
-
-    def _config_for(self, task: TaskPlan) -> Optional[TaskConfig]:
-        protocol = self._protocol
-        return protocol.task_config.get(task.name) if protocol is not None else None
 
     def _refresh_attendance(self) -> None:
         """Tell each row what its task needs from a person."""
@@ -444,18 +437,15 @@ class WorkflowTaskList(QWidget):
                 break
 
     def set_protocol(self, protocol: Optional[TaskProtocol]) -> None:
-        """The protocol whose tasks these are, for each task's config and what
-        it needs from a person. None: nothing is said."""
+        """The protocol whose tasks these are, for what each needs from a
+        person. None: nothing is said."""
         self._protocol = protocol
         self.refresh_all()
 
     def refresh_all(self) -> None:
-        """Re-read every row, its config included: a config can be replaced
-        (the protocol loaded again, or a lamella's copied onto it)."""
+        """Re-read every row."""
         for i in range(self._list.count()):
-            row = self._row(i)
-            row.config = self._config_for(row.task)
-            row.refresh()
+            self._row(i).refresh()
         self._refresh_attendance()
 
     def get_tasks(self) -> List[TaskPlan]:
@@ -532,7 +522,7 @@ class WorkflowTaskList(QWidget):
             if item is None:
                 continue
             checked = self._checked.get(id(task), True)
-            row = WorkflowTaskRowWidget(task, self._config_for(task), checked)
+            row = WorkflowTaskRowWidget(task, checked)
             item.setSizeHint(QSize(0, _ROW_HEIGHT))
             self._list.setItemWidget(item, row)
             self._connect_row(row)

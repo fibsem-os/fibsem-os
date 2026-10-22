@@ -47,7 +47,9 @@ def test_a_drag_above_a_requirement_is_put_back(qapp, monkeypatch):
 
 def test_a_valid_drag_is_saved(qapp, monkeypatch):
     window, config, saved, shown, toasts = _window(qapp, monkeypatch)
-    window._session.experiment.task_protocol.task_config["Undercut"].requires = []
+    window._session.experiment.task_protocol.workflow_config.get(
+        "Undercut"
+    ).requires = []
     undercut, trench = config.tasks[1], config.tasks[0]
 
     module.WorkflowTab._on_workflow_task_order_changed(window, [undercut, trench])

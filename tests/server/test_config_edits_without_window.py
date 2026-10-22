@@ -188,17 +188,9 @@ def test_a_patch_naming_attention_or_requires_is_refused(tmp_path):
             config_version(lamella.task_config[TASK]),
         )
         assert refused["applied"] is False and verb in refused["invalid_patch"]
-    assert protocol_config.attention is Attention.automated
-    assert protocol_config.requires == []
+    assert experiment.task_protocol.get_attention(TASK) is Attention.automated
+    assert experiment.task_protocol.requirements(TASK) == []
     assert scope.events == []
-
-
-def test_the_version_does_not_change_with_attention_or_requires():
-    """An item's copy carries neither, so neither moves its version."""
-    config = MillRoughTaskConfig(task_name=TASK)
-    before = config_version(config)
-    config.requires = ["Setup"]
-    assert config_version(config) == before
 
 
 def test_the_editors_values_are_copied_touched_and_saved_on_one_path(tmp_path):

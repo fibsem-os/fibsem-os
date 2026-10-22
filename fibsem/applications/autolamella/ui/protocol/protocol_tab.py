@@ -89,10 +89,10 @@ def _task_tooltips(protocol: AutoLamellaTaskProtocol) -> Dict[str, str]:
         if task is None:
             run = "not included"
         else:
-            parts = [config.attention.value]
+            parts = [task.attention.value]
             parts.append("required" if task.required else "optional")
-            if config.requires:
-                parts.append("after " + ", ".join(config.requires))
+            if task.requires:
+                parts.append("after " + ", ".join(task.requires))
             run = ", ".join(parts)
         tips[name] = f"{name}\nType: {kind}\nWorkflow: {run}"
     return tips

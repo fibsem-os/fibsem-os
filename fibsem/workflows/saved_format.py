@@ -15,7 +15,8 @@ DEFAULT_APP = "autolamella"
 # The experiment.yaml format this build writes. 2: an item's proposals are one
 # list, each saying who asked it, not keyed by the task that asked. 3: task
 # configs are flat, and a protocol says id, task_config and workflow_config.
-FORMAT_VERSION = 3
+# 4: a task's attention and requires are on its plan entry, not its config.
+FORMAT_VERSION = 4
 
 
 class WrongApplication(ValueError):

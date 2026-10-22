@@ -3,7 +3,6 @@
   "config": {
     "align_to_reference": true,
     "alignment_expansion": 150.0,
-    "attention": "supervised",
     "confirm_alignment_area": true,
     "milling": {
       "fiducial": {
@@ -132,9 +131,6 @@
         "scan_interlacing": null
       }
     },
-    "requires": [
-      "Setup Lamella Position"
-    ],
     "task_name": "Mill Fiducial",
     "task_type": "MILL_FIDUCIAL"
   },

@@ -108,7 +108,7 @@ def _coordinate_row():
 
 def _workflow_row():
     return WorkflowTaskRowWidget(
-        *planned(name="Mill Rough", attention=Attention.supervised, required=True)
+        planned(name="Mill Rough", attention=Attention.supervised, required=True)[0]
     )
 
 

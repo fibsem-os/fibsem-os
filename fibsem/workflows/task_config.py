@@ -33,7 +33,7 @@ import yaml
 from psygnal import evented
 
 from fibsem.codec.upgrades import protocol as upgrade
-from fibsem.structures import Configurable, Display, param
+from fibsem.structures import Configurable, param
 from fibsem.util.timestamps import now
 from fibsem.workflows.attention import Attention, attention_from
 
@@ -43,8 +43,8 @@ if TYPE_CHECKING:
 
 @dataclass
 class TaskConfig(Configurable, ABC):
-    """Configuration for one task: the fields that say how it takes part in the
-    workflow, and the task's own parameters after them."""
+    """Configuration for one task: its name, and the task's own parameters
+    after it. How it takes part in a run is its plan entry's (:class:`TaskPlan`)."""
 
     task_type: ClassVar[str]
     display_name: ClassVar[str]
@@ -56,22 +56,6 @@ class TaskConfig(Configurable, ABC):
         "",
         doc="The task's name, unique within the protocol: the key the workflow knows it by.",
     )  # unique within a protocol; the key the workflow uses
-    # Whether its questions are asked (supervised) or recorded for someone to
-    # check (automated). One per task name, shared by every item like the rest
-    # of the config.
-    attention: Attention = param(
-        Attention.automated,
-        doc="Whether the task's questions are asked while it runs (supervised) or recorded Unreviewed without asking (automated).",
-        display=Display("Attention"),
-    )
-    # The tasks, by name, whose result this one uses: it waits while one of
-    # them is still queued for the item, and is skipped when one of them did
-    # not complete. Empty: it runs whatever happened before it on the item.
-    requires: List[str] = param(
-        doc="The tasks, by name, whose result this one uses. It waits while one of them is still queued for the item, and is skipped when one did not complete. Empty runs whatever happened before it.",
-        display=Display("Requires"),
-        default_factory=list,
-    )
 
     @property
     def estimated_duration(self) -> float:
@@ -91,8 +75,6 @@ class TaskConfig(Configurable, ABC):
         data: Dict[str, Any] = {
             "task_type": self.task_type,
             "task_name": self.task_name,
-            "attention": self.attention.value,
-            "requires": list(self.requires),
         }
         # the form's parameters first, then what is saved beside them
         names = list(self.parameters)
@@ -112,14 +94,6 @@ class TaskConfig(Configurable, ABC):
         for f in fields(cls):
             if f.name not in data:
                 continue
-            if f.name == "attention":
-                kwargs[f.name] = attention_from(
-                    data[f.name], f"task '{data.get('task_name', '')}'"
-                )
-                continue
-            if f.name == "requires":
-                kwargs[f.name] = _requires(data[f.name], data.get("task_name", ""))
-                continue
             kwargs[f.name] = _deserialise(hints.get(f.name), data[f.name])
         unknown = (
             set(data)
@@ -132,9 +106,9 @@ class TaskConfig(Configurable, ABC):
         return cls(**kwargs)
 
 
-# Fields that say how a task takes part in the workflow, not how it runs: not
-# form parameters, and serialised by the base.
-WORKFLOW_FIELDS = ("task_name", "attention", "requires")
+# The field that names a task, not how it runs: not a form parameter, and
+# serialised by the base.
+WORKFLOW_FIELDS = ("task_name",)
 
 
 def _requires(value: Any, task_name: str) -> List[str]:
@@ -255,16 +229,26 @@ class WorkflowOptions:
 
 @dataclass
 class TaskPlan:
-    """One task in the plan a run follows: whether an item is done without it,
-    and when it may start."""
+    """One task in the plan a run follows: whether its questions are asked,
+    the tasks it needs first, whether an item is done without it, and when it
+    may start."""
 
     name: str
+    # Whether its questions are asked (supervised) or recorded for someone to
+    # check (automated).
+    attention: Attention = Attention.automated
+    # The tasks, by name, whose result this one uses: it waits while one of
+    # them is still queued for the item, and is skipped when one of them did
+    # not complete. Empty: it runs whatever happened before it on the item.
+    requires: List[str] = field(default_factory=list)
     required: bool = True
     scheduled_at: Optional[datetime] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "name": self.name,
+            "attention": self.attention.value,
+            "requires": list(self.requires),
             "required": self.required,
             "scheduled_at": self.scheduled_at.isoformat()
             if self.scheduled_at is not None
@@ -274,8 +258,13 @@ class TaskPlan:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "TaskPlan":
         scheduled_at = data.get("scheduled_at")
+        name = data.get("name", "")
         return cls(
-            name=data.get("name", ""),
+            name=name,
+            attention=attention_from(
+                data.get("attention", Attention.automated.value), f"task '{name}'"
+            ),
+            requires=_requires(data.get("requires") or [], name),
             required=bool(data.get("required", True)),
             scheduled_at=datetime.fromisoformat(scheduled_at)
             if isinstance(scheduled_at, str)
@@ -399,8 +388,9 @@ class TaskProtocol:
             raise ValueError(f"There is already a {self.NOUN} named {task_name!r}.")
         config = classes[task_type].config_cls()
         config.task_name = task_name
-        config.attention = Attention.supervised
-        return self.add(config)
+        self.add(config)
+        self.workflow_config.get(task_name).attention = Attention.supervised
+        return config
 
     def add(self, config: TaskConfig) -> TaskConfig:
         if not config.task_name:
@@ -414,9 +404,9 @@ class TaskProtocol:
         it no longer does."""
         self.task_config.pop(task_name, None)
         self.workflow_config.remove(task_name)
-        for config in self.task_config.values():
-            if task_name in config.requires:
-                config.requires = [r for r in config.requires if r != task_name]
+        for entry in self.workflow_config.tasks:
+            if task_name in entry.requires:
+                entry.requires = [r for r in entry.requires if r != task_name]
 
     def reorder(self, order: List[str]) -> str:
         """Put the tasks in *order*: every task, each once, none before a task
@@ -433,9 +423,9 @@ class TaskProtocol:
     def set_requires(self, task_name: str, requires: List[str]) -> str:
         """Set the tasks *task_name* requires on the same item, which must come
         before it. Why not, with nothing changed, or ""."""
-        config = self.task_config.get(task_name)
-        if config is None:
-            return f"No {self.NOUN} named {task_name!r}."
+        entry = self.workflow_config.get(task_name)
+        if entry is None or task_name not in self.task_config:
+            return f"No {self.NOUN} named {task_name!r} in the workflow."
         names = self.ordered_task_names
         if self.REQUIRES_IN_ORDER:
             allowed = names[: names.index(task_name)]
@@ -449,7 +439,7 @@ class TaskProtocol:
                 f"{task_name} {can}: "
                 f"{', '.join(allowed) or 'none'}; not {', '.join(wrong)}."
             )
-        config.requires = [n for n in allowed if n in requires]
+        entry.requires = [n for n in allowed if n in requires]
         return ""
 
     def validate(self, order: Optional[List[str]] = None) -> List[str]:
@@ -488,26 +478,26 @@ class TaskProtocol:
 
     def requirements(self, task_name: str) -> List[str]:
         """The tasks ``task_name`` requires on the same item; none for a task
-        the protocol does not have."""
-        config = self.task_config.get(task_name)
-        return list(config.requires) if config is not None else []
+        the plan does not list."""
+        entry = self.workflow_config.get(task_name)
+        return list(entry.requires) if entry is not None else []
 
     def get_attention(self, task_name: str) -> Attention:
         """Who decides the task's record, and when; automated for a task the
         plan does not list."""
-        config = self.task_config.get(task_name)
-        if config is None or self.workflow_config.get(task_name) is None:
+        entry = self.workflow_config.get(task_name)
+        if entry is None or task_name not in self.task_config:
             return Attention.automated
-        return config.attention
+        return entry.attention
 
     def set_attention(self, task_name: str, attention: Attention) -> str:
         """Set who decides *task_name*'s record. Why not, with nothing
         changed, or "". The status bar's and the task row's chips, and the App
         Server's supervision."""
-        config = self.task_config.get(task_name)
-        if config is None or self.workflow_config.get(task_name) is None:
+        entry = self.workflow_config.get(task_name)
+        if entry is None or task_name not in self.task_config:
             return f"No {self.NOUN} named {task_name!r} in the workflow."
-        config.attention = Attention(attention)
+        entry.attention = Attention(attention)
         return ""
 
     @property

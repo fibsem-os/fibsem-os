@@ -45,7 +45,6 @@
     "Mill Fiducial": {
       "align_to_reference": true,
       "alignment_expansion": 150.0,
-      "attention": "supervised",
       "confirm_alignment_area": true,
       "milling": {
         "fiducial": {
@@ -174,12 +173,10 @@
           "scan_interlacing": null
         }
       },
-      "requires": [],
       "task_name": "Mill Fiducial",
       "task_type": "MILL_FIDUCIAL"
     },
     "Polishing": {
-      "attention": "supervised",
       "milling": {
         "mill_polishing": {
           "acquisition": {
@@ -310,15 +307,11 @@
           "scan_interlacing": null
         }
       },
-      "requires": [
-        "Rough Milling"
-      ],
       "sync_to_poi": true,
       "task_name": "Polishing",
       "task_type": "MILL_POLISHING"
     },
     "Rough Milling": {
-      "attention": "supervised",
       "milling": {
         "mill_rough": {
           "acquisition": {
@@ -523,16 +516,12 @@
           "scan_interlacing": null
         }
       },
-      "requires": [
-        "Mill Fiducial"
-      ],
       "sync_polishing_position": true,
       "sync_to_poi": true,
       "task_name": "Rough Milling",
       "task_type": "MILL_ROUGH"
     },
     "Setup Lamella Position": {
-      "attention": "supervised",
       "auto_milling_alignment": false,
       "confirm_alignment_area": true,
       "confirm_position": true,
@@ -565,7 +554,6 @@
           "scan_interlacing": null
         }
       },
-      "requires": [],
       "select_poi": true,
       "sync_fiducial_position": true,
       "sync_fluorescence_pose": false,
@@ -580,23 +568,35 @@
     "name": "",
     "tasks": [
       {
+        "attention": "supervised",
         "name": "Setup Lamella Position",
         "required": true,
+        "requires": [],
         "scheduled_at": null
       },
       {
+        "attention": "supervised",
         "name": "Mill Fiducial",
         "required": true,
+        "requires": [],
         "scheduled_at": null
       },
       {
+        "attention": "supervised",
         "name": "Rough Milling",
         "required": true,
+        "requires": [
+          "Mill Fiducial"
+        ],
         "scheduled_at": null
       },
       {
+        "attention": "supervised",
         "name": "Polishing",
         "required": true,
+        "requires": [
+          "Rough Milling"
+        ],
         "scheduled_at": null
       }
     ]

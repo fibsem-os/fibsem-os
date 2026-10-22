@@ -103,15 +103,6 @@ class AutoLamellaTaskConfig(SiteTaskConfig, ABC):
     related_tasks: ClassVar[list[type["AutoLamellaTaskConfig"]]] = []
 
 
-def item_config_dict(config: TaskConfig) -> Dict[str, Any]:
-    """A lamella's own copy of a task config, as it is saved and served: without
-    attention and requires, which only the protocol's config holds."""
-    data = config.to_dict()
-    data.pop("attention", None)
-    data.pop("requires", None)
-    return data
-
-
 @dataclass
 class AutoLamellaWorkflowConfig(RunPlan):
     """The plan a lamella run follows, with its name and description."""
@@ -319,6 +310,9 @@ class AutoLamellaTaskProtocol(TaskProtocol):
         workflow_config = AutoLamellaWorkflowConfig()
         task_config = EventedDict({})
 
+        def supervision(stage: AutoLamellaStage) -> Attention:
+            return attention_from(protocol.supervision[stage])
+
         if protocol.method in [AutoLamellaMethod.ON_GRID, AutoLamellaMethod.WAFFLE]:
             rough_milling_task = MillRoughTaskConfig(
                 task_name=ROUGH_MILLING_TASK_NAME,
@@ -368,28 +362,25 @@ class AutoLamellaTaskProtocol(TaskProtocol):
             task_config[MILL_FIDUCIAL_TASK_NAME] = mill_fiducial_task
             task_config[SETUP_LAMELLA_POSITION_TASK_NAME] = setup_lamella_task
 
-            setup_lamella_task.attention = attention_from(
-                protocol.supervision[AutoLamellaStage.SetupLamella]
-            )
-            mill_fiducial_task.attention = attention_from(
-                protocol.supervision[AutoLamellaStage.SetupLamella]
-            )
-            rough_milling_task.attention = attention_from(
-                protocol.supervision[AutoLamellaStage.MillRough]
-            )
-            rough_milling_task.requires = [MILL_FIDUCIAL_TASK_NAME]
-            polishing_milling_task.attention = attention_from(
-                protocol.supervision[AutoLamellaStage.MillPolishing]
-            )
-            polishing_milling_task.requires = [ROUGH_MILLING_TASK_NAME]
             workflow_config.tasks = [
-                TaskPlan(name=name)
-                for name in (
-                    SETUP_LAMELLA_POSITION_TASK_NAME,
-                    MILL_FIDUCIAL_TASK_NAME,
-                    ROUGH_MILLING_TASK_NAME,
-                    POLISHING_TASK_NAME,
-                )
+                TaskPlan(
+                    name=SETUP_LAMELLA_POSITION_TASK_NAME,
+                    attention=supervision(AutoLamellaStage.SetupLamella),
+                ),
+                TaskPlan(
+                    name=MILL_FIDUCIAL_TASK_NAME,
+                    attention=supervision(AutoLamellaStage.SetupLamella),
+                ),
+                TaskPlan(
+                    name=ROUGH_MILLING_TASK_NAME,
+                    attention=supervision(AutoLamellaStage.MillRough),
+                    requires=[MILL_FIDUCIAL_TASK_NAME],
+                ),
+                TaskPlan(
+                    name=POLISHING_TASK_NAME,
+                    attention=supervision(AutoLamellaStage.MillPolishing),
+                    requires=[ROUGH_MILLING_TASK_NAME],
+                ),
             ]
 
         if protocol.method in [AutoLamellaMethod.TRENCH, AutoLamellaMethod.WAFFLE]:
@@ -401,12 +392,15 @@ class AutoLamellaTaskProtocol(TaskProtocol):
                     ),
                 },
                 orientation="FIB",
-                attention=attention_from(
-                    protocol.supervision[AutoLamellaStage.MillTrench]
-                ),
             )
             task_config[TRENCH_MILLING_TASK_NAME] = trench_milling_task
-            workflow_config.tasks.insert(0, TaskPlan(name=TRENCH_MILLING_TASK_NAME))
+            workflow_config.tasks.insert(
+                0,
+                TaskPlan(
+                    name=TRENCH_MILLING_TASK_NAME,
+                    attention=supervision(AutoLamellaStage.MillTrench),
+                ),
+            )
 
         if protocol.method is AutoLamellaMethod.WAFFLE:
             undercut_task = MillUndercutTaskConfig(
@@ -417,13 +411,16 @@ class AutoLamellaTaskProtocol(TaskProtocol):
                     )
                 },
                 orientation="SEM",
-                attention=attention_from(
-                    protocol.supervision[AutoLamellaStage.MillUndercut]
-                ),
-                requires=[TRENCH_MILLING_TASK_NAME],
             )
             task_config[UNDERCUT_TASK_NAME] = undercut_task
-            workflow_config.tasks.insert(1, TaskPlan(name=UNDERCUT_TASK_NAME))
+            workflow_config.tasks.insert(
+                1,
+                TaskPlan(
+                    name=UNDERCUT_TASK_NAME,
+                    attention=supervision(AutoLamellaStage.MillUndercut),
+                    requires=[TRENCH_MILLING_TASK_NAME],
+                ),
+            )
 
         options = WorkflowOptions(
             turn_beams_off=protocol.options.turn_beams_off,
@@ -711,9 +708,7 @@ class Lamella(SiteItem):
             "number": self.number,
             "id": str(self.id),
             "poses": {k: v.to_dict() for k, v in self.poses.items()},
-            "task_config": {
-                k: item_config_dict(v) for k, v in self.task_config.items()
-            },
+            "task_config": {k: v.to_dict() for k, v in self.task_config.items()},
             "task_state": self.task_state.to_dict(),
             "task_history": [task.to_dict() for task in self.task_history],
             "defect": self.defect.to_dict(),
@@ -1216,14 +1211,8 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
         return updated_count
 
     def _set_protocol_config(self, config: AutoLamellaTaskConfig) -> None:
-        """*config*'s settings into the protocol, keeping the protocol's
-        attention and requirements: a lamella's copy has none of its own."""
-        current = self.task_protocol.task_config.get(config.task_name)
-        config = deepcopy(config)
-        if current is not None:
-            config.attention = current.attention
-            config.requires = list(current.requires)
-        self.task_protocol.task_config[config.task_name] = config
+        """*config*'s settings into the protocol."""
+        self.task_protocol.task_config[config.task_name] = deepcopy(config)
 
     def add_task(self, task_type: str, task_name: str) -> AutoLamellaTaskConfig:
         """Add a new task of a registered *task_type*, named *task_name*: its

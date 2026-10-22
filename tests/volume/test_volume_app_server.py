@@ -72,7 +72,7 @@ def test_volume_serves_the_core_and_items(agent):
         "Setup FIB Milling Position",
         "Setup SEM Acquisition",
     ]
-    assert tasks[0]["supervise"] is True
+    assert tasks[0]["attention"] == "supervised"
 
 
 def test_a_position_is_added_at_a_stage_position_and_saved(agent, experiment):
@@ -255,8 +255,8 @@ def test_turning_the_beams_off_is_saved_with_the_protocol(agent, experiment):
 def test_an_agent_runs_a_position_from_set_up_to_its_last_slice(
     agent, session, experiment, microscope, milled
 ):
-    for config in experiment.task_protocol.task_config.values():
-        config.attention = Attention.automated
+    for task in experiment.task_protocol.workflow_config.tasks:
+        task.attention = Attention.automated
     experiment.add_position(
         "aspen", microscope.get_microscope_state(), Point(0, 1e-6), iterations=2
     )
@@ -331,7 +331,7 @@ def test_volume_answers_decode_as_its_own_classes(agent):
     )
     assert call("GET", "/app/experiment").items[0].item_name == "aspen"
     task = call("GET", "/app/experiment/protocol").tasks[0]
-    assert task.type is not None  # a PositionProtocolTask
+    assert task.attention == "supervised"
     call(
         "GET",
         f"/app/experiment/items/aspen/task_config/{task.name}",

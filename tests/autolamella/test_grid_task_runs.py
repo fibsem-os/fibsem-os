@@ -97,48 +97,58 @@ def _run(microscope, experiment) -> GridTaskManager:
 # ---------------------------------------------------------------------------
 
 
-class TestAttentionOnTheConfig:
-    def test_defaults_to_automated_and_is_not_a_form_parameter(self):
-        config = BeamOverviewGridTaskConfig(task_name=OVERVIEW)
-        assert config.attention is Attention.automated
-        assert "attention" not in config.parameters
+class TestAttentionOnThePlan:
+    def test_defaults_to_automated(self):
+        protocol = GridTaskProtocol()
+        protocol.add(BeamOverviewGridTaskConfig(task_name=OVERVIEW))
+        assert protocol.get_attention(OVERVIEW) is Attention.automated
 
     def test_round_trips_through_the_protocol(self):
         protocol = GridTaskProtocol()
-        protocol.add(
-            BeamOverviewGridTaskConfig(
-                task_name=OVERVIEW, attention=Attention.supervised
-            )
-        )
+        protocol.add(BeamOverviewGridTaskConfig(task_name=OVERVIEW))
+        protocol.set_attention(OVERVIEW, Attention.supervised)
         data = yaml.safe_load(yaml.safe_dump(protocol.to_dict()))
-        assert data["task_config"][OVERVIEW]["attention"] == "supervised"
+        assert data["workflow_config"]["tasks"][0]["attention"] == "supervised"
+        assert "attention" not in data["task_config"][OVERVIEW]
         again = GridTaskProtocol.from_dict(data)
-        assert again.task_config[OVERVIEW].attention is Attention.supervised
+        assert again.get_attention(OVERVIEW) is Attention.supervised
+
+    def test_a_protocol_that_kept_it_on_the_config_still_loads(self):
+        """Format 3 kept attention and requires on the task's config."""
+        data = BeamOverviewGridTaskConfig(task_name=LATER).to_dict()
+        data.update(attention="supervised", requires=[OVERVIEW])
+        again = GridTaskProtocol.from_dict(
+            {
+                "task_config": {
+                    OVERVIEW: BeamOverviewGridTaskConfig(task_name=OVERVIEW).to_dict(),
+                    LATER: data,
+                },
+                "workflow_config": {"tasks": [{"name": OVERVIEW}, {"name": LATER}]},
+            }
+        )
+        assert again.get_attention(LATER) is Attention.supervised
+        assert again.requirements(LATER) == [OVERVIEW]
 
     def test_a_protocol_saved_before_the_rename_still_loads(self):
         """The mode was stored as ``review`` on main before 0.6.0. It never
         shipped, but grid protocols saved from those builds carry it."""
-        protocol = GridTaskProtocol()
-        protocol.add(
-            BeamOverviewGridTaskConfig(
-                task_name=OVERVIEW, attention=Attention.supervised
-            )
-        )
-        data = yaml.safe_load(yaml.safe_dump(protocol.to_dict()))
-        data["task_config"][OVERVIEW]["attention"] = "review"
-        again = GridTaskProtocol.from_dict(data)
-        assert again.task_config[OVERVIEW].attention is Attention.supervised
+        data = BeamOverviewGridTaskConfig(task_name=OVERVIEW).to_dict()
+        data["attention"] = "review"
+        again = GridTaskProtocol.from_dict({"tasks": {OVERVIEW: data}})
+        assert again.get_attention(OVERVIEW) is Attention.supervised
 
     def test_an_unknown_value_reads_as_automated_and_keeps_the_task(self):
         data = BeamOverviewGridTaskConfig(task_name=OVERVIEW).to_dict()
         data["attention"] = "sometimes"
         again = GridTaskProtocol.from_dict({"tasks": {OVERVIEW: data}})
-        assert again.task_config[OVERVIEW].attention is Attention.automated
+        assert again.get_attention(OVERVIEW) is Attention.automated
+        assert OVERVIEW in again.task_config
 
     def test_requires_round_trips_and_is_not_a_form_parameter(self):
         protocol = GridTaskProtocol()
         protocol.add(BeamOverviewGridTaskConfig(task_name=OVERVIEW))
-        protocol.add(BeamOverviewGridTaskConfig(task_name=LATER, requires=[OVERVIEW]))
+        protocol.add(BeamOverviewGridTaskConfig(task_name=LATER))
+        protocol.set_requires(LATER, [OVERVIEW])
         assert "requires" not in protocol.task_config[LATER].parameters
         again = GridTaskProtocol.from_dict(
             yaml.safe_load(yaml.safe_dump(protocol.to_dict()))
@@ -153,12 +163,6 @@ class TestAttentionOnTheConfig:
         again = GridTaskProtocol.from_dict({"tasks": {LATER: data}})
         assert again.requirements(LATER) == []
 
-    def test_a_protocol_written_before_attention_loads_as_automated(self):
-        data = BeamOverviewGridTaskConfig(task_name=OVERVIEW).to_dict()
-        del data["attention"]
-        again = GridTaskProtocol.from_dict({"tasks": {OVERVIEW: data}})
-        assert again.task_config[OVERVIEW].attention is Attention.automated
-
 
 # ---------------------------------------------------------------------------
 # A run ends as its record
@@ -170,7 +174,7 @@ class TestAGridTaskEnds:
     def test_a_run_records_its_overview_and_proposes_nothing(
         self, microscope, experiment, attention
     ):
-        experiment.grid_protocol.task_config[OVERVIEW].attention = attention
+        experiment.grid_protocol.workflow_config.get(OVERVIEW).attention = attention
         _run(microscope, experiment)
         grid = experiment.get_grid_by_name(GRID)
 
@@ -184,7 +188,9 @@ class TestAGridTaskEnds:
     def test_a_failed_task_stays_failed_and_proposes_nothing(
         self, microscope, experiment
     ):
-        experiment.grid_protocol.task_config[OVERVIEW].attention = Attention.supervised
+        experiment.grid_protocol.workflow_config.get(
+            OVERVIEW
+        ).attention = Attention.supervised
         # an orientation the stage does not have: a real failure, inside the
         # task and before any beam
         experiment.grid_protocol.task_config[OVERVIEW].orientation = "NOWHERE"
@@ -211,11 +217,12 @@ def test_item_path_is_a_lamellas_own_and_a_grids_derived(tmp_path, experiment):
 def _with_later_task(experiment, requires=(OVERVIEW,)):
     """The SEM overview supervised, then an automated FIB overview that
     requires it (a stand-in for a task that uses the overview)."""
-    experiment.grid_protocol.task_config[OVERVIEW].attention = Attention.supervised
+    experiment.grid_protocol.workflow_config.get(
+        OVERVIEW
+    ).attention = Attention.supervised
     experiment.grid_protocol.add(
         BeamOverviewGridTaskConfig(
             task_name=LATER,
-            requires=list(requires),
             orientation="FIB",
             settings=OverviewAcquisitionSettings(
                 image_settings=ImageSettings(
@@ -226,6 +233,7 @@ def _with_later_task(experiment, requires=(OVERVIEW,)):
             ),
         )
     )
+    experiment.grid_protocol.set_requires(LATER, list(requires))
 
 
 def _manager(microscope, experiment, hook_manager=None) -> GridTaskManager:
@@ -256,7 +264,9 @@ class TestATaskThatRequiresAnother:
         """Selected in the other order, the task waits for its requirement's
         turn (prereq_pending) instead of skipping over it."""
         _with_later_task(experiment)
-        experiment.grid_protocol.task_config[OVERVIEW].attention = Attention.automated
+        experiment.grid_protocol.workflow_config.get(
+            OVERVIEW
+        ).attention = Attention.automated
         manager = _manager(microscope, experiment)
 
         manager.run([LATER, OVERVIEW], [GRID])
@@ -291,7 +301,9 @@ class TestATaskThatRequiresAnother:
 class TestTheLatestRunOfARequirementCounts:
     def _succeed_once(self, microscope, experiment):
         _with_later_task(experiment)
-        experiment.grid_protocol.task_config[OVERVIEW].attention = Attention.automated
+        experiment.grid_protocol.workflow_config.get(
+            OVERVIEW
+        ).attention = Attention.automated
         _manager(microscope, experiment).run([OVERVIEW], [GRID])
         grid = experiment.get_grid_by_name(GRID)
         assert grid.has_completed_task(OVERVIEW)

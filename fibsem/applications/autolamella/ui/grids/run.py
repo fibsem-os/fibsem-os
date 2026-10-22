@@ -87,6 +87,7 @@ from fibsem.workflows.grid import (
     FluorescenceOverviewGridTaskConfig,
     GridTaskConfig,
 )
+from fibsem.workflows.grid.protocol import GridTaskProtocol
 from fibsem.workflows.grids import GridRecord
 
 # The lamella list's metrics, so the two run views read alike.
@@ -230,6 +231,7 @@ class GridTaskEditDialog(QDialog):
     def __init__(
         self,
         config: GridTaskConfig,
+        requires: Sequence[str],
         task_names: Sequence[str],
         parent: Optional[QWidget] = None,
     ) -> None:
@@ -261,7 +263,7 @@ class GridTaskEditDialog(QDialog):
         others = [n for n in task_names if n != config.task_name]
         for name in others:
             box = QCheckBox(name)
-            box.setChecked(name in config.requires)
+            box.setChecked(name in requires)
             layout.addWidget(box)
             self.checks[name] = box
         if not others:
@@ -287,14 +289,18 @@ class GridTaskEditDialog(QDialog):
 
 class _TaskRow(QWidget):
     selection_changed = pyqtSignal(str, bool)  # task name, checked
-    attention_changed = pyqtSignal(str)  # task name; the config is already changed
+    attention_changed = pyqtSignal(str)  # task name; the protocol is already changed
     edit_clicked = pyqtSignal(str)  # task name
 
     def __init__(
-        self, config: GridTaskConfig, parent: Optional[QWidget] = None
+        self,
+        config: GridTaskConfig,
+        protocol: GridTaskProtocol,
+        parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self.config = config
+        self.protocol = protocol
         self._reason: Optional[str] = None
         self.setAttribute(Qt.WA_TranslucentBackground)
         layout = QHBoxLayout(self)
@@ -364,12 +370,18 @@ class _TaskRow(QWidget):
         self._reason = reason
         self.refresh()
 
+    @property
+    def supervised(self) -> bool:
+        return self.protocol.get_attention(self.task_name) is Attention.supervised
+
     def _toggle_attention(self) -> None:
-        self.config.attention = (
-            Attention.automated
-            if self.config.attention is Attention.supervised
-            else Attention.supervised
+        why = self.protocol.set_attention(
+            self.task_name,
+            Attention.automated if self.supervised else Attention.supervised,
         )
+        if why:
+            logging.warning(why)
+            return
         self.refresh()
         self.attention_changed.emit(self.task_name)
 
@@ -383,11 +395,8 @@ class _TaskRow(QWidget):
         )
         # the right column, most pressing first: why it cannot run, what it
         # waits for (as the lamella list says it), and otherwise the task's kind
-        after = (
-            "after " + requires_phrase(self.config.requires)
-            if self.config.requires
-            else ""
-        )
+        requires = self.protocol.requirements(self.task_name)
+        after = "after " + requires_phrase(requires) if requires else ""
         if not available:
             detail = self._reason
         elif after:
@@ -411,7 +420,7 @@ class _TaskRow(QWidget):
         self.checkbox.setToolTip(self._reason or "")
 
     def _refresh_attention(self) -> None:
-        supervised = self.config.attention is Attention.supervised
+        supervised = self.supervised
         state = "supervised" if supervised else "automated"
         if supervised:
             colour = stylesheets.PRIMARY_COLOR
@@ -706,7 +715,7 @@ class GridWorkflowWidget(QWidget):
         protocol = self._protocol()
         if protocol is not None:
             for name in protocol.ordered_task_names:
-                row = _TaskRow(protocol.task_config[name])
+                row = _TaskRow(protocol.task_config[name], protocol)
                 row.selection_changed.connect(lambda *_: self._on_selection())
                 row.attention_changed.connect(self._on_attention_changed)
                 row.edit_clicked.connect(self._on_edit_requested)
@@ -848,7 +857,10 @@ class GridWorkflowWidget(QWidget):
         if protocol is None or task_name not in protocol.task_config:
             return None
         return GridTaskEditDialog(
-            protocol.task_config[task_name], protocol.ordered_task_names, parent=self
+            protocol.task_config[task_name],
+            protocol.requirements(task_name),
+            protocol.ordered_task_names,
+            parent=self,
         )
 
     def _on_edit_requested(self, task_name: str) -> None:

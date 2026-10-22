@@ -86,8 +86,11 @@ class GridTask(BaseTask):
 
     @property
     def supervised(self) -> bool:
-        """Whether this task's config attention is supervised."""
-        return self.config.attention is Attention.supervised
+        """Whether the grid protocol's attention for this task is supervised."""
+        protocol = getattr(self.experiment, "grid_protocol", None)
+        if protocol is None:
+            return False
+        return protocol.get_attention(self.task_name) is Attention.supervised
 
     # -- where the grid is, and where its files go -----------------------------
 

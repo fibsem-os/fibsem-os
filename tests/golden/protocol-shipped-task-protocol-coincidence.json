@@ -43,7 +43,6 @@
   },
   "task_config": {
     "Acquire Fluorescence Image": {
-      "attention": "automated",
       "autofocus_settings": {
         "channel_name": "Reflection Channel",
         "method": "LAPLACIAN",
@@ -123,7 +122,6 @@
           "scan_interlacing": null
         }
       },
-      "requires": [],
       "retract_objective": true,
       "task_name": "Acquire Fluorescence Image",
       "task_type": "ACQUIRE_FLUORESCENCE_IMAGE",
@@ -136,7 +134,6 @@
     },
     "Coincidence Milling": {
       "acquire_fluorescence_images": true,
-      "attention": "automated",
       "milling": {
         "mill_coincident": {
           "acquisition": {
@@ -291,9 +288,6 @@
           "scan_interlacing": null
         }
       },
-      "requires": [
-        "Setup Coincidence Milling"
-      ],
       "setup_task": "Setup Coincidence Milling",
       "task_name": "Coincidence Milling",
       "task_type": "MILL_COINCIDENT"
@@ -301,7 +295,6 @@
     "Mill Fiducial": {
       "align_to_reference": true,
       "alignment_expansion": 100.0,
-      "attention": "supervised",
       "confirm_alignment_area": true,
       "milling": {
         "fiducial": {
@@ -466,12 +459,10 @@
           "scan_interlacing": null
         }
       },
-      "requires": [],
       "task_name": "Mill Fiducial",
       "task_type": "MILL_FIDUCIAL"
     },
     "Rough Milling": {
-      "attention": "supervised",
       "milling": {
         "mill_rough": {
           "acquisition": {
@@ -676,16 +667,12 @@
           "scan_interlacing": null
         }
       },
-      "requires": [
-        "Mill Fiducial"
-      ],
       "sync_polishing_position": true,
       "sync_to_poi": true,
       "task_name": "Rough Milling",
       "task_type": "MILL_ROUGH"
     },
     "Select Milling Position": {
-      "attention": "supervised",
       "auto_milling_alignment": false,
       "confirm_alignment_area": true,
       "confirm_position": true,
@@ -718,7 +705,6 @@
           "scan_interlacing": null
         }
       },
-      "requires": [],
       "select_poi": true,
       "sync_fiducial_position": true,
       "sync_fluorescence_pose": false,
@@ -728,7 +714,6 @@
     },
     "Setup Coincidence Milling": {
       "align_coincidence": false,
-      "attention": "supervised",
       "field_of_view": 8e-05,
       "fm_roi": null,
       "intensity_drop_fraction": 0.4,
@@ -765,14 +750,10 @@
           "scan_interlacing": null
         }
       },
-      "requires": [
-        "Rough Milling"
-      ],
       "task_name": "Setup Coincidence Milling",
       "task_type": "SETUP_COINCIDENCE_MILLING"
     },
     "Spot Burn Fiducial": {
-      "attention": "automated",
       "autofocus": false,
       "coordinates": [
         {
@@ -890,7 +871,6 @@
           "scan_interlacing": null
         }
       },
-      "requires": [],
       "task_name": "Spot Burn Fiducial",
       "task_type": "SPOT_BURN_FIDUCIAL"
     }
@@ -901,38 +881,58 @@
     "name": "",
     "tasks": [
       {
+        "attention": "supervised",
         "name": "Select Milling Position",
         "required": false,
+        "requires": [],
         "scheduled_at": null
       },
       {
+        "attention": "automated",
         "name": "Acquire Fluorescence Image",
         "required": false,
+        "requires": [],
         "scheduled_at": null
       },
       {
+        "attention": "supervised",
         "name": "Mill Fiducial",
         "required": true,
+        "requires": [],
         "scheduled_at": null
       },
       {
+        "attention": "automated",
         "name": "Acquire Fluorescence Image",
         "required": false,
+        "requires": [],
         "scheduled_at": null
       },
       {
+        "attention": "supervised",
         "name": "Rough Milling",
         "required": true,
+        "requires": [
+          "Mill Fiducial"
+        ],
         "scheduled_at": null
       },
       {
+        "attention": "supervised",
         "name": "Setup Coincidence Milling",
         "required": true,
+        "requires": [
+          "Rough Milling"
+        ],
         "scheduled_at": null
       },
       {
+        "attention": "automated",
         "name": "Coincidence Milling",
         "required": true,
+        "requires": [
+          "Setup Coincidence Milling"
+        ],
         "scheduled_at": null
       }
     ]

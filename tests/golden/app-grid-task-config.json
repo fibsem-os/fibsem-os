@@ -4,7 +4,6 @@
     "attention": "automated",
     "filename": "overview",
     "orientation": "SEM",
-    "requires": [],
     "settings": {
       "autocontrast_mode": "NONE",
       "autofocus_mode": "NONE",
@@ -66,5 +65,5 @@
   },
   "level": "grid_protocol",
   "task_name": "SEM Overview",
-  "version": "f50ef3b26d877848"
+  "version": "c251e18e6eade995"
 }

@@ -152,26 +152,24 @@ def test_reset_puts_the_defaults_back(widget, experiment):
 def test_reset_keeps_attention_and_requires(widget, experiment):
     widget.add_task(BEAM, "overview_sem")
     widget.add_task(BEAM, "overview_fib")
-    config = experiment.grid_protocol.task_config["overview_fib"]
-    config.attention = Attention.supervised
-    config.requires = ["overview_sem"]
-    fresh = widget.reset_selected()
-    assert fresh.attention is Attention.supervised
-    assert fresh.requires == ["overview_sem"]
+    protocol = experiment.grid_protocol
+    protocol.set_attention("overview_fib", Attention.supervised)
+    protocol.set_requires("overview_fib", ["overview_sem"])
+    widget.reset_selected()
+    assert protocol.get_attention("overview_fib") is Attention.supervised
+    assert protocol.requirements("overview_fib") == ["overview_sem"]
 
 
 def test_removing_a_task_drops_it_from_what_requires_it(widget, experiment):
     widget.add_task(BEAM, "overview_sem")
     widget.add_task(BEAM, "overview_fib")
-    experiment.grid_protocol.task_config["overview_fib"].requires = ["overview_sem"]
+    experiment.grid_protocol.workflow_config.get("overview_fib").requires = [
+        "overview_sem"
+    ]
     widget.remove_task("overview_sem")
     assert experiment.grid_protocol.requirements("overview_fib") == []
-    assert (
-        saved_protocol(experiment)["grid_tasks"]["task_config"]["overview_fib"][
-            "requires"
-        ]
-        == []
-    )
+    saved = saved_protocol(experiment)["grid_tasks"]["workflow_config"]["tasks"]
+    assert [t["requires"] for t in saved if t["name"] == "overview_fib"] == [[]]
 
 
 def test_the_trash_icon_asks_first(widget, monkeypatch):

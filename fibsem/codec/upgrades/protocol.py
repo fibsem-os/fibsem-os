@@ -5,10 +5,12 @@ the current shape.
   now, beside ``milling`` and ``reference_imaging``.
 - A protocol said ``_id``, ``tasks`` and ``order``; it says ``id``, ``task_config``
   and ``workflow_config`` (``{tasks: [{name, required, scheduled_at}]}``) now.
-- An AutoLamella protocol kept its plan under ``workflow``, with each task's
-  ``attention`` and ``requires`` there. Both are on the task's config now. v0.5.2
-  and earlier wrote a ``supervise`` flag in place of ``attention``.
-- A plan entry that is null was read as an optional task with no name.
+- A task's ``attention`` and ``requires`` are on its plan entry; format 3 put
+  them on its config. v0.5.2 and earlier wrote a ``supervise`` flag in place of
+  ``attention``.
+- An AutoLamella protocol kept its plan under ``workflow``.
+- A plan entry that is null was read as an optional task with no name. A
+  protocol with no plan at all plans every task it has.
 
 Presence, not a version, decides each step, and a key already in its new place
 wins. Each step copies what it is given.
@@ -23,9 +25,16 @@ SUPERVISED = "supervised"
 AUTOMATED = "automated"
 
 
+# On a task's plan entry, not its config.
+PLAN_FIELDS = ("attention", "requires")
+
+
 def task_config(data: Dict[str, Any]) -> Dict[str, Any]:
-    """A task config with its ``parameters`` at the top level."""
+    """A task config with its ``parameters`` at the top level, and nothing of
+    its plan entry."""
     data = dict(data or {})
+    for key in PLAN_FIELDS:
+        data.pop(key, None)
     parameters = data.pop("parameters", None)
     if isinstance(parameters, dict):
         data = {**parameters, **data}
@@ -33,8 +42,8 @@ def task_config(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def run_plan(data: Dict[str, Any]) -> Dict[str, Any]:
-    """A run plan whose every entry is a dict; a task named on its own is
-    required."""
+    """A run plan whose every entry is a dict, with ``attention`` for
+    ``supervise``; a task named on its own is required."""
     data = dict(data or {})
     tasks = []
     for entry in data.get("tasks") or []:
@@ -42,7 +51,11 @@ def run_plan(data: Dict[str, Any]) -> Dict[str, Any]:
             entry = {"name": "", "required": False}
         elif isinstance(entry, str):
             entry = {"name": entry}
-        tasks.append(dict(entry))
+        entry = dict(entry)
+        supervise = entry.pop("supervise", None)
+        if supervise is not None:
+            entry.setdefault("attention", SUPERVISED if supervise else AUTOMATED)
+        tasks.append(entry)
     data["tasks"] = tasks
     return data
 
@@ -54,38 +67,31 @@ def task_protocol(data: Dict[str, Any]) -> Dict[str, Any]:
         data.setdefault("id", data.pop("_id"))
     if "tasks" in data:
         data.setdefault("task_config", data.pop("tasks"))
-    data["task_config"] = {
-        name: task_config(config)
-        for name, config in (data.get("task_config") or {}).items()
-    }
+    configs = data.get("task_config") or {}
     if "order" in data:
         order = data.pop("order") or []
         data.setdefault("workflow_config", {"tasks": list(order)})
+    # with no plan at all, every task is in it
+    data.setdefault("workflow_config", {"tasks": list(configs)})
     data["workflow_config"] = run_plan(data.get("workflow_config") or {})
+    for entry in data["workflow_config"]["tasks"]:
+        config = configs.get(entry.get("name")) or {}
+        for key in PLAN_FIELDS:
+            if key in config:
+                entry.setdefault(key, config[key])
+    data["task_config"] = {
+        name: task_config(config) for name, config in configs.items()
+    }
     return data
 
 
 def autolamella_protocol(data: Dict[str, Any]) -> Dict[str, Any]:
-    """An AutoLamella protocol with the current keys, each task's attention and
-    requires on its config, and its grid tasks upgraded too."""
+    """An AutoLamella protocol with the current keys, and its grid tasks
+    upgraded too."""
     data = copy.deepcopy(data or {})
     if "workflow" in data:
         data.setdefault("workflow_config", data.pop("workflow"))
     data = task_protocol(data)
-    configs = data["task_config"]
-    for entry in data["workflow_config"]["tasks"]:
-        supervise = entry.pop("supervise", None)
-        attention = entry.pop("attention", None)
-        requires = entry.pop("requires", None)
-        config = configs.get(entry.get("name"))
-        if config is None:
-            continue
-        if attention is None and supervise is not None:
-            attention = SUPERVISED if supervise else AUTOMATED
-        if attention is not None:
-            config.setdefault("attention", attention)
-        if requires is not None:
-            config.setdefault("requires", requires)
     if data.get("grid_tasks") is not None:
         data["grid_tasks"] = task_protocol(data["grid_tasks"])
     return data

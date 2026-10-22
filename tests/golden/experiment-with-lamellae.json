@@ -2,7 +2,7 @@
   "_id": "pinned-experiment-id",
   "app": "autolamella",
   "created_at": "2026-10-20T09:00:00+10:00",
-  "format_version": 3,
+  "format_version": 4,
   "grids": [],
   "landing_positions": [],
   "metadata": {},

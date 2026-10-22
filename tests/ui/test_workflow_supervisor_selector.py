@@ -20,7 +20,7 @@ from tests.protocols import planned, task_protocol
 
 @pytest.fixture
 def row(qapp):
-    widget = module.WorkflowTaskRowWidget(*planned(name="Mill Fiducial"))
+    widget = module.WorkflowTaskRowWidget(planned(name="Mill Fiducial")[0])
     yield widget
     widget.deleteLater()
     qapp.processEvents()
@@ -29,13 +29,13 @@ def row(qapp):
 A = Attention
 
 
-def test_the_chip_shows_the_configs_attention(row):
+def test_the_chip_shows_the_tasks_attention(row):
     assert row.btn_attention.text() == "Automated"
-    row.config.attention = A.supervised
+    row.task.attention = A.supervised
     row.refresh()
     assert row.btn_attention.text() == "Supervised"
     assert row.btn_attention.toolTip().startswith("Supervised")
-    row.config.attention = A.automated
+    row.task.attention = A.automated
     row.refresh()
     assert row.btn_attention.text() == "Automated"
 
@@ -47,7 +47,7 @@ def test_each_click_asks_for_a_toggle_and_changes_nothing(row):
     for _ in range(3):
         row.btn_attention.click()
     assert seen == [row.task] * 3
-    assert row.config.attention is A.automated
+    assert row.task.attention is A.automated
 
 
 def test_a_requirement_reads_the_same_whatever_its_mode(qapp):
@@ -62,11 +62,11 @@ def test_a_requirement_reads_the_same_whatever_its_mode(qapp):
     widget.set_config(protocol.workflow_config)
     rows = [widget._row(i) for i in range(2)]
     assert rows[1].requires_label.text() == ""
-    protocol.task_config["Rough"].requires = ["Setup"]
+    protocol.workflow_config.get("Rough").requires = ["Setup"]
     widget.refresh_all()
     assert rows[1].requires_label.text() == "after Setup"
     assert rows[1].toolTip().startswith("Requires: Setup")
-    protocol.task_config["Setup"].attention = Attention.automated
+    protocol.workflow_config.get("Setup").attention = Attention.automated
     widget.refresh_all()
     assert rows[1].requires_label.text() == "after Setup"
     widget.deleteLater()
@@ -79,15 +79,15 @@ def test_a_schedule_shares_the_dependency_column(qapp):
     row, and says nothing at all when there is no schedule."""
     from datetime import datetime
 
-    task, config = planned(name="Rough", requires=["Fiducial"])
-    row = module.WorkflowTaskRowWidget(task, config)
+    task, _ = planned(name="Rough", requires=["Fiducial"])
+    row = module.WorkflowTaskRowWidget(task)
     assert row.requires_label.text() == "after Fiducial"
     assert not hasattr(row, "btn_schedule")
     task.scheduled_at = datetime(2026, 9, 15, 21, 30)
     row.refresh()
     assert row.requires_label.text() == "after Fiducial · at 15 Sep 21:30"
     assert "Scheduled:" in row.toolTip() and "Requires:" in row.toolTip()
-    config.requires = []
+    task.requires = []
     row.refresh()
     assert row.requires_label.text() == "at 15 Sep 21:30"
     row.deleteLater()

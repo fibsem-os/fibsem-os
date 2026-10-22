@@ -10,53 +10,45 @@
       "type": "BEAM_OVERVIEW_GRID"
     }
   ],
-  "name": "",
+  "name": "AutoLamella Protocol",
   "options": {
     "show_run_summary": true,
     "turn_beams_off": false
   },
   "tasks": [
     {
-      "attendance": "Needs you at the microscope while it runs: the position, the point of interest and the alignment area.",
       "attention": "supervised",
       "name": "Setup Lamella Position",
       "required": true,
       "requires": [],
-      "scheduled_at": null,
-      "supervise": true
+      "scheduled_at": null
     },
     {
-      "attendance": "Needs you at the microscope while it runs: milling and the alignment area.",
       "attention": "supervised",
       "name": "Mill Fiducial",
       "required": true,
       "requires": [
         "Setup Lamella Position"
       ],
-      "scheduled_at": null,
-      "supervise": true
+      "scheduled_at": null
     },
     {
-      "attendance": "Needs you at the microscope while it runs: milling.",
       "attention": "supervised",
       "name": "Rough Milling",
       "required": true,
       "requires": [
         "Mill Fiducial"
       ],
-      "scheduled_at": null,
-      "supervise": true
+      "scheduled_at": null
     },
     {
-      "attendance": "Needs you at the microscope while it runs: milling.",
       "attention": "supervised",
       "name": "Polishing",
       "required": true,
       "requires": [
         "Rough Milling"
       ],
-      "scheduled_at": null,
-      "supervise": true
+      "scheduled_at": null
     }
   ]
 }

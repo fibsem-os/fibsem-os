@@ -7,7 +7,6 @@
   },
   "task_config": {
     "Setup FIB Milling Position": {
-      "attention": "supervised",
       "face": {
         "acquisition": {
           "acquire_fib": false,
@@ -211,7 +210,6 @@
       "field_of_view": 5e-05,
       "mill_fiducial": true,
       "mill_trench": true,
-      "requires": [],
       "task_name": "Setup FIB Milling Position",
       "task_type": "VOLUME_SETUP_FIB_MILLING",
       "trench": {
@@ -355,14 +353,11 @@
       }
     },
     "Setup SEM Acquisition": {
-      "attention": "supervised",
       "field_of_view": 5e-05,
-      "requires": [],
       "task_name": "Setup SEM Acquisition",
       "task_type": "VOLUME_SETUP_SEM_ACQUISITION"
     },
     "Volume FIB Milling": {
-      "attention": "automated",
       "milling": {
         "acquisition": {
           "acquire_fib": false,
@@ -464,13 +459,11 @@
           }
         ]
       },
-      "requires": [],
       "slice_thickness": 2e-07,
       "task_name": "Volume FIB Milling",
       "task_type": "VOLUME_FIB_MILLING"
     },
     "Volume SEM Acquisition": {
-      "attention": "automated",
       "auto_area": {
         "height": 0.5,
         "left": 0.25,
@@ -497,9 +490,6 @@
         "save": false,
         "scan_interlacing": null
       },
-      "requires": [
-        "Volume FIB Milling"
-      ],
       "task_name": "Volume SEM Acquisition",
       "task_type": "VOLUME_SEM_ACQUISITION"
     }
@@ -507,23 +497,33 @@
   "workflow_config": {
     "tasks": [
       {
+        "attention": "supervised",
         "name": "Setup FIB Milling Position",
         "required": true,
+        "requires": [],
         "scheduled_at": null
       },
       {
+        "attention": "supervised",
         "name": "Setup SEM Acquisition",
         "required": true,
+        "requires": [],
         "scheduled_at": null
       },
       {
+        "attention": "automated",
         "name": "Volume FIB Milling",
         "required": true,
+        "requires": [],
         "scheduled_at": null
       },
       {
+        "attention": "automated",
         "name": "Volume SEM Acquisition",
         "required": true,
+        "requires": [
+          "Volume FIB Milling"
+        ],
         "scheduled_at": null
       }
     ]
