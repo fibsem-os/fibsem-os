@@ -502,8 +502,15 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "from. With lamella_path it starts from the experiment's previous runs "
             "and saves a new run in the lamella's Correlation folder, with an "
             "overlay to look at (overlay_path, experiment_read_file: o picked, "
-            "x fitted, + targets). Paths inside the open experiment. Does not move "
-            "the lamella's point of interest. Moves nothing."
+            "x fitted, + targets) and the coordinates as CSV. Refractive-index "
+            "correction, as the tab's RI panel: give ONE surface point, "
+            "fm_surface_point (x, y, z in the FM stack: corrects the targets' depth "
+            "before the fit) or fib_surface_point (x, y in the FIB image: moves the "
+            "first target after it). The factor is the lookup table's for the "
+            "protocol's RI settings, with ri's values over them, or ri_factor; the "
+            "answer's ri_correction says what was applied. Paths inside the open "
+            "experiment. Does not move the lamella's point of interest. Moves "
+            "nothing."
         ),
         method="POST",
         path="/services/correlation/queries/correlate",
@@ -516,8 +523,83 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "fm_points": "the same fiducials as [[x, y, z], ...] FM pixels and slices",
             "poi_points": "targets as [[x, y, z], ...] FM pixels and slices",
             "lamella_path": "the lamella's folder, to start from previous runs and save the run there",
+            "fm_surface_point": "[x, y, z] the sample surface in the FM stack: RI pre-correction",
+            "fib_surface_point": "[x, y] the sample surface in the FIB image: RI post-correction",
+            "ri": "RI settings over the protocol's: any of tilt_deg, depth_um, na, n2, wavelength_um",
+            "ri_factor": "the RI correction factor itself, instead of the lookup table's",
         },
-        optional=("lamella_path",),
+        optional=(
+            "lamella_path",
+            "fm_surface_point",
+            "fib_surface_point",
+            "ri",
+            "ri_factor",
+        ),
+        call=lambda a: ({}, kwargs_body(**a)),
+    ),
+    ToolSpec(
+        name="correlation_project_fm_points",
+        description=(
+            "Before a fit, where the FM partners of FIB fiducials should be, as "
+            "the correlation tab's Project does: each FIB point without an FM "
+            "partner is projected into the FM stack through the images' geometry "
+            "(from the experiment's previous runs with lamella_path), corrected by "
+            "the pairs placed so far. fm_points pair with the first fib_points by "
+            "order. Answers each prediction's (x, y, z), whether it is on the FM "
+            "image, and the three best spread to place first. Place each one on "
+            "its feature (correlation_refine_point), then project again or "
+            "correlate. Moves nothing."
+        ),
+        method="POST",
+        path="/services/correlation/queries/project_fm_points",
+        router="services",
+        level="watch",
+        params={
+            "fib_image_path": "the saved FIB image the fib_points are in",
+            "fm_image_path": "the saved FM stack to place the partners in",
+            "fib_points": "fiducials as [[x, y], ...] FIB pixels",
+            "fm_points": "the partners placed so far, [[x, y, z], ...], in the same order",
+            "z": "the slice to place at before any pair has a depth (default the middle)",
+            "lamella_path": "the lamella's folder, to start from previous runs",
+        },
+        optional=("fm_points", "z", "lamella_path"),
+        call=lambda a: ({}, kwargs_body(**a)),
+    ),
+    ToolSpec(
+        name="correlation_find_spot_burns",
+        description=(
+            "The spot-burn fiducials of a lamella, from its spot-burn task, as the "
+            "correlation tab seeds its FIB fiducials: fractions of the image they "
+            "were placed on and its field width, and with fib_image_path their "
+            "pixels in that FIB image (refused, with the reason, when it is "
+            "another field width). reason says why there are none. Reads the "
+            "experiment and moves nothing."
+        ),
+        method="POST",
+        path="/services/correlation/queries/spot_burns",
+        router="services",
+        level="watch",
+        params={
+            "lamella_path": "the lamella's folder",
+            "fib_image_path": "a saved FIB image to give the burns' pixels in",
+        },
+        optional=("fib_image_path",),
+        call=lambda a: ({}, kwargs_body(**a)),
+    ),
+    ToolSpec(
+        name="correlation_list_runs",
+        description=(
+            "The correlations saved for a lamella, oldest first, as the "
+            "correlation tab's history: each run's folder (run_path, for "
+            "correlation_predict and item_apply_correlation), RMS error, verdict "
+            "tier, pairs, RI correction, first point of interest and overlay. "
+            "Reads and moves nothing."
+        ),
+        method="POST",
+        path="/services/correlation/queries/list_runs",
+        router="services",
+        level="watch",
+        params={"lamella_path": "the lamella's folder"},
         call=lambda a: ({}, kwargs_body(**a)),
     ),
     ToolSpec(
