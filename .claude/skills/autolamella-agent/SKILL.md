@@ -398,12 +398,21 @@ The other moves, by when to use them:
   in the other. Pass its offset in the image where it is off, and that beam
   as `beam_type` (ION, the default, or ELECTRON); it moves the stage along the
   chamber vertical, which the beam where the feature is centred doesn't see.
+- `stage_fm_stable_move`: `stage_stable_move` for the fluorescence image,
+  with the objective inserted. Pass the feature's offset in the FM image as
+  displayed; it keeps the focal plane. `service_call_query`
+  `project_fm_stable_move` answers where it would go without moving.
+- `stage_move_to_device`: on an instrument where the FM sits beside the
+  FIB-SEM, travel between them (FIBSEM, FM). It retracts the objective and
+  re-poses on the way by itself.
 - `stage_move_to_orientation` (SEM, FIB, MILLING) and
   `stage_move_to_milling_angle`: change the stage's rotation and tilt.
 - `stage_move_absolute`: go back to a saved position. It tilts flat before a
   large rotation.
 
-Retract the FM objective before any move that changes the pose
+`fm_insert_objective` moves the objective only: tilt the stage flat (0° or
+-180°) first, as the FM tab does. Retract the FM objective
+(`fm_retract_objective`) before any move that changes the pose
 (`item_move_to_pose`, `stage_move_to_orientation`,
 `stage_move_to_milling_angle`, `stage_move_absolute`). In a request, put the
 retract first. The one exception: on an offset FM mount, `item_move_to_pose`
@@ -460,7 +469,8 @@ answers at once with its `run_id` (`state: running`) and mills on, in control
 of the microscope: call `service_wait_for_run` milling with that id, again
 while it says running, before you `clear`. It ends `done` (`result:
 completed`), `cancelled` or `failed` with its error. `service_get_parameter`
-milling `progress` shows how far it has got. A spot burn `run` works the same
+milling `progress` shows how far it has got. A spot burn
+(`milling_run_spot_burn`, `milling_estimate_spot_burn` first) works the same
 way.
 
 Follow every mill the same way, whoever started it (you, a workflow task, the
@@ -577,7 +587,10 @@ image and its path, and `service_call_command` imaging `stop`, with a reason,
 ends either one. `fm_acquire_overview` is the fluorescence one, from the FM
 pose with the objective in and near its focus: inserted is not enough. Go to
 the item's stored objective position (`item_move_to_objective_position`) or
-run `fm_auto_focus` first, for any FM image. `fm_estimate_overview` gives its whole run time,
+run `fm_auto_focus` first, for any FM image. Its `settings` set the sweep
+(`passes` of `search_range` and `step_size`, in metres of objective travel),
+and `fm_acquire_overview` takes the same as `autofocus_settings` for its
+`autofocus_mode`. `fm_estimate_overview` gives its whole run time,
 stage moves included, and the same `stop` ends it. `register_tiles`
 (experimental, off by default) places each tile where its picture says it is
 rather than where the stage step put it, when no tile moves more than 15 µm.
@@ -695,7 +708,8 @@ operator`), stop and ask before your next command.
 
 A wrong stop isn't free: a mill stopped partway can spoil a lamella, and a
 stopped run loses hours. Every stop takes a `reason`, which the operator
-reads. Never use a stop to "pause and think"; ask instead.
+reads. Never use a stop to "pause and think": `milling_pause` holds a mill
+where it is and `milling_resume` lets it go on, by the same levels as a stop.
 
 - **Watch**: you can't stop anything. If the run looks like it is doing
   damage (milling the wrong place, a stage move that makes no sense, a task

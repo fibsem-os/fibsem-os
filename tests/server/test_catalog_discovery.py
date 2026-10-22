@@ -11,7 +11,12 @@ fastapi = pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
 from fibsem import utils  # noqa: E402
-from fibsem.ai.agent.catalog import CATALOG, GROUP_TITLES, NOT_TOOLS  # noqa: E402
+from fibsem.ai.agent.catalog import (  # noqa: E402
+    CATALOG,
+    GROUP_TITLES,
+    NOT_TOOLS,
+    route_call,
+)
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.server.discovery import (  # noqa: E402
     read_discovery_file,
@@ -122,6 +127,9 @@ NAMED_OTHERWISE = {
     # scripts call; the tools say what they do in the grid group's words.
     "grid_load": "ensure_loaded",
     "grid_move_to": "move_to_grid",
+    # The spot burn service's bare run and estimate, said in the milling group.
+    "milling_run_spot_burn": "run",
+    "milling_estimate_spot_burn": "estimate",
 }
 
 
@@ -153,6 +161,62 @@ def test_catalog_names_unique_and_levels_valid():
     assert by_name["workflow_stop"].level == "drive"
     # Only what drives the microscope takes control of it.
     assert all(t.level == "drive" for t in CATALOG if t.hardware)
+
+
+# Two values per kind of argument, as a tool's call would take them.
+_PAIRS = (
+    ("ION", "ELECTRON"),
+    ("sweep", "instrument"),
+    (1, 2),
+    (True, False),
+    ("a", "b"),
+    ({"x": 1}, {"x": 2}),
+    ([{"x": 1}], [{"x": 2}]),
+)
+# The required arguments' shapes, where a number won't do.
+_SHAPES = {
+    "kwargs": {},
+    "channels": [{}],
+    "parameters": {},
+    "settings": {},
+    "image_settings": {},
+    "stage": {},
+    "config": {},
+    "stages": [],
+    "actions": [],
+    "patch": {},
+}
+
+
+def _routed(spec, arguments):
+    try:
+        return route_call(spec, arguments)
+    except ValueError:
+        return None
+
+
+@pytest.mark.parametrize("spec", [t for t in CATALOG if t.call], ids=lambda t: t.name)
+def test_every_argument_a_tool_names_reaches_its_route(spec):
+    """A tool that documents an argument and drops it in its call does something
+    other than the agent asked, silently (the overviews' centre_position)."""
+    path_params = set(re.findall(r"{(\w+)}", spec.path))
+    base = {
+        p: "x" if p in path_params else _SHAPES.get(p, 1)
+        for p in spec.params
+        if p not in spec.optional
+    }
+    assert _routed(spec, base) is not None, spec.name
+    dropped = [
+        p
+        for p in spec.params
+        if not any(
+            (one := _routed(spec, dict(base, **{p: a})))
+            and (other := _routed(spec, dict(base, **{p: b})))
+            and one != other
+            for a, b in _PAIRS
+        )
+    ]
+    assert dropped == []
 
 
 # Group first, then verb (plans: mcp-tool-naming): sorted, a group reads as one
@@ -259,3 +323,20 @@ def test_each_service_s_command_lines_are_found_by_its_name():
     assert core.command_line("milling", "prepare") is not None
     assert core.command_line("milling", "draw") is None
     assert core.command_line("no_such_service", "run") is None
+
+
+def test_fm_auto_focus_takes_the_channel_name_into_its_settings():
+    spec = next(t for t in CATALOG if t.name == "fm_auto_focus")
+    passes = [{"search_range": 20e-6, "step_size": 2e-6}]
+    _, _, body = route_call(
+        spec, {"channel_name": "GFP", "settings": {"passes": passes}}
+    )
+    assert body["kwargs"]["settings"] == {"passes": passes, "channel_name": "GFP"}
+    _, _, body = route_call(spec, {})
+    assert body["kwargs"]["settings"] is None
+
+
+def test_the_instrument_autofocus_refuses_the_sweep_arguments():
+    spec = next(t for t in CATALOG if t.name == "beam_auto_focus")
+    with pytest.raises(ValueError, match="are for method sweep"):
+        route_call(spec, {"method": "instrument", "path": "experiment"})

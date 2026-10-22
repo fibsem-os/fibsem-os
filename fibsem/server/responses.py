@@ -554,6 +554,8 @@ class AgentView:
     levels: List[LevelOption]
     # an agent on this PC asking to connect
     asking: Optional[ConnectAskView] = None
+    # what it said it can do, as [name, value] rows
+    facts: List[List[str]] = field(default_factory=list)
 
 
 @dataclass

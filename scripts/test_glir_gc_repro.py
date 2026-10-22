@@ -3,7 +3,7 @@
 Recreates the conditions of the 2026-07-22 Tescan session crashes
 (``OSError: access violation reading 0x1C`` in ``glDrawArrays``): a napari
 viewer whose Image/Shapes layers are churned from the main thread (as
-``update_lamella_ui`` and the minimap overlay updates do) while background
+``update_selected`` and the minimap overlay updates do) while background
 threads allocate heavily (as workflow/movement/acquisition threads do).
 
 The crash mechanism is Python's GC running in a worker thread and finalizing
@@ -24,6 +24,7 @@ Exit code 0 = no cross-thread GLIR commands observed, 1 = at least one.
 On a Windows machine without ``--fixed`` this may also genuinely hard-crash —
 that is the bug reproducing.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -66,7 +67,7 @@ RESOLUTIONS = [(1024, 1536), (512, 768)]  # alternate → texture realloc + garb
 
 
 class LayerChurner:
-    """Main-thread layer churn mimicking update_lamella_ui / acquisitions."""
+    """Main-thread layer churn mimicking update_selected / acquisitions."""
 
     def __init__(self, viewer: napari.Viewer):
         self.viewer = viewer
@@ -78,9 +79,7 @@ class LayerChurner:
     def churn(self) -> None:
         self.tick += 1
         shape = RESOLUTIONS[self.tick % len(RESOLUTIONS)]
-        self.image_layer.data = np.random.randint(
-            0, 255, shape, dtype=np.uint8
-        )
+        self.image_layer.data = np.random.randint(0, 255, shape, dtype=np.uint8)
         # remove/re-add an overlay layer, as the minimap crosshair updates do
         if "overlay" in self.viewer.layers:
             self.viewer.layers.remove("overlay")
@@ -109,6 +108,7 @@ def allocation_storm(stop: threading.Event) -> None:
 
 
 # ---------------------------------------------------------------- main
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])

@@ -243,8 +243,14 @@ class MillingStep:
                 # Set first: the state monitor does not look from here on.
                 self.pausing.set()
                 self._tick()
-                if not self._held:
-                    self.milling._pause()
+                try:
+                    if not self._held:
+                        self.milling._pause()
+                except BaseException:
+                    # Not paused: the state monitor looks again.
+                    self.pausing.clear()
+                    self._tick()
+                    raise
             self.restore_view()
             self.report(
                 {"paused": reason, "by": by}, notable=True, monitor="step", keep=False

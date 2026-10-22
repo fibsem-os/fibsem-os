@@ -166,6 +166,8 @@ export interface AgentState {
   pictures: Partial<Record<"request" | "suggestion", { caption?: string; image: boolean; version: number }>>;
   levels: LevelChoice[];
   asking: ConnectAsk | null;
+  /** What the agent said it can do, as [name, value] rows. */
+  facts: [string, string][];
 }
 
 /** One row of GET /app/agent/recent. */
@@ -178,6 +180,20 @@ export interface RecentRow {
   evidence: Evidence | null;
   why: string;
   kind: "you" | "reply" | "note" | "action";
+  /** When, as an ISO time with its offset. */
+  at: string;
+}
+
+/** One line of GET /app/agent/transcript: what fibsem-agent printed. */
+export interface TranscriptLine {
+  t: string;
+  kind: "said" | "step" | "failed";
+  text: string;
+  verb?: string;
+  seq?: number;
+  /** For "failed": the step it was. */
+  step?: number;
+  session_id: string;
 }
 
 export interface EvidenceAnswer {

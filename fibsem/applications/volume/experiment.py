@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Optional
 
+import petname
 import yaml
 
 from fibsem.applications.volume.position import VolumePosition
@@ -59,6 +60,22 @@ class VolumeExperiment(ProposalDecisions, BaseExperiment):
     def get_position_by_name(self, name: str) -> Optional[VolumePosition]:
         return next((p for p in self.positions if p.name == name), None)
 
+    def next_position_name(self) -> str:
+        """A new position's name, fixed for good: its number, then two words,
+        ``03-brave-otter``, as a lamella's. Never one a removed position's
+        folder still has."""
+        number = 1 + max(
+            [len(self.positions)]
+            + [int(p.name[:2]) for p in self.positions if p.name[:2].isdigit()]
+        )
+        while True:
+            name = f"{number:02d}-{petname.generate(2)}"
+            if (
+                self.get_position_by_name(name) is None
+                and not self.position_path(VolumePosition(name=name)).exists()
+            ):
+                return name
+
     def add_position(
         self,
         name: str,
@@ -84,32 +101,6 @@ class VolumeExperiment(ProposalDecisions, BaseExperiment):
     # What a route or a widget calls. Each returns why it refused, with nothing
     # changed, or "" once it is made and saved.
 
-    def rename_position(self, name: str, new_name: str) -> str:
-        """Rename ``name``, and its folder. A position that has run keeps its
-        name: its record and files are under it."""
-        position = self.get_position_by_name(name)
-        new_name = new_name.strip()
-        if position is None:
-            return f"No position named {name!r}."
-        if not new_name:
-            return "A position needs a name."
-        if new_name == name:
-            return ""
-        if self.get_position_by_name(new_name) is not None:
-            return f"There is already a position named {new_name!r}."
-        if position.task_history:
-            return f"{name} has run, so it keeps its name."
-        old_path = self.position_path(position)
-        position.name = new_name
-        new_path = self.position_path(position)
-        if new_path.exists():
-            position.name = name
-            return f"{new_path} already exists."
-        if old_path.exists():
-            os.rename(old_path, new_path)
-        self.save()
-        return ""
-
     def remove_position(self, name: str) -> str:
         """Take ``name`` out of the experiment. Its folder stays on disk."""
         position = self.get_position_by_name(name)
@@ -119,42 +110,52 @@ class VolumeExperiment(ProposalDecisions, BaseExperiment):
         self.save()
         return ""
 
-    def set_iterations(self, name: str, iterations: int) -> str:
-        """Cut ``name`` into ``iterations`` slices; never fewer than it has cut."""
+    def patch_position(
+        self,
+        name: str,
+        iterations: Optional[int] = None,
+        poi: Optional[Point] = None,
+        alignment_area: Optional[FibsemRectangle] = None,
+        description: Optional[str] = None,
+    ) -> str:
+        """Set any of ``name``'s slices, point of interest, alignment area and
+        description, all or none, and save once. Never fewer slices than it
+        has cut; the point of interest only before its first slice; the area
+        inside the frame."""
         position = self.get_position_by_name(name)
         if position is None:
             return f"No position named {name!r}."
-        if iterations < 1:
-            return "A position needs at least one slice."
         cut = self.slices_cut(position)
-        if iterations < cut:
-            return f"{name} has already cut {cut} slices."
-        position.iterations = int(iterations)
-        self.save()
-        return ""
-
-    def set_poi(self, name: str, poi: Point) -> str:
-        """Move ``name``'s point of interest, before its first slice: the
-        slices step down from it."""
-        position = self.get_position_by_name(name)
-        if position is None:
-            return f"No position named {name!r}."
-        if not isinstance(poi, Point):
-            return f"The point of interest must be a point, not {type(poi).__name__}."
-        if self.slices_cut(position):
-            return f"{name} has cut slices from its point of interest."
-        position.poi = Point(poi.x, poi.y)
-        self.save()
-        return ""
-
-    def set_alignment_area(self, name: str, area: FibsemRectangle) -> str:
-        """Set where ``name``'s alignment references are taken; inside the frame."""
-        position = self.get_position_by_name(name)
-        if position is None:
-            return f"No position named {name!r}."
-        if not isinstance(area, FibsemRectangle) or not area.is_valid_reduced_area:
+        if iterations is not None:
+            if isinstance(iterations, bool) or not isinstance(iterations, int):
+                return "The slices are a whole number."
+            if iterations < 1:
+                return "A position needs at least one slice."
+            if iterations < cut:
+                return f"{name} has already cut {cut} slices."
+        if poi is not None:
+            if not isinstance(poi, Point):
+                return (
+                    f"The point of interest must be a point, not {type(poi).__name__}."
+                )
+            if cut:
+                return f"{name} has cut slices from its point of interest."
+        if alignment_area is not None and (
+            not isinstance(alignment_area, FibsemRectangle)
+            or not alignment_area.is_valid_reduced_area
+        ):
             return "The alignment area must be a rectangle inside the frame."
-        position.alignment_area = area
+        if description is not None and not isinstance(description, str):
+            return "The description is text."
+
+        if iterations is not None:
+            position.iterations = iterations
+        if poi is not None:
+            position.poi = Point(poi.x, poi.y)
+        if alignment_area is not None:
+            position.alignment_area = alignment_area
+        if description is not None:
+            position.description = description.strip()
         self.save()
         return ""
 

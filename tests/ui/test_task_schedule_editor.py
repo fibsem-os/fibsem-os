@@ -24,7 +24,7 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtCore import QDateTime
 from PyQt5.QtWidgets import QApplication
 
-from fibsem.applications.autolamella.ui.workflow.task_editor import (
+from fibsem.ui.widgets.workflow.task_editor import (
     WorkflowTaskEditorWidget,
 )
 from fibsem.workflows.task_config import TaskPlan

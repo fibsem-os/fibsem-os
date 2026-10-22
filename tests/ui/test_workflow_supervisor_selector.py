@@ -12,7 +12,7 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.ui.workflow import task_list as module
+from fibsem.ui.widgets.workflow import task_list as module
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.task_config import RunPlan, TaskPlan
 from tests.protocols import planned, task_protocol

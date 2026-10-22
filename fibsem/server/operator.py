@@ -102,6 +102,7 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
                     for level in AgentLevel
                 ],
                 asking=ConnectAskView(**asking) if asking else None,
+                facts=[list(fact) for fact in agent.session_facts()],
             )
         )
 

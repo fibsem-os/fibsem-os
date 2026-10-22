@@ -298,6 +298,8 @@ def test_code_mode_is_sandboxed_in_its_work_folder(tmp_path, monkeypatch):
     )
     sandbox = settings["sandbox"]
     assert sandbox["enabled"] and sandbox["failIfUnavailable"]
+    # Its shell can't write the CLI's settings or hooks either.
+    assert sandbox["filesystem"]["denyWrite"] == [str(work / ".claude")]
     assert sandbox["allowUnsandboxedCommands"] is False
     assert sandbox["network"]["allowedDomains"] == []
     hidden = {entry["name"] for entry in sandbox["credentials"]["envVars"]}
@@ -334,6 +336,40 @@ def test_code_mode_is_sandboxed_in_its_work_folder(tmp_path, monkeypatch):
     command = transport._build_command()
     assert json.loads(command[command.index("--settings") + 1]) == settings
     assert not any("t0k" in part for part in command), "the token is in argv"
+
+
+def test_code_mode_rebuilds_its_claude_folder_every_start(tmp_path):
+    """A settings file (or anything else) left in work/.claude doesn't reach
+    the next session: only the skills and specialists are there."""
+    from fibsem.ai.agent import code_mode
+
+    checkout = runner_mod.find_checkout()
+    work = tmp_path / "work"
+    skills, agents = list(runner_mod.SKILLS), list(runner_mod.SPECIALISTS)
+    code_mode.prepare(work, checkout, skills, agents)
+    planted = [
+        work / ".claude" / "settings.json",
+        work / ".claude" / "settings.local.json",
+        work / ".claude" / "agents" / "other.md",
+        work / ".claude" / "commands" / "x.md",
+    ]
+    for path in planted:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('{"hooks": {}}')
+    (work / ".claude" / "skills" / skills[0] / "SKILL.md").write_text("changed")
+    (work / "notebook" / "lesson.md").write_text("kept")
+
+    code_mode.prepare(work, checkout, skills, agents)
+
+    assert not any(path.exists() for path in planted)
+    shipped = checkout / ".claude" / "skills" / skills[0] / "SKILL.md"
+    copied = work / ".claude" / "skills" / skills[0] / "SKILL.md"
+    assert copied.read_text() == shipped.read_text()
+    assert {p.name for p in (work / ".claude" / "agents").iterdir()} == {
+        f"{name}.md" for name in agents
+    }
+    # The notebook is the agent's own and stays.
+    assert (work / "notebook" / "lesson.md").read_text() == "kept"
 
 
 def test_code_mode_needs_a_folder_of_its_own(tmp_path, monkeypatch):
@@ -667,6 +703,107 @@ def test_the_runner_reports_the_goal_once_and_leaves_later_ones_to_the_agent():
     # A goal the operator explicitly gives later is the agent's to report.
     assert all("goal" not in body for body in client.bodies[1:])
     assert "explicitly" in runner_mod.RUNNER_PROMPT
+
+
+def test_the_runner_says_what_the_agent_can_do_with_its_first_report():
+    class Client:
+        def __init__(self):
+            self.bodies = []
+
+        def request(self, method, path, json=None, timeout=None):
+            self.bodies.append(json)
+
+    about = {"harness": "fibsem-agent", "code": True, "workdir": "/w", "skills": ["a"]}
+    runner = Runner(ScriptedAgent(), lambda: None, about=about)
+    runner._client = client = Client()
+    asyncio.run(runner._report())
+    asyncio.run(runner._report())
+    assert about.items() <= client.bodies[0].items()
+    assert "code" not in client.bodies[1] and "skills" not in client.bodies[1]
+
+
+def test_a_tool_call_is_one_plain_line(tmp_path):
+    step = runner_mod.step
+    assert step("Write", {"file_path": str(tmp_path / "a.py")}, tmp_path) == (
+        "Wrote",
+        "a.py",
+    )
+    assert step("Edit", {"file_path": "/elsewhere/b.py"}, tmp_path) == (
+        "Edited",
+        "/elsewhere/b.py",
+    )
+    assert step("Bash", {"command": "python a.py"}) == ("Ran", "python a.py")
+    assert step("Bash", {"command": "python - <<EOF\nprint(1)\nEOF"}) == (
+        "Ran",
+        "python - <<EOF ...",
+    )
+    assert step("mcp__fibsem__experiment_fetch_file", {"path": "02/ref.tif"}) == (
+        "Fetched",
+        "02/ref.tif",
+    )
+    verb, text = step("mcp__fibsem__stage_move_relative", {"dx": 1e-6})
+    assert verb == "Called" and text.startswith("stage_move_relative {")
+
+
+def test_the_agent_keeps_what_it_prints_and_a_failed_step_names_it():
+    pytest.importorskip("claude_agent_sdk")
+    from claude_agent_sdk import (
+        AssistantMessage,
+        TextBlock,
+        ToolResultBlock,
+        ToolUseBlock,
+        UserMessage,
+    )
+
+    from fibsem.ai.agent.runner import SdkAgent, _show
+
+    agent = SdkAgent(runner_mod.build_options(runner_mod.find_checkout()))
+    _show(
+        AssistantMessage(
+            content=[
+                TextBlock("Measuring it."),
+                ToolUseBlock("t1", "Bash", {"command": "python a.py"}),
+            ],
+            model="m",
+        ),
+        agent,
+    )
+    _show(
+        UserMessage(content=[ToolResultBlock("t1", "no module named cv2", True)]),
+        agent,
+    )
+    said, ran, failed = agent.transcript
+    assert (said["kind"], said["text"]) == ("said", "Measuring it.")
+    assert (ran["verb"], ran["text"]) == ("Ran", "python a.py")
+    assert failed["kind"] == "failed" and failed["step"] == ran["seq"]
+    assert "cv2" in failed["text"]
+
+
+def test_the_transcript_is_sent_and_kept_while_the_server_cant_take_it():
+    class Client:
+        def __init__(self, fail=False):
+            self.bodies, self.fail = [], fail
+
+        def request(self, method, path, json=None, timeout=None):
+            if self.fail:
+                raise RuntimeError("409")
+            self.bodies.append((path, json))
+
+    agent = ScriptedAgent()
+    agent.transcript = [
+        {"seq": 1, "kind": "step", "verb": "Ran", "text": "x", "at": time.monotonic()}
+    ]
+    runner = Runner(agent, lambda: None)
+    runner._client = Client(fail=True)
+    asyncio.run(runner._send_transcript())
+    assert len(agent.transcript) == 1
+    runner._client = client = Client()
+    asyncio.run(runner._send_transcript())
+    assert agent.transcript == []
+    ((path, body),) = client.bodies
+    assert path == "/app/agent/transcript" and body["session_id"] == "scripted"
+    (entry,) = body["entries"]
+    assert entry["verb"] == "Ran" and "at" not in entry and entry["age_s"] >= 0
 
 
 # --- ending -------------------------------------------------------------------

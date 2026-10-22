@@ -28,9 +28,10 @@ from fibsem import __version__
 from fibsem.acting import AGENT, OPERATOR, acting, current_actor
 from fibsem.ai.agent import blocklist
 from fibsem.ai.agent.calls import calling, current_call, from_headers
-from fibsem.control import STOP_COMMANDS, MicroscopeBusy
+from fibsem.control import HOLD_COMMANDS, STOP_COMMANDS, MicroscopeBusy
 from fibsem.microscope import FibsemMicroscope
 from fibsem.server.agent_session import build_agent_session_router
+from fibsem.server.agent_transcript import build_agent_transcript_router
 from fibsem.server.app_routes import (
     build_app_config_router,
     build_app_control_router,
@@ -183,9 +184,9 @@ def _blocked_route(
 
 
 def _device_command_gate(request: Request, command: str):
-    """A device command's gate: a stop by the stop rule (:func:`_stop_gate`),
-    anything else Drive and control of the microscope."""
-    if command in STOP_COMMANDS:
+    """A device command's gate: a stop, a pause or a resume by the stop rule
+    (:func:`_stop_gate`), anything else Drive and control of the microscope."""
+    if command in STOP_COMMANDS or command in HOLD_COMMANDS:
         _stop_gate(request)
         yield
         return
@@ -897,6 +898,12 @@ def build_server(
         # The agent's own report of its session: model, goal, budget, spend.
         app.include_router(
             build_agent_session_router(getattr(app_context, "record_event", None))
+        )
+        # What fibsem-agent printed, kept beside the experiment.
+        app.include_router(
+            build_agent_transcript_router(
+                lambda: getattr(app_context, "experiment_path", None)
+            )
         )
     if operator is not None:
         app.include_router(build_operator_router(operator))

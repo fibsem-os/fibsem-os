@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Popup } from "@/components/ui/popup";
 import { api, getToken } from "@/lib/api";
 import { Markdown } from "@/lib/markdown";
-import type { AgentState, RecentRow } from "@/lib/types";
+import type { AgentState, RecentRow, TranscriptLine } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { ConnectCard, RequestCard, SuggestionCard } from "./agent/Cards";
 import { Composer } from "./agent/Composer";
@@ -12,11 +12,14 @@ import { EvidenceImage } from "./agent/Pictures";
 
 // Last heard moves with no events, so the agent is read again on a clock.
 const AGENT_EVERY_MS = 10000;
+// fibsem-agent sends its transcript every 10 s while it works.
+const TRANSCRIPT_EVERY_MS = 5000;
 
 const SHOWS = [
   ["all", "Everything"],
   ["conversation", "Conversation"],
   ["actions", "Actions"],
+  ["transcript", "Transcript"],
 ] as const;
 type Show = (typeof SHOWS)[number][0];
 
@@ -87,11 +90,15 @@ function Action({ row }: { row: RecentRow }) {
   );
 }
 
-/** A run of actions in one line, "4 actions, 1 refused"; open while one still runs. */
+/** A run of actions in one line, "4 actions, 1 refused". A run seen running stays
+ * open when it finishes, so the list doesn't jump; the reader folds it. */
 function Actions({ rows, folded }: { rows: RecentRow[]; folded: boolean }) {
   const live = rows.some((r) => r.tone === "running" || r.tone === "waiting");
-  const [open, setOpen] = useState<boolean | null>(null);
-  const shown = !folded || (open ?? live);
+  const [open, setOpen] = useState(live);
+  useEffect(() => {
+    if (live) setOpen(true);
+  }, [live]);
+  const shown = !folded || open;
   const counts = new Map<string, number>();
   for (const r of rows) if (r.tone !== "ok") counts.set(r.outcome, (counts.get(r.outcome) ?? 0) + 1);
   const summary = [
@@ -124,22 +131,111 @@ function Actions({ rows, folded }: { rows: RecentRow[]; folded: boolean }) {
   );
 }
 
-function Record({ rows, show }: { rows: RecentRow[]; show: Show }) {
+/** What fibsem-agent printed between two rows, in one line, "Working · 6 steps". */
+function Working({ lines, folded }: { lines: TranscriptLine[]; folded: boolean }) {
+  const [open, setOpen] = useState(false);
+  const shown = !folded || open;
+  const why = new Map<string, string>();
+  for (const l of lines) if (l.kind === "failed" && l.step != null) why.set(`${l.session_id}|${l.step}`, l.text);
+  const steps = lines.filter((l) => l.kind === "step").length;
+  const failed = lines.filter((l) => l.kind === "failed").length;
+  const summary = [`Working · ${steps} ${steps === 1 ? "step" : "steps"}`, ...(failed ? [`${failed} failed`] : [])].join(
+    " · ",
+  );
+  return (
+    <div className="flex gap-2 py-1.5 pl-2.5">
+      <Time when={lines[0].t.split("T")[1]?.slice(0, 5) ?? ""} />
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        {folded && (
+          <button
+            className="flex cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-left text-[13px] text-muted-foreground hover:text-foreground"
+            onClick={() => setOpen(!shown)}
+            aria-expanded={shown}
+          >
+            {shown ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            {summary}
+          </button>
+        )}
+        {shown && (
+          <div className={cn("grid grid-cols-[72px_minmax(0,1fr)] gap-x-2.5 gap-y-1 text-[13px]", folded && "pl-5")}>
+            {lines.map((l, i) => {
+              if (l.kind === "said")
+                return (
+                  <div key={i} className="col-span-2 whitespace-pre-wrap break-words text-muted-foreground italic">
+                    {l.text}
+                  </div>
+                );
+              const reason = l.kind === "failed" ? l.text : why.get(`${l.session_id}|${l.seq}`);
+              if (l.kind === "failed" && l.step != null) return null;
+              return (
+                <div key={i} className="contents">
+                  <span className={reason != null ? "text-destructive" : "text-muted-foreground"}>
+                    {l.kind === "failed" ? "Failed" : l.verb}
+                  </span>
+                  <span className="min-w-0 break-words">
+                    {l.kind === "step" && <span className="font-mono text-[12px]">{l.text}</span>}
+                    {reason != null && (
+                      <span className="text-muted-foreground">
+                        {l.kind === "step" ? " · failed: " : ""}
+                        {reason}
+                      </span>
+                    )}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const time = (t: string) => Date.parse(t);
+
+function Record({ rows, lines, show }: { rows: RecentRow[]; lines: TranscriptLine[]; show: Show }) {
   const out: JSX.Element[] = [];
   let run: RecentRow[] = [];
+  let working: TranscriptLine[] = [];
+  // Keyed by what a row says, not where it sits: the oldest rows drop off the
+  // window, and a run keyed by position would lose whether the reader opened it.
+  const seen = new Map<string, number>();
+  const keyOf = (row: RecentRow) => {
+    const base = `${row.kind}|${row.when}|${row.text}`;
+    const n = seen.get(base) ?? 0;
+    seen.set(base, n + 1);
+    return `${base}|${n}`;
+  };
   const end = () => {
-    if (run.length) out.push(<Actions key={`a${out.length}`} rows={run} folded={show === "all"} />);
+    if (run.length) out.push(<Actions key={keyOf(run[0])} rows={run} folded={show === "all"} />);
     run = [];
   };
+  const endWorking = () => {
+    if (working.length) {
+      end();
+      out.push(<Working key={`w|${working[0].session_id}|${working[0].seq ?? working[0].t}`} lines={working} folded={show === "all"} />);
+    }
+    working = [];
+  };
+  const transcript = show === "all" || show === "transcript";
+  let next = 0;
   for (const row of rows) {
+    // What the agent printed before this row, between it and the one before.
+    while (next < lines.length && row.at && time(lines[next].t) < time(row.at)) working.push(lines[next++]);
+    if (transcript) endWorking();
+    else working = [];
     if (row.kind === "action") {
       if (show !== "conversation") run.push(row);
     } else if (show !== "actions") {
       end();
-      out.push(<Message key={`m${out.length}`} row={row} />);
+      out.push(<Message key={keyOf(row)} row={row} />);
     }
   }
   end();
+  if (transcript) {
+    working.push(...lines.slice(next));
+    endWorking();
+  }
   return <>{out}</>;
 }
 
@@ -152,6 +248,16 @@ export function AgentPage() {
   const recent = useQuery({
     queryKey: ["app/agent/recent"],
     queryFn: () => api<{ rows: RecentRow[] }>("/app/agent/recent"),
+  });
+  const rowsNow = recent.data?.rows ?? [];
+  const since = rowsNow.find((r) => r.at)?.at;
+  const transcript = useQuery({
+    queryKey: ["app/agent/transcript", since],
+    queryFn: () =>
+      api<{ entries: TranscriptLine[] }>(
+        `/app/agent/transcript${since ? `?since=${encodeURIComponent(since)}` : ""}`,
+      ),
+    refetchInterval: TRANSCRIPT_EVERY_MS,
   });
   const [show, setShow] = useState<Show>("all");
   const list = useRef<HTMLDivElement>(null);
@@ -239,7 +345,7 @@ export function AgentPage() {
         <div>
           {a.session && <div className="py-1.5 pl-2.5 text-[13px] text-muted-foreground">{a.session}</div>}
           {rows.length ? (
-            <Record rows={rows} show={show} />
+            <Record rows={rows} lines={transcript.data?.entries ?? []} show={show} />
           ) : (
             <div className="py-8 text-center text-[13px] text-muted-foreground">
               No messages yet. What you write here waits for the agent: it reads it on its next turn, or when one

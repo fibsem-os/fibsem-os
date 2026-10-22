@@ -158,7 +158,7 @@ def _grid_file(experiment, grid, filename: str):
 def _attendance_line(task_protocol: Any, task_name: str) -> str:
     """One line on what a task needs from a person, or "" when its type is
     not one this build knows."""
-    from fibsem.applications.autolamella.workflows.tasks.attendance import (
+    from fibsem.workflows.attendance import (
         attendance_for,
     )
 

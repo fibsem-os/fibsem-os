@@ -198,7 +198,7 @@ class TestTheWindowFlushesToo:
     napari viewer, neither of which survives `QT_QPA_PLATFORM=offscreen`."""
 
     def test_a_run_flushes_before_it_starts(self):
-        from fibsem.applications.autolamella.ui.run.view import RunView
+        from fibsem.ui.run.view import RunView
         from fibsem.workflows.runner import WorkflowRunner
 
         # Every start, the agent's too: the run view flushes the window's

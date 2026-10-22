@@ -4,6 +4,17 @@ from typing import Tuple
 
 from fibsem.ai.agent.catalog.spec import ToolSpec, kwargs_body, with_reason
 
+_HOLD_NOTE = (
+    "As milling_stop: a mill the agent started itself it can pause and resume at "
+    "Assist or Drive, never at Watch; anyone else's needs Drive, and at Assist "
+    "goes in request_create for the operator to approve."
+)
+SPOT_BURN_SETTINGS = (
+    "SpotBurnSettings dict: coordinates [{x, y, name}] (0-1 in the ion image), "
+    "milling_current (A, default 100 pA), exposure_time (s per spot, 0.1-60, "
+    "default 10)"
+)
+
 TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="milling_get_state",
@@ -57,6 +68,37 @@ TOOLS: Tuple[ToolSpec, ...] = (
             {},
             kwargs_body(stage=dict(a["stage"]), path=a.get("path")),
         ),
+    ),
+    ToolSpec(
+        name="milling_run_spot_burn",
+        description=(
+            "Burn spots with the ion beam, as the Spot Burn tab does: each point "
+            "for exposure_time at milling_current, the beam blanked between them "
+            "and its current put back after. settings.coordinates are points in "
+            "the ion image, 0 to 1 on both axes ({x, y, name}); points outside "
+            "it are dropped. milling_estimate_spot_burn first for how long. A long "
+            "command: it answers with its run at once; service_wait_for_run "
+            "spot_burn says how it ended; service_call_command spot_burn stop, "
+            "with a reason, ends it."
+        ),
+        method="POST",
+        path="/microscope/services/spot_burn/commands/run",
+        level="drive",
+        hardware=True,
+        params={"settings": SPOT_BURN_SETTINGS},
+        call=lambda a: ({}, kwargs_body(settings=dict(a["settings"]))),
+    ),
+    ToolSpec(
+        name="milling_estimate_spot_burn",
+        description=(
+            "How long milling_run_spot_burn with these settings burns, in seconds: "
+            "the points inside the image times exposure_time. Moves nothing."
+        ),
+        method="POST",
+        path="/microscope/services/spot_burn/queries/estimate",
+        level="watch",
+        params={"settings": SPOT_BURN_SETTINGS},
+        call=lambda a: ({}, kwargs_body(settings=dict(a["settings"]))),
     ),
     ToolSpec(
         name="milling_run_task",
@@ -166,6 +208,32 @@ TOOLS: Tuple[ToolSpec, ...] = (
             {},
             with_reason(kwargs_body(reason=str(a.get("reason") or ""), by="agent"), a),
         ),
+    ),
+    ToolSpec(
+        name="milling_pause",
+        description=(
+            "Pause the mill now running, whoever started it: the pattern holds "
+            "where it is until milling_resume. While a monitor has it paused (an "
+            "SEM peek) it stays paused when the monitor is done. Use it to look "
+            "before deciding; milling_stop or milling_end to finish."
+        ),
+        method="POST",
+        path="/microscope/services/milling/commands/pause",
+        level="drive",
+        note=_HOLD_NOTE,
+        call=lambda a: ({}, kwargs_body()),
+    ),
+    ToolSpec(
+        name="milling_resume",
+        description=(
+            "Resume the mill milling_pause paused. While a monitor has it "
+            "paused, it resumes when the monitor is done."
+        ),
+        method="POST",
+        path="/microscope/services/milling/commands/resume",
+        level="drive",
+        note=_HOLD_NOTE,
+        call=lambda a: ({}, kwargs_body()),
     ),
     ToolSpec(
         name="milling_follow_readings",

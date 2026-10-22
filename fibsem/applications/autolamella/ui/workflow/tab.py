@@ -44,13 +44,13 @@ from fibsem.applications.autolamella.workflows.estimate import (
     run_step_seconds,
     task_schedule,
 )
-from fibsem.applications.autolamella.workflows.tasks.attendance import (
-    grid_run_attendance,
-)
 from fibsem.structures import BeamType
 from fibsem.ui import notification_service
 from fibsem.ui.tokens import SURFACE_COLOR
 from fibsem.ui.widgets.workflow.timeline import WorkflowProgressWidget
+from fibsem.workflows.attendance import (
+    grid_run_attendance,
+)
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.grid.manager import plan_grid_run
 from fibsem.workflows.grid.naming import grid_has_run
