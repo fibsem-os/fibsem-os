@@ -330,12 +330,18 @@ def _auto_focus_call(a: Dict[str, Any]) -> Tuple[Dict[str, Any], dict]:
     instrument its auto_focus (the instrument's own where the beam has one)."""
     method = str(a.get("method") or "sweep").lower()
     if method == "instrument":
-        if a.get("hfw") is not None or a.get("settings") is not None:
-            raise ValueError("hfw and settings are for method sweep")
+        if any(a.get(k) is not None for k in ("hfw", "settings", "path", "name")):
+            raise ValueError("hfw, settings, path and name are for method sweep")
         return {"command": "auto_focus"}, kwargs_body(**beam_kwargs(a))
     if method != "sweep":
         raise ValueError(f"method must be sweep or instrument, not {method!r}")
-    sweep = beam_kwargs(a, hfw=a.get("hfw"), settings=a.get("settings"))
+    sweep = beam_kwargs(
+        a,
+        hfw=a.get("hfw"),
+        settings=a.get("settings"),
+        path=a.get("path"),
+        name=a.get("name"),
+    )
     return {"command": "focus_sweep"}, kwargs_body(**sweep)
 
 
@@ -352,10 +358,35 @@ def _beam_auto_brightness_contrast(
 
 
 def _fm_auto_focus(a: Dict[str, Any], ctx: wording.ActionContext) -> Dict[str, Any]:
-    on = (
-        f"on {a['channel_name']}" if a.get("channel_name") else "on the current channel"
-    )
+    name = a.get("channel_name") or (a.get("settings") or {}).get("channel_name")
+    on = f"on {name}" if name else "on the current channel"
     return {"what": "Fluorescence", "change": f"Focus the objective {on}"}
+
+
+REDUCED_AREA = (
+    "a rectangle of the frame to work on, {left, top, width, height} (0-1); "
+    "left out, the whole frame"
+)
+FM_FOCUS_SETTINGS = (
+    "AutoFocusSettings dict: passes [{search_range, step_size}] in metres of "
+    "objective travel, each centred on the last one's best (default 50 µm in "
+    "5 µm steps, then 10 µm in 1 µm steps), method (tenengrad, laplacian, "
+    "sobel or variance), reduced_area {left, top, width, height} (0-1), "
+    "channel_name"
+)
+
+
+def _fm_auto_focus_call(a: Dict[str, Any]) -> Tuple[Dict[str, Any], dict]:
+    """fm_auto_focus: channel_name is the settings' own, given on its own."""
+    settings = a.get("settings")
+    if a.get("channel_name"):
+        settings = dict(settings or {}, channel_name=str(a["channel_name"]))
+    return {}, kwargs_body(
+        settings=settings,
+        path=a.get("path"),
+        name=str(a.get("name") or "autofocus"),
+        channel=a.get("channel"),
+    )
 
 
 TOOLS: Tuple[ToolSpec, ...] = (
@@ -405,10 +436,16 @@ TOOLS: Tuple[ToolSpec, ...] = (
         path="/microscope/services/imaging/commands/autocontrast",
         level="drive",
         hardware=True,
-        params={"beam_type": "ELECTRON or ION"},
-        optional=("beam_type",),
+        params={
+            "beam_type": "ELECTRON or ION",
+            "reduced_area": REDUCED_AREA,
+        },
+        optional=("beam_type", "reduced_area"),
         line=_beam_auto_contrast,
-        call=lambda a: ({}, kwargs_body(**beam_kwargs(a))),
+        call=lambda a: (
+            {},
+            kwargs_body(**beam_kwargs(a, reduced_area=a.get("reduced_area"))),
+        ),
     ),
     ToolSpec(
         name="beam_auto_focus",
@@ -440,8 +477,10 @@ TOOLS: Tuple[ToolSpec, ...] = (
                 "probe_dwell_time (s), reduced_area {left, top, width, height} "
                 "(0-1), use_autocontrast"
             ),
+            "path": "a folder inside the open experiment to save the sweep to, for the sweep",
+            "name": "the sweep's file name (default autofocus)",
         },
-        optional=("beam_type", "method", "hfw", "settings"),
+        optional=("beam_type", "method", "hfw", "settings", "path", "name"),
         line=_beam_auto_focus,
         call=_auto_focus_call,
     ),
@@ -490,6 +529,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
                 settings=dict(a["settings"]),
                 path=str(a["path"]),
                 name=str(a.get("name") or "overview"),
+                centre_position=a.get("centre_position"),
             ),
         ),
     ),
@@ -566,21 +606,18 @@ TOOLS: Tuple[ToolSpec, ...] = (
         hardware=True,
         params={
             "channel_name": "the channel to focus on; left out, the current one",
-            "path": "a folder inside the open experiment to save the sweep to",
-        },
-        optional=("channel_name", "path"),
-        line=_fm_auto_focus,
-        call=lambda a: (
-            {},
-            kwargs_body(
-                settings=(
-                    {"channel_name": str(a["channel_name"])}
-                    if a.get("channel_name")
-                    else None
-                ),
-                path=a.get("path"),
+            "settings": FM_FOCUS_SETTINGS,
+            "channel": (
+                "ChannelSettings dict to focus in, as fm_acquire_image's channels "
+                "take (excitation_wavelength, emission_filter, power, "
+                "exposure_time); left out, the channel's own"
             ),
-        ),
+            "path": "a folder inside the open experiment to save the sweep to",
+            "name": "the sweep's file name (default autofocus)",
+        },
+        optional=("channel_name", "settings", "channel", "path", "name"),
+        line=_fm_auto_focus,
+        call=_fm_auto_focus_call,
     ),
     ToolSpec(
         name="fm_acquire_image",
@@ -664,9 +701,12 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "path": "a folder inside the open experiment to save it in",
             "name": "the file name, stamped with the time (default overview)",
             "zparams": "ZParameters dict (zmin, zmax, zstep), with use_zstack",
+            "autofocus_settings": (
+                "the sweep for parameters.autofocus_mode: " + FM_FOCUS_SETTINGS
+            ),
             "centre_position": OVERVIEW_CENTRE,
         },
-        optional=("name", "zparams", "centre_position"),
+        optional=("name", "zparams", "autofocus_settings", "centre_position"),
         line=_fm_acquire_overview,
         call=lambda a: (
             {},
@@ -676,6 +716,8 @@ TOOLS: Tuple[ToolSpec, ...] = (
                 path=str(a["path"]),
                 name=str(a.get("name") or "overview"),
                 zparams=a.get("zparams"),
+                autofocus_settings=a.get("autofocus_settings"),
+                centre_position=a.get("centre_position"),
             ),
         ),
     ),
@@ -695,14 +737,16 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "channels": "list of ChannelSettings dicts, as fm_acquire_overview",
             "parameters": "OverviewParameters dict, as fm_acquire_overview",
             "zparams": "ZParameters dict, as fm_acquire_overview",
+            "autofocus_settings": "AutoFocusSettings dict, as fm_acquire_overview",
         },
-        optional=("zparams",),
+        optional=("zparams", "autofocus_settings"),
         call=lambda a: (
             {},
             kwargs_body(
                 channels=[dict(c) for c in a["channels"]],
                 parameters=dict(a["parameters"]),
                 zparams=a.get("zparams"),
+                autofocus_settings=a.get("autofocus_settings"),
             ),
         ),
     ),
@@ -722,9 +766,30 @@ TOOLS: Tuple[ToolSpec, ...] = (
         path="/microscope/services/imaging/commands/auto_brightness_contrast",
         level="drive",
         hardware=True,
-        params={"beam_type": "ELECTRON or ION"},
-        optional=("beam_type",),
+        params={
+            "beam_type": "ELECTRON or ION",
+            "settings": (
+                "BrightnessContrastSettings dict: max_images (default 6), "
+                "max_clipped (fraction at either limit, default 0.01), "
+                "target_centre and target_spread (0-1), probe_resolution [w, h], "
+                "probe_dwell_time (s), reduced_area {left, top, width, height} "
+                "(0-1), start_from_last (default true)"
+            ),
+            "path": "a folder inside the open experiment to save the images to",
+            "name": "the file name (default brightness_contrast)",
+        },
+        optional=("beam_type", "settings", "path", "name"),
         line=_beam_auto_brightness_contrast,
-        call=lambda a: ({}, kwargs_body(**beam_kwargs(a))),
+        call=lambda a: (
+            {},
+            kwargs_body(
+                **beam_kwargs(
+                    a,
+                    settings=a.get("settings"),
+                    path=a.get("path"),
+                    name=a.get("name"),
+                )
+            ),
+        ),
     ),
 )

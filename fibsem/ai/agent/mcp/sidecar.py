@@ -524,6 +524,8 @@ def build_sidecar(client, capabilities):
         use_autofocus: bool = False,
         method: str = "cross-correlation",
         validate: bool = True,
+        use_autocontrast: bool = False,
+        path: Optional[str] = None,
     ):
         return _routed(
             "alignment_align_to_reference",
@@ -534,6 +536,8 @@ def build_sidecar(client, capabilities):
             use_autofocus=use_autofocus,
             method=method,
             validate=validate,
+            use_autocontrast=use_autocontrast,
+            path=path,
         )
 
     def alignment_compare_methods(
@@ -553,12 +557,15 @@ def build_sidecar(client, capabilities):
     def milling_list_options():
         return _routed("milling_list_options", "options")
 
-    def alignment_measure_shift(reference_path: str, image_path: str):
+    def alignment_measure_shift(
+        reference_path: str, image_path: str, method: str = "cross-correlation"
+    ):
         return _routed(
             "alignment_measure_shift",
             "shift",
             reference_path=reference_path,
             image_path=image_path,
+            method=method,
         )
 
     def alignment_check_coincidence(
@@ -671,9 +678,16 @@ def build_sidecar(client, capabilities):
     def stage_move_relative(dx: float = 0.0, dy: float = 0.0, dz: float = 0.0):
         return _routed("stage_move_relative", "position", dx=dx, dy=dy, dz=dz)
 
-    def stage_stable_move(dx: float, dy: float, beam_type: str = "ELECTRON"):
+    def stage_stable_move(
+        dx: float, dy: float, beam_type: str = "ELECTRON", static_wd: bool = False
+    ):
         return _routed(
-            "stage_stable_move", "position", dx=dx, dy=dy, beam_type=beam_type
+            "stage_stable_move",
+            "position",
+            dx=dx,
+            dy=dy,
+            beam_type=beam_type,
+            static_wd=static_wd,
         )
 
     def stage_fm_stable_move(dx: float, dy: float):
@@ -782,14 +796,20 @@ def build_sidecar(client, capabilities):
             "service_call_query", service=service, query=query, kwargs=kwargs
         )
 
-    def beam_auto_contrast(beam_type: str = "ELECTRON"):
-        return _routed("beam_auto_contrast", beam_type=beam_type)
+    def beam_auto_contrast(
+        beam_type: str = "ELECTRON", reduced_area: Optional[dict] = None
+    ):
+        return _routed(
+            "beam_auto_contrast", beam_type=beam_type, reduced_area=reduced_area
+        )
 
     def beam_auto_focus(
         beam_type: str = "ELECTRON",
         method: str = "sweep",
         hfw: Optional[float] = None,
         settings: Optional[dict] = None,
+        path: Optional[str] = None,
+        name: Optional[str] = None,
     ):
         return _routed(
             "beam_auto_focus",
@@ -798,10 +818,26 @@ def build_sidecar(client, capabilities):
             method=method,
             hfw=hfw,
             settings=settings,
+            path=path,
+            name=name,
         )
 
-    def fm_auto_focus(channel_name: Optional[str] = None, path: Optional[str] = None):
-        return _routed("fm_auto_focus", "run", channel_name=channel_name, path=path)
+    def fm_auto_focus(
+        channel_name: Optional[str] = None,
+        settings: Optional[dict] = None,
+        channel: Optional[dict] = None,
+        path: Optional[str] = None,
+        name: str = "autofocus",
+    ):
+        return _routed(
+            "fm_auto_focus",
+            "run",
+            channel_name=channel_name,
+            settings=settings,
+            channel=channel,
+            path=path,
+            name=name,
+        )
 
     def beam_acquire_overview(
         settings: dict,
@@ -884,6 +920,7 @@ def build_sidecar(client, capabilities):
         path: str,
         name: str = "overview",
         zparams: Optional[dict] = None,
+        autofocus_settings: Optional[dict] = None,
         centre_position: Optional[dict] = None,
     ):
         return _routed(
@@ -894,11 +931,15 @@ def build_sidecar(client, capabilities):
             path=path,
             name=name,
             zparams=zparams,
+            autofocus_settings=autofocus_settings,
             centre_position=centre_position,
         )
 
     def fm_estimate_overview(
-        channels: List[dict], parameters: dict, zparams: Optional[dict] = None
+        channels: List[dict],
+        parameters: dict,
+        zparams: Optional[dict] = None,
+        autofocus_settings: Optional[dict] = None,
     ):
         return _routed(
             "fm_estimate_overview",
@@ -906,10 +947,23 @@ def build_sidecar(client, capabilities):
             channels=channels,
             parameters=parameters,
             zparams=zparams,
+            autofocus_settings=autofocus_settings,
         )
 
-    def beam_auto_brightness_contrast(beam_type: str = "ELECTRON"):
-        return _routed("beam_auto_brightness_contrast", "result", beam_type=beam_type)
+    def beam_auto_brightness_contrast(
+        beam_type: str = "ELECTRON",
+        settings: Optional[dict] = None,
+        path: Optional[str] = None,
+        name: Optional[str] = None,
+    ):
+        return _routed(
+            "beam_auto_brightness_contrast",
+            "result",
+            beam_type=beam_type,
+            settings=settings,
+            path=path,
+            name=name,
+        )
 
     def _query(**params):
         """A query string of the *params* that are given (not None)."""
