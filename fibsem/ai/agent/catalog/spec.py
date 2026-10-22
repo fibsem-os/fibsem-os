@@ -229,18 +229,17 @@ def beam_kwargs(a: Dict[str, Any], **more: Any) -> dict:
     return {"beam_type": beam, **{k: v for k, v in more.items() if v is not None}}
 
 
+def command_body(
+    kwargs: Optional[Dict[str, Any]] = None,
+    reason: Optional[str] = None,
+    preview: bool = False,
+) -> dict:
+    """`fibsem.devices.wire.command_body`, imported when called, as the catalog
+    imports everything."""
+    from fibsem.devices.wire import command_body
+
+    return command_body(kwargs, reason, preview)
+
+
 def kwargs_body(**values: Any) -> dict:
-    return {"kwargs": values}
-
-
-def preview_body(kwargs: dict) -> dict:
-    """A generic command's body: an image it returns comes back as the agent's
-    answer (summary, saved path, preview), not as data it can't read."""
-    return {"kwargs": kwargs, "answer": "preview"}
-
-
-def with_reason(body: dict, a: Dict[str, Any]) -> dict:
-    """A command's body with the agent's reason, which every stop carries."""
-    if a.get("reason") is not None:
-        body["reason"] = str(a["reason"])
-    return body
+    return command_body(values)

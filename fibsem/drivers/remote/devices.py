@@ -97,6 +97,7 @@ from fibsem.devices.scanner import Scanner
 from fibsem.devices.stage import Stage
 from fibsem.devices.wire import (
     Frame,
+    command_body,
     frames_from_bytes,
     to_wire,
 )
@@ -476,17 +477,22 @@ class RemoteParts:
     ) -> Any:
         """The server's answer to *command*: JSON, or the data it sent."""
         path = f"{self.collection}/{self.name}/commands/{command}"
-        body = {"kwargs": {name: to_wire(value) for name, value in kwargs.items()}}
-        if command in _STOPS:
-            # The App Server records why with every stop; a device server ignores it.
-            body["reason"] = f"{self.name} {command} from a remote microscope"
+        # The App Server records why with every stop; a device server ignores it.
+        reason = (
+            f"{self.name} {command} from a remote microscope"
+            if command in _STOPS
+            else None
+        )
+        body = command_body(
+            {name: to_wire(value) for name, value in kwargs.items()}, reason
+        )
         return self.client.request("POST", path, timeout, json=body)
 
     def call_query(self, query: str, timeout: Any = READ_TIMEOUT, **kwargs: Any) -> Any:
         """Ask one of the device's queries on the server: a read that takes
         arguments and moves nothing."""
         path = f"{self.collection}/{self.name}/queries/{query}"
-        body = {"kwargs": {name: to_wire(value) for name, value in kwargs.items()}}
+        body = command_body({name: to_wire(value) for name, value in kwargs.items()})
         return self.client.request("POST", path, timeout, json=body)["result"]
 
     def _reader(self, name: str) -> Callable[[], Any]:

@@ -9,10 +9,9 @@ from fibsem.ai.agent.catalog.spec import (
     RETRACT_FIRST_SAFE_MOVE,
     ToolSpec,
     absolute_position,
+    command_body,
     kwargs_body,
-    preview_body,
     stage_position,
-    with_reason,
 )
 from fibsem.util import wording
 
@@ -445,7 +444,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         line=_alignment_check_coincidence,
         call=lambda a: (
             {},
-            preview_body(
+            command_body(
                 {
                     "x": float(a.get("x") or 0.0),
                     "y": float(a.get("y") or 0.0),
@@ -453,7 +452,8 @@ TOOLS: Tuple[ToolSpec, ...] = (
                     "autocontrast": a.get("autocontrast") is not False,
                     "path": a.get("path"),
                     "beam": str(a.get("beam") or "ELECTRON"),
-                }
+                },
+                preview=True,
             ),
         ),
     ),
@@ -821,7 +821,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         optional=("kwargs", "reason"),
         call=lambda a: (
             {"device": a.get("device"), "command": a.get("command")},
-            with_reason(preview_body(dict(a.get("kwargs") or {})), a),
+            command_body(a.get("kwargs"), a.get("reason"), preview=True),
         ),
     ),
     ToolSpec(
@@ -838,7 +838,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         optional=("kwargs",),
         call=lambda a: (
             {"device": a.get("device"), "query": a.get("query")},
-            preview_body(dict(a.get("kwargs") or {})),
+            command_body(a.get("kwargs"), preview=True),
         ),
     ),
     ToolSpec(
@@ -929,7 +929,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         optional=("kwargs", "reason"),
         call=lambda a: (
             {"service": a.get("service"), "command": a.get("command")},
-            with_reason(preview_body(dict(a.get("kwargs") or {})), a),
+            command_body(a.get("kwargs"), a.get("reason"), preview=True),
         ),
     ),
     ToolSpec(
@@ -977,7 +977,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         optional=("kwargs",),
         call=lambda a: (
             {"service": a.get("service"), "query": a.get("query")},
-            preview_body(dict(a.get("kwargs") or {})),
+            command_body(a.get("kwargs"), preview=True),
         ),
     ),
 )

@@ -2,7 +2,7 @@
 
 from typing import Tuple
 
-from fibsem.ai.agent.catalog.spec import ToolSpec, kwargs_body, with_reason
+from fibsem.ai.agent.catalog.spec import ToolSpec, command_body, kwargs_body
 
 _HOLD_NOTE = (
     "As milling_stop: a mill the agent started itself it can pause and resume at "
@@ -206,7 +206,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         note="As milling_stop: a mill the agent started itself it can end at Assist or Drive, never at Watch; anyone else's needs Drive, and at Assist goes in request_create for the operator to approve.",
         call=lambda a: (
             {},
-            with_reason(kwargs_body(reason=str(a.get("reason") or ""), by="agent"), a),
+            command_body({"by": "agent"}, a.get("reason")),
         ),
     ),
     ToolSpec(
@@ -268,6 +268,6 @@ TOOLS: Tuple[ToolSpec, ...] = (
         params={"reason": "why you are stopping it, for the operator (required)"},
         note="A mill the agent started itself it can stop at Assist or Drive, never at Watch; anyone else's (the workflow's, the operator's) needs Drive, and at Assist goes in request_create for the operator to approve. Never refused for someone else being in control of the microscope.",
         # A service command or query with no arguments still sends its kwargs.
-        call=lambda a: ({}, with_reason(kwargs_body(), a)),
+        call=lambda a: ({}, command_body(reason=a.get("reason"))),
     ),
 )

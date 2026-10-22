@@ -351,6 +351,26 @@ def test_hints_resolve_one_at_a_time():
     assert kwargs["point"] == Point(1.0, 2.0)
 
 
+def test_a_stop_s_reason_reaches_a_command_that_takes_one():
+    """Every caller sends a stop's reason beside the kwargs (`command_body`);
+    the server gives it to a command that records it too."""
+    from fibsem.devices.wire import command_body, command_kwargs
+
+    def end(reason: str, by: str = ""):
+        pass
+
+    def stop():
+        pass
+
+    body = command_body({"by": "agent"}, "drift")
+    assert body == {"kwargs": {"by": "agent"}, "reason": "drift"}
+    assert command_kwargs(end, body) == {"by": "agent", "reason": "drift"}
+    assert command_kwargs(stop, command_body(reason="drift")) == {}
+    sent = command_body({"reason": "its own"}, "drift")
+    assert command_kwargs(end, sent)["reason"] == "its own"
+    assert command_body(preview=True) == {"kwargs": {}, "answer": "preview"}
+
+
 def test_sequences_decode_each_element():
     from typing import List, Sequence, Tuple
 

@@ -16,7 +16,17 @@ import inspect
 import logging
 import types
 import typing
-from typing import Any, Callable, Dict, List, NamedTuple, Optional, Tuple, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Mapping,
+    NamedTuple,
+    Optional,
+    Tuple,
+    Union,
+)
 
 import numpy as np
 from pydantic import PydanticSchemaGenerationError, ValidationError
@@ -142,6 +152,37 @@ def decode_argument(name: str, hint: Any, value: Any) -> Any:
         raise _argument_error(name, hint, value, error) from None
     except PydanticSchemaGenerationError:
         return value  # a type with no codec form (an in-process stop event)
+
+
+def command_body(
+    kwargs: Optional[Mapping[str, Any]] = None,
+    reason: Optional[str] = None,
+    preview: bool = False,
+) -> Dict[str, Any]:
+    """A command's or query's request body: its *kwargs* as JSON, the *reason* a
+    stop carries beside them (the server gives it to a command that takes one
+    too), and with *preview* an image answered as an agent reads it."""
+    body: Dict[str, Any] = {"kwargs": dict(kwargs or {})}
+    if reason is not None:
+        body["reason"] = str(reason)
+    if preview:
+        body["answer"] = "preview"
+    return body
+
+
+def command_kwargs(func: Callable[..., Any], body: Mapping[str, Any]) -> Dict[str, Any]:
+    """The arguments *body* sends *func*: its kwargs, with the stop's reason
+    when *func* takes one and the kwargs leave it out."""
+    kwargs = body.get("kwargs", {})
+    reason = body.get("reason")
+    if (
+        isinstance(kwargs, dict)
+        and isinstance(reason, str)
+        and "reason" not in kwargs
+        and "reason" in inspect.signature(func).parameters
+    ):
+        kwargs = {**kwargs, "reason": reason}
+    return decode_kwargs(func, kwargs)
 
 
 def decode_kwargs(func: Callable[..., Any], kwargs: Dict[str, Any]) -> Dict[str, Any]:

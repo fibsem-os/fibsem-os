@@ -7,6 +7,7 @@ from fibsem.ai.agent.catalog.spec import (
     OVERVIEW_CENTRE,
     ToolSpec,
     beam_kwargs,
+    command_body,
     kwargs_body,
 )
 from fibsem.util import wording
@@ -430,15 +431,15 @@ TOOLS: Tuple[ToolSpec, ...] = (
         line=_beam_acquire_image,
         call=lambda a: (
             {},
-            {
-                "kwargs": beam_kwargs(
+            command_body(
+                beam_kwargs(
                     a,
                     image_settings=a.get("image_settings"),
                     path=a.get("path"),
                     filename=a.get("filename"),
                 ),
-                "answer": "preview",
-            },
+                preview=True,
+            ),
         ),
     ),
     ToolSpec(
