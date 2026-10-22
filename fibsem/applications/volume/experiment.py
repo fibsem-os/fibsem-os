@@ -110,6 +110,20 @@ class VolumeExperiment(ProposalDecisions, BaseExperiment):
         self.save()
         return ""
 
+    def set_pose(self, name: str, pose_name: str, state: MicroscopeState) -> str:
+        """Set ``name``'s pose ``pose_name`` to ``state``. The milling pose is
+        kept once a slice is cut: the slices that follow line up with it."""
+        position = self.get_position_by_name(name)
+        if position is None:
+            return f"No position named {name!r}."
+        if state is None or state.stage_position is None:
+            return "A pose needs a stage position."
+        if pose_name == MILLING_POSE and self.slices_cut(position):
+            return f"{name} has cut slices at its milling pose."
+        position.poses[pose_name] = state
+        self.save()
+        return ""
+
     def patch_position(
         self,
         name: str,

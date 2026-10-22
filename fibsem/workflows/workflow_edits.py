@@ -9,7 +9,8 @@ what was applied, or why not.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict
+from datetime import datetime
+from typing import Any, Callable, Dict, List, Optional
 
 from fibsem.workflows.attention import Attention
 
@@ -64,4 +65,89 @@ def set_supervision(
         "saved": saved,
         "task_name": task_name,
         "supervise": supervise,
+    }
+
+
+def add_task(
+    experiment, task_type: str, task_name: str, record: Record
+) -> Dict[str, Any]:
+    """Add a task of a type the protocol registers (``experiment.add_task``):
+    its default settings, at the end of the workflow."""
+    try:
+        experiment.add_task(task_type, task_name)
+    except ValueError as exc:
+        return {"applied": False, "error": str(exc)}
+    name = task_name.strip()
+    saved = save_workflow_change(experiment, {"field": "tasks", "added": name}, record)
+    return {"applied": True, "saved": saved, "task_name": name, "task_type": task_type}
+
+
+def remove_task(experiment, task_name: str, record: Record) -> Dict[str, Any]:
+    """Remove a task from the protocol and the workflow
+    (``experiment.remove_task``). Task history stays: it is the record of
+    what ran."""
+    experiment.remove_task(task_name)
+    saved = save_workflow_change(
+        experiment, {"field": "tasks", "removed": task_name}, record
+    )
+    return {"applied": True, "saved": saved}
+
+
+def reorder_tasks(experiment, order: List[str], record: Record) -> Dict[str, Any]:
+    """Put the workflow's tasks in *order*: every task, each once. Refused when
+    a task would come before a task it requires."""
+    why = experiment.task_protocol.reorder(list(order))
+    if why:
+        return {"applied": False, "error": why}
+    saved = save_workflow_change(
+        experiment, {"field": "order", "order": list(order)}, record
+    )
+    return {"applied": True, "saved": saved}
+
+
+def set_requirements(
+    experiment,
+    task_name: str,
+    requires: Optional[List[str]],
+    required: Optional[bool],
+    record: Record,
+) -> Dict[str, Any]:
+    """Set the tasks an item must have completed before *task_name*, and
+    whether it is required. Refused when a requirement is not an earlier
+    task."""
+    protocol = experiment.task_protocol
+    why = protocol.set_requirements(task_name, requires, required)
+    if why:
+        return {"applied": False, "error": why}
+    change = {
+        "task_name": task_name,
+        "requires": protocol.requirements(task_name),
+        "required": protocol.workflow_config.get(task_name).required,
+    }
+    saved = save_workflow_change(
+        experiment, {"field": "requirements", **change}, record
+    )
+    return {"applied": True, "saved": saved, **change}
+
+
+def set_schedule(
+    experiment, task_name: str, scheduled_at: Optional[datetime], record: Record
+) -> Dict[str, Any]:
+    """Set (or clear, None) when *task_name* may start: up to two days ahead
+    (``RunPlan.set_schedule``)."""
+    config = experiment.task_protocol.workflow_config
+    why = config.set_schedule(task_name, scheduled_at)
+    if why:
+        return {"applied": False, "error": why, "task_names": config.workflow}
+    iso = scheduled_at.isoformat() if scheduled_at else None
+    saved = save_workflow_change(
+        experiment,
+        {"field": "scheduled_at", "task_name": task_name, "scheduled_at": iso},
+        record,
+    )
+    return {
+        "applied": True,
+        "saved": saved,
+        "task_name": task_name,
+        "scheduled_at": iso,
     }
