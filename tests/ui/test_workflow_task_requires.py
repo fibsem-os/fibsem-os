@@ -23,7 +23,7 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtCore import Qt  # noqa: E402
 
-from fibsem.applications.autolamella.ui.workflow.task_list import (  # noqa: E402
+from fibsem.ui.widgets.workflow.task_list import (  # noqa: E402
     REQUIRES_MAX_WIDTH,
     WorkflowTaskRowWidget,
 )

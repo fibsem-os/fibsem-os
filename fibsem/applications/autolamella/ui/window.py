@@ -12,25 +12,20 @@ try:
 except Exception:
     pass
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
-    QApplication,
-    QMainWindow,
     QSplitter,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
 import fibsem.config as fibsem_cfg
-from fibsem.acting import OPERATOR
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.experiment_setup import load_for_adoption
 from fibsem.applications.autolamella.poses import remove_lamella
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
-    Experiment,
     Lamella,
 )
 from fibsem.applications.autolamella.ui.common.run_refusal import refused_during_run
@@ -51,35 +46,22 @@ from fibsem.applications.autolamella.ui.menu_bar import MainMenuBar, MenuActions
 from fibsem.applications.autolamella.ui.overview.container import (
     AutoLamellaOverviewContainerTab,
 )
-from fibsem.applications.autolamella.ui.panel.panel import MicroscopePanel
+from fibsem.applications.autolamella.ui.panel.experiment import ExperimentTab
 from fibsem.applications.autolamella.ui.protocol.load import load_task_protocol_dialog
 from fibsem.applications.autolamella.ui.protocol.protocol_tab import (
     AutoLamellaProtocolTaskConfigEditor,
 )
-from fibsem.applications.autolamella.ui.run.attention import AttentionRouter
-from fibsem.applications.autolamella.ui.run.proposals import ProposalPresenter
-from fibsem.applications.autolamella.ui.run.responder import QtResponder
-from fibsem.applications.autolamella.ui.run.view import RunView
 from fibsem.applications.autolamella.ui.workflow.tab import WorkflowTab
-from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import MicroscopeSettings
-from fibsem.ui import FibsemSystemSetupWidget, notification_service
+from fibsem.ui import notification_service
 from fibsem.ui import utils as fui
-from fibsem.ui.agent.chip_host import AgentChipHost
+from fibsem.ui.app_window import AppWindow
 from fibsem.ui.fm.widgets import FMImageViewerWidget
 from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.qt.run_bridge import GuiExecutor, RunRelay
-from fibsem.ui.stylesheets import (
-    GRAY_ICON_COLOR,
-    NAPARI_STYLE,
-    border_stylesheet,
-)
+from fibsem.ui.run.attention import AttentionRouter
+from fibsem.ui.run.view import RunView
+from fibsem.ui.stylesheets import GRAY_ICON_COLOR
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
-from fibsem.ui.widgets.notifications import ToastManager
-from fibsem.ui.widgets.run_border import RunBorder
-from fibsem.ui.widgets.status_bar import FibsemStatusBar
-from fibsem.ui.widgets.workflow.controls import WorkflowControls
-from fibsem.versioning import get_version_string
+from fibsem.ui.widgets.microscope_panel import MicroscopePanel
 from fibsem.workflows.grid.naming import (
     grid_rename_refusal,
     record_inventoried_grids,
@@ -92,7 +74,6 @@ from fibsem.workflows.session import (
     GRID_RECORDS,
     MICROSCOPE,
     PROTOCOL,
-    AppSession,
 )
 from fibsem.workflows.status import (
     TaskStatus,
@@ -139,7 +120,7 @@ INSTRUCTIONS = {
 }
 
 
-class AutoLamellaWindow(QMainWindow):
+class AutoLamellaWindow(AppWindow):
     """Main window for AutoLamella UI.
 
     No napari viewer of its own any more: every tab here renders on the matplotlib
@@ -147,51 +128,9 @@ class AutoLamellaWindow(QMainWindow):
     which open windows of their own (FIB-407).
     """
 
-    # The session's `changed`, carried to the GUI thread.
-    _session_changed = pyqtSignal(str, object)
-
-    @property
-    def microscope(self) -> Optional[FibsemMicroscope]:
-        return self.session.microscope
-
-    @microscope.setter
-    def microscope(self, microscope: Optional[FibsemMicroscope]) -> None:
-        self.session.microscope = microscope
-
-    @property
-    def experiment(self) -> Optional[Experiment]:
-        return self.session.experiment
-
-    @experiment.setter
-    def experiment(self, experiment: Optional[Experiment]) -> None:
-        self.session.experiment = experiment
-
     def __init__(self):
-        super().__init__()
-        # The microscope, the open experiment and the connection's event
-        # stream are the session's; this window is one client of it.
-        self.session = AppSession()
-        self.settings: Optional[MicroscopeSettings] = None
+        super().__init__("AutoLamella")
         self._protocol_lock = threading.RLock()
-        self.setWindowTitle(f"AutoLamella v{get_version_string()} ")
-        self.resize(1600, 1000)
-
-        # Apply napari-style dark theme. Border state rules live here (on the parent)
-        # so that setProperty + unpolish/polish on the RunBorder re-evaluates them.
-        self.setStyleSheet(NAPARI_STYLE + border_stylesheet("workflow_border_frame"))
-
-        self.tab_widget = QTabWidget()
-        self.run_border = RunBorder("workflow_border_frame")
-        self.run_border.set_content(self.tab_widget)
-        self.setCentralWidget(self.run_border)
-
-        # Toast notification manager
-        self.toast_manager = ToastManager(self)
-
-        # Load user preferences
-        self._preferences = fibsem_cfg.load_user_preferences()
-
-        self.run_border.set_on(self._preferences.display.border_enabled)
 
         # create menus, status bar, and tabs
         self.menu_bar = MainMenuBar(
@@ -237,31 +176,13 @@ class AutoLamellaWindow(QMainWindow):
         self.sync_app_server_with_preference()
         d = self._preferences.display
         self.run_border.set_on(d.border_enabled)
+        self.toast_manager.problems_only = d.toast_problems_only
         # The lamella strip's density. Guarded because _apply_preferences also runs
         # before the Lamella tab is built.
         if hasattr(self, "lamella_tab"):
             self.lamella_tab.cards.set_mode(d.lamella_card_mode)
         self.menu_bar.apply_preferences(self._preferences)
         self.system_widget.refresh_first_run_offer(self._preferences)
-
-    def show_toast(
-        self,
-        message: str,
-        notification_type: str = "info",
-        duration: int = 5000,
-        temporary: bool = False,
-        action=None,
-    ):
-        """Show a toast notification, with an optional (text, callback) link.
-
-        Unconditional: there is no longer a preference for turning toasts off, so the
-        branch that used to route a suppressed message to the notification bell has
-        gone with it. Nothing is lost -- `ToastManager.show_toast` records every
-        non-temporary message in the bell itself.
-        """
-        self.toast_manager.show_toast(
-            message, notification_type, duration, temporary=temporary, action=action
-        )
 
     def _on_generate_grid_report(self):
         """Tools → Reporting → Generate Grid Screening Report.
@@ -282,27 +203,6 @@ class AutoLamellaWindow(QMainWindow):
             return
         self.tab_widget.setCurrentWidget(tab)
         tab.generate_report()
-
-    def _create_status_bar(self):
-        """Create the status bar: the shared bar's line on the left (FIB-1188), with
-        the microscope's progress in it, and this window's workflow buttons on the
-        right."""
-        self.status_bar = FibsemStatusBar(self)
-        self.setStatusBar(self.status_bar)
-        # The agent's chip, beside the workflow buttons (FIB-1035).
-        self.agent_host = AgentChipHost(
-            self.status_bar,
-            session=lambda: self.session,
-            view_controller=lambda: getattr(self, "view_controller", None),
-            on_driving=self.run_border.set_agent_driving,
-            parent=self,
-        )
-
-        # Attention Required, the supervision chip, Run and Stop: one component on the
-        # right of the bar, which shows what it is told; the run view says what a
-        # click does.
-        self.workflow_controls = WorkflowControls(self.status_bar)
-        self.status_bar.add_action(self.workflow_controls)
 
     def _refresh_after_naming(self) -> None:
         self.grids_tab.refresh()
@@ -362,9 +262,6 @@ class AutoLamellaWindow(QMainWindow):
             "No fluorescence microscope available" if no_fm else "No image"
         )
 
-    def _hear_session(self, what: str, detail: Any = None) -> None:
-        self._session_changed.emit(what, detail)
-
     def _on_session_changed(self, what: str, detail: Any) -> None:
         if what == MICROSCOPE:
             self._on_microscope_changed()
@@ -407,32 +304,14 @@ class AutoLamellaWindow(QMainWindow):
         """The right-hand panel, and the session's run, responder and executor."""
         self.panel = MicroscopePanel(
             self.session,
+            experiment_tab=lambda panel: ExperimentTab(
+                self.session, movement_widget=lambda: panel.movement_widget
+            ),
             view_controller=self._view_controller,
             overview_acquiring=self._overview_is_acquiring,
         )
         self.panel.setAutoFillBackground(True)
-        # Every run starts and ends through the session's runner, whoever
-        # started it: the window hears the run's status, and redraws.
-        self.run_relay = RunRelay(self.session.runner, parent=self)
-        self.proposals = ProposalPresenter(
-            self.session,
-            self.panel,
-            self.run_relay,
-            view_controller=self._view_controller,
-        )
-
-        # The Qt side of the workflow's Responder seam: workflow code is handed
-        # this one-method object, never the window itself.
-        self.ui_responder = QtResponder(self.panel)
-        self.session.responder = self.ui_responder
-        # The operator decides the run's proposals here, for the session's life.
-        self.session.attach_decider(OPERATOR)
-        # Edits to the experiment run on this thread: its widgets listen to it.
-        # The editors' pending edits are written first (FIB-683): an edit
-        # from elsewhere to the same config then finds it changed.
-        self.session.executor = GuiExecutor(self.flush_editors, parent=self)
-
-        self.system_widget = FibsemSystemSetupWidget(parent=self)
+        self._attach_run(self.panel)
         # The Connection tab is a gate in a bar that otherwise means "the instrument
         # needs you here now" -- it is the only tab that can never be a workflow
         # step, and it sits at position 0, the default landing spot, for something
@@ -443,10 +322,6 @@ class AutoLamellaWindow(QMainWindow):
         # in the application follows its signals. Only the tab is conditional.
         if not self.menu_bar.connection_chip_enabled:
             self.panel.tabWidget.insertTab(0, self.system_widget, "Connection")
-
-        self.system_widget.connected_signal.connect(self.connect_to_microscope)
-        self.system_widget.disconnected_signal.connect(self.disconnect_from_microscope)
-        self.run_relay.status.connect(self.panel.handle_workflow_status)
         # After the Connection tab is in: hiding the Experiment tab while it is
         # the only one leaves the panel showing nothing.
         self.panel.refresh()
@@ -1022,38 +897,6 @@ class AutoLamellaWindow(QMainWindow):
             self.lamella_tab.task_reported(lamella, status)
         self._on_lamella_card_selected(self.lamella_tab.selected)
 
-    def _on_app_server_dialog(self) -> None:
-        """Open Tools → App Server: status, services, clients, the event log."""
-        from fibsem.ui.agent.app_server_dialog import (
-            AppServerDialog,
-        )
-
-        preference = fibsem_cfg.load_user_preferences().app_server
-        dialog = AppServerDialog(
-            host_provider=lambda: self.session.app_server,
-            parent=self,
-            set_enabled=self._set_app_server_enabled,
-            set_microscope=self._set_app_server_microscope,
-            enabled=preference.enabled,
-            serve_microscope=preference.microscope,
-        )
-        dialog.exec_()
-
-    def _set_app_server_enabled(self, enabled: bool) -> None:
-        """Tools → App Server: save whether the server runs, and act on it now."""
-        self._preferences = fibsem_cfg.update_user_preferences(
-            lambda p: setattr(p.app_server, "enabled", bool(enabled))
-        )
-        self.sync_app_server_with_preference()
-
-    def _set_app_server_microscope(self, serve: bool) -> None:
-        """Tools → App Server: save whether the microscope is served, and act on it
-        now (a running server restarts)."""
-        self._preferences = fibsem_cfg.update_user_preferences(
-            lambda p: setattr(p.app_server, "microscope", bool(serve))
-        )
-        self.set_app_server_microscope(serve)
-
     def _rebuild_lamella_list(self):
         """Clear and repopulate the lamella list and card container from the current experiment."""
         if not hasattr(self, "workflow_tab"):
@@ -1149,7 +992,7 @@ class AutoLamellaWindow(QMainWindow):
             return
         if not remove_lamella(self.experiment, lamella):
             return
-        self.panel.experiment_tab.update_lamella_combobox(latest=True)
+        self.panel.experiment_tab.update_items(latest=True)
         self.panel.refresh()
 
     def _on_step_update(self, label: str) -> None:
@@ -1334,21 +1177,6 @@ class AutoLamellaWindow(QMainWindow):
         tab = getattr(self, "overview_tab", None)
         return tab is not None and tab.is_acquiring
 
-    def _setup_experiment_connections(self) -> None:
-        """Point the image settings at the experiment, and register the
-        microscope's metadata with it. The panel follows the experiment itself."""
-        if self.experiment is None:
-            logging.warning("Cannot setup experiment connections: experiment is None")
-            return
-
-        # Update settings path
-        if self.settings is not None:
-            self.settings.image.path = self.experiment.path
-
-        # Register metadata
-        if self.microscope is not None:
-            self.experiment.register_metadata(self.microscope)
-
     def create_experiment(self) -> None:
         """Create a new experiment using the experiment creation dialog."""
         if refused_during_run(self.session.runner, "change experiments"):
@@ -1446,107 +1274,12 @@ class AutoLamellaWindow(QMainWindow):
 
     # TODO: create a dialog to get the user to connect to microscope and create load experiment before continuing
     # then remove the system widget entirely... you will always be connected once you start
-    def connect_to_microscope(self):
-        # The window hears the new microscope once its views here are built.
-        with self.session.changed.paused():
-            self.microscope = self.system_widget.microscope
-            self.settings = self.system_widget.settings
-            if self.experiment is not None:
-                self.settings.image.path = self.experiment.path
-            self._show_microscope()
-            if self.experiment is not None:
-                self._setup_experiment_connections()
-            self._start_event_recorder()
-            self._start_app_server()
-
-    def _start_event_recorder(self) -> None:
-        """Start recording events for this microscope connection, whatever else runs.
-
-        This is the slot for the system widget's ``connected_signal``, which fires
-        whenever that widget refreshes while connected -- not once per connection
-        -- so it can run again for a microscope that already has a stream, and
-        that microscope keeps it. A different microscope (the connection dialog can
-        hand one back) gets a new stream, and the session stops a running App
-        Server so it restarts on the new buffer.
-        """
-        self.session.start_recording()
-
-    def _start_app_server(self) -> None:
-        """Host the App Server over this session, if the preference asks for it.
-
-        The agent starts at Watch; never raises — an optional observer
-        must not be able to take the session down (see fibsem/server/hosting.py).
-        """
-        preference = fibsem_cfg.load_user_preferences().app_server
-        if preference.enabled:
-            from fibsem.applications.autolamella.server.context import (
-                AutoLamellaAppContext,
-            )
-
-            if self.session.serve_microscope is None:
-                # the operator's choice in Tools → App Server is per session,
-                # like the agent level; it starts at the preference's default
-                self.session.serve_microscope = preference.microscope
-            self.session.start_app_server(
-                lambda buffer: AutoLamellaAppContext(self.session, event_buffer=buffer)
-            )
-
-    def sync_app_server_with_preference(self) -> None:
-        """Start or stop the embedded server to match the saved preference.
-
-        Called when Tools → App Server saves the switch, so it acts now rather
-        than at the next connect. Starting needs a connected microscope (the
-        server wraps it); without one this is a no-op and the connect path
-        picks the preference up as before.
-        """
-        host = self.session.app_server
-        preference = fibsem_cfg.load_user_preferences().app_server
-        if preference.enabled:
-            if self.microscope is not None and (host is None or not host.running):
-                self._start_app_server()
-        elif host is not None and host.running:
-            host.stop()
-
-    def set_app_server_microscope(self, serve: bool) -> None:
-        """Serve the microscope, or stop serving it (FIB-1359), from Tools →
-        App Server, which also saves the choice for the next launch.
-
-        The services are fixed when the server starts, so a change restarts a
-        running server. The agent's token and level are the session's and
-        carry over, so a connected agent carries on.
-        """
-        serve = bool(serve)
-        if serve == self.session.serve_microscope:
-            return
-        logging.info(
-            "App Server: the microscope %s by the operator",
-            "served" if serve else "no longer served",
-        )
-        if self.session.set_serve_microscope(serve) and self.microscope is not None:
-            self._start_app_server()
-
-    def disconnect_from_microscope(self):
-        with self.session.changed.paused():
-            self.session.stop_app_server()
-            self.session.stop_recording()
-            self.microscope = None
-            self.settings = None
-            self._show_microscope()
-
-    def _show_microscope(self) -> None:
-        """The panel's microscope tabs for the connected microscope, or none."""
-        self.panel.show_microscope(self.microscope, self.settings)
-        image_widget = self.panel.image_widget
-        # The defaults' "Read from Acquire Tab" reads this tab.
-        self.system_widget.set_current_imaging(
-            image_widget._get_image_settings_from_ui
-            if image_widget is not None
-            else None
+    def app_context(self, event_buffer):
+        from fibsem.applications.autolamella.server.context import (
+            AutoLamellaAppContext,
         )
 
-    def _view_controller(self):
-        """The quad view, once it is built."""
-        return getattr(self, "view_controller", None)
+        return AutoLamellaAppContext(self.session, event_buffer=event_buffer)
 
     #### REPORT GENERATION
     def action_generate_report(self) -> None:
@@ -1790,7 +1523,7 @@ class AutoLamellaWindow(QMainWindow):
         """Export the current protocol to file."""
 
         if self.experiment is None or self.experiment.task_protocol is None:
-            notification_service.show_toast("No protocol loaded.", "info")
+            notification_service.show_toast("No protocol loaded.", "warning")
             return
 
         protocol_path = fui.open_save_file_dialog(
@@ -1810,15 +1543,16 @@ class AutoLamellaWindow(QMainWindow):
         )
 
     def _on_notification_service(
-        self, message: str, notification_type: str, temporary: bool
+        self, message: str, notification_type: str, temporary: bool, always: bool
     ) -> None:
-        self.show_toast(message, notification_type, temporary=temporary)
+        self.show_toast(message, notification_type, temporary=temporary, always=always)
 
     def _on_notification_service_action(
         self,
         message: str,
         notification_type: str,
         temporary: bool,
+        always: bool,
         action_text: str,
         callback,
     ) -> None:
@@ -1827,41 +1561,10 @@ class AutoLamellaWindow(QMainWindow):
             notification_type,
             temporary=temporary,
             action=(action_text, callback),
+            always=always,
         )
 
-    def closeEvent(self, event):
-        """Flush what is still pending, then let the application go."""
-        # Before anything else, so a cancelled close leaves the session untouched.
-        if not self.run_view.confirm_close():
-            event.ignore()
-            return
-        # The editor holds edits for a moment before writing them (FIB-683); this is
-        # the last chance to get the final one onto disk.
-        if getattr(self, "lamella_tab", None) is not None:
-            try:
-                self.flush_editors()
-            except Exception as e:
-                logging.warning(
-                    f"Could not flush a pending experiment save on close: {e}"
-                )
-        # persist the FM working state (channels / camera transform / objective)
-        if self.panel.fm_control_widget is not None:
-            try:
-                self.panel.fm_control_widget.save_fm_configuration()
-            except Exception as e:
-                logging.warning(f"Could not save FM working state on close: {e}")
-        # After the flush, so its edit is recorded: write what is queued to
-        # events.jsonl and stop the recorder's writer thread. Nothing else does,
-        # so a window closed without disconnecting leaves it running.
-        try:
-            self.session.stop_recording()
-        except Exception as e:
-            logging.warning(f"Could not close the event recorder on close: {e}")
-        # Last, so everything above has the microscope it needs. Let the
-        # instrument go rather than leave the client open until the process ends.
-        if self.microscope is not None:
-            self.microscope.try_disconnect()
-        self.session.changed.disconnect(self._hear_session)
+    def _closing(self) -> None:
         # TypeError: a second close finds it already disconnected -- close() sends
         # the close event again even when the window is hidden.
         try:
@@ -1870,10 +1573,3 @@ class AutoLamellaWindow(QMainWindow):
             )
         except (RuntimeError, TypeError):
             pass
-        super().closeEvent(event)
-        # Force the event loop to exit even if another top-level window (e.g. a stray
-        # matplotlib pyplot figure) would otherwise keep the app alive once this window
-        # closes. quit() — not os._exit — so atexit / experiment autosave still run.
-        app = QApplication.instance()
-        if app is not None:
-            app.quit()

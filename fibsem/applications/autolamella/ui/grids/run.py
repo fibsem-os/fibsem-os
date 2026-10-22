@@ -37,14 +37,6 @@ from fibsem.applications.autolamella.tools.grid_report_pdf import (
     report_unavailable_reason,
 )
 from fibsem.applications.autolamella.ui.grids.card import grid_headline
-from fibsem.applications.autolamella.ui.workflow.task_list import (
-    ATTENTION_LABELS,
-    BTN_SIZE,
-    CHIP_ICONS,
-    CHIP_WIDTH,
-    chip_style,
-    requires_phrase,
-)
 from fibsem.applications.autolamella.workflows.estimate import exchanges_for
 from fibsem.structures import GridInventoryEntry, GridSlotState
 from fibsem.ui import stylesheets
@@ -82,6 +74,14 @@ from fibsem.ui.widgets.lists import (
     row_chip,
 )
 from fibsem.ui.widgets.preflight import TEXT_STRONG
+from fibsem.ui.widgets.workflow.task_list import (
+    ATTENTION_LABELS,
+    BTN_SIZE,
+    CHIP_ICONS,
+    CHIP_WIDTH,
+    chip_style,
+    requires_phrase,
+)
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.grid import (
     FluorescenceOverviewGridTaskConfig,

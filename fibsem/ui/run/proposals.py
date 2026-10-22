@@ -9,12 +9,12 @@ import logging
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple
 
-from fibsem.applications.autolamella.structures import Experiment
 from fibsem.ui.widgets.canvas.overlays.poi_marker import PoiMarker
 
 if TYPE_CHECKING:
-    from fibsem.applications.autolamella.ui.panel.panel import MicroscopePanel
     from fibsem.ui.qt.run_bridge import RunRelay
+    from fibsem.ui.widgets.microscope_panel import MicroscopePanel
+    from fibsem.workflows.deciding import ProposalDecisions
     from fibsem.workflows.session import AppSession
 
 __all__ = ["ProposalPresenter"]
@@ -55,7 +55,7 @@ class ProposalPresenter:
         panel.prompt_bar.answered.connect(self._on_prompt_answered)
 
     @property
-    def experiment(self) -> Optional[Experiment]:
+    def experiment(self) -> Optional["ProposalDecisions"]:
         return self._session.experiment
 
     def _agent_deciding(self) -> bool:

@@ -465,7 +465,9 @@ def test_an_image_saved_in_the_lamellas_folder_outside_a_task_is_on_its_row(
         ),
     ]
 
-    setup, first, second = history_rows(lamella, events, history_images(lamella))
+    setup, first, second = history_rows(
+        lamella, events, history_images(lamella), folder=lamella.path
+    )
 
     assert first.images == [stack] and len(first.operations) == 1
     assert first.ended_at == T0 + timedelta(minutes=11)

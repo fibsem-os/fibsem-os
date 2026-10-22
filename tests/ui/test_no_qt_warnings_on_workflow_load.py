@@ -55,9 +55,6 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.applications.autolamella.ui.workflow.lamella_run import (
     LamellaWorkflowWidget,  # noqa: E402
 )
-from fibsem.applications.autolamella.ui.workflow.task_list import (
-    WorkflowTaskRowWidget,  # noqa: E402
-)
 from fibsem.correlation.structures import Coordinate  # noqa: E402
 from fibsem.fm.structures import ChannelSettings  # noqa: E402
 from fibsem.milling.base import FibsemMillingStage  # noqa: E402
@@ -76,6 +73,9 @@ from fibsem.ui.icon import (  # noqa: E402
 )
 from fibsem.ui.widgets.milling_stage_list_widget import (  # noqa: E402
     MillingStageRowWidget,
+)
+from fibsem.ui.widgets.workflow.task_list import (
+    WorkflowTaskRowWidget,  # noqa: E402
 )
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.task_config import TaskPlan  # noqa: E402
@@ -115,7 +115,7 @@ def _workflow_row():
 # Every module that draws a drag handle, with a builder for its row. Adding a row
 # type here is the cheap way to keep it drawing the shared, loaded asset.
 DRAG_HANDLE_ROWS = {
-    "fibsem.applications.autolamella.ui.workflow.task_list": _workflow_row,
+    "fibsem.ui.widgets.workflow.task_list": _workflow_row,
     "fibsem.ui.widgets.milling_stage_list_widget": _milling_row,
     "fibsem.ui.fm.widgets.channel_list_widget": _channel_row,
     "fibsem.ui.correlation.widgets.coordinate_list_widget": _coordinate_row,

@@ -548,6 +548,9 @@ def test_an_expiring_request_lapses_as_it_says(app):
 _AXES = {axis: 0.0 for axis in "xyzrt"}
 _SAMPLE_ARGUMENTS = {
     "stage_stable_move": {"dx": 1e-6, "dy": 0.0},
+    "stage_fm_stable_move": {"dx": 1e-6, "dy": 0.0},
+    "stage_move_to_device": {"device": "FM"},
+    "milling_run_spot_burn": {"settings": {"coordinates": []}},
     "stage_vertical_move": {"dy": 1e-6},
     "stage_move_to_orientation": {"orientation": "SEM"},
     "stage_move_absolute": _AXES,
@@ -720,6 +723,11 @@ def test_a_mill_past_the_field_says_so_on_its_line():
             "stage_stable_move",
             {"dx": 33e-6, "dy": -27e-6, "beam_type": "ION"},
             ("Stage", "Stable move in the ion beam: 33 µm right, 27 µm down"),
+        ),
+        (
+            "stage_fm_stable_move",
+            {"dx": 4e-6, "dy": 2e-6},
+            ("Stage", "Stable move in the fluorescence image: 4 µm right, 2 µm up"),
         ),
         (
             "milling_stop",

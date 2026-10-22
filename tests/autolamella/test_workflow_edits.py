@@ -100,9 +100,7 @@ def test_the_agent_and_the_status_bar_chip_set_supervision_alike(
     assert AutoLamellaAppContext(session).set_supervision("Rough", True)["applied"]
     assert calls == [("Rough", True)]
 
-    view = (
-        Path(fibsem.__path__[0]) / "applications/autolamella/ui/run/view.py"
-    ).read_text(encoding="utf-8")
+    view = (Path(fibsem.__path__[0]) / "ui/run/view.py").read_text(encoding="utf-8")
     start = view.index("    def _on_supervised_status_clicked(")
     body = view[start : view.index("\n    def ", start + 1)]
     assert "set_supervision(" in body

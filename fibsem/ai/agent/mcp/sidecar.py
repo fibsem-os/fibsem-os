@@ -531,6 +531,8 @@ def build_sidecar(client, capabilities):
         use_autofocus: bool = False,
         method: str = "cross-correlation",
         validate: bool = True,
+        use_autocontrast: bool = False,
+        path: Optional[str] = None,
     ):
         return _routed(
             "alignment_align_to_reference",
@@ -541,6 +543,8 @@ def build_sidecar(client, capabilities):
             use_autofocus=use_autofocus,
             method=method,
             validate=validate,
+            use_autocontrast=use_autocontrast,
+            path=path,
         )
 
     def alignment_compare_methods(
@@ -560,12 +564,15 @@ def build_sidecar(client, capabilities):
     def milling_list_options():
         return _routed("milling_list_options", "options")
 
-    def alignment_measure_shift(reference_path: str, image_path: str):
+    def alignment_measure_shift(
+        reference_path: str, image_path: str, method: str = "cross-correlation"
+    ):
         return _routed(
             "alignment_measure_shift",
             "shift",
             reference_path=reference_path,
             image_path=image_path,
+            method=method,
         )
 
     def alignment_check_coincidence(
@@ -657,6 +664,14 @@ def build_sidecar(client, capabilities):
         data, err = _route("milling_end", reason=reason)
         return err if err else {"status": "ok"}
 
+    def milling_pause():
+        data, err = _route("milling_pause")
+        return err if err else {"status": "ok"}
+
+    def milling_resume():
+        data, err = _route("milling_resume")
+        return err if err else {"status": "ok"}
+
     def milling_follow_readings(since: int = 0, timeout: float = 0.0):
         return _routed("milling_follow_readings", since=since, timeout=timeout)
 
@@ -678,10 +693,23 @@ def build_sidecar(client, capabilities):
     def stage_move_relative(dx: float = 0.0, dy: float = 0.0, dz: float = 0.0):
         return _routed("stage_move_relative", "position", dx=dx, dy=dy, dz=dz)
 
-    def stage_stable_move(dx: float, dy: float, beam_type: str = "ELECTRON"):
+    def stage_stable_move(
+        dx: float, dy: float, beam_type: str = "ELECTRON", static_wd: bool = False
+    ):
         return _routed(
-            "stage_stable_move", "position", dx=dx, dy=dy, beam_type=beam_type
+            "stage_stable_move",
+            "position",
+            dx=dx,
+            dy=dy,
+            beam_type=beam_type,
+            static_wd=static_wd,
         )
+
+    def stage_move_to_device(device: str, orientation: Optional[str] = None):
+        return _routed("stage_move_to_device", device=device, orientation=orientation)
+
+    def stage_fm_stable_move(dx: float, dy: float):
+        return _routed("stage_fm_stable_move", "position", dx=dx, dy=dy)
 
     def stage_vertical_move(
         dy: float,
@@ -783,14 +811,20 @@ def build_sidecar(client, capabilities):
             "service_call_query", service=service, query=query, kwargs=kwargs
         )
 
-    def beam_auto_contrast(beam_type: str = "ELECTRON"):
-        return _routed("beam_auto_contrast", beam_type=beam_type)
+    def beam_auto_contrast(
+        beam_type: str = "ELECTRON", reduced_area: Optional[dict] = None
+    ):
+        return _routed(
+            "beam_auto_contrast", beam_type=beam_type, reduced_area=reduced_area
+        )
 
     def beam_auto_focus(
         beam_type: str = "ELECTRON",
         method: str = "sweep",
         hfw: Optional[float] = None,
         settings: Optional[dict] = None,
+        path: Optional[str] = None,
+        name: Optional[str] = None,
     ):
         return _routed(
             "beam_auto_focus",
@@ -799,10 +833,26 @@ def build_sidecar(client, capabilities):
             method=method,
             hfw=hfw,
             settings=settings,
+            path=path,
+            name=name,
         )
 
-    def fm_auto_focus(channel_name: Optional[str] = None, path: Optional[str] = None):
-        return _routed("fm_auto_focus", "run", channel_name=channel_name, path=path)
+    def fm_auto_focus(
+        channel_name: Optional[str] = None,
+        settings: Optional[dict] = None,
+        channel: Optional[dict] = None,
+        path: Optional[str] = None,
+        name: str = "autofocus",
+    ):
+        return _routed(
+            "fm_auto_focus",
+            "run",
+            channel_name=channel_name,
+            settings=settings,
+            channel=channel,
+            path=path,
+            name=name,
+        )
 
     def beam_acquire_overview(
         settings: dict,
@@ -833,6 +883,12 @@ def build_sidecar(client, capabilities):
             n_steps=n_steps,
             auto_focus=auto_focus,
         )
+
+    def fm_insert_objective():
+        return _routed("fm_insert_objective")
+
+    def fm_retract_objective():
+        return _routed("fm_retract_objective")
 
     def fm_acquire_image(
         channels: List[dict],
@@ -876,6 +932,12 @@ def build_sidecar(client, capabilities):
     def milling_run_stage(stage: dict, path: Optional[str] = None):
         return _routed("milling_run_stage", "run", stage=stage, path=path)
 
+    def milling_run_spot_burn(settings: dict):
+        return _routed("milling_run_spot_burn", "run", settings=settings)
+
+    def milling_estimate_spot_burn(settings: dict):
+        return _routed("milling_estimate_spot_burn", "seconds", settings=settings)
+
     def milling_run_task(config: dict, path: Optional[str] = None):
         return _routed("milling_run_task", "run", config=config, path=path)
 
@@ -885,6 +947,7 @@ def build_sidecar(client, capabilities):
         path: str,
         name: str = "overview",
         zparams: Optional[dict] = None,
+        autofocus_settings: Optional[dict] = None,
         centre_position: Optional[dict] = None,
     ):
         return _routed(
@@ -895,11 +958,15 @@ def build_sidecar(client, capabilities):
             path=path,
             name=name,
             zparams=zparams,
+            autofocus_settings=autofocus_settings,
             centre_position=centre_position,
         )
 
     def fm_estimate_overview(
-        channels: List[dict], parameters: dict, zparams: Optional[dict] = None
+        channels: List[dict],
+        parameters: dict,
+        zparams: Optional[dict] = None,
+        autofocus_settings: Optional[dict] = None,
     ):
         return _routed(
             "fm_estimate_overview",
@@ -907,10 +974,23 @@ def build_sidecar(client, capabilities):
             channels=channels,
             parameters=parameters,
             zparams=zparams,
+            autofocus_settings=autofocus_settings,
         )
 
-    def beam_auto_brightness_contrast(beam_type: str = "ELECTRON"):
-        return _routed("beam_auto_brightness_contrast", "result", beam_type=beam_type)
+    def beam_auto_brightness_contrast(
+        beam_type: str = "ELECTRON",
+        settings: Optional[dict] = None,
+        path: Optional[str] = None,
+        name: Optional[str] = None,
+    ):
+        return _routed(
+            "beam_auto_brightness_contrast",
+            "result",
+            beam_type=beam_type,
+            settings=settings,
+            path=path,
+            name=name,
+        )
 
     def _given(**params):
         """The *params* that are given (not None): a body that leaves out the rest."""
@@ -1610,10 +1690,14 @@ def build_sidecar(client, capabilities):
             alignment_measure_coincidence,
             milling_stop,
             milling_end,
+            milling_pause,
+            milling_resume,
             milling_follow_readings,
             beam_acquire_image,
             stage_move_relative,
             stage_stable_move,
+            stage_fm_stable_move,
+            stage_move_to_device,
             stage_vertical_move,
             stage_move_to_orientation,
             stage_move_absolute,
@@ -1634,9 +1718,13 @@ def build_sidecar(client, capabilities):
             beam_acquire_overview,
             beam_estimate_overview,
             beam_acquire_focus_stack,
+            fm_insert_objective,
+            fm_retract_objective,
             fm_acquire_image,
             milling_run_stage,
             milling_run_task,
+            milling_run_spot_burn,
+            milling_estimate_spot_burn,
             fm_acquire_overview,
             fm_estimate_overview,
             beam_auto_brightness_contrast,
@@ -1750,12 +1838,16 @@ def build_sidecar(client, capabilities):
 FETCHED = "fetched"
 
 
+def _workdir() -> str:
+    """The agent's working folder: FIBSEM_AGENT_WORKDIR, else where the sidecar
+    runs."""
+    return os.path.realpath(os.environ.get("FIBSEM_AGENT_WORKDIR") or os.getcwd())
+
+
 def _save_fetched(experiment: str, relative: str, content: bytes):
     """Keep a fetched file at fetched/<experiment>/<its path in the
     experiment>, under the working folder: its local path and size."""
-    root = os.path.realpath(
-        os.path.join(os.environ.get("FIBSEM_AGENT_WORKDIR") or os.getcwd(), FETCHED)
-    )
+    root = os.path.join(_workdir(), FETCHED)
     parts = [experiment, *relative.split("/")]
     target = os.path.realpath(os.path.join(root, *parts))
     if os.path.commonpath([root, target]) != root or target == root:
@@ -1799,8 +1891,8 @@ def _described(fn, params):
 
 def _evidence_body(evidence):
     """The body that keeps *evidence* (the tool's ``evidence`` argument): a
-    ``file`` on this machine is read and sent as an upload. A `_Failure` when it
-    can't be read."""
+    ``file`` in the agent's working folder is read and sent as an upload. A
+    `_Failure` when it is outside that folder or can't be read."""
     if not isinstance(evidence, dict):
         return _Failure(
             'refused (422): {"error_type": "invalid", "message": "evidence is '
@@ -1809,8 +1901,22 @@ def _evidence_body(evidence):
     body = {k: v for k, v in evidence.items() if k != "file"}
     path = evidence.get("file")
     if path:
+        root = _workdir()
+        target = os.path.realpath(os.path.expanduser(str(path)))
+        if os.path.commonpath([root, target]) != root:
+            return _Failure(
+                "refused (422): "
+                + json.dumps(
+                    {
+                        "error_type": "invalid",
+                        "message": f"evidence file {path} is outside your working "
+                        f"folder ({root}): give a file there, or an experiment "
+                        "image as image.",
+                    }
+                )
+            )
         try:
-            with open(os.path.expanduser(str(path)), "rb") as f:
+            with open(target, "rb") as f:
                 body["upload"] = base64.b64encode(f.read()).decode("ascii")
         except OSError as exc:
             return _Failure(

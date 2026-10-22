@@ -259,6 +259,29 @@ def test_the_agent_stops_its_own_action_at_assist_and_drive(
     assert _error(refused) == "level"
 
 
+@pytest.mark.parametrize("command", ["pause", "resume"])
+def test_a_pause_or_resume_goes_by_the_stop_rule(
+    client, auth, microscope, monkeypatch, command
+):
+    """The running mill holds control, so a pause that took control would be
+    refused by the very mill it pauses: like a stop, it takes none. The agent's
+    own mill at Assist; anyone else's at Drive; never at Watch."""
+    calls = []
+    monkeypatch.setattr(microscope.milling, f"_{command}", lambda: calls.append(1))
+    path = f"/microscope/services/milling/commands/{command}"
+    with microscope.control.take(WORKFLOW, "a lamella run"):
+        auth.set_level(AgentLevel.WATCH)
+        assert _error(client.post(path, headers=AGENT, json={})) == "level"
+        auth.set_level(AgentLevel.ASSIST)
+        assert _error(client.post(path, headers=AGENT, json={})) == "ask_first"
+        auth.set_level(AgentLevel.DRIVE)
+        assert client.post(path, headers=AGENT, json={}).status_code == 200
+    with microscope.control.take(AGENT_ACTOR, "milling run"):
+        auth.set_level(AgentLevel.ASSIST)
+        assert client.post(path, headers=AGENT, json={}).status_code == 200
+    assert len(calls) == 2
+
+
 def test_a_stop_needs_a_reason_and_records_it(client, auth, microscope, milling_now):
     auth.set_level(AgentLevel.DRIVE)
     for path in (STOP_MILLING, "/app/workflow/stop"):
