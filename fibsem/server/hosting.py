@@ -47,13 +47,13 @@ __all__ = ["AppServerHost", "chat_url", "event_log_url"]
 
 def _stop_the_microscope(microscope) -> None:
     """Stop whatever the microscope is running: milling, a spot burn, an auto
-    focus sweep, live imaging. Each stop is safe when nothing is running (the
+    focus sweep, a deposition, live imaging. Each stop is safe when nothing is running (the
     milling service's says so, and is let be), and one failing never keeps the
     others from being tried."""
     stops = [microscope.stop_acquisition]
     # The milling service's stop, not the microscope's: it ends a milling task
     # as well as its pattern, so no later stage starts (FIB-1398).
-    for service in ("milling", "spot_burn", "imaging"):
+    for service in ("milling", "spot_burn", "imaging", "coating"):
         found = getattr(microscope, service, None)
         if found is not None:
             stops.append(found.stop)

@@ -20,7 +20,15 @@ names the level it needs.
 import re
 from typing import Any, Callable, Dict, Optional, Tuple
 
-from fibsem.ai.agent.catalog import app, grids, imaging, items, microscope, milling
+from fibsem.ai.agent.catalog import (
+    app,
+    coating,
+    grids,
+    imaging,
+    items,
+    microscope,
+    milling,
+)
 from fibsem.ai.agent.catalog.spec import EVIDENCE_PARAM, GROUP_TITLES, ToolSpec
 
 __all__ = [
@@ -37,6 +45,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
     microscope.TOOLS
     + imaging.TOOLS
     + milling.TOOLS
+    + coating.TOOLS
     + grids.TOOLS
     + items.TOOLS
     + app.TOOLS

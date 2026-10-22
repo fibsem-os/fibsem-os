@@ -376,6 +376,7 @@ class MicroscopePanel(QWidget):
 
             # remove tabs
             if self.sample_widget is not None:
+                self.sample_widget._teardown_connections()
                 self.tabWidget.removeTab(self.tabWidget.indexOf(self.sample_widget))
                 self.sample_widget.deleteLater()
                 self.sample_widget = None

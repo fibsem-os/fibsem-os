@@ -11,7 +11,8 @@ something stops it. Each pattern takes a few seconds, or, with
 ``FIBSEM_SIM_MILL_SCALE`` set, that fraction of the sputter-rate estimate for what
 is drawn, so a stop can be tried mid-mill (FIB-1496).
 
-`DemoSpotBurn` is the shared point-by-point burn, also on simulated time.
+`DemoSpotBurn` is the shared point-by-point burn, also on simulated time, and
+`DemoCoating` the shared coating, whose valve stays open for simulated time.
 """
 
 from __future__ import annotations
@@ -31,6 +32,11 @@ from fibsem.drivers.demo.simulator import (
 from fibsem.milling.base import estimate_volume_time
 from fibsem.milling.progress import MillingProgress
 from fibsem.milling.rtm import RTM_MODES
+from fibsem.services.coating import (
+    ARCTIS_DEPOSITION_POSITION,
+    Coating,
+    bind_coating,
+)
 from fibsem.services.milling import Milling, bind_milling, progress_update
 from fibsem.services.spot_burn import SpotBurn, bind_spot_burn
 from fibsem.structures import (
@@ -285,3 +291,21 @@ class DemoSpotBurn(SpotBurn):
 def bind_demo_spot_burn(microscope: DemoMicroscope) -> Optional[DemoSpotBurn]:
     """Build ``spot_burn`` for a Demo microscope whose beams are built."""
     return bind_spot_burn(DemoSpotBurn, microscope)
+
+
+class DemoCoating(Coating):
+    """The Demo's coating: the shared one, its valve open for simulated time."""
+
+    def _wait(self, seconds: float) -> None:
+        sim_sleep(seconds)
+
+
+def bind_demo_coating(microscope: DemoMicroscope) -> Optional[DemoCoating]:
+    """Build ``coating`` for a Demo microscope whose devices are built. A simulated
+    Arctis (a compustage) deposits from the Arctis position."""
+    from fibsem.drivers.demo.simulator import sim_is_compustage
+
+    arctis = sim_is_compustage(microscope.system)
+    return bind_coating(
+        microscope, DemoCoating, ARCTIS_DEPOSITION_POSITION if arctis else None
+    )

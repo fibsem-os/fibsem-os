@@ -71,6 +71,7 @@ if TYPE_CHECKING:
     from fibsem.cancellation import AnyStopEvent
     from fibsem.imaging.spot import SpotBurnSettings
     from fibsem.services.alignment import Alignment
+    from fibsem.services.coating import Coating
     from fibsem.services.imaging import Imaging
     from fibsem.services.milling import Milling
     from fibsem.services.sample_handling import SampleHandling
@@ -184,6 +185,10 @@ class FibsemMicroscope(ABC):
     #: to a saved reference image, and the shift between two. None without
     #: imaging.
     alignment: Optional[Alignment] = None
+    #: The coating service over the GIS and the sputter coater
+    #: (`fibsem.services.coating.Coating`): a deposition and a sputter coat, each
+    #: one command. None without either device.
+    coating: Optional[Coating] = None
     #: Whether this driver's sample loader reads its magazine when the sample
     #: handling service is built: only where that read is free (the simulator).
     _read_magazine_at_connect: bool = False
@@ -372,6 +377,14 @@ class FibsemMicroscope(ABC):
         self.imaging = bind_imaging(Imaging, self)
         # Alignment acquires through the imaging, so it comes and goes with it.
         self.alignment = bind_alignment(Alignment, self)
+
+    def _build_coating(self, position: Optional[FibsemStagePosition] = None) -> None:
+        """Build the coating service over the GIS and the sputter coater, after
+        the devices. *position* is where a deposition moves the stage to; None
+        deposits where the stage is. Without either device there is none."""
+        from fibsem.services.coating import bind_coating
+
+        self.coating = bind_coating(self, position=position)
 
     def reset_beam_shifts(self) -> None:
         """Set the beam shift to zero for the electron and ion beams."""
@@ -1172,6 +1185,7 @@ class FibsemMicroscope(ABC):
         "sample_handling",
         "imaging",
         "alignment",
+        "coating",
     )
 
     @property

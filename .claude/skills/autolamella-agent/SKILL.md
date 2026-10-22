@@ -471,7 +471,8 @@ while it says running, before you `clear`. It ends `done` (`result:
 completed`), `cancelled` or `failed` with its error. `service_get_parameter`
 milling `progress` shows how far it has got. A spot burn
 (`milling_run_spot_burn`, `milling_estimate_spot_burn` first) works the same
-way.
+way, and so do a GIS deposition (`coating_deposit`) and a sputter coat
+(`coating_sputter`), followed with `service_wait_for_run` coating.
 
 Follow every mill the same way, whoever started it (you, a workflow task, the
 operator): the watcher prints `MILL STAGE STARTED` for each stage and `MILL

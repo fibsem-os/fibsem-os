@@ -551,6 +551,8 @@ _SAMPLE_ARGUMENTS = {
     "stage_fm_stable_move": {"dx": 1e-6, "dy": 0.0},
     "stage_move_to_device": {"device": "FM"},
     "milling_run_spot_burn": {"settings": {"coordinates": []}},
+    "coating_deposit": {"seconds": 30},
+    "coating_sputter": {"seconds": 30},
     "stage_vertical_move": {"dy": 1e-6},
     "stage_move_to_orientation": {"orientation": "SEM"},
     "stage_move_absolute": _AXES,

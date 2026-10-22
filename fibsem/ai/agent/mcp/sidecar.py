@@ -938,6 +938,18 @@ def build_sidecar(client, capabilities):
     def milling_estimate_spot_burn(settings: dict):
         return _routed("milling_estimate_spot_burn", "seconds", settings=settings)
 
+    def coating_deposit(seconds: float):
+        return _routed("coating_deposit", "run", seconds=seconds)
+
+    def coating_sputter(
+        seconds: float,
+        current: Optional[float] = None,
+        grids: Optional[List[int]] = None,
+    ):
+        return _routed(
+            "coating_sputter", "run", seconds=seconds, current=current, grids=grids
+        )
+
     def milling_run_task(config: dict, path: Optional[str] = None):
         return _routed("milling_run_task", "run", config=config, path=path)
 
@@ -1725,6 +1737,8 @@ def build_sidecar(client, capabilities):
             milling_run_task,
             milling_run_spot_burn,
             milling_estimate_spot_burn,
+            coating_deposit,
+            coating_sputter,
             fm_acquire_overview,
             fm_estimate_overview,
             beam_auto_brightness_contrast,

@@ -283,6 +283,7 @@ class FibsemUI(QMainWindow):
             self.movement_widget._teardown_connections()
             self.movement_widget.deleteLater()
             self.milling_widget.deleteLater()
+            self.sample_widget._teardown_connections()
             self.sample_widget.deleteLater()
             if self.manipulator_widget is not None:
                 self.manipulator_widget.deleteLater()

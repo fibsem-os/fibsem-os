@@ -30,6 +30,7 @@ from fibsem.devices.wire import (
 )
 from fibsem.imaging.spot import SpotBurnStatus
 from fibsem.milling.progress import MillingProgressStatus
+from fibsem.services.coating import CoatingStatus
 from fibsem.structures import (
     BeamType,
     FibsemImage,
@@ -57,6 +58,9 @@ SAMPLES = {
     "EmissionFilter": lambda cls: cls(name="GFP"),
     "MagazineSlot": lambda cls: cls(number=3, description="grid"),
     "SpotBurnProgress": lambda cls: cls(status=list(SpotBurnStatus)[0], total_points=4),
+    "CoatingProgress": lambda cls: cls(
+        status=list(CoatingStatus)[0], step="Depositing", remaining_time=12.0
+    ),
     "MillingProgress": lambda cls: cls(status=list(MillingProgressStatus)[0]),
     "GridInventoryEntry": lambda cls: cls(
         slot_name="Slot-01",
