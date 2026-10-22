@@ -12,7 +12,7 @@ import logging
 import threading
 import time
 import uuid
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
 
 from fibsem.acting import OPERATOR
 from fibsem.ai.agent.levels import AgentLevel, if_allowed
@@ -57,6 +57,37 @@ def session_text(session: Optional[Dict[str, Any]]) -> Optional[str]:
         reason = session.get("reason")
         parts.append(f"ended: {reason}" if reason else "ended")
     return " · ".join(parts) or None
+
+
+def session_facts(session: Optional[Dict[str, Any]]) -> List[Tuple[str, str]]:
+    """What the agent said it can do, as (name, value) rows for the chip's
+    details: its harness, model and effort, code mode, skills, session id."""
+    if not session:
+        return []
+    facts = []
+    if session.get("harness"):
+        facts.append(("Harness", session["harness"]))
+    model = ", ".join(
+        part
+        for part in (
+            session.get("model"),
+            f"effort {session['effort']}" if session.get("effort") else None,
+        )
+        if part
+    )
+    if model:
+        facts.append(("Model", model))
+    if session.get("code") is True:
+        where = f" in {session['workdir']}" if session.get("workdir") else ""
+        facts.append(("Code", f"On{where} (sandboxed)"))
+    elif session.get("code") is False:
+        facts.append(("Code", "Off"))
+    if session.get("skills"):
+        facts.append(("Skills", ", ".join(session["skills"])))
+    if session.get("session_id"):
+        new = {True: " (resumed)", False: " (new)"}.get(session.get("resumed"), "")
+        facts.append(("Session id", f"{session['session_id']}{new}"))
+    return facts
 
 
 class AgentSession:
@@ -575,6 +606,10 @@ class AgentSession:
         """The reported session in one line, as the card and the chat show
         it, or None."""
         return session_text(self.reported_session())
+
+    def session_facts(self) -> List[Tuple[str, str]]:
+        """What the agent said it can do, as rows (`session_facts`)."""
+        return session_facts(self.reported_session())
 
     def client(self) -> Optional[str]:
         """The MCP client the agent's sidecar named, or None."""

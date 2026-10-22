@@ -100,6 +100,12 @@ MAX_BUFFER_SIZE = 32 * 1024 * 1024
 MAX_TURNS = 40  # tool calls per wake-up
 MAX_BUDGET_USD = 5.0  # what one run spends
 SERVER_WAIT_S = 600.0
+# The transcript (`Runner._send_transcript`): sent this often while a turn
+# runs and as it ends, at most this many lines at once, at most this many kept
+# while the server can't take them.
+TRANSCRIPT_EVERY_S = 10.0
+TRANSCRIPT_BATCH = 200
+TRANSCRIPT_KEEP = 2000
 RETRY_MAX_S = 60.0
 
 RUNNER_PROMPT = """\
@@ -401,10 +407,13 @@ class Runner:
         retry_s: Optional[float] = None,
         goal: Optional[str] = None,
         budget_usd: Optional[float] = None,
+        about: Optional[dict] = None,
     ) -> None:
         self._agent = agent
         self._goal = goal
         self._goal_sent = False
+        # What it can do (code mode, effort, skills), sent with the first report.
+        self._about = dict(about or {})
         self._budget_usd = budget_usd
         # The App Server's client, once one answers: the session is reported on it.
         self._client = None
@@ -522,10 +531,12 @@ class Runner:
         if self._stopping.is_set():
             return False
         interrupter = asyncio.ensure_future(self._interrupt_on_stop())
+        sender = asyncio.ensure_future(self._send_transcript_every())
         try:
             end = await self._agent.turn(prompt)
         finally:
             interrupter.cancel()
+            sender.cancel()
         self._turns += 1
         if end.cost_usd is not None:
             self._spent_usd = end.cost_usd
@@ -585,6 +596,7 @@ class Runner:
             "budget_usd": self._budget_usd,
             "spent_usd": self._spent_usd,
             "turns": self._turns,
+            **({} if self._goal_sent else self._about),
         }
         body = {key: value for key, value in body.items() if value is not None}
         if ended:
@@ -598,6 +610,45 @@ class Runner:
                 log.debug("Reporting the session failed.", exc_info=True)
 
         await asyncio.get_running_loop().run_in_executor(None, post)
+        await self._send_transcript()
+
+    async def _send_transcript(self) -> None:
+        """The lines printed since the last send, to the App Server for the web
+        page (``POST /app/agent/transcript``). Kept for the next send when it
+        can't take them (no experiment open); the oldest go past
+        `TRANSCRIPT_KEEP`."""
+        client, lines = self._client, getattr(self._agent, "transcript", None)
+        session_id = getattr(self._agent, "session_id", None)
+        if client is None or not lines or not session_id:
+            return
+        now = time.monotonic()
+        batch = lines[:TRANSCRIPT_BATCH]
+        entries = [
+            {**{k: v for k, v in line.items() if k != "at"}, "age_s": now - line["at"]}
+            for line in batch
+        ]
+
+        def post():
+            try:
+                client.request(
+                    "POST",
+                    "/app/agent/transcript",
+                    json={"session_id": session_id, "entries": entries},
+                    timeout=10.0,
+                )
+                return True
+            except Exception:
+                log.debug("Sending the transcript failed.", exc_info=True)
+                return False
+
+        if await asyncio.get_running_loop().run_in_executor(None, post):
+            del lines[: len(batch)]
+        del lines[:-TRANSCRIPT_KEEP]
+
+    async def _send_transcript_every(self) -> None:
+        while True:
+            await asyncio.sleep(TRANSCRIPT_EVERY_S)
+            await self._send_transcript()
 
     async def _interrupt_on_stop(self) -> None:
         await self._stopping.wait()
@@ -731,6 +782,26 @@ class SdkAgent:
         self.session_id: Optional[str] = options.resume or options.session_id
         self.model: Optional[str] = options.model
         self.introduced = False
+        # The lines printed, until the runner sends them (`Runner._send_transcript`).
+        self.transcript: List[dict] = []
+        self._seq = 0
+        # A tool call's line, by the call's id: its result may say it failed.
+        self._steps: dict = {}
+        self.cwd = Path(options.cwd) if options.cwd else None
+
+    def line(self, kind: str, text: str, **extra) -> int:
+        """Keep a printed line for the transcript; its number."""
+        self._seq += 1
+        self.transcript.append(
+            {
+                "seq": self._seq,
+                "kind": kind,
+                "text": text,
+                "at": time.monotonic(),
+                **extra,
+            }
+        )
+        return self._seq
 
     async def start(self) -> None:
         from claude_agent_sdk import ClaudeSDKClient
@@ -790,6 +861,49 @@ def _result_text(content) -> str:
     return str(content or "")
 
 
+# The code tools' lines: what was done, to which file.
+_FILE_VERBS = {
+    "Write": "Wrote",
+    "Edit": "Edited",
+    "MultiEdit": "Edited",
+    "Read": "Read",
+}
+
+
+def step(name: str, arguments: dict, cwd: Optional[Path] = None) -> tuple:
+    """A tool call as the transcript says it, (verb, text): ("Wrote",
+    "analyse.py"), ("Ran", "python analyse.py"), ("Fetched", "02/ref.tif");
+    any other tool ("Called", "<name> <its arguments, clipped>")."""
+    arguments = arguments if isinstance(arguments, dict) else {}
+    short = _short(name)
+    if name in _FILE_VERBS:
+        path = str(arguments.get("file_path", ""))
+        if cwd is not None:
+            try:
+                path = str(Path(path).relative_to(cwd))
+            except ValueError:
+                pass
+        return _FILE_VERBS[name], path
+    if name == "Bash":
+        command = str(arguments.get("command", "")).strip().splitlines() or [""]
+        more = " ..." if len(command) > 1 else ""
+        return "Ran", _clip(command[0], 160) + more
+    if name in ("Glob", "Grep"):
+        return "Searched", _clip(arguments.get("pattern", ""), 160)
+    if name == "Skill":
+        return "Read", f"the {arguments.get('skill', '')} skill"
+    if short == "experiment_fetch_file":
+        return "Fetched", _clip(arguments.get("path", ""), 160)
+    text = json.dumps(arguments, ensure_ascii=False) if arguments else ""
+    return "Called", _clip(f"{short} {text}".strip(), 200)
+
+
+def _line(agent, kind: str, text: str, **extra) -> Optional[int]:
+    """Keep a printed line on *agent*'s transcript, if it keeps one."""
+    keep = getattr(agent, "line", None)
+    return keep(kind, text, **extra) if keep is not None else None
+
+
 def _show(message, agent: SdkAgent) -> None:
     """One SDK message on the console and in the log, readably."""
     from claude_agent_sdk import (
@@ -836,13 +950,20 @@ def _show(message, agent: SdkAgent) -> None:
         for block in message.content:
             if isinstance(block, TextBlock) and block.text.strip():
                 log.info("agent: %s", block.text.strip())
+                _line(agent, "said", block.text.strip())
             elif isinstance(block, ToolUseBlock):
-                arguments = json.dumps(block.input, ensure_ascii=False)
-                log.info("tool: %s %s", _short(block.name), _clip(arguments, 200))
+                verb, text = step(block.name, block.input, getattr(agent, "cwd", None))
+                log.info("%s %s", verb, text)
+                seq = _line(agent, "step", text, verb=verb)
+                if seq is not None:
+                    agent._steps[block.id] = seq
     elif isinstance(message, UserMessage) and isinstance(message.content, list):
         for block in message.content:
             if isinstance(block, ToolResultBlock) and block.is_error:
-                log.warning("tool refused: %s", _clip(_result_text(block.content)))
+                why = _clip(_result_text(block.content))
+                log.warning("failed: %s", why)
+                seq = getattr(agent, "_steps", {}).get(block.tool_use_id)
+                _line(agent, "failed", _clip(why, 160), step=seq)
     elif isinstance(message, ResultMessage):
         cost = message.total_cost_usd
         log.info(
@@ -1122,6 +1243,14 @@ def main(argv=None) -> int:
         server_wait_s=args.server_wait,
         goal=args.goal,
         budget_usd=args.max_budget_usd,
+        about={
+            "harness": "fibsem-agent",
+            "code": work is not None,
+            "workdir": str(work) if work is not None else None,
+            "effort": args.effort,
+            "skills": list(SKILLS),
+            "resumed": args.resume is not None,
+        },
     )
 
     def on_interrupt(signum, frame):
