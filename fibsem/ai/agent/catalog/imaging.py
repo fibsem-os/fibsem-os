@@ -795,6 +795,27 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
     ),
     ToolSpec(
+        name="fm_plan_sparse_overview",
+        description=(
+            "Plan an FM overview of only some regions of a saved beam overview, as "
+            "the FM overview's sparse selection does: regions are [x0, y0, x1, y1] "
+            "pixels of the overview at image_path. Answers rows, cols and "
+            "tile_mask to put in fm_acquire_overview's parameters, the "
+            "centre_position to give it, and how many tiles it visits; check it "
+            "with fm_estimate_overview. Moves nothing."
+        ),
+        method="POST",
+        path="/microscope/services/imaging/queries/fm_plan_sparse_overview",
+        level="watch",
+        params={
+            "image_path": "a saved SEM or FIB overview, inside the open experiment",
+            "regions": "[[x0, y0, x1, y1], ...] pixels of that overview",
+            "overlap": "fractional overlap between tiles (default 0)",
+        },
+        optional=("overlap",),
+        call=lambda a: ({}, kwargs_body(**a)),
+    ),
+    ToolSpec(
         name="beam_auto_brightness_contrast",
         description=(
             "Experimental: set a beam's detector brightness and contrast from its "

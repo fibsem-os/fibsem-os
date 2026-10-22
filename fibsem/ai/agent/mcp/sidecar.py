@@ -1014,6 +1014,17 @@ def build_sidecar(client, capabilities):
             autofocus_settings=autofocus_settings,
         )
 
+    def fm_plan_sparse_overview(
+        image_path: str, regions: List[List[float]], overlap: float = 0.0
+    ):
+        return _routed(
+            "fm_plan_sparse_overview",
+            "plan",
+            image_path=image_path,
+            regions=regions,
+            overlap=overlap,
+        )
+
     def beam_auto_brightness_contrast(
         beam_type: str = "ELECTRON",
         settings: Optional[dict] = None,
@@ -1767,6 +1778,7 @@ def build_sidecar(client, capabilities):
             milling_estimate_spot_burn,
             fm_acquire_overview,
             fm_estimate_overview,
+            fm_plan_sparse_overview,
             beam_auto_brightness_contrast,
             app_get_status,
             workflow_get_queue,

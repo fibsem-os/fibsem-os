@@ -697,6 +697,65 @@ class Imaging(Service):
             "unreachable": [list(tile) for tile in unreachable],
         }
 
+    @query(available=_has_fm)
+    def fm_plan_sparse_overview(
+        self,
+        image_path: str,
+        regions: List[List[float]],
+        overlap: float = 0.0,
+    ) -> Dict[str, Any]:
+        """The FM overview that covers *regions* of a saved beam overview and
+        nothing else, as the FM overview's sparse selection plans it
+        (`fibsem.fm.planning.plan_sparse_fm_overview`): *regions* are ``(x0,
+        y0, x1, y1)`` pixels of the image at *image_path*, read against the
+        pose it was taken at. Answers the grid (``rows``, ``cols`` and
+        ``tile_mask`` for `fm_acquire_overview`'s parameters), the stage
+        position to centre it on, and how many tiles it visits."""
+        from fibsem.fm.planning import plan_sparse_fm_overview, regions_on_image
+        from fibsem.geometry.projection import BeamStageProjection, FMStageProjection
+        from fibsem.structures import BEAMS_STAGE_DEVICE, FibsemImage
+
+        microscope = self.parent
+        image = FibsemImage.load(image_path)
+        beam_projection = BeamStageProjection.from_image(image)
+        state = getattr(image.metadata, "microscope_state", None)
+        base = getattr(state, "stage_position", None)
+        if beam_projection is None or base is None:
+            raise ValueError(
+                f"{os.path.basename(image_path)} does not record the pose it was "
+                "taken at: plan on a beam overview saved by this app"
+            )
+        fm_projection = FMStageProjection.from_microscope(microscope)
+        if fm_projection is None:
+            raise ValueError("the fluorescence geometry can't be read")
+        width, height = microscope.fm.camera.resolution
+        pixel_x, pixel_y = microscope.fm.camera.pixel_size
+        try:
+            fm_origin = microscope._device_translation(BEAMS_STAGE_DEVICE, "FM")
+        except Exception:  # no FM device declared: no travel to it
+            fm_origin = None
+        plan = plan_sparse_fm_overview(
+            regions_on_image(image, regions),
+            base,
+            beam_projection,
+            fm_projection,
+            microscope.get_orientation("FM"),
+            fov_x=width * pixel_x,
+            fov_y=height * pixel_y,
+            overlap=overlap,
+            fm_is_pose=microscope._fm_is_a_pose(),
+            fm_origin=fm_origin,
+        )
+        mask = [list(row) for row in plan.mask]
+        return {
+            "rows": plan.rows,
+            "cols": plan.cols,
+            "tile_mask": mask,
+            "tiles": sum(sum(row) for row in mask),
+            "overlap": overlap,
+            "centre_position": plan.centre_position.to_dict(),
+        }
+
     @contextmanager
     def _routine(self) -> Iterator[None]:
         """Run a routine that ``stop`` ends. The stop is cleared when the

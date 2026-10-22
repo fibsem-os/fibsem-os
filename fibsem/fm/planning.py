@@ -41,11 +41,13 @@ from fibsem.structures import FibsemStagePosition
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
     from fibsem.geometry.projection import StageProjection
+    from fibsem.structures import FibsemImage
 
 __all__ = [
     "SparseOverviewPlan",
     "plan_sparse_fm_overview",
     "project_regions_to_fm_plane",
+    "regions_on_image",
     "to_fm_pose",
 ]
 
@@ -206,6 +208,31 @@ def project_regions_to_fm_plane(
             )
         )
     return projected
+
+
+def regions_on_image(
+    image: "FibsemImage", boxes: Sequence[Sequence[float]]
+) -> List[PlaneRegion]:
+    """*boxes*, ``(x0, y0, x1, y1)`` pixels of a saved beam overview *image*, as
+    the regions :func:`plan_sparse_fm_overview` takes: metres in the image's
+    plane from its centre, which is its recorded stage position, as the region
+    selector reads boxes drawn on it."""
+    height, width = image.data.shape[:2]
+    pixel_size = image.metadata.pixel_size.x
+    regions = []
+    for box in boxes:
+        if len(box) != 4:
+            raise ValueError(f"a region is (x0, y0, x1, y1) pixels, not {list(box)}")
+        x0, y0, x1, y1 = (float(v) for v in box)
+        regions.append(
+            PlaneRegion.from_points(
+                [
+                    ((x0 - width / 2) * pixel_size, (y0 - height / 2) * pixel_size),
+                    ((x1 - width / 2) * pixel_size, (y1 - height / 2) * pixel_size),
+                ]
+            )
+        )
+    return regions
 
 
 def plan_sparse_fm_overview(

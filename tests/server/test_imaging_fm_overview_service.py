@@ -2,6 +2,8 @@
 ``fm_acquire_overview`` runs on as a long command and saves inside the open
 experiment, ``stop`` ends it cancelled, it is refused while the FM is in use,
 and ``fm_estimate_overview`` answers the tiles and the run's length.
+``fm_plan_sparse_overview`` answers the plan the FM overview's sparse selection
+makes from the same regions of a saved beam overview.
 """
 
 import os
@@ -19,6 +21,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 import fibsem.config as fconfig  # noqa: E402
 from fibsem import utils  # noqa: E402
 from fibsem.fm.microscope import AcquisitionRefused  # noqa: E402
+from fibsem.fm.planning import plan_sparse_fm_overview  # noqa: E402
 from fibsem.fm.structures import (  # noqa: E402
     AutoFocusMode,
     ChannelSettings,
@@ -26,8 +29,18 @@ from fibsem.fm.structures import (  # noqa: E402
     OverviewParameters,
 )
 from fibsem.fm.timing import estimate_fm_overview_time  # noqa: E402
+from fibsem.geometry.projection import (  # noqa: E402
+    BeamStageProjection,
+    FMStageProjection,
+)
+from fibsem.imaging.tiling.geometry import PlaneRegion  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures import InsertableDeviceState  # noqa: E402
+from fibsem.structures import (  # noqa: E402
+    BeamType,
+    FibsemImage,
+    ImageSettings,
+    InsertableDeviceState,
+)
 
 TOKEN = "test-token"
 IMAGING = "/microscope/services/imaging"
@@ -287,3 +300,81 @@ def test_an_overview_is_centred_where_asked_and_announces_its_mosaic(
     assert centres == [centre]
     ((mosaic, path),) = seen
     assert path == result["image"]["path"]
+
+
+# ── a sparse overview, planned on a beam overview ────────────────────────
+
+SPARSE_PLAN = "/microscope/services/imaging/queries/fm_plan_sparse_overview"
+WIDTH, HEIGHT, HFW = 768, 512, 600e-6
+
+
+@pytest.fixture
+def overview(microscope, experiment):
+    """A FIB overview taken at the milling pose; the stage back at the FM after."""
+    microscope.move_to_orientation("MILLING")
+    image = microscope.acquire_image(
+        ImageSettings(beam_type=BeamType.ION, resolution=[WIDTH, HEIGHT], hfw=HFW)
+    )
+    microscope.move_to_orientation("FM")
+    path = str(experiment / "overview.tif")
+    image.save(path)
+    return path
+
+
+def _plan(client, path, regions, **extra):
+    return client.post(
+        SPARSE_PLAN,
+        json={"kwargs": {"image_path": path, "regions": regions, **extra}},
+    )
+
+
+def test_the_plan_is_the_sparse_selection_s_for_the_same_ground(
+    client, microscope, overview
+):
+    """A box of pixels plans what the selection plans for the same box in
+    metres from the overview's centre."""
+    box = [WIDTH / 2 + 50, HEIGHT / 2 - 100, WIDTH / 2 + 250, HEIGHT / 2 + 20]
+    resp = _plan(client, overview, [box], overlap=0.1)
+    assert resp.status_code == 200, resp.text
+    planned = resp.json()["result"]
+
+    image = FibsemImage.load(overview)
+    pixel = image.metadata.pixel_size.x
+    region = PlaneRegion.from_points(
+        [
+            ((box[0] - WIDTH / 2) * pixel, (box[1] - HEIGHT / 2) * pixel),
+            ((box[2] - WIDTH / 2) * pixel, (box[3] - HEIGHT / 2) * pixel),
+        ]
+    )
+    width, height = microscope.fm.camera.resolution
+    px, py = microscope.fm.camera.pixel_size
+    expected = plan_sparse_fm_overview(
+        [region],
+        image.metadata.microscope_state.stage_position,
+        BeamStageProjection.from_image(image),
+        FMStageProjection.from_microscope(microscope),
+        microscope.get_orientation("FM"),
+        fov_x=width * px,
+        fov_y=height * py,
+        overlap=0.1,
+        fm_is_pose=microscope._fm_is_a_pose(),
+    )
+    assert (planned["rows"], planned["cols"]) == (expected.rows, expected.cols)
+    assert planned["tile_mask"] == [list(row) for row in expected.mask]
+    assert planned["tiles"] == sum(map(sum, expected.mask))
+    centre = planned["centre_position"]
+    assert centre["x"] == pytest.approx(expected.centre_position.x)
+    assert centre["y"] == pytest.approx(expected.centre_position.y)
+
+
+def test_two_apart_regions_skip_the_ground_between(client, overview):
+    left = [10, HEIGHT / 2 - 20, 60, HEIGHT / 2 + 20]
+    right = [WIDTH - 60, HEIGHT / 2 - 20, WIDTH - 10, HEIGHT / 2 + 20]
+    planned = _plan(client, overview, [left, right]).json()["result"]
+    assert planned["tiles"] < planned["rows"] * planned["cols"]
+
+
+def test_a_box_that_is_not_four_numbers_is_refused(client, overview):
+    resp = _plan(client, overview, [[1, 2, 3]])
+    assert resp.status_code == 422
+    assert "(x0, y0, x1, y1)" in resp.text
