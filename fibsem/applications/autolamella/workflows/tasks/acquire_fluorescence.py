@@ -154,6 +154,7 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
         # sets filepath only after a successful write, so an unwritten image has none
         # and _record_output skips it.
         self._record_output("fluorescence", image)
+        self._thumbnail_if_none(image)
 
         # refresh the recorded fluorescence pose (preserving the configured objective position)
         self._update_fluorescence_pose()
@@ -161,6 +162,20 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
         # retract the objective so it is clear of the stage for subsequent moves
         if self.config.retract_objective:
             self._retract_objective()
+
+    def _thumbnail_if_none(self, image) -> None:
+        """A lamella with no beam image yet shows its stack's projection on
+        its card; a later beam image replaces it."""
+        if image is None or os.path.exists(
+            os.path.join(self.lamella.path, "thumbnail.png")
+        ):
+            return
+        try:
+            self.lamella.save_thumbnail(image)
+        except Exception as e:
+            logging.warning(
+                f"Could not save the thumbnail for {self.lamella.name}: {e}"
+            )
 
     def _run_autofocus(self) -> Optional[AutoFocusResult]:
         """Run autofocus with the specified settings, returning the result."""

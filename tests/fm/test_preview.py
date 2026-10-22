@@ -10,7 +10,9 @@ from fibsem.fm.preview import (
     load_projection,
     load_stack_preview,
     projection_layers,
+    render_stack,
     stack_facts,
+    stack_layers,
 )
 from fibsem.fm.structures import (
     FluorescenceChannelMetadata,
@@ -208,3 +210,74 @@ def test_the_composite_is_the_blend_of_the_layers():
     assert np.array_equal(
         composite_projection(image), composite_fm_layers(projection_layers(image))
     )
+
+
+# a plane, some channels, and how sharp each plane is
+
+
+def _spots(z_planes: int = 5) -> FluorescenceImage:
+    """Two channels: a point in focus at plane 1 in the first, plane 3 in the
+    second, blurring and dimming away from it."""
+    yy, xx = np.mgrid[:64, :64]
+    data = np.zeros((2, z_planes, 64, 64), dtype=np.float32)
+    for c, (focus, x) in enumerate(((1, 16), (3, 48))):
+        for z in range(z_planes):
+            width = 2.0 + 3.0 * abs(z - focus)
+            data[c, z] = (
+                1000
+                / (1 + abs(z - focus))
+                * np.exp(-((xx - x) ** 2 + (yy - 32) ** 2) / (2 * width**2))
+            )
+    return _stack(data.astype(np.uint16), ["green", "red"])
+
+
+def test_a_plane_shows_that_plane_not_the_projection():
+    image = _spots()
+
+    def spread(rgb):  # how many pixels the green point lights
+        return int((rgb[..., 1] > 128).sum())
+
+    # the green point is tightest in its own plane, and blurred far from it
+    assert spread(render_stack(image, z=1)) < spread(render_stack(image, z=4))
+    assert spread(render_stack(image, z=4)) != spread(render_stack(image))
+
+
+def test_channels_shows_only_those_named():
+    image = _spots()
+
+    red_only = render_stack(image, channels=["Channel-01"])
+
+    assert red_only[32, 16, 1] == 0  # the green point is hidden
+    assert red_only[32, 48, 0] > 0
+    assert [l.visible for l in stack_layers(image, channels=["Channel-01"])] == [
+        False,
+        True,
+    ]
+
+
+def test_a_plane_or_channel_the_stack_lacks_is_named():
+    image = _spots()
+
+    with pytest.raises(ValueError, match="plane 5 is outside the stack's 0 to 4"):
+        render_stack(image, z=5)
+    with pytest.raises(ValueError, match="no channel GFP .* Channel-00, Channel-01"):
+        render_stack(image, channels=["GFP"])
+
+
+def test_each_channel_says_how_sharp_each_plane_is():
+    image = _spots()
+    image.metadata.z_positions = [0.0, 5e-7, 1e-6, 1.5e-6, 2e-6]
+
+    facts = stack_facts(image)
+
+    green, red = facts["channels"]
+    assert green["sharpest_plane"] == 1 and red["sharpest_plane"] == 3
+    assert green["sharpness"][1] == 1.0 and len(green["sharpness"]) == 5
+    assert facts["z_positions"] == pytest.approx(image.metadata.z_positions)
+
+
+def test_a_single_plane_has_no_sharpness_to_compare():
+    facts = stack_facts(_stack(np.ones((1, 1, 8, 8), dtype=np.uint16), ["red"]))
+
+    assert "sharpness" not in facts["channels"][0]
+    assert facts["z_positions"] is None

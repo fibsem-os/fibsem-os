@@ -125,15 +125,19 @@ def list_folder(root: Optional[str], path: str = "") -> Dict[str, Any]:
 
 def load_image(
     path: str,
+    z: Optional[int] = None,
+    channels: Optional[Sequence[str]] = None,
 ) -> Tuple[np.ndarray, Any, Optional[float], Optional[Dict[str, Any]]]:
     """A saved image as something viewable: its data (2-D, or RGB), the
     FibsemImage it is when it is a beam image (else None), its pixel size in
     metres when known, and a fluorescence stack's ``stack_facts`` (else None).
 
     Fluorescence stacks (``.ome.tiff``) composite through the FM canvas's own
-    projection, so each channel keeps its colour; TIFFs read as FibsemImages;
-    anything else (the PNG thumbnails grid tasks write beside their overviews)
-    through PIL. Stacks are max-projected; the alpha channel is dropped.
+    projection, so each channel keeps its colour: plane *z* (0 the first) in
+    *channels* when given, else the max projection of every channel. TIFFs read
+    as FibsemImages; anything else (the PNG thumbnails grid tasks write beside
+    their overviews) through PIL. Stacks are max-projected; the alpha channel is
+    dropped.
     """
     from fibsem.fm.preview import is_fluorescence_image, load_stack_preview
     from fibsem.structures import FibsemImage
@@ -141,8 +145,20 @@ def load_image(
     image = None
     pixel_size = None
     fm = None
+    picked = z is not None or bool(channels)
     if is_fluorescence_image(path):
-        data, pixel_size, fm = load_stack_preview(path)
+        try:
+            data, pixel_size, fm = load_stack_preview(path, z, channels or None)
+        except ValueError as exc:
+            if picked:  # a plane or channel the stack doesn't have
+                raise FileRefusal(422, "invalid", str(exc)) from exc
+            raise
+    elif picked:
+        raise FileRefusal(
+            422,
+            "invalid",
+            "Only a fluorescence stack (.ome.tiff) has planes and channels to pick.",
+        )
     elif path.lower().endswith((".tif", ".tiff")):
         try:
             image = FibsemImage.load(path)
@@ -245,10 +261,12 @@ def _image_answer(
     box: Optional[Sequence[float]],
     fraction: Optional[Sequence[float]],
     max_width: int,
+    z: Optional[int] = None,
+    channels: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
     from fibsem.server.images import array_preview_payload, image_metadata
 
-    data, image, pixel_size, fm = load_image(target)
+    data, image, pixel_size, fm = load_image(target, z, channels)
     source_shape = list(data.shape)
     region = None
     if box is not None or fraction is not None:
@@ -271,6 +289,10 @@ def _image_answer(
         }
         if fm is not None:
             summary["fm"] = fm
+            summary["preview_of"] = {
+                "z": z,  # None: the max projection
+                "channels": list(channels) if channels else None,  # None: all
+            }
     if region is not None:
         # The region in source pixels; its field width, not the image's.
         preview["region"] = region
@@ -293,18 +315,23 @@ def read(
     box: Optional[Sequence[float]] = None,
     fraction: Optional[Sequence[float]] = None,
     max_width: int = 768,
+    z: Optional[int] = None,
+    channels: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
     """One file of the experiment, as its kind is read: a folder as its listing,
     text as text, an image as a preview and its metadata (or the region *box* or
     *fraction* names, at native resolution up to *max_width*), anything else as
-    its name and size only."""
+    its name and size only. A fluorescence stack shows plane *z* in *channels*
+    when given (:func:`load_image`)."""
     target = resolve(root, path)
     file_kind = kind(target)
     if file_kind == "folder":
         return list_folder(root, path)
     cropping = box is not None or fraction is not None
-    if cropping and file_kind != "image":
-        raise FileRefusal(422, "invalid", f"Only an image crops; {path} is not one.")
+    if (cropping or z is not None or channels) and file_kind != "image":
+        raise FileRefusal(
+            422, "invalid", f"Only an image crops or shows a plane; {path} is not one."
+        )
     entry = _entry(os.path.realpath(root), target)
     if file_kind == "text":
         with open(target, "rb") as f:
@@ -316,7 +343,10 @@ def read(
         }
     if file_kind == "image":
         try:
-            return {**entry, **_image_answer(target, box, fraction, max_width)}
+            return {
+                **entry,
+                **_image_answer(target, box, fraction, max_width, z, channels),
+            }
         except FileRefusal:
             raise
         except Exception as exc:  # noqa: BLE001 - a broken file is a data fact

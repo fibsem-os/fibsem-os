@@ -1113,13 +1113,17 @@ def build_sidecar(client, capabilities):
     def _region(values):
         return None if values is None else ",".join(str(float(v)) for v in values)
 
-    def _read_file(path, box=None, fraction=None, experiment=None):
+    def _read_file(
+        path, box=None, fraction=None, z=None, channels=None, experiment=None
+    ):
         """The file route's answer for *path*: (data, err)."""
         return _route(
             "experiment_read_file",
             path=str(path),
             box=_region(box),
             fraction=_region(fraction),
+            z=z,
+            channels=",".join(channels) if channels else None,
             experiment=experiment,
         )
 
@@ -1128,17 +1132,31 @@ def build_sidecar(client, capabilities):
     ):
         return _tool("experiment_list_files", dir=dir, experiment=experiment)
 
-    def experiment_read_file(path: str, experiment: Optional[str] = None):
-        data, err = _read_file(path, experiment=experiment)
+    def experiment_read_file(
+        path: str,
+        z: Optional[int] = None,
+        channels: Optional[List[str]] = None,
+        experiment: Optional[str] = None,
+    ):
+        data, err = _read_file(path, z=z, channels=channels, experiment=experiment)
         return err if err else _with_images(data)
 
     def experiment_crop_image(
         path: str,
         box: Optional[list] = None,
         fraction: Optional[list] = None,
+        z: Optional[int] = None,
+        channels: Optional[List[str]] = None,
         experiment: Optional[str] = None,
     ):
-        data, err = _read_file(path, box=box, fraction=fraction, experiment=experiment)
+        data, err = _read_file(
+            path,
+            box=box,
+            fraction=fraction,
+            z=z,
+            channels=channels,
+            experiment=experiment,
+        )
         return err if err else _with_images(data)
 
     def experiment_fetch_file(path: str, experiment: Optional[str] = None):
