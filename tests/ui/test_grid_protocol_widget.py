@@ -21,12 +21,12 @@ from fibsem.applications.autolamella.ui.grids.protocol import (
     GridProtocolWidget,
 )
 from fibsem.applications.autolamella.ui.protocol.dialogs import (
-    AddTaskDialog,
     ProtocolDetailsDialog,
     ProtocolHeaderWidget,
 )
 from fibsem.fm.structures import ChannelSettings, ZParameters
 from fibsem.structures import BeamType
+from fibsem.ui.widgets.workflow.add_task_dialog import AddTaskDialog
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.grid import (
     BeamOverviewGridTaskConfig,

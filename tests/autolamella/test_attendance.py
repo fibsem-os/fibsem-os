@@ -8,12 +8,6 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
 )
 from fibsem.applications.autolamella.workflows.tasks import get_tasks
-from fibsem.applications.autolamella.workflows.tasks.attendance import (
-    KIND_LABELS,
-    attendance,
-    attendance_for,
-    run_attendance,
-)
 from fibsem.applications.autolamella.workflows.tasks.rough import (
     MillRoughTask,
     MillRoughTaskConfig,
@@ -25,6 +19,12 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
 from fibsem.applications.autolamella.workflows.tasks.undercut import (
     MillUndercutTask,
     MillUndercutTaskConfig,
+)
+from fibsem.workflows.attendance import (
+    KIND_LABELS,
+    attendance,
+    attendance_for,
+    run_attendance,
 )
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.site_tasks.reference_image import (
