@@ -7,17 +7,11 @@ the PC and the agent make the same calls, with the same arguments.
 import logging
 from functools import partial
 from typing import Any, Callable, Dict, List, Optional
-from urllib.parse import quote
 
 import httpx
 
-from fibsem.ai.agent.calls import headers_for
-from fibsem.ai.agent.catalog import (
-    CATALOG,
-    ToolSpec,
-    route_call,
-    tools_for_capabilities,
-)
+from fibsem.ai.agent.catalog import CATALOG, ToolSpec, tools_for_capabilities
+from fibsem.client import tools
 from fibsem.client.transport import Transport, answer_of
 from fibsem.codec import decode
 from fibsem.devices.wire import type_from_path
@@ -102,24 +96,17 @@ class App:
         evidence: Optional[str] = None,
         headers: Optional[Dict[str, str]] = None,
     ) -> httpx.Response:
-        """The server's answer to *tool* with *arguments*, whatever its status.
-        An acting call names its tool, and the *evidence* it cites, to the
-        server, or sends *headers* in their place. Raises ValueError for
-        arguments its route cannot take."""
-        method, path, body = self._route(tool, arguments)
-        if method == "GET":  # a read's other arguments are its query
-            query = {k: v for k, v in (body or {}).items() if v is not None}
-            return self._transport.request(method, path, params=query or None)
-        if headers is None:
-            headers = headers_for(tool, arguments, evidence=evidence)
-        return self._transport.request(method, path, json=body, headers=headers)
+        """The server's answer to *tool* with *arguments*, whatever its status
+        (`tools.send`)."""
+        if tool not in _APP_TOOLS:
+            raise AttributeError(f"no app tool '{tool}'")
+        return tools.send(self._transport, tool, arguments, evidence, headers)
 
     @staticmethod
     def _route(tool: str, arguments: Dict[str, Any]):
-        spec = _APP_TOOLS.get(tool)
-        if spec is None:
+        if tool not in _APP_TOOLS:
             raise AttributeError(f"no app tool '{tool}'")
-        return route_call(spec, arguments, encode=lambda value: quote(value, safe=""))
+        return tools.route(tool, arguments)
 
     def _missing(self, tool: str) -> str:
         if not self.served:

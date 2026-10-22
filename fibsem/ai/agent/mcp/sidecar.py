@@ -36,16 +36,15 @@ import re
 import sys
 from contextvars import ContextVar
 from typing import Annotated, Any, List, Optional, Tuple
-from urllib.parse import quote, unquote, urlencode
+from urllib.parse import quote, unquote
 
 from fibsem.ai.agent.calls import headers_for
 from fibsem.ai.agent.catalog import (
     CATALOG,
     EVIDENCE_PARAM,
-    route_call,
     tools_for_capabilities,
 )
-from fibsem.client.app import App
+from fibsem.client import tools
 from fibsem.client.transport import ServerUnreachable, Transport
 
 # How long start-up looks for the server before answering the MCP client anyway:
@@ -406,49 +405,29 @@ def build_sidecar(client, capabilities):
 
     mcp = Sidecar("fibsem")
     _name_the_client(mcp, client)
-    app = App(client)
-
-    def _json_tool(name, payload_fn=None):
-        spec = by_name[name]
-
-        def tool(**kwargs):
-            payload = payload_fn(**kwargs) if payload_fn else (kwargs or None)
-            data, err = _call(client, spec.method, spec.path, payload)
-            return err if err else data
-
-        return spec, tool
 
     # The tool's name is positional-only: a tool may take an argument called
     # `name` (an overview's file name) and pass it on in **arguments.
     def _route(tool_name, /, **arguments):
         """Call a tool's route as the catalog maps its arguments: (data, err)."""
         try:
-            method, path, body = route_call(
-                by_name[tool_name], arguments, encode=lambda s: quote(s, safe="")
-            )
+            resp = _send(tool_name, arguments)
         except ValueError as exc:
             # Refused before it reached the server: an error, as a 422 would be.
             return None, _Failure(f"refused: {exc}")
-        if by_name[tool_name].router == "app":
-            return _sent(tool_name, arguments)
-        return _call(client, method, path, body)
-
-    def _send(tool_name, arguments):
-        """An app tool's call through the app's client: its response, the
-        headers naming the agent's own call as `_call` names it."""
-        tool = _calling.get()
-        headers = headers_for(*tool, evidence=_citing.get()) if tool else {}
-        return app.send(tool_name, arguments, headers=headers)
-
-    def _sent(tool_name, arguments):
-        try:
-            resp = _send(tool_name, arguments)
         except ServerUnreachable as exc:
             return None, _Failure(str(exc))
         return _answer(resp)
 
-    def _app(tool_name, /, **arguments):
-        """An app tool's answer, or its refusal."""
+    def _send(tool_name, arguments):
+        """A tool's call (`tools.send`): its response, the headers naming the
+        agent's own call (FIB-1426)."""
+        tool = _calling.get()
+        headers = headers_for(*tool, evidence=_citing.get()) if tool else {}
+        return tools.send(client, tool_name, arguments, headers=headers)
+
+    def _tool(tool_name, /, **arguments):
+        """A tool's answer, or its refusal."""
         data, err = _route(tool_name, **arguments)
         return err if err else data
 
@@ -474,7 +453,7 @@ def build_sidecar(client, capabilities):
 
     # Explicit signatures so FastMCP derives a real parameter schema per tool.
     def server_get_capabilities():
-        return _json_tool("server_get_capabilities")[1]()
+        return _tool("server_get_capabilities")
 
     def server_report_session(
         session_id: Optional[str] = None,
@@ -486,7 +465,7 @@ def build_sidecar(client, capabilities):
         ended: Optional[bool] = None,
         reason: Optional[str] = None,
     ):
-        return _app(
+        return _tool(
             "server_report_session",
             **_given(
                 session_id=session_id,
@@ -501,31 +480,31 @@ def build_sidecar(client, capabilities):
         )
 
     def microscope_get_info():
-        return _json_tool("microscope_get_info")[1]()
+        return _tool("microscope_get_info")
 
     def stage_get_position():
-        data, err = _call(client, "GET", by_name["stage_get_position"].path)
+        data, err = _route("stage_get_position")
         return err if err else {"position": data["value"]}
 
-    def _service_call(name, kwargs, key):
-        """A stage movement query or command as a named tool: *key* holds its result."""
-        data, err = _call(client, "POST", by_name[name].path, {"kwargs": kwargs})
+    def _service_call(name, key):
+        """A stage movement query as a named tool: *key* holds its result."""
+        data, err = _route(name)
         return err if err else {key: data["result"]}
 
     def stage_get_orientation():
-        return _service_call("stage_get_orientation", {}, "orientation")
+        return _service_call("stage_get_orientation", "orientation")
 
     def microscope_get_state():
-        return _json_tool("microscope_get_state")[1]()
+        return _tool("microscope_get_state")
 
     def stage_get_current_milling_angle():
-        return _service_call("stage_get_current_milling_angle", {}, "milling_angle_deg")
+        return _service_call("stage_get_current_milling_angle", "milling_angle_deg")
 
     def stage_get_geometry():
-        return _service_call("stage_get_geometry", {}, "geometry")
+        return _service_call("stage_get_geometry", "geometry")
 
     def milling_get_state():
-        data, err = _call(client, "GET", by_name["milling_get_state"].path)
+        data, err = _route("milling_get_state")
         if err:
             return err
         # The wire carries the enum's number; the agent reads its name.
@@ -764,7 +743,7 @@ def build_sidecar(client, capabilities):
         )
 
     def device_list():
-        return _json_tool("device_list")[1]()
+        return _tool("device_list")
 
     def device_get_parameter(device: str, parameter: str):
         return _routed("device_get_parameter", device=device, parameter=parameter)
@@ -795,7 +774,7 @@ def build_sidecar(client, capabilities):
         return _routed("microscope_set_state", microscope_state=dict(microscope_state))
 
     def service_list():
-        return _json_tool("service_list")[1]()
+        return _tool("service_list")
 
     def service_get_parameter(service: str, parameter: str):
         return _routed("service_get_parameter", service=service, parameter=parameter)
@@ -822,11 +801,8 @@ def build_sidecar(client, capabilities):
     def service_wait_for_run(
         service: str, run_id: Optional[str] = None, wait: float = 60.0
     ):
-        data, err = _call(
-            client,
-            "GET",
-            f"/microscope/services/{quote(service, safe='')}/run?"
-            + _query(wait=wait, run_id=run_id),
+        data, err = _route(
+            "service_wait_for_run", service=service, run_id=run_id, wait=wait
         )
         return err if err else _with_images(data)
 
@@ -1016,31 +992,27 @@ def build_sidecar(client, capabilities):
             name=name,
         )
 
-    def _query(**params):
-        """A query string of the *params* that are given (not None)."""
-        return urlencode({k: v for k, v in params.items() if v is not None})
-
     def _given(**params):
         """The *params* that are given (not None): a body that leaves out the rest."""
         return {k: v for k, v in params.items() if v is not None}
 
     def app_get_status():
-        return _app("app_get_status")
+        return _tool("app_get_status")
 
     def workflow_get_queue():
-        return _app("workflow_get_queue")
+        return _tool("workflow_get_queue")
 
     def item_list():
-        return _app("item_list")
+        return _tool("item_list")
 
     def experiment_get_task_history():
-        return _app("experiment_get_task_history")
+        return _tool("experiment_get_task_history")
 
     def workflow_get_summary():
-        return _app("workflow_get_summary")
+        return _tool("workflow_get_summary")
 
     def protocol_get():
-        return _app("protocol_get")
+        return _tool("protocol_get")
 
     def app_get_log(
         task_id: Optional[str] = None,
@@ -1049,7 +1021,7 @@ def build_sidecar(client, capabilities):
         level: Optional[str] = None,
         lines: int = 200,
     ):
-        return _app(
+        return _tool(
             "app_get_log",
             task_id=task_id,
             since=since,
@@ -1113,7 +1085,7 @@ def build_sidecar(client, capabilities):
         )
 
     def experiment_get_image_metadata(path: str):
-        return _app("experiment_get_image_metadata", path=path)
+        return _tool("experiment_get_image_metadata", path=path)
 
     def experiment_get_image_stage_position(
         path: str,
@@ -1122,7 +1094,7 @@ def build_sidecar(client, capabilities):
         fx: Optional[float] = None,
         fy: Optional[float] = None,
     ):
-        return _app(
+        return _tool(
             "experiment_get_image_stage_position", path=path, x=x, y=y, fx=fx, fy=fy
         )
 
@@ -1132,7 +1104,7 @@ def build_sidecar(client, capabilities):
         )
 
     def experiment_get_image_pixels(path: str, stage_positions: list):
-        return _app(
+        return _tool(
             "experiment_get_image_pixels",
             path=path,
             stage_positions=[dict(p) for p in stage_positions],
@@ -1154,7 +1126,7 @@ def build_sidecar(client, capabilities):
     def experiment_list_files(
         dir: Optional[str] = None, experiment: Optional[str] = None
     ):
-        return _app("experiment_list_files", dir=dir, experiment=experiment)
+        return _tool("experiment_list_files", dir=dir, experiment=experiment)
 
     def experiment_read_file(path: str, experiment: Optional[str] = None):
         data, err = _read_file(path, experiment=experiment)
@@ -1195,7 +1167,7 @@ def build_sidecar(client, capabilities):
             # first tool call does.
             return []
         try:
-            data, err = _sent("experiment_list_files", {})
+            data, err = _route("experiment_list_files")
         except Exception:  # noqa: BLE001 - no server: a listing with no files
             return []
         if err:
@@ -1231,7 +1203,7 @@ def build_sidecar(client, capabilities):
         return _routed("item_get", item_name=item_name)
 
     def grid_list():
-        return _app("grid_list")
+        return _tool("grid_list")
 
     def grid_get(grid_name: str):
         return _routed("grid_get", grid_name=grid_name)
@@ -1254,7 +1226,7 @@ def build_sidecar(client, capabilities):
         fx: Optional[float] = None,
         fy: Optional[float] = None,
     ):
-        return _app(
+        return _tool(
             "grid_get_stage_position",
             grid_name=grid_name,
             filename=filename,
@@ -1279,11 +1251,11 @@ def build_sidecar(client, capabilities):
         body = {"text": str(text), "item_name": item_name}
         if reply_to:
             body["reply_to"] = str(reply_to)
-        return _app("experiment_add_note", **body)
+        return _tool("experiment_add_note", **body)
 
     def request_create(actions: list, reason: str):
         body = {"actions": list(actions), "reason": str(reason)}
-        return _app("request_create", **body)
+        return _tool("request_create", **body)
 
     def request_withdraw(request_id: str, reason: str):
         return _routed("request_withdraw", request_id=request_id, reason=str(reason))
@@ -1301,7 +1273,7 @@ def build_sidecar(client, capabilities):
         stage_position: Optional[dict] = None,
         overview: Optional[dict] = None,
     ):
-        return _app(
+        return _tool(
             "item_add", name=name, stage_position=stage_position, overview=overview
         )
 
@@ -1369,7 +1341,7 @@ def build_sidecar(client, capabilities):
         )
 
     def protocol_set_schedule(task_name: str, scheduled_at: Optional[str] = None):
-        return _app(
+        return _tool(
             "protocol_set_schedule", task_name=task_name, scheduled_at=scheduled_at
         )
 
@@ -1398,7 +1370,7 @@ def build_sidecar(client, capabilities):
         )
 
     def experiment_list_recent():
-        return _app("experiment_list_recent")
+        return _tool("experiment_list_recent")
 
     def experiment_list_all(
         instrument: Optional[str] = None,
@@ -1406,7 +1378,7 @@ def build_sidecar(client, capabilities):
         since: Optional[str] = None,
         until: Optional[str] = None,
     ):
-        return _app(
+        return _tool(
             "experiment_list_all",
             instrument=instrument,
             operator=operator,
@@ -1415,17 +1387,17 @@ def build_sidecar(client, capabilities):
         )
 
     def protocol_list():
-        return _app("protocol_list")
+        return _tool("protocol_list")
 
     def experiment_create(
         name: str, protocol: Optional[str] = None, description: Optional[str] = None
     ):
-        return _app(
+        return _tool(
             "experiment_create", name=name, protocol=protocol, description=description
         )
 
     def grid_add():
-        return _app("grid_add")
+        return _tool("grid_add")
 
     def grid_rename(grid_name: str, name: str):
         return _routed("grid_rename", grid_name=grid_name, name=name)
@@ -1442,13 +1414,13 @@ def build_sidecar(client, capabilities):
         return _routed("grid_remove", grid_name=grid_name)
 
     def protocol_add_task(task_type: str, task_name: str):
-        return _app("protocol_add_task", task_type=task_type, task_name=task_name)
+        return _tool("protocol_add_task", task_type=task_type, task_name=task_name)
 
     def protocol_remove_task(task_name: str):
         return _routed("protocol_remove_task", task_name=task_name)
 
     def protocol_reorder_tasks(order: list):
-        return _app("protocol_reorder_tasks", order=list(order))
+        return _tool("protocol_reorder_tasks", order=list(order))
 
     def protocol_set_task_requirements(
         task_name: str, requires: Optional[list] = None, required: Optional[bool] = None
@@ -1468,7 +1440,7 @@ def build_sidecar(client, capabilities):
         poi: Optional[dict] = None,
         alignment_area: Optional[dict] = None,
     ):
-        return _app(
+        return _tool(
             "protocol_set_lamella_defaults",
             **_given(
                 use_petname=use_petname,
@@ -1479,7 +1451,7 @@ def build_sidecar(client, capabilities):
         )
 
     def protocol_save(name: str, overwrite: bool = False):
-        return _app("protocol_save", name=name, overwrite=bool(overwrite))
+        return _tool("protocol_save", name=name, overwrite=bool(overwrite))
 
     def protocol_get_grid_task_config(task_name: str):
         return _routed("protocol_get_grid_task_config", task_name=task_name)
@@ -1493,7 +1465,7 @@ def build_sidecar(client, capabilities):
         )
 
     def protocol_reorder_grid_tasks(order: list):
-        return _app("protocol_reorder_grid_tasks", order=list(order))
+        return _tool("protocol_reorder_grid_tasks", order=list(order))
 
     def protocol_set_grid_task_requirements(task_name: str, requires: list):
         return _routed(
@@ -1503,19 +1475,19 @@ def build_sidecar(client, capabilities):
         )
 
     def experiment_load(path: str):
-        return _app("experiment_load", path=path)
+        return _tool("experiment_load", path=path)
 
     def protocol_load(protocol: str):
-        return _app("protocol_load", protocol=protocol)
+        return _tool("protocol_load", protocol=protocol)
 
     def app_get_events(since: int = 0, timeout: float = 0.0):
-        return _app("app_get_events", since=since, timeout=timeout)
+        return _tool("app_get_events", since=since, timeout=timeout)
 
     def workflow_stop(reason: str):
-        return _app("workflow_stop", reason=reason)
+        return _tool("workflow_stop", reason=reason)
 
     def workflow_stop_task(item_name: str, task_name: str, reason: str):
-        return _app(
+        return _tool(
             "workflow_stop_task",
             item_name=item_name,
             task_name=task_name,
@@ -1523,7 +1495,7 @@ def build_sidecar(client, capabilities):
         )
 
     def workflow_queue_grids(task_names: list, grid_names: list):
-        return _app(
+        return _tool(
             "workflow_queue_grids",
             task_names=list(task_names),
             grid_names=list(grid_names),
@@ -1533,7 +1505,7 @@ def build_sidecar(client, capabilities):
         payload = {"task_names": list(task_names)}
         if item_names is not None:
             payload["item_names"] = list(item_names)
-        return _app("workflow_start", **payload)
+        return _tool("workflow_start", **payload)
 
     def workflow_plan_grids(
         task_names: list, grid_names: list = None, screen_all: bool = False
@@ -1541,7 +1513,7 @@ def build_sidecar(client, capabilities):
         payload = {"task_names": list(task_names), "screen_all": bool(screen_all)}
         if grid_names is not None:
             payload["grid_names"] = list(grid_names)
-        return _app("workflow_plan_grids", **payload)
+        return _tool("workflow_plan_grids", **payload)
 
     def workflow_start_grids(
         task_names: list,
@@ -1558,7 +1530,7 @@ def build_sidecar(client, capabilities):
         }
         if grid_names is not None:
             payload["grid_names"] = list(grid_names)
-        return _app("workflow_start_grids", **payload)
+        return _tool("workflow_start_grids", **payload)
 
     def workflow_set_options(
         show_run_summary: Optional[bool] = None,
@@ -1569,15 +1541,15 @@ def build_sidecar(client, capabilities):
             payload["show_run_summary"] = bool(show_run_summary)
         if turn_beams_off is not None:
             payload["turn_beams_off"] = bool(turn_beams_off)
-        return _app("workflow_set_options", **payload)
+        return _tool("workflow_set_options", **payload)
 
     def protocol_set_supervision(task_name: str, supervise: bool):
-        return _app(
+        return _tool(
             "protocol_set_supervision", task_name=task_name, supervise=bool(supervise)
         )
 
     def workflow_requeue(item_name: str, task_name: str, front: bool = False):
-        return _app(
+        return _tool(
             "workflow_requeue",
             item_name=item_name,
             task_name=task_name,
@@ -1585,7 +1557,7 @@ def build_sidecar(client, capabilities):
         )
 
     def workflow_edit_queue(item_name: str, task_name: str, action: str):
-        return _app(
+        return _tool(
             "workflow_edit_queue",
             item_name=item_name,
             task_name=task_name,
@@ -1643,7 +1615,7 @@ def build_sidecar(client, capabilities):
             body["action"] = str(action)
         if patch is not None:
             body["patch"] = dict(patch)
-        return _app("proposal_decide", **body)
+        return _tool("proposal_decide", **body)
 
     def proposal_suggest(
         item_id: str,
@@ -1670,7 +1642,7 @@ def build_sidecar(client, capabilities):
             body["patch"] = dict(patch)
         if action:
             body["action"] = str(action)
-        return _app("proposal_suggest", **body)
+        return _tool("proposal_suggest", **body)
 
     implementations = {
         fn.__name__: fn

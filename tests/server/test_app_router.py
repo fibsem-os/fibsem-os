@@ -401,9 +401,10 @@ def test_sidecar_grows_the_app_tools_from_capabilities(client):
     assert "router-exp" in text
 
 
-def test_app_tools_answer_their_route_s_json(client, host):
-    """An app tool calls through client.app: its text is the route's JSON as
-    sent, a read's arguments are its query, and a refusal reads as before."""
+def test_tools_answer_their_route_s_json(client, host):
+    """A tool calls its route through `fibsem.client.tools`: its text is the
+    route's JSON as sent, a read's arguments are its query, and a refusal reads
+    as before."""
     pytest.importorskip("mcp")
     from mcp.server.mcpserver.exceptions import ToolError
 
@@ -427,6 +428,14 @@ def test_app_tools_answer_their_route_s_json(client, host):
         answer("item_get_output_image", item_name=name, filename="nope.tif")
     detail = client.get(f"/app/experiment/items/{name}/outputs/nope.tif").json()
     detail = detail["detail"]
+    assert f"refused (404): {json.dumps(detail)}" in str(refused.value)
+
+    # A microscope tool goes the same way.
+    voltage = answer("device_get_parameter", device="electron", parameter="voltage")
+    assert voltage == client.get("/microscope/devices/electron/voltage").json()
+    with pytest.raises(ToolError) as refused:
+        answer("device_get_parameter", device="nobody", parameter="voltage")
+    detail = client.get("/microscope/devices/nobody/voltage").json()["detail"]
     assert f"refused (404): {json.dumps(detail)}" in str(refused.value)
 
 
