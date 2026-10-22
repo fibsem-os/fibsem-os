@@ -39,6 +39,8 @@ OPERATION_KINDS = ("alignment", "autofocus", "fm_autofocus", "milling")
 # The event kinds that name a saved image. In a task the run's outputs list its
 # images; outside one, these are how a session's row finds them (FIB-1521).
 IMAGE_KINDS = ("image_acquired", "fm_image_acquired")
+# What a History reads from the events file.
+HISTORY_KINDS = OPERATION_KINDS + IMAGE_KINDS
 
 _BEAM = {"ELECTRON": "SEM", "ION": "FIB"}
 
@@ -229,6 +231,7 @@ def history_rows(
     item: Any,
     events: Iterable[Dict[str, Any]],
     run_images: Callable[[TaskState, bool], List[str]],
+    folder: Optional[str] = None,
 ) -> List[HistoryRun]:
     """The item's runs, oldest first, each with its operations and images.
 
@@ -237,6 +240,8 @@ def history_rows(
     a run by the task id the event was stamped with. An experiment without an
     events file still has its runs and images, with no operations.
     ``run_images(run, fallback)`` is the app's: the images a row shows.
+    ``folder`` is the item's, where an image taken outside a task is found;
+    without it there are none.
     """
     runs: List[TaskState] = list(item.task_history)
     current = item.task_state
@@ -255,7 +260,7 @@ def history_rows(
         kind = record.get("kind")
         task = record.get("task") or {}
         if kind in IMAGE_KINDS and not task.get("id"):
-            path = _saved_in(item, (record.get("payload") or {}).get("path"))
+            path = _saved_in(folder, (record.get("payload") or {}).get("path"))
             if path is not None:
                 outside_images.setdefault(str(record.get("session") or ""), []).append(
                     (to_datetime(record.get("t") or record.get("timestamp")), path)
@@ -326,11 +331,11 @@ def history_rows(
     return rows
 
 
-def _saved_in(item: Any, path: Optional[str]) -> Optional[str]:
-    """``path`` when it is a file in the item's folder; else None."""
-    if not path or not item.path:
+def _saved_in(folder: Optional[str], path: Optional[str]) -> Optional[str]:
+    """``path`` when it is a file in the item's *folder*; else None."""
+    if not path or not folder:
         return None
-    folder = os.path.abspath(str(item.path))
+    folder = os.path.abspath(str(folder))
     path = os.path.abspath(str(path))
     try:
         inside = os.path.commonpath([folder, path]) == folder

@@ -62,7 +62,7 @@ from fibsem.workflows.event_recording import (
     read_new_events,
 )
 from fibsem.workflows.history_rows import (
-    OPERATION_KINDS,
+    HISTORY_KINDS,
     HistoryFilter,
     HistoryOperation,
     HistoryRun,
@@ -612,7 +612,7 @@ class LamellaTaskImageWidget(QWidget):
             self._operation_events = []
         try:
             new, self._events_offset = read_new_events(
-                path, self._events_offset, OPERATION_KINDS
+                path, self._events_offset, HISTORY_KINDS
             )
         except OSError as e:
             logging.warning(f"Could not read {path}: {e}")
@@ -638,7 +638,9 @@ class LamellaTaskImageWidget(QWidget):
 
         lamella = self._lamella
         self._thumb_width = self._fitted_thumb_width()
-        self._runs = history_rows(lamella, self._events(), history_images(lamella))
+        self._runs = history_rows(
+            lamella, self._events(), history_images(lamella), folder=lamella.path
+        )
         flt = self._filter_button.filter
         self._filter_button.set_tasks([run.task_name for run in self._runs])
         runs = filter_runs(self._runs, flt)

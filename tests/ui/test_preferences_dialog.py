@@ -134,6 +134,7 @@ def _every_field_changed() -> UserPreferences:
 
     prefs.display.sound_enabled = True
     prefs.display.border_enabled = False
+    prefs.display.toast_problems_only = True
     prefs.display.dev_mode = True
     prefs.display.lamella_card_mode = MODE_COMPACT
     prefs.display.guided_setup_dismissed = True

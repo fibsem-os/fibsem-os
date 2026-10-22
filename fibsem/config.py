@@ -273,6 +273,10 @@ class DisplayPreferences:
     # everyone else kept the pinned `false` (FIB-781). Older files still carry the
     # key and `_sub_from_dict` drops it.
     border_enabled: bool = True
+    # Only errors, warnings and a run's end pop up as toasts; the rest go to the
+    # notification bell. Not named `toasts_enabled`: older files still carry that
+    # key as false.
+    toast_problems_only: bool = False
     dev_mode: bool = False
     # How the lamella strip draws each card: "cozy" (large thumbnail), "standard"
     # (small thumbnail beside the name) or "compact" (no thumbnail, one line).

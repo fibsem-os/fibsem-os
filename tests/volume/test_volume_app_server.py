@@ -84,10 +84,10 @@ def test_a_position_is_added_at_a_stage_position_and_saved(agent, experiment):
     assert (
         agent.post("/app/experiment/items", json={"name": "aspen"}).status_code == 422
     )
-    assert _add(agent, "")["item"]["item_name"] == "position-02"
+    assert _add(agent, "")["item"]["item_name"].startswith("02-")
 
 
-def test_a_position_patch_goes_through_the_experiment_methods(agent, experiment):
+def test_a_position_patch_goes_through_the_experiment_in_one_save(agent, experiment):
     version = _add(agent, "aspen")["item"]["version"]
     path = "/app/experiment/items/aspen"
 
@@ -98,33 +98,41 @@ def test_a_position_patch_goes_through_the_experiment_methods(agent, experiment)
                 "patch": {
                     "iterations": 4,
                     "poi": {"x": 2e-6, "y": 3e-6},
-                    "name": "birch",
+                    "description": "near the crack",
                 },
                 "version": version,
             },
         )
     )
 
-    assert patched["fields"] == ["iterations", "poi", "name"]
-    birch = VolumeExperiment.load(experiment.path).get_position_by_name("birch")
-    assert birch.iterations == 4 and birch.poi.x == pytest.approx(2e-6)
-    stale = agent.post(
-        "/app/experiment/items/birch",
-        json={"patch": {"iterations": 5}, "version": version},
-    )
+    assert patched["fields"] == ["iterations", "poi", "description"]
+    aspen = VolumeExperiment.load(experiment.path).get_position_by_name("aspen")
+    assert aspen.iterations == 4 and aspen.poi.x == pytest.approx(2e-6)
+    assert aspen.description == "near the crack"
+    stale = agent.post(path, json={"patch": {"iterations": 5}, "version": version})
     assert stale.status_code == 409
-    current = _ok(agent.get("/app/experiment/items/birch"))["version"]
+    current = _ok(agent.get(path))["version"]
     outside = agent.post(
-        "/app/experiment/items/birch",
+        path,
         json={
             "patch": {
-                "alignment_area": {"left": 0.8, "top": 0.8, "width": 0.5, "height": 0.5}
+                "iterations": 9,
+                "alignment_area": {
+                    "left": 0.8,
+                    "top": 0.8,
+                    "width": 0.5,
+                    "height": 0.5,
+                },
             },
             "version": current,
         },
     )
     assert outside.status_code == 422
     assert "inside the frame" in outside.json()["detail"]["message"]
+    assert experiment.get_position_by_name("aspen").iterations == 4
+    renamed = agent.post(path, json={"patch": {"name": "birch"}, "version": current})
+    assert renamed.status_code == 422
+    assert experiment.get_position_by_name("aspen") is not None
 
 
 def test_a_removed_position_leaves_the_experiment(agent, experiment):
@@ -330,3 +338,24 @@ def test_volume_answers_decode_as_its_own_classes(agent):
         base + "/task_config/{task_name}",
     )
     call("DELETE", "/app/experiment/items/aspen", base)
+
+
+def test_a_task_never_goes_before_or_requires_a_later_task(agent, experiment):
+    order = [t["name"] for t in _ok(agent.get("/app/experiment/protocol"))["tasks"]]
+    mill, image = order.index(MILL), order.index(IMAGE)
+    image_first = list(order)
+    image_first[mill], image_first[image] = IMAGE, MILL
+
+    refused = agent.post(
+        "/app/experiment/protocol/tasks/reorder", json={"order": image_first}
+    )
+    later = agent.post(
+        f"/app/experiment/protocol/tasks/{MILL}/requirements",
+        json={"requires": [IMAGE]},
+    )
+
+    assert refused.status_code == 422
+    assert "comes after it" in refused.json()["detail"]["message"]
+    assert later.status_code == 422
+    assert "can only require" in later.json()["detail"]["message"]
+    assert _saved_protocol(experiment).ordered_task_names == order

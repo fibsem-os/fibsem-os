@@ -115,7 +115,7 @@ EVIDENCE_PARAM = (
     "the operator as this call's picture; say what you saw in it in your reason. "
     "{image | file, marks?, source?, item_name?}: image, a path inside the "
     "experiment as the image tools answered it (the request's values are drawn "
-    "on it); or file, an image you made yourself on this machine (an overlay "
+    "on it); or file, an image you made yourself in your working folder (an overlay "
     "your code drew, a plot; PNG or JPEG, at most 4 MB, saved at most 2048 px), "
     "shown as it is, with source, the experiment image it was drawn from; "
     "marks, {points: [{x, y, label?}], areas: [{x, y, width, height, label?}]} "

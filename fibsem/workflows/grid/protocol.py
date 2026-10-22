@@ -27,6 +27,8 @@ class GridTaskProtocol(TaskProtocol):
     """
 
     NOUN: ClassVar[str] = "grid task"
+    # The grid manager holds a task while one it requires is still queued.
+    REQUIRES_IN_ORDER: ClassVar[bool] = False
 
     name: str = "Grid Task Protocol"
 

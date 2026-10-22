@@ -118,3 +118,32 @@ def test_a_position_has_a_history_like_any_item(agent, sliced):
     assert history["tasks"] == [MILL, IMAGE]
     imaged = [run for run in history["runs"] if run["task_name"] == IMAGE]
     assert all(run["images"] for run in imaged)
+
+
+def test_an_image_taken_outside_a_task_is_a_row_of_the_positions_history(
+    agent, sliced, experiment
+):
+    import json
+    from pathlib import Path
+
+    from fibsem.workflows.event_recording import EVENTS_FILENAME
+
+    position, _ = sliced
+    image = experiment.position_path(position) / "outside_ib.tif"
+    image.write_bytes(b"")
+    event = {
+        "kind": "image_acquired",
+        "t": "2099-01-01T00:00:00+00:00",
+        "item": None,
+        "task": None,
+        "actor": "agent",
+        "session": "s1",
+        "payload": {"path": str(image)},
+    }
+    with open(Path(experiment.path) / EVENTS_FILENAME, "a") as f:
+        f.write(json.dumps(event) + "\n")
+
+    history = _ok(agent.get("/app/experiment/items/aspen/history"))
+
+    assert history["total"] == 7
+    assert history["runs"][-1]["images"][0].endswith("outside_ib.tif")

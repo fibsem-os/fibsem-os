@@ -205,13 +205,14 @@ def test_the_evidence_header_round_trips():
 
 
 def test_the_sidecar_keeps_a_file_and_the_call_cites_it(
-    client, context, microscope, tmp_path
+    client, context, microscope, tmp_path, monkeypatch
 ):
-    """An acting tool's evidence: the sidecar reads the file on the agent's
-    machine, keeps it in the experiment, and the call names it."""
+    """An acting tool's evidence: the sidecar reads the file in the agent's
+    working folder, keeps it in the experiment, and the call names it."""
     pytest.importorskip("mcp")
     from fibsem.ai.agent.mcp.sidecar import build_sidecar
 
+    monkeypatch.setenv("FIBSEM_AGENT_WORKDIR", str(tmp_path))
     overlay = tmp_path / "overlay.png"
     overlay.write_bytes(base64.b64decode(_png()))
     client.headers.update(AGENT)
@@ -241,6 +242,42 @@ def test_the_sidecar_keeps_a_file_and_the_call_cites_it(
     assert called["evidence"] == kept["evidence_id"]
     # The arguments the server describes the call by leave the evidence out.
     assert "evidence" not in called.get("arguments", {})
+
+
+def test_the_sidecar_reads_an_evidence_file_only_in_the_working_folder(
+    tmp_path, monkeypatch
+):
+    """The sidecar runs outside code mode's sandbox, so it reads no file
+    outside the agent's working folder, through a link or not."""
+    pytest.importorskip("mcp")
+    from fibsem.ai.agent.mcp.sidecar import _evidence_body, _Failure
+
+    work, elsewhere = tmp_path / "work", tmp_path / "elsewhere"
+    work.mkdir()
+    elsewhere.mkdir()
+    encoded = _png()
+    png = base64.b64decode(encoded)
+    (work / "overlay.png").write_bytes(png)
+    (elsewhere / "secret.png").write_bytes(png)
+    outside = [elsewhere / "secret.png", work / ".." / "x"]
+    try:
+        (work / "link.png").symlink_to(elsewhere / "secret.png")
+        outside.append(work / "link.png")
+    except OSError:  # Windows without the privilege to make links
+        pass
+    monkeypatch.setenv("FIBSEM_AGENT_WORKDIR", str(work))
+
+    body = _evidence_body({"file": str(work / "overlay.png"), "source": "a.tif"})
+    assert body == {"source": "a.tif", "upload": encoded}
+    for path in outside:
+        refused = _evidence_body({"file": str(path)})
+        assert isinstance(refused, _Failure), path
+        assert "outside your working folder" in str(refused)
+
+    # Without code mode's folder, the working folder is where it runs.
+    monkeypatch.delenv("FIBSEM_AGENT_WORKDIR")
+    monkeypatch.chdir(elsewhere)
+    assert "upload" in _evidence_body({"file": "secret.png"})
 
 
 def test_every_acting_tool_takes_evidence_and_no_read_does():

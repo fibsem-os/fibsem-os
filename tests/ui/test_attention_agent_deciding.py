@@ -7,7 +7,7 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.ui.run.attention import (
+from fibsem.ui.run.attention import (
     AttentionRouter,  # noqa: E402  # noqa: E402
 )
 from fibsem.workflows.status import Hold, HoldKind  # noqa: E402
