@@ -41,7 +41,11 @@ def _refused(message: str) -> HTTPException:
 
 def _checked(body: Dict[str, Any]) -> Dict[str, Any]:
     """The report's fields, each checked; anything else refused."""
-    known = set(_TEXT) | set(_NUMBERS) | {"turns", "ended", "code", "resumed", "skills"}
+    known = (
+        set(_TEXT)
+        | set(_NUMBERS)
+        | {"turns", "ended", "code", "files", "resumed", "skills"}
+    )
     unknown = sorted(set(body) - known)
     if unknown:
         raise _refused(f"Unknown fields {unknown}; the fields are {sorted(known)}.")
@@ -70,7 +74,7 @@ def _checked(body: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(turns, bool) or not isinstance(turns, int) or turns < 0:
             raise _refused("turns is a whole number, 0 or more.")
         report["turns"] = turns
-    for key in ("code", "resumed"):
+    for key in ("code", "files", "resumed"):
         value = body.get(key)
         if value is not None:
             if not isinstance(value, bool):
