@@ -8,6 +8,7 @@ decides what the agent may do, and the runner never sets the level. Needs the
 
     fibsem-agent
     fibsem-agent --resume <session id>
+    fibsem-agent --resume                     # the last session run in the same folder
     cd ~/fibsem-work && fibsem-agent --code   # it writes and runs code, sandboxed
     fibsem-agent --files ~/fibsem-work         # it reads and writes files there, runs nothing
 """
@@ -923,6 +924,8 @@ def _show(message, agent: SdkAgent) -> None:
             agent.session_id = data.get("session_id") or agent.session_id
             agent.model = data.get("model") or agent.model
             log.info("Session %s", agent.session_id)
+            if agent.session_id and agent.cwd is not None:
+                keep_session(agent.cwd, agent.session_id)
             tools = data.get("tools") or []
             ours = [tool for tool in tools if tool.startswith(f"mcp__{SERVER}__")]
             others = [tool for tool in tools if tool not in ours]
@@ -1087,6 +1090,42 @@ def _log_to(path: Path) -> None:
     log.addHandler(file)
 
 
+# A bare --resume: the last session run in the same folder.
+LAST = "last"
+
+
+def _sessions_file() -> Path:
+    return Path.home() / ".fibsem" / "agent" / "sessions.json"
+
+
+def _sessions() -> dict:
+    try:
+        sessions = json.loads(_sessions_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return sessions if isinstance(sessions, dict) else {}
+
+
+def last_session(folder: Path) -> Optional[str]:
+    """The last session run in *folder* (the CLI's: the work folder, else the
+    checkout), or None. The CLI keeps a session under its folder, so one run
+    elsewhere can't be resumed here."""
+    session = _sessions().get(str(folder))
+    return session if isinstance(session, str) else None
+
+
+def keep_session(folder: Path, session_id: str) -> None:
+    """Remember *session_id* as the last one run in *folder*."""
+    sessions = _sessions()
+    sessions[str(folder)] = session_id
+    path = _sessions_file()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(sessions, indent=2), encoding="utf-8")
+    except OSError as error:
+        log.warning("Couldn't keep the session id in %s: %s", path, error)
+
+
 def _default_log() -> Path:
     stamp = timestamps.now().strftime("%Y-%m-%d-%H-%M-%S")
     return Path.home() / ".fibsem" / "agent" / f"fibsem-agent-{stamp}.log"
@@ -1160,7 +1199,13 @@ def main(argv=None) -> int:
         f"(default {MAX_BUDGET_USD:g})",
     )
     parser.add_argument(
-        "--resume", default=None, metavar="SESSION_ID", help="carry on a session"
+        "--resume",
+        nargs="?",
+        const=LAST,
+        default=None,
+        metavar="SESSION_ID",
+        help="carry on a session; with no id, the last one run in the same "
+        "folder (the --code or --files folder, else the checkout)",
     )
     parser.add_argument(
         "--server-wait",
@@ -1226,6 +1271,15 @@ def main(argv=None) -> int:
         refused = code_mode.refusal(work, checkout, code)
         if refused:
             print(refused, file=sys.stderr)
+            return 1
+    if args.resume == LAST:
+        args.resume = last_session(work or checkout)
+        if args.resume is None:
+            print(
+                f"No earlier fibsem-agent session in {work or checkout} to "
+                "resume: pass its id (the Session line of its log).",
+                file=sys.stderr,
+            )
             return 1
     # From the environment, so it is not in the process list or shell history.
     token = os.environ.get("FIBSEM_SERVER_TOKEN")

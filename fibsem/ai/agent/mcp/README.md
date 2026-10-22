@@ -175,7 +175,8 @@ fibsem-agent
   The SDK compacts a long session's context by itself, and the log says when.
 - **Stopping and resuming.** Ctrl-C interrupts the agent's turn and ends the
   session cleanly; a second Ctrl-C ends it at once. The log names the session
-  id, and `--resume <id>` carries it on after a restart. The watcher starts
+  id, and `--resume <id>` carries it on after a restart; a bare `--resume` carries
+  on the last session run in the same folder. The watcher starts
   again from then, so the agent is told to re-read where things stand.
 - **From another machine**, pair once with `fibsem-mcp pair <code>`, and pass
   `--url` if it isn't the tunnel's end.
