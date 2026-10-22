@@ -442,6 +442,34 @@ def test_a_run_records_each_stage_in_the_protocol_s_order(tmp_path):
     assert rough["milling_current"] == stages[0].milling.milling_current
 
 
+def test_a_stage_records_the_current_it_milled_at(tmp_path):
+    """The beam snaps a current it doesn't list to the nearest it does: the
+    record said the current asked for, so a 60 pA stage that ran at 30 pA
+    read as 60 pA."""
+    from fibsem.structures import BeamType
+
+    stages = [FibsemMillingStage(name="listed"), FibsemMillingStage(name="between")]
+    microscope, task = _task(tmp_path, stages=stages, acquire_final_image=False)
+    listed = sorted(microscope.beams[BeamType.ION].current.choices)
+    stages[0].milling.milling_current = listed[1]
+    stages[1].milling.milling_current = listed[1] + (listed[2] - listed[1]) * 0.4
+    events = _milling_events(microscope)
+
+    task.run()
+
+    (run,) = events
+    exact, between = run["stages"]
+    assert exact["milling_current_used"] == listed[1]
+    assert "current_warning" not in exact
+    assert between["milling_current"] == stages[1].milling.milling_current
+    # what the beam read back while it milled: the Demo beam holds any value,
+    # where a real one snaps it to a listed current
+    assert between["milling_current_used"] == pytest.approx(
+        stages[1].milling.milling_current
+    )
+    assert "is not a current the milling beam lists" in between["current_warning"]
+
+
 def test_a_failed_stage_is_recorded_and_the_stages_after_it_skipped(tmp_path):
     stages = [FibsemMillingStage(name="rough"), FibsemMillingStage(name="polish")]
     microscope, task = _task(tmp_path, stages=stages, acquire_final_image=False)

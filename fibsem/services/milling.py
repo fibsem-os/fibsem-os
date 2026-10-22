@@ -744,6 +744,11 @@ class Milling(Service):
         self.draw(patterns)
         return self._milling_current(live=True)
 
+    def current_used(self) -> Dict[str, Any]:
+        """The current the last setup left the milling beam at, and the warning
+        when it is not the one asked for (`_milling_current`, not read again)."""
+        return self._milling_current()
+
     def _milling_current(self, live: bool = False) -> Dict[str, Any]:
         """The current what is drawn mills at: ``milling_current``, the milling
         beam's current in amps (read now when *live*, else the last one read or

@@ -535,6 +535,19 @@ def open_tiff(filename: str) -> "tff.TiffFile":
     return tif
 
 
+# Image data above this many bytes is saved as BigTIFF: a classic TIFF can't hold
+# 4 GB, and the margin leaves room for the OME header. Smaller files stay classic
+# TIFF, which more readers open.
+BIGTIFF_ABOVE = 2**32 - 2**25
+
+
+def mean_z_step(z_positions: Sequence[float]) -> float:
+    """The mean spacing of a stack's planes, from where the objective read back at
+    each. The first gap alone carries that one move's read-back noise or backlash,
+    so stacks taken with the same settings recorded different steps."""
+    return abs(z_positions[-1] - z_positions[0]) / (len(z_positions) - 1)
+
+
 # tifffile's names for an axis it cannot place: a page sequence, or unknown.
 _UNKNOWN_AXES = "IQ"
 
@@ -654,7 +667,8 @@ class FluorescenceImage:
             os.makedirs(directory, exist_ok=True)
 
         # TODO: add overwrite protection to prevent overwriting existing files
-        with tff.TiffWriter(filename) as tif:
+        bigtiff = tifffile_image.nbytes > BIGTIFF_ABOVE
+        with tff.TiffWriter(filename, bigtiff=bigtiff) as tif:
             # Greyscale, said outright: left to guess, tifffile may take a stack
             # of three or four planes for the samples of an RGB image.
             if compression:
@@ -1416,8 +1430,7 @@ class FluorescenceImageMetadata:
             if len(self.z_positions) < 2:
                 raise ValueError("Z-stack must have at least 2 positions")
             if self.pixel_size_z is None:
-                # Auto-calculate z pixel size from positions
-                self.pixel_size_z = abs(self.z_positions[1] - self.z_positions[0])
+                self.pixel_size_z = mean_z_step(self.z_positions)
 
     def add_channel(self, channel: FluorescenceChannelMetadata) -> None:
         """Add a new channel to the metadata."""

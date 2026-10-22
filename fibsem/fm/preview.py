@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 
 from fibsem.fm.composite import AVAILABLE_COLORS, FMLayer, composite_fm_layers
-from fibsem.fm.structures import FluorescenceImage
+from fibsem.fm.structures import FluorescenceImage, mean_z_step
 
 # How plane_sharpness scores a plane (`fibsem.autofunctions.metrics`).
 SHARPNESS_METHOD = "variance"
@@ -125,7 +125,7 @@ def stack_facts(image: FluorescenceImage) -> Dict[str, Any]:
     step = metadata.pixel_size_z
     z = metadata.z_positions or []
     if step is None and len(z) >= 2:
-        step = abs(z[1] - z[0])
+        step = mean_z_step(z)
     acquired = metadata.acquisition_datetime
     return {
         "channels": facts,

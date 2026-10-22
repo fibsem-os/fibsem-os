@@ -2564,3 +2564,41 @@ def test_a_run_asked_to_align_records_what_it_did(fm_microscope, tmp_path):
     # Aligned or not, the mosaic is the planned one's size.
     h, w = fm_microscope.fm.camera.resolution[1], fm_microscope.fm.camera.resolution[0]
     assert mosaic.data.shape[-2:] == (h - int(h * 0.1) + h, w - int(w * 0.1) + w)
+
+
+@pytest.mark.parametrize(
+    "z_positions, warned",
+    [([0.0, 1e-6, 2e-6, 3e-6], False), ([0.0, 1.3e-6, 2.6e-6, 3.9e-6], True)],
+)
+def test_a_stack_whose_planes_missed_the_step_is_logged(caplog, z_positions, warned):
+    from datetime import datetime
+
+    from fibsem.fm.structures import (
+        FluorescenceChannelMetadata,
+        FluorescenceImageMetadata,
+    )
+
+    metadata = FluorescenceImageMetadata(
+        acquisition_datetime=datetime.now().isoformat(),
+        pixel_size_x=1e-7,
+        pixel_size_y=1e-7,
+        resolution=(8, 8),
+        channels=[
+            FluorescenceChannelMetadata(
+                name="GFP",
+                excitation_wavelength=488.0,
+                power=1.0,
+                exposure_time=0.1,
+                gain=1.0,
+                offset=0.0,
+            )
+        ],
+        z_positions=z_positions,
+    )
+    image = FluorescenceImage(
+        data=np.zeros((1, len(z_positions), 8, 8), dtype=np.uint16), metadata=metadata
+    )
+
+    acquisition._warn_if_off_step(image, zstep=1e-6)
+
+    assert ("not the 1000 nm asked for" in caplog.text) is warned
