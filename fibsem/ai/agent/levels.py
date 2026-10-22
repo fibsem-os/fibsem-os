@@ -6,6 +6,7 @@ installed.
 """
 
 from enum import Enum
+from typing import Optional
 
 
 class AgentLevel(str, Enum):
@@ -56,13 +57,17 @@ _ALLOWED_AT = {
 }
 
 
-def if_allowed(level: AgentLevel) -> str:
-    """What allowing an agent to connect means, at *level*: the card's words."""
-    return (
+def if_allowed(level: AgentLevel, replaces: Optional[str] = None) -> str:
+    """What allowing an agent to connect means, at *level*: the card's words.
+    One agent per microscope: allowing it unpairs *replaces*, if one is."""
+    words = (
         "It can read the session, and acts only at the level you set: "
         f"{_ALLOWED_AT[AgentLevel(level)]}. It stays allowed until you unpair "
         "it in Connect an agent."
     )
+    if replaces:
+        words += f" It replaces {replaces}, which is unpaired."
+    return words
 
 
 LEVEL_TIPS = {

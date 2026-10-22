@@ -38,6 +38,8 @@ function Connections() {
   const [unpairing, setUnpairing] = useState<string | null>(null);
   const me = thisComputer();
   const data = pairing.data;
+  // One agent per microscope: pairing another replaces it.
+  const pairedAgent = data?.computers.find((c) => c.role === "agent");
   const left = data ? Math.max(0, Math.round(data.expires_in_s)) : 0;
 
   if (pairing.error) return <p className="m-0 text-[13px] text-muted-foreground">{(pairing.error as Error).message}</p>;
@@ -72,7 +74,7 @@ function Connections() {
             <span className="text-[32px] font-semibold tracking-[0.2em] tabular-nums">{data.code}</span>
             <span className="text-xs text-muted-foreground">
               {data.role === "agent"
-                ? `Run fibsem-mcp pair ${data.code} on the agent's computer`
+                ? `Run fibsem-mcp pair ${data.code} on the agent's computer${pairedAgent ? `. It replaces ${pairedAgent.name}` : ""}`
                 : "Enter it in the other computer's browser"}{" "}
               · {Math.floor(left / 60)}:{String(left % 60).padStart(2, "0")} left
             </span>
@@ -93,8 +95,8 @@ function Connections() {
               act.mutate({ method: "PUT", path: "/pairing/always_allow_local", body: { on: e.target.checked } })
             }
           />
-          Always allow agents on the microscope PC
-          <span className="text-muted-foreground">· they act only at the level you set; agents over SSH still ask</span>
+          Always allow agents logged in to the microscope PC
+          <span className="text-muted-foreground">· over SSH too; they act only at the level you set</span>
         </label>
       )}
       <div className="flex flex-col">

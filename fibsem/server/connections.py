@@ -13,10 +13,11 @@ One ask at a time: every program asking with the connect token joins it (an
 agent's sidecar and its ``fibsem-mcp watch`` are one card), and all of them get
 the token an Allow mints.
 
-With **Always allow agents on this PC** on (``app_server.allow_local_agents``),
-an ask from this PC is allowed at once, as if the operator had clicked Allow.
-Where an ask comes from is what the client says, so this trusts every program
-running as the PC's user, as the discovery file does.
+With **Always allow agents logged in to this PC** on
+(``app_server.allow_local_agents``), an ask that reaches the server from this
+PC's loopback address is allowed at once, as if the operator had clicked Allow:
+anyone who can log in to the PC, over SSH too. The ask's ``origin`` ("this PC",
+"<address> over SSH") is what the client says, shown on the card only.
 """
 
 from __future__ import annotations
@@ -43,6 +44,8 @@ DENIED_S = 60.0
 _FIELD_LIMIT = 80
 # Where an ask on the PC itself comes from; over SSH it names the address.
 LOCAL = "this PC"
+# A client that names itself nothing.
+_NO_CLIENT = "an agent"
 
 
 def _clean(value: object, default: str) -> str:
@@ -63,7 +66,8 @@ class ConnectAsk:
     @property
     def name(self) -> str:
         """What the paired list calls it: "claude-code on this PC"."""
-        return f"{self.client.split()[0]} on {self.origin}"
+        who = self.client if self.client == _NO_CLIENT else self.client.split()[0]
+        return f"{who} on {self.origin}"
 
     def to_dict(self) -> dict:
         return {
@@ -90,7 +94,8 @@ class Connections:
 
     ``on_change`` listeners are called after an ask arrives or is decided,
     from whichever thread did it; ``on_allowed_always`` ones with the computer
-    an ask from this PC was paired as while always allowing."""
+    an ask from this PC was paired as while always allowing, and the name of
+    the agent it replaced, if one."""
 
     def __init__(
         self,
@@ -103,7 +108,7 @@ class Connections:
         self._clock = clock
         self.always_allow = always_allow
         self._save_always_allow = save_always_allow
-        self._allowed_always: List[Callable[[PairedComputer], None]] = []
+        self._allowed_always: List[Callable[[PairedComputer, Optional[str]], None]] = []
         self._changed_cond = threading.Condition()
         self._ask: Optional[ConnectAsk] = None
         self._allowed: Optional[_Decided] = None
@@ -116,7 +121,7 @@ class Connections:
         return lambda: self._listeners.remove(callback)
 
     def on_allowed_always(
-        self, callback: Callable[[PairedComputer], None]
+        self, callback: Callable[[PairedComputer, Optional[str]], None]
     ) -> Callable[[], None]:
         """Follow asks allowed by the setting, not a click; returns the
         unsubscribe."""
@@ -149,9 +154,11 @@ class Connections:
         origin: str,
         user: str,
         wait_s: float = ASK_WAIT_S,
+        loopback: bool = False,
     ) -> dict:
         """Ask to connect, or join the ask already waiting, and wait up to
-        *wait_s* for the operator. ``{"state": "allowed", "token", "name"}``,
+        *wait_s* for the operator; *loopback* when the request came from this
+        PC's loopback address, which always allowing allows at once. ``{"state": "allowed", "token", "name"}``,
         ``{"state": "denied", "message", "retry_in_s"}`` or ``{"state":
         "waiting", "id"}``, when the asker asks again."""
         with self._changed_cond:
@@ -162,21 +169,22 @@ class Connections:
             if new:
                 self._ask = ConnectAsk(
                     id=secrets.token_hex(4),
-                    client=_clean(client, "an agent"),
+                    client=_clean(client, _NO_CLIENT),
                     origin=_clean(origin, LOCAL),
                     user=_clean(user, "unknown"),
                     asked_at=time.time(),
                 )
             ask_id = self._ask.id
-            always = self.always_allow and self._ask.origin == LOCAL
+            always = self.always_allow and loopback
         if always:
+            replaced = self.tokens.agent()
             try:
                 computer = self.allow(ask_id)
             except LookupError:  # another asker of the same ask allowed it
                 computer = None
             for callback in list(self._allowed_always) if computer else []:
                 try:
-                    callback(computer)
+                    callback(computer, replaced.name if replaced else None)
                 except Exception:  # noqa: BLE001 - a listener never blocks an ask
                     logging.exception("Connections listener failed")
             with self._changed_cond:

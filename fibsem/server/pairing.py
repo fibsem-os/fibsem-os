@@ -122,7 +122,8 @@ class PairedTokens:
     ) -> "tuple[PairedComputer, str]":
         """Pair a computer named *name* as *role*: its record and its token,
         which is shown once and kept only hashed here. A *browser* paired
-        before is paired afresh: its old row and token go."""
+        before is paired afresh: its old row and token go. One agent per
+        microscope: a new agent replaces the one paired before."""
         token = secrets.token_urlsafe(32)
         computer = PairedComputer(
             id=secrets.token_hex(4),
@@ -133,11 +134,13 @@ class PairedTokens:
             browser=browser,
         )
         with self._lock:
-            if browser:
-                for old in [
-                    c for c in self._computers.values() if c.browser == browser
-                ]:
-                    del self._computers[old.id]
+            for old in [
+                c
+                for c in self._computers.values()
+                if (browser and c.browser == browser)
+                or (role == AGENT and c.role == AGENT)
+            ]:
+                del self._computers[old.id]
             self._computers[computer.id] = computer
             self._save()
         return computer, token
@@ -162,6 +165,10 @@ class PairedTokens:
 
     def computers(self) -> List[PairedComputer]:
         return sorted(self._computers.values(), key=lambda c: c.paired_at)
+
+    def agent(self) -> Optional[PairedComputer]:
+        """The paired agent, which a new one replaces, or None."""
+        return next((c for c in self.computers() if c.role == AGENT), None)
 
 
 class Pairing:

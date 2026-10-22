@@ -7,7 +7,8 @@ harness reports it here: ``fibsem-agent`` after every turn, Claude Code through
 ``server_report_session``. fibsem-agent also says what it can do: code mode and
 its folder, effort, skills. Self-reported, like the client's name: a label for
 the operator, not an identity. A session starting, its goal changing and its end
-go on the record; the spend in between is state, read with GET.
+go on the record, and so does the spend first reaching 80% of the budget; the
+spend in between is state, read with GET.
 """
 
 import logging
@@ -17,12 +18,14 @@ from typing import Any, Callable, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from fibsem.ai.agent.levels import AgentLevel
+from fibsem.ai.agent.session import budget_low
 from fibsem.server.auth import AuthConfig, require_level
 from fibsem.server.responses import AgentSession
 
 SESSION_STARTED = "agent_session_started"
 SESSION_GOAL = "agent_session_goal"
 SESSION_ENDED = "agent_session_ended"
+SESSION_BUDGET = "agent_session_budget"
 
 MAX_TEXT = 500
 _TEXT = ("session_id", "model", "goal", "reason", "harness", "effort", "workdir")
@@ -112,6 +115,8 @@ def report(auth: AuthConfig, body: Dict[str, Any]) -> tuple:
         session = {**previous, **fields}
         if "goal" in fields and fields["goal"] != previous.get("goal"):
             kinds.append(SESSION_GOAL)
+    if budget_low(session) and (starts or not budget_low(previous)):
+        kinds.append(SESSION_BUDGET)
     if ended:
         session["ended"] = True
         kinds.append(SESSION_ENDED)

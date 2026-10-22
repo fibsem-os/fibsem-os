@@ -127,6 +127,7 @@ fibsem-correlation-ui = "fibsem.ui.correlation.widgets.correlation_tab_widget:ma
 fibsem-cli = "fibsem.cli:main"
 fibsem-mcp = "fibsem.ai.agent.mcp.sidecar:main"
 fibsem-volume = "fibsem.applications.volume.launch:main"
+fibsem-volume-ui = "fibsem.tools.launcher:volume"
 fibsem-autolamella-server = "fibsem.applications.autolamella.launch:main"
 fibsem-agent = "fibsem.ai.agent.runner:main"
 

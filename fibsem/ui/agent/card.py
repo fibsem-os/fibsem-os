@@ -92,6 +92,7 @@ from fibsem.ui.tokens import (
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
     WAITING_COLOR,
+    WARN_COLOR,
 )
 
 # The agent's reason, before "more".
@@ -944,9 +945,13 @@ class AgentCard(QFrame):
         self.connect_link.setVisible(not heard)
         self.message_row.setVisible(heard)
 
-    def set_session(self, text: Optional[str]) -> None:
-        """The agent's session in one line, or none shown."""
+    def set_session(self, text: Optional[str], low: bool = False) -> None:
+        """The agent's session in one line, or none shown; in the warning
+        colour when its budget is low."""
         self.session_label.setText(text or "")
+        self.session_label.setStyleSheet(
+            f"color: {WARN_COLOR if low else TEXT_MUTED_COLOR};"
+        )
         self.session_label.setVisible(bool(text))
 
     # --- layout ---------------------------------------------------------------

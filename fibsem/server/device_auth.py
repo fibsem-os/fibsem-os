@@ -36,6 +36,11 @@ class DeviceAuth:
     token: str
     pairing: Optional[Pairing] = None
     dashboard_token: Optional[str] = None
+    # No agent asks to connect here: /connect answers connect_off.
+    connections: None = None
+
+    def is_connect(self, token: Optional[str]) -> bool:
+        return False
 
     def is_operator(self, token: Optional[str]) -> bool:
         if _matches(token, self.token):

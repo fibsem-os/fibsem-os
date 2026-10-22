@@ -127,7 +127,7 @@ def _ended(lines):
     return lines[-1].startswith(watch_mod.ENDED)
 
 
-def _watch(steps, sleeps=None, since=None, until=_ended):
+def _watch(steps, sleeps=None, since=None, until=_ended, **kwargs):
     """Watch the discovered server, running ``steps[n]`` before request n, until
     ``until(lines)`` (by default, a workflow's end).
 
@@ -146,7 +146,7 @@ def _watch(steps, sleeps=None, since=None, until=_ended):
     sleep_fn = sleeps.append if sleeps is not None else (lambda s: None)
     try:
         code = watch_mod.watch(
-            client, out=out, sleep_fn=sleep_fn, poll_s=POLL_S, since=since
+            client, out=out, sleep_fn=sleep_fn, poll_s=POLL_S, since=since, **kwargs
         )
     except _Seen:
         code = None
@@ -468,6 +468,45 @@ def test_a_workflow_s_end_says_how_it_ended(app, kind, payload, line):
     code, lines = _watch({3: lambda: app.buffer.append(kind, payload)})
     assert code is None
     assert lines == [line]
+
+
+def _ticking(step_s):
+    """A clock that moves on *step_s* each time it is read."""
+    now = [0.0]
+
+    def clock():
+        now[0] += step_s
+        return now[0]
+
+    return clock
+
+
+def test_a_quiet_run_wakes_the_agent_once_until_something_happens(app):
+    app.set_running(True)
+    quiet = watch_mod._quiet_line(600)
+
+    code, lines = _watch(
+        {12: lambda: app.buffer.append("task_started", {"item_name": "01"})},
+        until=lambda lines: len(lines) == 3,
+        clock=_ticking(100.0),
+        quiet_s=600,
+    )
+
+    assert code is None
+    # Quiet polls before and after the first QUIET line: said once, and again
+    # only after the task line.
+    assert lines == [quiet, "EVENT task_started 01", quiet]
+    assert quiet.startswith("QUIET: the workflow is running") and "10 min" in quiet
+
+
+def test_nothing_running_is_never_quiet(app):
+    code, lines = _watch(
+        {12: lambda: app.buffer.append("workflow_cancelled", {})},
+        clock=_ticking(1000.0),
+        quiet_s=600,
+    )
+    assert code is None
+    assert lines == ["WORKFLOW ENDED (workflow_cancelled)"]
 
 
 def test_a_workflow_that_stops_without_an_end_event_is_reported(app):
