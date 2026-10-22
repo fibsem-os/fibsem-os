@@ -22,10 +22,6 @@ from fibsem.applications.autolamella.structures import (
     Lamella,
 )
 from fibsem.applications.autolamella.ui.lamella.rows import LamellaListWidget
-from fibsem.applications.autolamella.ui.workflow.task_editor import (
-    WorkflowTaskEditorWidget,
-)
-from fibsem.applications.autolamella.ui.workflow.task_list import WorkflowTaskList
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
     ACCENT_COLOR,
@@ -41,6 +37,10 @@ from fibsem.ui.widgets.custom_widgets import (
     ValueComboBox,
 )
 from fibsem.ui.widgets.lists import OptionsPopup, help_button
+from fibsem.ui.widgets.workflow.task_editor import (
+    WorkflowTaskEditorWidget,
+)
+from fibsem.ui.widgets.workflow.task_list import WorkflowTaskList
 from fibsem.workflows.task_config import TaskPlan, WorkflowOptions
 
 # What the panel's ? says: how to work the task list. It was a line of text under

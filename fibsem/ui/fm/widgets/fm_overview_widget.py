@@ -1275,7 +1275,7 @@ class FMOverviewWidget(QWidget):
             notification_service.show_toast(
                 "No output folder set, so there is nowhere to look for FIB/SEM "
                 "overviews. Open an experiment, or choose a folder in Output.",
-                "info",
+                "warning",
             )
             return
 
@@ -1286,7 +1286,7 @@ class FMOverviewWidget(QWidget):
             notification_service.show_toast(
                 f"No FIB/SEM overviews found in {os.path.basename(directory.rstrip(os.sep))}. "
                 "Acquire one on the FIB/SEM overview first.",
-                "info",
+                "warning",
             )
             return
 

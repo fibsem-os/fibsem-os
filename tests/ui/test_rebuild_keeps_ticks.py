@@ -27,7 +27,7 @@ from fibsem.applications.autolamella.structures import (
     Lamella,
 )
 from fibsem.applications.autolamella.ui.lamella.rows import LamellaListWidget
-from fibsem.applications.autolamella.ui.workflow.task_list import WorkflowTaskList
+from fibsem.ui.widgets.workflow.task_list import WorkflowTaskList
 from fibsem.workflows.task_config import TaskPlan
 
 _app = QApplication.instance() or QApplication(sys.argv)

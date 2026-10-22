@@ -6,7 +6,7 @@ Per-position task configs are refused with why: positions share the protocol's.
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from fibsem.applications.volume.experiment import VolumeExperiment
 from fibsem.applications.volume.protocol import PROTOCOL_FOLDER, VolumeProtocol
@@ -27,7 +27,7 @@ from fibsem.workflows.protocol_files import record_recent
 __all__ = ["VolumeAppContext", "serve"]
 
 # What apply_item_patch edits, each by its experiment method.
-POSITION_PATCH_FIELDS = ("name", "iterations", "poi", "alignment_area")
+POSITION_PATCH_FIELDS = ("iterations", "poi", "alignment_area", "description")
 
 
 @dataclass
@@ -213,7 +213,7 @@ class VolumeAppContext(AppContext):
             if refusal:
                 refusal["error"] += " Or give its stage_position."
                 return refusal
-        name = (name or "").strip() or self._next_name(experiment)
+        name = (name or "").strip() or experiment.next_position_name()
 
         def add():
             state = microscope.get_microscope_state()
@@ -226,14 +226,6 @@ class VolumeAppContext(AppContext):
         except (ValueError, TypeError, KeyError) as exc:
             return {"error_type": "invalid", "error": str(exc)}
         return {"applied": True, "item": self.item_detail(name)}
-
-    @staticmethod
-    def _next_name(experiment) -> str:
-        taken = {p.name for p in experiment.positions}
-        n = len(taken) + 1
-        while f"position-{n:02d}" in taken:
-            n += 1
-        return f"position-{n:02d}"
 
     def remove_item(self, item_name: str) -> Dict[str, Any]:
         """Remove a position; its folder stays. Refused for the one the run is on."""
@@ -258,10 +250,10 @@ class VolumeAppContext(AppContext):
         version: str,
         timeout: float = 10.0,
     ) -> Dict[str, Any]:
-        """Edit a position's name, slices, point of interest or alignment area,
-        against the version :meth:`item_detail` served. Each field is set by
-        its experiment method, in that order; the first refusal stops the
-        rest, and the answer says which were applied."""
+        """Edit a position's slices, point of interest, alignment area or
+        description, against the version :meth:`item_detail` served: all or
+        none, with one save (``VolumeExperiment.patch_position``). A position
+        keeps the name it was given."""
         experiment = self._experiment
         if experiment is None:
             return {"applied": False, "error": "No experiment is loaded."}
@@ -279,59 +271,32 @@ class VolumeAppContext(AppContext):
         if refusal:
             return {"applied": False, **refusal}
         try:
-            edits = self._position_edits(experiment, item_name, patch)
+            fields = {
+                "iterations": patch.get("iterations"),
+                "poi": Point.from_dict(patch["poi"]) if "poi" in patch else None,
+                "alignment_area": FibsemRectangle.from_dict(patch["alignment_area"])
+                if "alignment_area" in patch
+                else None,
+                "description": patch.get("description"),
+            }
         except (TypeError, ValueError, KeyError, AttributeError) as exc:
             return {"applied": False, "invalid_patch": f"Not a position patch: {exc}"}
 
         def edit():
             if str(version) != self._version(position):
                 return {"applied": False, "stale": True}
-            applied: List[str] = []
-            for field, call in edits:
-                why = call()
-                if why:
-                    return {
-                        "applied": bool(applied),
-                        "invalid_patch": why,
-                        "path": field,
-                        "fields": applied,
-                    }
-                applied.append(field)
-            return {"applied": True, "fields": applied}
+            why = experiment.patch_position(item_name, **fields)
+            if why:
+                return {"applied": False, "invalid_patch": why}
+            return {
+                "applied": True,
+                "fields": [f for f in POSITION_PATCH_FIELDS if f in patch],
+            }
 
         result = self._agent_call(edit, timeout=timeout)
         if result.get("applied"):
             result["item"] = self.item_detail(position.name)
         return result
-
-    @staticmethod
-    def _position_edits(
-        experiment, name: str, patch: Dict[str, Any]
-    ) -> List[tuple[str, Callable[[], str]]]:
-        """Each patched field's experiment call, in POSITION_PATCH_FIELDS order;
-        the rename last, so the others find the position by its old name."""
-        edits = []
-        if "iterations" in patch:
-            iterations = patch["iterations"]
-            if isinstance(iterations, bool) or not isinstance(iterations, int):
-                raise TypeError("iterations is a whole number")
-            edits.append(
-                ("iterations", lambda: experiment.set_iterations(name, iterations))
-            )
-        if "poi" in patch:
-            poi = Point.from_dict(patch["poi"])
-            edits.append(("poi", lambda: experiment.set_poi(name, poi)))
-        if "alignment_area" in patch:
-            area = FibsemRectangle.from_dict(patch["alignment_area"])
-            edits.append(
-                ("alignment_area", lambda: experiment.set_alignment_area(name, area))
-            )
-        if "name" in patch:
-            new_name = patch["name"]
-            if not isinstance(new_name, str):
-                raise TypeError("name is text")
-            edits.append(("name", lambda: experiment.rename_position(name, new_name)))
-        return edits
 
 
 def serve(session) -> bool:

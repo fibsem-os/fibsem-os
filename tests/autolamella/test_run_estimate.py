@@ -14,13 +14,13 @@ from fibsem.applications.autolamella.workflows.estimate import (
     step_seconds,
     task_schedule,
 )
-from fibsem.applications.autolamella.workflows.tasks.attendance import run_attendance
 from fibsem.applications.autolamella.workflows.tasks.fiducial import (
     MillFiducialTaskConfig,
 )
 from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTaskConfig,
 )
+from fibsem.workflows.attendance import run_attendance
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.estimate import estimate_run
 from fibsem.workflows.runner import ITEMS, RunRequest, item_task_pairs

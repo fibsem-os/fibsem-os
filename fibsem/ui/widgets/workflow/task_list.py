@@ -15,11 +15,6 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
-from fibsem.applications.autolamella.workflows.tasks.attendance import (
-    Attendance,
-    attendance_for,
-)
 from fibsem.constants import DATETIME_DISPLAY_AMPM
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import (
@@ -41,8 +36,12 @@ from fibsem.ui.widgets.lists import (
     ReorderableListWidget,
     tinted_chip_style,
 )
+from fibsem.workflows.attendance import (
+    Attendance,
+    attendance_for,
+)
 from fibsem.workflows.attention import Attention
-from fibsem.workflows.task_config import RunPlan, TaskConfig, TaskPlan
+from fibsem.workflows.task_config import RunPlan, TaskConfig, TaskPlan, TaskProtocol
 
 # The dependency column: present, but never competing with the name it belongs to.
 # Fixed width, so the entries line up down the list and the text elides inside it
@@ -329,7 +328,7 @@ class WorkflowTaskList(QWidget):
         self._checked: Dict[int, bool] = {}  # id(task) -> checked
         # The protocol the tasks belong to, for each task's config and what its
         # type asks: the plan alone names tasks.
-        self._protocol: Optional[AutoLamellaTaskProtocol] = None
+        self._protocol: Optional[TaskProtocol] = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -438,7 +437,7 @@ class WorkflowTaskList(QWidget):
                 row.refresh()
                 break
 
-    def set_protocol(self, protocol: Optional[AutoLamellaTaskProtocol]) -> None:
+    def set_protocol(self, protocol: Optional[TaskProtocol]) -> None:
         """The protocol whose tasks these are, for each task's config and what
         it needs from a person. None: nothing is said."""
         self._protocol = protocol

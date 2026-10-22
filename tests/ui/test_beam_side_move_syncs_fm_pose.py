@@ -166,7 +166,7 @@ def test_saving_a_new_position_from_the_lamella_list_moves_it_too(
                 runner=SimpleNamespace(run_refusal=lambda what: "")
             )
 
-        def update_lamella_combobox(self, latest=False):
+        def update_items(self, latest=False):
             pass
 
         def refresh(self):
@@ -207,7 +207,7 @@ def test_saving_a_new_position_keeps_the_objective_position(tmp_path, monkeypatc
                 runner=SimpleNamespace(run_refusal=lambda what: "")
             )
 
-        def update_lamella_combobox(self, latest=False):
+        def update_items(self, latest=False):
             pass
 
         def refresh(self):
@@ -247,7 +247,7 @@ def test_declining_the_confirmation_moves_neither_pose(tmp_path, monkeypatch):
                 runner=SimpleNamespace(run_refusal=lambda what: "")
             )
 
-        def update_lamella_combobox(self, latest=False):
+        def update_items(self, latest=False):
             pass
 
         def refresh(self):

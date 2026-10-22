@@ -364,6 +364,9 @@ class TaskProtocol:
     and what its tasks are called (``NOUN``)."""
 
     NOUN: ClassVar[str] = "task"
+    # A task runs after the ones it requires only when they come first in the
+    # plan: the item's runs follow its order.
+    REQUIRES_IN_ORDER: ClassVar[bool] = True
 
     name: str = "Task Protocol"
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
@@ -416,29 +419,53 @@ class TaskProtocol:
                 config.requires = [r for r in config.requires if r != task_name]
 
     def reorder(self, order: List[str]) -> str:
-        """Put the tasks in *order*: every task, each once. Why not, with
-        nothing changed, or ""."""
+        """Put the tasks in *order*: every task, each once, none before a task
+        it requires. Why not, with nothing changed, or ""."""
         if sorted(order) != sorted(self.ordered_task_names):
             return f"Give every {self.NOUN}, each once."
+        issues = self.validate(order)
+        if issues:
+            return " ".join(issues)
         for name in order:
             self.workflow_config.add(name)
         return self.workflow_config.reorder(list(order))
 
     def set_requires(self, task_name: str, requires: List[str]) -> str:
-        """Set the tasks *task_name* requires on the same item, kept in run
-        order. Why not, with nothing changed, or ""."""
+        """Set the tasks *task_name* requires on the same item, which must come
+        before it. Why not, with nothing changed, or ""."""
         config = self.task_config.get(task_name)
         if config is None:
             return f"No {self.NOUN} named {task_name!r}."
-        others = [n for n in self.ordered_task_names if n != task_name]
-        wrong = [name for name in requires if name not in others]
+        names = self.ordered_task_names
+        if self.REQUIRES_IN_ORDER:
+            allowed = names[: names.index(task_name)]
+            can = f"can only require {self.NOUN}s before it"
+        else:
+            allowed = [n for n in names if n != task_name]
+            can = "can require"
+        wrong = [name for name in requires if name not in allowed]
         if wrong:
             return (
-                f"{task_name} can require {', '.join(others) or 'no task'}; "
-                f"not {', '.join(wrong)}."
+                f"{task_name} {can}: "
+                f"{', '.join(allowed) or 'none'}; not {', '.join(wrong)}."
             )
-        config.requires = [n for n in others if n in requires]
+        config.requires = [n for n in allowed if n in requires]
         return ""
+
+    def validate(self, order: Optional[List[str]] = None) -> List[str]:
+        """What is wrong with the plan in *order* (its own by default): a
+        task requiring one the plan does not have, or one after it."""
+        names = list(order) if order is not None else self.workflow_config.workflow
+        issues = []
+        for i, name in enumerate(names):
+            for req in self.requirements(name):
+                if req not in names:
+                    issues.append(f"Task '{name}' requires unknown task '{req}'.")
+                elif self.REQUIRES_IN_ORDER and req not in names[:i]:
+                    issues.append(
+                        f"Task '{name}' requires '{req}' which comes after it in the workflow."
+                    )
+        return issues
 
     def set_requirements(
         self,

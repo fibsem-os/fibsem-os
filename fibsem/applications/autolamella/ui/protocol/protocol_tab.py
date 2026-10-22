@@ -21,7 +21,6 @@ from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
 from fibsem.applications.autolamella.ui.common.run_refusal import refused_during_run
 from fibsem.applications.autolamella.ui.grids.protocol import GridProtocolWidget
 from fibsem.applications.autolamella.ui.protocol.dialogs import (
-    AddTaskDialog,
     AutoLamellaGlobalTaskEditDialog,
     ProtocolDetailsDialog,
     ProtocolHeaderWidget,
@@ -49,6 +48,7 @@ from fibsem.ui.widgets.canvas.quad_view import (
 )
 from fibsem.ui.widgets.custom_widgets import TaskNameListWidget
 from fibsem.ui.widgets.spot_burn_coordinates_widget import SpotBurnCoordinatesWidget
+from fibsem.ui.widgets.workflow.add_task_dialog import AddTaskDialog
 
 # Frame used by the spot-burn coordinate dialog when the task's stored reference
 # imaging is unusable (missing/zero). Matches ImageSettings' own defaults.

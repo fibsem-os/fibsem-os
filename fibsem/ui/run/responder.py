@@ -32,7 +32,7 @@ from fibsem.workflows.interaction import (
 if TYPE_CHECKING:
     from concurrent.futures import Future
 
-    from fibsem.applications.autolamella.ui.panel.panel import MicroscopePanel
+    from fibsem.ui.widgets.microscope_panel import MicroscopePanel
 
 __all__ = ["QtResponder"]
 
