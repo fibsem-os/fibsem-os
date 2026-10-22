@@ -78,6 +78,7 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
                 last_heard_s=agent.seconds_since_seen(),
                 client=agent.client(),
                 session=agent.session_text(),
+                budget_low=agent.budget_low(),
                 request=request.view() if request is not None else None,
                 suggestion=SuggestionCard(**suggestion) if suggestion else None,
                 now=agent.now(),

@@ -86,3 +86,20 @@ def test_another_computer_pairs_with_the_code_once(beams, tmp_path, monkeypatch)
         cut.close()
     finally:
         server.stop()
+
+
+def test_the_pairing_routes_answer_on_a_device_server(beams, tmp_path):
+    auth = DeviceAuth("install", Pairing(PairedTokens(tmp_path / "paired.json")))
+    operator = {"Authorization": "Bearer install"}
+    with TestClient(build_device_app(beams, auth)) as http:
+        listing = http.get("/pairing", headers=operator)
+        assert listing.status_code == 200
+        assert listing.json()["always_allow_local"] is False
+        # No agent asks to connect to a Device Server.
+        asked = http.post("/connect", headers=operator)
+        assert asked.status_code == 401
+        switched = http.put(
+            "/pairing/always_allow_local", json={"on": True}, headers=operator
+        )
+        assert switched.status_code == 404
+        assert switched.json()["detail"]["error_type"] == "connect_off"

@@ -233,10 +233,12 @@ client, where it connects from and the PC user it runs as. **Allow** gives it a
 token of its own, kept in `~/.fibsem/agent/`, so later connections don't ask;
 it is listed under *Connect an agent… → Allowed agents* with Unpair. **Deny…**
 refuses it, with your reason, and it can ask again after a minute. With
-**Always allow agents on this PC** ticked (under Allowed agents, or in the web
-app's Settings), an ask from this PC is allowed without the card; it still acts
-only at the level you set, and asks over SSH still show the card. By hand,
-registering the sidecar is:
+**Always allow agents logged in to this PC** ticked (under Allowed agents, or
+in the web app's Settings), an ask that reaches the server from the PC itself,
+over SSH too, is allowed without the card; it still acts only at the level you
+set. An ask from another computer's address still shows the card. One agent
+per microscope: allowing or pairing a new agent unpairs the one before, and the
+card says which. By hand, registering the sidecar is:
 
 ```bash
 claude mcp add -s user fibsem -- fibsem-mcp

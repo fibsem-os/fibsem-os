@@ -17,7 +17,8 @@ with ``service_wait_for_run``, so has the end), ``MILL STAGE STARTED`` and
 ``MILL ENDED`` (every mill, whoever started it), ``MILL READING`` (a milling
 monitor's trigger or error), ``AUTOFOCUS`` and ``ALIGNMENT`` (every one, with
 its check: passed, doubtful and why, or unchecked), task ``EVENT`` lines,
-``WORKFLOW STARTED``, ``WORKFLOW ENDED``, ``MESSAGE`` (the operator wrote to
+``WORKFLOW STARTED``, ``WORKFLOW ENDED``, ``QUIET`` (a workflow is running
+and nothing has been said for a while), ``MESSAGE`` (the operator wrote to
 the agent from its card, FIB-1423; one still unanswered when the watch starts
 is said first), ``NOTE`` (the operator kept a note on a
 grid), ``GAP``, ``RESTARTED``, ``LEVEL`` (the operator
@@ -31,6 +32,10 @@ without an end event: ``WORKFLOW ENDED (stopped without an end event)``, once
 server cannot be watched (1), or when it is stopped. While the operator has the
 agent level at Off the app refuses the agent, but it is still running: the
 watch says so once and waits for the level to come back (FIB-1429).
+
+An agent only wakes on a line, so a run that goes quiet for ``--quiet-after``
+minutes gets one ``QUIET`` line to look at it; the next one waits for
+something else to be said first.
 
 It finds the server the way the sidecar does (``--url``/``--token``, the
 environment, the discovery file) and follows a restarted server the same way,
@@ -90,6 +95,17 @@ AGENT_OFF_LINE = (
 AGENT_BACK_LINE = (
     "AGENT BACK: the operator raised the agent level; following events again."
 )
+# How long a running workflow may go without a line before the watch wakes the
+# agent to look at it, once.
+QUIET_S = 20 * 60.0
+
+
+def _quiet_line(quiet_s):
+    return (
+        f"QUIET: the workflow is running and nothing has happened for "
+        f"{quiet_s / 60:g} min -- check app_get_status, proposal_list and any "
+        "unanswered message, then end your turn. Said once until something happens"
+    )
 
 
 def _poll(client, since, timeout):
@@ -456,7 +472,15 @@ def _run_is_live(client):
         return None
 
 
-def watch(client, out=None, sleep_fn=None, poll_s=POLL_S, clock=None, since=None):
+def watch(
+    client,
+    out=None,
+    sleep_fn=None,
+    poll_s=POLL_S,
+    clock=None,
+    since=None,
+    quiet_s=QUIET_S,
+):
     """Watch until the server cannot be watched (1). Workflows starting and
     ending are lines along the way, not the end of the watch (FIB-1431).
 
@@ -467,10 +491,21 @@ def watch(client, out=None, sleep_fn=None, poll_s=POLL_S, clock=None, since=None
     practice a `Transport`: a 401 or a refused connection re-reads the
     discovery file once per request, so a restarted app is followed without
     this loop knowing.
+
+    ``quiet_s`` is how long a running workflow may go without a line before
+    one ``QUIET`` line; 0 or None never says it.
     """
-    out = out or _print_line
+    say = out or _print_line
     sleep_fn = sleep_fn or time.sleep
     clock = clock or time.monotonic
+    said_at = clock()
+    nudged = False
+
+    def out(line):
+        nonlocal said_at, nudged
+        said_at = clock()
+        nudged = False
+        say(line)
 
     # Seed the cursor at the tail: the buffer outlives workflows, so starting at
     # 0 would replay history -- stale PROMPT lines, and a previous workflow's
@@ -582,6 +617,10 @@ def watch(client, out=None, sleep_fn=None, poll_s=POLL_S, clock=None, since=None
                     running = False
                 workflow_live = running
 
+        if quiet_s and workflow_live and not nudged and clock() - said_at >= quiet_s:
+            out(_quiet_line(quiet_s))
+            nudged = True
+
 
 def _print_line(line):
     print(line, flush=True)
@@ -611,6 +650,14 @@ def main(argv=None):
         default=None,
         help="Print events after this seq (default: only new ones)",
     )
+    parser.add_argument(
+        "--quiet-after",
+        type=float,
+        default=QUIET_S / 60,
+        metavar="MIN",
+        help=f"Wake the agent once when a running workflow has said nothing for "
+        f"this many minutes; 0 never does (default {QUIET_S / 60:g})",
+    )
     args = parser.parse_args(argv)
 
     # Item names can carry operator-typed text; never let an exotic character
@@ -625,7 +672,7 @@ def main(argv=None):
         _print_line(f"NO SERVER: {_NO_SERVER_MSG}")
         return 1
     try:
-        return watch(client, since=args.since)
+        return watch(client, since=args.since, quiet_s=args.quiet_after * 60)
     except KeyboardInterrupt:
         return 1
     finally:

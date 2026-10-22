@@ -326,3 +326,8 @@ def autolamella(argv: Optional[List[str]] = None) -> None:
 def fibsem_ui(argv: Optional[List[str]] = None) -> None:
     """``fibsem_ui``."""
     launch("fibsem-ui", argv)
+
+
+def volume(argv: Optional[List[str]] = None) -> None:
+    """``fibsem-volume-ui``."""
+    launch("volume", argv)

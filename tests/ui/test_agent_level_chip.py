@@ -176,6 +176,10 @@ def test_the_session_line_shows_what_the_agent_reported(qapp):
     assert session_text({"goal": "Mill 01", "spent_usd": 3}) == "Mill 01 · $3 spent"
     ended = {**reported, "ended": True, "reason": "its budget is spent"}
     assert session_text(ended) == "claude-opus · Mill 01 · ended: its budget is spent"
+    # At 80% of the budget the spend leads, so a narrow card keeps it.
+    assert session_text({**reported, "spent_usd": 16.4}) == (
+        "$16.40 of $20, 82% used · claude-opus · Mill 01"
+    )
 
     chip = AgentLevelChip(agent_session=lambda: "claude-opus · Mill 01")
     assert not chip.card.session_label.isVisibleTo(chip.card)
@@ -184,6 +188,27 @@ def test_the_session_line_shows_what_the_agent_reported(qapp):
     assert chip.card.session_label.text() == "claude-opus · Mill 01"
     chip.card.set_session(None)
     assert not chip.card.session_label.isVisibleTo(chip.card)
+    chip.deleteLater()
+
+
+def test_the_session_line_takes_the_warning_colour_when_the_budget_is_low(qapp):
+    from fibsem.ai.agent.session import budget_low
+    from fibsem.ui.tokens import TEXT_MUTED_COLOR, WARN_COLOR
+
+    assert not budget_low({"spent_usd": 3.9, "budget_usd": 5})
+    assert budget_low({"spent_usd": 4.0, "budget_usd": 5})
+    assert not budget_low({"spent_usd": 4.0})
+    assert not budget_low({"spent_usd": 4.0, "budget_usd": 0})
+
+    low = [True]
+    chip = AgentLevelChip(
+        agent_session=lambda: "$4.10 of $5, 82% used", agent_budget_low=lambda: low[0]
+    )
+    chip.refresh_last_heard()
+    assert WARN_COLOR in chip.card.session_label.styleSheet()
+    low[0] = False
+    chip.refresh_last_heard()
+    assert TEXT_MUTED_COLOR in chip.card.session_label.styleSheet()
     chip.deleteLater()
 
 
