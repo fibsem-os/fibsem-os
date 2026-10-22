@@ -127,6 +127,9 @@ NAMED_OTHERWISE = {
     # scripts call; the tools say what they do in the grid group's words.
     "grid_load": "ensure_loaded",
     "grid_move_to": "move_to_grid",
+    # The spot burn service's bare run and estimate, said in the milling group.
+    "milling_run_spot_burn": "run",
+    "milling_estimate_spot_burn": "estimate",
 }
 
 

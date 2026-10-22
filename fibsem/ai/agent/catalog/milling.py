@@ -4,6 +4,12 @@ from typing import Tuple
 
 from fibsem.ai.agent.catalog.spec import ToolSpec, kwargs_body, with_reason
 
+SPOT_BURN_SETTINGS = (
+    "SpotBurnSettings dict: coordinates [{x, y, name}] (0-1 in the ion image), "
+    "milling_current (A, default 100 pA), exposure_time (s per spot, 0.1-60, "
+    "default 10)"
+)
+
 TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="milling_get_state",
@@ -57,6 +63,37 @@ TOOLS: Tuple[ToolSpec, ...] = (
             {},
             kwargs_body(stage=dict(a["stage"]), path=a.get("path")),
         ),
+    ),
+    ToolSpec(
+        name="milling_run_spot_burn",
+        description=(
+            "Burn spots with the ion beam, as the Spot Burn tab does: each point "
+            "for exposure_time at milling_current, the beam blanked between them "
+            "and its current put back after. settings.coordinates are points in "
+            "the ion image, 0 to 1 on both axes ({x, y, name}); points outside "
+            "it are dropped. milling_estimate_spot_burn first for how long. A long "
+            "command: it answers with its run at once; service_wait_for_run "
+            "spot_burn says how it ended; service_call_command spot_burn stop, "
+            "with a reason, ends it."
+        ),
+        method="POST",
+        path="/microscope/services/spot_burn/commands/run",
+        level="drive",
+        hardware=True,
+        params={"settings": SPOT_BURN_SETTINGS},
+        call=lambda a: ({}, kwargs_body(settings=dict(a["settings"]))),
+    ),
+    ToolSpec(
+        name="milling_estimate_spot_burn",
+        description=(
+            "How long milling_run_spot_burn with these settings burns, in seconds: "
+            "the points inside the image times exposure_time. Moves nothing."
+        ),
+        method="POST",
+        path="/microscope/services/spot_burn/queries/estimate",
+        level="watch",
+        params={"settings": SPOT_BURN_SETTINGS},
+        call=lambda a: ({}, kwargs_body(settings=dict(a["settings"]))),
     ),
     ToolSpec(
         name="milling_run_task",

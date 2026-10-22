@@ -108,6 +108,15 @@ def _stage_fm_stable_move(
     }
 
 
+def _stage_move_to_device(
+    a: Dict[str, Any], ctx: wording.ActionContext
+) -> Dict[str, Any]:
+    change = f"Move to the {a.get('device')} device"
+    if a.get("orientation"):
+        change += f", in the {str(a['orientation']).upper()} orientation"
+    return {"what": "Stage", "change": change}
+
+
 def _stage_vertical_move(
     a: Dict[str, Any], ctx: wording.ActionContext
 ) -> Dict[str, Any]:
@@ -617,6 +626,38 @@ TOOLS: Tuple[ToolSpec, ...] = (
         },
         line=_stage_fm_stable_move,
         call=lambda a: ({}, kwargs_body(dx=float(a["dx"]), dy=float(a["dy"]))),
+    ),
+    ToolSpec(
+        name="stage_move_to_device",
+        description=(
+            "Travel the stage to another device on an instrument where the FM is "
+            "beside the FIB-SEM rather than under it: FIBSEM or FM, as "
+            "stage_get_geometry names them. It retracts the objective and re-poses "
+            "on the way when it has to, so a rotation never happens under the "
+            "objective. orientation names the pose to arrive in; left out, the "
+            "pose carries across when the device can image from it, else the "
+            "device's first imaging orientation. Refused when the stage is at no "
+            "device. Read the position back after."
+        ),
+        method="POST",
+        path="/microscope/services/stage_movement/commands/move_to_device",
+        level="drive",
+        hardware=True,
+        params={
+            "device": "the device to travel to: FIBSEM or FM",
+            "orientation": "the pose to arrive in (SEM, FIB, MILLING, FM); left out, as above",
+        },
+        optional=("orientation",),
+        line=_stage_move_to_device,
+        call=lambda a: (
+            {},
+            kwargs_body(
+                device=str(a["device"]),
+                orientation=(
+                    None if not a.get("orientation") else str(a["orientation"]).upper()
+                ),
+            ),
+        ),
     ),
     ToolSpec(
         name="stage_vertical_move",

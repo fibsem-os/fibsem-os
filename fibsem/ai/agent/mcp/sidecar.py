@@ -690,6 +690,9 @@ def build_sidecar(client, capabilities):
             static_wd=static_wd,
         )
 
+    def stage_move_to_device(device: str, orientation: Optional[str] = None):
+        return _routed("stage_move_to_device", device=device, orientation=orientation)
+
     def stage_fm_stable_move(dx: float, dy: float):
         return _routed("stage_fm_stable_move", "position", dx=dx, dy=dy)
 
@@ -869,6 +872,9 @@ def build_sidecar(client, capabilities):
             auto_focus=auto_focus,
         )
 
+    def fm_retract_objective():
+        return _routed("fm_retract_objective")
+
     def fm_acquire_image(
         channels: List[dict],
         path: str,
@@ -910,6 +916,12 @@ def build_sidecar(client, capabilities):
 
     def milling_run_stage(stage: dict, path: Optional[str] = None):
         return _routed("milling_run_stage", "run", stage=stage, path=path)
+
+    def milling_run_spot_burn(settings: dict):
+        return _routed("milling_run_spot_burn", "run", settings=settings)
+
+    def milling_estimate_spot_burn(settings: dict):
+        return _routed("milling_estimate_spot_burn", "seconds", settings=settings)
 
     def milling_run_task(config: dict, path: Optional[str] = None):
         return _routed("milling_run_task", "run", config=config, path=path)
@@ -1682,6 +1694,7 @@ def build_sidecar(client, capabilities):
             stage_move_relative,
             stage_stable_move,
             stage_fm_stable_move,
+            stage_move_to_device,
             stage_vertical_move,
             stage_move_to_orientation,
             stage_move_absolute,
@@ -1702,9 +1715,12 @@ def build_sidecar(client, capabilities):
             beam_acquire_overview,
             beam_estimate_overview,
             beam_acquire_focus_stack,
+            fm_retract_objective,
             fm_acquire_image,
             milling_run_stage,
             milling_run_task,
+            milling_run_spot_burn,
+            milling_estimate_spot_burn,
             fm_acquire_overview,
             fm_estimate_overview,
             beam_auto_brightness_contrast,

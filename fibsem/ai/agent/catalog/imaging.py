@@ -389,6 +389,12 @@ def _fm_auto_focus_call(a: Dict[str, Any]) -> Tuple[Dict[str, Any], dict]:
     )
 
 
+def _fm_retract_objective(
+    a: Dict[str, Any], ctx: wording.ActionContext
+) -> Dict[str, Any]:
+    return {"what": "Fluorescence", "change": "Retract the objective"}
+
+
 TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="beam_acquire_image",
@@ -618,6 +624,21 @@ TOOLS: Tuple[ToolSpec, ...] = (
         optional=("channel_name", "settings", "channel", "path", "name"),
         line=_fm_auto_focus,
         call=_fm_auto_focus_call,
+    ),
+    ToolSpec(
+        name="fm_retract_objective",
+        description=(
+            "Retract the FM objective away from the sample, as the FM tab's "
+            "Retract does. Do it before any move that changes the pose. "
+            "item_move_to_objective_position and the FM imaging tools need it "
+            "inserted again."
+        ),
+        method="POST",
+        path="/microscope/devices/objective/commands/retract",
+        level="drive",
+        hardware=True,
+        line=_fm_retract_objective,
+        call=lambda a: ({}, kwargs_body()),
     ),
     ToolSpec(
         name="fm_acquire_image",
