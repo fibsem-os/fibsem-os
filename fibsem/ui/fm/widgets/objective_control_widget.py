@@ -22,7 +22,7 @@ from fibsem.devices.fm import Objective
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.structures import InsertableDeviceState
 from fibsem.ui import notification_service
-from fibsem.ui.control import control_of
+from fibsem.ui.control import control_of, operator_acts
 from fibsem.ui.qt.threading import FunctionWorker, thread_worker
 from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
@@ -597,8 +597,13 @@ class ObjectiveControlWidget(QWidget):
 
         logging.info(f"Changing objective position to: {position:.1f} µm")
         try:
-            self.fm.objective.move_absolute(position * MICRON_TO_METRE)
-            logging.info(f"Objective moved to position: {position:.1f} µm")
+            if operator_acts(
+                control_of(self.microscope),
+                "move objective",
+                self.fm.objective.move_absolute,
+                position * MICRON_TO_METRE,
+            ):
+                logging.info(f"Objective moved to position: {position:.1f} µm")
         except Exception as e:
             logging.error(f"Failed to move objective: {e}", exc_info=e)
             message_box_ui(
@@ -656,10 +661,15 @@ class ObjectiveControlWidget(QWidget):
 
         logging.info(f"Moving objective to focus position: {focus_position_um:.1f} µm")
         try:
-            self.fm.objective.move_absolute(self.fm.objective.focus_position)
-            logging.info(
-                f"Objective moved to focus position: {focus_position_um:.1f} µm"
-            )
+            if operator_acts(
+                control_of(self.microscope),
+                "move objective",
+                self.fm.objective.move_absolute,
+                self.fm.objective.focus_position,
+            ):
+                logging.info(
+                    f"Objective moved to focus position: {focus_position_um:.1f} µm"
+                )
         except Exception as e:
             logging.error(
                 f"Failed to move objective to focus position: {e}", exc_info=e

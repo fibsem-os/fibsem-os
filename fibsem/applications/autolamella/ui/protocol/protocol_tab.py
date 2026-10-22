@@ -716,6 +716,8 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
     def _on_lamella_defaults_clicked(self):
         """Show dialog for editing the protocol's LamellaDefaultConfig."""
+        if refused_during_run(self.session.runner, "edit the lamella defaults"):
+            return
         dialog = QDialog(self)
         dialog.setWindowTitle("Lamella Template")
         dialog.setModal(True)

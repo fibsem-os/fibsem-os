@@ -146,3 +146,64 @@ def test_a_refused_beam_setting_shows_the_beams_value_again(toasts):
     assert microscope.get_field_of_view(BeamType.ION) == pytest.approx(before)
     assert widget.get_settings().hfw == pytest.approx(before)
     assert toasts and "the agent is in control" in toasts[0]
+
+
+def test_a_refused_beam_on_off_or_blank_changes_nothing(toasts):
+    from fibsem.ui.widgets.dual_beam_widget import FibsemDualBeamWidget
+
+    microscope, _ = utils.setup_session(manufacturer="Demo", setup_logging=False)
+    widget = FibsemDualBeamWidget(microscope)
+    bt = widget.beam_type
+    on, blanked = microscope.is_on(bt), microscope.is_blanked(bt)
+    with microscope.control.take(AGENT, "acquire"):
+        widget._on_beam_on_clicked()
+        widget._on_beam_blanked_clicked()
+    assert (microscope.is_on(bt), microscope.is_blanked(bt)) == (on, blanked)
+    assert len(toasts) == 2 and "the agent is in control" in toasts[0]
+    widget._on_beam_blanked_clicked()
+    assert microscope.is_blanked(bt) is not blanked
+
+
+def _arctis():
+    from pathlib import Path
+
+    from fibsem import config as fcfg
+
+    path = Path(fcfg.CONFIG_PATH) / "sim-arctis-configuration.yaml"
+    microscope, _ = utils.setup_session(
+        config_path=str(path), manufacturer="Demo", setup_logging=False
+    )
+    return microscope
+
+
+def test_a_refused_objective_move_leaves_the_objective(toasts):
+    from PyQt5.QtWidgets import QWidget
+
+    from fibsem.ui.fm.widgets.objective_control_widget import ObjectiveControlWidget
+
+    microscope = _arctis()
+    host = QWidget()
+    host.microscope = microscope
+    widget = ObjectiveControlWidget(microscope.fm, parent=host)
+    objective = microscope.fm.objective
+    objective.focus_position = objective.position + 50e-6
+    before = objective.position
+    with microscope.control.take(AGENT, "acquire"):
+        widget.on_objective_position_changed(before * 1e6 + 20)
+        widget.move_to_focus_position()
+    assert objective.position == pytest.approx(before)
+    assert len(toasts) == 2 and "the agent is in control" in toasts[0]
+    widget.close()
+
+
+def test_a_refused_camera_setting_shows_the_cameras_value_again(toasts):
+    from fibsem.ui.fm.widgets.camera_widget import CameraWidget
+
+    microscope = _arctis()
+    widget = CameraWidget(microscope.fm)
+    gain = microscope.fm.camera.gain
+    with microscope.control.take(AGENT, "acquire"):
+        widget.spinBox_gain.setValue(gain * 100 / 2)
+    assert microscope.fm.camera.gain == pytest.approx(gain)
+    assert widget.gain == pytest.approx(gain * 100)
+    assert toasts and "the agent is in control" in toasts[0]

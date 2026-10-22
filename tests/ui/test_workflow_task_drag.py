@@ -27,7 +27,7 @@ def _window(qapp, monkeypatch):
     )
     window = SimpleNamespace(
         _session=SimpleNamespace(experiment=SimpleNamespace(task_protocol=protocol)),
-        _on_config_changed=saved.append,
+        _on_config_changed=lambda config, *changes: saved.append(config),
         lamella_workflow_widget=SimpleNamespace(set_workflow_config=shown.append),
         _put_back_if_running=lambda what: False,
     )

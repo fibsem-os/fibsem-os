@@ -22,6 +22,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -161,6 +162,9 @@ def test_saving_a_new_position_from_the_lamella_list_moves_it_too(
             self.protocol = object()
             self.experiment = _Experiment([lamella])
             self.lamella_list = _SelectedList()
+            self.session = SimpleNamespace(
+                runner=SimpleNamespace(run_refusal=lambda what: "")
+            )
 
         def update_items(self, latest=False):
             pass
@@ -199,6 +203,9 @@ def test_saving_a_new_position_keeps_the_objective_position(tmp_path, monkeypatc
             self.protocol = object()
             self.experiment = _Experiment([lamella])
             self.lamella_list = _SelectedList()
+            self.session = SimpleNamespace(
+                runner=SimpleNamespace(run_refusal=lambda what: "")
+            )
 
         def update_items(self, latest=False):
             pass
@@ -236,6 +243,9 @@ def test_declining_the_confirmation_moves_neither_pose(tmp_path, monkeypatch):
             self.protocol = object()
             self.experiment = _Experiment([lamella])
             self.lamella_list = _SelectedList()
+            self.session = SimpleNamespace(
+                runner=SimpleNamespace(run_refusal=lambda what: "")
+            )
 
         def update_items(self, latest=False):
             pass

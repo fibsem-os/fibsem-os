@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem.devices.fm import Camera
 from fibsem.fm.structures import CameraImageTransform, CameraSettings
+from fibsem.ui.control import control_of, operator_acts
 from fibsem.ui.fm.widgets.fm_limits import (
     available_binnings,
     gain_scale,
@@ -116,20 +117,41 @@ class CameraWidget(QWidget):
 
     def _on_gain_changed(self, value: float):
         """Handle gain value change."""
-        self.fm.set_gain(value / 100)  # Convert percentage to fraction
-        self.settings_changed.emit(self.camera_settings)
+        self._write("set the camera gain", self.fm.set_gain, value / 100)
 
     def _on_binning_changed(self, idx: int):
         """Handle binning change."""
         binning = self.combobox_binning.itemData(idx)
-        self.fm.set_binning(binning)
-        self.settings_changed.emit(self.camera_settings)
+        self._write("set the camera binning", self.fm.set_binning, binning)
 
     def _on_transform_changed(self, idx: int):
         """Handle transform change."""
         transform = self.comboBox_transform.itemData(idx)
-        self.fm.set_image_transform(transform)
-        self.settings_changed.emit(self.camera_settings)
+        self._write("set the camera transform", self.fm.set_image_transform, transform)
+
+    def _write(self, action: str, setter, value) -> None:
+        """Write *value* holding control (FIB-1488). Refused, the controls show
+        the camera's values again."""
+        if operator_acts(control_of(self.fm), action, setter, value):
+            self.settings_changed.emit(self.camera_settings)
+        else:
+            self._show_camera()
+
+    def _show_camera(self) -> None:
+        """Show the camera's own values, writing nothing."""
+        for box in (self.spinBox_gain, self.combobox_binning, self.comboBox_transform):
+            box.blockSignals(True)
+        if self.fm.camera.gain is not None:
+            self.spinBox_gain.setValue(self.fm.camera.gain * 100)
+        for box, value in (
+            (self.combobox_binning, self.fm.camera.binning),
+            (self.comboBox_transform, self.fm._transform),
+        ):
+            index = box.findData(value)
+            if index >= 0:
+                box.setCurrentIndex(index)
+        for box in (self.spinBox_gain, self.combobox_binning, self.comboBox_transform):
+            box.blockSignals(False)
 
     @property
     def camera_settings(self) -> CameraSettings:
