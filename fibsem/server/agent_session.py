@@ -4,7 +4,8 @@ What the App Server knows of the agent on its own is its token, when it was last
 heard and the client its sidecar names. Its session -- which model, toward what
 goal, on what budget, how much spent -- only the agent's harness knows, so the
 harness reports it here: ``fibsem-agent`` after every turn, Claude Code through
-``server_report_session``. Self-reported, like the client's name: a label for
+``server_report_session``. fibsem-agent also says what it can do: code mode and
+its folder, effort, skills. Self-reported, like the client's name: a label for
 the operator, not an identity. A session starting, its goal changing and its end
 go on the record; the spend in between is state, read with GET.
 """
@@ -23,8 +24,9 @@ SESSION_GOAL = "agent_session_goal"
 SESSION_ENDED = "agent_session_ended"
 
 MAX_TEXT = 500
-_TEXT = ("session_id", "model", "goal", "reason")
+_TEXT = ("session_id", "model", "goal", "reason", "harness", "effort", "workdir")
 _NUMBERS = ("budget_usd", "spent_usd")
+MAX_SKILLS = 20
 
 
 def _refused(message: str) -> HTTPException:
@@ -35,7 +37,7 @@ def _refused(message: str) -> HTTPException:
 
 def _checked(body: Dict[str, Any]) -> Dict[str, Any]:
     """The report's fields, each checked; anything else refused."""
-    known = set(_TEXT) | set(_NUMBERS) | {"turns", "ended"}
+    known = set(_TEXT) | set(_NUMBERS) | {"turns", "ended", "code", "resumed", "skills"}
     unknown = sorted(set(body) - known)
     if unknown:
         raise _refused(f"Unknown fields {unknown}; the fields are {sorted(known)}.")
@@ -64,6 +66,24 @@ def _checked(body: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(turns, bool) or not isinstance(turns, int) or turns < 0:
             raise _refused("turns is a whole number, 0 or more.")
         report["turns"] = turns
+    for key in ("code", "resumed"):
+        value = body.get(key)
+        if value is not None:
+            if not isinstance(value, bool):
+                raise _refused(f"{key} is true or false.")
+            report[key] = value
+    skills = body.get("skills")
+    if skills is not None:
+        if (
+            not isinstance(skills, list)
+            or len(skills) > MAX_SKILLS
+            or not all(isinstance(s, str) and len(s) <= 100 for s in skills)
+        ):
+            raise _refused(
+                f"skills is a list of at most {MAX_SKILLS} names, each at most "
+                "100 characters."
+            )
+        report["skills"] = [s.strip() for s in skills]
     ended = body.get("ended")
     if ended is not None and not isinstance(ended, bool):
         raise _refused("ended is true or false.")

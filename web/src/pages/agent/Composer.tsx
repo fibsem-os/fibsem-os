@@ -59,6 +59,7 @@ function AgentInfo({ agent }: { agent: AgentState }) {
               ["Client", agent.client ?? "Not named"],
               ["Last heard", agent.last_heard_s == null ? "Not yet" : `${heard(agent.last_heard_s)} ago`],
               ...(agent.session ? [["Session", agent.session] as [string, string]] : []),
+              ...agent.facts,
               ["Level", `${level?.name ?? "Unknown"}${agent.stopped ? ", stopped by you" : ""}`],
             ]}
           />

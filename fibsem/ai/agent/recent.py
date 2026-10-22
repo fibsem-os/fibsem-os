@@ -102,6 +102,9 @@ class RecentRow:
     why: str = ""
     # YOU, REPLY or NOTE for the conversation, else ACTION.
     kind: str = ACTION
+    # When, as the record has it (ISO with its offset): the web page places
+    # the agent's transcript between the rows by it.
+    at: str = ""
 
     @property
     def conversation(self) -> bool:
@@ -246,6 +249,7 @@ class RecentActions:
             self._citing,
             _cut(why, 120),
             kind,
+            record.get("t") if isinstance(record.get("t"), str) else "",
         )
         while len(self._rows) > self._size:
             self._rows.popitem(last=False)
