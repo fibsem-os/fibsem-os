@@ -169,6 +169,9 @@ Its lines:
   `/app/workflow/status`. `RESTARTED`: the app restarted, and the watcher
   reads it from the start.
 - `AGENT OFF` and `AGENT BACK`: the operator set the level to Off and back.
+- `QUIET`: a workflow is running and nothing has happened for a while. Check
+  `app_get_status`, `proposal_list` and any unanswered message; if the run is
+  fine, end your turn. It comes once until something else happens.
 - `LEVEL <level> (was <level>)`: the operator changed your level. Re-read
   `server_get_capabilities` and work by the skill the line names.
 - `MESSAGE id=…`: the operator wrote to you from the Agent card. See
