@@ -42,8 +42,8 @@ _BLOCKED: Tuple[Tuple[type, Dict[str, Any]], ...] = (
     (Stage, {"command": {"home", "link", "move_absolute"}}),
     # Every move and the insert, stop included: blocked for now, to revisit.
     (Manipulator, {"write": ALL, "command": ALL}),
-    # The needle, heater and valve, and the coater's current and run: the
-    # operator's until a bench run on the Arctis and the Hydra Bio (2026-10-20).
+    # The needle, heater and valve, and the coater's current and run, one by
+    # one: the agent coats through the coating service's deposit and sputter.
     (GasInjector, {"write": ALL, "command": ALL}),
     (SputterCoater, {"write": ALL, "command": ALL}),
     # The safety limit the objective's moves are checked against.
@@ -65,8 +65,8 @@ _WHY = {
     Chamber: "pumping and venting are the operator's, at the microscope",
     Stage: "homing and the stage link are the operator's; move with stage_move_absolute",
     Manipulator: "the manipulator is the operator's for now",
-    GasInjector: "the GIS is the operator's for now",
-    SputterCoater: "the sputter coater is the operator's for now",
+    GasInjector: "deposit with coating_deposit, which runs the whole sequence",
+    SputterCoater: "sputter with coating_sputter",
     Objective: "the objective's safety limit",
     FM: "stop the FM with the imaging service's stop",
     StageMovement: "move with safe_absolute_stage_movement (stage_move_absolute)",

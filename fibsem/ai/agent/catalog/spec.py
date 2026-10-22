@@ -135,6 +135,7 @@ GROUP_TITLES: Dict[str, str] = {
     "beam": "Beam",
     "fm": "FM",
     "milling": "Milling",
+    "coating": "Coating",
     "alignment": "Alignment",
     "correlation": "Correlation",
     "app": "App",

@@ -648,6 +648,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
         self._build_parts()
         self._bind_device_roles()
+        self._build_thermo_coating()
 
     def _build_devices(
         self,
@@ -751,6 +752,15 @@ class ThermoMicroscope(FibsemMicroscope):
         if sputter_coater_fitted(self):
             fitted.append(DeviceEntry(name="sputter_coater", type="sputter_coater"))
         self._build_devices(fitted, _SPUTTER_COATER_TYPES)
+
+    def _build_thermo_coating(self) -> None:
+        """The coating service, after the GIS and the sputter coater. An Arctis
+        deposits from its fixed position; any other deposits where the stage is."""
+        from fibsem.drivers.autoscript.devices import ARCTIS, thermo_variant
+        from fibsem.services.coating import ARCTIS_DEPOSITION_POSITION
+
+        arctis = thermo_variant(self) == ARCTIS
+        self._build_coating(ARCTIS_DEPOSITION_POSITION if arctis else None)
 
     def _build_sample_handling(self) -> None:
         """The sample handling service, after the ``sample_loader`` device on a

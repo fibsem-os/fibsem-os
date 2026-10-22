@@ -46,7 +46,11 @@ from typing import Any, Dict, Optional, Tuple, Union
 from fibsem.devices.core import Device, resources_of
 from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.drivers.demo.devices import bind_demo_fm
-from fibsem.drivers.demo.services import bind_demo_milling, bind_demo_spot_burn
+from fibsem.drivers.demo.services import (
+    bind_demo_coating,
+    bind_demo_milling,
+    bind_demo_spot_burn,
+)
 from fibsem.drivers.demo.simulator import (
     SIM_OBJECTIVE_FOCUS_POSITION,
     DemoParts,
@@ -182,6 +186,7 @@ class DemoMicroscope(FibsemMicroscope):
         self._build_stage_movement()
         self.spot_burn = bind_demo_spot_burn(self)
         self._build_imaging()
+        self.coating = bind_demo_coating(self)
 
     def _setup_fluorescence(self) -> None:
         # fluorescence microscope

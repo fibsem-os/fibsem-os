@@ -2,7 +2,8 @@
 
 The holder on every machine (its slots, their calibration, which grid is in each,
 Move, and the calibration wizard) and, when the system has an autoloader, the
-magazine beneath it. The Grids tab is the experiment's view of the same grids;
+magazine beneath it. Then, where the instrument has a sputter coater or a GIS, the
+coating panels. The Grids tab is the experiment's view of the same grids;
 this one is the instrument's, and it is where the twelve-row slot list lives.
 """
 
@@ -13,6 +14,7 @@ from typing import Optional
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import QScrollArea, QVBoxLayout, QWidget
 
+from fibsem.ui.widgets.coating_widget import CoatingWidget
 from fibsem.ui.widgets.sample_holder_widget import SampleHolderWidget
 from fibsem.ui.widgets.sample_loader_widget import SampleLoaderWidget
 
@@ -50,6 +52,11 @@ class FibsemSampleWidget(QWidget):
             self.loader_widget.loader_changed.connect(self.holder_widget.refresh)
             inner_layout.addWidget(self.loader_widget)
 
+        self.coating_widget: Optional[CoatingWidget] = None
+        if getattr(microscope, "coating", None) is not None:
+            self.coating_widget = CoatingWidget(microscope=microscope)
+            inner_layout.addWidget(self.coating_widget)
+
         inner_layout.addStretch(1)
         scroll.setWidget(inner)
 
@@ -61,6 +68,12 @@ class FibsemSampleWidget(QWidget):
         self.holder_widget.refresh()
         if self.loader_widget is not None:
             self.loader_widget.refresh()
+
+    def _teardown_connections(self) -> None:
+        """Drop the coating panels' connections to the microscope, which outlives
+        this widget (deleteLater fires neither closeEvent nor close)."""
+        if self.coating_widget is not None:
+            self.coating_widget._teardown_connections()
 
     def set_controls_enabled(self, enabled: bool) -> None:
         """Lock the exchange controls while a workflow owns the loader."""

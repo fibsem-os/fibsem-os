@@ -50,6 +50,7 @@ _CLASSES = {
     "sample_handling": "fibsem.services.sample_handling:SampleHandling",
     "imaging": "fibsem.services.imaging:Imaging",
     "alignment": "fibsem.services.alignment:Alignment",
+    "coating": "fibsem.services.coating:Coating",
 }
 
 
