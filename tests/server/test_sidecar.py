@@ -222,6 +222,23 @@ def test_stable_move_tool_round_trip(armed_sidecar):
     assert after["position"]["x"] != pytest.approx(before["position"]["x"])
 
 
+def test_fm_stable_move_tool_reaches_the_service(armed_sidecar):
+    # The demo has no FM: the service's own refusal comes back, so the tool reached it.
+    text = _refused(armed_sidecar, "stage_fm_stable_move", {"dx": 5e-6, "dy": 0.0})
+    assert "Fluorescence microscope is not available" in text
+
+
+def test_spot_burn_estimate_tool_round_trip(armed_sidecar):
+    settings = {
+        "coordinates": [{"x": 0.2, "y": 0.2}, {"x": 0.8, "y": 0.8}],
+        "exposure_time": 5.0,
+    }
+    answer = _call_json(
+        armed_sidecar, "milling_estimate_spot_burn", {"settings": settings}
+    )
+    assert answer["seconds"] == pytest.approx(10.0)
+
+
 def test_image_tool_returns_image_content(armed_sidecar):
     result = asyncio.run(
         armed_sidecar.call_tool("beam_acquire_image", {"beam_type": "ION"})
