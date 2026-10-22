@@ -410,7 +410,9 @@ The other moves, by when to use them:
 - `stage_move_absolute`: go back to a saved position. It tilts flat before a
   large rotation.
 
-Retract the FM objective (`fm_retract_objective`) before any move that changes the pose
+`fm_insert_objective` moves the objective only: tilt the stage flat (0° or
+-180°) first, as the FM tab does. Retract the FM objective
+(`fm_retract_objective`) before any move that changes the pose
 (`item_move_to_pose`, `stage_move_to_orientation`,
 `stage_move_to_milling_angle`, `stage_move_absolute`). In a request, put the
 retract first. The one exception: on an offset FM mount, `item_move_to_pose`
@@ -706,7 +708,8 @@ operator`), stop and ask before your next command.
 
 A wrong stop isn't free: a mill stopped partway can spoil a lamella, and a
 stopped run loses hours. Every stop takes a `reason`, which the operator
-reads. Never use a stop to "pause and think"; ask instead.
+reads. Never use a stop to "pause and think": `milling_pause` holds a mill
+where it is and `milling_resume` lets it go on, by the same levels as a stop.
 
 - **Watch**: you can't stop anything. If the run looks like it is doing
   damage (milling the wrong place, a stage move that makes no sense, a task

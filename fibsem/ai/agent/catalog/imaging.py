@@ -389,6 +389,12 @@ def _fm_auto_focus_call(a: Dict[str, Any]) -> Tuple[Dict[str, Any], dict]:
     )
 
 
+def _fm_insert_objective(
+    a: Dict[str, Any], ctx: wording.ActionContext
+) -> Dict[str, Any]:
+    return {"what": "Fluorescence", "change": "Insert the objective"}
+
+
 def _fm_retract_objective(
     a: Dict[str, Any], ctx: wording.ActionContext
 ) -> Dict[str, Any]:
@@ -624,6 +630,22 @@ TOOLS: Tuple[ToolSpec, ...] = (
         optional=("channel_name", "settings", "channel", "path", "name"),
         line=_fm_auto_focus,
         call=_fm_auto_focus_call,
+    ),
+    ToolSpec(
+        name="fm_insert_objective",
+        description=(
+            "Insert the FM objective over the sample, for FM imaging. It moves "
+            "only the objective: the FM tab first tilts the stage flat (0° or "
+            "-180°), so read the tilt and, where it isn't one of those, tilt there "
+            "with stage_move_absolute first. Then go to focus "
+            "(item_move_to_objective_position or fm_auto_focus)."
+        ),
+        method="POST",
+        path="/microscope/devices/objective/commands/insert",
+        level="drive",
+        hardware=True,
+        line=_fm_insert_objective,
+        call=lambda a: ({}, kwargs_body()),
     ),
     ToolSpec(
         name="fm_retract_objective",

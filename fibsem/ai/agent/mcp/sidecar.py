@@ -657,6 +657,14 @@ def build_sidecar(client, capabilities):
         data, err = _route("milling_end", reason=reason)
         return err if err else {"status": "ok"}
 
+    def milling_pause():
+        data, err = _route("milling_pause")
+        return err if err else {"status": "ok"}
+
+    def milling_resume():
+        data, err = _route("milling_resume")
+        return err if err else {"status": "ok"}
+
     def milling_follow_readings(since: int = 0, timeout: float = 0.0):
         return _routed("milling_follow_readings", since=since, timeout=timeout)
 
@@ -871,6 +879,9 @@ def build_sidecar(client, capabilities):
             n_steps=n_steps,
             auto_focus=auto_focus,
         )
+
+    def fm_insert_objective():
+        return _routed("fm_insert_objective")
 
     def fm_retract_objective():
         return _routed("fm_retract_objective")
@@ -1689,6 +1700,8 @@ def build_sidecar(client, capabilities):
             alignment_measure_coincidence,
             milling_stop,
             milling_end,
+            milling_pause,
+            milling_resume,
             milling_follow_readings,
             beam_acquire_image,
             stage_move_relative,
@@ -1715,6 +1728,7 @@ def build_sidecar(client, capabilities):
             beam_acquire_overview,
             beam_estimate_overview,
             beam_acquire_focus_stack,
+            fm_insert_objective,
             fm_retract_objective,
             fm_acquire_image,
             milling_run_stage,

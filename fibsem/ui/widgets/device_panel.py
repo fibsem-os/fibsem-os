@@ -33,7 +33,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.control import STOP_COMMANDS
+from fibsem.control import HOLD_COMMANDS, STOP_COMMANDS
 from fibsem.ui.control import control_of, operator_acts
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.widgets.form_builder import Control, build_control, parameter_spec
@@ -184,7 +184,7 @@ class DevicePanel(QWidget):
         worker.errored.connect(
             lambda error, name=name: self._show_result(name, f"failed: {error}")
         )
-        if name in STOP_COMMANDS:
+        if name in STOP_COMMANDS or name in HOLD_COMMANDS:
             worker.start()
         else:
             worker.start(

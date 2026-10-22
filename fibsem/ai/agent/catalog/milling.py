@@ -4,6 +4,11 @@ from typing import Tuple
 
 from fibsem.ai.agent.catalog.spec import ToolSpec, kwargs_body, with_reason
 
+_HOLD_NOTE = (
+    "As milling_stop: a mill the agent started itself it can pause and resume at "
+    "Assist or Drive, never at Watch; anyone else's needs Drive, and at Assist "
+    "goes in request_create for the operator to approve."
+)
 SPOT_BURN_SETTINGS = (
     "SpotBurnSettings dict: coordinates [{x, y, name}] (0-1 in the ion image), "
     "milling_current (A, default 100 pA), exposure_time (s per spot, 0.1-60, "
@@ -203,6 +208,32 @@ TOOLS: Tuple[ToolSpec, ...] = (
             {},
             with_reason(kwargs_body(reason=str(a.get("reason") or ""), by="agent"), a),
         ),
+    ),
+    ToolSpec(
+        name="milling_pause",
+        description=(
+            "Pause the mill now running, whoever started it: the pattern holds "
+            "where it is until milling_resume. While a monitor has it paused (an "
+            "SEM peek) it stays paused when the monitor is done. Use it to look "
+            "before deciding; milling_stop or milling_end to finish."
+        ),
+        method="POST",
+        path="/microscope/services/milling/commands/pause",
+        level="drive",
+        note=_HOLD_NOTE,
+        call=lambda a: ({}, kwargs_body()),
+    ),
+    ToolSpec(
+        name="milling_resume",
+        description=(
+            "Resume the mill milling_pause paused. While a monitor has it "
+            "paused, it resumes when the monitor is done."
+        ),
+        method="POST",
+        path="/microscope/services/milling/commands/resume",
+        level="drive",
+        note=_HOLD_NOTE,
+        call=lambda a: ({}, kwargs_body()),
     ),
     ToolSpec(
         name="milling_follow_readings",

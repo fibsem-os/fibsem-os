@@ -34,6 +34,7 @@ from psygnal import Signal
 from fibsem.acting import OPERATOR, ActorKind
 
 __all__ = [
+    "HOLD_COMMANDS",
     "STOP_COMMANDS",
     "Control",
     "InControl",
@@ -46,6 +47,10 @@ __all__ = [
 # `imaging.stop`; milling's `end` ends the stage keeping what it milled). They
 # take no control, so the running move or mill never refuses them.
 STOP_COMMANDS = frozenset(("stop", "stop_live", "end"))
+
+# Commands that hold or let go of what is running (milling's pause and resume).
+# Like a stop they take no control: the mill they act on holds it.
+HOLD_COMMANDS = frozenset(("pause", "resume"))
 
 
 @dataclass(frozen=True)
