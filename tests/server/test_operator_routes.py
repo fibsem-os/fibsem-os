@@ -468,3 +468,12 @@ def test_the_operator_reads_the_agents_session_in_the_cards_words(server):
     )
     answer = server.get("/app/agent", headers=server.operator).json()
     assert answer["session"] == "claude-opus · Mill 01 · $1.50 spent"
+    assert answer["budget_low"] is False
+    server.post(
+        "/app/agent/session",
+        headers=server.agent,
+        json={"budget_usd": 5, "spent_usd": 4.1},
+    )
+    answer = server.get("/app/agent", headers=server.operator).json()
+    assert answer["session"] == "$4.10 of $5, 82% used · claude-opus · Mill 01"
+    assert answer["budget_low"] is True

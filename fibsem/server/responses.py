@@ -1079,6 +1079,8 @@ class ConnectAskView:
     name: str
     # what allowing it means at the level now, in the card's words
     if_allowed: str
+    # the allowed agent that allowing this one unpairs: one per microscope
+    replaces: Optional[str] = None
 
 
 @dataclass
@@ -1110,6 +1112,8 @@ class AgentView:
     asking: Optional[ConnectAskView] = None
     # what it said it can do, as [name, value] rows
     facts: List[List[str]] = field(default_factory=list)
+    # whether it has spent most of its budget: the session line warns
+    budget_low: bool = False
 
 
 @dataclass

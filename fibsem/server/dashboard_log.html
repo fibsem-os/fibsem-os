@@ -290,6 +290,11 @@ function describe(e) {
     case "operator_message": return ["message", esc(p.text)];
     case "agent_stop":
       return ["stopped", `${esc(p.what || p.action)}${p.own ? " (its own)" : ""} <span class="muted">${esc(p.reason)}</span>`];
+    case "agent_session_budget": {
+      const used = p.budget_usd ? Math.round((100 * p.spent_usd) / p.budget_usd) : 0;
+      const budget = Number.isInteger(p.budget_usd) ? p.budget_usd : Number(p.budget_usd).toFixed(2);
+      return ["budget", `The agent has used ${used}% of its $${esc(budget)} budget`];
+    }
     case "agent_called":
       return [p.ok ? "called" : "call failed",
         `${esc(p.action)} <span class="${p.ok ? "muted" : "err"}">${p.ok ? "" : esc(p.error_type || p.status) + " · "}at ${esc(p.level)}</span>`];
@@ -353,7 +358,7 @@ function describe(e) {
 const LABEL_CLASS = {
   failed: "err", "run failed": "err", "run stalled": "err", rejected: "err",
   completed: "ok", "run completed": "ok", approved: "ok",
-  asked: "warn", "proposal held": "warn", requested: "warn", refused: "warn",
+  asked: "warn", "proposal held": "warn", budget: "warn", requested: "warn", refused: "warn",
   started: "accent", "run started": "accent",
 };
 

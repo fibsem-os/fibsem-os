@@ -229,11 +229,13 @@ class AgentLevelChip(QPushButton):
         parent: Optional[QWidget] = None,
         agent_client: Callable[[], Optional[str]] = lambda: None,
         agent_session: Callable[[], Optional[str]] = lambda: None,
+        agent_budget_low: Callable[[], bool] = lambda: False,
     ) -> None:
         super().__init__(parent)
         self._last_heard = last_heard
         self._agent_client = agent_client
         self._agent_session = agent_session
+        self._agent_budget_low = agent_budget_low
         self._level: Optional[AgentLevel] = None
         self._request: Optional[Dict[str, Any]] = None
         self._suggestion: Optional[Dict[str, str]] = None
@@ -486,6 +488,13 @@ class AgentLevelChip(QPushButton):
         popup = self.popup
         popup.setFixedWidth(self._card_width())
         popup.adjustSize()
+        # adjustSize guesses wrapped text's height at another width.
+        layout = popup.layout()
+        if layout is not None and layout.hasHeightForWidth():
+            popup.resize(
+                popup.width(),
+                max(popup.height(), layout.totalHeightForWidth(popup.width())),
+            )
         if not popup.isVisible():
             return
         popup.move(self._above_chip(popup))
@@ -543,9 +552,10 @@ class AgentLevelChip(QPushButton):
         )
         try:
             session = self._agent_session()
+            low = self._agent_budget_low()
         except Exception:
-            session = None
-        self.card.set_session(session)
+            session, low = None, False
+        self.card.set_session(session, low)
 
     def _on_chosen(self, level: AgentLevel) -> None:
         if level is not self._level:

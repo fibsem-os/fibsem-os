@@ -343,7 +343,16 @@ export function AgentPage() {
         }}
       >
         <div>
-          {a.session && <div className="py-1.5 pl-2.5 text-[13px] text-muted-foreground">{a.session}</div>}
+          {a.session && (
+            <div
+              className={cn(
+                "py-1.5 pl-2.5 text-[13px]",
+                a.budget_low ? "text-[var(--fibsem-warn-color)]" : "text-muted-foreground",
+              )}
+            >
+              {a.session}
+            </div>
+          )}
           {rows.length ? (
             <Record rows={rows} lines={transcript.data?.entries ?? []} show={show} />
           ) : (

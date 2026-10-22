@@ -46,6 +46,7 @@ class AgentChipHost(QObject):
             parent=status_bar,
             agent_client=lambda: self._agent.client(),
             agent_session=lambda: self._agent.session_text(),
+            agent_budget_low=lambda: self._agent.budget_low(),
         )
         self.chip.hide()
         self.chip.level_chosen.connect(self._on_level_chosen)

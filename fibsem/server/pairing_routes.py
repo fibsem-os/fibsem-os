@@ -3,6 +3,7 @@ this PC asks to connect with the discovery file's token (``/connect``), and the
 operator opens pairing, sees the paired computers and unpairs one
 (``/pairing``). See `fibsem.server.pairing` and `fibsem.server.connections`."""
 
+from ipaddress import ip_address
 from typing import Any, Dict, Optional
 from urllib.parse import urlsplit
 
@@ -30,6 +31,15 @@ def _same_origin(request: Request) -> None:
         return
     if urlsplit(origin).netloc != request.headers.get("host"):
         raise _refused(403, "browser_refused", "Pairing refuses another site's page.")
+
+
+def _loopback(request: Request) -> bool:
+    """Whether the request came from this PC's loopback address: the peer's,
+    never what the body says."""
+    try:
+        return ip_address(request.client.host).is_loopback
+    except (AttributeError, ValueError):
+        return False
 
 
 def _pairing(auth: AuthConfig) -> Pairing:
@@ -107,6 +117,7 @@ def build_pairing_router(auth: AuthConfig) -> APIRouter:
             str(body.get("origin", "")),
             str(body.get("user", "")),
             wait_s=wait_s,
+            loopback=_loopback(request),
         )
 
     operator = APIRouter(prefix="/pairing", dependencies=[Depends(require_operator())])
@@ -144,8 +155,8 @@ def build_pairing_router(auth: AuthConfig) -> APIRouter:
 
     @operator.put("/always_allow_local")
     def always_allow_local(body: Dict[str, Any]):
-        """``{"on": true}``: allow an agent on this PC that asks to connect
-        without the operator's click; saved for the next launch."""
+        """``{"on": true}``: allow an agent logged in to this PC that asks to
+        connect without the operator's click; saved for the next launch."""
         if auth.connections is None:
             raise _refused(404, "connect_off", "This server doesn't take asks.")
         auth.connections.set_always_allow(bool(body.get("on")))

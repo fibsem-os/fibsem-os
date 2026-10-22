@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
 from fibsem.server import AuthConfig  # noqa: E402
 from fibsem.server.agent_session import (  # noqa: E402
+    SESSION_BUDGET,
     SESSION_ENDED,
     SESSION_GOAL,
     SESSION_STARTED,
@@ -51,6 +52,21 @@ def test_a_session_starts_changes_goal_and_ends_on_the_record(server):
     assert session["ended"] and session["reason"] == "budget spent"
     assert client.get("/app/agent/session").json()["session"] == session
     assert auth.agent_session == session
+
+
+def test_the_spend_reaching_80_percent_of_the_budget_goes_on_the_record_once(
+    server,
+):
+    _, client, recorded = server
+    client.post("/app/agent/session", json={"session_id": "s1", "budget_usd": 5})
+    for spent in (3.9, 4.0, 4.5):
+        client.post("/app/agent/session", json={"spent_usd": spent})
+    assert _kinds(recorded) == [SESSION_STARTED, SESSION_BUDGET]
+    assert recorded[1][1]["spent_usd"] == 4.0
+    # A new session warns again.
+    again = {"session_id": "s2", "budget_usd": 5, "spent_usd": 4.5}
+    client.post("/app/agent/session", json=again)
+    assert _kinds(recorded)[2:] == [SESSION_STARTED, SESSION_BUDGET]
 
 
 def test_a_new_session_id_or_a_report_after_the_end_starts_a_new_session(server):

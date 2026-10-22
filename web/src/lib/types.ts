@@ -148,6 +148,8 @@ export interface ConnectAsk {
   name: string;
   /** What allowing it means at the level now. */
   if_allowed: string;
+  /** The allowed agent that allowing this one unpairs: one per microscope. */
+  replaces: string | null;
 }
 
 export interface AgentState {
@@ -166,6 +168,8 @@ export interface AgentState {
   asking: ConnectAsk | null;
   /** What the agent said it can do, as [name, value] rows. */
   facts: [string, string][];
+  /** The agent has spent most of its budget: the session line warns. */
+  budget_low: boolean;
 }
 
 /** One row of GET /app/agent/recent. */

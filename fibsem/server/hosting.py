@@ -234,7 +234,7 @@ class AppServerHost:
             save_always_allow=save,
         )
 
-        def record(computer) -> None:
+        def record(computer, replaced) -> None:
             logging.info("Allowed %s to connect (always allowed)", computer.name)
             if self.event_buffer is None:
                 return
@@ -242,7 +242,8 @@ class AppServerHost:
                 ACTION,
                 action_record(
                     f"Allow {computer.name} to connect",
-                    reason="Always allow agents on this PC is on",
+                    reason="Always allow agents logged in to this PC is on"
+                    + (f"; replaces {replaced}" if replaced else ""),
                 ),
                 actor=OPERATOR,
             )
