@@ -48,6 +48,8 @@ from fibsem.server.files import jpeg_preview
 from fibsem.server.responses import (
     ExperimentSummary,
     ItemDetail,
+    ProtocolTask,
+    ProtocolView,
     SummaryRow,
     TaskOutputs,
 )
@@ -102,6 +104,33 @@ class LamellaDetail(ItemDetail):
 class LamellaOutputs(TaskOutputs):
     final_reference_images: List[str] = field(default_factory=list)
     fluorescence_images: List[str] = field(default_factory=list)
+
+
+@dataclass
+class LamellaProtocolTask(ProtocolTask):
+    # what the task needs from a person under its attention
+    attendance: Optional[str] = None
+
+
+@dataclass
+class GridTaskRef:
+    name: str
+    # the registered task type (beam or FM overview)
+    type: Optional[str] = None
+
+
+@dataclass
+class RunOptions:
+    turn_beams_off: bool = False
+    show_run_summary: bool = False
+
+
+@dataclass
+class LamellaProtocol(ProtocolView):
+    tasks: List[LamellaProtocolTask] = field(default_factory=list)
+    # the grid protocol beside it: what a grid run can name
+    grid_tasks: List[GridTaskRef] = field(default_factory=list)
+    options: Optional[RunOptions] = None
 
 
 def _grid_items(experiment, grid):
@@ -176,9 +205,12 @@ class AutoLamellaAppContext(AppContext):
 
     # --- experiment record ----------------------------------------------------
 
-    summary_type = LamellaSummary
-    item_detail_type = LamellaDetail
-    task_outputs_type = LamellaOutputs
+    answer_types = {
+        ExperimentSummary: LamellaSummary,
+        ItemDetail: LamellaDetail,
+        TaskOutputs: LamellaOutputs,
+        ProtocolView: LamellaProtocol,
+    }
 
     def summary_row(self, experiment, item) -> LamellaRow:
         row = super().summary_row(experiment, item)

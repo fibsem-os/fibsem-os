@@ -12,6 +12,7 @@ one place (build_server). A route of an optional part (fibsem.server.parts) is
 tagged with it and served only when the context implements that part.
 """
 
+import functools
 import json
 import os
 from typing import Any, Dict, List, Optional
@@ -20,6 +21,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.routing import APIRoute
 
 from fibsem.ai.agent.calls import current_call
 from fibsem.server import files
@@ -34,17 +36,53 @@ from fibsem.server.parts import (
 )
 from fibsem.server.responses import (
     AppStatus,
+    ConfigEdit,
+    Decided,
     DisplayImages,
+    EventHistory,
+    Events,
+    ExperimentOpened,
     ExperimentSummary,
+    FileRead,
     FolderListing,
+    GridDetail,
+    GridEdit,
+    GridMarkers,
+    GridPlan,
+    Grids,
+    GridTasksQueued,
     ItemDetail,
+    ItemEdit,
+    ItemHistory,
     ItemStack,
+    LamellaDefaultsSet,
+    LogRead,
+    MarkersDrawn,
+    OptionsSet,
+    OverviewStagePosition,
+    Proposals,
+    ProtocolFiles,
+    ProtocolLoaded,
+    ProtocolSaved,
+    ProtocolView,
     Queue,
+    QueueEdited,
+    RecentExperiments,
+    Recorded,
+    Requeued,
+    RunStarted,
+    RunSummary,
+    SavedExperiments,
     SavedImageMetadata,
     SavedImagePixels,
     SavedImagePosition,
+    Stopped,
+    Suggested,
+    TaskConfigRead,
+    TaskEdit,
     TaskHistory,
     TaskOutputs,
+    Thickness,
     answer,
 )
 from fibsem.util.timestamps import to_datetime
@@ -212,8 +250,43 @@ def _typed(result: Any) -> Response:
     return answer(result)
 
 
+def _as_sent(endpoint):
+    """*endpoint* answering its dict as it is: its route's ``response_model``
+    describes the answer without FastAPI filtering it or filling in nulls."""
+
+    @functools.wraps(endpoint)
+    def route(*args, **kwargs):
+        result = endpoint(*args, **kwargs)
+        if isinstance(result, Response):
+            return result
+        return JSONResponse(jsonable_encoder(result))
+
+    return route
+
+
+class _AsSentRoute(APIRoute):
+    def __init__(self, path: str, endpoint, **kwargs):
+        super().__init__(path, _as_sent(endpoint), **kwargs)
+
+
+def _router() -> APIRouter:
+    return APIRouter(prefix="/app", route_class=_AsSentRoute)
+
+
+def _app_type(context: Any, base: type) -> type:
+    """The class *context*'s app answers for *base* (`AppContext.answer_type`)."""
+    answer_type = getattr(context, "answer_type", None)
+    return answer_type(base) if answer_type is not None else base
+
+
+# A route that answers an image, for /openapi.json.
+_JPEG = {200: {"content": {"image/jpeg": {}}, "description": "A JPEG image."}}
+# A file read raw (``raw=true``) answers the file as it is.
+_RAW_FILE = {200: {"content": {"application/octet-stream": {}}}}
+
+
 def build_app_router(context: Any) -> APIRouter:
-    router = APIRouter(prefix="/app")
+    router = _router()
 
     @router.get("/workflow/status", response_model=AppStatus)
     def app_status():
@@ -225,7 +298,7 @@ def build_app_router(context: Any) -> APIRouter:
 
     @router.get(
         "/experiment",
-        response_model=getattr(context, "summary_type", ExperimentSummary),
+        response_model=_app_type(context, ExperimentSummary),
     )
     def experiment_summary():
         return _typed(context.experiment_summary())
@@ -234,15 +307,15 @@ def build_app_router(context: Any) -> APIRouter:
     def task_history():
         return _typed(context.task_history())
 
-    @router.get("/workflow/summary")
+    @router.get("/workflow/summary", response_model=RunSummary)
     def run_summary():
         return context.run_summary()
 
-    @router.get("/experiment/protocol")
+    @router.get("/experiment/protocol", response_model=_app_type(context, ProtocolView))
     def protocol():
         return context.protocol()
 
-    @router.get("/log")
+    @router.get("/log", response_model=LogRead)
     def log(
         since: Optional[str] = None,
         until: Optional[str] = None,
@@ -273,7 +346,7 @@ def build_app_router(context: Any) -> APIRouter:
     @router.get(
         "/experiment/items/{item_name}/outputs",
         tags=[ITEMS],
-        response_model=getattr(context, "task_outputs_type", TaskOutputs),
+        response_model=_app_type(context, TaskOutputs),
     )
     def task_outputs(item_name: str):
         return _typed(context.task_outputs(item_name))
@@ -287,20 +360,31 @@ def build_app_router(context: Any) -> APIRouter:
     @router.get(
         "/experiment/items/{item_name}",
         tags=[ITEMS],
-        response_model=getattr(context, "item_detail_type", ItemDetail),
+        response_model=_app_type(context, ItemDetail),
     )
     def item_detail(item_name: str):
         return _typed(context.item_detail(item_name))
 
-    @router.get("/experiment/protocol/task_config/{task_name}")
+    @router.get(
+        "/experiment/protocol/task_config/{task_name}", response_model=TaskConfigRead
+    )
     def protocol_task_config(task_name: str):
         return context.protocol_task_config(task_name)
 
-    @router.get("/experiment/items/{item_name}/task_config/{task_name}", tags=[ITEMS])
+    @router.get(
+        "/experiment/items/{item_name}/task_config/{task_name}",
+        response_model=TaskConfigRead,
+        tags=[ITEMS],
+    )
     def item_task_config(item_name: str, task_name: str):
         return context.item_task_config(item_name, task_name)
 
-    @router.get("/experiment/items/{item_name}/outputs/{filename}", tags=[ITEMS])
+    @router.get(
+        "/experiment/items/{item_name}/outputs/{filename}",
+        response_class=Response,
+        responses=_JPEG,
+        tags=[ITEMS],
+    )
     def output_image(item_name: str, filename: str, width: Optional[int] = None):
         # Serves actual image/jpeg (not a JSON payload) so a browser <img>
         # can consume it; filename must be a basename the item's own
@@ -309,7 +393,11 @@ def build_app_router(context: Any) -> APIRouter:
             context.output_image(item_name, filename, files.preview_width(width))
         )
 
-    @router.get("/experiment/items/{item_name}/history", tags=[ITEMS])
+    @router.get(
+        "/experiment/items/{item_name}/history",
+        response_model=ItemHistory,
+        tags=[ITEMS],
+    )
     def item_history(
         item_name: str,
         show: Optional[str] = None,
@@ -329,7 +417,11 @@ def build_app_router(context: Any) -> APIRouter:
             },
         )
 
-    @router.post("/experiment/items/{item_name}/thickness", tags=[LAMELLAE])
+    @router.post(
+        "/experiment/items/{item_name}/thickness",
+        response_model=Thickness,
+        tags=[LAMELLAE],
+    )
     def measure_thickness(item_name: str, body: Dict[str, Any]):
         # Computed over a saved file, nothing moves; a POST because the result
         # is saved beside the image, as an autofocus run is.
@@ -347,21 +439,29 @@ def build_app_router(context: Any) -> APIRouter:
                 raise _missing_field(f"{key} is a number of microns.") from None
         return _answer_or_refusal(context.measure_thickness(item_name, path, **window))
 
-    @router.get("/experiment/grids", tags=[GRIDS])
+    @router.get("/experiment/grids", response_model=Grids, tags=[GRIDS])
     def grids():
         return context.grids()
 
-    @router.get("/experiment/grids/{grid_name}", tags=[GRIDS])
+    @router.get(
+        "/experiment/grids/{grid_name}", response_model=GridDetail, tags=[GRIDS]
+    )
     def grid_detail(grid_name: str):
         return context.grid_detail(grid_name)
 
-    @router.get("/experiment/grids/{grid_name}/outputs/{filename}", tags=[GRIDS])
+    @router.get(
+        "/experiment/grids/{grid_name}/outputs/{filename}",
+        response_class=Response,
+        responses=_JPEG,
+        tags=[GRIDS],
+    )
     def grid_output_image(grid_name: str, filename: str):
         return _jpeg_or_404(context.grid_output_image(grid_name, filename))
 
     # {filename:path}: any saved image's path in the experiment, slashes and all.
     @router.get(
         "/experiment/grids/{grid_name}/outputs/{filename:path}/stage_position",
+        response_model=OverviewStagePosition,
         tags=[GRIDS],
     )
     def overview_stage_position(
@@ -380,24 +480,30 @@ def build_app_router(context: Any) -> APIRouter:
         )
 
     @router.get(
-        "/experiment/grids/{grid_name}/outputs/{filename:path}/markers", tags=[GRIDS]
+        "/experiment/grids/{grid_name}/outputs/{filename:path}/markers",
+        response_model=GridMarkers,
+        tags=[GRIDS],
     )
     def grid_markers(grid_name: str, filename: str):
         return context.grid_markers(grid_name, filename)
 
-    @router.get("/experiment/grid_protocol/task_config/{task_name}", tags=[GRIDS])
+    @router.get(
+        "/experiment/grid_protocol/task_config/{task_name}",
+        response_model=TaskConfigRead,
+        tags=[GRIDS],
+    )
     def grid_task_config(task_name: str):
         return _answer_or_refusal(context.grid_task_config(task_name))
 
-    @router.get("/experiment/protocols")
+    @router.get("/experiment/protocols", response_model=ProtocolFiles)
     def protocols():
         return context.protocols()
 
-    @router.get("/experiment/recent")
+    @router.get("/experiment/recent", response_model=RecentExperiments)
     def recent_experiments():
         return {"items": context.recent_experiments()}
 
-    @router.get("/experiment/all")
+    @router.get("/experiment/all", response_model=SavedExperiments)
     def saved_experiments(
         instrument: Optional[str] = None,
         operator: Optional[str] = None,
@@ -448,7 +554,9 @@ def build_app_router(context: Any) -> APIRouter:
         fraction = None if fx is None or fy is None else [fx, fy]
         return _typed(context.image_stage_position(path, px, fraction))
 
-    @router.post("/experiment/images/markers", tags=[LAMELLAE])
+    @router.post(
+        "/experiment/images/markers", response_model=MarkersDrawn, tags=[LAMELLAE]
+    )
     def render_markers(body: Dict[str, Any]):
         # A POST because the picture is saved beside the image, as a thickness
         # result is.
@@ -505,7 +613,9 @@ def build_app_router(context: Any) -> APIRouter:
         # As listed: a file has no images count, rather than a null one.
         return JSONResponse(listing)
 
-    @router.get("/experiment/files/{path:path}")
+    @router.get(
+        "/experiment/files/{path:path}", response_model=FileRead, responses=_RAW_FILE
+    )
     def read_file(
         request: Request,
         path: str,
@@ -542,11 +652,11 @@ def build_app_router(context: Any) -> APIRouter:
         _record_read(experiment, path, False)
         return answer
 
-    @router.get("/workflow/proposals")
+    @router.get("/workflow/proposals", response_model=Proposals)
     def proposals():
         return context.proposals()
 
-    @router.post("/workflow/grids/plan", tags=[GRIDS])
+    @router.post("/workflow/grids/plan", response_model=GridPlan, tags=[GRIDS])
     def grid_workflow_plan(body: Dict[str, Any]):
         # A POST on the read router because it computes, never acts: the
         # preflight dialog's content for a grid run, from a body a GET could
@@ -554,7 +664,7 @@ def build_app_router(context: Any) -> APIRouter:
         task_names, grid_names, screen_all = _grid_run_body(body)
         return context.grid_workflow_plan(task_names, grid_names, screen_all)
 
-    @router.post("/experiment/notes")
+    @router.post("/experiment/notes", response_model=Recorded)
     def add_note(body: Dict[str, Any]):
         # Observations for the record — event stream + experiment log. On the
         # read router, a POST the dashboard token is refused: a watching agent
@@ -582,7 +692,7 @@ def build_app_router(context: Any) -> APIRouter:
         )
         return _recorded_or_not_found(result)
 
-    @router.post("/experiment/evidence")
+    @router.post("/experiment/evidence", response_model=Recorded)
     def add_evidence(body: Dict[str, Any]):
         # What the agent judged from, kept in the experiment: an image of the
         # experiment's or one it made (uploaded, saved here), with marks on it.
@@ -607,14 +717,14 @@ def build_app_router(context: Any) -> APIRouter:
             raise _evidence_refused(refusal)
         return _recorded_or_not_found(result)
 
-    @router.get("/events")
+    @router.get("/events", response_model=Events)
     def events(since: int = 0, timeout: float = 0.0):
         # A long-poll: parks up to `timeout` seconds waiting for news. Capped
         # here because the park occupies a threadpool worker — a transport
         # concern, so the transport owns the ceiling.
         return context.events(since=since, timeout=min(max(timeout, 0.0), 30.0))
 
-    @router.get("/events/history")
+    @router.get("/events/history", response_model=EventHistory)
     def event_history(before: Optional[int] = None, limit: int = 500):
         # The run before the live buffer, from the experiment's events file:
         # what a page opened in the morning needs to show the night.
@@ -647,9 +757,9 @@ def build_app_control_router(context: Any) -> APIRouter:
     Mounted (by build_server) at Drive: the operator raises the level from the
     Agent chip (FIB-1035).
     """
-    router = APIRouter(prefix="/app")
+    router = _router()
 
-    @router.post("/workflow/decide")
+    @router.post("/workflow/decide", response_model=Decided)
     def decide(body: Dict[str, Any]):
         # The same function the operator's decision goes through, on the main thread, blocking
         # until applied. Item by id, never by name: names change.
@@ -738,7 +848,7 @@ def build_app_control_router(context: Any) -> APIRouter:
             )
         return result
 
-    @router.post("/workflow/start")
+    @router.post("/workflow/start", response_model=RunStarted)
     def start_workflow(body: Dict[str, Any]):
         task_names = body.get("task_names")
         item_names = body.get("item_names")
@@ -761,7 +871,7 @@ def build_app_control_router(context: Any) -> APIRouter:
             )
         return context.start_workflow(task_names, item_names)
 
-    @router.post("/workflow/grids/start", tags=[GRIDS])
+    @router.post("/workflow/grids/start", response_model=RunStarted, tags=[GRIDS])
     def start_grid_workflow(body: Dict[str, Any]):
         # The Grids view's Run / Screen all grids, remotely. Shares the lamella
         # run's worker slot, so the context refuses it while any run is live.
@@ -778,14 +888,14 @@ def build_app_control_router(context: Any) -> APIRouter:
             report_at_end=report_at_end,
         )
 
-    @router.post("/experiment/protocol/supervision")
+    @router.post("/experiment/protocol/supervision", response_model=TaskEdit)
     def set_supervision(body: Dict[str, Any]):
         task_name = body.get("task_name")
         if not isinstance(task_name, str) or "supervise" not in body:
             raise _missing_field("Pass task_name (string) and supervise (boolean).")
         return context.set_supervision(task_name, bool(body["supervise"]))
 
-    @router.post("/workflow/queue/requeue")
+    @router.post("/workflow/queue/requeue", response_model=Requeued)
     def requeue_task(body: Dict[str, Any]):
         item_name = body.get("item_name")
         task_name = body.get("task_name")
@@ -803,7 +913,7 @@ def build_app_control_router(context: Any) -> APIRouter:
             )
         return result
 
-    @router.post("/workflow/queue/edit")
+    @router.post("/workflow/queue/edit", response_model=QueueEdited)
     def edit_queue(body: Dict[str, Any]):
         item_name = _required_text(body, "item_name", "the item whose task to edit")
         task_name = _required_text(body, "task_name", "the waiting task to edit")
@@ -812,7 +922,7 @@ def build_app_control_router(context: Any) -> APIRouter:
         )
         return _answer_or_refusal(context.edit_queue(item_name, task_name, action))
 
-    @router.post("/workflow/queue/grids", tags=[GRIDS])
+    @router.post("/workflow/queue/grids", response_model=GridTasksQueued, tags=[GRIDS])
     def queue_grid_tasks(body: Dict[str, Any]):
         # The Grids view's Add to queue on a running grid run: at the end.
         task_names = _names(body, "task_names", "the grid tasks to add")
@@ -825,9 +935,9 @@ def build_app_control_router(context: Any) -> APIRouter:
 def build_app_suggest_router(context: Any) -> APIRouter:
     """Suggesting on a pending proposal. Mounted (by build_server) for Assist
     and Drive: a suggestion decides nothing, so it needs no request."""
-    router = APIRouter(prefix="/app")
+    router = _router()
 
-    @router.post("/workflow/proposals/suggest")
+    @router.post("/workflow/proposals/suggest", response_model=Suggested)
     def suggest(body: Dict[str, Any]):
         item_id = body.get("item_id")
         task_name = body.get("task_name")
@@ -895,15 +1005,15 @@ def build_app_stop_router(context: Any) -> APIRouter:
     """Stopping the run. Mounted (by build_server) at Drive, with a reason: the
     workflow is never the agent's own, so at Assist the stop goes in a request
     the operator approves (FIB-1283); a watching agent stops nothing (FIB-1035)."""
-    router = APIRouter(prefix="/app")
+    router = _router()
 
-    @router.post("/workflow/stop")
+    @router.post("/workflow/stop", response_model=Stopped)
     def stop_workflow(body: Optional[Dict[str, Any]] = None):
         # The same path as the GUI's Stop button, and never waits on the
         # command lock. The operator's own Stop is never gated.
         return context.stop_workflow(_stop_reason(body))
 
-    @router.post("/workflow/stop_task")
+    @router.post("/workflow/stop_task", response_model=Stopped)
     def stop_task(body: Dict[str, Any]):
         # The timeline's Stop Task: the task running, and the run carries on.
         # It names the task meant, so a stop landing late stops nothing else.
@@ -917,7 +1027,8 @@ def build_app_stop_router(context: Any) -> APIRouter:
 def build_app_config_router(context: Any) -> APIRouter:
     """Routes that edit configuration (protocols, item configs, schedules,
     run options). Mounted at Drive, like the control router (FIB-864)."""
-    router = APIRouter(prefix="/app")
+    router = _router()
+    item_edit = ItemEdit[_app_type(context, ItemDetail)]
 
     def _validated(body: Dict[str, Any]):
         patch = body.get("patch")
@@ -935,21 +1046,27 @@ def build_app_config_router(context: Any) -> APIRouter:
             )
         return patch, version
 
-    @router.post("/experiment/protocol/task_config/{task_name}")
+    @router.post(
+        "/experiment/protocol/task_config/{task_name}", response_model=ConfigEdit
+    )
     def patch_protocol_task_config(task_name: str, body: Dict[str, Any]):
         patch, version = _validated(body)
         return _refused_or(
             context.apply_protocol_task_config_patch(task_name, patch, version)
         )
 
-    @router.post("/experiment/items/{item_name}/task_config/{task_name}", tags=[ITEMS])
+    @router.post(
+        "/experiment/items/{item_name}/task_config/{task_name}",
+        response_model=ConfigEdit,
+        tags=[ITEMS],
+    )
     def patch_item_task_config(item_name: str, task_name: str, body: Dict[str, Any]):
         patch, version = _validated(body)
         return _refused_or(
             context.apply_item_task_config_patch(item_name, task_name, patch, version)
         )
 
-    @router.post("/workflow/schedule")
+    @router.post("/workflow/schedule", response_model=TaskEdit)
     def set_task_schedule(body: Dict[str, Any]):
         # Workflow structure, not a config document: a verb like
         # /app/experiment/protocol/supervision. scheduled_at is ISO-8601 or null
@@ -983,7 +1100,7 @@ def build_app_config_router(context: Any) -> APIRouter:
             )
         return result
 
-    @router.post("/workflow/options")
+    @router.post("/workflow/options", response_model=OptionsSet)
     def set_workflow_options(body: Dict[str, Any]):
         # The workflow's run options, beside the schedule: whether the run
         # summary dialog opens, and whether the beams go off at the end.
@@ -1001,22 +1118,24 @@ def build_app_config_router(context: Any) -> APIRouter:
 
     # -- the workflow's tasks: the protocol editor and the Workflow tab ---------
 
-    @router.post("/experiment/protocol/tasks")
+    @router.post("/experiment/protocol/tasks", response_model=TaskEdit)
     def add_task(body: Dict[str, Any]):
         task_type = _required_text(body, "task_type", "a registered task type")
         task_name = _required_text(body, "task_name", "the new task's name")
         return _answer_or_refusal(context.add_task(task_type, task_name))
 
-    @router.delete("/experiment/protocol/tasks/{task_name}")
+    @router.delete("/experiment/protocol/tasks/{task_name}", response_model=TaskEdit)
     def remove_task(task_name: str):
         return _answer_or_refusal(context.remove_task(task_name))
 
-    @router.post("/experiment/protocol/tasks/reorder")
+    @router.post("/experiment/protocol/tasks/reorder", response_model=TaskEdit)
     def reorder_tasks(body: Dict[str, Any]):
         order = _names(body, "order", "every workflow task, in the new order")
         return _answer_or_refusal(context.reorder_tasks(order))
 
-    @router.post("/experiment/protocol/tasks/{task_name}/requirements")
+    @router.post(
+        "/experiment/protocol/tasks/{task_name}/requirements", response_model=TaskEdit
+    )
     def set_task_requirements(task_name: str, body: Dict[str, Any]):
         requires = body.get("requires")
         required = body.get("required")
@@ -1033,7 +1152,11 @@ def build_app_config_router(context: Any) -> APIRouter:
             context.set_task_requirements(task_name, requires, required)
         )
 
-    @router.post("/experiment/protocol/lamella_defaults", tags=[LAMELLAE])
+    @router.post(
+        "/experiment/protocol/lamella_defaults",
+        response_model=LamellaDefaultsSet,
+        tags=[LAMELLAE],
+    )
     def set_lamella_defaults(body: Dict[str, Any]):
         if not body:
             raise _missing_field(
@@ -1041,7 +1164,7 @@ def build_app_config_router(context: Any) -> APIRouter:
             )
         return _answer_or_refusal(context.set_lamella_defaults(body))
 
-    @router.post("/experiment/protocol/save")
+    @router.post("/experiment/protocol/save", response_model=ProtocolSaved)
     def save_protocol_as(body: Dict[str, Any]):
         name = _required_text(body, "name", "a file name for the protocol folder")
         overwrite = body.get("overwrite", False)
@@ -1051,19 +1174,27 @@ def build_app_config_router(context: Any) -> APIRouter:
 
     # -- the grid protocol: grid task settings, order and requirements ---------
 
-    @router.post("/experiment/grid_protocol/task_config/{task_name}", tags=[GRIDS])
+    @router.post(
+        "/experiment/grid_protocol/task_config/{task_name}",
+        response_model=ConfigEdit,
+        tags=[GRIDS],
+    )
     def patch_grid_task_config(task_name: str, body: Dict[str, Any]):
         patch, version = _validated(body)
         result = context.apply_grid_task_config_patch(task_name, patch, version)
         return _refused_or(_answer_or_refusal(result))
 
-    @router.post("/experiment/grid_protocol/tasks/reorder", tags=[GRIDS])
+    @router.post(
+        "/experiment/grid_protocol/tasks/reorder", response_model=TaskEdit, tags=[GRIDS]
+    )
     def reorder_grid_tasks(body: Dict[str, Any]):
         order = _names(body, "order", "every grid task, in the new order")
         return _answer_or_refusal(context.reorder_grid_tasks(order))
 
     @router.post(
-        "/experiment/grid_protocol/tasks/{task_name}/requirements", tags=[GRIDS]
+        "/experiment/grid_protocol/tasks/{task_name}/requirements",
+        response_model=TaskEdit,
+        tags=[GRIDS],
     )
     def set_grid_task_requirements(task_name: str, body: Dict[str, Any]):
         requires = _names(body, "requires", "the grid tasks it needs first")
@@ -1091,6 +1222,7 @@ def build_app_config_router(context: Any) -> APIRouter:
 
     @router.post(
         "/experiment/items/{item_name}/task_config/{task_name}/stages/reorder",
+        response_model=ConfigEdit,
         tags=[MILLING_STAGES],
     )
     def reorder_item_stages(item_name: str, task_name: str, body: Dict[str, Any]):
@@ -1103,6 +1235,7 @@ def build_app_config_router(context: Any) -> APIRouter:
 
     @router.post(
         "/experiment/protocol/task_config/{task_name}/stages/reorder",
+        response_model=ConfigEdit,
         tags=[MILLING_STAGES],
     )
     def reorder_protocol_stages(task_name: str, body: Dict[str, Any]):
@@ -1113,7 +1246,11 @@ def build_app_config_router(context: Any) -> APIRouter:
             )
         )
 
-    @router.post("/experiment/items/{item_name}/apply_protocol", tags=[ITEMS])
+    @router.post(
+        "/experiment/items/{item_name}/apply_protocol",
+        response_model=ConfigEdit,
+        tags=[ITEMS],
+    )
     def apply_protocol_to_item(item_name: str, body: Dict[str, Any]):
         # Wholesale by design — the verb IS "replace with the protocol
         # defaults" — so no version field; refusals ride _refused_or.
@@ -1130,7 +1267,10 @@ def build_app_config_router(context: Any) -> APIRouter:
 
     # -- experiments and protocols: kept to known places -----------------------
 
-    @router.post("/experiment/create")
+    @router.post(
+        "/experiment/create",
+        response_model=ExperimentOpened[_app_type(context, ExperimentSummary)],
+    )
     def create_experiment(body: Dict[str, Any]):
         name = _required_text(
             body, "name", "the new experiment's folder, under the experiments folder"
@@ -1141,31 +1281,41 @@ def build_app_config_router(context: Any) -> APIRouter:
             )
         )
 
-    @router.post("/experiment/load")
+    @router.post(
+        "/experiment/load",
+        response_model=ExperimentOpened[_app_type(context, ExperimentSummary)],
+    )
     def load_experiment(body: Dict[str, Any]):
         path = _required_text(
             body, "path", "a path from the recent experiments or the experiments folder"
         )
         return _answer_or_refusal(context.load_experiment(path))
 
-    @router.post("/experiment/protocol/load")
+    @router.post(
+        "/experiment/protocol/load",
+        response_model=ProtocolLoaded[_app_type(context, ProtocolView)],
+    )
     def load_protocol(body: Dict[str, Any]):
         name = _required_text(body, "protocol", "a protocol name from the list")
         return _answer_or_refusal(context.load_protocol(name))
 
     # -- grid records: the Grids tab's inventory read and Rename ----------------
 
-    @router.post("/experiment/grids", tags=[GRIDS])
+    @router.post("/experiment/grids", response_model=GridEdit, tags=[GRIDS])
     def add_grids():
         # A record for every grid the inventory holds and the experiment lacks.
         return _answer_or_refusal(context.add_grids())
 
-    @router.post("/experiment/grids/{grid_name}/rename", tags=[GRIDS])
+    @router.post(
+        "/experiment/grids/{grid_name}/rename", response_model=GridEdit, tags=[GRIDS]
+    )
     def rename_grid(grid_name: str, body: Dict[str, Any]):
         name = _required_text(body, "name", "the grid's new name")
         return _answer_or_refusal(context.rename_grid(grid_name, name))
 
-    @router.post("/experiment/grids/{grid_name}/quality", tags=[GRIDS])
+    @router.post(
+        "/experiment/grids/{grid_name}/quality", response_model=GridEdit, tags=[GRIDS]
+    )
     def set_grid_quality(grid_name: str, body: Dict[str, Any]):
         verdict = _required_text(
             body, "verdict", "GOOD, REWORK, FAILED, or UNASSESSED to clear"
@@ -1175,7 +1325,9 @@ def build_app_config_router(context: Any) -> APIRouter:
             raise _missing_field("reason is text.")
         return _answer_or_refusal(context.set_grid_quality(grid_name, verdict, reason))
 
-    @router.post("/experiment/grids/{grid_name}/note", tags=[GRIDS])
+    @router.post(
+        "/experiment/grids/{grid_name}/note", response_model=GridEdit, tags=[GRIDS]
+    )
     def set_grid_note(grid_name: str, body: Dict[str, Any]):
         note = body.get("note")
         if not isinstance(note, str) or len(note) > 4000:
@@ -1191,13 +1343,15 @@ def build_app_config_router(context: Any) -> APIRouter:
             call.recorded = True  # its note is the record of it
         return _answer_or_refusal(result)
 
-    @router.delete("/experiment/grids/{grid_name}", tags=[GRIDS])
+    @router.delete(
+        "/experiment/grids/{grid_name}", response_model=GridEdit, tags=[GRIDS]
+    )
     def remove_grid(grid_name: str):
         return _answer_or_refusal(context.remove_grid(grid_name))
 
     # -- lamella positions: the Lamella tab's buttons ---------------------------
 
-    @router.post("/experiment/items", tags=[ITEMS])
+    @router.post("/experiment/items", response_model=item_edit, tags=[ITEMS])
     def add_item(body: Dict[str, Any]):
         # Where: the stage now (neither field), a stage position, or a point on a
         # grid overview ({grid_name, filename, px | fraction}). The app names it
@@ -1220,12 +1374,15 @@ def build_app_config_router(context: Any) -> APIRouter:
             )
         )
 
-    @router.delete("/experiment/items/{item_name}", tags=[ITEMS])
+    @router.delete(
+        "/experiment/items/{item_name}", response_model=item_edit, tags=[ITEMS]
+    )
     def remove_item(item_name: str):
         return _answer_or_refusal(context.remove_item(item_name))
 
     @router.post(
         "/experiment/items/{item_name}/move_to",
+        response_model=item_edit,
         tags=[POSES],
         dependencies=[Depends(take_control, scope="function")],
     )
@@ -1235,6 +1392,7 @@ def build_app_config_router(context: Any) -> APIRouter:
 
     @router.post(
         "/experiment/items/{item_name}/objective/move_to",
+        response_model=item_edit,
         tags=[POSES],
         dependencies=[Depends(take_control, scope="function")],
     )
@@ -1242,24 +1400,36 @@ def build_app_config_router(context: Any) -> APIRouter:
         # The tab's objective Move to: the FM objective to the stored position.
         return _answer_or_refusal(context.move_objective_to_item(item_name))
 
-    @router.post("/experiment/items/{item_name}/poses/{pose_name}", tags=[POSES])
+    @router.post(
+        "/experiment/items/{item_name}/poses/{pose_name}",
+        response_model=item_edit,
+        tags=[POSES],
+    )
     def set_item_pose(item_name: str, pose_name: str):
         # From the stage position now: the tab's Set pose.
         return _answer_or_refusal(context.set_item_pose(item_name, pose_name))
 
-    @router.post("/experiment/items/{item_name}/objective_position", tags=[POSES])
+    @router.post(
+        "/experiment/items/{item_name}/objective_position",
+        response_model=item_edit,
+        tags=[POSES],
+    )
     def set_item_objective_position(item_name: str):
         # From the FM objective now: the tab's Use current.
         return _answer_or_refusal(context.set_item_objective_position(item_name))
 
     @router.post(
-        "/experiment/items/{item_name}/objective_position/apply_to_all", tags=[POSES]
+        "/experiment/items/{item_name}/objective_position/apply_to_all",
+        response_model=item_edit,
+        tags=[POSES],
     )
     def set_objective_position_on_all(item_name: str):
         # The item's stored position on every lamella: Apply to All Lamella.
         return _answer_or_refusal(context.set_objective_position_on_all(item_name))
 
-    @router.post("/experiment/items/{item_name}/position", tags=[POSES])
+    @router.post(
+        "/experiment/items/{item_name}/position", response_model=item_edit, tags=[POSES]
+    )
     def move_item(item_name: str, body: Dict[str, Any]):
         # The lamella moved to a point, as on an overview; the stage stays.
         return _answer_or_refusal(
@@ -1270,7 +1440,9 @@ def build_app_config_router(context: Any) -> APIRouter:
             )
         )
 
-    @router.post("/experiment/items/{item_name}", tags=[ITEMS])
+    @router.post(
+        "/experiment/items/{item_name}", response_model=item_edit, tags=[ITEMS]
+    )
     def patch_item(item_name: str, body: Dict[str, Any]):
         # The item's own document (geometry, verdict, notes) — the write-side
         # mirror of GET /app/experiment/items/{item_name}, whose payload carries the
@@ -1278,7 +1450,11 @@ def build_app_config_router(context: Any) -> APIRouter:
         patch, version = _validated(body)
         return _refused_or(context.apply_item_patch(item_name, patch, version))
 
-    @router.post("/experiment/items/{item_name}/correlation", tags=[LAMELLAE])
+    @router.post(
+        "/experiment/items/{item_name}/correlation",
+        response_model=ConfigEdit,
+        tags=[LAMELLAE],
+    )
     def apply_item_correlation(item_name: str, body: Dict[str, Any]):
         # The correlation dialog's Continue: the item's POI to a saved run's
         # target, recorded as a correlation.

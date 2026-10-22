@@ -17,7 +17,13 @@ from fibsem.server.app_context import (
     item_pose_positions,
 )
 from fibsem.server.files import jpeg_preview
-from fibsem.server.responses import ExperimentSummary, ItemDetail, SummaryRow
+from fibsem.server.responses import (
+    ExperimentSummary,
+    ItemDetail,
+    ProtocolTask,
+    ProtocolView,
+    SummaryRow,
+)
 from fibsem.structures import FibsemRectangle, FibsemStagePosition, Point
 from fibsem.util.timestamps import to_iso
 from fibsem.workflows.attention import Attention
@@ -45,6 +51,16 @@ class PositionSummary(ExperimentSummary):
 class PositionDetail(ItemDetail):
     iterations: Optional[int] = None
     slices_cut: Optional[int] = None
+
+
+@dataclass
+class PositionProtocolTask(ProtocolTask):
+    type: Optional[str] = None
+
+
+@dataclass
+class PositionProtocol(ProtocolView):
+    tasks: List[PositionProtocolTask] = field(default_factory=list)
 
 
 def _not_served(what: str) -> Dict[str, Any]:
@@ -86,8 +102,11 @@ class VolumeAppContext(AppContext):
             )
         return {"available": True, "name": protocol.name, "tasks": tasks}
 
-    summary_type = PositionSummary
-    item_detail_type = PositionDetail
+    answer_types = {
+        ExperimentSummary: PositionSummary,
+        ItemDetail: PositionDetail,
+        ProtocolView: PositionProtocol,
+    }
 
     def summary_row(self, experiment, item) -> PositionRow:
         return PositionRow(

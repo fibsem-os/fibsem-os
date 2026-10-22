@@ -316,6 +316,30 @@ def test_the_agent_decides_a_supervised_set_up(
     assert all(str(p.current.actor).startswith("agent") for p in position.proposals)
 
 
+def test_volume_answers_decode_as_its_own_classes(agent):
+    from tests.server.test_app_response_models import _Checked
+
+    call = _Checked(agent)
+    added = call("POST", "/app/experiment/items", json={"name": "aspen"}).item
+    assert added.iterations is not None  # a PositionDetail
+    base = "/app/experiment/items/{item_name}"
+    call(
+        "POST",
+        "/app/experiment/items/aspen",
+        base,
+        json={"patch": {"iterations": 2}, "version": added.version},
+    )
+    assert call("GET", "/app/experiment").items[0].item_name == "aspen"
+    task = call("GET", "/app/experiment/protocol").tasks[0]
+    assert task.type is not None  # a PositionProtocolTask
+    call(
+        "GET",
+        f"/app/experiment/items/aspen/task_config/{task.name}",
+        base + "/task_config/{task_name}",
+    )
+    call("DELETE", "/app/experiment/items/aspen", base)
+
+
 def test_a_task_never_goes_before_or_requires_a_later_task(agent, experiment):
     order = [t["name"] for t in _ok(agent.get("/app/experiment/protocol"))["tasks"]]
     mill, image = order.index(MILL), order.index(IMAGE)
