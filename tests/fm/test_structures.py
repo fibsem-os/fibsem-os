@@ -357,6 +357,30 @@ def test_fluorescence_image_metadata_auto_pixel_size_z():
     assert metadata.pixel_size_z == 500e-9
 
 
+def test_a_stacks_step_is_the_mean_spacing_of_its_planes():
+    """The first gap alone carries that move's backlash: stacks taken with the
+    same settings recorded different steps."""
+    metadata = FluorescenceImageMetadata(
+        acquisition_datetime=datetime.now().isoformat(),
+        pixel_size_x=1e-6,
+        pixel_size_y=1e-6,
+        resolution=(16, 16),
+        channels=[
+            FluorescenceChannelMetadata(
+                name="Test",
+                excitation_wavelength=488.0,
+                power=1.0,
+                exposure_time=0.1,
+                gain=1.0,
+                offset=0.0,
+            )
+        ],
+        z_positions=[0.0, 700e-9, 1000e-9, 1500e-9, 2000e-9],
+    )
+
+    assert metadata.pixel_size_z == pytest.approx(500e-9)
+
+
 def test_fluorescence_image_metadata_to_dict():
     """Test FluorescenceImageMetadata to_dict conversion."""
     channel = FluorescenceChannelMetadata(
@@ -538,6 +562,47 @@ def test_fluorescence_image_save_creates_the_directory(tmp_path):
 
     assert filename.is_file()
     assert written == str(filename)
+
+
+@pytest.mark.parametrize("bigtiff_above, bigtiff", [(100, True), (10**9, False)])
+def test_a_stack_too_large_for_a_classic_tiff_saves_as_bigtiff(
+    tmp_path, monkeypatch, bigtiff_above, bigtiff
+):
+    """A stack over 4 GB could not be saved at all, and only the log said so."""
+    import fibsem.fm.structures as structures
+
+    monkeypatch.setattr(structures, "BIGTIFF_ABOVE", bigtiff_above)
+    channels = [
+        FluorescenceChannelMetadata(
+            name=name,
+            excitation_wavelength=wavelength,
+            emission_filter=EmissionFilter.band("520 nm", 520.0),
+            power=0.3,
+            exposure_time=0.05,
+            gain=1.0,
+            offset=0.0,
+        )
+        for name, wavelength in (("GFP", 488.0), ("RFP", 561.0))
+    ]
+    metadata = FluorescenceImageMetadata(
+        acquisition_datetime=datetime.now().isoformat(),
+        pixel_size_x=100e-9,
+        pixel_size_y=100e-9,
+        resolution=(16, 12),
+        channels=channels,
+        z_positions=[0.0, 1e-6, 2e-6],
+    )
+    data = (np.arange(2 * 3 * 12 * 16) % 4000).astype(np.uint16).reshape(2, 3, 12, 16)
+    filename = str(tmp_path / "stack.ome.tiff")
+
+    FluorescenceImage(data=data, metadata=metadata).save(filename)
+
+    with tff.TiffFile(filename) as tif:
+        assert tif.is_bigtiff is bigtiff
+    loaded = FluorescenceImage.load(filename)
+    np.testing.assert_array_equal(loaded.data, data)
+    assert [c.name for c in loaded.metadata.channels] == ["GFP", "RFP"]
+    assert loaded.metadata.z_positions == pytest.approx([0.0, 1e-6, 2e-6])
 
 
 def test_fluorescence_image_save_load_is_offline(tmp_path, monkeypatch):

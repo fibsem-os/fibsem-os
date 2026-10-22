@@ -643,6 +643,7 @@ class FibsemMillingTask:
                 raise
             finally:
                 record.update(_stage_run_ended(stage_run, error))
+                record.update(_current_used(self.microscope))
         record.update(status=COMPLETED, ended_at=now_iso())
 
         # optionally acquire images after milling
@@ -919,6 +920,24 @@ def _stage_run_ended(
     except Exception:  # noqa: BLE001 - recording must not matter
         logging.debug("could not record how a stage run ended", exc_info=True)
         return {}
+
+
+def _current_used(microscope: FibsemMicroscope) -> Dict[str, Any]:
+    """The current a stage milled at, as the beam read back after its setup
+    (``milling_current_used``), and ``current_warning`` when the beam snapped the
+    current asked for to the nearest it lists. Never raises."""
+    try:
+        answer = microscope.milling.current_used()
+    except Exception:  # noqa: BLE001 - recording must not matter
+        logging.debug("could not read the milling current used", exc_info=True)
+        return {}
+    used = {}
+    if answer.get("milling_current") is not None:
+        used["milling_current_used"] = answer["milling_current"]
+    if answer.get("warning"):
+        used["current_warning"] = answer["warning"]
+        logging.warning(answer["warning"])
+    return used
 
 
 # How a run ended, as its recorded event says it.
