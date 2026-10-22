@@ -38,6 +38,7 @@ from fibsem.applications.autolamella.ui.common.lamella_display import (
 )
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION, fibsem_icon
+from fibsem.ui.qt.connections import connect_for_lifetime
 from fibsem.ui.tokens import (
     ACCENT_COLOR,
     CANVAS_BG,
@@ -229,14 +230,14 @@ class LamellaRow(QWidget):
             self.name_label.installEventFilter(self)
             self.btn_defect.installEventFilter(self)
 
-        # `defect` and `description` are written by GUI widgets, on the GUI
-        # thread. `task_state.name`/`.status` are deliberately not subscribed:
+        # `defect` and `description` are written on the GUI thread (by the
+        # window, and by agent edits through the session). `task_state.name`/`.status` are deliberately not subscribed:
         # they are written from the workflow's worker thread, the marshalled
         # refresh arrives after `clear()` may have destroyed this row, and an
         # exception escaping a Qt slot aborts the process (FIB-604, FIB-329).
         # `_on_workflow_update` refreshes this row by name instead.
-        lamella.events.defect.connect(self.refresh)  # type: ignore[union-attr]
-        lamella.events.description.connect(self.refresh)  # type: ignore[union-attr]
+        connect_for_lifetime(self, lamella.events.defect, self.refresh)  # type: ignore[union-attr]
+        connect_for_lifetime(self, lamella.events.description, self.refresh)  # type: ignore[union-attr]
 
         self.refresh()
 

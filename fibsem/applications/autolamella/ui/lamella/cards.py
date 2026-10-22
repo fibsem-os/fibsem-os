@@ -37,6 +37,7 @@ from fibsem.applications.autolamella.ui.common.thumbnails import cached_thumbnai
 from fibsem.config import CARD_MODES, MODE_COMPACT, MODE_COZY, MODE_STANDARD
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION, fibsem_icon
+from fibsem.ui.qt.connections import connect_for_lifetime
 from fibsem.ui.tokens import (
     NEUTRAL_200,
     NEUTRAL_550,
@@ -224,8 +225,8 @@ class LamellaCardWidget(QWidget):
         # fatal. Delete these once FIB-604 lands a trigger that fires after the write.
         # lamella.task_state.events.name.connect(self.refresh)    # DISABLED: FIB-604
         # lamella.task_state.events.status.connect(self.refresh)  # DISABLED: FIB-604
-        lamella.events.defect.connect(self.refresh)  # type: ignore[union-attr]
-        lamella.events.description.connect(self.refresh)  # type: ignore[union-attr]
+        connect_for_lifetime(self, lamella.events.defect, self.refresh)  # type: ignore[union-attr]
+        connect_for_lifetime(self, lamella.events.description, self.refresh)  # type: ignore[union-attr]
 
         self.refresh()
 
