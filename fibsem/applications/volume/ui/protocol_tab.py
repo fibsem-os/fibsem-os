@@ -1,7 +1,9 @@
 """The volume window's Protocol tab: the protocol's tasks in run order, with
 when each needs a person, Add Task, and Edit Task for what a task requires and
 when it may start. Ticked tasks are the ones Run runs. The task clicked shows
-its settings beside the list, once a microscope is connected.
+its settings beside the list, once a microscope is connected. Slice milling
+shows what a slice changes, with a preview of the first slices, and opens the
+full milling editor from "All milling settings…".
 
 Every edit to the tasks is a ``workflow_edits`` function, the one the App
 Server's protocol edits call, saved with the protocol and recorded. A refusal
@@ -14,9 +16,21 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, List, Optional
 
 from PyQt5.QtCore import QTimer
-from PyQt5.QtWidgets import QDialog, QHBoxLayout, QScrollArea, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import (
+    QDialog,
+    QHBoxLayout,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
 
-from fibsem.ui import notification_service
+from fibsem.applications.volume.ui.slice_milling import (
+    SliceMillingForm,
+    SlicePreview,
+    slice_form_fits,
+)
+from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.edit_recording import PendingEdits
 from fibsem.ui.widgets.workflow.add_task_dialog import AddTaskDialog
 from fibsem.ui.widgets.workflow.task_config_editor import TaskConfigEditor
@@ -48,6 +62,14 @@ class ProtocolTab(QWidget):
             lambda: self.session.microscope, via="protocol editor", parent=self
         )
         self.task_editor: Optional[TaskConfigEditor] = None
+        self.slice_form = SliceMillingForm()
+        self.slice_preview = SlicePreview()
+        self.slice_settings_button = QPushButton("Slice settings only")
+        self.slice_settings_button.setStyleSheet(
+            stylesheets.SECONDARY_BUTTON_STYLESHEET
+        )
+        # the full editor, for a slice milling task, after "All milling settings…"
+        self._all_settings = False
 
         self._settings = QScrollArea()
         self._settings.setWidgetResizable(True)
@@ -56,13 +78,22 @@ class ProtocolTab(QWidget):
         self._layout = QHBoxLayout(self)
         self._layout.addWidget(self.tasks)
         self._layout.addWidget(self._settings)
+        self._layout.addWidget(self.slice_preview, 1)
         self._layout.addStretch(1)
+        self.slice_preview.setVisible(False)
 
         self.tasks.add_task_clicked.connect(self._on_add)
         self.tasks.attention_toggled.connect(self._on_attention)
         self.tasks.edit_requested.connect(self._on_edit)
         self.tasks.order_changed.connect(self._on_reorder)
-        self.tasks.current_changed.connect(lambda _task: self._show_settings())
+        self.tasks.current_changed.connect(lambda _task: self._on_current_changed())
+        self.slice_form.values_changed.connect(self._on_slice_values)
+        self.slice_form.all_settings_clicked.connect(
+            lambda: self._set_all_settings(True)
+        )
+        self.slice_settings_button.clicked.connect(
+            lambda: self._set_all_settings(False)
+        )
         self._editor.editor.apply_clicked.connect(self._on_edited)
         self._editor.remove_requested.connect(self._on_remove)
         self.refresh()
@@ -75,20 +106,30 @@ class ProtocolTab(QWidget):
                 self._edits.flush()
                 self._layout.removeWidget(self.task_editor.milling)
                 self.task_editor.milling.deleteLater()
+                # the slice widgets outlive the column
+                for widget in (self.slice_settings_button, self.slice_form):
+                    widget.setParent(self)
+                    widget.setVisible(False)
                 self._settings.takeWidget().deleteLater()
                 self.task_editor = None
+            self.slice_form.set_microscope(None)
             self._settings.setVisible(False)
+            self.slice_preview.setVisible(False)
             return
+        self.slice_form.set_microscope(microscope)
         if self.task_editor is not None:
             self.task_editor.set_microscope(microscope)
             return
         self.task_editor = TaskConfigEditor(
             self.session, microscope, self._edits, "protocol"
         )
+        self.task_editor.edited.connect(lambda _name: self._on_edited_settings())
         column = QWidget()
         stack = QVBoxLayout(column)
         stack.setContentsMargins(0, 0, 0, 0)
+        stack.addWidget(self.slice_settings_button)
         stack.addWidget(self.task_editor)
+        stack.addWidget(self.slice_form)
         stack.addStretch(1)
         self._settings.setWidget(column)
         self._layout.insertWidget(2, self.task_editor.milling, 1)
@@ -121,12 +162,42 @@ class ProtocolTab(QWidget):
         self._show_settings()
 
     def _show_settings(self) -> None:
-        """The current task's settings, or none."""
+        """The current task's settings, or none: a slice milling task's slice
+        form and preview, unless all its settings were asked for."""
         if self.task_editor is None:
             return
         task = self.tasks.current_task() if self.protocol is not None else None
         config = self.task_editor.show_task(task.name if task is not None else None)
         self._settings.setVisible(config is not None)
+        sliced = slice_form_fits(config)
+        slice_only = sliced and not self._all_settings
+        self.task_editor.setVisible(not slice_only)
+        self.task_editor.milling.setVisible(
+            self.task_editor.milling.isVisibleTo(self) and not slice_only
+        )
+        self.slice_form.setVisible(slice_only)
+        self.slice_preview.setVisible(slice_only)
+        self.slice_settings_button.setVisible(sliced and self._all_settings)
+        if slice_only:
+            self.slice_form.show_config(config)
+            self.slice_preview.show_config(config)
+
+    def _on_current_changed(self) -> None:
+        self._all_settings = False
+        self._show_settings()
+
+    def _set_all_settings(self, all_settings: bool) -> None:
+        self._all_settings = all_settings
+        self._show_settings()
+
+    def _on_slice_values(self, values: dict) -> None:
+        self.task_editor.set_values(values)
+
+    def _on_edited_settings(self) -> None:
+        """Draw the slices again from what was written."""
+        if self.slice_preview.isVisibleTo(self):
+            name = self.task_editor.task_name
+            self.slice_preview.show_config(self.protocol.task_config[name])
 
     def selected_task_names(self) -> List[str]:
         """The ticked tasks, in run order."""
