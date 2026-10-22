@@ -48,7 +48,6 @@ from fibsem.server.files import jpeg_preview
 from fibsem.server.responses import (
     ExperimentSummary,
     ItemDetail,
-    ProtocolTask,
     ProtocolView,
     SummaryRow,
     TaskOutputs,
@@ -107,12 +106,6 @@ class LamellaOutputs(TaskOutputs):
 
 
 @dataclass
-class LamellaProtocolTask(ProtocolTask):
-    # what the task needs from a person under its attention
-    attendance: Optional[str] = None
-
-
-@dataclass
 class GridTaskRef:
     name: str
     # the registered task type (beam or FM overview)
@@ -127,7 +120,6 @@ class RunOptions:
 
 @dataclass
 class LamellaProtocol(ProtocolView):
-    tasks: List[LamellaProtocolTask] = field(default_factory=list)
     # the grid protocol beside it: what a grid run can name
     grid_tasks: List[GridTaskRef] = field(default_factory=list)
     options: Optional[RunOptions] = None
@@ -184,15 +176,13 @@ def _grid_file(experiment, grid, filename: str):
     }
 
 
-def _attendance_line(task_protocol: Any, task_name: str) -> str:
-    """One line on what a task needs from a person, or "" when its type is
-    not one this build knows."""
-    from fibsem.workflows.attendance import (
-        attendance_for,
-    )
+def _grid_task_version(grid_protocol: Any, task_name: str, config: Any) -> str:
+    """The version a grid task's patch echoes: its settings and its attention,
+    which the patch also sets."""
+    from fibsem.server.app_context import content_hash
 
-    att = attendance_for(task_protocol, task_name)
-    return att.line if att is not None else ""
+    attention = grid_protocol.get_attention(task_name).value
+    return content_hash([config_version(config), attention])
 
 
 class AutoLamellaAppContext(AppContext):
@@ -221,47 +211,22 @@ class AutoLamellaAppContext(AppContext):
         )
 
     def protocol(self) -> Dict[str, Any]:
-        """The workflow definition with live supervision flags, schedules and
-        what each task needs from a person."""
-        experiment = self._experiment
-        task_protocol = (
-            getattr(experiment, "task_protocol", None) if experiment else None
-        )
-        if task_protocol is None:
-            return {"available": False, "tasks": []}
-        config = task_protocol.workflow_config
-        grid_protocol = experiment.grid_protocol
+        """The workflow, the grid tasks a grid run can name, and the run
+        options."""
+        view = super().protocol()
+        if not view["available"]:
+            return view
+        task_protocol = self._experiment.task_protocol
+        grid_protocol = self._experiment.grid_protocol
         return {
-            "available": True,
-            "name": config.name,
-            # The grid protocol beside the lamella workflow: what a grid run
-            # can name. Kind is the registered task type (beam vs FM overview).
+            **view,
+            # Kind is the registered task type (beam vs FM overview).
             "grid_tasks": [
                 {
                     "name": name,
                     "type": getattr(grid_protocol.task_config[name], "task_type", None),
                 }
                 for name in grid_protocol.ordered_task_names
-            ],
-            "tasks": [
-                {
-                    "name": task.name,
-                    "attention": task_protocol.get_attention(task.name).value,
-                    # what the task needs from a person under that attention:
-                    # whether someone must be at the microscope while it
-                    # runs, and what waits for a decision afterwards
-                    "attendance": _attendance_line(task_protocol, task.name),
-                    # the boolean the /supervision verb takes, for the agents
-                    # that read it back
-                    "supervise": task_protocol.get_attention(task.name)
-                    is Attention.supervised,
-                    "required": task.required,
-                    "requires": task_protocol.requirements(task.name),
-                    "scheduled_at": task.scheduled_at.isoformat()
-                    if task.scheduled_at is not None
-                    else None,
-                }
-                for task in config.tasks
             ],
             # the run options workflow_set_options changes
             "options": {
@@ -1351,7 +1316,9 @@ class AutoLamellaAppContext(AppContext):
             )
             if running:
                 return running
-        if tool != "protocol_update_grid_task_config":
+        if tool == "protocol_update_grid_task_config":
+            patch = {k: v for k, v in patch.items() if k != "attention"}
+        else:
             refused = workflow_field_refusal(patch)
             if refused:
                 return refused["invalid_patch"]
@@ -1567,22 +1534,19 @@ class AutoLamellaAppContext(AppContext):
         """One config as a wire document with its version token.
 
         The full ``to_dict``, not a curated snapshot — the document is the
-        contract for editing (you cannot patch what you cannot read). An
-        item's copy has no attention or requires: those are the protocol's.
-        The ``version`` hashes the serialized settings, so a write names
+        contract for editing (you cannot patch what you cannot read). The
+        ``version`` hashes the serialized settings, so a write names
         exactly the state it read: the config's version, refused as stale on
         mismatch.
         """
-        from fibsem.applications.autolamella.structures import item_config_dict
         from fibsem.workflows.events import to_plain
 
-        saved = item_config_dict(config) if level == "item" else config.to_dict()
         return {
             "available": True,
             "task_name": task_name,
             "level": level,
-            "version": config_version(config, workflow_fields=level == "grid_protocol"),
-            "config": to_plain(saved),
+            "version": config_version(config),
+            "config": to_plain(config.to_dict()),
         }
 
     def apply_item_task_config_patch(
@@ -1813,10 +1777,14 @@ class AutoLamellaAppContext(AppContext):
         experiment = self._experiment
         if experiment is None or experiment.task_protocol is None:
             return {"error_type": "not_found", "error": "No experiment is loaded."}
-        config, refusal = self._grid_task(experiment.grid_protocol, task_name)
+        grid_protocol = experiment.grid_protocol
+        config, refusal = self._grid_task(grid_protocol, task_name)
         if refusal:
             return refusal
-        return self._config_document(task_name, config, "grid_protocol")
+        document = self._config_document(task_name, config, "grid_protocol")
+        document["config"]["attention"] = grid_protocol.get_attention(task_name).value
+        document["version"] = _grid_task_version(grid_protocol, task_name, config)
+        return document
 
     def apply_grid_task_config_patch(
         self, task_name: str, patch: Dict[str, Any], version: str
@@ -1836,12 +1804,24 @@ class AutoLamellaAppContext(AppContext):
             return refusal
 
         def edit():
-            if config_version(config, workflow_fields=True) != version:
+            if _grid_task_version(grid_protocol, task_name, config) != version:
                 return {"stale": True}
+            settings = {k: v for k, v in patch.items() if k != "attention"}
+            old = grid_protocol.get_attention(task_name)
             try:
-                changes = apply_patch(config, patch)
+                new = Attention(patch.get("attention", old))
+            except ValueError:
+                return {
+                    "invalid_patch": "attention is automated or supervised.",
+                    "path": "attention",
+                }
+            try:
+                changes = apply_patch(config, settings)
             except PatchError as exc:
                 return {"invalid_patch": str(exc), "path": exc.path}
+            if new is not old:
+                grid_protocol.set_attention(task_name, new)
+                changes.append(("attention", old.value, new.value))
             changed = [
                 {"path": p, "old": to_plain(old), "new": to_plain(new)}
                 for p, old, new in changes
@@ -1862,7 +1842,7 @@ class AutoLamellaAppContext(AppContext):
         return {
             "applied": True,
             "task_name": task_name,
-            "version": config_version(config, workflow_fields=True),
+            "version": _grid_task_version(grid_protocol, task_name, config),
             **result,
         }
 
@@ -1904,7 +1884,7 @@ class AutoLamellaAppContext(AppContext):
         experiment, grid_protocol, refusal = self._grid_protocol_edit("edit grid tasks")
         if refusal:
             return refusal
-        config, refusal = self._grid_task(grid_protocol, task_name)
+        _, refusal = self._grid_task(grid_protocol, task_name)
         if refusal:
             return refusal
 
@@ -1917,7 +1897,7 @@ class AutoLamellaAppContext(AppContext):
                 {
                     "field": "grid_requirements",
                     "task_name": task_name,
-                    "requires": list(config.requires),
+                    "requires": grid_protocol.requirements(task_name),
                 },
             )
 
@@ -1928,7 +1908,7 @@ class AutoLamellaAppContext(AppContext):
             "applied": True,
             "saved": saved,
             "task_name": task_name,
-            "requires": list(config.requires),
+            "requires": grid_protocol.requirements(task_name),
         }
 
     def queue_grid_tasks(

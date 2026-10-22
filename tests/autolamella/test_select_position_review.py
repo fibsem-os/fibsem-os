@@ -226,7 +226,7 @@ def test_attention_round_trips_through_the_protocol():
         )
     )
     saved = protocol.to_dict()
-    assert saved["task_config"][SETUP]["attention"] == "supervised"
+    assert saved["workflow_config"]["tasks"][0]["attention"] == "supervised"
     again = AutoLamellaTaskProtocol.from_dict(saved)
     assert again.get_attention(SETUP) is Attention.supervised
     assert again.get_attention("nope") is Attention.automated
@@ -276,4 +276,4 @@ def test_a_protocol_written_with_the_supervise_flag_still_loads():
     )
     saved = _load_protocol(supervise=True).to_dict()
     assert "supervise" not in saved["workflow_config"]["tasks"][0]
-    assert saved["task_config"][SETUP]["attention"] == "supervised"
+    assert saved["workflow_config"]["tasks"][0]["attention"] == "supervised"

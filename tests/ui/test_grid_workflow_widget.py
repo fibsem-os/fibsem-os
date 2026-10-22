@@ -230,12 +230,12 @@ class TestAttentionChip:
 
         row.btn_attention.click()
 
-        config = experiment.grid_protocol.task_config["overview_sem"]
+        config = experiment.grid_protocol.workflow_config.get("overview_sem")
         assert config.attention is Attention.supervised
         assert row.btn_attention.text() == "Supervised"
         assert changed == [True]
         again = Experiment.load(Path(experiment.path) / "experiment.yaml")
-        assert again.grid_protocol.task_config["overview_sem"].attention is (
+        assert again.grid_protocol.workflow_config.get("overview_sem").attention is (
             Attention.supervised
         )
 

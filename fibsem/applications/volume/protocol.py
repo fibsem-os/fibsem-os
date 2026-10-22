@@ -57,8 +57,8 @@ class VolumeProtocol(TaskProtocol):
         the image needs the cut."""
         protocol = cls()
         for setup in (VolumeSetupMillingTaskConfig(), VolumeSetupImagingTaskConfig()):
-            setup.attention = Attention.supervised
             protocol.add(setup)
+            protocol.set_attention(setup.task_name, Attention.supervised)
         mill, image = VolumeFIBMillingTaskConfig(), VolumeSEMAcquisitionTaskConfig()
         protocol.add(mill)
         protocol.add(image)

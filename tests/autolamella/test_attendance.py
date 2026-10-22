@@ -147,7 +147,7 @@ def test_the_run_summary_names_who_needs_you():
         f"This run needs you present for {SETUP}. Everything else runs on its own."
     )
     assert run_attendance(protocol, [ROUGH]).summary == "This run needs nobody present."
-    protocol.task_config[ROUGH].attention = Attention.supervised
+    protocol.workflow_config.get(ROUGH).attention = Attention.supervised
     assert run_attendance(protocol, [SETUP, ROUGH]).summary.startswith(
         "This run needs you present for every task:"
     )

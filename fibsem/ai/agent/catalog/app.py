@@ -470,7 +470,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="protocol_get",
         returns="ProtocolView",
-        description="The workflow definition with live supervision flags and schedules. Each task carries `attendance`: whether a person must be at the microscope while it runs and what waits for their decision afterwards, under its current attention.",
+        description="The workflow: each task's plan entry in order, with its attention (supervised or automated), the tasks it requires, whether an item needs it, and when it may start.",
         method="GET",
         path="/app/experiment/protocol",
         level="watch",

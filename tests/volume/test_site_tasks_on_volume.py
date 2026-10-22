@@ -25,8 +25,8 @@ def test_volume_offers_every_site_task():
 
 def test_a_site_task_runs_once_before_the_slices(microscope, experiment):
     position = set_up_position(experiment, microscope, "aspen", iterations=2)
-    config = experiment.add_task("ACQUIRE_REFERENCE_IMAGE", REFERENCE)
-    config.attention = Attention.automated
+    experiment.add_task("ACQUIRE_REFERENCE_IMAGE", REFERENCE)
+    experiment.task_protocol.set_attention(REFERENCE, Attention.automated)
 
     VolumeTaskManager(microscope=microscope, experiment=experiment).execute(
         [REFERENCE, MILL, IMAGE]

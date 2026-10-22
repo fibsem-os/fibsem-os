@@ -248,7 +248,9 @@ def test_the_agent_edits_the_grid_tasks(driving):
         )
     )
     assert patched["applied"] and patched["version"] != read["version"]
-    assert grid_tasks.task_config["SEM Overview"].attention.value == "supervised"
+    assert (
+        grid_tasks.workflow_config.get("SEM Overview").attention.value == "supervised"
+    )
     stale = _call(
         driving,
         "protocol_update_grid_task_config",
@@ -275,7 +277,7 @@ def test_the_agent_edits_the_grid_tasks(driving):
             requires=["SEM Overview"],
         )
     )
-    assert grid_tasks.task_config["FIB Overview"].requires == ["SEM Overview"]
+    assert grid_tasks.workflow_config.get("FIB Overview").requires == ["SEM Overview"]
     itself = _call(
         driving,
         "protocol_set_grid_task_requirements",

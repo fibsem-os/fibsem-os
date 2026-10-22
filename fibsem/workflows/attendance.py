@@ -167,7 +167,6 @@ def grid_run_attendance(
     wait for one. A grid task says nothing more about it."""
     supervised = []
     for name in task_names:
-        config = protocol.task_config.get(name)
-        if config is not None and config.attention is Attention.supervised:
+        if protocol.get_attention(name) is Attention.supervised:
             supervised.append(name)
     return RunAttendance(supervised=tuple(supervised))

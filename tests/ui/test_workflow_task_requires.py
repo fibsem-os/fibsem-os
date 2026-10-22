@@ -31,7 +31,9 @@ from tests.protocols import planned  # noqa: E402
 
 
 def _row(name: str, requires: list[str]) -> WorkflowTaskRowWidget:
-    return WorkflowTaskRowWidget(*planned(name=name, required=True, requires=requires))
+    return WorkflowTaskRowWidget(
+        planned(name=name, required=True, requires=requires)[0]
+    )
 
 
 def test_a_task_with_no_requirements_leaves_the_column_empty(qapp):

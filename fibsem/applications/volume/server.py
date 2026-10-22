@@ -20,13 +20,9 @@ from fibsem.server.files import jpeg_preview
 from fibsem.server.responses import (
     ExperimentSummary,
     ItemDetail,
-    ProtocolTask,
-    ProtocolView,
     SummaryRow,
 )
 from fibsem.structures import FibsemRectangle, FibsemStagePosition, Point
-from fibsem.util.timestamps import to_iso
-from fibsem.workflows.attention import Attention
 from fibsem.workflows.outputs import item_output_named, saved_file
 from fibsem.workflows.protocol_files import record_recent
 
@@ -53,16 +49,6 @@ class PositionDetail(ItemDetail):
     slices_cut: Optional[int] = None
 
 
-@dataclass
-class PositionProtocolTask(ProtocolTask):
-    type: Optional[str] = None
-
-
-@dataclass
-class PositionProtocol(ProtocolView):
-    tasks: List[PositionProtocolTask] = field(default_factory=list)
-
-
 def _not_served(what: str) -> Dict[str, Any]:
     return {
         "available": False,
@@ -79,33 +65,9 @@ class VolumeAppContext(AppContext):
 
     # --- experiment record ------------------------------------------------------
 
-    def protocol(self) -> Dict[str, Any]:
-        experiment = self._experiment
-        protocol = getattr(experiment, "task_protocol", None) if experiment else None
-        if protocol is None:
-            return {"available": False, "tasks": []}
-        plan = protocol.workflow_config
-        tasks = []
-        for name in protocol.ordered_task_names:
-            config = protocol.task_config[name]
-            entry = plan.get(name)
-            tasks.append(
-                {
-                    "name": name,
-                    "type": config.task_type,
-                    "attention": config.attention.value,
-                    "supervise": config.attention is Attention.supervised,
-                    "required": entry.required if entry is not None else False,
-                    "requires": protocol.requirements(name),
-                    "scheduled_at": to_iso(entry.scheduled_at) if entry else None,
-                }
-            )
-        return {"available": True, "name": protocol.name, "tasks": tasks}
-
     answer_types = {
         ExperimentSummary: PositionSummary,
         ItemDetail: PositionDetail,
-        ProtocolView: PositionProtocol,
     }
 
     def summary_row(self, experiment, item) -> PositionRow:

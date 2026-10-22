@@ -9,8 +9,8 @@ from fibsem import acquire
 from fibsem.applications.volume.position import VolumePosition
 from fibsem.structures import BeamType, FibsemImage, ImageSettings
 from fibsem.util.timestamps import now
-from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import STATE
+from fibsem.workflows.site_task import get_task_supervision
 from fibsem.workflows.task import BaseTask, run_folder
 from fibsem.workflows.task_config import TaskConfig
 
@@ -56,7 +56,7 @@ class VolumeTask(BaseTask):
 
     @property
     def supervised(self) -> bool:
-        return self.config.attention is Attention.supervised
+        return get_task_supervision(self.task_name, self.experiment)
 
     @property
     def slice(self) -> int:

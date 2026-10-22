@@ -1,5 +1,4 @@
-"""AutoLamella task protocols for tests: a plan of tasks, each with its config,
-where the protocol keeps a task's attention and requirements."""
+"""AutoLamella task protocols for tests: a plan of tasks, each with its config."""
 
 import weakref
 from typing import Optional, Sequence, Tuple
@@ -16,8 +15,8 @@ from fibsem.workflows.task_config import TaskPlan
 
 Planned = Tuple[TaskPlan, AutoLamellaTaskConfig]
 
-# Configs planned() made up; add_planned() puts their attention and requires on
-# a config the protocol already has, rather than replacing it.
+# Configs planned() made up; add_planned() keeps a config the protocol already
+# has rather than replacing it with one of these.
 _STAND_INS: "weakref.WeakValueDictionary[int, AutoLamellaTaskConfig]" = (
     weakref.WeakValueDictionary()
 )
@@ -31,15 +30,20 @@ def planned(
     scheduled_at=None,
     config: Optional[AutoLamellaTaskConfig] = None,
 ) -> Planned:
-    """One task of a plan, and its config in the protocol: *config*, or a
-    reference image task's, with *attention* and *requires*."""
+    """One task of a plan, with *attention* and *requires*, and its config in
+    the protocol: *config*, or a reference image task's."""
     if config is None:
         config = AcquireReferenceImageConfig()
         _STAND_INS[id(config)] = config
     config.task_name = name
-    config.attention = attention
-    config.requires = list(requires)
-    return TaskPlan(name=name, required=required, scheduled_at=scheduled_at), config
+    plan = TaskPlan(
+        name=name,
+        attention=attention,
+        requires=list(requires),
+        required=required,
+        scheduled_at=scheduled_at,
+    )
+    return plan, config
 
 
 def task_protocol(*tasks: Planned, **fields) -> AutoLamellaTaskProtocol:
@@ -53,9 +57,6 @@ def add_planned(protocol: AutoLamellaTaskProtocol, *tasks: Planned) -> None:
     """Put *tasks* at the end of *protocol*'s plan, their configs in it."""
     for plan, config in tasks:
         existing = protocol.task_config.get(plan.name)
-        if existing is not None and _STAND_INS.get(id(config)) is config:
-            existing.attention = config.attention
-            existing.requires = list(config.requires)
-        else:
+        if existing is None or _STAND_INS.get(id(config)) is not config:
             protocol.task_config[plan.name] = config
         protocol.workflow_config.tasks.append(plan)

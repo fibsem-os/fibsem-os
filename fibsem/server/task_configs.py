@@ -18,19 +18,15 @@ __all__ = [
 ]
 
 
-def config_version(config, workflow_fields: bool = False) -> str:
+def config_version(config) -> str:
     """A content hash naming exactly this state of a task config's settings.
 
-    Computed from the serialized document so the same content hashes
-    identically wherever it is held. Not from the workflow fields (name,
-    attention, requires) unless *workflow_fields*: those have their own verbs,
-    and a supervision change does not make a settings edit stale. A grid
-    task's attention is patched.
+    Computed from the serialized document, less the task's name, so the same
+    content hashes identically wherever it is held.
     """
     data = config.to_dict()
-    if not workflow_fields:
-        for name in WORKFLOW_FIELDS:
-            data.pop(name, None)
+    for name in WORKFLOW_FIELDS:
+        data.pop(name, None)
     return content_hash(to_plain(data))
 
 
@@ -42,8 +38,8 @@ WORKFLOW_FIELD_VERBS = {
 
 def workflow_field_refusal(patch: dict) -> Optional[dict]:
     """Why a task-config *patch* is refused for naming attention or requires,
-    as an ``invalid_patch`` answer; None when it names neither. Both have
-    their own verbs."""
+    as an ``invalid_patch`` answer; None when it names neither. Both are the
+    plan entry's, with their own verbs."""
     for path in patch:
         field = str(path).split(".", 1)[0]
         if field in WORKFLOW_FIELD_VERBS:

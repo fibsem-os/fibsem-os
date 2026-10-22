@@ -1232,6 +1232,18 @@ class AppContext:
         folder = self._protocol_folder()
         return list_protocols(folder, self._default_protocol_path()) if folder else []
 
+    def protocol(self) -> Dict[str, Any]:
+        """The workflow: each task's plan entry, in order."""
+        experiment = self._experiment
+        protocol = getattr(experiment, "task_protocol", None) if experiment else None
+        if protocol is None:
+            return {"available": False, "tasks": []}
+        return {
+            "available": True,
+            "name": protocol.name,
+            "tasks": [task.to_dict() for task in protocol.workflow_config.tasks],
+        }
+
     def protocols(self) -> Dict[str, Any]:
         """The protocol files an agent may load or create an experiment with."""
         return {

@@ -138,5 +138,7 @@ def test_the_protocol_round_trips_its_configs():
     assert isinstance(back.task_config[TASKS[0]], VolumeFIBMillingTaskConfig)
     assert isinstance(back.task_config[SETUP[0]], VolumeSetupMillingTaskConfig)
     # the setup asks; the image needs its slice's cut
-    assert all(back.task_config[t].attention is Attention.supervised for t in SETUP)
+    assert all(
+        back.workflow_config.get(t).attention is Attention.supervised for t in SETUP
+    )
     assert back.requirements(TASKS[1]) == [TASKS[0]]

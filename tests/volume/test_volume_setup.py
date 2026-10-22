@@ -33,7 +33,9 @@ TASKS = [SET_UP_MILLING, SET_UP_IMAGING, MILL, IMAGE]
 def unset(experiment, microscope):
     """Positions as added: a milling pose and a point, no references."""
     for name in (SET_UP_MILLING, SET_UP_IMAGING):
-        experiment.task_protocol.task_config[name].attention = Attention.automated
+        experiment.task_protocol.workflow_config.get(
+            name
+        ).attention = Attention.automated
     return [
         experiment.add_position(
             name, microscope.get_microscope_state(), Point(0, 1e-6), iterations=2

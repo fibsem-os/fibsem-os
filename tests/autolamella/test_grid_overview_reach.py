@@ -260,7 +260,7 @@ def test_the_shipped_grid_tasks_are_in_the_arctis_reach(microscope):
         assert (settings.nrows, settings.ncols) == (tiles, tiles)
         assert settings.image_settings.hfw == pytest.approx(hfw)
         assert tuple(settings.image_settings.resolution) == (1536, 1024)
-        assert config.requires == []
+        assert grid_tasks.requirements(name) == []
         assert overview_reach(microscope, config) == [], name
 
         taller = deepcopy(config)

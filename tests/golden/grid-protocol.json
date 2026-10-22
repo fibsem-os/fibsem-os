@@ -3,10 +3,8 @@
   "name": "Grid Task Protocol",
   "task_config": {
     "FIB Overview": {
-      "attention": "automated",
       "filename": "overview",
       "orientation": "SEM",
-      "requires": [],
       "settings": {
         "autocontrast_mode": "NONE",
         "autofocus_mode": "NONE",
@@ -67,10 +65,8 @@
       "task_type": "BEAM_OVERVIEW_GRID"
     },
     "SEM Overview": {
-      "attention": "automated",
       "filename": "overview",
       "orientation": "SEM",
-      "requires": [],
       "settings": {
         "autocontrast_mode": "NONE",
         "autofocus_mode": "NONE",
@@ -134,13 +130,17 @@
   "workflow_config": {
     "tasks": [
       {
+        "attention": "automated",
         "name": "SEM Overview",
         "required": true,
+        "requires": [],
         "scheduled_at": null
       },
       {
+        "attention": "automated",
         "name": "FIB Overview",
         "required": true,
+        "requires": [],
         "scheduled_at": null
       }
     ]

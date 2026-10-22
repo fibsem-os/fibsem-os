@@ -830,25 +830,24 @@ def test_each_upgrade_step_moves_one_shape():
         "workflow_config": {"tasks": [{"name": "a"}]},
     }
     old = {
-        "tasks": {"a": {}, "b": {"attention": "automated"}},
+        "tasks": {"a": {}, "b": {"attention": "automated"}, "c": {"requires": ["a"]}},
         "workflow": {
             "tasks": [
                 {"name": "a", "supervise": True, "requires": []},
                 {"name": "b", "attention": "supervised", "requires": ["a"]},
+                {"name": "c"},
                 {"name": "ghost", "attention": "supervised"},
             ]
         },
     }
     new = protocol_upgrade.autolamella_protocol(old)
-    assert new["task_config"] == {
-        "a": {"attention": "supervised", "requires": []},
-        "b": {"attention": "automated", "requires": ["a"]},
-    }, "the config's own attention wins; a task with no config keeps nothing"
+    assert new["task_config"] == {"a": {}, "b": {}, "c": {}}
     assert new["workflow_config"]["tasks"] == [
-        {"name": "a"},
-        {"name": "b"},
-        {"name": "ghost"},
-    ]
+        {"name": "a", "attention": "supervised", "requires": []},
+        {"name": "b", "attention": "supervised", "requires": ["a"]},
+        {"name": "c", "requires": ["a"]},
+        {"name": "ghost", "attention": "supervised"},
+    ], "the plan entry's own value wins; a config's moves onto its entry"
     current = deepcopy(new)
     assert protocol_upgrade.autolamella_protocol(current) == new, (
         "the current shape is kept"

@@ -47,8 +47,9 @@ def task(tmp_path, microscope):
     exp = Experiment(path=tmp_path, name="exp")
     (tmp_path / "exp").mkdir()
     exp.task_protocol = AutoLamellaTaskProtocol()
-    config = BeamOverviewGridTaskConfig(task_name=TASK, attention=Attention.supervised)
+    config = BeamOverviewGridTaskConfig(task_name=TASK)
     exp.grid_protocol.add(config)
+    exp.grid_protocol.set_attention(TASK, Attention.supervised)
     exp.sync_grids_from_inventory(microscope.sample_handling)
     manager = GridTaskManager(microscope, exp, deciders=lambda: ())
     return _AsksAboutTheGrid(

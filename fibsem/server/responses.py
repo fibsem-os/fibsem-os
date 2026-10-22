@@ -452,12 +452,12 @@ class RunSummary:
 
 @dataclass
 class ProtocolTask:
+    """A task's plan entry (``TaskPlan``); its config is looked up by name."""
+
     name: str
     attention: Optional[str] = None
-    # whether the task asks for supervision: what the supervision edit takes
-    supervise: Optional[bool] = None
-    required: Optional[bool] = None
     requires: List[str] = field(default_factory=list)
+    required: Optional[bool] = None
     scheduled_at: Optional[str] = None
 
 
