@@ -39,6 +39,7 @@ from fibsem.server.responses import (
 from fibsem.structures import BeamType, FibsemStagePosition
 from fibsem.util.records import dataframe_records
 from fibsem.util.timestamps import to_iso, wall_time_of
+from fibsem.workflows import workflow_edits
 from fibsem.workflows.actions import NOTE, note_record
 from fibsem.workflows.evidence import EVIDENCE, frame_path
 from fibsem.workflows.experiments import (
@@ -1511,10 +1512,6 @@ class AppContext:
         ``scheduled_at`` is ISO-8601 (naive = local time; an offset is
         normalized by the workflow) or ``None`` to clear.
         """
-        from fibsem.workflows.workflow_edits import (
-            save_workflow_change,
-        )
-
         parsed = None
         if scheduled_at is not None:
             try:
@@ -1530,27 +1527,11 @@ class AppContext:
         experiment = self._experiment
         if experiment is None or experiment.task_protocol is None:
             return {"available": False, "applied": False}
-        config = experiment.task_protocol.workflow_config
-        why = config.set_schedule(task_name, parsed)
-        if why:
-            return {
-                "available": True,
-                "applied": False,
-                "error": why,
-                "task_names": config.workflow,
-            }
-        iso = parsed.isoformat() if parsed else None
-        saved = save_workflow_change(
-            experiment,
-            {"field": "scheduled_at", "task_name": task_name, "scheduled_at": iso},
-            self.record_event,
-        )
         return {
             "available": True,
-            "applied": True,
-            "saved": saved,
-            "task_name": task_name,
-            "scheduled_at": iso,
+            **workflow_edits.set_schedule(
+                experiment, task_name, parsed, self.record_event
+            ),
         }
 
     def _workflow_edit(self, what: str):
@@ -1567,6 +1548,20 @@ class AppContext:
         if refusal:
             return None, None, refusal
         return experiment, protocol.workflow_config, None
+
+    def _protocol_edit(self, edit, experiment, *args):
+        """*edit* (one of ``workflow_edits``) on *experiment*, to run where the
+        experiment is edited: recorded as this context's, and said to the
+        window when it applied, so no editor writes back a list it drew
+        before the change."""
+
+        def run():
+            result = edit(experiment, *args, self.record_event)
+            if result["applied"]:
+                self._session.changed.emit(PROTOCOL)
+            return result
+
+        return run
 
     def _protocol_changed(self, experiment, change: Dict[str, Any]) -> bool:
         """Save the protocol after an edit, say it changed, so no editor writes
@@ -1628,23 +1623,15 @@ class AppContext:
                 "task_type_names": types,
             }
 
-        def add():
-            try:
-                experiment.add_task(task_type, task_name)
-            except ValueError as exc:
-                return str(exc)
-            return self._protocol_changed(
-                experiment, {"field": "tasks", "added": task_name.strip()}
+        result = self._agent_call(
+            self._protocol_edit(
+                workflow_edits.add_task, experiment, task_type, task_name
             )
-
-        saved = self._agent_call(add)
-        if isinstance(saved, str):
-            return {"error_type": "invalid", "error": saved}
+        )
+        if not result["applied"]:
+            return {"error_type": "invalid", "error": result["error"]}
         return {
-            "applied": True,
-            "saved": saved,
-            "task_name": task_name.strip(),
-            "task_type": task_type,
+            **result,
             "task_names": experiment.task_protocol.workflow_config.workflow,
         }
 
@@ -1662,14 +1649,10 @@ class AppContext:
                 "task_names": list(experiment.task_protocol.task_config),
             }
 
-        def remove():
-            experiment.remove_task(task_name)
-            return self._protocol_changed(
-                experiment, {"field": "tasks", "removed": task_name}
-            )
-
-        saved = self._agent_call(remove)
-        return {"applied": True, "saved": saved, "task_names": config.workflow}
+        result = self._agent_call(
+            self._protocol_edit(workflow_edits.remove_task, experiment, task_name)
+        )
+        return {**result, "task_names": config.workflow}
 
     def reorder_tasks(self, order: List[str]) -> Dict[str, Any]:
         """Put the workflow's tasks in *order*, as dragging them on the Workflow
@@ -1679,22 +1662,16 @@ class AppContext:
         if refusal:
             return refusal
 
-        def reorder():
-            why = experiment.task_protocol.reorder(list(order))
-            if why:
-                return why
-            return self._protocol_changed(
-                experiment, {"field": "order", "order": order}
-            )
-
-        saved = self._agent_call(reorder)
-        if isinstance(saved, str):
+        result = self._agent_call(
+            self._protocol_edit(workflow_edits.reorder_tasks, experiment, order)
+        )
+        if not result["applied"]:
             return {
                 "error_type": "invalid",
-                "error": saved,
+                "error": result["error"],
                 "task_names": config.workflow,
             }
-        return {"applied": True, "saved": saved, "task_names": config.workflow}
+        return {**result, "task_names": config.workflow}
 
     def set_task_requirements(
         self,
@@ -1718,27 +1695,15 @@ class AppContext:
                 "task_names": config.workflow,
             }
 
-        def edit():
-            why = protocol.set_requirements(task_name, requires, required)
-            if why:
-                return why
-            return self._protocol_changed(
+        result = self._agent_call(
+            self._protocol_edit(
+                workflow_edits.set_requirements,
                 experiment,
-                {
-                    "field": "requirements",
-                    "task_name": task_name,
-                    "requires": protocol.requirements(task_name),
-                    "required": task.required,
-                },
+                task_name,
+                requires,
+                required,
             )
-
-        saved = self._agent_call(edit)
-        if isinstance(saved, str):
-            return {"error_type": "invalid", "error": saved}
-        return {
-            "applied": True,
-            "saved": saved,
-            "task_name": task_name,
-            "requires": protocol.requirements(task_name),
-            "required": task.required,
-        }
+        )
+        if not result["applied"]:
+            return {"error_type": "invalid", "error": result["error"]}
+        return result

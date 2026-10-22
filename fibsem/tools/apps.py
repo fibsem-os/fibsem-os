@@ -2,7 +2,7 @@
 
 One record per app holds what the launcher, the window and the desktop shortcut
 each need: the name, the Windows taskbar id, the icon, the console command and
-the function to run. AutoLamella and the fibsemOS UI are built in; a package
+the function to run. AutoLamella, Volume and the fibsemOS UI are built in; a package
 outside this repo adds its own app with an entry point in the ``fibsem.apps``
 group naming an ``App``::
 
@@ -105,7 +105,21 @@ FIBSEM_UI = App(
     + (("Loading the microscope UI", ("fibsem.ui.FibsemUI",)),),
 )
 
-BUILTIN_APPS: Dict[str, App] = {"autolamella": AUTOLAMELLA, "fibsem-ui": FIBSEM_UI}
+VOLUME = App(
+    name="Volume",
+    app_id="fibsemOS.Volume",
+    command="fibsem-volume-ui",
+    target="fibsem.applications.volume.ui.window:main",
+    icon=ICONS_DIR / "fibsemos.svg",
+    load_steps=_COMMON_STEPS
+    + (("Loading Volume", ("fibsem.ui", "fibsem.applications.volume.ui.window")),),
+)
+
+BUILTIN_APPS: Dict[str, App] = {
+    "autolamella": AUTOLAMELLA,
+    "fibsem-ui": FIBSEM_UI,
+    "volume": VOLUME,
+}
 
 
 def apps() -> Dict[str, App]:
