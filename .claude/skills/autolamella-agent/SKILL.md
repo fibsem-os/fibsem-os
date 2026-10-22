@@ -398,6 +398,10 @@ The other moves, by when to use them:
   in the other. Pass its offset in the image where it is off, and that beam
   as `beam_type` (ION, the default, or ELECTRON); it moves the stage along the
   chamber vertical, which the beam where the feature is centred doesn't see.
+- `stage_fm_stable_move`: `stage_stable_move` for the fluorescence image,
+  with the objective inserted. Pass the feature's offset in the FM image as
+  displayed; it keeps the focal plane. `service_call_query`
+  `project_fm_stable_move` answers where it would go without moving.
 - `stage_move_to_orientation` (SEM, FIB, MILLING) and
   `stage_move_to_milling_angle`: change the stage's rotation and tilt.
 - `stage_move_absolute`: go back to a saved position. It tilts flat before a

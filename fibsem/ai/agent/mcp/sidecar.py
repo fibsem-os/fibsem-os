@@ -676,6 +676,9 @@ def build_sidecar(client, capabilities):
             "stage_stable_move", "position", dx=dx, dy=dy, beam_type=beam_type
         )
 
+    def stage_fm_stable_move(dx: float, dy: float):
+        return _routed("stage_fm_stable_move", "position", dx=dx, dy=dy)
+
     def stage_vertical_move(
         dy: float,
         dx: float = 0.0,
@@ -1624,6 +1627,7 @@ def build_sidecar(client, capabilities):
             beam_acquire_image,
             stage_move_relative,
             stage_stable_move,
+            stage_fm_stable_move,
             stage_vertical_move,
             stage_move_to_orientation,
             stage_move_absolute,

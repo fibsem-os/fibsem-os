@@ -98,6 +98,16 @@ def _stage_stable_move(a: Dict[str, Any], ctx: wording.ActionContext) -> Dict[st
     }
 
 
+def _stage_fm_stable_move(
+    a: Dict[str, Any], ctx: wording.ActionContext
+) -> Dict[str, Any]:
+    return {
+        "what": "Stage",
+        "change": "Stable move in the fluorescence image: "
+        f"{wording.offset(a.get('dx'), a.get('dy'))}",
+    }
+
+
 def _stage_vertical_move(
     a: Dict[str, Any], ctx: wording.ActionContext
 ) -> Dict[str, Any]:
@@ -566,6 +576,29 @@ TOOLS: Tuple[ToolSpec, ...] = (
                 beam_type=str(a.get("beam_type", "ELECTRON")),
             ),
         ),
+    ),
+    ToolSpec(
+        name="stage_fm_stable_move",
+        description=(
+            "Move the stage so a feature seen in the fluorescence image comes to "
+            "the centre of that image: stage_stable_move for the FM view. dx and dy "
+            "are the feature's offset from the image centre in metres, x to the "
+            "right and y up, in the image as displayed. The server turns the offset "
+            "into stage x, y and z for the camera's tilt and display transform, so "
+            "the sample slides along its own surface and stays in the objective's "
+            "focal plane. Insert the objective first. Take a fresh FM image "
+            "afterwards to check where the feature landed."
+        ),
+        method="POST",
+        path="/microscope/services/stage_movement/commands/fm_stable_move",
+        level="drive",
+        hardware=True,
+        params={
+            "dx": "the feature's offset from the image centre along x, metres, right positive",
+            "dy": "the feature's offset from the image centre along y, metres, up positive",
+        },
+        line=_stage_fm_stable_move,
+        call=lambda a: ({}, kwargs_body(dx=float(a["dx"]), dy=float(a["dy"]))),
     ),
     ToolSpec(
         name="stage_vertical_move",
