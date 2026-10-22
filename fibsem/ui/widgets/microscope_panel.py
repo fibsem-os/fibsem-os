@@ -1,4 +1,4 @@
-"""The right-hand panel of the AutoLamella window: the Experiment tab, the
+"""The right-hand panel of an app's window: the app's experiment tab, the
 microscope's tabs, the workflow line and the prompt bar.
 
 The microscope's tabs (Image, Movement, Milling, Sample, Fluorescence,
@@ -8,14 +8,13 @@ and when the open experiment's positions do.
 """
 
 import logging
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional, Protocol
 
 from psygnal import EmissionInfo
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QGridLayout, QLabel, QTabWidget, QWidget
 from superqt import ensure_main_thread
 
-from fibsem.applications.autolamella.ui.panel.experiment import ExperimentTab
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import FibsemStagePosition, MicroscopeSettings
 from fibsem.ui import (
@@ -38,11 +37,27 @@ if DETECTION_AVAILABLE:  # ml dependencies are optional
     )
 
 if TYPE_CHECKING:
-    from fibsem.applications.autolamella.structures import Experiment
     from fibsem.workflows.session import AppSession
     from fibsem.workflows.status import WorkflowStatusEvent
 
-__all__ = ["MicroscopePanel"]
+__all__ = ["ItemTab", "MicroscopePanel"]
+
+
+class ItemTab(Protocol):
+    """The panel's first tab, the app's: its experiment's items."""
+
+    # the tab's name
+    title: str
+    # the item selection the Image and Fluorescence tabs follow; None for none
+    lamella_list: Optional[Any]
+
+    def refresh(self) -> None: ...
+
+    def update_items(self, latest: bool = False) -> None:
+        """The items changed; *latest*: select the one just added."""
+
+    def update_selected(self) -> None:
+        """The selected item changed."""
 
 
 class MicroscopePanel(QWidget):
@@ -53,11 +68,13 @@ class MicroscopePanel(QWidget):
         self,
         session: "AppSession",
         *,
+        experiment_tab: Callable[["MicroscopePanel"], ItemTab],
         view_controller: Callable[[], Any],
         overview_acquiring: Callable[[], bool],
         parent: Optional[QWidget] = None,
     ) -> None:
-        """*view_controller* is the window's quad view, once it has one;
+        """*experiment_tab* builds the app's tab for this panel;
+        *view_controller* is the window's quad view, once it has one;
         *overview_acquiring* says whether the Overview tab is mid-tileset."""
         super().__init__(parent)
         self.session = session
@@ -66,7 +83,7 @@ class MicroscopePanel(QWidget):
         # the microscope whose moves the stage readout follows
         self._stage_followed: Optional[FibsemMicroscope] = None
         # the experiment whose position events the panel follows
-        self._experiment_followed: Optional["Experiment"] = None
+        self._experiment_followed: Optional[Any] = None
 
         self.image_widget: Optional[FibsemImageSettingsWidget] = None
         self.movement_widget: Optional[FibsemMovementWidget] = None
@@ -79,10 +96,8 @@ class MicroscopePanel(QWidget):
 
         self.gridLayout = QGridLayout(self)
         self.tabWidget = QTabWidget(self)
-        self.experiment_tab = ExperimentTab(
-            session, movement_widget=lambda: self.movement_widget
-        )
-        self.tabWidget.addTab(self.experiment_tab, "Experiment")
+        self.experiment_tab = experiment_tab(self)
+        self.tabWidget.addTab(self.experiment_tab, self.experiment_tab.title)
         self.label_workflow_information = QLabel("Workflow Information")
         self.prompt_bar = PromptBar()
 
@@ -122,13 +137,14 @@ class MicroscopePanel(QWidget):
         experiment = self.session.experiment
         self._follow_experiment(experiment)
         if experiment is not None:
-            self.experiment_tab.update_lamella_combobox()
+            self.experiment_tab.update_items()
         self.refresh()
         if experiment is not None and what in (MICROSCOPE, EXPERIMENT):
             self.show_experiment_tab()
 
-    def _follow_experiment(self, experiment: Optional["Experiment"]) -> None:
-        """Redraw on ``experiment``'s position events, and stop for the last's."""
+    def _follow_experiment(self, experiment: Optional[Any]) -> None:
+        """Redraw on ``experiment``'s position events, and stop for the last's.
+        An experiment without them redraws on the session's changes only."""
         followed = self._experiment_followed
         if followed is experiment:
             return
@@ -137,6 +153,8 @@ class MicroscopePanel(QWidget):
                 followed.events.disconnect(self._on_experiment_event)  # type: ignore
             except Exception as e:
                 logging.debug(f"Could not disconnect experiment events: {e}")
+        if getattr(experiment, "events", None) is None:
+            experiment = None
         if experiment is not None:
             experiment.events.connect(self._on_experiment_event)  # type: ignore
         self._experiment_followed = experiment
@@ -147,16 +165,14 @@ class MicroscopePanel(QWidget):
         task, an edit)."""
         if evt.signal.name not in ["inserted", "removed", "changed"]:
             return
-        self.experiment_tab.update_lamella_combobox(
-            latest=evt.signal.name == "inserted"
-        )
+        self.experiment_tab.update_items(latest=evt.signal.name == "inserted")
         self.refresh()
 
     def show_experiment_tab(self) -> None:
         self.tabWidget.setCurrentWidget(self.experiment_tab)
 
     def refresh_tabs(self) -> None:
-        """The Experiment tab shows once a microscope is connected; Detection
+        """The experiment tab shows once a microscope is connected; Detection
         stays hidden until a proposal asks for it."""
         self.tabWidget.setTabVisible(
             self.tabWidget.indexOf(self.experiment_tab),
@@ -167,7 +183,7 @@ class MicroscopePanel(QWidget):
             self.tabWidget.setTabVisible(idx, False)  # hide detection tab for now
 
     def reset_after_run(self, image_path: str) -> None:
-        """Put the tabs back as they were before the run: the Experiment tab
+        """Put the tabs back as they were before the run: the experiment tab
         in front, the editors cleared and their own buttons back."""
         self.show_experiment_tab()
 
@@ -454,7 +470,7 @@ class MicroscopePanel(QWidget):
 
     def handle_acquisition_update(self, ddict: dict) -> None:
         if ddict.get("finished", False):
-            self.experiment_tab.update_lamella_ui()
+            self.experiment_tab.update_selected()
 
     def handle_workflow_status(self, event: "WorkflowStatusEvent") -> None:
         """Show a fire-and-forget status update. GUI thread, via the run relay.

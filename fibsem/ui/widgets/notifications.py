@@ -551,6 +551,10 @@ class NotificationBell(QWidget):
         self.badge.hide()
 
 
+# The kinds that still pop up when toasts are for problems only.
+PROBLEM_TYPES = ("warning", "error")
+
+
 class ToastManager:
     """Manages toast notifications, on whichever of the app's windows the operator is
     working in.
@@ -569,6 +573,8 @@ class ToastManager:
         self.toasts: list[ToastNotification] = []
         self.spacing = 10
         self.notification_bell: NotificationBell = None
+        # Only problems pop up (`DisplayPreferences.toast_problems_only`).
+        self.problems_only = False
         self._last_active: Optional[weakref.ref] = None  # to a QWidget
         app = QApplication.instance()
         if app is not None:
@@ -621,8 +627,18 @@ class ToastManager:
         duration: int = 5000,
         temporary: bool = False,
         action: Optional[ToastAction] = None,
+        always: bool = False,
     ):
-        """Show a toast notification, with an optional (text, callback) link."""
+        """Show a toast notification, with an optional (text, callback) link.
+
+        With `problems_only`, only errors, warnings and ``always`` pop up; the
+        rest still go to the bell unless temporary."""
+        if self.problems_only and not always and notification_type not in PROBLEM_TYPES:
+            if self.notification_bell and not temporary:
+                self.notification_bell.add_notification(
+                    message, notification_type, action
+                )
+            return
         toast = ToastNotification(self._anchor(), duration)
         self.toasts.append(toast)
 

@@ -447,7 +447,7 @@ class AppContext:
 
         from fibsem.workflows.event_recording import EVENTS_FILENAME, read_new_events
         from fibsem.workflows.history_rows import (
-            OPERATION_KINDS,
+            HISTORY_KINDS,
             HistoryFilter,
             filter_runs,
             history_rows,
@@ -463,8 +463,13 @@ class AppContext:
         path = Path(experiment.path) / EVENTS_FILENAME
         events: List[Dict[str, Any]] = []
         if path.is_file():
-            events, _ = read_new_events(path, 0, OPERATION_KINDS)
-        runs = history_rows(item, events, self.history_images(experiment, item))
+            events, _ = read_new_events(path, 0, HISTORY_KINDS)
+        runs = history_rows(
+            item,
+            events,
+            self.history_images(experiment, item),
+            folder=str(experiment.item_path(item)),
+        )
         shown = HistoryFilter.from_dict(flt)
         return {
             "available": True,

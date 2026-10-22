@@ -97,6 +97,25 @@ def _stage_stable_move(a: Dict[str, Any], ctx: wording.ActionContext) -> Dict[st
     }
 
 
+def _stage_fm_stable_move(
+    a: Dict[str, Any], ctx: wording.ActionContext
+) -> Dict[str, Any]:
+    return {
+        "what": "Stage",
+        "change": "Stable move in the fluorescence image: "
+        f"{wording.offset(a.get('dx'), a.get('dy'))}",
+    }
+
+
+def _stage_move_to_device(
+    a: Dict[str, Any], ctx: wording.ActionContext
+) -> Dict[str, Any]:
+    change = f"Move to the {a.get('device')} device"
+    if a.get("orientation"):
+        change += f", in the {str(a['orientation']).upper()} orientation"
+    return {"what": "Stage", "change": change}
+
+
 def _stage_vertical_move(
     a: Dict[str, Any], ctx: wording.ActionContext
 ) -> Dict[str, Any]:
@@ -308,8 +327,18 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "use_autofocus": "true to auto focus before each acquisition (default false)",
             "method": "how the shift is measured: cross-correlation (default), phase-correlation or skimage-phase-correlation",
             "validate": "take a final image and check the methods agree on what is left (default true)",
+            "use_autocontrast": "true to autocontrast before each acquisition (default false)",
+            "path": "a folder inside the open experiment to save the run to (default Alignment, next to the reference)",
         },
-        optional=("steps", "subsystem", "use_autofocus", "method", "validate"),
+        optional=(
+            "steps",
+            "subsystem",
+            "use_autofocus",
+            "method",
+            "validate",
+            "use_autocontrast",
+            "path",
+        ),
         line=_alignment_align_to_reference,
         call=lambda a: (
             {},
@@ -320,6 +349,8 @@ TOOLS: Tuple[ToolSpec, ...] = (
                 use_autofocus=bool(a.get("use_autofocus", False)),
                 method=str(a.get("method") or "cross-correlation"),
                 validate=bool(a.get("validate", True)),
+                use_autocontrast=bool(a.get("use_autocontrast", False)),
+                path=a.get("path"),
             ),
         ),
     ),
@@ -337,11 +368,15 @@ TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "reference_path": "the saved reference image",
             "image_path": "the saved image to measure against it",
+            "method": "cross-correlation (default), phase-correlation or skimage-phase-correlation",
         },
+        optional=("method",),
         call=lambda a: (
             {},
             kwargs_body(
-                reference_path=str(a["reference_path"]), image_path=str(a["image_path"])
+                reference_path=str(a["reference_path"]),
+                image_path=str(a["image_path"]),
+                method=str(a.get("method") or "cross-correlation"),
             ),
         ),
     ),
@@ -556,8 +591,9 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "dx": "the feature's offset from the image centre along x, metres, right positive",
             "dy": "the feature's offset from the image centre along y, metres, up positive",
             "beam_type": "the beam whose image the offset was measured in: ELECTRON or ION",
+            "static_wd": "true to put the electron working distance at its eucentric height after, rather than where it was (default false)",
         },
-        optional=("beam_type",),
+        optional=("beam_type", "static_wd"),
         line=_stage_stable_move,
         call=lambda a: (
             {},
@@ -565,6 +601,62 @@ TOOLS: Tuple[ToolSpec, ...] = (
                 dx=float(a["dx"]),
                 dy=float(a["dy"]),
                 beam_type=str(a.get("beam_type", "ELECTRON")),
+                static_wd=bool(a.get("static_wd", False)),
+            ),
+        ),
+    ),
+    ToolSpec(
+        name="stage_fm_stable_move",
+        description=(
+            "Move the stage so a feature seen in the fluorescence image comes to "
+            "the centre of that image: stage_stable_move for the FM view. dx and dy "
+            "are the feature's offset from the image centre in metres, x to the "
+            "right and y up, in the image as displayed. The server turns the offset "
+            "into stage x, y and z for the camera's tilt and display transform, so "
+            "the sample slides along its own surface and stays in the objective's "
+            "focal plane. Insert the objective first. Take a fresh FM image "
+            "afterwards to check where the feature landed."
+        ),
+        method="POST",
+        path="/microscope/services/stage_movement/commands/fm_stable_move",
+        level="drive",
+        hardware=True,
+        params={
+            "dx": "the feature's offset from the image centre along x, metres, right positive",
+            "dy": "the feature's offset from the image centre along y, metres, up positive",
+        },
+        line=_stage_fm_stable_move,
+        call=lambda a: ({}, kwargs_body(dx=float(a["dx"]), dy=float(a["dy"]))),
+    ),
+    ToolSpec(
+        name="stage_move_to_device",
+        description=(
+            "Travel the stage to another device on an instrument where the FM is "
+            "beside the FIB-SEM rather than under it: FIBSEM or FM, as "
+            "stage_get_geometry names them. It retracts the objective and re-poses "
+            "on the way when it has to, so a rotation never happens under the "
+            "objective. orientation names the pose to arrive in; left out, the "
+            "pose carries across when the device can image from it, else the "
+            "device's first imaging orientation. Refused when the stage is at no "
+            "device. Read the position back after."
+        ),
+        method="POST",
+        path="/microscope/services/stage_movement/commands/move_to_device",
+        level="drive",
+        hardware=True,
+        params={
+            "device": "the device to travel to: FIBSEM or FM",
+            "orientation": "the pose to arrive in (SEM, FIB, MILLING, FM); left out, as above",
+        },
+        optional=("orientation",),
+        line=_stage_move_to_device,
+        call=lambda a: (
+            {},
+            kwargs_body(
+                device=str(a["device"]),
+                orientation=(
+                    None if not a.get("orientation") else str(a["orientation"]).upper()
+                ),
             ),
         ),
     ),

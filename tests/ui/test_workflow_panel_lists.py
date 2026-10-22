@@ -24,10 +24,10 @@ from fibsem.applications.autolamella.ui.common.lamella_display import (
 from fibsem.applications.autolamella.ui.lamella.rows import (
     LamellaListWidget,  # noqa: E402
 )
-from fibsem.applications.autolamella.ui.workflow.task_list import (
+from fibsem.ui.widgets import lists as list_chrome  # noqa: E402  # noqa: E402
+from fibsem.ui.widgets.workflow.task_list import (
     WorkflowTaskList,  # noqa: E402
 )
-from fibsem.ui.widgets import lists as list_chrome  # noqa: E402  # noqa: E402
 from fibsem.workflows.status import TaskState  # noqa: E402
 from fibsem.workflows.task_config import TaskPlan
 from tests.protocols import planned, task_protocol
