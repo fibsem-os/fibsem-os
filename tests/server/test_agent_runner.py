@@ -389,6 +389,24 @@ def test_files_mode_works_on_windows_but_still_needs_a_folder_of_its_own(
     )
 
 
+def test_folder_rules_name_a_windows_folder_as_claude_code_matches_it():
+    """Claude Code matches rules against a Windows path in POSIX form, its
+    drive a lower-case folder: a rule with C: in it allows nothing."""
+    from pathlib import PurePosixPath, PureWindowsPath
+
+    from fibsem.ai.agent import code_mode
+
+    work = PureWindowsPath(r"C:\Users\User\fibsem-work")
+    assert code_mode.allowed_tools(work, code=False)[-1] == (
+        "Edit(//c/Users/User/fibsem-work/**)"
+    )
+    deny = code_mode.settings(work, {}, code=False)["permissions"]["deny"]
+    assert deny == ["Edit(//c/Users/User/fibsem-work/.claude/**)"]
+    assert code_mode.allowed_tools(PurePosixPath("/home/a/w"))[-1] == (
+        "Edit(//home/a/w/**)"
+    )
+
+
 def test_code_and_files_are_one_or_the_other(capsys):
     with pytest.raises(SystemExit):
         runner_mod.main(["--code", "a", "--files", "b"])

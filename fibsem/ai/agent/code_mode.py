@@ -21,7 +21,7 @@ import re
 import shutil
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import List, Mapping, Optional
 
 # The file tools on top of the runner's own, and the code tools: those and a
@@ -137,9 +137,13 @@ def details() -> List[str]:
     return [f"Code reads, read only: {readonly}", f"Code runs with {sys.executable}"]
 
 
-def _rule(path: Path) -> str:
-    # "//" starts an absolute path in a permission rule.
-    return f"/{path.as_posix()}/**"
+def _rule(path: PurePath) -> str:
+    # "//" starts an absolute path in a permission rule. Rules match Windows
+    # paths in POSIX form, its drive a folder: C:\x is /c/x.
+    posix = path.as_posix()
+    if len(path.drive) == 2 and path.drive[1] == ":":
+        posix = f"/{path.drive[0].lower()}{posix[2:]}"
+    return f"/{posix}/**"
 
 
 def secrets(environ: Mapping[str, str]) -> List[str]:
