@@ -556,6 +556,8 @@ class AgentView:
     asking: Optional[ConnectAskView] = None
     # what it said it can do, as [name, value] rows
     facts: List[List[str]] = field(default_factory=list)
+    # whether it has spent most of its budget: the session line warns
+    budget_low: bool = False
 
 
 @dataclass

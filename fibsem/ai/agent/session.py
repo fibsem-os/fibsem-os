@@ -28,6 +28,8 @@ OPEN = ("pending", "applying")
 MESSAGE_LIMIT = 2000
 # How often a waiting request's values are read again (FIB-1412).
 REQUEST_REFRESH_S = 15.0
+# The share of its budget at which the card and the record warn.
+BUDGET_WARNING = 0.8
 
 
 def _no_suggestion(verb: str) -> DecisionResult:
@@ -42,14 +44,34 @@ def _dollars(value: float) -> str:
     return f"${value:.0f}" if float(value).is_integer() else f"${value:.2f}"
 
 
+def budget_used(session: Optional[Dict[str, Any]]) -> Optional[float]:
+    """The share of its budget the agent reported spending, or None."""
+    if not session:
+        return None
+    spent, budget = session.get("spent_usd"), session.get("budget_usd")
+    if spent is None or not budget:
+        return None
+    return spent / budget
+
+
+def budget_low(session: Optional[Dict[str, Any]]) -> bool:
+    """Whether the agent has spent `BUDGET_WARNING` of its budget or more."""
+    used = budget_used(session)
+    return used is not None and used >= BUDGET_WARNING
+
+
 def session_text(session: Optional[Dict[str, Any]]) -> Optional[str]:
     """ "claude-opus · Mill 01 and 02 · $2.10 of $20" from the agent's reported
-    session (``fibsem.server.agent_session``); None when it reported none."""
+    session (``fibsem.server.agent_session``); None when it reported none.
+    With the budget low, the spend leads, so a narrow card keeps it."""
     if not session:
         return None
     parts = [session[key] for key in ("model", "goal") if session.get(key)]
     spent, budget = session.get("spent_usd"), session.get("budget_usd")
-    if spent is not None and budget is not None:
+    if budget_low(session):
+        used = round(100 * budget_used(session))
+        parts.insert(0, f"{_dollars(spent)} of {_dollars(budget)}, {used}% used")
+    elif spent is not None and budget is not None:
         parts.append(f"{_dollars(spent)} of {_dollars(budget)}")
     elif spent is not None:
         parts.append(f"{_dollars(spent)} spent")
@@ -621,6 +643,10 @@ class AgentSession:
         """The reported session in one line, as the card and the chat show
         it, or None."""
         return session_text(self.reported_session())
+
+    def budget_low(self) -> bool:
+        """Whether the agent reported spending most of its budget."""
+        return budget_low(self.reported_session())
 
     def session_facts(self) -> List[Tuple[str, str]]:
         """What the agent said it can do, as rows (`session_facts`)."""

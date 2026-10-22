@@ -168,6 +168,8 @@ export interface AgentState {
   asking: ConnectAsk | null;
   /** What the agent said it can do, as [name, value] rows. */
   facts: [string, string][];
+  /** The agent has spent most of its budget: the session line warns. */
+  budget_low: boolean;
 }
 
 /** One row of GET /app/agent/recent. */
