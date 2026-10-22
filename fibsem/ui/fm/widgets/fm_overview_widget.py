@@ -2822,7 +2822,7 @@ class FMOverviewWidget(QWidget):
             if event.status is TiledStatus.FINISHED and event.warning:
                 # Kept in the notification history: it is about the instrument's
                 # calibration, not this one image, and outlives the toast.
-                notification_service.show(event.warning, "warning")
+                notification_service.show(event.warning, "info")
             self._finish(event.status, event.error)
             return
 

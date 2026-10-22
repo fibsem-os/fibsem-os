@@ -4184,7 +4184,7 @@ class FibsemOverviewWidget(QWidget):
         if event.status is TiledStatus.FINISHED and event.warning:
             # Kept in the notification history: it is about the instrument's
             # calibration, not this one image, and outlives the toast.
-            notification_service.show(event.warning, "warning")
+            notification_service.show(event.warning, "info")
 
         if event.completed is not None and event.total:
             self._tiles_acquired = event.completed

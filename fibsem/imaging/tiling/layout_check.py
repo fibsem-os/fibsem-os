@@ -256,12 +256,14 @@ class AxisSummary:
         out = []
         deviation = self.step_fraction - 1.0
         if abs(deviation) > WARN_STEP_FRACTION:
+            longer = "longer" if deviation > 0 else "shorter"
             out.append(
-                f"in {axis} the picture moved {self.step_fraction:.1%} of each "
-                f"planned step"
+                f"in {axis} each step was {abs(deviation):.1%} {longer} than planned"
             )
         if abs(self.angle_deg) > WARN_ANGLE_DEG:
-            out.append(f"steps in {axis} run {self.angle_deg:+.1f}° off the image axis")
+            out.append(
+                f"in {axis} the steps ran {self.angle_deg:+.1f}° off the image axis"
+            )
         return out
 
 
@@ -284,11 +286,11 @@ class TileLayoutSummary:
         if not problems:
             return None
         return (
-            "The overview's tiles do not line up with the stage steps: "
+            "Tile spacing differed from the plan: "
             + "; ".join(problems)
-            + ". The pixel size or the stage moves for this view are off by about that "
-            "much, so positions picked on it are out by that fraction of their distance "
-            "from its centre."
+            + ". Positions picked far from the overview's centre may be off by a "
+            "similar fraction of their distance from it. The pixel size or stage "
+            "calibration for this view may need a check."
         )
 
     def describe(self) -> str:
