@@ -145,7 +145,9 @@ class FmIntensityMonitor(MillingStreamMonitor[FmIntensityConfig]):
         mean = float(np.mean(data))
         if np.isnan(mean):
             return
+        self._tune()
         stats = self.rule.update(mean, milled)
+        self.on_stats(frame, data, stats)
         reading = {k: _plain(stats[k]) for k in _READING}
         self.rows.append({"milled_time": round(milled, 3), **reading})
         self._save_frame(frame, milled)
@@ -155,6 +157,17 @@ class FmIntensityMonitor(MillingStreamMonitor[FmIntensityConfig]):
             self.trigger("intensity drop", reading)
         else:
             self.report(reading)
+
+    def _tune(self) -> None:
+        """Give the rule the config as it is now: it may change while it mills."""
+        c = self.config
+        self.rule.drop_fraction = float(c.drop_fraction)
+        self.rule.rolling_window = int(c.rolling_window)
+        self.rule.warmup_duration = float(c.warmup_duration)
+        self.rule.consecutive_triggers = int(c.consecutive_triggers)
+
+    def on_stats(self, frame: Any, data: Any, stats: Dict[str, Any]) -> None:
+        """A frame, the part of it watched, and the drop rule's numbers for it."""
 
     def _save_frame(self, frame: Any, milled: float) -> None:
         interval = self.config.save_interval

@@ -3,15 +3,17 @@ from __future__ import annotations
 import datetime
 import logging
 import os
+import threading
 import time
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional
+from typing import Any, Optional
 
 import numpy as np
 from psygnal import Signal
 
 from fibsem import acquire, constants
+from fibsem.cancellation import OperationCancelledError
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling import (
@@ -21,22 +23,20 @@ from fibsem.milling import (
     MillingStrategyResult,
     setup_milling,
 )
-from fibsem.milling.monitors.intensity import IntensityDropRule
+from fibsem.milling.monitors.base import ON_TRIGGER_END, ON_TRIGGER_SUGGEST
+from fibsem.milling.monitors.fm_intensity import FmIntensityConfig, FmIntensityMonitor
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
-from fibsem.services.milling import report_progress
+from fibsem.milling.steps import ENDED, STEP_FAILED, STOPPED
+from fibsem.services.milling import monitored_by, report_progress
 from fibsem.structures import (
     BeamType,
     Display,
     FibsemImage,
     FibsemRectangle,
-    MillingState,
     RangeLimit,
     param,
 )
 from fibsem.utils import save_json
-
-if TYPE_CHECKING:
-    import threading
 
 
 @dataclass
@@ -137,6 +137,62 @@ _END_REASONS = {
     "drop": "intensity drop",
     "timeout": "reached the time limit",
 }
+# Why the monitor ends the step on a drop, and on the time limit.
+DROP, TIME_LIMIT = "intensity drop", "reached the time limit"
+# The rule's numbers the live display gets during the warmup.
+_WARMUP_STATS = (
+    "value",
+    "rolling_mean",
+    "peak_rolling_mean",
+    "threshold_value",
+    "warmup_complete",
+)
+
+
+class CoincidenceMonitor(FmIntensityMonitor):
+    """FM Intensity for the coincidence strategy. Its settings are the
+    strategy's, read every frame, so the viewer's live edits (drop fraction,
+    FM box, supervised) apply mid-mill: supervised, a drop is suggested;
+    unsupervised it ends the step, also when switched after the drop. It ends
+    the step at the strategy's ``timeout``. Each frame goes to the strategy."""
+
+    def __init__(self, strategy: "CoincidenceMillingStrategy") -> None:
+        super().__init__(FmIntensityConfig(save_interval=0))
+        self.strategy = strategy
+        self._timer: Optional[threading.Timer] = None
+
+    def _sync(self) -> None:
+        sc, c = self.strategy.config, self.config
+        c.drop_fraction = float(sc.intensity_drop_fraction)
+        c.rolling_window = int(sc.rolling_window)
+        c.warmup_duration = float(sc.warmup_duration)
+        c.consecutive_triggers = int(sc.consecutive_triggers)
+        c.bbox = sc.bbox
+        c.on_trigger = ON_TRIGGER_SUGGEST if sc.supervised else ON_TRIGGER_END
+        if c.on_trigger == ON_TRIGGER_END and self.drop_at is not None:
+            # switched to unsupervised after a drop it only suggested
+            self.end(DROP)
+
+    def on_start(self) -> None:
+        self._sync()
+        super().on_start()
+        self._timer = threading.Timer(
+            float(self.strategy.config.timeout), lambda: self.end(TIME_LIMIT)
+        )
+        self._timer.daemon = True
+        self._timer.start()
+
+    def on_frame(self, frame: Any) -> None:
+        self._sync()
+        super().on_frame(frame)
+
+    def on_stats(self, frame: Any, data: Any, stats: dict) -> None:
+        self.strategy._on_frame(frame, data, stats)
+
+    def on_stop(self) -> None:
+        if self._timer is not None:
+            self._timer.cancel()
+        super().on_stop()
 
 
 class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfig]):
@@ -164,10 +220,9 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         self.image_path: str
         self.camera_resolution: tuple[int, int]
         self._last_save_time: float = time.time()  # for rate limiting image saves
-        # Intensity drop detection state
-        self._rule = self._drop_rule()
-        self._acquisition_start_time: Optional[float] = None
-        self._drop_detected: bool = False  # latched when a drop event fires
+        # The run's FM Intensity monitor, and whether it saw a drop
+        self.monitor: Optional[CoincidenceMonitor] = None
+        self._drop_detected: bool = False
         # Key images captured during the run
         self.first_fm_acq: Optional[FluorescenceImage] = None
         self.last_fm_acq: Optional[FluorescenceImage] = None
@@ -223,31 +278,6 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         # cache camera resolution
         self.camera_resolution = self.microscope.fm.camera.resolution
 
-    def _start_milling_and_acquisition(self) -> float:
-        # start milling, and estimate time (if supported by microscope)
-        self.microscope.start_milling()  # asynchronous start
-        estimated_time = self.microscope.estimate_milling_time()
-        time.sleep(1)
-
-        # start acquisition after starting milling
-        self._acquisition_start_time = time.time()
-        self.microscope.fm.start_acquisition()  # type: ignore
-
-        return estimated_time
-
-    def _connect_signals(self):
-        # connect the acquisition signal
-        self.microscope.fm.acquisition_signal.disconnect(self.on_fm_acquisition_signal)  # type: ignore
-        self.microscope.fm.acquisition_signal.connect(self.on_fm_acquisition_signal)  # type: ignore
-        if self.config.save_fm_images:
-            self.cropped_image_signal.connect(self._save_fm_image)
-
-    def _setup_milling(self):
-        # setup milling
-        self.microscope.stop_milling()
-        setup_milling(self.microscope, self.stage)
-        self.microscope.draw_patterns(patterns=self.stage.define_patterns())
-
     def run(
         self,
         microscope: FibsemMicroscope,
@@ -255,7 +285,11 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         stop_event: Optional["threading.Event"] = None,
     ) -> MillingStrategyResult:
         """Coincidence Milling Strategy. Says why the mill stopped, how long it
-        milled, whether the intensity dropped, and where its summary is."""
+        milled, whether the intensity dropped, and where its summary is.
+
+        The mill is the milling service's, watched by the FM Intensity monitor
+        with this strategy's settings (`CoincidenceMonitor`); a stop ends it
+        and the strategy still saves what it saw."""
         logging.info(f"Running {self.name} Milling Strategy for {stage.name}")
 
         self._stop_event = stop_event
@@ -272,27 +306,42 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
             if self.microscope.imaging is not None:
                 self.microscope.imaging.show(image)
 
-        # connect acquisition signals
-        self._connect_signals()
+        if self.config.save_fm_images:
+            self.cropped_image_signal.connect(self._save_fm_image)
 
-        self._setup_milling()
+        setup_milling(microscope, milling_stage=stage, stop_event=stop_event)
+        microscope.draw_patterns(stage.define_patterns())
 
         # reset detection state before acquisition starts
         self.end_reason = None
-        self._rule = self._drop_rule()
+        self.monitor = None
+        self.intensities, self.timestamps = [], []
         self._drop_detected = False
         self._stats_records = []
 
-        # start milling and acquisition
+        estimated_time = microscope.estimate_milling_time()
+        report_progress(
+            microscope,
+            MillingProgress(
+                status=MillingProgressStatus.STAGE_UPDATE,
+                message=f"Coincidence milling: {stage.name}",
+                stage_name=stage.name,
+                start_time=time.time(),
+                estimated_time=estimated_time,
+            ),
+        )
         milling_started = time.time()
-        estimated_time = self._start_milling_and_acquisition()
-
-        # monitor milling progress and check for stop event
-        self._monitor_milling_progress(estimated_time=estimated_time)
-        milled_for = time.time() - milling_started
-
-        # stop milling and acquisition, finalize milling
-        self._stop_milling_and_acquisition()
+        try:
+            with monitored_by(microscope, stage, self._make_monitor):
+                microscope.run_milling(stop_event=stop_event)
+        except OperationCancelledError:
+            self.end_reason = "stopped"
+        finally:
+            milled_for = time.time() - milling_started
+            self.cropped_image_signal.disconnect(self._save_fm_image)
+            self.microscope.finish_milling()
+        self.end_reason = self.end_reason or self._why_it_ended()
+        logging.info("Milling finished. FM acquisition stopped.")
 
         # save intensities and timestamps
         self._save_intensities()
@@ -319,111 +368,56 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
             figure=summary,
         )
 
-    def _stop_milling_and_acquisition(self):
-        if self.microscope is None or self.microscope.fm is None:
-            raise ValueError(
-                "Microscope or FM is not set. Cannot stop milling and acquisition."
-            )
+    def _make_monitor(self) -> "CoincidenceMonitor":
+        self.monitor = CoincidenceMonitor(self)
+        return self.monitor
 
-        # stop milling and fm acquisition
-        self.microscope.stop_milling()
-        self.microscope.fm.stop_acquisition()
-        logging.info("Milling finished. FM acquisition stopped.")
-
-        # finalize
-        self.microscope.fm.acquisition_signal.disconnect(self.on_fm_acquisition_signal)
-        self.cropped_image_signal.disconnect(self._save_fm_image)
-        self.microscope.finish_milling()
-
-        # post image acquisition handled by parent task
-        # acquire a z-stack post-milling
-        # if self.config.acquire_z_stack:
-        #     image = acquire_z_stack(
-        #         self.microscope.fm,
-        #         channel_settings=self.config.channel_settings,
-        #         zparams=self.config.zparams,
-        #     )
+    def _why_it_ended(self) -> Optional[str]:
+        """The key of `_END_REASONS` for how the mill step ended."""
+        step = self.monitor.step if self.monitor is not None else None
+        end = step.end if step is not None else None
+        if end is None:
+            return None
+        if end.kind == STOPPED or (end.kind == ENDED and end.by == "strategy"):
+            return "stopped"  # `stop`, or `stop_pattern`
+        if end.kind == ENDED and end.by == self.monitor.by:
+            return "drop" if end.reason == DROP else "timeout"
+        if end.kind == ENDED:
+            return f"ended by {end.by or 'the operator'}: {end.reason}"
+        if end.kind == STEP_FAILED:
+            return f"failed: {end.reason}"
+        return "timeout"  # the mill ran its time
 
     @property
     def is_cancelled(self) -> bool:
         """Whether the caller's stop event (the milling widget's, from the GUI) is set."""
         return self._stop_event is not None and self._stop_event.is_set()
 
-    def _monitor_milling_progress(self, estimated_time: float):
-        """Monitor milling progress, emit updates, and check for stop event."""
-        remaining_time = estimated_time
-        start_time = time.time()
-        estimated_end_time = start_time + estimated_time
-        timeout_end_time = start_time + self.config.timeout
-        max_end_time = min(timeout_end_time, estimated_end_time)
-        SLEEP_DURATION = 1  # seconds
-
-        while True:
-            # sleep
-            time.sleep(SLEEP_DURATION)
-
-            # check for stop event
-            if self.is_cancelled:
-                logging.info("Milling stop event set. Stopping milling.")
-                self.end_reason = "stopped"
-                self.microscope.stop_milling()
-                break
-
-            # unsupervised runs: automatically stop on intensity drop
-            if not self.config.supervised and self._drop_detected:
-                logging.info("Unsupervised: intensity drop detected. Stopping milling.")
-                self.end_reason = "drop"
-                self.microscope.stop_milling()
-                break
-
-            # TODO: support pause behaviour... just keep fm acq, pause milling
-            # NOTE: the bbox is pushed to self.config.bbox by the viewer via
-            # _on_bbox_update as the FM ROI rectangle changes.
-
-            # update milling progress via signal
-            remaining_time = max(0.0, max_end_time - time.time())
-            report_progress(
-                self.microscope,
-                MillingProgress(
-                    status=MillingProgressStatus.STAGE_UPDATE,
-                    message=f"Coincidence milling: {self.stage.name}",
-                    stage_name=self.stage.name,
-                    start_time=start_time,
-                    # Deliberately not `self.microscope.get_milling_state()`. On
-                    # ThermoFisher that getter *sets the active view* as a side effect,
-                    # and this strategy is running a fluorescence acquisition that holds
-                    # the view for its whole duration -- asking would yank it away
-                    # mid-acquisition. UNKNOWN says "cannot be read without disturbing
-                    # something", which is the truth here.
-                    milling_state=MillingState.UNKNOWN,
-                    estimated_time=estimated_time,
-                    remaining_time=remaining_time,
-                ),
+    def _on_frame(self, image: Any, data: np.ndarray, rule: dict) -> None:
+        """A frame the monitor took: for the viewer (the crop and the live
+        stats) and for this strategy's files."""
+        self.cropped_image_signal.emit({"arr": data, "image": image})
+        if self.first_fm_acq is None:
+            self.first_fm_acq = image
+        self.last_fm_acq = image
+        self.intensities.append(float(rule["value"]))
+        self.timestamps.append(time.time())
+        if rule["drop_detected"]:
+            self._drop_detected = True
+            logging.warning(
+                f"Intensity drop detected: rolling_mean={rule['rolling_mean']:.2f} < "
+                f"threshold={rule['threshold_value']:.2f} (peak={rule['peak_rolling_mean']:.2f})"
             )
-            # timeout
-            if time.time() >= max_end_time:
-                logging.info(
-                    f"Max End Time reached: {max_end_time - start_time} seconds have passed. Stopping milling."
-                )
-                self.end_reason = "timeout"
-                break
-
-            continue
-
-    def _drop_rule(self) -> IntensityDropRule:
-        """The drop rule for a run, over the run's intensities."""
-        rule = IntensityDropRule(0, 0, 0, 0)
-        rule.values = self.intensities
-        self._tune(rule)
-        return rule
-
-    def _tune(self, rule: IntensityDropRule) -> None:
-        """Give *rule* the config's settings as they are now: the coincidence
-        viewer changes the drop fraction while it mills."""
-        rule.drop_fraction = float(self.config.intensity_drop_fraction)
-        rule.rolling_window = int(self.config.rolling_window)
-        rule.warmup_duration = float(self.config.warmup_duration)
-        rule.consecutive_triggers = int(self.config.consecutive_triggers)
+        stats = {
+            "timestamp": time.time(),
+            "elapsed_time": self.monitor.step.milled_time(),
+            **rule,
+        }
+        self._stats_records.append(stats)
+        if not rule["warmup_complete"]:
+            # the live display has only the rule's numbers during the warmup
+            stats = {k: rule[k] for k in _WARMUP_STATS}
+        self.intensity_stats_signal.emit(stats)
 
     def _save_intensities(self):
         if self.path is None:
@@ -467,66 +461,6 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
             logging.info(f"Saved intensity stats DataFrame to {csv_path}")
         except Exception as e:
             logging.error(f"Error saving intensity stats DataFrame: {e}", exc_info=True)
-
-    def on_fm_acquisition_signal(self, image: FluorescenceImage):
-        if self.microscope is None or self.microscope.fm is None:
-            logging.error(
-                "Microscope or FM is not set. Cannot process FM acquisition signal."
-            )
-            return
-        if self.camera_resolution is None:
-            logging.error(
-                "Camera resolution is not set. Cannot process FM acquisition signal."
-            )
-            return
-
-        # crop to bounding box if specified
-        data = image.data
-        if self.config.bbox is not None:
-            x, y, w, h = self.config.bbox.to_pixel_coordinates(self.camera_resolution)
-            data = image.data[y : y + h, x : x + w]
-        self.cropped_image_signal.emit({"arr": data, "image": image})
-
-        if self.first_fm_acq is None:
-            self.first_fm_acq = image
-        self.last_fm_acq = image
-
-        # calc mean intensity
-        mean_intensity = data.mean()
-        if np.isnan(mean_intensity):
-            return
-
-        # the rule keeps the intensity (`intensities`); the time is kept here
-        self.timestamps.append(time.time())
-
-        elapsed = time.time() - (self._acquisition_start_time or time.time())
-        self._tune(self._rule)
-        rule = self._rule.update(float(mean_intensity), elapsed)
-        if rule["drop_detected"]:
-            self._drop_detected = True  # latch for the monitor loop (auto-stop)
-            logging.warning(
-                f"Intensity drop detected: rolling_mean={rule['rolling_mean']:.2f} < "
-                f"threshold={rule['threshold_value']:.2f} (peak={rule['peak_rolling_mean']:.2f})"
-            )
-        stats = {"timestamp": time.time(), "elapsed_time": elapsed, **rule}
-        if not rule["warmup_complete"]:
-            # the live display has only the rule's numbers during the warmup
-            self.intensity_stats_signal.emit(
-                {
-                    k: rule[k]
-                    for k in (
-                        "value",
-                        "rolling_mean",
-                        "peak_rolling_mean",
-                        "threshold_value",
-                        "warmup_complete",
-                    )
-                }
-            )
-            self._stats_records.append(stats)
-            return
-        self.intensity_stats_signal.emit(stats)
-        self._stats_records.append(stats)
 
     def save_run_summary_figure(self) -> Optional[str]:
         """Save a 2x2 PNG of pre/post FIB and first/last FM images plus an

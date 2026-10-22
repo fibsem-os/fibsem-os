@@ -51,7 +51,7 @@ import os
 import threading
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from typing import (
     Any,
     Callable,
@@ -1152,6 +1152,8 @@ class Milling(Service):
             return COMPLETED
         stage = stage_run.stage if stage_run is not None else None
         monitors = _monitors_of(stage)
+        if stage_run is not None:
+            monitors += [make() for make in stage_run.monitors]
         views = sorted({m.view for m in monitors if m.view})
         if len(views) > 1:
             raise MixedMonitorViews(
@@ -1570,6 +1572,24 @@ def _monitors_of(stage: Any) -> List[Any]:
     """The monitors a step of *stage* runs, made afresh from its configs."""
     configs = getattr(stage, "monitors", None) or []
     return [config.monitor_class(config=config) for config in configs]
+
+
+@contextmanager
+def monitored_by(
+    microscope: Any, stage: Any, make: Callable[[], Any]
+) -> Iterator[None]:
+    """Each mill step of *stage* in the block also runs the monitor *make*
+    makes: a strategy's own. In the stage run going on, or one of its own."""
+    milling = microscope.milling
+    stage_run = milling._stage_run
+    with ExitStack() as stack:
+        if stage_run is None:
+            stage_run = stack.enter_context(milling.stage_run(stage))
+        stage_run.monitors.append(make)
+        try:
+            yield
+        finally:
+            stage_run.monitors.remove(make)
 
 
 @contextmanager
