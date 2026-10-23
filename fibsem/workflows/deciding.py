@@ -104,12 +104,15 @@ class ProposalDecisions:
             item = self.get_item_by_id(item_id)
             if item is None:
                 return DecisionResult(
-                    applied=False, reason=f"No item with id {item_id!r}."
+                    applied=False,
+                    error_type="not_found",
+                    reason=f"No item with id {item_id!r}.",
                 )
             proposal = item.proposal(task_name)
             if proposal is None:
                 return DecisionResult(
                     applied=False,
+                    error_type="not_found",
                     reason=f"{item.name} has no proposal from {task_name!r}.",
                 )
             if decision.proposal_id and decision.proposal_id != proposal.id:
@@ -178,7 +181,11 @@ class ProposalDecisions:
                         f"stop it before writing {sorted(decision.values)} through.",
                     )
             if decision.outcome is DecisionOutcome.Rejected and not decision.reason:
-                return DecisionResult(applied=False, reason="A reject needs a reason.")
+                return DecisionResult(
+                    applied=False,
+                    error_type="missing_field",
+                    reason="A reject needs a reason.",
+                )
             if decision.outcome in (
                 DecisionOutcome.Withdrawn,
                 DecisionOutcome.Unreviewed,
@@ -732,12 +739,15 @@ class ProposalDecisions:
             item = self.get_item_by_id(item_id)
             if item is None:
                 return DecisionResult(
-                    applied=False, reason=f"No item with id {item_id!r}."
+                    applied=False,
+                    error_type="not_found",
+                    reason=f"No item with id {item_id!r}.",
                 )
             proposal = item.proposal(task_name)
             if proposal is None:
                 return DecisionResult(
                     applied=False,
+                    error_type="not_found",
                     reason=f"{item.name} has no proposal from {task_name!r}.",
                 )
             if not proposal.pending:

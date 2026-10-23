@@ -17,8 +17,10 @@ fibsem/ai/agent/session.py 8
 fibsem/alignment/coincidence.py 10
 fibsem/alignment/methods.py 1
 fibsem/alignment/plotting.py 5
-fibsem/applications/autolamella/config_edits.py 5
+fibsem/applications/autolamella/config_edits.py 6
 fibsem/applications/autolamella/overview_figure.py 5
+fibsem/applications/autolamella/server/context.py 1
+fibsem/applications/autolamella/server/replay.py 3
 # Deliberate: the experiment decodes task configs through the task registry, whose tasks import it.
 fibsem/applications/autolamella/structures.py 7
 fibsem/applications/autolamella/task_outputs.py 6
@@ -120,6 +122,7 @@ fibsem/server/headless.py 1
 fibsem/server/hosting.py 12
 fibsem/server/image_payloads.py 10
 fibsem/server/images.py 5
+fibsem/server/planes.py 4
 fibsem/server/server.py 1
 fibsem/services/alignment.py 7
 fibsem/services/analysis.py 1

@@ -10,6 +10,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
+from fibsem.server.responses import Refusal
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.session import AppSession
 from fibsem.workflows.task_config import SCHEDULE_DAYS_AHEAD
@@ -115,6 +116,6 @@ def test_the_agent_schedule_is_refused_past_the_window(experiment):
 
     refused = AutoLamellaAppContext(session).set_task_schedule("Polish", late)
 
-    assert refused["applied"] is False
-    assert "days from now" in refused["error"]
+    assert isinstance(refused, Refusal) and refused.status == 422
+    assert "days from now" in refused.message
     assert experiment.task_protocol.workflow_config.get_scheduled_at("Polish") is None

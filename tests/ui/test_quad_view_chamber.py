@@ -12,9 +12,9 @@ pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is delibe
 
 from fibsem import utils
 from fibsem.drivers.demo.simulator import STAGE_LIMITS_COMPUSTAGE
+from fibsem.geometry.stage_places import is_half_turn
 from fibsem.services.sample_handling import bind_sample_handling
 from fibsem.structures import FibsemStagePosition
-from fibsem.ui.widgets.canvas.chamber_view import is_half_turn
 from fibsem.ui.widgets.canvas.quad_view import (
     ItemEditorView,
     MicroscopeViewController,
