@@ -51,10 +51,11 @@ import os
 import threading
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from typing import (
     Any,
     Callable,
+    ContextManager,
     Dict,
     Iterator,
     List,
@@ -1473,6 +1474,98 @@ class Milling(Service):
             step.ending.wait(seconds)
         else:
             time.sleep(seconds)
+
+
+# The patterning modes a beam driver mills in.
+PATTERNING_MODES = ("Serial", "Parallel")
+
+
+class BeamMilling(Milling):
+    """Milling where the recipe sets the milling beam's own conditions (field of
+    view, voltage, current) and the instrument patterns with an application file
+    and a patterning mode: ThermoFisher's, through AutoScript or Odemis, and the
+    Demo's.
+
+    The sequence and its state checks are here; a driver implements the vendor
+    calls: ``_select`` (the milling view, the application file and the patterning
+    mode), ``_start_patterning``, ``_stop_patterning``, ``_pause_patterning`` and
+    ``_resume_patterning``, and ``_locked`` when its calls go under a lock."""
+
+    setting_names = (
+        "milling_channel",
+        "hfw",
+        "milling_current",
+        "milling_voltage",
+        "application_file",
+        "patterning_mode",
+    )
+
+    def _locked(self) -> ContextManager[Any]:
+        """The lock the vendor calls go under, held across a state check and the
+        call it decides; none by default."""
+        return nullcontext()
+
+    def _setup(self, settings: FibsemMillingSettings, name: Optional[str]) -> None:
+        if settings.patterning_mode not in PATTERNING_MODES:
+            raise ValueError(
+                f"Patterning mode {settings.patterning_mode} not supported. "
+                f"Supported modes: {', '.join(PATTERNING_MODES)}"
+            )
+        channel = settings.milling_channel
+        self.parent.milling_channel = channel
+        with self._locked():
+            self._select(settings)
+            self._clear()
+        beam = self.beam(channel)
+        beam.hfw.write_through(settings.hfw)
+        # voltage before current: the available ion currents are calibrated per voltage
+        beam.voltage.write_through(settings.milling_voltage)
+        beam.current.write_through(settings.milling_current)
+        logging.debug({"msg": "setup_milling", "mill_settings": settings.to_dict()})
+
+    def _select(self, settings: FibsemMillingSettings) -> None:
+        """Select the milling view on ``settings.milling_channel``, and set the
+        application file and the patterning mode new patterns are made with."""
+        raise NotImplementedError
+
+    def _start(self) -> None:
+        with self._locked():
+            if self.read_state() is MillingState.IDLE:
+                self._start_patterning()
+                logging.info("Starting milling...")
+
+    def _stop(self) -> None:
+        with self._locked():
+            if self.read_state() in ACTIVE_MILLING_STATES:
+                logging.info("Stopping milling...")
+                self._stop_patterning()
+                logging.info("Milling stopped.")
+
+    def _pause(self) -> None:
+        with self._locked():
+            if self.read_state() is MillingState.RUNNING:
+                logging.info("Pausing milling...")
+                self._pause_patterning()
+                logging.info("Milling paused.")
+
+    def _resume(self) -> None:
+        with self._locked():
+            if self.read_state() is MillingState.PAUSED:
+                logging.info("Resuming milling...")
+                self._resume_patterning()
+                logging.info("Milling resumed.")
+
+    def _start_patterning(self) -> None:
+        raise NotImplementedError
+
+    def _stop_patterning(self) -> None:
+        raise NotImplementedError
+
+    def _pause_patterning(self) -> None:
+        raise NotImplementedError
+
+    def _resume_patterning(self) -> None:
+        raise NotImplementedError
 
 
 class MillingStateMonitor:

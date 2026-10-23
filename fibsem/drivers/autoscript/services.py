@@ -19,9 +19,8 @@ from skimage import transform
 from fibsem.devices.core import ParameterMetadata
 from fibsem.drivers.autoscript import microscope as autoscript
 from fibsem.drivers.autoscript.microscope import TFS_SCAN_DIRECTIONS
-from fibsem.services.milling import Milling, bind_milling
+from fibsem.services.milling import BeamMilling, bind_milling
 from fibsem.structures import (
-    ACTIVE_MILLING_STATES,
     CrossSectionPattern,
     FibsemBitmapSettings,
     FibsemCircleSettings,
@@ -38,8 +37,6 @@ if TYPE_CHECKING:
 
     from fibsem.drivers.autoscript.connection import AutoScriptConnection
     from fibsem.drivers.autoscript.microscope import ThermoMicroscope
-
-_PATTERNING_MODES = ("Serial", "Parallel")
 
 
 def match_application_file(
@@ -68,19 +65,11 @@ def match_application_file(
     return application_file
 
 
-class AutoScriptMilling(Milling):
+class AutoScriptMilling(BeamMilling):
     """ThermoFisher milling, on ``connection.patterning``."""
 
     parent: ThermoMicroscope
 
-    setting_names = (
-        "milling_channel",
-        "hfw",
-        "milling_current",
-        "milling_voltage",
-        "application_file",
-        "patterning_mode",
-    )
     scan_directions = tuple(TFS_SCAN_DIRECTIONS)
 
     def __init__(
@@ -105,24 +94,17 @@ class AutoScriptMilling(Milling):
             return ParameterMetadata(choices=tuple(files))
         return super()._setting_metadata(name)
 
-    def _setup(self, settings: FibsemMillingSettings, name: Optional[str]) -> None:
-        # the milling view, the application file, the patterning mode (held on the
-        # channel: they act on the active view), then hfw, voltage and current
-        microscope = self.parent
+    def _locked(self) -> Any:
+        return self.connection.lock
+
+    def _select(self, settings: FibsemMillingSettings) -> None:
+        # held on the channel: the application file and patterning mode act on the
+        # active view
         channel = settings.milling_channel
-        microscope.milling_channel = channel
-        with self.connection.lock:
-            self.connection.set_channel(channel)
-            self._sdk.patterning.set_default_beam_type(channel.value)
-            self._set_application_file(settings.application_file, default=True)
-            self._set_patterning_mode(settings.patterning_mode)
-            self._clear()  # clear any existing patterns
-        beam = self.beam(channel)
-        beam.hfw.write_through(settings.hfw)
-        # voltage before current: the available ion currents are calibrated per voltage
-        beam.voltage.write_through(settings.milling_voltage)
-        beam.current.write_through(settings.milling_current)
-        logging.debug({"msg": "setup_milling", "mill_settings": settings.to_dict()})
+        self.connection.set_channel(channel)
+        self._sdk.patterning.set_default_beam_type(channel.value)
+        self._set_application_file(settings.application_file, default=True)
+        self._set_patterning_mode(settings.patterning_mode)
 
     def _set_application_file(
         self, application_file: str, default: bool = False, strict: bool = True
@@ -149,10 +131,6 @@ class AutoScriptMilling(Milling):
         return application_file
 
     def _set_patterning_mode(self, mode: str) -> str:
-        if mode not in _PATTERNING_MODES:
-            raise ValueError(
-                f"Patterning mode {mode} not supported. Supported modes: Serial, Parallel"
-            )
         self._sdk.patterning.mode = mode
         logging.debug({"msg": "set_patterning_mode", "mode": mode})
         return mode
@@ -522,32 +500,17 @@ class AutoScriptMilling(Milling):
             self.connection.set_channel(self.parent.milling_channel)
             return MillingState[self._sdk.patterning.state.upper()]
 
-    def _start(self) -> None:
-        with self.connection.lock:
-            if self.read_state() is MillingState.IDLE:
-                self._sdk.patterning.start()
-                logging.info("Starting milling...")
+    def _start_patterning(self) -> None:
+        self._sdk.patterning.start()
 
-    def _stop(self) -> None:
-        with self.connection.lock:
-            if self.read_state() in ACTIVE_MILLING_STATES:
-                logging.info("Stopping milling...")
-                self._sdk.patterning.stop()
-                logging.info("Milling stopped.")
+    def _stop_patterning(self) -> None:
+        self._sdk.patterning.stop()
 
-    def _pause(self) -> None:
-        with self.connection.lock:
-            if self.read_state() == MillingState.RUNNING:
-                logging.info("Pausing milling...")
-                self._sdk.patterning.pause()
-                logging.info("Milling paused.")
+    def _pause_patterning(self) -> None:
+        self._sdk.patterning.pause()
 
-    def _resume(self) -> None:
-        with self.connection.lock:
-            if self.read_state() == MillingState.PAUSED:
-                logging.info("Resuming milling...")
-                self._sdk.patterning.resume()
-                logging.info("Milling resumed.")
+    def _resume_patterning(self) -> None:
+        self._sdk.patterning.resume()
 
     def _estimate(self) -> float:
         return sum(pattern.time for pattern in self._patterns)

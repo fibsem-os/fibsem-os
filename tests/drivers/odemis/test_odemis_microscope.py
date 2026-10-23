@@ -29,6 +29,7 @@ from fibsem.structures import (
     FibsemCircleSettings,
     FibsemExperimentRef,
     FibsemImage,
+    FibsemMillingSettings,
     FibsemPolygonSettings,
     FibsemRectangleSettings,
     FibsemUser,
@@ -386,8 +387,8 @@ def test_finish_milling_restores_the_beam_and_the_patterning_mode(microscope):
 
 
 def test_set_patterning_mode_refuses_unknown_modes(microscope):
-    with pytest.raises(ValueError):
-        microscope.milling._set_patterning_mode("Sideways")
+    with pytest.raises(ValueError, match="Sideways"):
+        microscope.setup_milling(FibsemMillingSettings(patterning_mode="Sideways"))
 
 
 def test_milling_state_is_read_on_the_milling_channel(microscope):
