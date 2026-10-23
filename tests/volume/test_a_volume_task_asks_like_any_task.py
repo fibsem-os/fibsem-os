@@ -58,16 +58,22 @@ def test_an_automated_volume_task_mills_once_and_records_what_it_used(
 
 def test_a_point_of_interest_decided_on_a_position_moves_its_slices():
     from fibsem.applications.volume.position import VolumePosition
+    from fibsem.applications.volume.tasks.milling import (
+        VolumeFIBMillingTaskConfig,
+        slice_at,
+    )
 
     position = VolumePosition(name="aspen", poi=Point(0, 1e-6))
+    config = VolumeFIBMillingTaskConfig()
+    before = slice_at(config, position, 1).stages[0].pattern.point
 
     synced = prepare_values(
         None, position, POINT_OF_INTEREST, {"poi": Point(2e-6, 3e-6)}
     ).apply()
 
-    sliced = position.slice_poi(1, 1e-6)
+    after = slice_at(config, position, 1).stages[0].pattern.point
     assert synced == []
-    assert (sliced.x, sliced.y) == pytest.approx((2e-6, 2e-6))
+    assert (after.x - before.x, after.y - before.y) == pytest.approx((2e-6, 2e-6))
 
 
 def test_a_position_keeps_its_alignment_area():

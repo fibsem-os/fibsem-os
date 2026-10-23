@@ -1021,6 +1021,16 @@ def test_render_markers_draws_the_items_on_any_beam_image(
     assert os.path.getsize(body["path"]) > 0
     assert base64.b64decode(body["plot"]["image_b64_jpeg"])[:2] == b"\xff\xd8"
     assert len(body["items"]) == 3 and body["linked"] is True
+    boxed = client.post(
+        url,
+        headers=AUTH,
+        json={"path": str(overview / "overview.tif"), "fov": True, "current": True},
+    )
+    assert boxed.status_code == 200, boxed.text
+    flag = client.post(
+        url, headers=AUTH, json={"path": str(overview / "overview.tif"), "fov": 1}
+    )
+    assert flag.status_code == 422
 
     # One of the agent's own overviews, on no grid's record.
     own = os.path.join(str(host.experiment.path), "overviews", "mine.tif")
@@ -1039,6 +1049,166 @@ def test_render_markers_draws_the_items_on_any_beam_image(
     assert missing.status_code == 404
     unknown = client.post(url, headers=AUTH, json={"path": own, "grid_name": "x"})
     assert unknown.status_code == 404
+
+
+def test_draw_image_saves_the_marks_drawn_beside_the_image(
+    client, host, grid_with_overview
+):
+    """Marks drawn on a saved image, saved as drawn/<image>.png for the agent
+    to look at and cite: measured lines labelled with their length and each
+    place with its stage position, from the image's own metadata."""
+    import base64
+
+    overview = host.experiment.grid_path(grid_with_overview) / "overview_sem"
+    path = str(overview / "overview.tif")
+    url = "/app/experiment/images/drawn"
+    marks = {
+        "points": [{"x": 64, "y": 64, "shape": "target", "label": "site"}],
+        "circles": [{"x": 30, "y": 30, "radius": 10}],
+        "lines": [{"x1": 10, "y1": 100, "x2": 110, "y2": 100, "measure": True}],
+    }
+    resp = client.post(
+        url, headers=AUTH, json={"path": path, "marks": marks, "crosshair": True}
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["path"] == str(overview / "drawn" / "overview.png")
+    assert os.path.getsize(body["path"]) > 0
+    assert base64.b64decode(body["plot"]["image_b64_jpeg"])[:2] == b"\xff\xd8"
+    # 100 px of a 200 um field 128 px wide.
+    assert body["marks"]["lines"][0]["label"] == "156 \u00b5m"
+    assert set(body["marks"]["points"][0]["stage"]) == {"x", "y"}
+
+    # No marks: the image with its bars, as the export draws it.
+    plain = client.post(url, headers=AUTH, json={"path": path})
+    assert plain.status_code == 200 and plain.json()["marks"] is None
+
+    bad = client.post(url, headers=AUTH, json={"path": path, "marks": {"arrows": []}})
+    assert bad.status_code == 422 and "circles" in bad.json()["detail"]["message"]
+    flag = client.post(url, headers=AUTH, json={"path": path, "crosshair": "yes"})
+    assert flag.status_code == 422
+    assert client.post(url, headers=AUTH, json={}).status_code == 422
+    assert (
+        client.post(url, headers=AUTH, json={"path": path + ".nope"}).status_code == 404
+    )
+
+
+def test_draw_pair_puts_two_images_side_by_side_at_one_scale(
+    client, host, grid_with_overview, microscope
+):
+    from PIL import Image
+
+    from fibsem.structures import BeamType, ImageSettings
+
+    overview = host.experiment.grid_path(grid_with_overview) / "overview_sem"
+    # Half the field of the overview: drawn half as wide.
+    after = microscope.acquire_image(
+        ImageSettings(resolution=(128, 128), hfw=100e-6, beam_type=BeamType.ELECTRON)
+    )
+    after.save(str(overview / "after.tif"))
+    resp = client.post(
+        "/app/experiment/images/pair",
+        headers=AUTH,
+        json={
+            "before": str(overview / "overview.tif"),
+            "after": str(overview / "after.tif"),
+            "marks": {"areas": [{"x": 40, "y": 40, "width": 20, "height": 20}]},
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["path"] == str(overview / "drawn" / "overview-after.png")
+    with Image.open(body["path"]) as saved:
+        width = saved.size[0]
+    # Each at most its source's width: the overview 128 px, the after 128 px
+    # scaled to half the overview's 128 (one scale), plus the gap.
+    assert width == 128 + 8 + 64
+
+
+def _milling_item(host):
+    """The first item with the shipped protocol's milling tasks."""
+    import copy
+
+    import fibsem.applications.autolamella as autolamella
+
+    protocol = AutoLamellaTaskProtocol.load(
+        os.path.join(
+            os.path.dirname(autolamella.__file__), "protocol", "task-protocol.yaml"
+        )
+    )
+    item = host.experiment.positions[0]
+    for name, config in protocol.task_config.items():
+        item.task_config[name] = copy.deepcopy(config)
+    return item
+
+
+def test_item_draw_milling_draws_a_task_with_its_related_tasks_behind(
+    client, host, microscope
+):
+    from fibsem.structures import BeamType, ImageSettings
+
+    item = _milling_item(host)
+    url = f"/app/experiment/items/{item.name}/milling/drawn"
+    # No FIB image of the item yet: say to pass one.
+    none = client.post(url, headers=AUTH, json={"task_names": ["Rough Milling"]})
+    assert none.status_code == 404 and "image_path" in none.json()["detail"]["message"]
+
+    image = microscope.acquire_image(
+        ImageSettings(resolution=(384, 256), hfw=150e-6, beam_type=BeamType.ION)
+    )
+    path = os.path.join(str(item.path), "ref_ion_ib.tif")
+    image.save(path)
+    resp = client.post(
+        url,
+        headers=AUTH,
+        json={
+            "task_names": ["Rough Milling"],
+            "image_path": path,
+            "scan_direction": True,
+            "alignment_area": True,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["path"] == os.path.join(
+        str(item.path), "drawn", "ref_ion_ib-Rough Milling.png"
+    )
+    assert os.path.getsize(body["path"]) > 0
+    assert body["stages"] == ["Rough Mill 01", "Rough Mill 02", "Stress Relief Feature"]
+    # Fiducial and polishing, as the lamella editor shows them behind.
+    assert sorted(body["background"]) == ["Fiducial 01", "Polishing Mill 01"]
+
+    alone = client.post(
+        url,
+        headers=AUTH,
+        json={"task_names": "Polishing", "image_path": path, "background": "none"},
+    ).json()
+    assert alone["stages"] == ["Polishing Mill 01"] and alone["background"] == []
+
+    unknown = client.post(
+        url, headers=AUTH, json={"task_names": ["Nope"], "image_path": path}
+    )
+    assert unknown.status_code == 404
+    assert "Rough Milling" in unknown.json()["detail"]["task_names"]
+    assert client.post(url, headers=AUTH, json={}).status_code == 422
+    bad = client.post(
+        url,
+        headers=AUTH,
+        json={"task_names": ["Polishing"], "image_path": path, "background": "x"},
+    )
+    assert bad.status_code == 422
+
+
+def test_the_lamella_editor_s_related_tasks_are_the_lamella_s(host):
+    item = _milling_item(host)
+    related = [stage.name for stage in item.related_milling_stages("Polishing")]
+    assert related == [
+        "Fiducial 01",
+        "Rough Mill 01",
+        "Rough Mill 02",
+        "Stress Relief Feature",
+    ]
+    assert item.related_milling_stages("Setup Lamella Position") == []
 
 
 def test_fm_overview_previews_in_colour_and_places_markers(
@@ -1597,6 +1767,87 @@ def test_experiment_files_crop_at_native_resolution(client, grid_with_overview):
     ):
         refused = client.get(url, params=params, headers=AUTH)
         assert refused.status_code == 422, params
+
+
+def test_overview_cells_name_its_tiles_and_crop_by_name(
+    client, host, grid_with_overview
+):
+    """A tiled overview shown cut into its tiles, lettered and numbered, each
+    with its box and centre stage position; cells cropped by name; and a point
+    or marks read off a crop's picture converted to the image's pixels."""
+    import base64
+
+    overview = host.experiment.grid_path(grid_with_overview) / "overview_sem"
+    (overview / "overview").mkdir()
+    tiles = [{"row": r, "col": c} for r in range(2) for c in range(3)]
+    (overview / "overview" / "overview-metadata.json").write_text(
+        json.dumps({"settings": {"overlap": 0.0}, "tiles": tiles})
+    )
+    url = f"/app/experiment/files/{OVERVIEW}"
+    shown = client.get(url, params={"cells": "true"}, headers=AUTH).json()["preview"]
+    cells = shown["cells"]
+    assert (cells["kind"], cells["columns"], cells["rows"]) == ("tiles", 3, 2)
+    items = {item["name"]: item for item in cells["items"]}
+    assert list(items) == ["A1", "B1", "C1", "A2", "B2", "C2"]
+    assert items["B2"]["box"] == [43, 64, 42, 64]
+    assert set(items["B2"]["stage"]) == {"x", "y"}
+    assert base64.b64decode(shown["image_b64_jpeg"])[:2] == b"\xff\xd8"
+
+    crops = client.get(url, params={"cells": "c1,B2"}, headers=AUTH).json()["crops"]
+    assert [crop["name"] for crop in crops] == ["C1", "B2"]
+    assert crops[1]["preview"]["region"] == {
+        "x": 43,
+        "y": 64,
+        "width": 42,
+        "height": 64,
+    }
+    assert crops[1]["preview"]["width"] == 42
+    assert crops[1]["stage"] == items["B2"]["stage"]
+    for params in (
+        {"cells": "D1"},
+        {"cells": ",".join(["A1"] * 9)},
+        {"cells": "true", "box": "0,0,8,8"},
+        {"cells": "A1", "box": "0,0,8,8"},
+    ):
+        refused = client.get(url, params=params, headers=AUTH)
+        assert refused.status_code == 422, params
+
+    path = str(overview / "overview.tif")
+
+    def stage(**params):
+        resp = client.get(
+            "/app/experiment/images/stage_position",
+            params={"path": path, **params},
+            headers=AUTH,
+        )
+        assert resp.status_code == 200, resp.text
+        return resp.json()["stage_position"]
+
+    assert stage(x=5, y=6, crop="B2") == stage(x=48, y=70)
+    assert stage(fx=0.5, fy=0.5, crop="10,10,20,40") == stage(x=20, y=30)
+    bad = client.get(
+        "/app/experiment/images/stage_position",
+        params={"path": path, "x": 1, "y": 1, "crop": "Z1"},
+        headers=AUTH,
+    )
+    assert bad.status_code == 422
+
+    drawn = client.post(
+        "/app/experiment/images/drawn",
+        headers=AUTH,
+        json={"path": path, "marks": {"crop": "B2", "points": [{"x": 5, "y": 6}]}},
+    ).json()
+    point = drawn["marks"]["points"][0]
+    assert (point["x"], point["y"]) == (48, 70)
+
+    jpeg = client.get(
+        f"/app/experiment/grids/{grid_with_overview.name}/outputs/overview.tif",
+        params={"cells": "true"},
+        headers=AUTH,
+    )
+    assert jpeg.status_code == 200 and jpeg.content[:2] == b"\xff\xd8"
+    metadata = json.loads(jpeg.headers["X-Image-Metadata"])
+    assert len(metadata["cells"]["items"]) == 6
 
 
 def test_experiment_files_stay_inside_the_experiment(client, host, tmp_path):

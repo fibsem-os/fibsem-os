@@ -27,7 +27,7 @@ class PointFitDiagnostic:
     The XY panel is always present; the z panel is present only when
     :attr:`z_signal` is set (the FIB hole fit is XY-only). Marker positions are
     in ROI pixel coordinates; :attr:`input_xy` carries the sub-pixel click so the
-    input marker lands exactly where the user clicked (FIB-282).
+    input marker lands exactly where the user clicked.
     """
 
     title: str
@@ -121,7 +121,7 @@ def fit_gauss_2d_mod(
     (x, y in ``slc``'s frame), or from the middle of ``slc`` when the caller
     cut the window around the feature; a window clipped by the image's edge
     is not centred on it, and a start in the wrong place lands the fit on
-    nothing (FIB-980)."""
+    nothing."""
     y_indices, x_indices = np.indices(slc.shape)
     # Flatten the coordinate arrays and the slice data for fitting.
     x_data = x_indices.ravel()
@@ -148,7 +148,7 @@ def fit_gauss_2d_mod(
 
 # A spot burn in the FIB image is a dark spot a few pixels across. A fitted
 # Gaussian outside these widths, or bright, is a fit to something else: the
-# trench, the bright halo, a gradient (FIB-1216).
+# trench, the bright halo, a gradient.
 _BURN_SIGMA_PX = (0.5, 12.0)
 
 
@@ -180,7 +180,7 @@ def hole_fitting_FIB(
     nothing to pull on -- so the fit starts again at the window's darkest point
     after smoothing, which finds a burn up to the window's edge. When neither
     finds a burn the fit fails (:class:`FitOutsideWindow`) rather than handing
-    back the click as an unchanged fit (FIB-1216).
+    back the click as an unchanged fit.
 
     Args:
         img: 2D numpy array (Y,X)
@@ -262,11 +262,11 @@ def target_fitting_fluorescence(
         diagnostic: PointFitDiagnostic for the z + XY diagnostic figure
     """
     # round the (possibly sub-pixel) click for slicing; keep the fraction for
-    # the input marker so it lands exactly where the user clicked (FIB-282).
+    # the input marker so it lands exactly where the user clicked.
     xc, yc = int(round(x)), int(round(y))
     # Clamped to the image: a plain slice with a negative start wraps to the
     # far edge, so a click near the top or left edge gave an empty window and
-    # the fit raised on it (FIB-1220, as FIB-980 for the reflection fit). The
+    # the fit raised on it. The
     # offsets keep the fitted x, y absolute.
     height, width = img.shape[1:]
     y0, y1 = max(0, yc - cutout), min(height, yc + cutout)
@@ -334,9 +334,8 @@ class FitOutsideWindow(ValueError):
     """A fit whose answer lies outside the region it searched.
 
     A Gaussian fitted to a profile with no clear feature can put its centre
-    anywhere -- measured: 980 px away in xy, 2.5 mm deep in z -- and that
-    number used to come back as the fit, so the confirmation offered it as a
-    success (FIB-1219). Raised instead; the caller keeps the point where it
+    anywhere -- measured: 980 px away in xy, 2.5 mm deep in z. Raised, so the
+    confirmation never offers it as a success; the caller keeps the point where it
     was and reports the fit as failed.
     """
 
@@ -354,7 +353,7 @@ def hole_fitting_reflection(da, x, y, z, cutout) -> tuple:
     # Both windows are clamped to the stack and the image. A plain slice with
     # a negative start wraps to the end of the array: a click below plane 10,
     # or within the cutout of the top or left edge, gave an empty window and
-    # the fit raised on it (FIB-980). The offsets are kept so the fitted z and
+    # the fit raised on it. The offsets are kept so the fitted z and
     # xy still come back absolute.
     zmin1 = max(0, int(z) - zmin)
     zmax1 = min(nz, int(z) + zmax)
@@ -405,9 +404,7 @@ def hole_fitting_reflection(da, x, y, z, cutout) -> tuple:
 
     # --- confirmation-friendly diagnostic ---
     # Lead with the "did it land on the feature?" view (ROI + input/fitted
-    # markers); a compact z panel answers "did z land right?". The old figure
-    # had a raw-profile panel with six reference lines and a second z panel in a
-    # different (cutout-relative) frame with the same labels — dropped.
+    # markers); a compact z panel answers "did z land right?".
 
     # z: signal + gaussian fit (grey). The hole is dark, so the signal is
     # inverted (z_inverted) — the peak is the hole.
@@ -418,7 +415,7 @@ def hole_fitting_reflection(da, x, y, z, cutout) -> tuple:
         title="Reflection hole fit",
         roi_xy=gaussian_filter(roi_fitted, sigma=1),
         input_xy=(x - fx0, y - fy0),  # the sub-pixel click, in the window's frame
-        # A 2D fit outside the window raised above (FIB-1219), so this is in it.
+        # A 2D fit outside the window raised above, so this is in it.
         fitted_xy=(xopt, yopt),
         xy_title=f"XY  @ z = {zreal:.1f}",
         z_axis=z_axis,

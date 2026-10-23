@@ -1,82 +1,31 @@
-"""A tiny, napari-free replacement for the subset of ``napari.qt.threading`` we use.
+"""``thread_worker``: run a function off the GUI thread and hear how it ended.
 
-Two threading patterns exist in the GUI, and this wrapper covers both:
-
-* **napari ``@thread_worker`` sites** — a decorated *plain function* (never a generator —
-  nothing uses ``yield``), started with ``.start()`` and observed via ``.finished`` (and, in a
-  couple of places, ``.returned`` / ``.errored``). Progress is reported through each widget's
-  own ``pyqtSignal``s, not napari's ``.yielded``; no site uses pause/resume/abort.
-* **manual ``threading.Thread`` sites** — some fire-and-forget, others stored on the widget
-  (``self._acquisition_thread``) so the widget can poll ``.is_alive()`` and ``.join(timeout=)``
-  on cancel / close. Cancellation there is widget-owned: the widget holds a ``threading.Event``
-  and passes it into the blocking call; the worker only needs to be *observable*, not to own
-  the stop signal.
-
-So :class:`FunctionWorker` both re-emits its outcome as Qt signals *and* mirrors the slice of
-the ``threading.Thread`` API those sites use (``start`` / ``is_alive`` / ``join``), making it a
-drop-in for either pattern.
-
-Because the worker is a ``QObject`` constructed on the calling (GUI) thread, emitting its
-signals from the worker thread makes Qt deliver them through the GUI event loop — exactly the
-mechanism napari uses, so signal-delivery threading is unchanged at every call site.
-
-Migration is a one-line import swap::
-
-    # from napari.qt.threading import thread_worker
-    from fibsem.ui.qt.threading import thread_worker
-
-This intentionally implements only the non-generator, bare-decorator subset. A generator body
-or ``@thread_worker(connect=...)`` will fail loudly rather than silently misbehave.
+:class:`FunctionWorker` runs a plain function (not a generator) on a daemon thread and
+re-emits its outcome as Qt signals, delivered on the GUI thread because the worker is a
+``QObject`` made there. It also has the slice of the ``threading.Thread`` API widgets
+use (``start`` / ``is_alive`` / ``join``). A generator body or
+``@thread_worker(connect=...)`` fails loudly.
 
 What belongs in a worker body
 -----------------------------
 
-**The operation, and nothing else.** A worker body runs on a plain daemon thread, so the
-widget it was started from is off limits in there. The codebase settles this two ways,
-depending on whether the worker has anything to say before it is done.
+**The operation, and nothing else.** The body runs on a plain thread, so the widget
+that started it is off limits there. Either return a value and do every GUI update in
+a slot on ``returned`` / ``errored`` (``ObjectiveControlWidget`` is the model; prefer
+this one), or, for a worker that reports while it runs, emit one of the widget's own
+``pyqtSignal``s: emitting is safe from any thread, calling is not.
 
-**It only reports afterwards** — return a value, and put every GUI update in a slot on
-``returned`` / ``errored``. ``ObjectiveControlWidget`` is the model::
+Either way, **let the exception out**: ``FunctionWorker`` logs it with a traceback and
+re-emits it as ``errored``, the only way the widget can tell a failed run from a
+finished one.
 
-    def _wheel_move_worker(self, position_m: float) -> float:
-        # Worker: move the objective, and report back where it was sent.
-        self.fm.objective.move_absolute(position_m)
-        return position_m
+The one call allowed from a body: ``notification_service.show_toast`` (and ``show``),
+a queued ``pyqtSignal`` behind a function. Qt picks the connection type from the
+receiver's thread, and every receiver is a widget on the GUI thread.
 
-    worker = self._wheel_move_worker(position_um * MICRON_TO_METRE)
-    worker.returned.connect(self._on_wheel_move_finished)
-    worker.errored.connect(self._on_wheel_move_error)
-
-Prefer this one. ``returned`` fires only on success and before ``finished``, so the success
-path and the failure path separate themselves and anything queued from ``returned`` is already
-under way by the time a ``finished`` slot runs.
-
-**It reports while it runs** — emit one of the widget's own ``pyqtSignal``s. Both overview
-widgets state the rule on their ``_move_worker``, and it is worth quoting whole: *"Runs off the
-GUI thread. Only signals may cross back."* Emitting is safe from any thread; calling is not.
-
-Either way, **let the exception out**. ``FunctionWorker`` logs it with a traceback and re-emits
-it as ``errored`` on the GUI thread, which is the only way the widget can tell a failed run from
-a finished one. Swallowing it inside the body left a status line reading "Moving to …" for the
-rest of the session (FIB-765).
-
-The one sanctioned exception to "no calls": ``notification_service.show_toast`` (and ``show``),
-which is a queued ``pyqtSignal`` behind a function and may be called from anywhere. Qt picks the
-connection type from the *receiver's* thread affinity, not the sender's, and every receiver here
-is a widget on the GUI thread — so this holds even though ``_get_service()`` constructs the
-service lazily and could bind it to whichever thread happens to call first. Measured, not
-assumed: a service built on a worker thread still delivers to a GUI-thread slot on the GUI
-thread.
-
-Why the rule is about coupling, not safety
-------------------------------------------
-
-``@ensure_main_thread`` (39 sites, 23 of them under ``fibsem/ui/``) marshals a widget method onto
-the GUI thread, so a worker that calls one is *correctly synchronised*. The reason not to write
-it that way anyway is that the sequence — do the thing, then update these five widgets — ends up
-expressed only as a widget method, and cannot be run, tested, or reused without the widget. A
-body holding just the operation keeps the schedule-and-report half where the widget can see it,
-and the reusable half where it can be called without one (FIB-828).
+``@ensure_main_thread`` would make a widget call from a body correctly synchronised.
+The reason not to is coupling: the sequence ends up expressed only as a widget method,
+which cannot be run, tested or reused without the widget.
 """
 
 from __future__ import annotations
@@ -99,31 +48,29 @@ __all__ = ["FunctionWorker", "thread_worker"]
 
 # Call sites keep only a local ``worker = self.x_worker(...)`` reference, which would be
 # garbage-collected the moment the method returns — before the thread finishes and its
-# signals are delivered. Hold a strong reference here for the worker's lifetime (napari
-# keeps its own registry for the same reason); it is released when ``finished`` fires.
+# signals are delivered. Hold a strong reference here for the worker's lifetime; it is
+# released when ``finished`` fires.
 _ACTIVE_WORKERS: Set["FunctionWorker"] = set()
 
 
 class FunctionWorker(QObject):
     """Runs ``func(*args, **kwargs)`` on a daemon thread and re-emits the result as signals.
 
-    Signals mirror the napari names we rely on and are delivered on the thread that created
-    the worker (the GUI thread), so connected slots may safely touch widgets:
+    Signals are delivered on the thread that created the worker (the GUI thread), so
+    connected slots may safely touch widgets:
 
     * ``started``  — emitted just before the body runs.
     * ``returned`` — the return value, on success only.
     * ``errored``  — the exception, on failure only (also logged with a traceback).
-    * ``finished`` — always, after ``returned``/``errored`` (matching napari).
+    * ``finished`` — always, after ``returned``/``errored``.
 
-    It also exposes the slice of the :class:`threading.Thread` API the manual-thread sites
-    use — :meth:`is_alive` and :meth:`join` — so a widget that stored a raw ``Thread`` for
-    lifecycle (``is_acquiring`` / ``cancel`` / ``closeEvent``) can hold a ``FunctionWorker``
-    instead with no change to those call sites.
+    It also has :meth:`is_alive` and :meth:`join`, for a widget that checks on its worker
+    (``is_acquiring`` / ``cancel`` / ``closeEvent``).
 
     The body runs with a copy of the context the worker was started from, which a raw
     ``Thread`` does not do. So work started on a task's behalf is still the task's in the
-    experiment's record (``fibsem.acting``, FIB-1062), and work started from the GUI is
-    unmarked, as it was.
+    experiment's record (``fibsem.acting``), and work started from the GUI is
+    unmarked.
     """
 
     started = pyqtSignal()
@@ -148,7 +95,7 @@ class FunctionWorker(QObject):
         """Launch the worker on a daemon thread. False when it was refused.
 
         With ``control``, the body is the operator's action on the microscope and
-        holds control while it runs (FIB-1488). It is taken here, so a refusal
+        holds control while it runs. It is taken here, so a refusal
         starts nothing: the worker reports ``errored`` (the ``MicroscopeBusy``) and
         ``finished``, as for a failed body. The operator's own clicks never refuse
         each other: an image during their mill goes ahead.
@@ -225,9 +172,8 @@ class FunctionWorker(QObject):
 def thread_worker(func: Callable) -> Callable:
     """Turn ``func`` into a factory that returns a :class:`FunctionWorker`.
 
-    Drop-in for the subset of :func:`napari.qt.threading.thread_worker` this codebase uses.
-    The factory is a plain function, so it binds as a method — ``self.some_worker(...)``
-    passes ``self`` through as the first positional argument, just like the original.
+    The factory is a plain function, so it binds as a method: ``self.some_worker(...)``
+    passes ``self`` through as the first positional argument.
     """
 
     @functools.wraps(func)

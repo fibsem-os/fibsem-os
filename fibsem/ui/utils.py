@@ -198,9 +198,6 @@ def message_box_ui(
     return response
 
 
-# TODO: add filters for file types
-
-
 def open_existing_directory_dialog(
     msg: str = "Select a directory", path: str = cfg.LOG_PATH, parent=None
 ) -> str:

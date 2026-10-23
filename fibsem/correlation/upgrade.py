@@ -3,7 +3,7 @@
 Every earlier spelling of a correlation file lives here, and nowhere else: the
 container ``correlation.json`` at version 1, and the split
 ``correlation_data.json`` (the points) and ``correlation_result.json`` (a result
-with its snapshot) that it replaced (FIB-264). :func:`upgrade` turns the dict any
+with its snapshot) that it replaced. :func:`upgrade` turns the dict any
 of them holds into the current container, which is all the classes in
 :mod:`fibsem.correlation.structures` read or write.
 
@@ -100,7 +100,7 @@ def _split_file(data: dict) -> dict:
     if "poi" in data or "computed_from" in data or "input_data" in data:
         result = _result(data, 0)
         # A copy, not the same dict: the snapshot is what the transform was
-        # fitted to, the container's points are the ones being edited (FIB-295).
+        # fitted to, the container's points are the ones being edited.
         current = copy.deepcopy(result["input_data"]) or {"fib_coordinates": []}
         return {
             "version": CORRELATION_FILE_VERSION,

@@ -46,7 +46,7 @@ _LUT_MISSING_MSG = (
 )
 
 # The one default set lives on RISettings, where the protocol reads it too; see
-# its docstring for where the values come from (FIB-1234).
+# its docstring for where the values come from.
 _DEFAULTS = zeta_params_from_settings(RISettings())
 
 # Only used when the lookup table cannot be read. Must equal the LUT's value at
@@ -61,8 +61,8 @@ def _default_factor() -> float:
     Derived rather than declared. A literal constant beside a lookup table is a
     second source of truth for the same number, and it drifts silently the moment
     either side moves: the previous constant (1.470) described no configuration
-    the widget could be in, while its own defaults asked the table for 1.595
-    (FIB-593). Deriving means the reset button can only ever hand back the factor
+    the widget could be in, while its own defaults asked the table for 1.595.
+    Deriving means the reset button can only ever hand back the factor
     the parameters above it describe.
     """
     try:
@@ -119,7 +119,7 @@ class RefractiveIndexWidget(QWidget):
         directly, reset, or recomputed from an optical parameter. Deliberately
         silent for :meth:`set_factor`, which mirrors an already-stored value:
         the point of the signal is to tell a consumer that what is on screen is
-        no longer what has been applied (FIB-591).
+        no longer what has been applied.
     """
 
     zeta_computed = pyqtSignal(float)
@@ -243,8 +243,8 @@ class RefractiveIndexWidget(QWidget):
         ):
             spin.valueChanged.connect(self._recompute)
 
-        # Track manual edits so metadata seeding never clobbers a typed value
-        # (FIB-277). editingFinished fires only on user interaction, not setValue.
+        # Track manual edits so metadata seeding never clobbers a typed value.
+        # editingFinished fires only on user interaction, not setValue.
         self._spin_na.editingFinished.connect(lambda: self._user_edited.add("na"))
         self._spin_wl.editingFinished.connect(
             lambda: self._user_edited.add("wavelength")
@@ -280,9 +280,7 @@ class RefractiveIndexWidget(QWidget):
         The previous tilt value is restored on unlock. Idempotent.
 
         The factor follows the tilt now shown, unless it was typed by hand: a mode
-        switch must not clobber a manually entered factor. It used to recompute
-        quietly in every case, so the factor kept the 15° value while the box read
-        0° (FIB-1234).
+        switch must not clobber a manually entered factor.
         """
         if locked == self._tilt_locked:
             return
@@ -309,7 +307,7 @@ class RefractiveIndexWidget(QWidget):
         The values are set with signals blocked so ζ is computed once, from the
         final set, and not once per box. It used not to be computed at all, so a
         protocol's parameters were shown while the factor stayed at the widget's
-        own defaults: 1.502 under boxes describing 1.567 on a real run (FIB-1234).
+        own defaults: 1.502 under boxes describing 1.567 on a real run.
         """
         for spin in (
             self._spin_tilt,
@@ -351,7 +349,7 @@ class RefractiveIndexWidget(QWidget):
         wavelength_um: Optional[float] = None,
         na: Optional[float] = None,
     ) -> None:
-        """Populate λ and/or NA from FM metadata (FIB-277), leaving user-typed
+        """Populate λ and/or NA from FM metadata, leaving user-typed
         values and absent (``None``) inputs untouched."""
         if wavelength_um is not None and "wavelength" not in self._user_edited:
             self._spin_wl.setValue(wavelength_um * _WAVELENGTH_SCALE)

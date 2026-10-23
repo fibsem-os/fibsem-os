@@ -1,6 +1,6 @@
 # These imports are eager: anything under `fibsem.ui` pulls in every widget named here.
-# Keep that in mind before adding one -- `FibsemMinimapWidget` used to sit in this list
-# and dragged AutoLamella into every module that did `from fibsem.ui import stylesheets`.
+# Keep that in mind before adding one: a widget that imports AutoLamella here drags it
+# into every module that does `from fibsem.ui import stylesheets`.
 from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 from fibsem.ui.FibsemManipulatorWidget import FibsemManipulatorWidget
 from fibsem.ui.FibsemMovementWidget import FibsemMovementWidget

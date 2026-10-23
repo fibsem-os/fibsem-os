@@ -393,8 +393,6 @@ class FibsemMillingTaskConfig(Configurable):
         return reference_stage
 
 
-# TODO: restore current to initial current, rather than system.ion.beam.beam_current
-# TODO: support customising alignment imaging parameters?
 @dataclass
 class FibsemMillingTask:
     config: FibsemMillingTaskConfig = field(default_factory=FibsemMillingTaskConfig)
@@ -424,7 +422,7 @@ class FibsemMillingTask:
         # run_milling stops the beam when it is set.
         self._stop_event: Optional[threading.Event] = stop_event
         # Set by the milling service's ``stop`` while this task runs, so a stop of
-        # the service ends the task, not only the stage milling then (FIB-1398).
+        # the service ends the task, not only the stage milling then.
         self._stopped = threading.Event()
         # How the last run() ended, for callers that never see the progress signal.
         # None until run() has finished.
@@ -566,11 +564,8 @@ class FibsemMillingTask:
             self.error = e
         finally:
             self.outcome = outcome
-            # The outcome, not just "it stopped". Both `except` blocks used to log and
-            # fall through to a `finally` that emitted `finished` regardless, so a mill
-            # the user cancelled and a mill that crashed both told the UI they had
-            # finished -- the status bar rendered "Done" either way and the exception
-            # text reached only the logfile.
+            # The outcome, not just "it stopped": a cancelled mill and a crashed one
+            # must not both tell the UI they finished.
             self._emit(outcome, error=error)
             # Before the cleanup, which can raise: the record of how the run ended
             # must not depend on restoring the beam afterwards.
@@ -583,7 +578,7 @@ class FibsemMillingTask:
                     self.initial_beam_shift, beam_type=self.config.channel
                 )
 
-            # No beam after a stop or a failure (FIB-1430, FIB-1508).
+            # No beam after a stop or a failure.
             if outcome is MillingProgressStatus.TASK_FINISHED:
                 self._post_task_acquisition()
 
@@ -611,8 +606,7 @@ class FibsemMillingTask:
 
         Raises whatever the stage raises. run() ends the task there, failed or
         cancelled, and skips the later stages: they build on this one's geometry
-        (rough then polish). Catching here used to log a stage the microscope
-        rejected and report the task finished with nothing milled (FIB-1112).
+        (rough then polish).
 
         Args:
             stage (FibsemMillingStage): The milling stage to run.
@@ -622,7 +616,7 @@ class FibsemMillingTask:
         start_time = time.time()
         raise_if_cancelled(self._stop_token)
         # Reached: from here the stage ends completed, failed or cancelled, never
-        # skipped (FIB-1257).
+        # skipped.
         record: Dict[str, Any] = {
             "name": stage.name,
             "index": idx,
@@ -692,7 +686,6 @@ class FibsemMillingTask:
             stage=stage,
             stop_event=self._stop_token,
         )
-        # TODO: pass task as parent into strategy.run()?, allow logging from strategy?
         # performance logging
         msgd = {
             "msg": "milling_task",
@@ -709,7 +702,7 @@ class FibsemMillingTask:
 
     def _record_run(self, started_at: str) -> None:
         """Record how this run ended: one ``milling`` event, with how each stage
-        ended (FIB-1257).
+        ended.
 
         Each run is its own event, so a task the operator ran twice records two.
         Stages are in the protocol's order, each with a status: a stage the run
@@ -959,7 +952,7 @@ def record_milling_skipped(
     microscope: FibsemMicroscope, config: FibsemMillingTaskConfig, reason: str
 ) -> None:
     """Record a milling task that did not run, with why: a ``milling`` event like
-    a run's, every stage ``skipped`` (FIB-1257). Never raises."""
+    a run's, every stage ``skipped``. Never raises."""
     try:
         payload = {
             "milling_task_name": config.name,

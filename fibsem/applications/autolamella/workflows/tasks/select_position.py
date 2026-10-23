@@ -219,7 +219,7 @@ class SelectMillingPositionTask(AutoLamellaTask):
         ):
             # Moved since the image was taken: the point of interest, the
             # alignment area and the fiducial are placed on this view, not that
-            # one (FIB-1494).
+            # one.
             self._acquire_reference_image(
                 image_settings=self.image_settings,
                 filename=f"ref_{self.task_name}_position",
@@ -247,9 +247,9 @@ class SelectMillingPositionTask(AutoLamellaTask):
         self.lamella.update_milling_angle(self.microscope)
         # the task moved the lamella (the coincidence walk, the operator's own
         # centring), so the fluorescence pose derived when it was marked now
-        # describes where it used to be. Every UI path that moves a lamella
+        # describes where it was. Every UI path that moves a lamella
         # syncs it; a fluorescence stack taken from the stale pose lands tens
-        # of microns off the marks it is meant to show (FIB-954). Opt-in: the
+        # of microns off the marks it is meant to show. Opt-in: the
         # default leaves the pose alone, as the task always has.
         if self.config.sync_fluorescence_pose:
             sync_fluorescence_pose(self.microscope, self.lamella)
@@ -307,7 +307,7 @@ class SelectMillingPositionTask(AutoLamellaTask):
         from fibsem.alignment.plotting import save_coincidence_diagnostics
         from fibsem.transformations import get_stage_tilt_from_milling_angle
 
-        # the run's, beside its other alignments (FIB-1275)
+        # the run's, beside its other alignments
         diagnostics_path = os.path.join(self.output_dir, ALIGNMENT_SUBDIR)
 
         def on_progress(progress) -> None:

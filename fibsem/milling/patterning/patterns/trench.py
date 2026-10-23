@@ -351,7 +351,6 @@ class TrenchBitmapPattern(BasePattern[FibsemBitmapSettings]):
         return self.shapes
 
 
-# QUERY: we should consolidate this with TrenchPattern?
 @dataclass
 class TrenchTrapezoidPattern(BasePattern):
     trench_width: float = param(

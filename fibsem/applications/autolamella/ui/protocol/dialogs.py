@@ -1,9 +1,8 @@
 """The protocol's identity on the Protocol tab: one line, and a pencil.
 
 Name, description and version are set when the experiment is created and rarely
-touched after; the form they used to occupy took the top of the only column that
-has to fit two task lists. The line says which protocol is loaded, which is the
-one thing that panel earned; the dialog behind the pencil does the rest.
+touched after, so they stay out of the only column that has to fit two task lists.
+The line says which protocol is loaded; the dialog behind the pencil does the rest.
 """
 
 from __future__ import annotations

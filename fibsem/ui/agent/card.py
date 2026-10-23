@@ -1,9 +1,9 @@
-"""The agent card: the agent's controls in the window (FIB-1404).
+"""The agent card: the agent's controls in the window.
 
 The chip in the status bar opens it. It holds what waits for the operator, in
 one line with the way to the web Agent page, where it is answered; what the
 agent is doing on the microscope now; the level, a menu of the four with what
-each allows (FIB-1418), and Stop agent; links to the Agent page and the event
+each allows, and Stop agent; links to the Agent page and the event
 log; and who the agent is, when it was last heard and its session.
 
 The operator answers, messages and reads the agent on the web Agent page, not
@@ -198,7 +198,7 @@ class _LevelRow(QWidget):
 
 class LevelMenu(QPushButton):
     """The level in force, drawn as the status bar chip draws it ("Assisting");
-    clicked, a menu of the four levels with what each allows (FIB-1418). The
+    clicked, a menu of the four levels with what each allows. The
     level changes rarely and each change matters, so it is one click further
     than a switch would be. Says what was picked; shows what it is told."""
 
@@ -298,7 +298,7 @@ class AgentCard(QFrame):
         waiting.addWidget(self.answer_link, 0, Qt.AlignLeft)  # type: ignore
         layout.addWidget(self.waiting_row)
 
-        # What the agent is doing on the microscope, at every level (FIB-1414).
+        # What the agent is doing on the microscope, at every level.
         self.now_row = QWidget()
         now = QHBoxLayout(self.now_row)
         now.setContentsMargins(0, 0, 0, 0)

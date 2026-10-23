@@ -1,4 +1,4 @@
-"""Durations as fibsemOS shows them: how long something took or will take (FIB-1191).
+"""Durations as fibsemOS shows them: how long something took or will take.
 
 Instants -- when something happened, and on whose clock -- are
 :mod:`fibsem.util.timestamps`. A duration has no zone and no legacy forms to parse,
