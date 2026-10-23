@@ -8,7 +8,7 @@ import { Stepper } from "@/components/stepper";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Popup } from "@/components/ui/popup";
-import { api } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
 import { useFileRead } from "@/lib/files";
 import * as fmt from "@/lib/format";
 import type { ReplayImage, ReplayRow, ReplayTimeline, ReplayView } from "@/lib/types";
@@ -343,6 +343,9 @@ export function Replay() {
   }, [event?.index]);
 
   if (timeline.isPending) return <div className="text-[13px] text-muted-foreground">Reading the record…</div>;
+  // A 404 is an experiment with nothing recorded yet: empty, not an error.
+  if (timeline.error instanceof ApiError && timeline.error.status === 404)
+    return <div className="text-[13px] text-muted-foreground">{timeline.error.message}</div>;
   if (timeline.error) return <div className="text-[13px] text-destructive">{timeline.error.message}</div>;
   if (!events.length) return <div className="text-[13px] text-muted-foreground">Nothing has been recorded yet.</div>;
 
