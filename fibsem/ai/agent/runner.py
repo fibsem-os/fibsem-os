@@ -46,15 +46,20 @@ SPECIALISTS = (
     "autolamella-investigator",
     "autolamella-auditor",
 )
+# The agent's own todo list: TodoWrite, or the Task* tools in newer CLIs. They
+# touch nothing outside the session.
+TODO_TOOLS = ["TodoWrite", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet"]
 # The server's level gate decides what the fibsem tools may do, so they need no
 # prompt; ToolSearch only finds them.
-ALLOWED_TOOLS = [f"mcp__{SERVER}__*", "ToolSearch", "SendMessage"] + [
-    f"Agent({name})" for name in SPECIALISTS
-]
+ALLOWED_TOOLS = (
+    [f"mcp__{SERVER}__*", "ToolSearch", "SendMessage"]
+    + [f"Agent({name})" for name in SPECIALISTS]
+    + TODO_TOOLS
+)
 # The only built-in tools the agent has: reading its skills, finding the
-# sidecar's tools when the CLI defers them, and calling a specialist or
-# carrying one on (a lamella's later polishing passes, one Verifier).
-BUILT_IN_TOOLS = ["Skill", "ToolSearch", "Agent", "SendMessage"]
+# sidecar's tools when the CLI defers them, calling a specialist or carrying
+# one on (a lamella's later polishing passes, one Verifier), and its todo list.
+BUILT_IN_TOOLS = ["Skill", "ToolSearch", "Agent", "SendMessage"] + TODO_TOOLS
 # Named as well, so a CLI that adds one back still refuses it: a specialist
 # that lists a tool gets it unless it is denied here. The CLI's own agents
 # would carry every fibsem tool, without a specialist's limits.
@@ -124,6 +129,11 @@ not be reading. Anything the operator must read now (you have stopped and \
 need them, or you answer their MESSAGE with its reply_to) goes to them with \
 experiment_message_operator; a judgment worth keeping goes on the record with \
 experiment_add_note.
+- Keep the operator's instructions on your todo list (TodoWrite, or \
+TaskCreate and TaskUpdate): the goal and each instruction a MESSAGE gives, in \
+their words, as it arrives. Read the list before each step and tick an item \
+only when it is done. A new instruction adds to the list; it never replaces \
+what is there unless the operator says so.
 - Your goal changes only when the operator's MESSAGE explicitly gives you a \
 new one. Then call server_report_session with just goal, so the app shows \
 it, and say back the goal you took.

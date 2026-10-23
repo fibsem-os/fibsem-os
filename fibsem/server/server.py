@@ -81,6 +81,7 @@ from fibsem.server.responses import (
     Status,
     answer,
 )
+from fibsem.server.web_app import page, web_app_router
 from fibsem.structures import BeamType, MicroscopeState
 from fibsem.workflows.actions import ACTION, action_record
 
@@ -585,23 +586,13 @@ def build_server(
         # Unauthenticated liveness probe; everything informative lives in /capabilities.
         return {"status": "ok"}
 
-    def _page(filename: str):
-        import pkgutil
-
-        from fastapi.responses import HTMLResponse
-
-        page = pkgutil.get_data("fibsem.server", filename)
-        if page is None:  # pragma: no cover - packaging defect, not runtime state
-            raise HTTPException(status_code=404, detail=f"{filename} not packaged")
-        return HTMLResponse(page.decode("utf-8"))
-
     @app.get("/dashboard/log")
     def dashboard_log():
         # The event stream as one filterable table. Served unauthenticated like
         # /health: the file is static and carries no session data; every API
         # call the page makes needs the bearer token, which reaches it via the
         # URL fragment (never sent to the server) or a paste.
-        return _page("dashboard_log.html")
+        return page("dashboard_log.html")
 
     @app.get("/chat")
     def chat():
@@ -611,24 +602,7 @@ def build_server(
 
         return RedirectResponse("/ui/agent")
 
-    @app.get("/ui")
-    @app.get("/ui/{path:path}")
-    def web_app(path: str = ""):
-        # The web app (built from web/), served like /dashboard/log. Asset paths are
-        # files; every other path is a page and gets index.html.
-        import mimetypes
-        import pkgutil
-
-        if path.startswith("assets/") and ".." not in path:
-            try:
-                asset = pkgutil.get_data("fibsem.server", f"ui/{path}")
-            except OSError:
-                asset = None
-            if asset is None:
-                raise HTTPException(status_code=404, detail=f"{path} not found")
-            kind = mimetypes.guess_type(path)[0] or "application/octet-stream"
-            return Response(asset, media_type=kind)
-        return _page("ui/index.html")
+    app.include_router(web_app_router())
 
     @base.get("/capabilities")
     def capabilities():

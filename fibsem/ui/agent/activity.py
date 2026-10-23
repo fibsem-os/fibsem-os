@@ -6,13 +6,6 @@ stage relative". Who is in control is announced on ``microscope.control.changed`
 and this follows it:
 
 * the status bar's line says "**Agent** focus sweep · 12s" while it holds control;
-* an action still going after `ANNOUNCE_MS` gets a toast, and one more when it
-  ends. Quick ones (an image, a stage move) get none: a toast for each of those
-  would bury the window during a session. A long command the agent started (a
-  mill, an FM overview) gets its end toast when its run ends, from the record,
-  whether or not it held control to the end;
-* the agent's message to the operator gets a toast, kept in the bell; its notes
-  get none;
 * the patterns the agent draws for a mill are drawn on the FIB view, labelled
   "Agent" in the agent's purple, until they are removed (the run ends, or the next setup). The milling
   service announces what is drawn (``patterns_changed``); they are the agent's
@@ -21,9 +14,8 @@ and this follows it:
 The agent card's "Now" line is `now` (`fibsem.ai.agent.now`); `now_changed`
 says when it changes.
 
-The card's Recent list is `recent`: what the agent did lately, from the session's
-record (`follow_events`), as `recent.RecentActions` reads it (FIB-1414);
-`recent_changed` says when it changes.
+The window tells the operator nothing else about the agent: what it did, and
+what it asks, are on the web Agent page.
 
 A run's or the operator's control is not the agent's and is left to their own
 lines. A mill the agent starts and leaves running lets go of control at once; its
@@ -32,38 +24,20 @@ progress is the milling line's, and the milling panel's bar.
 
 from __future__ import annotations
 
-import time
-from typing import TYPE_CHECKING, Callable, List, Optional, Tuple
+from typing import TYPE_CHECKING, Callable, List, Optional
 
-from PyQt5.QtCore import QObject, Qt, QTimer, pyqtSignal
+from PyQt5.QtCore import QObject, pyqtSignal
 from superqt import ensure_main_thread
 
 from fibsem.acting import AGENT
 from fibsem.ai.agent.now import AgentNow
-from fibsem.ai.agent.recent import RecentActions, RecentRow
 from fibsem.structures import BeamType
-from fibsem.ui import notification_service
 from fibsem.ui.tokens import PURPLE_COLOR
-from fibsem.util.durations import format_duration_rounded
-from fibsem.workflows.actions import NOTE, is_message
 
 if TYPE_CHECKING:
     from fibsem.control import InControl
     from fibsem.microscope import FibsemMicroscope
     from fibsem.ui.widgets.status_bar import FibsemStatusBar
-
-# How long an agent's action runs before the window says so with a toast.
-ANNOUNCE_MS = 3000
-
-# How close together two ends of one action are the same end: its control let
-# go and its run's ``command_ended``.
-SAME_END_S = 5.0
-
-# The most of an agent's message the toast shows; the card has all of it.
-MESSAGE_CHARS = 200
-
-# How a long command's run ended, in the toast.
-_ENDED = {"done": "finished", "failed": "failed", "cancelled": "was stopped"}
 
 # The FIB view's overlay for the agent's patterns, beside the milling panel's own.
 OVERLAY_ID = "agent_milling"
@@ -91,9 +65,6 @@ class AgentActivity(QObject):
     """Follows who is in control of the microscope and says what the agent does."""
 
     now_changed = pyqtSignal(object)  # the `now` text, or None
-    recent_changed = pyqtSignal(object)  # the `recent` rows
-    # A record of the session's, from whichever thread recorded it, to this one.
-    _record_received = pyqtSignal(object)
 
     def __init__(
         self,
@@ -109,21 +80,9 @@ class AgentActivity(QObject):
         self._milling = None
         self._showing_patterns = False
         self._action: Optional[str] = None
-        self._since = 0.0
-        self._announced = False
-        self._announce_timer = QTimer(self)
-        self._announce_timer.setSingleShot(True)
-        self._announce_timer.timeout.connect(self._announce)
         # The Now line's action and mill, as the chat page follows them.
         self._following = AgentNow()
         self._now: Optional[str] = None
-        self._events = None
-        self._unsubscribe: Optional[Callable[[], None]] = None
-        self._recent = RecentActions()
-        self._seen = 0
-        # The last action an end toast was shown for, and when.
-        self._ended: Tuple[Optional[str], float] = (None, 0.0)
-        self._record_received.connect(self._on_record, Qt.QueuedConnection)  # type: ignore
 
     @property
     def action(self) -> Optional[str]:
@@ -135,82 +94,6 @@ class AgentActivity(QObject):
         """What the agent is doing, for the card's Now line: its mill and how far
         it is while it mills, else its action; None when it does nothing."""
         return self._now
-
-    @property
-    def recent(self) -> List[RecentRow]:
-        """What the agent did lately, oldest first."""
-        return self._recent.rows
-
-    def follow_events(self, buffer) -> None:
-        """Read the agent's actions from *buffer*, the session's event stream
-        (``EventBuffer``), from what it already holds on; None stops."""
-        if buffer is self._events:
-            return
-        if self._unsubscribe is not None:
-            try:
-                self._unsubscribe()
-            except Exception:
-                pass
-            self._unsubscribe = None
-        self._events = buffer
-        self._recent.clear()
-        self._seen = 0
-        if buffer is not None:
-            # Subscribed first, then caught up: a record in between is read
-            # once, by its sequence number.
-            self._unsubscribe = buffer.subscribe(self._record_received.emit)
-            for record in buffer.events_since(0).get("events", []):
-                self._take(record)
-        self.recent_changed.emit(self._recent.rows)
-
-    def _on_record(self, record: object) -> None:
-        if not isinstance(record, dict):
-            return
-        fresh = (record.get("seq") or 0) > self._seen
-        if self._take(record):
-            self.recent_changed.emit(self._recent.rows)
-        if fresh and record.get("kind") == "command_ended":
-            self._command_ended(record)
-        if fresh and record.get("kind") == NOTE and record.get("actor") == AGENT:
-            self._agent_message(record)
-
-    def _agent_message(self, record: dict) -> None:
-        """The agent's message to the operator: a toast, kept in the bell,
-        even with toasts for problems only. A note tells nobody."""
-        p = record.get("payload") or {}
-        if not is_message(record):
-            return
-        text = " ".join(str(p.get("text", "")).split())
-        if len(text) > MESSAGE_CHARS:
-            text = text[: MESSAGE_CHARS - 1] + "…"
-        notification_service.show(f"Agent: {text}", "info", always=True)
-
-    def _command_ended(self, record: dict) -> None:
-        """The agent's long command ended: say so, once."""
-        if record.get("actor") != AGENT:
-            return
-        p = record.get("payload") or {}
-        action = p.get("action") or f"{p.get('service')} {p.get('command')}"
-        ended = _ENDED.get(str(p.get("state")), "ended")
-        text = f"Agent: {action} {ended}"
-        if p.get("error"):
-            text += f": {p['error']}"
-        self._toast_end(action, text, "error" if ended == "failed" else "info")
-
-    def _toast_end(self, action: str, text: str, kind: str = "info") -> None:
-        last, at = self._ended
-        now = time.monotonic()
-        if last == action and now - at < SAME_END_S:
-            return
-        self._ended = (action, now)
-        notification_service.show_toast(text, kind)
-
-    def _take(self, record: dict) -> bool:
-        seq = record.get("seq") or 0
-        if seq and seq <= self._seen:
-            return False
-        self._seen = max(self._seen, seq)
-        return self._recent.add(record)
 
     def set_microscope(self, microscope: Optional["FibsemMicroscope"]) -> None:
         """Follow *microscope*'s control and milling; None lets the last one go."""
@@ -259,16 +142,8 @@ class AgentActivity(QObject):
     def _set_action(self, action: Optional[str]) -> None:
         if action == self._action:
             return
-        if self._action is not None and self._announced:
-            took = format_duration_rounded(time.monotonic() - self._since)
-            self._toast_end(self._action, f"Agent: {self._action} ended after {took}")
         self._action = action
         self._following.action = action
-        self._since = time.monotonic()
-        self._announced = False
-        self._announce_timer.stop()
-        if action is not None:
-            self._announce_timer.start(ANNOUNCE_MS)
         self._status_bar.set_agent_action(action)
         self._say_now()
 
@@ -322,9 +197,3 @@ class AgentActivity(QObject):
     def showing_patterns(self) -> bool:
         """Whether the agent's patterns are drawn on the FIB view."""
         return self._showing_patterns
-
-    def _announce(self) -> None:
-        if self._action is None:
-            return
-        self._announced = True
-        notification_service.show_toast(f"Agent: {self._action}", "info")

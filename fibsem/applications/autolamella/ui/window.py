@@ -1445,38 +1445,12 @@ class AutoLamellaWindow(AppWindow):
     def _show_config_edit(
         self, level: str, item_name: str, task_name: str, result: dict
     ) -> None:
-        """An agent's config edit applied: toast it and rebuild the editor
-        showing it.
-
-        The rebuild is what stops a stale open form writing old values back on
-        the operator's next edit; the toast is what stops the form appearing to
-        change by itself. show(), not show_toast(): agent changes are workflow
-        events -- they persist in the notification bell, not just flash for 3 s
-        while the operator is looking at the canvas.
-        """
-        if level == "apply_protocol":
-            names = ", ".join(result.get("task_names") or [])
-            notification_service.show(
-                f"Agent applied protocol to {item_name} — {names}", "info"
-            )
-            self.lamella_tab.editor.refresh_if_showing(item_name)
+        """An agent's config edit applied: rebuild the editor showing it, so a
+        stale open form doesn't write old values back on the operator's next
+        edit. The edit is on the web Agent page, not a toast."""
+        if level != "apply_protocol" and not result.get("changes"):
             return
-        changes = result.get("changes") or []
-        if not changes:
-            return
-        first = changes[0]
-        leaf = first["path"].rsplit(".", 1)[-1]
-        summary = f"{leaf}: {first['old']!r} → {first['new']!r}"
-        if len(changes) > 1:
-            summary += f" (+{len(changes) - 1} more)"
-        if level == "item":
-            target = f"{task_name} for {item_name}"
-        elif level == "item_fields":
-            target = item_name
-        else:
-            target = task_name
-        notification_service.show(f"Agent edited {target} — {summary}", "info")
-        if level in ("item", "item_fields"):
+        if level in ("apply_protocol", "item", "item_fields"):
             self.lamella_tab.editor.refresh_if_showing(item_name)
         else:
             self.task_widget.refresh_if_showing_task(task_name)

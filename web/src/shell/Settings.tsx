@@ -4,10 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Facts } from "@/components/ui/card";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { api, forgetToken } from "@/lib/api";
-import type { Capabilities, Pairing } from "@/lib/types";
+import { setNoticePrefs, systemNotices, useNoticePrefs } from "@/lib/notify";
+import type { Capabilities, Pairing, PairingRole } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-const SECTIONS = { connections: "Connections", about: "About" } as const;
+const SECTIONS = { connections: "Connections", notifications: "Notifications", about: "About" } as const;
 type Section = keyof typeof SECTIONS;
 
 function thisComputer(): string | null {
@@ -18,7 +19,27 @@ function thisComputer(): string | null {
   }
 }
 
-function Connections() {
+const ROLE_NAMES: Record<PairingRole, string> = { operator: "Operator", agent: "Agent", hub: "Hub" };
+// A hub may start and stop apps on a gateway only with this grant.
+const SWITCH_MODES = "switch_modes";
+
+function GrantToggle({ on, onChange }: { on: boolean; onChange: (on: boolean) => void }) {
+  return (
+    <label className="flex cursor-pointer items-center gap-1.5 text-[13px]">
+      <input
+        type="checkbox"
+        className="accent-primary"
+        checked={on}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      May start and stop apps
+    </label>
+  );
+}
+
+/** The paired computers and pairing a new one: the App Server's operators and
+ * agents, or a gateway's operators and hubs. */
+export function Connections({ roles = ["operator", "agent"] }: { roles?: PairingRole[] }) {
   const client = useQueryClient();
   const pairing = useQuery({
     queryKey: ["pairing"],
@@ -49,7 +70,7 @@ function Connections() {
         <h3 className="m-0 text-[13px] font-semibold text-muted-foreground">Paired computers</h3>
         <div className="flex-1" />
         {!data?.open && (
-          <Button onClick={() => act.mutate({ method: "POST", path: "/pairing", body: { role: "operator" } })}>
+          <Button onClick={() => act.mutate({ method: "POST", path: "/pairing", body: { role: roles[0] } })}>
             Pair a computer…
           </Button>
         )}
@@ -59,23 +80,33 @@ function Connections() {
           <div className="flex flex-col gap-1.5">
             <span className="text-xs text-muted-foreground">Pair as</span>
             <span className="flex gap-1">
-              {(["operator", "agent"] as const).map((role) => (
+              {roles.map((role) => (
                 <Button
                   key={role}
                   variant={data.role === role ? "default" : "ghost"}
                   onClick={() => act.mutate({ method: "POST", path: "/pairing", body: { role } })}
                 >
-                  {role === "operator" ? "Operator" : "Agent"}
+                  {ROLE_NAMES[role]}
                 </Button>
               ))}
             </span>
+            {data.role === "hub" && (
+              <GrantToggle
+                on={data.grants.includes(SWITCH_MODES)}
+                onChange={(on) =>
+                  act.mutate({ method: "POST", path: "/pairing", body: { role: "hub", grants: on ? [SWITCH_MODES] : [] } })
+                }
+              />
+            )}
           </div>
           <div className="flex flex-col gap-0.5">
             <span className="text-[32px] font-semibold tracking-[0.2em] tabular-nums">{data.code}</span>
             <span className="text-xs text-muted-foreground">
               {data.role === "agent"
                 ? `Run fibsem-mcp pair ${data.code} on the agent's computer${pairedAgent ? `. It replaces ${pairedAgent.name}` : ""}`
-                : "Enter it in the other computer's browser"}{" "}
+                : data.role === "hub"
+                  ? "Enter it in the hub's Add instrument"
+                  : "Enter it in the other computer's browser"}{" "}
               · {Math.floor(left / 60)}:{String(left % 60).padStart(2, "0")} left
             </span>
           </div>
@@ -85,7 +116,7 @@ function Connections() {
           </Button>
         </div>
       )}
-      {data && (
+      {data && roles.includes("agent") && (
         <label className="flex items-center gap-2 text-[13px]">
           <input
             type="checkbox"
@@ -116,8 +147,20 @@ function Connections() {
               <span className="text-xs text-muted-foreground">
                 Paired {new Date(computer.paired_at * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
               </span>
+              {computer.role === "hub" && (
+                <GrantToggle
+                  on={computer.grants.includes(SWITCH_MODES)}
+                  onChange={(on) =>
+                    act.mutate({
+                      method: "PATCH",
+                      path: `/pairing/computers/${encodeURIComponent(computer.id)}`,
+                      body: { grants: on ? [SWITCH_MODES] : [] },
+                    })
+                  }
+                />
+              )}
             </span>
-            <span className="text-[13px]">{computer.role === "agent" ? "Agent" : "Operator"}</span>
+            <span className="text-[13px]">{ROLE_NAMES[computer.role]}</span>
             {unpairing === computer.id ? (
               <span className="flex gap-1">
                 <Button
@@ -139,6 +182,74 @@ function Connections() {
         ))}
       </div>
       {act.error && <p className="m-0 text-[13px] text-destructive">{(act.error as Error).message}</p>}
+    </div>
+  );
+}
+
+/** How this browser tells the operator, beyond its toasts, that the agent needs an answer. */
+function Notifications() {
+  const prefs = useNoticePrefs();
+  const can = systemNotices();
+  const [permission, setPermission] = useState(() => (can ? Notification.permission : "denied"));
+  const state = !can
+    ? "Not available here: system notifications need localhost or the SSH tunnel."
+    : permission === "granted"
+      ? "Allowed in this browser. A system notification, while this tab is in the background."
+      : permission === "denied"
+        ? "Blocked in this browser: allow notifications for this site in its settings."
+        : "The browser asks for permission when you turn it on.";
+  return (
+    <div className="flex flex-col gap-3 text-[13px]">
+      <label className="flex items-start gap-2">
+        <input
+          type="checkbox"
+          className="mt-0.5 accent-primary"
+          checked={prefs.toasts}
+          onChange={(e) => setNoticePrefs({ toasts: e.target.checked })}
+        />
+        <span className="flex flex-col gap-0.5">
+          Show toasts when the agent needs an answer
+          <span className="text-muted-foreground">
+            On every page but the Agent page. The tab title counts them either way.
+          </span>
+        </span>
+      </label>
+      <label className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          className="accent-primary"
+          checked={prefs.errors}
+          onChange={(e) => setNoticePrefs({ errors: e.target.checked })}
+        />
+        Also for an action of the agent's that failed
+      </label>
+      <label className="flex items-start gap-2">
+        <input
+          type="checkbox"
+          className="mt-0.5 accent-primary"
+          disabled={!can}
+          checked={can && prefs.system && permission === "granted"}
+          onChange={async (e) => {
+            const on = e.target.checked;
+            const allowed = on && permission !== "granted" ? await Notification.requestPermission() : permission;
+            setPermission(allowed);
+            setNoticePrefs({ system: on && allowed === "granted" });
+          }}
+        />
+        <span className="flex flex-col gap-0.5">
+          Tell me outside the browser when the agent needs an answer
+          <span className="text-muted-foreground">{state}</span>
+        </span>
+      </label>
+      <label className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          className="accent-primary"
+          checked={prefs.sound}
+          onChange={(e) => setNoticePrefs({ sound: e.target.checked })}
+        />
+        Play a sound when the agent asks
+      </label>
     </div>
   );
 }
@@ -182,7 +293,9 @@ export function Settings({ open, onOpenChange }: { open: boolean; onOpenChange: 
               </button>
             ))}
           </nav>
-          <div className="min-w-0 flex-1 px-5 py-4">{section === "connections" ? <Connections /> : <About />}</div>
+          <div className="min-w-0 flex-1 px-5 py-4">
+            {section === "connections" ? <Connections /> : section === "notifications" ? <Notifications /> : <About />}
+          </div>
         </div>
       </DialogContent>
     </Dialog>

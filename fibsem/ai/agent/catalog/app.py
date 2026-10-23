@@ -688,7 +688,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="experiment_message_operator",
         returns="Recorded",
-        description="Tell the operator something they should read now: you have stopped and need them (a hardware error, a site you can't fix), or you answer their message (a MESSAGE line from fibsem-mcp watch: pass its id as reply_to). It goes on the record like a note, and the window tells the operator. A message asks nothing of the run and approves nothing: a decision is a proposal or a request. Answers the message's id.",
+        description="Tell the operator something they should read now: you have stopped and need them (a hardware error, a site you can't fix), or you answer their message (a MESSAGE line from fibsem-mcp watch: pass its id as reply_to). It goes on the record like a note, shown to the operator as a message, not a note. A message asks nothing of the run and approves nothing: a decision is a proposal or a request. Answers the message's id.",
         method="POST",
         path="/app/experiment/messages",
         level="watch",  # Watch tells the operator: a message changes nothing
@@ -1107,7 +1107,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="app_get_display_images",
         returns="DisplayImages",
-        description="The SEM and FIB images the app's GUI is displaying right now, as previews — the display cache, not a new acquisition. Post-mill images appear here as soon as the GUI shows them, before they reach disk.",
+        description="The SEM and FIB images the app's GUI is displaying right now, and the FM's latest frame (live, or the last plane of an acquisition, in its channel's colour), as previews — the display cache, not a new acquisition. Post-mill images appear here as soon as the GUI shows them, before they reach disk.",
         method="GET",
         path="/app/experiment/images",
         level="watch",

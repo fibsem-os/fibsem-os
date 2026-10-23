@@ -654,7 +654,8 @@ class AppContext:
     # --- instrument-adjacent (cached only, never a hardware call) --------------
 
     def display_images(self) -> DisplayImages:
-        """The SEM/FIB images the GUI is displaying right now, as previews.
+        """The SEM/FIB images the GUI is displaying right now, and the FM's
+        latest frame, as previews.
 
         This is the display cache, not an acquisition: nothing touches
         hardware, and the workflow's post-mill images appear here the moment
@@ -665,20 +666,24 @@ class AppContext:
         whole on acquisition, never mutated in place) and encodes previews on
         the server thread; the GUI thread is neither entered nor blocked.
         """
-        from fibsem.server.image_payloads import image_payload
+        from fibsem.server.image_payloads import image_info, image_payload
 
         images = self._latest_images
         if images is None:
             return DisplayImages(available=False)
 
-        def preview(beam_type):
-            payload = image_payload(images.get(beam_type))
-            return decode(ImagePayload, payload) if payload is not None else None
+        def preview(image):
+            payload = image_payload(image)
+            if payload is None:
+                return None
+            return decode(ImagePayload, {**payload, "info": image_info(image)})
 
         return DisplayImages(
             available=True,
-            sem=preview(BeamType.ELECTRON),
-            fib=preview(BeamType.ION),
+            sem=preview(images.get(BeamType.ELECTRON)),
+            fib=preview(images.get(BeamType.ION)),
+            fm=preview(images.get_fm()),
+            fm_available=getattr(self._microscope, "fm", None) is not None,
         )
 
     @property
@@ -892,9 +897,9 @@ class AppContext:
         evidence: str = "",
     ) -> Dict[str, Any]:
         """Decide a pending proposal, exactly as the operator's answer is: the same
-        Experiment.decide, on the main thread, blocking until applied. The
-        actor is recorded as the agent (``actor`` names its model), never as
-        the operator.
+        Experiment.decide, on the main thread, blocking until applied. A call
+        with the operator token is recorded as the operator named on the
+        experiment; any other as the agent (``actor`` names its model).
 
         ``action`` is what a loop's pass is decided as (run, edit, skip,
         accept). ``patch`` sets fields of its value by dotted path, on the
@@ -957,7 +962,11 @@ class AppContext:
                 return {"available": True, "applied": False, "invalid_value": str(exc)}
         decision = Decision(
             outcome=decided,
-            actor=Actor.agent(actor or "remote"),
+            actor=(
+                experiment.actor()
+                if current_actor() is OPERATOR
+                else Actor.agent(actor or "remote")
+            ),
             values=decoded,
             reason=reason,
             via="server",
@@ -1061,7 +1070,7 @@ class AppContext:
     ) -> Dict[str, Any]:
         """Put the agent's message to the operator on the record: something they
         should read now, or its answer to their message (``reply_to``, the
-        message's id). The window tells the operator; it changes nothing."""
+        message's id). It changes nothing."""
         message_id = uuid.uuid4().hex[:8]
         result = self._note(
             text,

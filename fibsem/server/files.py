@@ -298,7 +298,27 @@ def _image_answer(
         preview["region"] = region
         if pixel_size is not None:
             preview["hfw"] = pixel_size * region["width"]
-    return {"summary": summary, "path": target, "preview": preview}
+    return {
+        "summary": summary,
+        "path": target,
+        "preview": preview,
+        "info": _bar_info(target, image, fm, z),
+    }
+
+
+def _bar_info(path: str, image, fm, z: Optional[int]) -> Optional[Dict[str, Any]]:
+    """What the bar under the image says (`fibsem.server.image_payloads`); None
+    for a file that records nothing."""
+    from fibsem.server.image_payloads import fm_info, image_info
+
+    if image is not None:
+        return image_info(image)
+    if fm is None:
+        return None
+    from fibsem.fm.stack_file import StackFile
+
+    with StackFile(path) as stack:
+        return fm_info(stack.metadata, stack.shape, z)
 
 
 def preview_width(width: Optional[int]) -> int:

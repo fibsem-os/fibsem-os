@@ -1,5 +1,5 @@
-"""Tools → App Server and Connect an agent (FIB-1035): the server's page and the
-agent's page."""
+"""Tools → App Server (FIB-1035): the server's page, and the text that points
+an agent at it."""
 
 import os
 
@@ -15,12 +15,10 @@ pytest.importorskip("fastapi")
 from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
 from fibsem.server.agent_setup import agent_setup_text, sidecar_path  # noqa: E402
 from fibsem.server.auth import AuthConfig  # noqa: E402
-from fibsem.server.discovery import dev_checkout  # noqa: E402
 from fibsem.server.hosting import event_log_url  # noqa: E402
 from fibsem.ui.agent.app_server_dialog import (  # noqa: E402
     AppServerDialog,
 )
-from fibsem.ui.agent.connect_agent_dialog import ConnectAgentDialog  # noqa: E402
 
 
 class _Host:
@@ -202,24 +200,7 @@ def test_agent_text_reports_when_the_agent_was_last_heard_from():
     assert AppServerDialog.agent_text(_Host(age=200)) == "Agent · last heard 3 min ago"
 
 
-# --- Connect an agent --------------------------------------------------------
-
-
-def test_connect_shows_the_level_read_only_and_no_token(qapp, host, tmp_path):
-    dialog = ConnectAgentDialog(lambda: host, sidecar=tmp_path / "fibsem-mcp")
-    assert dialog._level_label.text() == "Agent: Watching"
-    host.auth.set_level(AgentLevel.DRIVE)
-    dialog.refresh()
-    assert dialog._level_label.text() == "Agent: Driving"
-    # An agent on this PC asks to connect: there is no token to hand out.
-    assert not hasattr(dialog, "_token_edit")
-    dialog.deleteLater()
-
-
-def test_connect_without_a_server_says_so(qapp, tmp_path):
-    dialog = ConnectAgentDialog(lambda: None, sidecar=tmp_path / "fibsem-mcp")
-    assert dialog._level_label.text() == "The App Server isn't running."
-    dialog.deleteLater()
+# --- The text for an agent ---------------------------------------------------
 
 
 def test_the_agent_text_registers_for_every_project_by_absolute_path(tmp_path):
@@ -278,19 +259,6 @@ def test_the_running_checkout_is_named_only_when_it_came_from_pythonpath():
     )
 
 
-def test_copy_for_your_agent_fills_in_the_running_server(qapp, host, tmp_path):
-    from PyQt5.QtWidgets import QApplication
-
-    path = tmp_path / "fibsem-mcp"
-    dialog = ConnectAgentDialog(lambda: host, sidecar=path)
-    assert not hasattr(dialog, "_btn_copy_code")
-    dialog._btn_copy_setup.click()
-    copied = QApplication.clipboard().text()
-    assert copied == agent_setup_text(path, host.url, pythonpath=dev_checkout())
-    assert host.auth.token not in copied
-    dialog.deleteLater()
-
-
 @pytest.mark.skipif(os.name == "nt", reason="the POSIX layout")
 def test_the_sidecar_is_found_beside_the_interpreter(tmp_path):
     bin_dir = tmp_path / "env" / "bin"
@@ -299,15 +267,6 @@ def test_the_sidecar_is_found_beside_the_interpreter(tmp_path):
     assert sidecar_path(str(python)) is None
     (bin_dir / "fibsem-mcp").write_text("#!/bin/sh\n")
     assert sidecar_path(str(python)) == bin_dir / "fibsem-mcp"
-
-
-def test_a_missing_sidecar_says_how_to_install_it(qapp, host, monkeypatch):
-    from fibsem.ui.agent import connect_agent_dialog
-
-    monkeypatch.setattr(connect_agent_dialog, "sidecar_path", lambda: None)
-    dialog = ConnectAgentDialog(lambda: host)
-    assert not dialog._btn_copy_setup.isEnabled()
-    dialog.deleteLater()
 
 
 def test_a_computer_is_paired_and_unpaired_from_the_dialog(qapp, host, tmp_path):
@@ -331,65 +290,4 @@ def test_a_computer_is_paired_and_unpaired_from_the_dialog(qapp, host, tmp_path)
     assert row.itemAt(0).widget().text() == "lab laptop"
     row.itemAt(2).widget().click()
     assert host.auth.pairing.tokens.computers() == []
-    dialog.deleteLater()
-
-
-def test_an_agent_is_paired_from_connect_an_agent_only(qapp, host, tmp_path):
-    from fibsem.server.pairing import PairedTokens, Pairing
-
-    host.auth.pairing = Pairing(PairedTokens(tmp_path / "paired.json"))
-    agent = ConnectAgentDialog(lambda: host)
-    server = AppServerDialog(lambda: host)
-    agent._pair.button.click()
-    code = host.auth.pairing.state()["code"]
-    assert agent._pair_command.text() == f"On that computer: fibsem-mcp pair {code}"
-    server.refresh()
-    # Pairing open for an agent is not the App Server dialog's.
-    assert not server._pair.code.isVisibleTo(server)
-    assert server._btn_pair.text() == "Pair a computer"
-    host.auth.pairing.pair(code, "mac mini")
-    agent.refresh()
-    server.refresh()
-    assert agent._agents.layout().count() == 1
-    assert server._computers.layout().count() == 0
-    agent.deleteLater()
-    server.deleteLater()
-
-
-def test_always_allow_agents_on_this_pc_is_set_from_connect_an_agent(
-    qapp, host, tmp_path
-):
-    from fibsem.server.connections import Connections
-    from fibsem.server.pairing import PairedTokens, Pairing
-
-    host.auth.pairing = Pairing(PairedTokens(tmp_path / "paired.json"))
-    saved = []
-    host.auth.connections = Connections(
-        host.auth.pairing.tokens, save_always_allow=saved.append
-    )
-    dialog = ConnectAgentDialog(lambda: host, sidecar=tmp_path / "fibsem-mcp")
-    assert not dialog._always_allow.isChecked()
-    dialog._always_allow.click()
-    assert host.auth.connections.always_allow and saved == [True]
-    answer = host.auth.connections.ask(
-        "claude-code 2.1.3", "this PC", "lab", 0, loopback=True
-    )
-    assert answer["state"] == "allowed"
-    dialog.refresh()
-    assert dialog._always_allow.isChecked()
-    assert dialog._agents.layout().count() == 1
-    dialog.deleteLater()
-
-
-def test_pairing_an_agent_says_which_agent_it_replaces(qapp, host, tmp_path):
-    from fibsem.server.pairing import AGENT, PairedTokens, Pairing
-
-    host.auth.pairing = Pairing(PairedTokens(tmp_path / "paired.json"))
-    host.auth.pairing.tokens.add("claude-code on this PC", AGENT)
-    dialog = ConnectAgentDialog(lambda: host, sidecar=tmp_path / "fibsem-mcp")
-    dialog._pair.button.click()
-    code = host.auth.pairing.state()["code"]
-    assert dialog._pair_command.text() == (
-        f"On that computer: fibsem-mcp pair {code}. It replaces claude-code on this PC."
-    )
     dialog.deleteLater()

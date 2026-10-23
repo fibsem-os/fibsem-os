@@ -787,8 +787,8 @@ def build_app_router(context: Any) -> APIRouter:
 
     @router.post("/experiment/messages", response_model=Recorded)
     def add_message(body: Dict[str, Any]):
-        # The agent's message to the operator, on the record as a note to them;
-        # the window tells them. Like a note, it changes nothing.
+        # The agent's message to the operator, on the record as a note to them.
+        # Like a note, it changes nothing.
         text, item_name = _note_body(body, "reply_to")
         reply_to = body.get("reply_to")
         cited = cited_evidence(context)

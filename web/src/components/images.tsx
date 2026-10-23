@@ -1,8 +1,8 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Facts } from "@/components/ui/card";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { ImageInfoBar, ScaleBar } from "@/components/image-info";
 import { Stepper } from "@/components/stepper";
 import { type StackView, useFileRead } from "@/lib/files";
 import * as fmt from "@/lib/format";
@@ -175,23 +175,6 @@ export function Thumb({ path, onOpen }: { path: string; onOpen: () => void }) {
   );
 }
 
-function metadata(summary: Record<string, unknown> | undefined, size: number | null | undefined): [string, string][] {
-  if (!summary) return [];
-  const beam = (summary.beam ?? {}) as Record<string, number | null>;
-  const shape = summary.shape as number[] | undefined;
-  const rows: [string, string][] = [
-    ["Beam", BEAM[String(summary.beam_type)] ?? "–"],
-    ["Voltage", fmt.voltage(beam.voltage)],
-    ["Current", fmt.current(beam.current)],
-    ["Field width", fmt.length(summary.hfw as number)],
-    ["Size", shape ? `${shape[1]} × ${shape[0]} px${size ? ` · ${fmt.bytes(size)}` : ""}` : "–"],
-    ["Pixel size", fmt.length(summary.pixel_size as number)],
-    ["Dwell", fmt.seconds(beam.dwell_time)],
-    ["Acquired", fmt.when(summary.acquired_at as string) || "–"],
-  ];
-  return rows.filter(([, v]) => v && v !== "–");
-}
-
 /** The viewer: one image large with its metadata, previous and next through *paths*. */
 export function ImageViewer({ paths, at, onClose }: { paths: string[]; at: number | null; onClose: () => void }) {
   // The open image by its path, so images added to *paths* while it is open don't move it.
@@ -224,6 +207,10 @@ export function ImageViewer({ paths, at, onClose }: { paths: string[]; at: numbe
     setView({ ...view, z: Math.max(0, Math.min(stack.z_planes - 1, view.z == null ? from : from + by)) });
   };
   const name = path?.split("/").pop() ?? "";
+  // (height, width), with a colour axis after for a stack's composite.
+  const shape = read.data?.summary?.shape as number[] | undefined;
+  const bytes = read.data?.size;
+  const size = shape ? `${shape[1]} × ${shape[0]} px${bytes ? ` · ${fmt.bytes(bytes)}` : ""}` : "";
   return (
     <Dialog open={at != null} onOpenChange={(open) => !open && onClose()}>
       <DialogContent title={name} className="w-[min(1280px,calc(100vw-32px))]">
@@ -239,25 +226,46 @@ export function ImageViewer({ paths, at, onClose }: { paths: string[]; at: numbe
             e.preventDefault();
           }}
         >
-          <div className="relative flex min-h-[240px] items-center justify-center bg-black p-2">
-            {shown && (!p || read.isPlaceholderData) && (
-              <span className="absolute top-3 left-3 bg-black/70 px-2 py-0.5 text-[12px] text-white">Reading…</span>
-            )}
-            {shown ? (
-              <img
-                className={cn("block max-h-[70vh] w-full object-contain", (!p || read.isPlaceholderData) && "opacity-50")}
-                alt={name}
-                src={`data:image/jpeg;base64,${shown.image_b64_jpeg}`}
-              />
-            ) : (
-              <span className="text-[13px] text-muted-foreground">{read.error ? read.error.message : "Reading…"}</span>
-            )}
+          <div className="flex min-w-0 flex-col self-start">
+            <div className="relative flex min-h-[240px] items-center justify-center bg-black p-2">
+              {shown && (!p || read.isPlaceholderData) && (
+                <span className="absolute top-3 left-3 z-10 bg-black/70 px-2 py-0.5 text-[12px] text-white">
+                  Reading…
+                </span>
+              )}
+              {shown ? (
+                <div
+                  className="relative"
+                  style={{
+                    aspectRatio: `${shown.width} / ${shown.height}`,
+                    width: `min(100%, calc(70vh * ${shown.width / shown.height}))`,
+                  }}
+                >
+                  <img
+                    className={cn(
+                      "absolute inset-0 block h-full w-full",
+                      (!p || read.isPlaceholderData) && "opacity-50",
+                    )}
+                    alt={name}
+                    src={`data:image/jpeg;base64,${shown.image_b64_jpeg}`}
+                  />
+                  <ScaleBar info={read.data?.info} />
+                </div>
+              ) : (
+                <span className="text-[13px] text-muted-foreground">
+                  {read.error ? read.error.message : "Reading…"}
+                </span>
+              )}
+            </div>
+            <ImageInfoBar info={read.data?.info} />
           </div>
           <div className="flex flex-col gap-3 px-4 pb-4 md:pt-2 md:pl-0">
-            <Facts rows={metadata(read.data?.summary, read.data?.size)} />
             {fm && <Legend fm={fm} view={view} setView={setView} />}
             {stack && <Planes fm={stack} view={view} setView={setView} />}
-            <div className="text-[12px] break-all text-muted-foreground">{path}</div>
+            <div className="flex flex-col gap-0.5 text-[12px] text-muted-foreground">
+              <span className="break-all">{path}</span>
+              {size && <span className="tabular-nums">{size}</span>}
+            </div>
             {paths.length > 1 && (
               <div className="mt-auto flex items-center gap-2">
                 <Button onClick={() => step(-1)} aria-label="Previous image">

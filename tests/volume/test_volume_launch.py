@@ -33,7 +33,7 @@ def test_a_new_experiment_is_served_until_stopped(discovery, tmp_path, capsys):
             headers={"Authorization": f"Bearer {allowed_agent(found, operator_token)}"},
         ).json()
         assert capabilities["app_name"] == "Volume"
-        assert capabilities["parts"] == ["items"]
+        assert capabilities["parts"] == ["items", "poses"]
     finally:
         stop.set()
         worker.join(60)
