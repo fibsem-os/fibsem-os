@@ -31,11 +31,11 @@ from fibsem.applications.autolamella.ui.common.lamella_display import (
     add_verdict_actions,
     mark_current_verdict,
 )
-from fibsem.applications.autolamella.ui.common.thumbnails import cached_thumbnail
 from fibsem.config import CARD_MODES, MODE_COMPACT, MODE_COZY, MODE_STANDARD
 from fibsem.structures import GridInventoryEntry, GridSlotState
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.thumbnails import cached_thumbnail
 from fibsem.ui.tokens import (
     ACCENT_COLOR,
     ERROR_COLOR,

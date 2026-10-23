@@ -33,11 +33,11 @@ from fibsem.applications.autolamella.ui.common.lamella_display import (
     short_status,
     status_look,
 )
-from fibsem.applications.autolamella.ui.common.thumbnails import cached_thumbnail
 from fibsem.config import CARD_MODES, MODE_COMPACT, MODE_COZY, MODE_STANDARD
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION, fibsem_icon
 from fibsem.ui.qt.connections import connect_for_lifetime
+from fibsem.ui.thumbnails import cached_thumbnail
 from fibsem.ui.tokens import (
     NEUTRAL_200,
     NEUTRAL_550,

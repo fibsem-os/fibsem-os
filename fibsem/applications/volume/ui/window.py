@@ -1,6 +1,7 @@
 """``fibsem-volume-ui``: the volume app's window. The Microscope tab is the quad
-view and the panel, with the Positions tab first; the Protocol tab is the
-tasks. The App Server, when it is on, serves the same ``VolumeAppContext`` as
+view and the panel, with its Positions tab first; the Protocol tab is the
+tasks; the Positions tab is a card per position and its slices. The App
+Server, when it is on, serves the same ``VolumeAppContext`` as
 ``fibsem-volume``.
 """
 
@@ -10,7 +11,7 @@ import os
 import sys
 from typing import TYPE_CHECKING, Any, List, Optional
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -25,6 +26,7 @@ from fibsem.applications.volume.experiment_setup import (
 )
 from fibsem.applications.volume.server import VolumeAppContext
 from fibsem.applications.volume.ui.positions_panel import PositionsPanel
+from fibsem.applications.volume.ui.positions_tab import PositionsTab
 from fibsem.applications.volume.ui.protocol_tab import ProtocolTab
 from fibsem.tools.app_identity import set_app_identity
 from fibsem.tools.apps import VOLUME
@@ -55,6 +57,7 @@ INSTRUCTIONS = {
     "NO_POSITION": "Add a position where the microscope is, on the Positions tab.",
     "READY": "Ready to run. Tick the tasks to run on the Protocol tab.",
 }
+POSITIONS_REDRAW_MS = 300
 
 
 class VolumeWindow(AppWindow):
@@ -117,6 +120,18 @@ class VolumeWindow(AppWindow):
             "Protocol",
         )
 
+        self.positions_tab = PositionsTab(self.session)
+        self.tab_widget.addTab(
+            self.positions_tab,
+            fibsem_icon("mdi:layers-outline", color=GRAY_ICON_COLOR),
+            "Positions",
+        )
+        # A run's status comes in bursts: the cards are drawn once per burst.
+        self._positions_redraw = QTimer(self)
+        self._positions_redraw.setSingleShot(True)
+        self._positions_redraw.setInterval(POSITIONS_REDRAW_MS)
+        self._positions_redraw.timeout.connect(self.positions_tab.refresh)
+
         self.attention = AttentionRouter(
             prompts=self.proposals,
             tab_widget=self.tab_widget,
@@ -142,10 +157,13 @@ class VolumeWindow(AppWindow):
         )
         self.workflow_controls.run_clicked.connect(self.run)
         self.panel.experiment_tab.items_changed.connect(self._update_instructions)
+        self.panel.experiment_tab.items_changed.connect(self._positions_redraw.start)
+        self.run_relay.status.connect(lambda _event: self._positions_redraw.start())
         self.protocol_tab.tasks.selection_changed.connect(
             lambda _: self._update_instructions()
         )
         self.run_relay.finished.connect(lambda *_: self.panel.refresh())
+        self.run_relay.finished.connect(lambda *_: self._positions_redraw.start())
         self._session_changed.connect(self._on_session_changed)
         self.session.changed.connect(self._hear_session)
 
@@ -160,6 +178,7 @@ class VolumeWindow(AppWindow):
             self._setup_experiment_connections()
             self.attention.listen(self.experiment)
             self.protocol_tab.refresh()
+            self.positions_tab.refresh()
             self._refresh_title()
         elif what == PROTOCOL:
             self.protocol_tab.refresh()

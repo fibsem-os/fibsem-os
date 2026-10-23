@@ -28,19 +28,19 @@ from PyQt5.QtWidgets import (
 
 from fibsem.applications.autolamella.structures import Lamella
 from fibsem.applications.autolamella.task_outputs import history_images
-from fibsem.applications.autolamella.ui.common.thumbnails import (
-    PLACEHOLDER_HEIGHT,
-    TARGET_WIDTH,
-    ClickableLabel,
-    file_stamp,
-    load_and_resize,
-)
 from fibsem.cancellation import CANCELLED, COMPLETED, FAILED, SKIPPED
 from fibsem.config import load_user_preferences, update_user_preferences
 from fibsem.imaging.drawing import draw_image_overlays
 from fibsem.imaging.export import ImageFields, image_caption, image_summary
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.thumbnails import (
+    PLACEHOLDER_HEIGHT,
+    TARGET_WIDTH,
+    ClickableLabel,
+    file_stamp,
+    load_and_resize,
+)
 from fibsem.ui.tokens import (
     ACCENT_COLOR,
     GRAY_ICON_COLOR,

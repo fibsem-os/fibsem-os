@@ -28,10 +28,10 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.structures import Experiment
-from fibsem.applications.autolamella.ui.common.thumbnails import ClickableLabel
 from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
 from fibsem.ui import stylesheets
 from fibsem.ui.stylesheets import SECONDARY_BUTTON_STYLESHEET
+from fibsem.ui.thumbnails import ClickableLabel
 from fibsem.ui.tokens import (
     ERROR_COLOR,
     NEUTRAL_200,
