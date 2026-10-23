@@ -310,6 +310,15 @@ def test_a_read_on_the_fm_view_does_not_wait_for_the_lock(facts):
     assert facts["reads_on_the_beam_view_wait_for_the_lock"]
 
 
+def test_a_read_a_beam_takes_the_view_from_is_tried_again_holding_the_lock(facts):
+    """A beam can take the view between the FM being selected and the read, as on
+    the Arctis after adding a lamella; the second try holds the lock beams take."""
+    assert facts["read_after_a_beam_takes_the_view"] == {
+        "resolution": True,
+        "retried_holding_the_lock": True,
+    }
+
+
 # -- the FM API over the devices, against the old Thermo class's pins ------------------
 
 # Limits and choices are read once, when the devices connect, and cached, as for every

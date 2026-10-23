@@ -851,6 +851,42 @@ def _completes_while_held(view, read):
     return finished
 
 
+class _TakenOnce(Setting):
+    """A setting whose view a beam takes once, between the FM being selected and the
+    read, so AutoScript answers for the beam's detector, as on the Arctis."""
+
+    def __init__(self, setting, lock):
+        super().__init__(setting._path, setting._value, available=setting._available)
+        self._lock, self._taken, self.held = lock, False, None
+
+    @property
+    def value(self):
+        if not self._taken:
+            self._taken = True
+            STATE["view"] = BEAM_VIEW
+            raise RuntimeError(
+                "The active detector does not have a parameter: binning."
+            )
+        if self.held is None:  # the try after the failed one
+            self.held = self._lock._is_owned()
+        return super().value
+
+
+def _read_after_a_beam_takes_the_view():
+    """The camera's resolution when a beam takes the view from its binning read."""
+    parent = Parent(make_connection("Retracted", CameraFilterType.FLUORESCENCE))
+    devices = bind_autoscript_fm(parent)
+    STATE["view"] = FM_VIEW
+    camera = devices["camera"]
+    expected = camera.resolution.get_value()
+    settings = parent._connection.sdk.detector.camera_settings
+    settings.binning = _TakenOnce(settings.binning, parent._threading_lock)
+    return {
+        "resolution": camera.resolution.get_value() == expected,
+        "retried_holding_the_lock": settings.binning.held,
+    }
+
+
 def _thermo_microscope_fm():
     """What a Thermo microscope builds its FM from."""
     from types import SimpleNamespace
@@ -909,6 +945,7 @@ def facts():
         "reads_on_the_beam_view_wait_for_the_lock": not _completes_while_held(
             BEAM_VIEW, position
         ),
+        "read_after_a_beam_takes_the_view": _read_after_a_beam_takes_the_view(),
     }
 
 
