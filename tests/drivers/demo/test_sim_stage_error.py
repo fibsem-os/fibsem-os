@@ -32,11 +32,22 @@ def _turn_on(microscope, **kwargs) -> StageMoveError:
     return error
 
 
-def test_the_shipped_arctis_config_leaves_it_off(microscope):
-    assert microscope.system.sim["stage_error"]["enabled"] is False
-    assert microscope.stage.sim_error is None
-    position = microscope.get_stage_position()
-    assert microscope._connection.scene_stage_position() == position
+def test_the_shipped_arctis_config_turns_it_on(microscope):
+    error = microscope.stage.sim_error
+    assert error is not None
+    assert error.scale == (1.06, 1.09)
+    assert error.jitter == 0.01
+
+
+def test_it_is_off_without_the_block():
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    try:
+        assert "stage_error" not in (microscope.system.sim or {})
+        assert microscope.stage.sim_error is None
+        position = microscope.get_stage_position()
+        assert microscope._connection.scene_stage_position() == position
+    finally:
+        microscope.disconnect()
 
 
 @pytest.mark.parametrize(
@@ -131,3 +142,16 @@ def test_the_layout_check_sees_the_scale_error_on_a_tiled_overview(
     assert summary["x"]["step_fraction"] == pytest.approx(1.06, abs=0.015)
     assert summary["y"]["step_fraction"] == pytest.approx(1.09, abs=0.015)
     assert result.layout["warning"] is not None
+
+
+def test_a_long_move_misses_by_no_more_than_the_cap():
+    error = StageMoveError(jitter=0.01, jitter_max=2e-6, seed=4)
+    origin = FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=0.0, t=0.0)
+    error.start_at(origin)
+    far = FibsemStagePosition(x=2e-3, y=0.0, z=0.0, r=0.0, t=0.0)
+    misses = []
+    for _ in range(200):
+        error.moved(origin, far)
+        misses.append(error.actual(far).x - 2e-3)
+    # 1% of 2 mm would be 20 um; capped at 2 um sigma
+    assert max(abs(m) for m in misses) < 10e-6
