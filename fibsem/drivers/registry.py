@@ -55,7 +55,6 @@ if TYPE_CHECKING:
     from fibsem.devices.core import Device
     from fibsem.drivers.setup import DriverSetup, SetupDevice
     from fibsem.microscope import FibsemMicroscope
-    from fibsem.plugins.loader import PluginRecord
     from fibsem.structures import DeviceEntry, SystemSettings
 
 
@@ -438,5 +437,3 @@ def _all_drivers() -> List[Tuple[str, DriverEntry]]:
         for name, entry in drivers.items():
             seen.setdefault(name, entry)
     return list(seen.items())
-
-

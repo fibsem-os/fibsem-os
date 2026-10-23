@@ -5,7 +5,6 @@ This module provides a plugin architecture for AutoLamellaTask implementations,
 similar to the BasePattern plugin system in fibsem.milling.patterning.
 """
 
-import typing
 from typing import TYPE_CHECKING, Any, Dict, Type
 
 from fibsem.plugins.loader import PluginRegistry, subclass_of
@@ -61,7 +60,6 @@ from fibsem.workflows.queue import (
     TaskQueue,
     WorkItem,
 )
-
 
 # Built-in tasks registry
 BUILTIN_TASKS: Dict[str, Type[SiteTask]] = {
@@ -120,5 +118,3 @@ def load_task_config(
     from fibsem.workflows.task_config import load_task_configs
 
     return EventedDict(load_task_configs(TASK_PLUGINS, ddict))
-
-
