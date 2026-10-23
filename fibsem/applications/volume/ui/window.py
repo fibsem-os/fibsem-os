@@ -46,7 +46,7 @@ from fibsem.workflows.runner import ITEMS, RunRequest
 from fibsem.workflows.session import EXPERIMENT, MICROSCOPE, PROTOCOL
 
 if TYPE_CHECKING:
-    from fibsem.tools.launcher import Splash
+    from fibsem.tools.desktop_launch import Splash
 
 __all__ = ["VolumeWindow", "main"]
 
