@@ -887,6 +887,64 @@ def _read_after_a_beam_takes_the_view():
     }
 
 
+def _write_holds_the_lock():
+    """Whether the lock is held at the moment a gain write reaches the detector."""
+    parent = Parent(make_connection("Retracted", CameraFilterType.FLUORESCENCE))
+    devices = bind_autoscript_fm(parent)
+    STATE["view"] = FM_VIEW
+    contrast = parent._connection.sdk.detector.contrast
+    held = []
+
+    class Watched(Setting):
+        @property
+        def value(self):
+            return super().value
+
+        @value.setter
+        def value(self, value):
+            held.append(parent._threading_lock._is_owned())
+            Setting.value.fset(self, value)
+
+    parent._connection.sdk.detector.contrast = Watched(
+        contrast._path, contrast._value, limits=contrast._limits
+    )
+    devices["camera"].gain.set_value(0.5)
+    return held == [True]
+
+
+def _writes_while_live():
+    """Whether objective moves and gain writes go through while another thread pulls
+    live frames as fast as the fake gives them, re-taking the lock each frame."""
+    parent = Parent(make_connection("Inserted", CameraFilterType.FLUORESCENCE))
+    devices = bind_autoscript_fm(parent)
+    STATE["view"] = FM_VIEW
+    group, stop = devices["fm"], threading.Event()
+    group.start_live(None)
+
+    def pull():
+        while not stop.is_set():
+            group.acquire_frame()
+
+    puller = threading.Thread(target=pull, daemon=True)
+    puller.start()
+    done = threading.Event()
+
+    def write():
+        for i in range(20):
+            devices["objective"].move_absolute(1e-3 + i * 1e-6)
+            devices["camera"].gain.set_value(0.4)
+        done.set()
+
+    writer = threading.Thread(target=write, daemon=True)
+    writer.start()
+    finished = done.wait(10)
+    stop.set()
+    puller.join(5)
+    writer.join(5)
+    group.stop_live()
+    return finished
+
+
 def _thermo_microscope_fm():
     """What a Thermo microscope builds its FM from."""
     from types import SimpleNamespace
@@ -946,6 +1004,8 @@ def facts():
             BEAM_VIEW, position
         ),
         "read_after_a_beam_takes_the_view": _read_after_a_beam_takes_the_view(),
+        "writes_hold_the_lock": _write_holds_the_lock(),
+        "writes_go_through_while_live": _writes_while_live(),
     }
 
 

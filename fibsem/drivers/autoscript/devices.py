@@ -36,8 +36,11 @@ step inside it, and take the microscope's ``imaging_channel`` lock (its
 that scope. The generic claim isn't used because it holds the lock through the read and
 always takes it; the old scope skips the lock when the FM already has the view, which is
 what keeps the objective movable while live view re-takes the lock every frame.
-A read that fails is tried once more holding the lock (``AutoscriptFMChannel.read``):
-without it, a beam can take the view between the FM being selected and the read.
+A beam can take the view between the FM being selected and the call, so a read that
+fails is tried once more holding the lock (``AutoscriptFMChannel.read``), and a write,
+or a command that acts on the detector, holds the lock throughout
+(``AutoscriptFMChannel.held``): a gain written on a beam's view sets that beam's
+detector, with no error.
 
 Live view keeps what the old fast acquisition does, with each frame pulled rather than
 pushed: `AutoscriptFM.start_live` switches the light on and starts the acquisition, each
@@ -2212,6 +2215,15 @@ class AutoscriptFMChannel:
                 if self._depth == 0:
                     self.connection.imaging.set_active_view(self._restore_view)
 
+    @contextmanager
+    def held(self) -> Iterator[None]:
+        """``scope()`` with the lock held through the block, for a write or a command
+        on the detector: on a beam's view it would act on the beam's detector, and a
+        beam takes the lock to switch the view. Live view releases the lock between
+        frames, so a write waits for one frame at most."""
+        with self.lock, self.scope():
+            yield
+
     def read(self, read: Callable[[], Any]) -> Any:
         """``read()``, made in a scope, tried once more holding the lock if it fails.
 
@@ -2247,6 +2259,14 @@ class _OnTheFMChannel(Device):
             yield
             return
         with self._channel.scope():
+            yield
+
+    @contextmanager
+    def _claim_write(self, param: BoundParameter) -> Iterator[None]:
+        if not param.needs_channel:
+            yield
+            return
+        with self._channel.held():
             yield
 
 
@@ -2463,13 +2483,13 @@ class AutoscriptFMLightSource(_OnTheFMChannel, LightSource):
             return ParameterMetadata(limits=RangeLimit(min=limits.min, max=limits.max))
 
     def start_emission(self, emission_type: Any) -> None:
-        with self._channel.scope():
+        with self._channel.held():
             self._channel.connection.detector.camera_settings.emission.start(
                 emission_type=emission_type
             )
 
     def stop_emission(self) -> None:
-        with self._channel.scope():
+        with self._channel.held():
             self._channel.connection.detector.camera_settings.emission.stop()
 
 
@@ -2542,14 +2562,14 @@ class AutoscriptFMObjective(_OnTheFMChannel, Objective):
                 f"{self._limit_position}"
             )
             position = np.clip(position, 0, self._limit_position)
-        with self._channel.scope():
+        with self._channel.held():
             self._channel.settings().focus.value = position
 
     def _move_relative(self, delta: float) -> None:
         self._move_absolute(self.position.get_value() + delta)
 
     def _insert(self) -> bool:
-        with self._channel.scope():
+        with self._channel.held():
             if self.state.get_value() is InsertableDeviceState.INSERTED:
                 logging.warning("Objective lens is already inserted.")
                 return False
@@ -2557,7 +2577,7 @@ class AutoscriptFMObjective(_OnTheFMChannel, Objective):
             return True
 
     def _retract(self) -> bool:
-        with self._channel.scope():
+        with self._channel.held():
             if self.state.get_value() is InsertableDeviceState.RETRACTED:
                 logging.warning("Objective lens is already retracted.")
                 return False
@@ -2665,7 +2685,7 @@ class ThermoFisherObjectiveLens(fm_api.ObjectiveLens):
             return self._channel.connection.detector.is_homed
 
     def home(self) -> None:
-        with self._channel.scope():
+        with self._channel.held():
             self._channel.connection.detector.home()
         self._notify_moved()
 
