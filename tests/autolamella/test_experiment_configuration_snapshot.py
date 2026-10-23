@@ -8,21 +8,15 @@ was recalibrated or a limit changed, nothing could say what an earlier run used.
 import os
 from pathlib import Path
 
-import pytest
-
 from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
 from fibsem.structures import CONFIGURATION_VERSION, SystemSettings
+from tests.fixtures.microscopes import demo_microscope
 
-
-@pytest.fixture
-def microscope():
-    scope, _ = utils.setup_session(manufacturer="Demo")
-    yield scope
-    scope.disconnect()
+microscope = demo_microscope(scope="function")
 
 
 def _saved_experiment(tmp_path: Path) -> Experiment:

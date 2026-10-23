@@ -13,7 +13,6 @@ pytest.importorskip("httpx")  # TestClient transport
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from fibsem import utils  # noqa: E402
 from fibsem.correlation.history import (  # noqa: E402
     LamellaCorrelation,
     correlation_dir,
@@ -56,12 +55,6 @@ POI = (45, 50, 5)
 def _to_fib(point):
     x, y, z = point
     return S * R @ np.array([x, y, z * Z_SCALE]) + T
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    return microscope
 
 
 @pytest.fixture

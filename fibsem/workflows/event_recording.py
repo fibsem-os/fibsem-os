@@ -263,6 +263,7 @@ LIVE_KINDS = frozenset(
         "milling_progress",
         "spot_burn_progress",
         "fm_acquisition_progress",
+        "fm_acquisition",
         "tiled_acquisition",
         "stage_position_changed",
         "sem_acquisition",

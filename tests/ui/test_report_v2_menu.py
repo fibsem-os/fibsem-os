@@ -11,6 +11,8 @@ import os
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from tests.fixtures.main_window import main_window_fixture
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
@@ -30,19 +32,7 @@ from fibsem.workflows.event_recording import (  # noqa: E402
     EVENTS_FILENAME,
 )
 
-
-@pytest.fixture(scope="module")
-def window(qapp):
-    from fibsem.applications.autolamella.ui import window as module
-
-    win = module.AutoLamellaWindow()
-    yield win
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
-        win.close()
-    finally:
-        qapp.quit = original_quit
+window = main_window_fixture(scope="module", name="window")
 
 
 @pytest.fixture

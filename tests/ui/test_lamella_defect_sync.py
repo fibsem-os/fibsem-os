@@ -24,15 +24,9 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from PyQt5.QtWidgets import QApplication
 
 from fibsem.applications.autolamella.structures import DefectState, DefectType
 from fibsem.applications.autolamella.ui.lamella.rows import LamellaNameListWidget
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    return QApplication.instance() or QApplication([])
 
 
 @pytest.fixture()
@@ -156,7 +150,9 @@ def test_every_host_of_the_list_can_persist_a_defect(module, widget, handler):
         f"a defect set there is not persisted (FIB-564)"
     )
     assert f"def {handler}" in src, f"{widget}.{handler} is missing"
-    assert "experiment.save()" in src, f"{widget}.{handler} must persist the change"
+    assert "experiment.save_verdict(" in src, (
+        f"{widget}.{handler} must persist the change"
+    )
 
 
 def _connect_chains(source: str):

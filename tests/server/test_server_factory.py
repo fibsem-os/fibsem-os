@@ -5,8 +5,6 @@ Skipped when the [server] extra is not installed (CI installs [test] only until
 the FIB-849 leg lands).
 """
 
-import os
-
 import pytest
 
 fastapi = pytest.importorskip("fastapi")
@@ -14,7 +12,6 @@ pytest.importorskip("httpx")  # TestClient transport
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from fibsem import utils  # noqa: E402
 from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 
@@ -40,18 +37,6 @@ def _pos(x=0.0, y=0.0, z=0.0, r=0.0, t=0.0):
 
 
 @pytest.fixture(scope="module")
-def microscope():
-    previous = os.environ.get("FIBSEM_SIM_NO_DELAY")
-    os.environ["FIBSEM_SIM_NO_DELAY"] = "1"
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    yield microscope
-    if previous is None:
-        os.environ.pop("FIBSEM_SIM_NO_DELAY", None)
-    else:
-        os.environ["FIBSEM_SIM_NO_DELAY"] = previous
-
-
-@pytest.fixture(scope="module")
 def read_client(microscope):
     app = build_server(microscope, auth=AuthConfig(token=TOKEN))
     with TestClient(app, raise_server_exceptions=False) as client:
@@ -71,12 +56,9 @@ def test_health_is_open(read_client):
     assert resp.json() == {"status": "ok"}
 
 
-def test_event_log_page_is_served_open_like_health(read_client):
-    # Static page holding no session data; its API calls carry the bearer token.
-    resp = read_client.get("/dashboard/log")
-    assert resp.status_code == 200
-    assert resp.headers["content-type"].startswith("text/html")
-    assert "App Server Event Log" in resp.text
+def test_the_old_event_log_page_is_gone(read_client):
+    # The web app's Events page took its place.
+    assert read_client.get("/dashboard/log").status_code == 404
 
 
 def test_missing_token_is_401(read_client):

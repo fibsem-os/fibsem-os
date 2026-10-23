@@ -20,8 +20,6 @@ from pathlib import Path
 import pytest
 from psygnal.containers import EventedDict
 
-import fibsem.config as cfg
-from fibsem import utils
 from fibsem.alignment import AlignmentResult
 from fibsem.applications.autolamella.structures import (
     Experiment,
@@ -43,19 +41,8 @@ from fibsem.workflows.task import ALIGNMENT_REFERENCE_IMAGE_FILENAME
 from tests.protocols import planned, task_protocol
 from tests.run_state import run_lamellae
 
-CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
 SETUP = "Setup Lamella Position"
 ROUGH = "Rough Milling"
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
-    microscope, _ = utils.setup_session(
-        manufacturer="Demo", config_path=CONFIG, setup_logging=False
-    )
-    yield microscope
-    microscope.disconnect()
 
 
 @pytest.fixture

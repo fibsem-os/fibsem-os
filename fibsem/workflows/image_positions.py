@@ -17,7 +17,6 @@ position can support.
 
 from __future__ import annotations
 
-import json
 import logging
 import math
 import os
@@ -28,6 +27,7 @@ from typing import Iterable, List, Optional
 import tifffile as tff
 
 from fibsem.geometry.angles import wrap_angle
+from fibsem.image_format import read_metadata_dict
 from fibsem.structures import FibsemStagePosition
 from fibsem.util.timestamps import to_datetime
 
@@ -95,8 +95,7 @@ def read_image_position(path: str) -> ImagePosition:
         mtime = 0.0
     try:
         with tff.TiffFile(path) as tiff:
-            description = tiff.pages[0].tags["ImageDescription"].value
-        state = json.loads(description).get("microscope_state") or {}
+            state = (read_metadata_dict(tiff) or {}).get("microscope_state") or {}
     except Exception as e:  # noqa: BLE001 - no metadata is an answer: unknown
         logging.debug(f"No readable metadata on {path}: {e}")
         return ImagePosition(filename, None, mtime)

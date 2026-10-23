@@ -10,19 +10,15 @@ from pathlib import Path
 
 import pytest
 
-from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.microscope import FibsemMicroscope
+from tests.fixtures.microscopes import demo_microscope
 
-
-@pytest.fixture
-def microscope() -> FibsemMicroscope:
-    scope, _ = utils.setup_session(manufacturer="Demo")
-    return scope
+microscope = demo_microscope(scope="function")
 
 
 @pytest.fixture

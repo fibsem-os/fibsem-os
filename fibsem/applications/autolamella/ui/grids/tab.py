@@ -51,7 +51,8 @@ from fibsem.ui.tokens import ERROR_COLOR, NEUTRAL_200, PANEL_COLOR, TEXT_MUTED_C
 from fibsem.ui.widgets.overview_widget import MODALITY_CHIP_STYLE, VIEW_CHIP_SPACING
 from fibsem.ui.widgets.sample_loader_widget import _ICON_BTN_STYLE, ICON_INVENTORY
 from fibsem.workflows.actions import NOTE
-from fibsem.workflows.grid.naming import grid_rename_refusal, rename_grid
+from fibsem.workflows.grid.edits import keep_grid_note, remove_grid_record
+from fibsem.workflows.grid.naming import grid_rename_refusal, rename_and_save_grid
 from fibsem.workflows.grids import GridRecord
 
 if TYPE_CHECKING:
@@ -371,8 +372,7 @@ class GridsTabWidget(QWidget):
 
     def _on_quality_changed(self, grid: GridRecord) -> None:
         if self._experiment is not None:
-            self._experiment.sign_verdict(grid)
-        self._save()
+            self._saving(lambda: self._experiment.save_verdict(grid))
         self.experiment_changed.emit()
 
     def _on_rename(self, grid: GridRecord, name: str) -> None:
@@ -388,13 +388,12 @@ class GridsTabWidget(QWidget):
             return
         old = grid.name
         try:
-            rename_grid(experiment, self.stage, old, name)
+            rename_and_save_grid(experiment, self.stage, old, name, self._record)
         except Exception as e:  # noqa: BLE001 - not renamed; say why
             logging.warning(f"Could not rename {old}: {e}")
             self._say(f"Could not rename {old}: {e}", error=True)
             self.refresh()
             return
-        self._save()
         self.refresh()
         self.experiment_changed.emit()
 
@@ -403,11 +402,12 @@ class GridsTabWidget(QWidget):
         record's own field, apart from the verdict, so judging a grid again does
         not wipe what was written about it. A note (not a clearing) goes on the
         session's record as the operator's."""
-        record = grid.set_note(note)
-        self._save()
-        if record is not None and self._microscope is not None:
+        if self._experiment is None:
+            return
+        record = self._saving(lambda: keep_grid_note(self._experiment, grid, note))
+        if record is not None:
             with acting(OPERATOR):
-                self._microscope.record_event(NOTE, record)
+                self._record(NOTE, record)
         self.refresh()
         self.experiment_changed.emit()
 
@@ -420,9 +420,8 @@ class GridsTabWidget(QWidget):
         if why:
             self._say(why, error=True)
             return
-        self._experiment.remove_grid(grid.name)
+        self._saving(lambda: remove_grid_record(self._experiment, grid))
         self.cards.remove_grid(grid)
-        self._save()
         self.refresh()
         self.experiment_changed.emit()
 
@@ -435,12 +434,21 @@ class GridsTabWidget(QWidget):
         )
 
     def _save(self) -> None:
-        if self._experiment is None:
-            return
+        if self._experiment is not None:
+            self._saving(self._experiment.save)
+
+    def _saving(self, edit):
+        """*edit*'s answer; None, said in the log, when its save failed."""
         try:
-            self._experiment.save()
+            return edit()
         except Exception as e:  # noqa: BLE001 - a failed save is worth a line
             logging.warning(f"Could not save the experiment: {e}")
+            return None
+
+    def _record(self, kind: str, payload: dict) -> None:
+        """Put *payload* on the session's record, as the App Server's edits do."""
+        if self._microscope is not None:
+            self._microscope.record_event(kind, payload)
 
     # -- hardware, off the GUI thread --------------------------------------------
 

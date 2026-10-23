@@ -423,7 +423,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="app_get_status",
         returns="AppStatus",
-        description="What the application is doing: experiment, running workflow, current task and item.",
+        description="What the application is doing: experiment, running workflow, current task and item, its place in the queue and step, what holds it, its last failure, progress on the microscope and who holds it.",
         method="GET",
         path="/app/workflow/status",
         level="watch",
@@ -948,6 +948,23 @@ TOOLS: Tuple[ToolSpec, ...] = (
         line=_workflow_start,
     ),
     ToolSpec(
+        name="workflow_plan",
+        returns="RunPlan",
+        description="What a lamella run would queue and cost — the Workflow tab's confirmation: the (item, task) steps in queue order, checked as workflow_start will check them, with the estimate (work and hold seconds, expected finish, each task's count and seconds). With add=true, what adding them to the running queue (at the end, or run_next) would add and delay, as its confirmation shows. Computes only; reads no hardware.",
+        method="POST",
+        path="/app/workflow/plan",
+        level="watch",
+        router="app",
+        part=LAMELLAE,
+        params={
+            "task_names": "the tasks to run, from the protocol's task names",
+            "item_names": "the items (lamellae) to run them for; omit for all",
+            "add": "true to plan adding them to the running queue instead",
+            "run_next": "with add, true to plan them to run next",
+        },
+        optional=("item_names", "add", "run_next"),
+    ),
+    ToolSpec(
         name="workflow_plan_grids",
         returns="GridPlan",
         description="What a grid run would execute — the preflight dialog's content: the (grid, step) sequence with each grid's load first, validated against the grid protocol and the recorded grids. screen_all plans over the known grids and says the run will use whatever the inventory finds. Computes only; reads no hardware.",
@@ -1045,7 +1062,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="app_get_display_images",
         returns="DisplayImages",
-        description="The SEM and FIB images the app's GUI is displaying right now, as previews — the display cache, not a new acquisition. Post-mill images appear here as soon as the GUI shows them, before they reach disk.",
+        description="The SEM and FIB images the app's GUI is displaying right now, and the FM's latest frame (live, or the last plane of an acquisition, in its channel's colour), as previews — the display cache, not a new acquisition. Post-mill images appear here as soon as the GUI shows them, before they reach disk.",
         method="GET",
         path="/app/experiment/images",
         level="watch",

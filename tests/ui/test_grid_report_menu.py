@@ -6,6 +6,8 @@ which does the writing and says how it went on its strip.
 
 import os
 
+from tests.fixtures.main_window import main_window_fixture
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
@@ -16,23 +18,9 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.ui import window as module
 from fibsem.workflows.grids import GridRecord
 
-
-@pytest.fixture
-def window(qapp):
-    window = module.AutoLamellaWindow()
-    ui = window
-    ui.system_widget.connect_to_microscope()
-    yield window
-    ui.microscope.disconnect()
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
-        window.close()
-    finally:
-        qapp.quit = original_quit
+window = main_window_fixture(connect=True, name="window")
 
 
 @pytest.fixture

@@ -5,24 +5,6 @@ import pytest
 pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
 
 
-@pytest.fixture
-def main_ui(qapp):
-    from fibsem.applications.autolamella.ui import window as module
-
-    window = module.AutoLamellaWindow()
-    yield window
-    if window.microscope is not None:
-        window.microscope.disconnect()
-    # closeEvent ends in app.quit(); on the shared test QApplication that latches
-    # an interrupt. Run the real close cleanup with quit stubbed out.
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
-        window.close()
-    finally:
-        qapp.quit = original_quit
-
-
 def _tab_labels(ui):
     tabs = ui.panel.tabWidget
     return [tabs.tabText(i) for i in range(tabs.count())]
