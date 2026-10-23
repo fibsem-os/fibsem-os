@@ -559,7 +559,9 @@ class AppContext:
             self.history_images(experiment, item),
             folder=str(experiment.item_path(item)),
         )
-        shown = HistoryFilter.from_dict(flt)
+        shown = HistoryFilter.from_dict(
+            {key: value for key, value in flt.items() if value not in (None, "")}
+        )
         return {
             "available": True,
             "item_name": item.name,

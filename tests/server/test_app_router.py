@@ -135,6 +135,8 @@ def test_an_items_history_comes_through_the_tabs_filter(client, host):
     failed = client.get(url, headers=AUTH, params={"status": "failed"}).json()
     assert [r["status"] for r in failed["runs"]] == ["Failed"]
     assert failed["total"] == 2
+    unknown = client.get(url, headers=AUTH, params={"show": "pictures"})
+    assert unknown.status_code == 422
 
 
 def test_the_sidecars_history_tool_sends_its_filter(client, host):

@@ -93,6 +93,12 @@ from fibsem.server.responses import (
 )
 from fibsem.util.timestamps import to_datetime
 from fibsem.workflows import evidence
+from fibsem.workflows.history_rows import (
+    HistoryDecidedBy,
+    HistoryOrder,
+    HistoryShow,
+    HistoryStatus,
+)
 
 __all__ = [
     "build_app_config_router",
@@ -478,11 +484,11 @@ def build_app_router(context: Any) -> APIRouter:
     )
     def item_history(
         item_name: str,
-        show: Optional[str] = None,
-        status: Optional[str] = None,
+        show: Optional[HistoryShow] = None,
+        status: Optional[HistoryStatus] = None,
         task: Optional[str] = None,
-        decided_by: Optional[str] = None,
-        order: Optional[str] = None,
+        decided_by: Optional[HistoryDecidedBy] = None,
+        order: Optional[HistoryOrder] = None,
     ):
         return context.item_history(
             item_name,
