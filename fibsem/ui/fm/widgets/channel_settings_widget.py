@@ -139,7 +139,7 @@ class ChannelSettingsWidget(QWidget):
         have to be re-read when the microscope changes -- this widget keeps no
         ``fm`` reference of its own, only the two lists derived from it, which is
         why nothing looked stale from the outside while the combos were offering
-        a disconnected microscope's filters (FIB-525).
+        a disconnected microscope's filters.
 
         The selected value is preserved where the new microscope still offers it;
         where it does not, ``set_values`` falls back to the closest match rather

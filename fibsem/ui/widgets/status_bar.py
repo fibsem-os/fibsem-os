@@ -1,12 +1,12 @@
-"""The main windows' status bar: one line on the left, the host's actions on the right
-(FIB-1188).
+"""The main windows' status bar: one line on the left, the host's actions on the right.
+
 
 The line says one thing at a time:
 
 - an **operation** while one runs outside a workflow -- a stage move, the images
   after it: "**Stage move** moving to the SEM orientation…";
 - otherwise the **agent's action**, while the agent is in control of the microscope:
-  "**Agent** focus sweep · 12s" (FIB-1375);
+  "**Agent** focus sweep · 12s";
 - otherwise the **run**, while a workflow runs: "**lamella-02 › Polishing** · 3 of 4";
 - otherwise the **instruction**, muted: "Create or load an experiment to begin."
 
@@ -99,10 +99,9 @@ _FAILED_STYLE = _LABEL.format(color=ERROR_COLOR, extra="")
 OUTCOME_MS = 2000
 
 # How long a fluorescence acquisition's line outlives its last report. Only
-# `acquire_image` says FINISHED; the autofocus sweep and the device's own z-stack
-# stop without a word, and their line would otherwise stay for the session (the
-# FIB-374 failure). Every routine reports at least once per plane or step, well
-# inside this.
+# `acquire_image` says FINISHED; the autofocus sweep and the device's own z-stack stop
+# without a word, and their line would otherwise stay for the session. Every routine
+# reports at least once per plane or step, well inside this.
 FM_STALE_MS = 3000
 
 # What the line calls each state of a tiled run, under "FIB/SEM overview" or
@@ -234,14 +233,14 @@ class FibsemStatusBar(QStatusBar):
         self._agent_clock.timeout.connect(self._render)
         self._microscope: Optional["FibsemMicroscope"] = None
         # A delegating strategy names itself once and the backend's ticks carry no
-        # words; this keeps the strategy's (FIB-797).
+        # words; this keeps the strategy's.
         self._milling_label = MillingMessageTracker()
         # The milling run the reports belong to, and its name when it is the
         # agent's own mill outside any task: the line is the agent's, not the run's
-        # current task, to its end (FIB-1401).
+        # current task, to its end.
         self._mill_owner = AgentMillOwner()
         # The mill's step ("stage 2 of 3") on its own, for a tick to keep: the
-        # line's step may carry the agent's mill name before it (FIB-1413).
+        # line's step may carry the agent's mill name before it.
         self._mill_step: Optional[str] = None
         # A tiled run's last count, kept while a state without one (a stage move, the
         # stitch) changes the words: the bar must not snap back to nothing.
@@ -536,7 +535,7 @@ class FibsemStatusBar(QStatusBar):
         of how many, and the countdown once there is one.
 
         Total over whatever arrives: this runs in a queued slot, where an exception is
-        a process abort on PyQt5 (FIB-329), and a plugin strategy may still emit the
+        a process abort on PyQt5, and a plugin strategy may still emit the
         old dict (`from_payload`)."""
         report = MillingProgress.from_payload(payload)
         agent_mill = self._agent_mill_of(report)
@@ -592,8 +591,8 @@ class FibsemStatusBar(QStatusBar):
     @ensure_main_thread
     def _on_tiled_progress(self, event: TiledProgress) -> None:
         """One report from a tiled acquisition, either modality: the status bar is the
-        one consumer that wants both, while the overview tabs each want theirs
-        (FIB-725)."""
+        one consumer that wants both, while the overview tabs each want theirs.
+        """
         what = (
             "Fluorescence overview"
             if event.modality == MODALITY_FLUORESCENCE

@@ -5,7 +5,7 @@ operator types in, and it hands back what has been typed. It does not move the s
 and it has no opinion about who does -- pressing refresh emits a signal and stops there,
 so the host decides what a refresh costs.
 
-Extracted from ``FibsemMovementWidget`` (FIB-783), which does this alongside the
+Extracted from ``FibsemMovementWidget``, which does this alongside the
 movement actions, their workers, the canvas double-click registration and the progress
 reporting. Nothing in this file needs a parent contract, a view controller or an image
 widget; all of that belongs to the half that moves.
