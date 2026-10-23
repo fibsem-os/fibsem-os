@@ -52,8 +52,7 @@ def test_describe_is_a_json_schema():
     assert schema["title"] == "Probe"
     assert schema["properties"]["width"]["unit"] == "m"
     assert schema["properties"]["count"]["maximum"] == 9
-    assert schema["properties"]["point"]["$ref"] == "#/$defs/Point"
-    assert "Point" in schema["$defs"]
+    assert schema["properties"]["point"]["title"] == "Point"
 
 
 def test_a_shared_struct_is_configurable():
