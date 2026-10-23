@@ -28,7 +28,7 @@ from fibsem.structures import BeamType, FibsemImage, Point
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.stylesheets import GRAY_ICON_COLOR
 from fibsem.ui.widgets.canvas.quad_view import (
-    LamellaEditorView,
+    ItemEditorView,
     MicroscopeViewController,
 )
 from fibsem.ui.widgets.custom_widgets import IconToolButton
@@ -50,7 +50,7 @@ def _close(a, b, tol=1e-6):
 
 def _host(settings=None):
     """A widget + its own controller/canvas, as the protocol-editor dialog builds it."""
-    view = LamellaEditorView()
+    view = ItemEditorView()
     controller = MicroscopeViewController(view=view)
     image = FibsemImage.generate_blank_image(
         resolution=_RESOLUTION, hfw=_HFW, random=False
@@ -526,7 +526,7 @@ def test_button_wiring_on_the_real_editor():
     import pathlib
     import tempfile
 
-    from PyQt5.QtWidgets import QDialog, QWidget
+    from PyQt5.QtWidgets import QDialog
 
     from fibsem import utils
     from fibsem.applications.autolamella.structures import (

@@ -320,7 +320,7 @@ BEAM_FIELD_KEYS = (
 FM_FIELD_KEYS = ("objective", "hfw", "pixel_size", "z")
 
 
-# What a view's bar shows until someone picks (``display.info_bar_fields``). The
+# What a view's bar shows until someone picks (``shared.info_bar_fields``). The
 # export's defaults less the pixel size: under a live view, HFW says the same thing
 # more usefully. Plus the working distance: every frame of a live view records it, so
 # the bar follows focusing -- at the vendor's console too, which nothing announces, so
@@ -343,7 +343,7 @@ def stored_bar_keys(kind: str) -> Optional[Tuple[str, ...]]:
     from fibsem import config as cfg
 
     try:
-        chosen = cfg.load_user_preferences().display.info_bar_fields.get(kind)
+        chosen = cfg.load_user_preferences().shared.info_bar_fields.get(kind)
     except Exception:
         logging.getLogger(__name__).warning(
             "could not read the view bar's fields", exc_info=True
@@ -459,7 +459,7 @@ def fibsem_image_fields(image: FibsemImage) -> ImageFields:
         _add(fields, "detector", " · ".join(parts))
     if pixel_size:
         # From the pixel size, not image_settings.hfw: that is what was asked for,
-        # this is what the image is (FIB-482).
+        # this is what the image is.
         width = np.shape(image.data)[1]
         _add(fields, "hfw", format_si(pixel_size * width, "m"))
         _add(fields, "pixel_size", format_si(pixel_size, "m"))

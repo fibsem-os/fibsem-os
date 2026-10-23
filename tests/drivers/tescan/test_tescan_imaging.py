@@ -40,7 +40,7 @@ AREA = FibsemRectangle(0.25, 0.25, 0.5, 0.5)
 
 def _system():
     return utils.load_microscope_configuration(
-        os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
     ).system
 
 

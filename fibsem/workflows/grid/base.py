@@ -10,26 +10,18 @@ downstream has to glob.
 from __future__ import annotations
 
 import logging
-import os
 from abc import ABC
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
-    Any,
     ClassVar,
-    Dict,
-    List,
     Optional,
-    Tuple,
     Type,
-    Union,
 )
 
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.grids import GridRecord
-from fibsem.workflows.status import TaskStatus
 from fibsem.workflows.task import BaseTask, iteration_folder
 from fibsem.workflows.task_config import TaskConfig
 

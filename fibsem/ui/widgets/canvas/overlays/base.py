@@ -30,6 +30,8 @@ if TYPE_CHECKING:
     from fibsem.ui.widgets.canvas.canvas_base import ContentRect, FibsemCanvasBase
 
 
+# Keyboard modifiers mapped to strings, so handler bodies branch on
+# ``"Alt" in modifiers``.
 _QT_MODIFIER_MAP = (
     (Qt.AltModifier, "Alt"),
     (Qt.ShiftModifier, "Shift"),
@@ -39,7 +41,7 @@ _QT_MODIFIER_MAP = (
 
 
 def _modifiers_from_event(event) -> Tuple[str, ...]:
-    """Active keyboard modifiers as napari-style strings, e.g. ``("Alt",)``.
+    """Active keyboard modifiers as strings, e.g. ``("Alt",)``.
 
     Reads the underlying Qt event (``event.guiEvent``) — the Qt modifier state is
     the reliable source in an embedded canvas, whereas matplotlib's

@@ -4,7 +4,6 @@ from typing import Literal, Optional
 import numpy as np
 import pytest
 
-from fibsem import utils
 from fibsem.applications.autolamella.structures import Lamella
 from fibsem.applications.autolamella.workflows.tasks.trench import (
     MillTrenchTask,
@@ -26,7 +25,7 @@ def _make_trench_task(microscope: FibsemMicroscope, tmp_path: Path) -> MillTrenc
 def compustage_microscope() -> FibsemMicroscope:
     microscope, _ = demo_session(compustage=True)
     microscope.system.stage.shuttle_pre_tilt = 0
-    microscope._update_orientations()
+    microscope.stage_movement.update_orientations()
     return microscope
 
 

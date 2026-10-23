@@ -16,19 +16,19 @@ fibsem/ai/agent/runner.py 3
 fibsem/ai/agent/session.py 8
 fibsem/alignment/coincidence.py 10
 fibsem/alignment/methods.py 1
-fibsem/alignment/plotting.py 9
+fibsem/alignment/plotting.py 5
 fibsem/applications/autolamella/config_edits.py 5
 fibsem/applications/autolamella/overview_figure.py 5
 # Deliberate: the experiment decodes task configs through the task registry, whose tasks import it.
 fibsem/applications/autolamella/structures.py 7
 fibsem/applications/autolamella/task_outputs.py 6
-fibsem/applications/autolamella/tools/data.py 2
+fibsem/applications/autolamella/tools/grid_report_html.py 1
 fibsem/applications/autolamella/tools/replay.py 1
 fibsem/applications/autolamella/ui/coincidence/menu.py 7
 fibsem/applications/autolamella/ui/grids/protocol.py 2
 fibsem/applications/autolamella/ui/header.py 1
 fibsem/applications/autolamella/ui/lamella/history.py 5
-fibsem/applications/autolamella/ui/launch.py 3
+fibsem/applications/autolamella/ui/launch.py 2
 fibsem/applications/autolamella/ui/menu_bar.py 12
 fibsem/applications/autolamella/ui/protocol/lamella_editor.py 3
 fibsem/applications/autolamella/ui/window.py 5
@@ -38,7 +38,6 @@ fibsem/applications/autolamella/workflows/tasks/manager.py 1
 fibsem/applications/autolamella/workflows/tasks/select_position.py 4
 fibsem/applications/autolamella/workflows/tasks/setup_coincidence_milling.py 3
 fibsem/applications/volume/server.py 1
-fibsem/autofunctions/__init__.py 2
 fibsem/autofunctions/acb.py 4
 fibsem/autofunctions/autofocus.py 8
 fibsem/autofunctions/brightness_contrast.py 3
@@ -48,7 +47,8 @@ fibsem/cli.py 12
 fibsem/client/pairing.py 1
 fibsem/client/remote_microscope.py 4
 fibsem/codec/upgrades/fluorescence.py 1
-fibsem/codec/upgrades/pre_task_protocol.py 3
+fibsem/codec/upgrades/pre_task_protocol.py 2
+fibsem/config.py 2
 fibsem/correlation/fit.py 2
 fibsem/correlation/geometry.py 1
 fibsem/correlation/history.py 1
@@ -92,7 +92,6 @@ fibsem/imaging/cells.py 6
 fibsem/imaging/export.py 1
 fibsem/imaging/marks.py 1
 fibsem/imaging/thickness.py 4
-fibsem/imaging/transforms.py 2
 fibsem/microscope.py 14
 # Deliberate: a stage decodes and defaults its strategy through the strategy registry, whose strategies import it.
 fibsem/milling/base.py 6
@@ -108,7 +107,6 @@ fibsem/milling/patterning/patterns/trench.py 1
 fibsem/milling/patterning/picture.py 2
 fibsem/milling/patterning/utils.py 3
 fibsem/milling/strategy/coincidence.py 1
-fibsem/milling/tasks.py 2
 fibsem/plugins/report.py 1
 fibsem/schema.py 2
 fibsem/segmentation/model.py 1
@@ -116,7 +114,8 @@ fibsem/segmentation/onnx_model.py 1
 fibsem/segmentation/utils.py 1
 fibsem/server/devices.py 7
 fibsem/server/discovery.py 2
-fibsem/server/files.py 14
+fibsem/server/exports.py 7
+fibsem/server/files.py 13
 fibsem/server/headless.py 1
 fibsem/server/hosting.py 12
 fibsem/server/image_payloads.py 10
@@ -127,9 +126,9 @@ fibsem/services/analysis.py 1
 fibsem/services/correlation.py 19
 fibsem/services/imaging.py 14
 fibsem/services/milling.py 12
-fibsem/services/stage_movement.py 6
+fibsem/services/stage_movement.py 5
 fibsem/session_state.py 1
-fibsem/structures.py 26
+fibsem/structures.py 25
 fibsem/tools/desktop_launch.py 2
 fibsem/tools/hardware_check/__init__.py 1
 fibsem/ui/FibsemImageSettingsWidget.py 1
@@ -162,7 +161,7 @@ fibsem/ui/widgets/script_runner.py 1
 fibsem/ui/widgets/workflow/timeline.py 5
 fibsem/update_check.py 2
 fibsem/util/wording.py 4
-fibsem/utils.py 8
+fibsem/utils.py 7
 fibsem/versioning.py 1
 fibsem/workflows/config_patch.py 1
 fibsem/workflows/estimate.py 3

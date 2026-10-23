@@ -1,6 +1,6 @@
 """``fibsem-volume``: open a volume experiment on a microscope and serve it over
 the App Server, with no window. The agent level starts at Watch; the operator
-raises it from the chat page."""
+raises it from the web app."""
 
 import argparse
 import threading

@@ -30,7 +30,7 @@ from fibsem.drivers.tescan import services as tescan_services
 from fibsem.drivers.tescan.connection import TescanConnection
 from fibsem.drivers.tescan.microscope import TescanMicroscope
 from fibsem.drivers.tescan.services import TescanMilling
-from fibsem.structures import BeamType, MillingState
+from fibsem.structures import MillingState
 
 # ---------------------------------------------------------------------------
 # AST rule

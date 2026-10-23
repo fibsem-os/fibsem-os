@@ -1,15 +1,7 @@
 import logging
-from typing import TYPE_CHECKING, Tuple
+from typing import TYPE_CHECKING
 
 import numpy as np
-
-# The view projection moved to `fibsem.geometry.movement`; these names stay importable
-# from here.
-from fibsem.geometry.movement import (  # noqa: F401
-    _image_y_flip,
-    inverse_view_corrected_dy,
-    view_corrected_stage_movement,
-)
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope

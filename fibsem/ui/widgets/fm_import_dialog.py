@@ -1,4 +1,4 @@
-"""Import a fluorescence image from other software: confirm what the file is (FIB-1030).
+"""Import a fluorescence image from other software: confirm what the file is.
 
 A file from another microscope may not say which axis is channels and which is z, how
 big a pixel is, or what its channels are. :func:`fibsem.fm.reader.read_source`

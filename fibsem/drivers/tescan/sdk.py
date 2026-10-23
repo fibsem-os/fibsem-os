@@ -34,8 +34,8 @@ TESCAN_SCAN_DIRECTIONS = (
 try:
     import tescanautomation
     from tescanautomation import Automation
-    from tescanautomation.Common import Bpp, Detector, Document  # noqa: F401
-    from tescanautomation.DrawBeam import DepthUnit, IEtching  # noqa: F401
+    from tescanautomation.Common import Bpp, Detector, Document
+    from tescanautomation.DrawBeam import DepthUnit, IEtching
     from tescanautomation.DrawBeam import Status as DBStatus
 
     sys.modules.pop("tescanautomation.GUI")

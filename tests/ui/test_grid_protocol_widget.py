@@ -13,6 +13,7 @@ from PyQt5.QtWidgets import QDialog
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.applications.autolamella.config import TASK_PROTOCOL_PATH
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
@@ -249,7 +250,9 @@ def test_the_fluorescence_editor_takes_the_fm_when_one_connects(widget):
     widget.add_task(FM, "overview_fm")
     arctis, _ = utils.setup_session(
         manufacturer="Demo",
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
+        ),
     )
     widget.set_microscope(arctis)
     assert widget.editor_panel.editor_for(FM).channels.fm is arctis.fm
@@ -281,7 +284,7 @@ def test_the_protocol_tab_hosts_it_under_the_selector(main_ui, tmp_path):
     ui.system_widget.connect_to_microscope()
     exp = Experiment(path=tmp_path, name="exp")
     (tmp_path / "exp").mkdir()
-    exp.task_protocol = AutoLamellaTaskProtocol.load(cfg.AUTOLAMELLA_TASK_PROTOCOL_PATH)
+    exp.task_protocol = AutoLamellaTaskProtocol.load(TASK_PROTOCOL_PATH)
     ui.experiment = exp
     main_ui.minimap_widget = _NoMinimap()
     main_ui._on_experiment_update()
@@ -327,7 +330,9 @@ def test_the_protocol_tab_hosts_it_under_the_selector(main_ui, tmp_path):
 def _arctis():
     microscope, _ = utils.setup_session(
         manufacturer="Demo",
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
+        ),
     )
     return microscope
 

@@ -17,7 +17,6 @@ in Essence for its length, and reads the state, the elapsed time and the total f
 
 from __future__ import annotations
 
-import contextlib
 import dataclasses
 import logging
 import re
@@ -207,7 +206,6 @@ class TescanMilling(Milling):
         connection.prepare_beam(settings.milling_channel)
         self._clear()
         microscope.milling_channel = settings.milling_channel
-        # QUERY: do we need to set this here as it is also set in IEtching?
         self.ion.preset.write_through(own.preset)
         layer_settings = sdk.IEtching(
             syncWriteField=False,
@@ -220,7 +218,6 @@ class TescanMilling(Milling):
             preset=own.preset,
             spacing=own.spacing,
         )
-        # TODO: change the layer name to milling stage name
         with connection.lock:
             self.layer = connection.sdk.DrawBeam.Layer("Layer1", layer_settings)
 
@@ -290,7 +287,6 @@ class TescanMilling(Milling):
 
     def _stop(self) -> None:
         # From another thread too: on a second connection, not the locked one.
-        # TODO: improve thread safety to stop from another thread
         thread_connection = None
         try:
             thread_connection = sdk.Automation(
@@ -419,7 +415,7 @@ class TescanStageMovement(StageMovement):
         https://linear.app/fibsemos/document/tescan-sample-plane-stage-movement-stable-move-derivation-ae56d0f2c414
         for the derivation and figures.
 
-        Verified on hardware 2026-08-26 (acceptance test: Alt-double-click a
+        Verified on hardware (acceptance test: Alt-double-click a
         feature in the SEM view lands it centred in the SEM image with no
         movement in the FIB image). Small focus shifts in both views are
         inherent to the move.

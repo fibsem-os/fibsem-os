@@ -18,8 +18,8 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.structures import FibsemStagePosition
 
-IFLM_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
-ARCTIS_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+IFLM_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml")
+ARCTIS_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
 
 
 def _microscope(config_path: str):
@@ -103,7 +103,7 @@ def test_the_orientation_half_needs_no_gate_of_its_own():
     microscope.move_to_orientation("FIB")
     microscope.move_to_device("FM")
 
-    assert microscope.get_current_device() == "FM"
+    assert microscope.stage_movement.current_device() == "FM"
     assert microscope.get_stage_orientation() != "FM"
 
 

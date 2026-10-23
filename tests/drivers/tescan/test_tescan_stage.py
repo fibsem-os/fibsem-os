@@ -18,7 +18,6 @@ from fibsem.devices.stage import UNLIMITED
 from fibsem.drivers.tescan.devices import (
     TILT_AXIS_Z,
     TescanStage,
-    bind_tescan_stage,
     from_tescan_frame,
     to_tescan_frame,
 )
@@ -32,7 +31,7 @@ TILTS = np.radians([-10.0, 0.0, 15.0, 35.0, 55.0])
 
 def _system(stage=True):
     system = utils.load_microscope_configuration(
-        os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
     ).system
     system.stage.enabled = stage
     system.stage.shuttle_pre_tilt = 35.0
@@ -160,6 +159,7 @@ def test_the_stage_has_position_and_linked_and_every_axis_unlimited(monkeypatch)
 
 def test_a_disabled_stage_gets_no_device(monkeypatch):
     microscope, _ = connect(monkeypatch, _system(stage=False))
-    assert microscope.stage is None and bind_tescan_stage(microscope) is None
+    microscope._build_stage()
+    assert microscope.stage is None
     with pytest.raises(NotImplementedError, match="get_stage_position"):
         microscope.get_stage_position()

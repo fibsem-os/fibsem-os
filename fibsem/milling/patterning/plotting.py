@@ -29,11 +29,7 @@ from fibsem.structures import (
 )
 from fibsem.utils import format_value
 
-from .utils import (
-    create_pattern_mask,
-    get_pattern_bounding_box,
-    get_patterns_bounding_box,
-)
+from .utils import create_pattern_mask
 
 COLOURS = [
     "yellow",
@@ -161,7 +157,7 @@ def _line_pattern_to_image_pixels(
     # That asymmetry is inherited, not chosen: this function used `/ 2` for the
     # centre where the others used `// 2`, which differs by half a pixel on an
     # odd image dimension. Preserved exactly rather than quietly unified,
-    # because picking one changes where a milling pattern is drawn (FIB-644).
+    # because picking one changes where a milling pattern is drawn.
     start = microscope_image_to_image_coordinates(
         Point(x=start_x, y=start_y), image_shape, pixel_size, subpixel_precision=True
     )
@@ -788,8 +784,8 @@ def draw_milling_patterns(
     # draw scalebar
     if scalebar:
         try:
-            # A core dependency since FIB-562; the guard below is now only for a
-            # ScaleBar that cannot be constructed, not for a missing package.
+            # A core dependency; the guard below is for a ScaleBar that cannot be
+            # constructed, not for a missing package.
             from matplotlib_scalebar.scalebar import ScaleBar
 
             ax.add_artist(
@@ -1115,90 +1111,3 @@ def draw_pattern_in_image(image: np.ndarray, drawn_pattern: DrawnPattern) -> np.
         image = np.clip(image + zero_image, 0, 1)
 
     return image
-
-
-def compose_pattern_image(
-    image: np.ndarray, drawn_patterns: List[DrawnPattern]
-) -> np.ndarray:
-    """Create an image with annulus shapes."""
-    # create an empty image
-    pattern_image = np.zeros_like(image)
-
-    # sort drawn_patterns so that exclusions are drawn last
-    drawn_patterns = sorted(drawn_patterns, key=lambda x: x.is_exclusion)
-
-    # add each pattern shape to the image
-    for dp in drawn_patterns:
-        pattern_image = draw_pattern_in_image(pattern_image, dp)
-
-    return pattern_image
-
-
-def simple_example(stages: List[FibsemMillingStage], image: FibsemImage) -> plt.Figure:
-    """Simple demonstration of masks and bounding boxes."""
-
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
-
-    # Plot 1: Show masks
-    ax1.imshow(image.data, cmap="gray", alpha=0.7)
-    ax1.set_title("Pattern Masks")
-
-    for i, stage in enumerate(stages):
-        # Create mask
-        mask = create_pattern_mask(
-            stage.pattern, image.data.shape, pixelsize=image.metadata.pixel_size.x
-        )
-
-        # Show mask as colored overlay
-        masked = np.ma.masked_where(~mask, mask)
-        ax1.imshow(masked, alpha=0.6, cmap="gray", vmin=0, vmax=10)
-
-        print(f"{stage.name}: {np.sum(mask)} pixels")
-
-    # Plot 2: Show bounding boxes
-    ax2.imshow(image.data, cmap="gray")
-    ax2.set_title("Bounding Boxes")
-
-    for i, stage in enumerate(stages):
-        # Get bounding box
-        x_min, y_min, x_max, y_max = get_pattern_bounding_box(stage.pattern, image)
-
-        if (x_min, y_min, x_max, y_max) != (0, 0, 0, 0):
-            # Draw bounding box using COLOURS from plotting.py
-            bbox = mpatches.Rectangle(
-                (x_min, y_min),
-                x_max - x_min,
-                y_max - y_min,
-                linewidth=2,
-                edgecolor=COLOURS[i % len(COLOURS)],
-                facecolor="none",
-            )
-            ax2.add_patch(bbox)
-            ax2.text(
-                x_min,
-                y_min - 5,
-                stage.name,
-                color=COLOURS[i % len(COLOURS)],
-                fontsize=9,
-            )
-
-    # Add combined bounding box
-    patterns = [stage.pattern for stage in stages]
-    x_min, y_min, x_max, y_max = get_patterns_bounding_box(patterns, image)
-    if (x_min, y_min, x_max, y_max) != (0, 0, 0, 0):
-        combined_bbox = mpatches.Rectangle(
-            (x_min, y_min),
-            x_max - x_min,
-            y_max - y_min,
-            linewidth=3,
-            edgecolor="black",
-            facecolor="none",
-            linestyle="--",
-        )
-        ax2.add_patch(combined_bbox)
-        ax2.text(x_min, y_max + 10, "Combined", color="black", fontweight="bold")
-
-    plt.tight_layout()
-    plt.show()
-
-    return fig

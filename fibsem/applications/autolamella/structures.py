@@ -6,21 +6,10 @@ import shutil
 import uuid
 from abc import ABC
 from copy import deepcopy
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
 from pathlib import Path
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    ClassVar,
-    Dict,
-    List,
-    Optional,
-    Tuple,
-    Type,
-    Union,
-)
+from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional, Tuple, Union
 
 import pandas as pd
 import petname
@@ -31,7 +20,6 @@ from psygnal.containers import EventedDict, EventedList
 from fibsem.applications.autolamella import config as cfg
 from fibsem.codec.upgrades import pre_task_protocol
 from fibsem.codec.upgrades import protocol as upgrade
-from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
 from fibsem.correlation.config import CorrelationConfig
 from fibsem.structures import (
     DEFAULT_ALIGNMENT_AREA,
@@ -41,14 +29,11 @@ from fibsem.structures import (
     FibsemRectangle,
     FibsemStagePosition,
     MicroscopeState,
-    Parameter,
     Point,
     SessionInfo,
-    field_specs,
     param,
 )
-from fibsem.util.durations import format_duration_precise
-from fibsem.util.timestamps import format_time, now
+from fibsem.util.timestamps import now
 from fibsem.workflows.deciding import ProposalDecisions
 from fibsem.workflows.experiment import BaseExperiment
 from fibsem.workflows.grid.protocol import GridTaskProtocol
@@ -65,7 +50,6 @@ from fibsem.workflows.site_task import SiteTaskConfig
 from fibsem.workflows.status import TaskState
 from fibsem.workflows.task_config import (
     RunPlan,
-    TaskConfig,
     TaskProtocol,
     WorkflowOptions,
 )
@@ -75,14 +59,6 @@ if TYPE_CHECKING:
 
     from fibsem.fm.structures import FluorescenceImage
     from fibsem.microscope import FibsemMicroscope
-
-
-# AutoLamellaUser lived here: a richer user identity (role, preferences, is_default)
-# with a to_fibsem_user() bridge into image metadata. Nothing ever constructed one --
-# not the app, not a script, not a test -- so the bridge was never called and the
-# extra fields never had a reader. Removed rather than left dormant, because half a
-# user model is worse than either answer. fibsem.structures.FibsemUser is the only
-# user model now; see FIB-450 and the ownership rule on FibsemImageMetadata.
 
 
 @dataclass
@@ -190,7 +166,7 @@ class AutoLamellaTaskProtocol(TaskProtocol):
     version: str = "1.0"
     options: WorkflowOptions = field(default_factory=WorkflowOptions)
     lamella_defaults: LamellaDefaultConfig = field(default_factory=LamellaDefaultConfig)
-    # Experiment-global correlation config (FIB-298): a user-step config, not an
+    # Experiment-global correlation config: a user-step config, not an
     # automated task, so a peer field rather than an entry in task_config.
     correlation: CorrelationConfig = field(default_factory=CorrelationConfig)
     # Grid-level tasks (overviews, and later cleaning and deposition): their own
@@ -263,16 +239,6 @@ class AutoLamellaTaskProtocol(TaskProtocol):
             _save_converted_protocol(filename, protocol)
         return protocol
 
-    def get_task_config_by_type(
-        self, task_type: Type["AutoLamellaTaskConfig"]
-    ) -> EventedDict[str, AutoLamellaTaskConfig]:
-        """Get the task configuration by type."""
-        task_configs = EventedDict()
-        for k, v in self.task_config.items():
-            if isinstance(v, task_type):
-                task_configs[k] = v
-        return task_configs
-
 
 def _save_converted_protocol(path: str, protocol: AutoLamellaTaskProtocol) -> None:
     """Save *protocol*, converted from the pre-task protocol at *path*, over it,
@@ -291,29 +257,6 @@ def _save_converted_protocol(path: str, protocol: AutoLamellaTaskProtocol) -> No
     logging.info(
         f"Saved {path} as a task protocol; the file as it was is kept as {backup}."
     )
-
-
-# The names this type and its enum had before they were one thing. Every reader
-# of ``DefectState`` / ``DefectType`` / ``GridQuality`` keeps working; new code
-# says ``QualityRecord`` / ``Verdict``.
-DefectState = QualityRecord
-DefectType = Verdict
-GridQuality = Verdict
-
-
-# The thumbnail is only ever displayed, and its largest reader is the cozy lamella
-# card at 280 px wide (the hover tooltip is 256). Storing the acquired frame at full
-# resolution meant decoding a 1536x1024, 823 KB PNG per card per refresh for a picture
-# thrown away at a fifth of the size -- 26 ms each, and the card strip re-reads every
-# lamella whenever one is added (FIB-681).
-#
-# 512 rather than 280: it leaves the largest card headroom on a HiDPI display, still
-# decodes in ~3 ms, and is a tenth of the bytes. Only ever shrinks -- a frame already
-# smaller than this is written through untouched.
-# The bound lives with the writer; kept here by name for anything that imports it.
-from fibsem.imaging.thumbnail import (
-    THUMBNAIL_MAX_EDGE as _THUMBNAIL_MAX_EDGE,  # noqa: E402
-)
 
 
 def _make_thumbnail_placeholder():
@@ -341,7 +284,7 @@ _THUMBNAIL_PLACEHOLDER = None
 class Lamella(SiteItem):
     item_type: ClassVar[str] = "lamella"
     path: Path
-    number: int  # TODO: deprecate, use petname instead
+    number: int
     petname: str
     alignment_area: FibsemRectangle = field(
         default_factory=lambda: FibsemRectangle.from_dict(DEFAULT_ALIGNMENT_AREA)
@@ -353,7 +296,7 @@ class Lamella(SiteItem):
     poses: Dict[str, MicroscopeState] = field(default_factory=dict)
     task_state: TaskState = field(default_factory=TaskState)
     task_history: List["TaskState"] = field(default_factory=list)
-    defect: DefectState = field(default_factory=DefectState)
+    defect: QualityRecord = field(default_factory=QualityRecord)
     milling_angle: Optional[float] = None
     poi: Point = field(
         default_factory=lambda: Point(0.0, 0.0)
@@ -380,7 +323,7 @@ class Lamella(SiteItem):
         # therefore wrote into whatever machine the experiment came from, at a
         # path the caller never named. Directories are created where a lamella is
         # actually created (``Experiment.add_new_lamella``) and where files are
-        # actually written (``FibsemImage.save``, ``save_thumbnail``). See FIB-420.
+        # actually written (``FibsemImage.save``, ``save_thumbnail``).
         if self.id is None:
             self.id = str(uuid.uuid4())
         self.task_state.item_id = self.id
@@ -404,7 +347,7 @@ class Lamella(SiteItem):
         was *created* at, so a lamella loaded from a moved or copied experiment
         still points at the original machine. Worse, when that directory happens
         to still exist locally, reads silently succeed against the wrong data.
-        ``Experiment.load`` calls this so paths follow the experiment. See FIB-367.
+        ``Experiment.load`` calls this so paths follow the experiment.
         """
         self.path = os.path.join(experiment_path, self.name)
         self._sync_imaging_paths()
@@ -430,7 +373,7 @@ class Lamella(SiteItem):
 
         Whether a failed task blocks dependent work is a separate question,
         answered by completed_tasks -- which filters on task status, so a failed
-        prerequisite does not license the task that requires it. See FIB-490.
+        prerequisite does not license the task that requires it.
         """
         return self.defect.verdict is Verdict.FAILED
 
@@ -487,21 +430,6 @@ class Lamella(SiteItem):
             logging.warning(f"Could not save the thumbnail for {self.name}: {e}")
 
     @property
-    def landing_selected(self) -> bool:
-        return self.landing_pose is not None
-
-    @property
-    def landing_pose(self) -> Optional[MicroscopeState]:
-        return self.poses.get("LANDING", None)
-
-    @landing_pose.setter
-    def landing_pose(self, value: MicroscopeState):
-        """Set the landing pose for the lamella."""
-        if not isinstance(value, MicroscopeState):
-            raise TypeError("Landing pose must be a MicroscopeState instance.")
-        self.poses["LANDING"] = value
-
-    @property
     def fluorescence_pose(self) -> Optional[MicroscopeState]:
         return self.poses.get("FLUORESCENCE", None)
 
@@ -511,13 +439,6 @@ class Lamella(SiteItem):
         if not isinstance(value, MicroscopeState):
             raise TypeError("Fluorescence pose must be a MicroscopeState instance.")
         self.poses["FLUORESCENCE"] = value
-
-    @property
-    def fluorescence_selected(self) -> bool:
-        return (
-            self.fluorescence_pose is not None
-            and self.fluorescence_pose.objective_position is not None
-        )
 
     def related_milling_stages(self, task_name: str) -> list:
         """The enabled milling stages of this lamella's tasks related to
@@ -583,17 +504,6 @@ class Lamella(SiteItem):
     def status_info(self) -> str:
         return f"Lamella {self.petname} [{self.task_state.name}]"
 
-    @property
-    def pretty_fm_name(self) -> str:
-        """Generate a pretty name for the stage position."""
-        obj_pos = (
-            self.fluorescence_pose.objective_position
-            if self.fluorescence_pose is not None
-            else None
-        )
-        objective_str = f"{obj_pos * 1e3:.3f}mm" if obj_pos is not None else "N/A"
-        return f"{self.name} ({self.stage_position.x * 1e6:.1f}μm, {self.stage_position.y * 1e6:.1f}μm, {objective_str})"
-
     @classmethod
     def from_dict(cls, data: dict) -> "Lamella":
         # backwards compatibility
@@ -623,27 +533,13 @@ class Lamella(SiteItem):
             task_history=[
                 TaskState.from_dict(task) for task in data.get("task_history", [])
             ],
-            defect=DefectState.from_dict(data.get("defect", {})),
+            defect=QualityRecord.from_dict(data.get("defect", {})),
             milling_angle=data.get("milling_angle", None),
             poi=Point.from_dict(data.get("poi", {"x": 0, "y": 0})),
             description=data.get("description", ""),
             grid_id=data.get("grid_id"),
             proposals=proposals_from_dict(data.get("proposals")),
         )
-
-    def load_reference_image(self, fname) -> FibsemImage:
-        """Load a specific reference image for this lamella from disk
-        Args:
-            fname: str
-                the filename of the reference image to load
-        Returns:
-            image: FibsemImage
-                the reference image loaded as a FibsemImage
-        """
-
-        image = FibsemImage.load(os.path.join(self.path, f"{fname}.tif"))
-
-        return image
 
     def get_thumbnail(self) -> "np.ndarray":
         """Load the thumbnail image for this lamella if available.
@@ -667,7 +563,7 @@ class Lamella(SiteItem):
             # writes atomically now, so a torn file should no longer be produced -- but one
             # written before that fix is still on disk, and any other corruption lands here
             # too. This is reached from a Qt slot, where an escaping exception aborts the
-            # process under PyQt5 rather than raising (FIB-329).
+            # process under PyQt5 rather than raising.
             logging.warning(f"Could not read the thumbnail at {thumb_path}: {e}")
             if _THUMBNAIL_PLACEHOLDER is None:
                 _THUMBNAIL_PLACEHOLDER = _make_thumbnail_placeholder()
@@ -678,7 +574,7 @@ class Lamella(SiteItem):
 
         Written to a temporary file and moved into place, so a reader never sees a
         partly-written one. `get_thumbnail` runs from the lamella cards on the GUI
-        thread while saving happens on a worker (FIB-563), so the two do overlap: the
+        thread while saving happens on a worker, so the two do overlap: the
         reported failure was `OSError: image file is truncated` out of `Image.open`,
         with the existence check passing because the file was there, just incomplete.
 
@@ -688,7 +584,7 @@ class Lamella(SiteItem):
         one, never a partial.
 
         Written at display size rather than at the acquired resolution -- see
-        `_THUMBNAIL_MAX_EDGE`. This is a thumbnail, not a copy of the frame; the frame
+        `fibsem.imaging.thumbnail.THUMBNAIL_MAX_EDGE`. This is a thumbnail, not a copy of the frame; the frame
         itself is saved separately by the task that acquired it. A fluorescence
         stack's thumbnail is its projection, as the FM canvas draws it.
         """
@@ -702,14 +598,6 @@ class Lamella(SiteItem):
             else image.filtered_data
         )
         write_thumbnail(data, os.path.join(self.path, "thumbnail.png"))
-
-    # def get_task_config_by_type(self, task_type: Type['AutoLamellaTaskConfig']) -> Dict[str, AutoLamellaTaskConfig]:
-    #     """Get the task configuration by type."""
-    #     task_configs = {}
-    #     for k, v in self.task_config.items():
-    #         if isinstance(v, task_type):
-    #             task_configs[k] = v
-    #     return task_configs
 
     def sync_tasks_to_poi(self, point: Optional[Point] = None) -> list[str]:
         """Sync the milling patterns to point of interest"""
@@ -771,8 +659,7 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
     path: Path
     positions: EventedList[Lamella] = field(default_factory=EventedList)
     grids: EventedList[GridRecord] = field(default_factory=EventedList)
-    landing_positions: List[FibsemStagePosition] = field(default_factory=list)
-    # Aware, written as ISO 8601 with its offset (FIB-1197); older files hold a
+    # Aware, written as ISO 8601 with its offset; older files hold a
     # POSIX float, which reads as this machine's zone.
     created_at: Optional[datetime] = field(default_factory=now)
     task_protocol: "AutoLamellaTaskProtocol" = field(
@@ -797,7 +684,6 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
         super().__init__(path=path, name=name, metadata=metadata)
         self.positions: EventedList[Lamella] = EventedList()
         self.grids: EventedList[GridRecord] = EventedList()
-        self.landing_positions: List[FibsemStagePosition] = []
 
         self.task_protocol: AutoLamellaTaskProtocol = None  # must be set externally
 
@@ -812,7 +698,6 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
             **super().to_dict(),
             "positions": [deepcopy(lamella.to_dict()) for lamella in self.positions],
             "grids": [grid.to_dict() for grid in self.grids],
-            "landing_positions": [pos.to_dict() for pos in self.landing_positions],
         }
 
         if include_protocol:
@@ -840,18 +725,7 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
         for grid_dict in ddict.get("grids", []):
             experiment.grids.append(GridRecord.from_dict(grid_dict))
 
-        # load landing positions
-        for landing_dict in ddict.get("landing_positions", []):
-            stage_position = FibsemStagePosition.from_dict(landing_dict)
-            experiment.landing_positions.append(stage_position)
-
         return experiment
-
-    def get_lamella_by_id(self, lamella_id: str) -> Optional["Lamella"]:
-        for lamella in self.positions:
-            if lamella.id == lamella_id:
-                return lamella
-        return None
 
     def items(self) -> List[Union["Lamella", GridRecord]]:
         """The lamellae and grids: the items a task runs on and a proposal can
@@ -899,14 +773,14 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
         return self.task_protocol.grid_tasks
 
     def write_grid_report(self, inventory: Any) -> Path:
-        """Write the grid screening report, the file Tools -> Reporting writes:
-        what a grid run's end-of-run report calls. ``inventory`` is the stage's
-        own record, for the slot column."""
-        from fibsem.applications.autolamella.tools.grid_report_pdf import (
-            generate_grid_report,
+        """Write the grid screening report, and its PDF where a browser can print
+        one: what Tools -> Reporting, the Grids tab and a grid run's end all
+        call. ``inventory`` is the stage's own record, for the slot column."""
+        from fibsem.applications.autolamella.tools.grid_report_html import (
+            write_grid_report,
         )
 
-        return Path(generate_grid_report(self, inventory=inventory))
+        return write_grid_report(self, inventory=inventory)
 
     def _release_grid(self, grid: GridRecord) -> None:
         """A grid no longer tracked: its lamellae are orphaned, not deleted."""
@@ -952,7 +826,7 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
 
         # lamella paths are stored as-created, so re-point them at wherever the
         # experiment actually is now. otherwise a moved or copied experiment
-        # reads and writes against the original location. (FIB-367)
+        # reads and writes against the original location.
         for lamella in experiment.positions:
             lamella.relocate(experiment.path)
 
@@ -961,7 +835,6 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
         # so reading an experiment would reach into the calling process's global
         # logging and redirect its output into this experiment's logfile. Callers
         # that want that ask for it: the app does so when it adopts an experiment.
-        # See FIB-421.
 
         # attempt to load task protocol from the same directory
         protocol_path = os.path.join(experiment.path, "protocol.yaml")
@@ -1101,7 +974,7 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
 
     def remove_task(self, task_name: str) -> None:
         """Remove a task from the experiment: from the protocol, from the
-        workflow, and from every lamella's config (FIB-1109).
+        workflow, and from every lamella's config.
 
         All three together, so the workflow never lists a task the protocol no
         longer has, and no lamella runs a stale copy of one. A task that listed
@@ -1168,7 +1041,6 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
 
         # NOTE: as with load(), creating an experiment does not reconfigure the
         # calling process's logging -- the app does that when it adopts one.
-        # See FIB-421.
 
         # save the experiment
         experiment.save()

@@ -42,7 +42,7 @@ from fibsem.structures import (
 )
 from fibsem.ui.widgets.canvas import view_info_bar
 from fibsem.ui.widgets.canvas.quad_view import (
-    LamellaEditorView,
+    ItemEditorView,
     MicroscopeViewController,
     QuadViewWidget,
 )
@@ -294,7 +294,7 @@ def test_clear_empties_every_bar(controller):
 
 
 def test_the_lamella_editor_gets_the_same_bars():
-    controller = MicroscopeViewController(view=LamellaEditorView())
+    controller = MicroscopeViewController(view=ItemEditorView())
     controller.set_image(BeamType.ION, _beam_image(BeamType.ION, voltage=30e3))
     bar = controller.widget.fib_bar
     bar.resize(2000, 26)
@@ -456,7 +456,7 @@ def test_the_stage_bar_has_no_field_button_whatever_is_selected(controller):
 
 
 def test_a_view_without_a_stage_bar_keeps_the_stage_in_the_canvas_text():
-    controller = MicroscopeViewController(view=LamellaEditorView())
+    controller = MicroscopeViewController(view=ItemEditorView())
     controller.update_info(_Microscope())
     fib = dict(controller._states[controller.widget.fib_canvas].info)
     assert fib["stage"].startswith("STAGE: ")
@@ -464,7 +464,7 @@ def test_a_view_without_a_stage_bar_keeps_the_stage_in_the_canvas_text():
 
 
 def _chosen():
-    return cfg.load_user_preferences().display.info_bar_fields
+    return cfg.load_user_preferences().shared.info_bar_fields
 
 
 def test_only_the_selected_view_shows_its_field_button(controller):
@@ -481,7 +481,7 @@ def test_only_the_selected_view_shows_its_field_button(controller):
 
 def test_the_lamella_editor_s_bars_keep_their_button():
     """It has no selection, so every bar keeps its button."""
-    view = LamellaEditorView()
+    view = ItemEditorView()
     for bar in (view.sem_bar, view.fib_bar, view.fm_bar):
         assert not bar.fields_button.isHidden()
 
@@ -525,7 +525,7 @@ def test_ticking_a_field_shows_it_and_remembers_it(controller):
 
 def test_every_open_bar_of_the_kind_follows_at_once(controller):
     """The quad view and the lamella editor each have an SEM bar."""
-    editor = MicroscopeViewController(view=LamellaEditorView())
+    editor = MicroscopeViewController(view=ItemEditorView())
     picker = controller.widget.sem_bar.open_picker()
     picker.checkboxes["dwell_time"].setChecked(True)
     assert "dwell_time" in editor.widget.sem_bar.field_keys()
@@ -575,20 +575,20 @@ def test_saving_one_setting_keeps_what_another_window_saved():
     """The main window held its preferences from start-up and saved them whole,
     which would put back a bar's fields chosen in between."""
     cfg.update_user_preferences(
-        lambda p: p.display.info_bar_fields.__setitem__("FIB", ["hfw"])
+        lambda p: p.shared.info_bar_fields.__setitem__("FIB", ["hfw"])
     )
-    cfg.update_user_preferences(lambda p: setattr(p.display, "sound_enabled", True))
+    cfg.update_user_preferences(lambda p: setattr(p.qt, "sound_enabled", True))
     preferences = cfg.load_user_preferences()
-    assert preferences.display.info_bar_fields == {"FIB": ["hfw"]}
-    assert preferences.display.sound_enabled
+    assert preferences.shared.info_bar_fields == {"FIB": ["hfw"]}
+    assert preferences.qt.sound_enabled
 
 
 def test_the_choice_round_trips_and_an_old_file_has_none():
     preferences = cfg.UserPreferences()
-    preferences.display.info_bar_fields = {"FM": ["objective", "z"]}
+    preferences.shared.info_bar_fields = {"FM": ["objective", "z"]}
     again = cfg.UserPreferences.from_dict(preferences.to_dict())
-    assert again.display.info_bar_fields == {"FM": ["objective", "z"]}
-    assert cfg.UserPreferences.from_dict({"display": {}}).display.info_bar_fields == {}
+    assert again.shared.info_bar_fields == {"FM": ["objective", "z"]}
+    assert cfg.UserPreferences.from_dict({"display": {}}).shared.info_bar_fields == {}
 
 
 @pytest.mark.parametrize(
@@ -666,7 +666,7 @@ def test_scrubbing_the_planes_is_not_news(controller):
 
 def test_a_chosen_image_does_not_light_up():
     """The lamella editor shows saved images: picking another lamella is not news."""
-    editor = MicroscopeViewController(view=LamellaEditorView())
+    editor = MicroscopeViewController(view=ItemEditorView())
     editor.set_image(BeamType.ION, _with_wd(16.50e-3, BeamType.ION))
     editor.set_image(BeamType.ION, _with_wd(16.60e-3, BeamType.ION))
     assert editor.widget.fib_bar.highlighted_fields() == []

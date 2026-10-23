@@ -74,7 +74,7 @@ def attention_state(attention: Attention) -> str:
     """Which of the chip's states a task with *attention* is in: the one
     question the user has about a task, *when am I involved?*
 
-    There is no Agent state (FIB-1035): a supervised question goes to the
+    There is no Agent state: a supervised question goes to the
     operator and any connected agent alike.
     """
     if attention is Attention.supervised:
@@ -370,7 +370,7 @@ class WorkflowTaskList(QWidget):
 
         Reached on every protocol edit (``workflow_config_changed``), not only when
         the task set changes, and the ticked rows are the run selection. Rebuilding
-        them unticked emptied that selection on any field edit (FIB-967). Ticks are
+        them unticked emptied that selection on any field edit. Ticks are
         matched by task name, so a task that is gone is simply not re-ticked.
         """
         checked = {task.name for task in self.get_selected()}
@@ -477,7 +477,7 @@ class WorkflowTaskList(QWidget):
         """Tick or untick every row, and bring the header and the cache with them.
 
         Public because the header is not the only thing that clears the selection --
-        starting a run and adding to the queue both do (FIB-577). `_checked` matters
+        starting a run and adding to the queue both do. `_checked` matters
         as much as the header here: it is what `_on_reordered` rebuilds rows from, so
         leaving it stale made a drag-and-drop resurrect a selection the user had
         already seen cleared.

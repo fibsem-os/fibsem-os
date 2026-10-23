@@ -1,4 +1,4 @@
-"""An HTML page to a PDF, printed by a browser already on the machine (FIB-1036).
+"""An HTML page to a PDF, printed by a browser already on the machine.
 
 Edge ships with Windows 10 and 11, and Chrome or Chromium is on most other
 machines. Run headless, the browser prints the page through the page's own

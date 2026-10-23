@@ -1,4 +1,4 @@
-"""The readings milling monitors report, kept for reading on demand (FIB-1481).
+"""The readings milling monitors report, kept for reading on demand.
 
 The milling service keeps one `MillingReadings`: every reading of every step,
 numbered across steps, up to ``keep`` of them. ``snapshot`` is the ``readings``

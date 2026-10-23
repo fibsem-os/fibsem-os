@@ -1,0 +1,17 @@
+{
+  "end_timestamp": "2026-10-20T09:05:30+10:00",
+  "item_id": "lamella-1",
+  "iteration": 2,
+  "name": "Mill Rough",
+  "outputs": {
+    "final_fib": [
+      "ref_final_fib.tif"
+    ]
+  },
+  "start_timestamp": "2026-10-20T09:00:00+10:00",
+  "status": "Failed",
+  "status_message": "stopped",
+  "step": "Milling",
+  "task_id": "task-1",
+  "task_type": "MILL_ROUGH"
+}

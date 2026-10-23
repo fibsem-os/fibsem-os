@@ -1,4 +1,4 @@
-"""Correlation points on the shared canvas stack (FIB-535).
+"""Correlation points on the shared canvas stack.
 
 Two overlays, the same split the base module makes between ``PointsOverlay`` and
 ``PointOverlay``:
@@ -83,7 +83,7 @@ MARKER_SIZE = 5.0  # the base draws the selected marker at size * 1.4 = 7.0
 # exactly where the outline has to work. The stroke is drawn *behind* the
 # glyph (``Normal`` re-draws the text on top), so it can be heavy enough to
 # hold a label on a burned, white patch of FIB image without eating the
-# letters -- at 0.5 the FIB labels vanished there (FIB-978).
+# letters -- at 0.5 the FIB labels vanished there.
 LABEL_OUTLINE = [pe.withStroke(linewidth=2.0, foreground="black"), pe.Normal()]
 
 
@@ -147,7 +147,7 @@ class CoordinateOverlay(PointOverlay):
         store: Optional[PointStore] = None,
         side: Optional[str] = None,
     ) -> None:
-        """*store* holds the points and the selection (FIB-973); this draws
+        """*store* holds the points and the selection; this draws
         them. *side* is the canvas this is, "fib" or "fm", and picks that side's
         points out of a store shared with the other canvas; None draws them all.
         Until the tab widget shares one store, each overlay has its own."""
@@ -306,9 +306,9 @@ class CoordinateOverlay(PointOverlay):
         # The store removes the point and selects its neighbour, and this is
         # redrawn from it before the Coordinate is announced: the tab widget
         # answers by rebuilding us from its model, which must not race a
-        # half-finished removal (FIB-958).
+        # half-finished removal.
         coord = self._coords[index]
-        # The store may decline: a cancelled pair removal leaves both (FIB-1243).
+        # The store may decline: a cancelled pair removal leaves both.
         if self._store.remove(coord):
             self.coordinate_removed.emit(coord)
 
@@ -571,20 +571,6 @@ class CoordinateOverlay(PointOverlay):
         self._store.move(coord, float(x), float(y))
         self.coordinate_moved.emit(coord)
 
-    def _refresh_chrome(self) -> None:
-        """Re-derive the labels and the legend after the coordinate set changes.
-
-        ``set_points`` redraws both via ``_draw_all``, but ``add_point`` and
-        ``remove_point`` only touch one artist -- and both can change which
-        PointTypes are on screen, which is exactly what the legend reports, and
-        whether a SURFACE point exists to hang the datum line off.
-        """
-        if self._anns:
-            self._refresh_ann_text()
-        self._apply_label_visibility()
-        self._draw_legend()
-        self._draw_surface_line()
-
 
 @dataclass
 class _ResultGroup:
@@ -650,9 +636,7 @@ class CorrelationResultOverlay(CanvasOverlay):
         """A new image discards the result rather than redrawing it.
 
         The markers describe a correlation against the image that was underneath
-        them; over a different one they are wrong, not merely stale. The old
-        canvas made the same choice in ``set_image``, after "POI (P)" was left in
-        the legend of an image that had no POI (FIB-321).
+        them; over a different one they are wrong, not merely stale.
         """
         self.clear()
 

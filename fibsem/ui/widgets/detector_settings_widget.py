@@ -53,10 +53,6 @@ class _LabeledSlider(QWidget):
             return f"{value * 100:.1f}%"
         return f"{value:.{self._decimals}f}"
 
-    def set_pct_mode(self, enabled: bool):
-        self._pct_mode = enabled
-        self._value_label.setText(self._format(self._slider.value()))
-
     def _on_value_changed(self, value: float):
         self._value_label.setText(self._format(value))
         self.valueChanged.emit(value)
@@ -176,7 +172,7 @@ class FibsemDetectorSettingsWidget(QWidget):
         self.settings_changed.emit(self.get_settings())
 
     def _set(self, label: str, setter, value) -> bool:
-        """Write ``value`` holding control (FIB-1488). Refused, the controls show
+        """Write ``value`` holding control. Refused, the controls show
         the detector's values again."""
         action = f"set the {self.beam_type.name} {label}"
         if operator_acts(

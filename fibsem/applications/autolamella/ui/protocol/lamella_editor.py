@@ -40,6 +40,7 @@ from fibsem.applications.autolamella.task_outputs import (
     lamella_images,
     latest_task_image,
 )
+from fibsem.applications.autolamella.ui.protocol.dialogs import ApplyLamellaConfigDialog
 from fibsem.applications.autolamella.ui.protocol.editor import (
     AutoLamellaTaskConfigEditor,
 )
@@ -70,10 +71,9 @@ from fibsem.ui.widgets.canvas.overlay_controls import (
     CanvasPopover,
 )
 from fibsem.ui.widgets.canvas.quad_view import (
-    LamellaEditorView,
+    ItemEditorView,
     MicroscopeViewController,
 )
-from fibsem.ui.widgets.checklist import ApplyLamellaConfigDialog
 from fibsem.ui.widgets.custom_widgets import (
     ContextMenuConfig,
     IconToolButton,
@@ -127,7 +127,7 @@ def _picker_label(relpath: str, task_names: Iterable[str]) -> str:
 
 def _with_run_time(label: str, relpath: str) -> str:
     """``label`` with the time of the run whose folder holds ``relpath``
-    (``<task>/<YYYYMMDD-HHMMSS>/...``, FIB-1275), so two runs' images of the same
+    (``<task>/<YYYYMMDD-HHMMSS>/...``), so two runs' images of the same
     name read apart. A file in the lamella's own folder keeps its label."""
     for part in reversed(os.path.normpath(os.path.dirname(relpath)).split(os.sep)):
         try:
@@ -225,7 +225,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         # Canvas display: own a controller driving a task-driven stacked view (FIB +
         # SEM beside it + FM page). Created eagerly (no microscope needed) so the host
         # tab can embed ``view_controller.widget`` before the microscope connects.
-        self.view_controller = MicroscopeViewController(view=LamellaEditorView())
+        self.view_controller = MicroscopeViewController(view=ItemEditorView())
 
         self.image: FibsemImage
         self.fm_image: Optional[FluorescenceImage] = None
@@ -238,14 +238,14 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self._selected_lamella: Optional[Lamella] = None
         self._overlay_wired = False  # subscribed to controller.overlay_edited
         # Where each of the selected lamella's FIB/SEM images was taken, by filename,
-        # read from their headers on selection (FIB-1170).
+        # read from their headers on selection.
         self._image_positions: Dict[str, ImagePosition] = {}
         # The FIB image the editor switched to itself, and the lamella (by id) it did
         # so for, to say so while it is shown.
         self._switched_to: Optional[str] = None
         self._switched_for: Optional[str] = None
 
-        # Each edit, for the experiment's record (FIB-1034), and the write a burst
+        # Each edit, for the experiment's record, and the write a burst
         # of them makes -- see `_save_experiment`. Built before the microscope
         # check below: the window flushes on close, and an editor that never saw
         # a microscope must still answer that rather than raise.
@@ -338,7 +338,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.task_editor = AutoLamellaTaskConfigEditor(
             self.session, self.microscope, self._edits, "item", parent=self
         )
-        # drive patterns/reposition on the FIB canvas (not napari)
+        # drive patterns/reposition on the FIB canvas
         self.task_editor.milling.set_controller(self.view_controller)
         self.task_editor.milling.set_alignment_area_visible(False)
 
@@ -520,7 +520,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             return
         # Only the lamella already shown, never a stand-in: the editor shows what the
         # host selected, and with nothing selected an edit here must have nowhere to
-        # land (FIB-1370).
+        # land.
         if self._selected_lamella is None:
             return
         self._selected_lamella = experiment.get_lamella_by_name(
@@ -569,7 +569,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self._refresh_task_states()
 
         # load fluorescence image: the lamella folder's, then each run's own
-        # folder's (FIB-1275), as paths relative to the lamella folder
+        # folder's, as paths relative to the lamella folder
         filenames = lamella_images(selected_lamella, ".ome.tiff")
         task_names = list(selected_lamella.task_config.keys())
         fm_basenames = filenames
@@ -782,7 +782,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         if show:
             self.view_controller.set_image(BeamType.ELECTRON, sem_image)
 
-    # --- where the shown image was taken (FIB-1170) --------------------------------
+    # --- where the shown image was taken --------------------------------
 
     def _lamella_position(self) -> Optional[FibsemStagePosition]:
         """Where the selected lamella is now: its milling pose.
@@ -905,7 +905,6 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         else:
             self.position_notice.clear()
 
-    # TODO: migrate this to a task_config method that returns task names in workflow order, rather than sorting here in the UI,
     def _sort_task_names_by_workflow(self, task_names: List[str]) -> List[str]:
         """Sort task names by experiment workflow order; keep unknown tasks in original order."""
         experiment = self.session.experiment
@@ -976,8 +975,8 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self._draw_point_of_interest(selected_lamella.poi)
         self._draw_alignment_area()
 
-        # task type drives which canvas page is visible (mirrors the old per-task napari
-        # layer-visibility toggle): the FM composite for fluorescence, else FIB (+ SEM)
+        # task type drives which canvas page is visible: the FM composite for
+        # fluorescence, else FIB (+ SEM)
         if is_fluorescence_task:
             self.view_controller.widget.show_fluorescence()
         else:
@@ -1203,15 +1202,15 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         # Only a real image: with no reference image on disk self.image is a blank
         # placeholder generated for the editor's own canvas, and correlating
         # against it would scale the spot burns and the resulting POI by
-        # placeholder dimensions (FIB-319).
+        # placeholder dimensions.
         if self.image is not None and os.path.isfile(fib_current):
             dialog.set_fib_image(self.image)
         if self.fm_image is not None:
             dialog.set_fm_image(self.fm_image)
 
-        # Lamella setup lives in the window's Images tab (FIB-302): the images in
+        # Lamella setup lives in the window's Images tab: the images in
         # this lamella's folder, and what to seed from — spot burns for a first
-        # correlation (FIB-259), a previous run for a re-correlation (FIB-299/301).
+        # correlation, a previous run for a re-correlation.
         # Installed after the images are set, so seeding can rescale FM z.
         section = dialog.add_lamella_setup(
             spot_burns=spot_burns,
@@ -1226,7 +1225,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             fm_current=fm_current,
         )
         section.emit_current_seed()  # apply the default source, live on the canvas
-        # Predicted fiducials (FIB-956) take their rotation and scale from a
+        # Predicted fiducials take their rotation and scale from a
         # previous run -- this lamella's first, then any other's on this system.
         if experiment is not None and getattr(experiment, "path", None):
             from fibsem.correlation.prior import experiment_runs
@@ -1260,11 +1259,8 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         """Which FIB image the combo lands on: the last completed task's reference
         image, else whatever was selected before, else the newest.
 
-        Everything here is a *basename*, because that is what the combo holds.
-        The newest-image fallback used to be the full path from ``glob``, which
-        made ``setCurrentText`` a silent no-op — so a lamella with no task
-        reference image and no prior selection stayed on the *oldest* image, and
-        that is the image handed to the correlation window (FIB-321).
+        Everything here is a *basename*, because that is what the combo holds:
+        a full path would make ``setCurrentText`` a silent no-op.
         """
         if latest_task_filename in base_filenames:
             return latest_task_filename
@@ -1299,7 +1295,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         """The lamella's spot-burn fiducial coordinates, or [] if it has none.
 
         Matched by config type — there's no fixed task-name key. Coordinates are
-        normalised (0-1) to the lamella's FIB reference image (FIB-259).
+        normalised (0-1) to the lamella's FIB reference image.
         """
         for cfg in lamella.task_config.values():
             if isinstance(cfg, SpotBurnFiducialTaskConfig):
@@ -1429,7 +1425,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         `Experiment.save()` serialises the whole experiment -- 0.84 s at 100 lamella,
         on the GUI thread -- and every committed field in this editor called it. Editing
-        a task means several fields in a row, and each paid the full price (FIB-683).
+        a task means several fields in a row, and each paid the full price.
 
         Only *when* the write happens moves; what is written does not. The edit is
         already applied to the lamella, so a flush at any later point writes the

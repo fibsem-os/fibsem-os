@@ -92,6 +92,7 @@ class MillingPatternOverlay(CanvasOverlay):
         self._colour: Optional[str] = None
         self._dashed = False
         self._stage_styles: List[str] = []
+        self._stage_colours: List[str] = []
         self._style_index: Optional[int] = None
         self._legend_loc = "upper right"
 
@@ -129,6 +130,7 @@ class MillingPatternOverlay(CanvasOverlay):
         dashed: bool = False,
         legend_loc: str = "upper right",
         stage_styles: Sequence[str] = (),
+        stage_colours: Sequence[str] = (),
     ) -> None:
         """Display *stages* against *image*.
 
@@ -137,9 +139,11 @@ class MillingPatternOverlay(CanvasOverlay):
         ``colour`` draws every stage in it instead of a colour each; ``dashed``
         draws them as a preview, dashed with a fainter fill. ``legend_loc`` places
         the stage legend. ``stage_styles`` gives a stage its own style, one of
-        ``STAGE_STYLES``, by index: a volume's slices cut, next and still to cut.
+        ``STAGE_STYLES``, by index: a volume's slices cut, next and still to cut;
+        ``stage_colours`` a stage its own colour, by index, over ``colour``.
         """
         self._stage_styles = list(stage_styles)
+        self._stage_colours = list(stage_colours)
         self._colour = colour
         self._dashed = dashed
         self._legend_loc = legend_loc
@@ -223,6 +227,8 @@ class MillingPatternOverlay(CanvasOverlay):
         self._draw_legend()
 
     def _stage_colour(self, index: int) -> str:
+        if index < len(self._stage_colours):
+            return self._stage_colours[index]
         return self._colour or COLOURS[index % len(COLOURS)]
 
     def _stage_style(self, index: Optional[int]) -> Optional[tuple]:
@@ -283,7 +289,7 @@ class MillingPatternOverlay(CanvasOverlay):
                 self._ax.add_artist(artist)
                 self._artists.append(artist)
         # A stage's pattern has a point it is placed at; patterns drawn on their own
-        # (an agent's mill, FIB-1375) have none to mark.
+        # (an agent's mill) have none to mark.
         pattern = getattr(stage, "pattern", None)
         if pattern is not None:
             self._draw_crosshair(pattern.point, shape, pixelsize, colour, zorder + 0.5)
@@ -297,8 +303,8 @@ class MillingPatternOverlay(CanvasOverlay):
         drawn inside it, hence the list.
         """
         if getattr(ps, "is_exclusion", False):
-            # Exclusion zones are the region the mill must not touch. Black in the
-            # napari path and in the report plot; black here too. Lines have no
+            # Exclusion zones are the region the mill must not touch. Black, as in
+            # the report plot. Lines have no
             # is_exclusion, hence the getattr.
             colour = _EXCLUSION_COLOUR
         # Solid edge + same-colour fill at _FILL_ALPHA. Independent face/edge

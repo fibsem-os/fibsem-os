@@ -35,6 +35,7 @@ from fibsem.ui.app_window import AppWindow
 from fibsem.ui.icon import fibsem_icon, fibsemos_icon
 from fibsem.ui.qt.gc import install_main_thread_gc
 from fibsem.ui.run.attention import AttentionRouter
+from fibsem.ui.run.run_refusal import refused_during_run
 from fibsem.ui.run.view import RunView
 from fibsem.ui.stylesheets import GRAY_ICON_COLOR
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
@@ -136,7 +137,7 @@ class VolumeWindow(AppWindow):
             controls=self.workflow_controls,
             status_bar=self.status_bar,
             timeline=None,
-            sound_enabled=lambda: self._preferences.display.sound_enabled,
+            sound_enabled=lambda: self._preferences.qt.sound_enabled,
             parent=self,
         )
         self.run_view = RunView(
@@ -228,7 +229,10 @@ class VolumeWindow(AppWindow):
         return self.session.experiments_folder or default_experiment_directory()
 
     def create_experiment(self) -> None:
-        """New Experiment: a name, then the folder it goes in."""
+        """New Experiment: a name, then the folder it goes in. Not while a run
+        goes."""
+        if refused_during_run(self.session.runner, "change experiments"):
+            return
         name, ok = QInputDialog.getText(self, "New Experiment", "Name")
         name = name.strip()
         if not ok or not name:
@@ -246,6 +250,8 @@ class VolumeWindow(AppWindow):
         self.session.adopt(create_experiment(directory, name))
 
     def load_experiment(self) -> None:
+        if refused_during_run(self.session.runner, "change experiments"):
+            return
         path, _ = QFileDialog.getOpenFileName(
             self,
             "Load Experiment",

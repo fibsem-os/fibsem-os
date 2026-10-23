@@ -4,7 +4,6 @@ import logging
 import os
 import sys
 import threading
-import warnings
 from typing import Any, Optional
 
 try:
@@ -28,7 +27,6 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaWorkflowConfig,
     Lamella,
 )
-from fibsem.applications.autolamella.ui.common.run_refusal import refused_during_run
 from fibsem.applications.autolamella.ui.dialogs.create_experiment import (
     create_experiment_dialog,
 )
@@ -58,6 +56,7 @@ from fibsem.ui.app_window import AppWindow
 from fibsem.ui.fm.widgets import FMImageViewerWidget
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.run.attention import AttentionRouter
+from fibsem.ui.run.run_refusal import refused_during_run
 from fibsem.ui.run.view import RunView
 from fibsem.ui.stylesheets import GRAY_ICON_COLOR
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
@@ -82,29 +81,6 @@ from fibsem.workflows.status import (
 )
 from fibsem.workflows.workflow_edits import save_workflow_change
 
-# Suppress a specific upstream Napari/NumPy warning from shapes miter computation. This
-# module no longer imports napari, but the minimap still loads it, and a filter is matched
-# by module *name* — so this keeps working and is still worth having.
-warnings.filterwarnings(
-    "ignore",
-    message=r"'where' used without 'out', expect unit?ialized memory in output\. If this is intentional, use out=None\.",
-    category=UserWarning,
-    module=r"napari\.layers\.shapes\._shapes_utils",
-)
-
-# The PDF report needs the `reporting` extra (reportlab). The overview plot does not --
-# it is matplotlib and Qt -- so it is imported with the other dialogs above rather than
-# here, where a missing reportlab used to take it down too.
-REPORTING_AVAILABLE: bool = False
-try:
-    from fibsem.applications.autolamella.ui.dialogs.report import generate_report_dialog
-
-    REPORTING_AVAILABLE = True
-except ImportError as e:
-    logging.debug(
-        f"Could not import generate_report from fibsem.applications.autolamella.tools.reporting: {e}"
-    )
-
 # What to do next, shown in the window's status bar. Each names something visible
 # on screen at the moment it is shown -- three of these used to name menus that do
 # not exist ("Connection ->", "Experiment ->" are not menus; the File entries are
@@ -124,9 +100,8 @@ INSTRUCTIONS = {
 class AutoLamellaWindow(AppWindow):
     """Main window for AutoLamella UI.
 
-    No napari viewer of its own any more: every tab here renders on the matplotlib
-    canvas. napari survives in this application only in labelling and segmentation,
-    which open windows of their own (FIB-407).
+    Every tab renders on the matplotlib canvas; labelling and segmentation (napari)
+    open windows of their own.
     """
 
     def __init__(self):
@@ -145,7 +120,6 @@ class AutoLamellaWindow(AppWindow):
                 save_protocol=self.export_protocol_ui,
                 fm_image_viewer=self._open_fm_image_viewer,
                 coincidence_viewer=self._open_coincidence_milling_viewer,
-                generate_report=self.action_generate_report,
                 generate_overview_plot=self.action_generate_overview_plot,
                 grid_report=self._on_generate_grid_report,
                 app_server=self._on_app_server_dialog,
@@ -175,7 +149,7 @@ class AutoLamellaWindow(AppWindow):
         # The embedded App Server follows its saved switch (set in Tools → App
         # Server) against the connected microscope.
         self.sync_app_server_with_preference()
-        d = self._preferences.display
+        d = self._preferences.qt
         self.run_border.set_on(d.border_enabled)
         self.toast_manager.problems_only = d.toast_problems_only
         # The lamella strip's density. Guarded because _apply_preferences also runs
@@ -183,7 +157,7 @@ class AutoLamellaWindow(AppWindow):
         if hasattr(self, "lamella_tab"):
             self.lamella_tab.cards.set_mode(d.lamella_card_mode)
         self.menu_bar.apply_preferences(self._preferences)
-        self.system_widget.refresh_first_run_offer(self._preferences)
+        self.system_widget.refresh_first_run_offer()
 
     def _on_generate_grid_report(self):
         """Tools → Reporting → Generate Grid Screening Report.
@@ -229,9 +203,7 @@ class AutoLamellaWindow(AppWindow):
         is_connected = self.microscope is not None
         experiment = self.experiment
         is_experiment_loaded = experiment is not None
-        # Carried here from the panel, which used to render the same ladder into a
-        # label of its own: an experiment with no protocol cannot run anything, and
-        # this was the one rung the status bar did not have.
+        # An experiment with no protocol cannot run anything.
         is_protocol_loaded = self.protocol is not None
         has_positions = is_experiment_loaded and len(experiment.positions) > 0
 
@@ -294,7 +266,7 @@ class AutoLamellaWindow(AppWindow):
         if getattr(self, "quad_overview_page", None) is not None:
             self.quad_overview_page.set_microscope(microscope)
         self._refresh_fm_placeholder()
-        # Milling, tiles, spot burn: the bar listens for them itself (FIB-1188).
+        # Milling, tiles, spot burn: the bar listens for them itself.
         self.status_bar.set_microscope(microscope)
         self.agent_host.activity.set_microscope(microscope)
         self._refresh_grids_tab_microscope()
@@ -313,16 +285,9 @@ class AutoLamellaWindow(AppWindow):
         )
         self.panel.setAutoFillBackground(True)
         self._attach_run(self.panel)
-        # The Connection tab is a gate in a bar that otherwise means "the instrument
-        # needs you here now" -- it is the only tab that can never be a workflow
-        # step, and it sits at position 0, the default landing spot, for something
-        # done once a session. With the connection dialog on it has somewhere else
-        # to be reached from, so it goes (FIB-775).
-        #
-        # The widget itself stays either way: it owns the connection, and everything
-        # in the application follows its signals. Only the tab is conditional.
-        if not self.menu_bar.connection_chip_enabled:
-            self.panel.tabWidget.insertTab(0, self.system_widget, "Connection")
+        # The widget owns the connection, and everything in the application follows
+        # its signals; the tab is where the operator connects.
+        self.panel.tabWidget.insertTab(0, self.system_widget, "Connection")
         # After the Connection tab is in: hiding the Experiment tab while it is
         # the only one leaves the panel showing nothing.
         self.panel.refresh()
@@ -414,7 +379,7 @@ class AutoLamellaWindow(AppWindow):
             controls=self.workflow_controls,
             status_bar=self.status_bar,
             timeline=self.workflow_tab.timeline,
-            sound_enabled=lambda: self._preferences.display.sound_enabled,
+            sound_enabled=lambda: self._preferences.qt.sound_enabled,
             parent=self,
         )
         self.run_view = RunView(
@@ -439,13 +404,11 @@ class AutoLamellaWindow(AppWindow):
         self.run_relay.finished.connect(self._on_workflow_finished)
 
         self.experiment_header = ExperimentHeader(
-            chip_enabled=self.menu_bar.connection_chip_enabled,
             new_experiment=self.menu_bar.action_new_experiment,
             load_experiment=self.menu_bar.action_load_experiment,
             open_experiment_directory=self.menu_bar.action_open_experiment_directory,
             on_new_experiment=self.create_experiment,
             on_load_experiment=self.load_experiment,
-            on_connect=self.menu_bar.connect_microscope,
             on_about=self.open_information_dialog,
             toast_manager=self.toast_manager,
         )
@@ -578,7 +541,7 @@ class AutoLamellaWindow(AppWindow):
         and history."""
         self.lamella_tab = LamellaTab(
             self.session,
-            card_mode=self._preferences.display.lamella_card_mode,
+            card_mode=self._preferences.qt.lamella_card_mode,
         )
         self.lamella_tab.lamella_selected.connect(self._on_lamella_card_selected)
         cards = self.lamella_tab.cards
@@ -791,7 +754,7 @@ class AutoLamellaWindow(AppWindow):
         self.task_widget.workflow_config_changed.connect(lamella.set_workflow_config)
         # A task added or removed there is added to or removed from every lamella:
         # the lamella editor's task list is rebuilt, so it never edits a task its
-        # lamella no longer has (FIB-1109).
+        # lamella no longer has.
         self.task_widget.workflow_config_changed.connect(
             lambda _: self.lamella_tab.editor._refresh_experiment_positions()
         )
@@ -855,13 +818,10 @@ class AutoLamellaWindow(AppWindow):
         if experiment is not None and lamella_name is not None:
             lamella = experiment.get_lamella_by_name(lamella_name)
 
-        # The name list is refreshed from here rather than subscribing per row.
-        # `LamellaRow` used to connect to `task_state.events.name`/`.status`, which
-        # the workflow writes from its worker thread; the marshalled refresh then
-        # arrived after the row had been replaced and its widgets destroyed
-        # (`RuntimeError: wrapped C/C++ object of type QLabel has been deleted`).
-        # It joins the other two on the same named-lamella path, so it costs one row
-        # -- unlike them, though, nothing else was refreshing this list mid-workflow.
+        # The name list is refreshed from here rather than subscribing per row:
+        # `task_state.events.name`/`.status` are written from the workflow's worker
+        # thread, and a marshalled refresh can arrive after the row has been replaced
+        # and its widgets destroyed.
         grid = (
             experiment.get_grid_by_name(lamella_name)
             if experiment is not None and lamella_name is not None
@@ -886,7 +846,7 @@ class AutoLamellaWindow(AppWindow):
             )
             self.panel.experiment_tab.lamella_list.refresh_lamella(lamella)
             # The Overview pages' lists carry the same status column; without
-            # this they sat stale for the whole run (FIB-995).
+            # this they sat stale for the whole run.
             for lamella_list in self.overview_tab.lamella_lists():
                 lamella_list.refresh_lamella(lamella)
         else:
@@ -904,7 +864,7 @@ class AutoLamellaWindow(AppWindow):
             return
         experiment = self.experiment
         # The ticks and the selected card are the operator's, and this runs on every
-        # insert or removal: rebuild around them rather than through them (FIB-966).
+        # insert or removal: rebuild around them rather than through them.
         # The overview canvases are further displays of the same set, so they are
         # rebuilt here rather than from subscriptions of their own -- one handler for
         # "the lamellae changed" means the displays cannot end up disagreeing about what
@@ -1042,7 +1002,7 @@ class AutoLamellaWindow(AppWindow):
 
         The FIB/SEM and fluorescence overviews were two tabs here, and are now two pages
         of one -- `AutoLamellaOverviewContainerTab` holds both host tabs and a chip strip
-        that chooses between them (FIB-780). Both host tabs stay built and stay
+        that chooses between them. Both host tabs stay built and stay
         subscribed while the other is showing, so everything the window tells them is
         still told to both.
 
@@ -1138,7 +1098,7 @@ class AutoLamellaWindow(AppWindow):
             page.refresh()
 
     def _refresh_overview_positions(self):
-        """Re-mark every canvas that shows the lamellae (FIB-709). A method on the
+        """Re-mark every canvas that shows the lamellae. A method on the
         window rather than each tab connected to the experiment: a tab is rebuilt
         when the microscope changes, and a subscription holding its bound method
         would go stale."""
@@ -1272,31 +1232,12 @@ class AutoLamellaWindow(AppWindow):
             f"Quickload: loaded experiment {experiment.name} from {experiment_path}"
         )
 
-    # TODO: create a dialog to get the user to connect to microscope and create load experiment before continuing
-    # then remove the system widget entirely... you will always be connected once you start
     def app_context(self, event_buffer):
         from fibsem.applications.autolamella.server.context import (
             AutoLamellaAppContext,
         )
 
         return AutoLamellaAppContext(self.session, event_buffer=event_buffer)
-
-    #### REPORT GENERATION
-    def action_generate_report(self) -> None:
-        """Generate a pdf report of the experiment."""
-        if self.experiment is None:
-            return
-
-        if not REPORTING_AVAILABLE:
-            notification_service.show_toast(
-                "Reporting tools are not available. "
-                'Install the reporting extra: pip install "fibsem[reporting]"',
-                "warning",
-            )
-            return
-
-        generate_report_dialog(self.experiment, parent=self)
-        return
 
     def action_generate_overview_plot(self) -> None:
         """Generate an plot with the lamella position on an overview image."""
@@ -1378,11 +1319,10 @@ class AutoLamellaWindow(AppWindow):
     def _fm_image_viewer_start_directory(self) -> str:
         """Where the viewer's Load dialog opens: the open experiment, else the folder
         of the most recent one, else the log directory. The viewer reads files, so it
-        needs no experiment (FIB-942); this only picks a sensible first folder."""
+        needs no experiment; this only picks a sensible first folder."""
         if self.experiment is not None and self.experiment.path:
             return str(self.experiment.path)
-        recent = fibsem_cfg.load_user_preferences().experiment.recent_experiments
-        for path in recent:
+        for path in fibsem_cfg.recent_experiment_paths():
             parent = os.path.dirname(path)
             if os.path.isdir(parent):
                 return parent
@@ -1437,7 +1377,7 @@ class AutoLamellaWindow(AppWindow):
 
     def flush_editors(self) -> None:
         """Record and write the edits the Protocol and Lamella editors still
-        hold (FIB-683): before anything else writes the experiment."""
+        hold: before anything else writes the experiment."""
         self.task_widget.flush_pending_save()
         self.lamella_tab.editor.flush_pending_save()
 
@@ -1506,7 +1446,7 @@ class AutoLamellaWindow(AppWindow):
 
         protocol_path = fui.open_save_file_dialog(
             msg="Select a protocol file",
-            path=str(cfg.TASK_PROTOCOL_PATH),
+            path=str(cfg.USER_PROTOCOL_PATH),
             _filter="*.yaml",
             parent=self,
         )

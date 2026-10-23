@@ -40,7 +40,6 @@ from copy import deepcopy
 import numpy as np
 import pytest
 
-from fibsem import utils
 from fibsem.structures import FibsemStagePosition
 from tests.fixtures.demo_stage import demo_session
 
@@ -139,7 +138,7 @@ def _microscope(compustage: bool):
         stage.shuttle_pre_tilt = 35
         stage.rotation = True
 
-    microscope._update_orientations()
+    microscope.stage_movement.update_orientations()
     return microscope
 
 
@@ -356,7 +355,7 @@ def test_the_correction_applies_to_half_turns_however_they_are_written(
     microscope = _microscope(compustage=False)
     stage = microscope.system.stage
     stage.rotation_reference = reference_deg
-    microscope._update_orientations()
+    microscope.stage_movement.update_orientations()
     # The FIB rotation is written straight onto the orientation table rather than
     # configured, because since FIB-834 there is no configuration that produces these
     # pairs -- the derivation only ever yields a half turn. That is the point: what is

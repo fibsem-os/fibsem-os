@@ -314,8 +314,8 @@ class BrightnessContrastStepper:
     ) -> np.ndarray:
         """*new*, its brightness kept strictly between the brightest image seen
         too dark and the darkest seen too bright at this contrast. Without it a
-        detector more sensitive than assumed swings from black to white and back
-        (2026-10-19 run)."""
+        detector more sensitive than assumed swings from black to white and
+        back."""
         lo, hi, contrast = self._bracket or (0.0, 1.0, float(x[1]))
         if abs(contrast - x[1]) > 1e-3:
             lo, hi = 0.0, 1.0
@@ -422,7 +422,7 @@ class BrightnessContrastStepper:
         """A brightness step that took the image from one side of the target to
         the other with an end clipped: brightness moves the image at least this
         much, as clipped medians understate the move. Without it, a detector more
-        sensitive than assumed swings from black to white and back (2026-10-19).
+        sensitive than assumed swings from black to white and back.
         """
         target = self.settings.target_centre
         crossed = (before.median - target) * (after.median - target) < 0

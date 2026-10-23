@@ -30,18 +30,18 @@ from fibsem.util.system import DiskSpace, FreeSpaceLevel, disk_space
 from fibsem.utils import format_bytes
 from fibsem.workflows.experiments import default_experiment_directory
 
-# What an experiment costs on disk, per lamella. Measured 2026-09-21 over the four
-# completed lamellae in the real experiments under `tmp/`: 224, 256, 302 and 378 MB.
+# What an experiment costs on disk, per lamella. Measured over four completed
+# lamellae in real experiments: 224, 256, 302 and 378 MB.
 # One of them breaks down as ~32 MB of reference images (20 of them, 1536x1024 uint8
 # plus header), a ~107 MB fluorescence z-stack, ~29 MB of alignment images and ~83 MB
 # of autofocus sweeps.
 #
-# A flat figure rather than one derived from the protocol, which was the first plan.
-# The protocol specifies only the reference images -- 13% of that total -- so a
-# protocol-derived estimate would be exact about the eighth it can see and silent
-# about the rest, reading as authoritative while being wrong by six times. This is the
-# whole number, shown as "about", and re-derived by measuring a few real experiments
-# again. Grid overviews are on top of it and are per-experiment, not per-lamella.
+# A flat figure rather than one derived from the protocol: the protocol specifies only
+# the reference images -- 13% of that total -- so a protocol-derived estimate would be
+# exact about the eighth it can see and silent about the rest, reading as authoritative
+# while being wrong by six times. This is the whole number, shown as "about", and
+# re-derived by measuring a few real experiments again. Grid overviews are on top of it
+# and are per-experiment, not per-lamella.
 BYTES_PER_LAMELLA = 300e6
 
 # The size of experiment the figure is quoted for. Quoting the rate instead ("about
@@ -161,7 +161,7 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
         prefs = load_user_preferences()
         self.lineEdit_experiment_directory.setText(default_experiment_directory())
 
-        exp_prefs = prefs.experiment
+        exp_prefs = prefs.shared
         if exp_prefs.user:
             self.lineEdit_experiment_user.setText(exp_prefs.user)
         if exp_prefs.project:
@@ -407,7 +407,7 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
     def _select_protocol(self):
         """Open dialog to select a protocol file."""
         # Open file dialog at the directory of the current protocol or default
-        start_path = cfg.TASK_PROTOCOL_PATH
+        start_path = cfg.USER_PROTOCOL_PATH
         if self.protocol_path:
             start_path = os.path.dirname(self.protocol_path)
 

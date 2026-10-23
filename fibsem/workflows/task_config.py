@@ -213,7 +213,7 @@ class WorkflowOptions:
     turn_beams_off: bool = False
     # Open the run summary dialog when a run ends. The run-end toast, with its
     # Show summary link, comes either way; off is for runs nobody is watching
-    # the end of -- an agent starting many short runs, or overnight (FIB-1376).
+    # the end of -- an agent starting many short runs, or overnight.
     show_run_summary: bool = True
 
     def to_dict(self) -> Dict[str, Any]:

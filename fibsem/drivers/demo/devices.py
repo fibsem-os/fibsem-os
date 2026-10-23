@@ -11,7 +11,6 @@ it is given (``start``, a ``DemoParts``), and never touches the microscope's aga
 from __future__ import annotations
 
 import logging
-import os
 import threading
 from contextlib import contextmanager
 from copy import deepcopy
@@ -30,7 +29,7 @@ from typing import (
 
 import numpy as np
 
-from fibsem._timing import sim_sleep
+from fibsem._timing import sim_delays_off, sim_sleep
 from fibsem.devices.beam import UNBOUNDED_SHIFT_LIMITS, Beam
 from fibsem.devices.chamber import Chamber
 from fibsem.devices.chamber_camera import ChamberCamera
@@ -361,8 +360,7 @@ class DemoBeam(Beam):
     def _live(self, stop: threading.Event) -> None:
         self.connection.live(self.beam_type, stop, self.live_frame.emit)
 
-    # "preset" is not implemented: Demo has no presets, so it is absent on the new
-    # API while the old set("preset", ...) stays a logged no-op.
+    # "preset" is not implemented: Demo has no presets, so it is absent.
 
 
 class DemoStage(Stage):
@@ -371,20 +369,12 @@ class DemoStage(Stage):
     It keeps its own simulated stage in ``sim_position``, ``sim_homed`` and
     ``sim_linked``, copied when it is built from the starting ``stage_system``
     (``start``), and it never touches the microscope's again. A microscope that
-    builds it routes the stage keys to it (``DemoMicroscope``). Each method does what
-    the matching part of the Demo did before devices, on that copy:
+    builds it routes the stage keys to it (``DemoMicroscope``).
 
-    - ``read_position``: the ``stage_position`` branch of ``_get``;
-    - ``read_homed`` / ``read_linked``: the ``stage_homed`` / ``stage_linked`` branches;
-    - ``metadata_position``: ``_get_axis_limits``, which also says which axes exist;
-    - ``_move_absolute`` / ``_move_relative``: ``move_stage_absolute`` /
-      ``move_stage_relative``;
-    - ``_home`` / ``_link``: the ``stage_home`` / ``stage_link`` branches of ``_set``.
-
-    Two things differ from the old calls, both on purpose. Positions come back as a
-    copy, never the simulator's live object, so the cached value can't change under a
-    reader. And ``_get_axis_limits`` gives r and t in degrees while positions are in
-    radians; the metadata here converts them, so limits and values share one unit.
+    Positions come back as a copy, never the simulator's live object, so the cached
+    value can't change under a reader. And ``_get_axis_limits`` gives r and t in degrees
+    while positions are in radians; the metadata here converts them, so limits and
+    values share one unit.
     """
 
     def __init__(
@@ -440,8 +430,7 @@ class DemoStage(Stage):
     def read_homed(self) -> bool:
         return self.sim_homed
 
-    # A compustage can't link: the old set("stage_link") logs and does nothing there,
-    # so on the new API "linked" is absent and link() is unavailable.
+    # A compustage can't link, so "linked" is absent and link() is unavailable.
     def available_linked(self) -> bool:
         return not self.compustage
 
@@ -703,7 +692,7 @@ class DemoSampleLoader(SampleLoader):
     until a scan; a read does not change that.
 
     ``sim_grid_position`` is where this autoloader really puts a grid, (x, y, z) in
-    metres from the stage origin, as a real Arctis does (FIB-1144); the simulated
+    metres from the stage origin, as a real Arctis does; the simulated
     scene draws a loaded grid there. None puts it at the origin.
     """
 
@@ -1001,7 +990,7 @@ class DemoScanGenerator(Scanner):
     def _acquire(self, resolution: Tuple[int, int], dwell_time: float) -> np.ndarray:
         self._stop_event.clear()
         duration = dwell_time * resolution[0] * resolution[1]
-        if os.environ.get("FIBSEM_SIM_NO_DELAY") != "1":
+        if not sim_delays_off():
             self._stop_event.wait(duration)
         shape = (resolution[1], resolution[0])
         if resolution not in self._frames:
@@ -1077,7 +1066,7 @@ def build_demo_sample_loader(
     entry: "DeviceEntry", context: "BuildContext"
 ) -> DemoSampleLoader:
     """The simulated autoloader, from its entry's keys (``DEMO_SAMPLE_LOADER_KEYS``),
-    each falling back to the old ``sim.loader`` block, then the default."""
+    each falling back to the ``sim.loader`` block, then the default."""
     microscope = context.microscope
     system = getattr(microscope, "system", None)
     legacy = (getattr(system, "sim", None) or {}).get("loader") or {}
@@ -1408,7 +1397,7 @@ class DemoObjective(Objective):
 
 class DemoFMChannel:
     """The FM's share of the Demo's one imaging channel, which the FM and the beams
-    share as on a TFS system (FIB-518): ``AutoscriptFMChannel``, simulated.
+    share as on a TFS system: ``AutoscriptFMChannel``, simulated.
 
     The Demo has one active view and one active device (the simulator's
     ``imaging_system``), and whoever sets them last owns the microscope. This takes

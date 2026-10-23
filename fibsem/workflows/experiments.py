@@ -2,8 +2,8 @@
 
 The facility-manager question is *"what did this microscope do this week?"*
 Answering it needs two things: something to group by, and a way to find the
-experiments. The first arrived with the session record (FIB-451); this is the
-second (FIB-457).
+experiments. The first arrived with the session record; this is the
+second.
 
 Deliberately reads only, and never imports :class:`Experiment`. Enumerating a
 directory means opening files written by other versions, half-finished runs, and
@@ -15,7 +15,7 @@ few keys that matter and flags what it could not parse.
 default root is inside the installed package, users create experiments anywhere,
 and the recents list holds the last ten a machine opened. So an answer here is
 complete for the roots it was given and silent about everything else. That gap
-closes when the user-data directory lands (FIB-336) and the index can live
+closes when the user-data directory lands and the index can live
 somewhere an upgrade does not destroy.
 """
 
@@ -46,15 +46,16 @@ DEFAULT_MAX_DEPTH = 3
 
 def default_experiment_directory() -> str:
     """Where a new experiment goes: the preference when it names a folder that
-    exists, else the AutoLamella log folder (the Create dialog's default)."""
-    preferred = load_user_preferences().experiment.default_experiment_directory
+    exists, else the experiments folder in the state root (the Create dialog's
+    default)."""
+    preferred = load_user_preferences().shared.default_experiment_directory
     if preferred and os.path.isdir(preferred):
         return str(preferred)
     if preferred:
         logging.warning(
             f"Preference default_experiment_directory '{preferred}' does not exist; using default."
         )
-    return str(fibsem_cfg.AUTOLAMELLA_LOG_PATH)
+    return str(fibsem_cfg.EXPERIMENTS_PATH)
 
 
 def discover_experiments(

@@ -153,7 +153,6 @@ def plot_autofocus_result(
 
 def _plot_autofocus_result(result, save_path, theme):
     import matplotlib.gridspec as gridspec
-    import numpy as np
     from matplotlib.figure import Figure
 
     iters = result.iterations
@@ -519,8 +518,8 @@ def _plot_brightness_contrast_result(result, save_path, theme):
 
 def _save_figure(fig, save_path: Optional[str] = None) -> None:
     # No path means the caller did not say where its run writes, so nothing is
-    # saved: guessing one (it used to be ``autofocus/`` under the working
-    # directory) scattered plots wherever the app was started from.
+    # saved: a guessed one would scatter plots wherever the app was started
+    # from.
     if save_path is None:
         return
     fig.savefig(save_path, dpi=120, bbox_inches="tight")

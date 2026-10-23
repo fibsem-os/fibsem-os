@@ -16,7 +16,7 @@ from fibsem.services.sample_handling import bind_sample_handling
 from fibsem.structures import FibsemStagePosition
 from fibsem.ui.widgets.canvas.chamber_view import is_half_turn
 from fibsem.ui.widgets.canvas.quad_view import (
-    LamellaEditorView,
+    ItemEditorView,
     MicroscopeViewController,
 )
 
@@ -98,7 +98,7 @@ def test_mirroring_is_measured_from_the_rotation_reference(
 ):
     """The reference is a system setting, not zero: SEM sits at it, FIB half a turn on."""
     microscope.system.stage.rotation_reference = 120
-    microscope._update_orientations()
+    microscope.stage_movement.update_orientations()
     chamber = _show(controller, microscope, orientation)
     assert chamber.diagram._mirrored is mirrored
 
@@ -156,7 +156,7 @@ def test_a_position_without_tilt_keeps_the_last_drawing(controller, microscope):
 
 
 def test_lamella_editor_view_has_no_chamber(qapp, microscope):
-    controller = MicroscopeViewController(view=LamellaEditorView())
+    controller = MicroscopeViewController(view=ItemEditorView())
     controller.update_info(microscope, stage_position=microscope.get_stage_position())
 
 

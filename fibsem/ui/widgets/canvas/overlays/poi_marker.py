@@ -3,7 +3,7 @@
 One marker, for Setup's point-of-interest proposal. The marker is
 held in the view's pixels and converted against the frame the FIB view shows,
 so placing, previewing and reading back always use the one frame the operator
-sees (FIB-1410); when the view takes another frame the marker moves to the
+sees; when the view takes another frame the marker moves to the
 same point on it (``sync``).
 """
 
@@ -102,8 +102,8 @@ class PoiMarker:
                 # Matches the protocol editor's POI, down to the legend entry: same
                 # concept, same marker. Left to the defaults this drew at size 18 with
                 # PointOverlay's 2.0 edge, a cross visibly fatter than the thin one the
-                # editor and the config preview draw, and absent from the legend
-                # (FIB-582). 1.2 keeps it reading like the centre crosshair.
+                # editor and the config preview draw, and absent from the legend.
+                # 1.2 keeps it reading like the centre crosshair.
                 color="magenta",
                 selected_color="magenta",
                 marker="+",

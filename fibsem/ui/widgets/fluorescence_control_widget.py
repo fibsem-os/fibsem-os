@@ -1,12 +1,11 @@
 import logging
 import os
 import threading
-from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple
 
-from PyQt5.QtCore import QEvent, pyqtSignal, pyqtSlot
+from PyQt5.QtCore import QEvent, pyqtSignal
 from PyQt5.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QGridLayout,
     QLabel,
     QMessageBox,
@@ -18,8 +17,7 @@ from PyQt5.QtWidgets import (
 )
 from superqt import ensure_main_thread
 
-from fibsem import conversions, utils
-from fibsem.fm.calibration import run_autofocus
+from fibsem import conversions
 from fibsem.fm.config import record_recent_channels, save_fm_configuration
 from fibsem.fm.progress import FluorescenceAcquisitionStatus
 from fibsem.fm.structures import (
@@ -37,7 +35,6 @@ from fibsem.ui import notification_service
 from fibsem.ui.control import control_of, operator_acts
 from fibsem.ui.fm.widgets import (
     CameraWidget,
-    HistogramWidget,
     ObjectiveControlWidget,
 )
 from fibsem.ui.fm.widgets.acquisition_settings import FMAcquisitionSettingsWidget
@@ -90,7 +87,6 @@ class FMControlWidget(QWidget):
             )
         self.fm = self.microscope.fm
 
-        self.fm_resolution = self.fm.camera.resolution
         self.field_of_view = self.fm.camera.field_of_view
 
         # default settings
@@ -101,7 +97,7 @@ class FMControlWidget(QWidget):
         self._current_acquisition_type: Optional[str] = None
 
         # FM canvas click context (quad-view): retained from the latest image so a
-        # double-click can convert pixel -> stage without napari layer metadata
+        # double-click can convert pixel -> stage
         self._fm_pixelsize: Optional[float] = None
         self._fm_image_shape: Optional[tuple] = None
         self._fm_canvas = None  # quad-view FM canvas we connect to (for teardown)
@@ -151,13 +147,6 @@ class FMControlWidget(QWidget):
             autofocus_before_z=True,
             parent=self,
         )
-
-        # image histogram
-        self.histogramWidget = HistogramWidget(parent=self)
-        self.histogramPanel = TitledPanel(
-            "Image Histogram", content=self.histogramWidget, collapsible=True
-        )
-        self.histogramPanel.setVisible(False)  # Hide histogram by default
 
         self.pushButton_toggle_acquisition = QPushButton("Start Acquisition", self)
         self.pushButton_acquire_single_image = QPushButton("Acquire Image", self)
@@ -213,7 +202,6 @@ class FMControlWidget(QWidget):
         scroll_layout.addWidget(self.objectivePanel)
         scroll_layout.addWidget(self.cameraPanel)
         scroll_layout.addWidget(self.acquisitionSettingsWidget)
-        scroll_layout.addWidget(self.histogramPanel)
         scroll_layout.addStretch()
 
         scroll_area = QScrollArea()
@@ -244,11 +232,10 @@ class FMControlWidget(QWidget):
     def _has_worker(self) -> bool:
         """Whether *this widget's* acquisition thread is still going.
 
-        All that is left of the old `is_acquiring` property, which was
-        `fm.is_acquiring or <my own worker>`. The microscope answers that now -- both
-        halves of it, since the imaging service marks this widget's work as it runs it --
-        and the only caller that wanted the local half is `cancel_acquisition`, which
-        joins the thread and would hit `None.join()` on somebody else's run (FIB-513).
+        Whether anything is acquiring is the microscope's answer (the imaging service
+        marks this widget's work as it runs it); only `cancel_acquisition` wants the
+        local half, as it joins the thread and would hit `None.join()` on somebody
+        else's run.
         """
         return bool(self._acquisition_thread and self._acquisition_thread.is_alive())
 
@@ -332,7 +319,7 @@ class FMControlWidget(QWidget):
         )
 
         # Route FM canvas double-click (-> relative move) and Shift+scroll (-> objective)
-        # to the matplotlib canvas, replacing the napari viewer's double-click hook.
+        # to the matplotlib canvas.
         controller = self._view_controller()
         if controller is not None:
             # bound methods (not lambdas) so they can be disconnected on teardown; the
@@ -360,14 +347,14 @@ class FMControlWidget(QWidget):
         the host's teardown (the ``deleteLater`` path, where ``closeEvent`` never
         fires). The quad-view ``fm_canvas`` outlives this widget, so its connections
         MUST come down or a stale double-click/scroll drives the stage or objective
-        through a destroyed widget — and PyQt turns that into qFatal (FIB-329).
+        through a destroyed widget — and PyQt turns that into qFatal.
 
         The three ``fm`` signals are psygnal, not Qt, so nothing disconnects them for
         us when the widget dies: psygnal's weak ref is to the *Python* object, and
         ``deleteLater`` destroys the C++ one underneath it while that stays alive. The
         host tears down without stopping the acquisition first
         (``MicroscopePanel.show_microscope``), so a disconnect during a live run leaves
-        a worker emitting into these slots (FIB-550).
+        a worker emitting into these slots.
         """
         for signal, slot in (
             (self.fm.acquisition_signal, self.update_image),
@@ -429,13 +416,12 @@ class FMControlWidget(QWidget):
         ``fm_stable_move`` undoes the display transform itself (``FluorescenceMicroscope
         ._transform``) and projects through the camera's axis tilt, so the move is
         foreshortening-correct and holds focus. Do NOT pre-apply the camera transform
-        here — that would double-apply it (see #198 / FIB-133).
+        here — that would double-apply it.
 
         The click keeps the sign convention the beam paths use (y up-positive, straight
-        out of ``image_to_microscope_image_coordinates2``). There used to be a
-        ``-point_clicked[1]`` here, calibrated at t=0; on a compustage the projection
-        already reverses y between t=0 and t=-180, so a constant negation can only ever
-        be right at one of them.
+        out of ``image_to_microscope_image_coordinates2``), with no negation: on a
+        compustage the projection already reverses y between t=0 and t=-180, so a
+        constant negation could only be right at one of them.
         """
         point_clicked = conversions.image_to_microscope_image_coordinates2(
             coord=Point(x=x, y=y),
@@ -566,8 +552,8 @@ class FMControlWidget(QWidget):
 
         if is_autofocus:
             # Handled before the channel branch, not inside it: a sweep with no channel
-            # reports an empty name, which used to render "Acquiring  (1/1)..." and now
-            # would leave the previous message sitting there instead.
+            # reports an empty name, which would leave the previous message sitting
+            # there.
             self.progressText.setText(
                 f"Focusing on {channel}..." if channel else "Focusing..."
             )
@@ -612,7 +598,7 @@ class FMControlWidget(QWidget):
         self._fm_image_shape = data.shape[-2:]
 
         # Composite the acquired image onto the FM canvas via the controller. It handles
-        # per-channel colour and blending, which the napari layer stack used to do.
+        # per-channel colour and blending.
         controller = self._view_controller()
         if controller is not None:
             controller.set_fm_image(image)
@@ -629,17 +615,13 @@ class FMControlWidget(QWidget):
     def _refuse_to_start(self, what: str) -> bool:
         """Whether *what* may not be started, having logged why. True means "do not".
 
-        Both reasons in one place, asked by all three ways in. The running check used to
-        be a union of three assembled here -- the widget's own worker, the live stream,
-        and everybody else -- and `fm.is_acquiring` covers all of them now, this widget's
-        own work included, which the imaging service marks as it runs it (FIB-513,
-        FIB-1447).
+        Both reasons in one place, asked by all three ways in. The running check is
+        `fm.is_acquiring`, which covers this widget's own work too (the imaging service
+        marks it as it runs it).
 
-        The pose check used to live in `start_acquisition` alone, so an image, a z-stack
-        or an autofocus sweep could be started from a pose the FM cannot see anything
-        from. Nothing but the buttons stopped them, and the buttons are not the guard.
-
-        Both questions now live on the instrument (`fm.refusal_to_start`), where every
+        Asked before an image, a z-stack or an autofocus sweep as well as an acquisition:
+        the buttons are not the guard. Both questions live on the instrument
+        (`fm.refusal_to_start`), where every
         entry point can ask them; this wrapper is the widget's delivery -- log it --
         plus the bool shape its three callers already branch on.
         """
@@ -842,9 +824,7 @@ class FMControlWidget(QWidget):
         settings = self._get_current_settings()
 
         # Both buttons take every channel in the list; the z-stack one adds the
-        # planes. Acquire Image used to take the selected channel only, so the
-        # only way to one image with all its channels in it was a two-plane
-        # stack (FIB-943). The selected channel is for the live view.
+        # planes. The selected channel is for the live view.
         channel_settings = settings["channel_settings"]
         z_parameters = None
         if self.sender() is self.pushButton_acquire_zstack:
@@ -882,7 +862,7 @@ class FMControlWidget(QWidget):
         name: str,
     ):
         """Worker thread for an image or z-stack, through the imaging service: the
-        same acquisition, refusals and stop the agent gets (FIB-1447).
+        same acquisition, refusals and stop the agent gets.
 
         Args:
             channel_settings: Channel settings for acquisition
@@ -908,8 +888,7 @@ class FMControlWidget(QWidget):
     def _update_acquisition_button_states(self):
         """Update acquisition button states and control widgets based on live acquisition or specific acquisition status."""
         # Every control below answers one of three questions, and the microscope owns
-        # all three -- this used to assemble its own union per line, which is how the
-        # objective panel came to ask the wrong one (FIB-513).
+        # all three.
         acquiring = self.fm.is_acquiring  # anything running, here or anywhere
         streaming = self.fm.is_streaming  # the live view specifically
         interactive = self.fm.is_interactive  # may the user drive the hardware
@@ -918,12 +897,7 @@ class FMControlWidget(QWidget):
         # is running, but it does stop new work being started -- `start_acquisition`
         # refuses on it too -- and stops the hardware being driven by hand.
         #
-        # Folded in rather than returned early. The early return here disabled three
-        # buttons and skipped every line below, so the objective panel and the channel
-        # settings kept whatever they were last set to, including enabled during
-        # somebody else's tileset. It also missed two of the buttons it claimed to
-        # cover. Enforcing for the first time here: the old predicate was answered
-        # yes unconditionally by its escape flag, which is why nobody noticed. A
+        # Folded in rather than returned early, so every control below is still set. A
         # compustage keeps its buttons everywhere (it can never need
         # travel); an offset mount loses them at the beams, where the objective is
         # 48.8 mm from the sample.
@@ -933,8 +907,7 @@ class FMControlWidget(QWidget):
 
         # Deliberately not gated on the pose, unlike everything else here: taking Cancel
         # away from a run that is under way leaves no way to stop it, and a stage that
-        # has wandered somewhere unrecognised is exactly when you want it. The old early
-        # return disabled it.
+        # has wandered somewhere unrecognised is exactly when you want it.
         self.pushButton_cancel_acquisition.setVisible(self.is_acquisition_active)
 
         # Update toggle acquisition button text based on state
@@ -943,9 +916,8 @@ class FMControlWidget(QWidget):
         )
         # Clickable while the live stream *is* what is running -- it is the only way to
         # stop one, and stopping is allowed from any pose -- but not while anything else
-        # has the microscope. This is the button FIB-441 was about: it stayed live
-        # through an overview run, and starting a stream mid-tileset changes the
-        # settings the remaining tiles are acquired at.
+        # has the microscope: starting a stream mid-tileset changes the settings the
+        # remaining tiles are acquired at.
         self.pushButton_toggle_acquisition.setEnabled(streaming or may_start)
 
         # Anything that starts new work waits for whatever is running to finish.
@@ -965,18 +937,16 @@ class FMControlWidget(QWidget):
         # The FM panel's own green border + "LIVE" badge, the chrome the beam panels have
         # had all along. Driven from `is_streaming` rather than inferred from a button or
         # this widget's own worker: the stream is the microscope's state, and another tab
-        # can start or stop one (FIB-513). Costs nothing when there is no quad view --
-        # the standalone hosts have no controller (FIB-596).
+        # can start or stop one. Costs nothing when there is no quad view --
+        # the standalone hosts have no controller.
         controller = self._view_controller()
         if controller is not None:
             controller.set_fm_live(streaming)
 
         # Hardware the user drives by hand. Live during a stream -- focusing and tuning
         # exposure while watching is the point of them -- and not while a tileset,
-        # z-stack or autofocus sweep is driving the same hardware itself. The objective
-        # panel used to ask `is_acquisition_active`, which is only *this* widget's work,
-        # so another tab's tileset left the position spinbox live against a runner that
-        # was stepping the objective per z-level.
+        # z-stack or autofocus sweep is driving the same hardware itself, from this tab
+        # or another.
         self.objectiveControlWidget.setEnabled(may_touch)
         self.acquisitionSettingsWidget.channels_widget.setEnabled(may_touch)
 

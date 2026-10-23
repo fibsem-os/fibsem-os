@@ -10,8 +10,6 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
-import numpy as np
-
 from fibsem.ai.agent.pictures import (
     AREA,
     CROSS,
@@ -163,7 +161,7 @@ def picture_png(
     """*frame* with *layers* drawn on it, their legend at the top left, *chip*
     at the top right, and the agent's evidence *marks* (its pixels) when
     given; the scalebar and metadata bar under it. A PNG at most
-    `PICTURE_WIDTH` wide (FIB-1411). Patterns are drawn against this frame's
+    `PICTURE_WIDTH` wide. Patterns are drawn against this frame's
     field."""
     from matplotlib.patches import Rectangle
 

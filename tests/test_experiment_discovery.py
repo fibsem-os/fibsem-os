@@ -130,7 +130,7 @@ def test_a_summary_carries_the_instrument_and_operator(tmp_path) -> None:
     assert summary.instrument_model == "Arctis"
     assert summary.operator == "Dr Someone"
     assert summary.software_version == "0.5.2"
-    assert summary.num_lamella == 3
+    assert summary.num_items == 3
 
 
 @pytest.mark.parametrize("session", [None, "absent"])

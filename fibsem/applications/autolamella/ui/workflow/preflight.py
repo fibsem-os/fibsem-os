@@ -1,17 +1,13 @@
 """What the app puts in front of a workflow: the lamella run, the grid run (and
 Screen Grids' summary of one), and adding to a running queue, from one set of pieces.
 
-The dialog that used to ask "Run workflow for 2 lamella with 7 task(s)?" over two
-columns of bullets. The lists restated the selection the user had just made; what they
-could not answer was the question they were actually holding -- whether to start this
-now, and when to come back.
+It answers the question the user is holding: whether to start this now, and when to
+come back.
 
 Built from :mod:`fibsem.ui.widgets.preflight`'s pieces but not from
 ``OverviewPreflightDialog``: this confirms a different kind of thing, and its rows carry
 chips and a right-aligned duration where ``detail_block`` has one left-aligned value.
-The same call the coincidence milling dialog made, for the same reason.
-
-See FIB-666.
+The coincidence milling dialog does the same, for the same reason.
 """
 
 from __future__ import annotations
@@ -278,9 +274,8 @@ class WorkflowPreflightDialog(QDialog):
     def _lamella_disclosure(self) -> QWidget:
         """`▸ 2 lamellae`, expanding to their names.
 
-        The old dialog's left column was the only place the names appeared, and a
-        per-task breakdown replaces them with `×2`. They come back here, once, rather
-        than repeated under every task.
+        The per-task breakdown shows `×2`; the names appear here, once, rather than
+        repeated under every task.
 
         Builds the names label as a side effect and leaves it on the instance; the
         caller places it, because it belongs under the chip row rather than inside it.

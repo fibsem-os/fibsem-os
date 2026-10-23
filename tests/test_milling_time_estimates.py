@@ -17,21 +17,18 @@ must be byte-identical to the legacy behaviour, and so must every preset the
 model cannot read.
 """
 
-import threading
-
 import pytest
 
 from fibsem.drivers.tescan.connection import TescanConnection
 from fibsem.drivers.tescan.microscope import TescanMicroscope
 from fibsem.drivers.tescan.services import TescanMilling, parse_current_from_preset
 from fibsem.drivers.tescan.settings import TescanMillingSettings
+from fibsem.milling import base
 from fibsem.milling.base import (
     FibsemMillingStage,
     estimate_milling_time,
     estimate_stage_milling_time,
-    estimate_total_milling_time,
     set_milling_time_estimator,
-    using_milling_time_estimator,
 )
 from fibsem.milling.patterning.patterns import RectanglePattern
 from fibsem.services.milling import Milling
@@ -45,10 +42,9 @@ DOSE_MODEL_SECONDS = pytest.approx(7.6923, abs=1e-3)
 
 
 @pytest.fixture(autouse=True)
-def _legacy_estimation_by_default():
+def _legacy_estimation_by_default(monkeypatch):
     """Reset the session-level estimator around every test (it is global state)."""
-    with using_milling_time_estimator(None):
-        yield
+    monkeypatch.setattr(base, "_milling_time_estimator", None)
 
 
 def use_tescan_model() -> None:
@@ -127,9 +123,6 @@ def test_no_estimator_is_identical_to_the_legacy_estimate():
     assert stage.estimated_time == estimate_milling_time(
         stage.pattern, stage.milling.milling_current
     )
-    assert estimate_total_milling_time([stage, stage]) == pytest.approx(
-        2 * estimate_milling_time(stage.pattern, stage.milling.milling_current)
-    )
 
 
 def test_unreadable_preset_falls_back_to_legacy_with_the_tescan_model():
@@ -158,7 +151,6 @@ def test_tescan_model_uses_the_dose_model():
     stage = make_stage()
     assert estimate_stage_milling_time(stage) == DOSE_MODEL_SECONDS
     assert stage.estimated_time == DOSE_MODEL_SECONDS
-    assert estimate_total_milling_time([stage]) == DOSE_MODEL_SECONDS
 
 
 def test_dose_model_keeps_the_cleaning_cross_section_factor():
@@ -194,14 +186,6 @@ def test_the_base_service_is_identical_to_the_legacy_estimate():
     )
 
 
-def test_using_restores_the_previous_estimator():
-    stage = make_stage()
-    use_tescan_model()
-    with using_milling_time_estimator(lambda _: 1.0):
-        assert estimate_stage_milling_time(stage) == 1.0
-    assert estimate_stage_milling_time(stage) == DOSE_MODEL_SECONDS
-
-
 def test_connecting_installs_the_drivers_model():
     """setup_session replaces whatever was installed with the connected driver's
     model: the Demo backend's default, so the table, after a TESCAN session."""
@@ -227,7 +211,7 @@ def test_a_connected_tescan_estimates_with_the_dose_model(monkeypatch):
     from fibsem import utils
     from tests.fixtures import tescan_sdk
 
-    config_path = os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+    config_path = os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
     system = utils.load_microscope_configuration(config_path).system
     microscope, _ = tescan_sdk.connect(monkeypatch, system)
     assert isinstance(microscope.milling, TescanMilling)
@@ -242,7 +226,7 @@ def _make_tescan(monkeypatch) -> TescanMicroscope:
     from fibsem import utils
     from fibsem.drivers.tescan import sdk
 
-    config_path = os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+    config_path = os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
     system = utils.load_microscope_configuration(config_path).system
     # __init__ only guards on the SDK's availability, it does not use it
     monkeypatch.setattr(sdk, "TESCAN_API_AVAILABLE", True)

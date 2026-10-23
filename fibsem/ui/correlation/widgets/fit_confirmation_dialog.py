@@ -36,7 +36,7 @@ from fibsem.ui.tokens import (
     state_style,
 )
 
-# (background, foreground) per status — napari-dark chips
+# (background, foreground) per status — dark-theme chips
 # Chip colours by outcome: the semantic text colour on the panel ground, with a
 # border in the same colour, rather than a tinted background of its own.
 _STATUS_STYLE = {

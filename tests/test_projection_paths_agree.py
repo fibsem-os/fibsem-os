@@ -23,7 +23,7 @@ import numpy as np
 import pytest
 
 from fibsem import utils
-from fibsem.geometry.movement import inverse_view_corrected_dy
+from fibsem.geometry.movement import beam_view_tilt, inverse_view_corrected_dy
 from fibsem.imaging.tiling.reprojection import _inverse_y_corrected_stage_movement
 from fibsem.structures import (
     BeamType,
@@ -75,7 +75,7 @@ def _shared(microscope, beam_type, pose, dy, dz) -> float:
     return inverse_view_corrected_dy(
         dy=dy,
         dz=dz,
-        view_tilt=microscope._beam_view_tilt(beam_type),
+        view_tilt=beam_view_tilt(beam_type, microscope.hardware_geometry()),
         geometry=microscope.hardware_geometry(),
         stage_rotation=pose.r if pose.r is not None else 0.0,
         stage_tilt=pose.t if pose.t is not None else 0.0,
@@ -110,7 +110,7 @@ class TestTheThreePathsAgree:
         microscope.move_stage_absolute(pose)
         live = microscope.get_stage_position()
         for dy, dz in DELTAS:
-            assert microscope._inverse_y_corrected_stage_movement(
+            assert microscope.stage_movement.inverse_y_corrected_movement(
                 dy=dy, dz=dz, beam_type=beam_type
             ) == pytest.approx(
                 _shared(microscope, beam_type, live, dy, dz), abs=1e-15
@@ -133,7 +133,7 @@ class TestTheThreePathsAgree:
 
         type(microscope).get_stage_orientation = counted
         try:
-            microscope._inverse_y_corrected_stage_movement(
+            microscope.stage_movement.inverse_y_corrected_movement(
                 dy=10e-6, dz=5e-6, beam_type=BeamType.ELECTRON
             )
         finally:

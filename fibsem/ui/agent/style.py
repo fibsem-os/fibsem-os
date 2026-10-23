@@ -5,9 +5,15 @@ set wherever they show."""
 from __future__ import annotations
 
 from fibsem.ai.agent.levels import (
-    LEVEL_NAMES,
-    LEVEL_TIPS,
-    LEVEL_WORDS,
+    LEVEL_NAMES as LEVEL_NAMES,
+)
+from fibsem.ai.agent.levels import (
+    LEVEL_TIPS as LEVEL_TIPS,
+)
+from fibsem.ai.agent.levels import (
+    LEVEL_WORDS as LEVEL_WORDS,
+)
+from fibsem.ai.agent.levels import (
     AgentLevel,
 )
 from fibsem.ui.tokens import (

@@ -1,0 +1,20 @@
+{
+  "tasks": [
+    {
+      "attention": "supervised",
+      "name": "Mill Rough",
+      "required": false,
+      "requires": [
+        "Setup"
+      ],
+      "scheduled_at": "2026-10-20T09:05:30+10:00"
+    },
+    {
+      "attention": "automated",
+      "name": "Setup",
+      "required": true,
+      "requires": [],
+      "scheduled_at": null
+    }
+  ]
+}

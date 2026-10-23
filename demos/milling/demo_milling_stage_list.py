@@ -6,7 +6,7 @@ Run directly:
 
 import sys
 
-from PyQt5.QtWidgets import QApplication, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning import get_pattern

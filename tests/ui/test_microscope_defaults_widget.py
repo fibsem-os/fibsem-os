@@ -32,7 +32,7 @@ def microscope(tmp_path):
     path.write_text(
         yaml.safe_dump(
             utils.load_yaml(
-                os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+                os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
             )
         )
     )

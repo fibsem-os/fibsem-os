@@ -573,7 +573,7 @@ class ToastManager:
         self.toasts: list[ToastNotification] = []
         self.spacing = 10
         self.notification_bell: NotificationBell = None
-        # Only problems pop up (`DisplayPreferences.toast_problems_only`).
+        # Only problems pop up (`QtPreferences.toast_problems_only`).
         self.problems_only = False
         self._last_active: Optional[weakref.ref] = None  # to a QWidget
         app = QApplication.instance()
@@ -594,7 +594,7 @@ class ToastManager:
         own transient chrome (toasts, popovers, tooltips) and short-lived dialogs: a
         toast anchored to a dialog would be destroyed with it mid-fade.
 
-        Remembered by weak reference (FIB-992). The manager hears every focus change
+        Remembered by weak reference. The manager hears every focus change
         in the app, so a strong reference made it the owner of whichever window was
         focused last, and replacing that reference here dropped the window's last one
         in the middle of Qt's focus change. Qt then emitted ``activeChanged()`` on the
@@ -643,8 +643,6 @@ class ToastManager:
         self.toasts.append(toast)
 
         # Connect to hidden signal for cleanup (not fade_animation.finished which fires on fade-in too)
-        toast.hidden_signal_connected = False
-
         def on_hidden():
             if toast in self.toasts:
                 self.toasts.remove(toast)
@@ -661,13 +659,6 @@ class ToastManager:
         # Add to notification bell history — skip if temporary
         if self.notification_bell and not temporary:
             self.notification_bell.add_notification(message, notification_type, action)
-
-    def _remove_toast(self, toast: ToastNotification):
-        """Remove a toast from the list."""
-        if toast in self.toasts:
-            self.toasts.remove(toast)
-            toast.deleteLater()
-            self._reposition_toasts()
 
     def _reposition_toasts(self):
         """Stack each visible toast up the bottom-right corner of the window it

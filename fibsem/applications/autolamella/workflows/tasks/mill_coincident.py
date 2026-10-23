@@ -5,11 +5,7 @@ objective inserted, using the record ``SetupCoincidenceMillingTask`` left on the
 lamella: the objective height, the FM region to monitor, where the pattern sits,
 which channel, and the drop fraction. Unsupervised, the strategy stops the beam
 when the monitored intensity drops by that fraction; supervised, the drop only
-alerts and the operator stops it (the viewer's monitor mode, FIB-912).
-
-Before this rewrite the task was unregistered, called a method that did not
-exist, and even fixed would only have pushed the milling config to the widget
-and waited for the operator to run the viewer by hand. See FIB-907.
+alerts and the operator stops it (the viewer's monitor mode).
 """
 
 from __future__ import annotations
@@ -35,6 +31,7 @@ from fibsem.applications.autolamella.workflows.tasks.setup_coincidence_milling i
     COINCIDENCE_SETUP_REFERENCE_FILENAME,
     SetupCoincidenceMillingTaskConfig,
 )
+from fibsem.constants import TIME_FILE
 from fibsem.fm.acquisition import acquire_image
 from fibsem.fm.structures import ChannelSettings, EmissionFilter
 from fibsem.milling.base import FibsemMillingSettings
@@ -295,9 +292,9 @@ class MillCoincidentTask(AutoLamellaTask):
         self.log_status_message(
             "ACQUIRE_FLUORESCENCE_IMAGE", "Acquiring Fluorescence Image..."
         )
-        timestamp = utils.current_timestamp_v3(timeonly=True)
+        timestamp = utils.current_timestamp(TIME_FILE)
         basename = f"{self.lamella.name}-coincidence-final-{timestamp}.ome.tiff"
-        filename = os.path.join(self.output_dir, basename)  # the run's (FIB-1275)
+        filename = os.path.join(self.output_dir, basename)  # the run's
         image = acquire_image(
             microscope=self.microscope.fm,
             channel_settings=fm_config.channel_settings,

@@ -34,16 +34,16 @@ from fibsem.applications.volume.position_milling import (
     position_millings,
     slice_depth_text,
 )
-from fibsem.milling.patterning.shapes import COLOURS
 from fibsem.structures import BeamType, FibsemImage, FibsemRectangle, Point
-from fibsem.ui import notification_service, stylesheets
+from fibsem.ui import stylesheets
+from fibsem.ui.run.run_refusal import refused
 from fibsem.ui.widgets.canvas.canvas_state import (
     AlignmentSpec,
     MillingSpec,
     PointsSpec,
 )
 from fibsem.ui.widgets.canvas.quad_view import (
-    LamellaEditorView,
+    ItemEditorView,
     MicroscopeViewController,
 )
 from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig
@@ -61,8 +61,6 @@ __all__ = ["PositionEditor", "image_label", "position_images"]
 POI_OVERLAY_ID = "position_poi"
 ALIGNMENT_OVERLAY_ID = "position_alignment"
 MILLING_OVERLAY_ID = "position_milling"
-# the first stage colour: a slice milling's, drawn in one
-PROGRESS_COLOUR = COLOURS[0]
 FIB_SUFFIX = "_ib.tif"
 FORM_WIDTH = 400
 
@@ -122,7 +120,7 @@ class PositionEditor(QWidget):
         picker.addWidget(self.image_combo)
 
         self.view_controller = MicroscopeViewController(
-            parent=self, view=LamellaEditorView()
+            parent=self, view=ItemEditorView()
         )
         self.view_controller.widget.show_beams()
         self.fib_canvas = self.view_controller.get_canvas(BeamType.ION)
@@ -319,11 +317,8 @@ class PositionEditor(QWidget):
                 id=MILLING_OVERLAY_ID,
                 stages=placed.milling.stages if placed is not None else (),
                 visible=placed is not None,
-                # one colour where the line and fill say how far along a stage is
-                colour=PROGRESS_COLOUR
-                if placed is not None and placed.styles
-                else None,
                 stage_styles=placed.styles if placed is not None else (),
+                stage_colours=placed.colours if placed is not None else (),
             ),
         )
         self.view_controller.set_overlay(
@@ -338,21 +333,16 @@ class PositionEditor(QWidget):
 
     # --- edits ----------------------------------------------------------------
 
-    def _said(self, why: str) -> bool:
-        """Say a refusal; True when there was none."""
-        if why:
-            notification_service.show_toast(why, "warning")
-        return not why
-
     def _edit(self, what: str, **fields) -> None:
         """Set *fields* on the shown position (``patch_position``), unless a
         run has it."""
         position = self.position
         if position is None:
             return
-        if self._said(self.session.runner.busy_refusal([position.name], what)):
-            if self._said(self.experiment.patch_position(position.name, **fields)):
-                self.edited.emit()
+        if not refused(
+            self.session.runner.busy_refusal([position.name], what)
+        ) and not refused(self.experiment.patch_position(position.name, **fields)):
+            self.edited.emit()
         self._fill_fields(position)
         self._draw()
 

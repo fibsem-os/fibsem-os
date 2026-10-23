@@ -107,15 +107,6 @@ def test_the_imaging_pose_falls_back_to_the_milling_pose():
         VolumePosition(name="birch").pose(MILLING_POSE)
 
 
-def test_each_slice_moves_the_poi_down_the_face():
-    position = VolumePosition(name="aspen", poi=Point(1e-6, 2e-6))
-
-    poi = position.slice_poi(3, 100e-9)
-
-    assert (poi.x, poi.y) == pytest.approx((1e-6, 2e-6 - 300e-9))
-    assert (position.poi.x, position.poi.y) == (1e-6, 2e-6)
-
-
 def test_a_slice_is_done_when_every_task_completed_for_it():
     position = VolumePosition(name="aspen")
     _ran(position, TASKS[0], 0, TaskStatus.Completed)

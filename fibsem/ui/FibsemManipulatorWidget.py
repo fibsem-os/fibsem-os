@@ -26,8 +26,7 @@ class FibsemManipulatorWidget(QtWidgets.QWidget):
         self,
         microscope: FibsemMicroscope = None,
         settings: MicroscopeSettings = None,
-        # Unused, retained for call-site compatibility. Untyped: every host now passes
-        # None, so naming napari here would be the module's only reason to know it exists.
+        # Unused, retained for call-site compatibility; every host passes None.
         viewer=None,
         image_widget: Optional["FibsemImageSettingsWidget"] = None,
         parent=None,
@@ -168,19 +167,6 @@ class FibsemManipulatorWidget(QtWidgets.QWidget):
         if device is None:
             return False
         return device.state.get_value() is InsertableDeviceState.INSERTED
-
-    def update_ui_state(self):
-
-        is_inserted = self._inserted()
-        self._hide_show_buttons(show=is_inserted)
-        self.manipulatorStatus_label.setText(
-            "Manipulator Status: Inserted"
-            if is_inserted
-            else "Manipulator Status: Retracted"
-        )
-        self.insertManipulator_button.setText(
-            "Insert" if not is_inserted else "Retract"
-        )
 
     def update_ui(self):
 
