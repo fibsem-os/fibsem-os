@@ -769,6 +769,8 @@ class FileRead:
     # an image: its metadata and its preview (`fibsem.server.files.read`)
     summary: Optional[Dict[str, Any]] = None
     preview: Optional[Dict[str, Any]] = None
+    # cells cropped by name: each its name, centre stage position and preview
+    crops: Optional[List[Dict[str, Any]]] = None
 
 
 @dataclass
@@ -830,6 +832,39 @@ class MarkersDrawn:
     grid_name: Optional[str] = None
     linked: Optional[bool] = None
     reason: Optional[str] = None
+
+
+@dataclass
+class ImageDrawn:
+    image: str
+    # The picture saved beside the image: drawn/<image>.png.
+    path: str
+    # The marks as drawn: measured lines labelled with their length, each
+    # place with its stage position when the image says where it was taken.
+    marks: Optional[Dict[str, Any]]
+    plot: Dict[str, str]
+
+
+@dataclass
+class ImagePairDrawn:
+    before: str
+    after: str
+    path: str
+    marks: Optional[Dict[str, Any]]
+    plot: Dict[str, str]
+
+
+@dataclass
+class ItemMillingDrawn:
+    item_name: str
+    task_names: List[str]
+    # The ion image drawn on, and the picture saved beside it.
+    image: str
+    path: str
+    # The stages drawn in colour, and those drawn behind them.
+    stages: List[str]
+    background: List[str]
+    plot: Dict[str, str]
 
 
 @dataclass
@@ -896,6 +931,8 @@ class Recorded:
     marks: Optional[Any] = None
     item_name: Optional[str] = None
     created_at: Optional[str] = None
+    by: Optional[str] = None
+    channels: Optional[List[str]] = None
 
 
 # --- Edits to the experiment and the run ---
@@ -1262,11 +1299,17 @@ class EvidenceView:
     preview: Optional[Dict[str, Any]]
     marks: Optional[Any]
     path: str
+    # Who marked it: agent or operator.
+    by: str = "agent"
+    # The fluorescence channels shown, for marks on a stack's projection.
+    channels: Optional[List[str]] = None
 
 
 @dataclass
 class MessageSent:
     id: str
+    # The image the operator marked, kept as evidence, when the message has one.
+    evidence_id: Optional[str] = None
 
 
 @dataclass
