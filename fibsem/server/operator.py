@@ -26,7 +26,7 @@ from fibsem.ai.agent.session import MESSAGE_LIMIT, AgentSession
 from fibsem.codec import encode
 from fibsem.server import files
 from fibsem.server.agent_setup import setup_text
-from fibsem.server.auth import require_operator
+from fibsem.server.auth import refusal_error, require_operator
 from fibsem.server.requests import RequestRefused
 from fibsem.server.responses import (
     AgentStopped,
@@ -50,17 +50,10 @@ from fibsem.server.responses import (
 from fibsem.workflows import evidence
 
 
-def _refused(status_code: int, error_type: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code,
-        detail={"error_type": error_type, "message": message},
-    )
-
-
 def _text(body: Dict[str, Any], key: str, required: bool = True) -> str:
     value = body.get(key, "")
     if not isinstance(value, str) or (required and not value.strip()):
-        raise _refused(422, "missing_field", f"Pass {key!r} as text.")
+        raise refusal_error(422, "missing_field", f"Pass {key!r} as text.")
     return value.strip()
 
 
@@ -140,7 +133,7 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
         the window drew it: a PNG with its legend, and what it is."""
         picture = agent.picture(kind)
         if picture is None or picture["png"] is None:
-            raise _refused(404, "not_found", f"No {kind} picture is drawn.")
+            raise refusal_error(404, "not_found", f"No {kind} picture is drawn.")
         return answer(
             Picture(
                 base64.b64encode(picture["png"]).decode("ascii"),
@@ -164,7 +157,9 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
             # A fluorescence stack shows the channels it was marked on.
             read = files.read(root, relative, channels=record.get("channels"))
         except (TypeError, ValueError, files.FileRefusal) as exc:
-            raise _refused(404, "not_found", f"The evidence image is missing: {exc}")
+            raise refusal_error(
+                404, "not_found", f"The evidence image is missing: {exc}"
+            )
         return answer(
             EvidenceView(
                 read.get("preview"),
@@ -180,7 +175,7 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
         # A message with marks may say nothing more.
         text = _text(body, "text", required=body.get("evidence") is None)
         if len(text) > MESSAGE_LIMIT:
-            raise _refused(
+            raise refusal_error(
                 422,
                 "too_long",
                 f"A message is at most {MESSAGE_LIMIT} characters.",
@@ -206,7 +201,7 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
                 )
         message_id = agent.message(text, evidence=record)
         if message_id is None:
-            raise _refused(
+            raise refusal_error(
                 409,
                 "not_recording",
                 "Nothing is recording, so the agent can't hear a message.",
@@ -220,10 +215,10 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
             level = AgentLevel(_text(body, "level").lower())
         except ValueError:
             names = ", ".join(level.value for level in AgentLevel)
-            raise _refused(422, "bad_level", f"The level is one of {names}.")
+            raise refusal_error(422, "bad_level", f"The level is one of {names}.")
         why_not = agent.set_level(level)
         if why_not is not None:
-            raise _refused(409, "level_refused", why_not)
+            raise refusal_error(409, "level_refused", why_not)
         return answer(LevelSet(level.value))
 
     @router.post("/stop", response_model=AgentStopped)
@@ -240,7 +235,7 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
         try:
             name = agent.allow_connection(ask_id)
         except LookupError as exc:
-            raise _refused(404, "not_found", str(exc))
+            raise refusal_error(404, "not_found", str(exc))
         return answer(ConnectionDecided(ask_id, True, name))
 
     @router.post("/connections/{ask_id}/deny", response_model=ConnectionDecided)
@@ -250,12 +245,14 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
         try:
             agent.deny_connection(ask_id, reason)
         except LookupError as exc:
-            raise _refused(404, "not_found", str(exc))
+            raise refusal_error(404, "not_found", str(exc))
         return answer(ConnectionDecided(ask_id, False))
 
     def _store() -> None:
         if agent.requests is None:
-            raise _refused(409, "no_server", "The App Server isn't serving the agent.")
+            raise refusal_error(
+                409, "no_server", "The App Server isn't serving the agent."
+            )
 
     @router.post("/requests/{request_id}/approve", response_model=RequestDecided)
     def approve_request(request_id: str):
@@ -294,5 +291,5 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
 def _decided(result: Any, proposal_id: str) -> Any:
     if not result.applied:
         status = 422 if result.error_type == "invalid_value" else 409
-        raise _refused(status, result.error_type or "not_decided", result.reason)
+        raise refusal_error(status, result.error_type or "not_decided", result.reason)
     return answer(SuggestionDecided(proposal_id, True))

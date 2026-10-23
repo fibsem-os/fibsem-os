@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.ai.agent.session import budget_low
-from fibsem.server.auth import AuthConfig, require_level
+from fibsem.server.auth import AuthConfig, refusal_error, require_level
 from fibsem.server.responses import AgentSession
 
 SESSION_STARTED = "agent_session_started"
@@ -41,10 +41,8 @@ MAX_CONSTRAINTS = 10
 CHECK_STATES = ("open", "done", "always")
 
 
-def _refused(message: str) -> HTTPException:
-    return HTTPException(
-        status_code=422, detail={"error_type": "invalid", "message": message}
-    )
+def _invalid(message: str) -> HTTPException:
+    return refusal_error(422, "invalid", message)
 
 
 def _checked(body: Dict[str, Any]) -> Dict[str, Any]:
@@ -65,14 +63,14 @@ def _checked(body: Dict[str, Any]) -> Dict[str, Any]:
     )
     unknown = sorted(set(body) - known)
     if unknown:
-        raise _refused(f"Unknown fields {unknown}; the fields are {sorted(known)}.")
+        raise _invalid(f"Unknown fields {unknown}; the fields are {sorted(known)}.")
     report: Dict[str, Any] = {}
     for key in _TEXT:
         value = body.get(key)
         if value is None:
             continue
         if not isinstance(value, str) or len(value) > MAX_TEXT:
-            raise _refused(f"{key} is a string of at most {MAX_TEXT} characters.")
+            raise _invalid(f"{key} is a string of at most {MAX_TEXT} characters.")
         report[key] = value.strip()
     for key in _NUMBERS:
         value = body.get(key)
@@ -84,18 +82,18 @@ def _checked(body: Dict[str, Any]) -> Dict[str, Any]:
             or not math.isfinite(value)
             or value < 0
         ):
-            raise _refused(f"{key} is a number of US dollars, 0 or more.")
+            raise _invalid(f"{key} is a number of US dollars, 0 or more.")
         report[key] = float(value)
     turns = body.get("turns")
     if turns is not None:
         if isinstance(turns, bool) or not isinstance(turns, int) or turns < 0:
-            raise _refused("turns is a whole number, 0 or more.")
+            raise _invalid("turns is a whole number, 0 or more.")
         report["turns"] = turns
     for key in ("code", "files", "resumed"):
         value = body.get(key)
         if value is not None:
             if not isinstance(value, bool):
-                raise _refused(f"{key} is true or false.")
+                raise _invalid(f"{key} is true or false.")
             report[key] = value
     skills = body.get("skills")
     if skills is not None:
@@ -104,7 +102,7 @@ def _checked(body: Dict[str, Any]) -> Dict[str, Any]:
             or len(skills) > MAX_SKILLS
             or not all(isinstance(s, str) and len(s) <= 100 for s in skills)
         ):
-            raise _refused(
+            raise _invalid(
                 f"skills is a list of at most {MAX_SKILLS} names, each at most "
                 "100 characters."
             )
@@ -115,7 +113,7 @@ def _checked(body: Dict[str, Any]) -> Dict[str, Any]:
         report["constraints"] = _constraints(body["constraints"])
     ended = body.get("ended")
     if ended is not None and not isinstance(ended, bool):
-        raise _refused("ended is true or false.")
+        raise _invalid("ended is true or false.")
     report["ended"] = bool(ended)
     return report
 
