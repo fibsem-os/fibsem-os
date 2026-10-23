@@ -15,7 +15,6 @@ The container stays separate from the milling ones on purpose: it has milling
 sub-configs and reference imaging to show, and no type selector.
 """
 
-from dataclasses import dataclass
 from typing import List, Optional
 
 from PyQt5.QtCore import pyqtSignal
@@ -28,7 +27,12 @@ from PyQt5.QtWidgets import (
 
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.ui.widgets.custom_widgets import TitledPanel, align_form
-from fibsem.ui.widgets.form_builder import Control, FormDefaults, build_control
+from fibsem.ui.widgets.form_builder import (
+    AdvancedRows,
+    FormDefaults,
+    Row,
+    build_control,
+)
 from fibsem.workflows.task_config import TaskConfig
 
 # What this form falls back to for what a field does not declare. These are the
@@ -43,20 +47,10 @@ TASK_FORM_DEFAULTS = FormDefaults(
 )
 
 
-@dataclass
-class _Row:
-    """One built form row."""
-
-    label: QLabel
-    control: Control
-    field: str
-    advanced: bool
-
-
-def build_parameter_rows(config: TaskConfig, grid: QGridLayout) -> List[_Row]:
+def build_parameter_rows(config: TaskConfig, grid: QGridLayout) -> List[Row]:
     """Fill *grid* with a control per configurable parameter, and return the rows."""
     specs = config.params
-    rows: List[_Row] = []
+    rows: List[Row] = []
 
     for name in config.parameters:
         spec = specs[name]
@@ -78,7 +72,7 @@ def build_parameter_rows(config: TaskConfig, grid: QGridLayout) -> List[_Row]:
         grid.addWidget(label, row_index, 0)
         grid.addWidget(control.widget, row_index, 1)
         rows.append(
-            _Row(
+            Row(
                 label=label,
                 control=control,
                 field=name,
@@ -89,7 +83,7 @@ def build_parameter_rows(config: TaskConfig, grid: QGridLayout) -> List[_Row]:
     return rows
 
 
-class AutoLamellaTaskParametersConfigWidget(QWidget):
+class AutoLamellaTaskParametersConfigWidget(AdvancedRows, QWidget):
     """The task parameters on their own, in a titled panel.
 
     The milling and reference imaging sections are separate widgets, laid out
@@ -105,7 +99,7 @@ class AutoLamellaTaskParametersConfigWidget(QWidget):
     ):
         super().__init__(parent)
         self.task_config = task_config
-        self._rows: List[_Row] = []
+        self._rows: List[Row] = []
         self._advanced_visible = False
 
         self._setup_ui()
@@ -150,16 +144,6 @@ class AutoLamellaTaskParametersConfigWidget(QWidget):
                 )
         self._update_visibility()
         self.show()
-
-    def _update_visibility(self) -> None:
-        for row in self._rows:
-            visible = (not row.advanced) or self._advanced_visible
-            row.label.setVisible(visible)
-            row.control.widget.setVisible(visible)
-
-    def set_advanced_visible(self, show: bool) -> None:
-        self._advanced_visible = show
-        self._update_visibility()
 
     def _on_parameter_changed(self, field_name: str):
         row = next((r for r in self._rows if r.field == field_name), None)

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 from copy import deepcopy
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, List, Optional
 
 from PyQt5.QtCore import pyqtSignal
@@ -20,23 +19,13 @@ from fibsem.theme.tokens import (
 )
 from fibsem.ui.utils import beam_spec
 from fibsem.ui.widgets.custom_widgets import FormGrid, ValueComboBox, align_form
-from fibsem.ui.widgets.form_builder import Control, build_control
+from fibsem.ui.widgets.form_builder import AdvancedRows, Row, build_control
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
 
 
-@dataclass
-class _Row:
-    """One built form row: the label, the control, and whether it is advanced."""
-
-    label: QLabel
-    control: Control
-    field: str
-    advanced: bool
-
-
-class FibsemStrategySettingsWidget(QWidget):
+class FibsemStrategySettingsWidget(AdvancedRows, QWidget):
     """Metadata-driven form widget for any milling strategy's config.
 
     Selecting a different strategy type from the combobox rebuilds the config form.
@@ -55,7 +44,7 @@ class FibsemStrategySettingsWidget(QWidget):
         self.microscope = microscope
         self._strategy = strategy
         self._advanced_visible = False
-        self._rows: List[_Row] = []
+        self._rows: List[Row] = []
 
         self._setup_ui()
         self._connect_signals()
@@ -153,7 +142,7 @@ class FibsemStrategySettingsWidget(QWidget):
             self._config_form.addRow(label, control.widget)
             control.connect(self._on_changed)
             self._rows.append(
-                _Row(
+                Row(
                     label=label,
                     control=control,
                     field=field_name,
@@ -184,16 +173,6 @@ class FibsemStrategySettingsWidget(QWidget):
     # ------------------------------------------------------------------
     # Visibility
     # ------------------------------------------------------------------
-
-    def _update_visibility(self) -> None:
-        for row in self._rows:
-            adv_ok = (not row.advanced) or self._advanced_visible
-            row.label.setVisible(adv_ok)
-            row.control.widget.setVisible(adv_ok)
-
-    def set_advanced_visible(self, show: bool) -> None:
-        self._advanced_visible = show
-        self._update_visibility()
 
     # ------------------------------------------------------------------
     # Public API
