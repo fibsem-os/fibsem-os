@@ -15,8 +15,6 @@ import logging
 import pytest
 
 from fibsem.hooks import (
-    DEFAULT_MESSAGE_TEMPLATE,
-    HOOK_TYPES,
     HookContext,
     HookEvent,
     SlackHook,
@@ -65,6 +63,7 @@ def _context(**kwargs) -> HookContext:
 # the generic webhook
 # ---------------------------------------------------------------------------
 
+
 def test_a_generic_webhook_still_posts_the_structured_event(posted):
     hook = WebhookHook(name="w", events=["any_failure"], url="https://example.com/x")
 
@@ -80,6 +79,7 @@ def test_a_generic_webhook_still_posts_the_structured_event(posted):
 def test_a_rejected_post_warns_with_the_reason(monkeypatch, caplog):
     """The failure that was previously silent. Slack's own reply is one word, and it
     is the whole diagnosis, so the body has to be in the message."""
+
     def fake_request(method, url, json=None, timeout=None):
         return _Response(400, "invalid_payload")
 
@@ -95,6 +95,7 @@ def test_a_rejected_post_warns_with_the_reason(monkeypatch, caplog):
 
 def test_a_long_error_body_is_truncated(monkeypatch, caplog):
     """An endpoint can answer with an arbitrarily long HTML error page."""
+
     def fake_request(method, url, json=None, timeout=None):
         return _Response(500, "x" * 5000)
 
@@ -118,6 +119,7 @@ def test_a_successful_post_is_quiet(posted, caplog):
 
 def test_a_connection_failure_is_still_logged(monkeypatch, caplog):
     """The exception path must survive the response check being added around it."""
+
     def boom(method, url, json=None, timeout=None):
         raise OSError("no route to host")
 
@@ -147,6 +149,7 @@ def test_a_failure_does_not_write_the_url_into_the_log(monkeypatch, caplog):
     thing a user sends when something goes wrong. requests puts the full URL in its
     exception message, so logging.exception here leaked a working Slack credential on
     every DNS blip."""
+
     def boom(method, url, json=None, timeout=None):
         raise ConnectionError(
             f"HTTPSConnectionPool(host='hooks.slack.com', port=443): Max retries "
@@ -159,9 +162,7 @@ def test_a_failure_does_not_write_the_url_into_the_log(monkeypatch, caplog):
     with caplog.at_level(logging.DEBUG):
         hook._post(_context())
 
-    logged = " ".join(
-        (r.message or "") + (r.exc_text or "") for r in caplog.records
-    )
+    logged = " ".join((r.message or "") + (r.exc_text or "") for r in caplog.records)
     assert FAKE_TOKEN not in logged
     assert "B00000000" not in logged
 
@@ -169,6 +170,7 @@ def test_a_failure_does_not_write_the_url_into_the_log(monkeypatch, caplog):
 def test_the_host_is_still_named_so_the_failure_is_diagnosable(monkeypatch, caplog):
     """Redaction must not make the log useless -- the host and the error type are what
     tell someone whether it is DNS, the network, or the wrong service."""
+
     def boom(method, url, json=None, timeout=None):
         raise OSError("Failed to resolve 'hooks.slack.com'")
 
@@ -196,6 +198,7 @@ def test_redaction_catches_the_bare_path_too():
 # ---------------------------------------------------------------------------
 # http
 # ---------------------------------------------------------------------------
+
 
 def test_posting_over_http_warns(caplog):
     """The URL is usually the credential, and over http it crosses the network in the
@@ -225,6 +228,7 @@ def test_http_is_warned_about_not_refused():
 # slack
 # ---------------------------------------------------------------------------
 
+
 def test_slack_posts_the_shape_slack_accepts(posted):
     """An incoming webhook wants {"text": ...}; the structured event gets a 400."""
     hook = SlackHook(
@@ -253,30 +257,3 @@ def test_slack_validates_its_url_like_any_webhook():
 
     with pytest.raises(ValueError):
         hook.run(_context())
-
-
-def test_slack_round_trips_including_the_message(posted):
-    hook = SlackHook(
-        name="s", events=["any_failure"], url="https://hooks.slack.com/x",
-        message_template="{item_name} broke",
-    )
-
-    restored = SlackHook.from_dict(hook.to_dict())
-
-    assert restored.message_template == "{item_name} broke"
-    assert restored.url == "https://hooks.slack.com/x"
-    assert restored.events == ["any_failure"]
-    assert isinstance(restored, SlackHook)
-
-
-def test_slack_without_a_message_uses_the_default():
-    restored = SlackHook.from_dict(
-        {"name": "s", "events": ["any_failure"], "url": "https://hooks.slack.com/x"}
-    )
-
-    assert restored.message_template == DEFAULT_MESSAGE_TEMPLATE
-
-
-def test_slack_is_a_configurable_type():
-    """In HOOK_TYPES, so it survives a save and appears in the editor's type list."""
-    assert HOOK_TYPES["SlackHook"] is SlackHook

@@ -24,13 +24,12 @@ knows (applying, each action's result).
 
 import asyncio
 import json
-import os
 import re
 import secrets
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -128,9 +127,6 @@ class AgentRequest:
     cancel_reason: str = ""
     # One per action run: tool, status_code, ok, and the route's answer.
     results: List[Dict[str, Any]] = field(default_factory=list)
-    # For Drive's countdown: when it lapses, and what lapsing does.
-    expires_at: Optional[float] = None
-    on_expiry: str = "reject"
     # What the agent judged from (`fibsem.workflows.evidence`, its record), and
     # the beam image of it the card draws the actions' values on.
     evidence: Optional[Dict[str, Any]] = None
@@ -154,8 +150,6 @@ class AgentRequest:
             reject_reason=self.reject_reason,
             cancel_reason=self.cancel_reason,
             results=list(self.results),
-            expires_at=self.expires_at,
-            on_expiry=self.on_expiry if self.expires_at is not None else None,
             image=self.image or None,
             evidence=self.evidence,
         )
@@ -387,8 +381,6 @@ class RequestStore:
         self,
         actions: Any,
         reason: Any,
-        expires_at: Optional[float] = None,
-        on_expiry: str = "reject",
         evidence: Any = None,
     ) -> AgentRequest:
         resolved = self._resolve(actions)
@@ -404,8 +396,6 @@ class RequestStore:
                 f"Pass a reason (at most {MAX_REASON} characters): it is what the "
                 "operator reads before approving.",
             )
-        if on_expiry not in ("approve", "reject"):
-            raise ValueError("on_expiry is 'approve' or 'reject'")
         experiment = self._recording()
         for index, line in enumerate(self._describe_actions(resolved)):
             if line.get("refused"):
@@ -429,8 +419,6 @@ class RequestStore:
                 id=secrets.token_hex(4),
                 actions=resolved,
                 reason=reason.strip(),
-                expires_at=expires_at,
-                on_expiry=on_expiry,
                 image=frame_path(cited),
                 evidence=cited,
             )
@@ -442,8 +430,6 @@ class RequestStore:
             provenance["evidence"] = cited["evidence_id"]
         if request.image:
             provenance["reference_image"] = request.image
-        if expires_at is not None:
-            provenance.update(expires_at=expires_at, on_expiry=on_expiry)
         experiment.ask_proposal(
             None,
             "",
@@ -671,17 +657,6 @@ class RequestStore:
             if stopped
             else f"the agent level changed to {level.value.title()}"
         )
-
-    def expire_due(self, now: Optional[float] = None) -> Optional[AgentRequest]:
-        """Lapse the pending request if its time is up, as its ``on_expiry``
-        says. Driven by whoever shows the countdown."""
-        now = time.time() if now is None else now
-        request = self.pending()
-        if request is None or request.expires_at is None or now < request.expires_at:
-            return None
-        if request.on_expiry == "approve":
-            return self.approve(request.id, by="expiry")
-        return self.reject(request.id, by="expiry")
 
     # --- running an approved request ---
 

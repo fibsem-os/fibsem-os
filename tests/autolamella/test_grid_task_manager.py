@@ -93,7 +93,9 @@ def _small_settings(beam=BeamType.ELECTRON) -> OverviewAcquisitionSettings:
 def microscope():
     microscope, _ = utils.setup_session(
         manufacturer="Demo",
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
+        ),
     )
     assert microscope.sample_handling.magazine is not None
     assert [
@@ -663,15 +665,15 @@ class TestEndOfRun:
     def test_the_report_is_written_after_the_unload(
         self, manager, experiment, microscope, monkeypatch
     ):
-        from fibsem.applications.autolamella.tools import grid_report_pdf
+        from fibsem.applications.autolamella.tools import grid_report_html
 
         seen = []
 
         def fake_report(exp, inventory=None):
             seen.append(list(microscope.sample_handling.loaded_grids))
-            return "report.pdf"
+            return "report.html"
 
-        monkeypatch.setattr(grid_report_pdf, "generate_grid_report", fake_report)
+        monkeypatch.setattr(grid_report_html, "generate_grid_report", fake_report)
         manager.unload_at_end = True
         manager.report_at_end = True
         run_with_stub(manager, ["overview_sem"], ["Grid-01"])
@@ -680,13 +682,13 @@ class TestEndOfRun:
     def test_the_report_is_written_after_a_stop_too(
         self, manager, microscope, monkeypatch
     ):
-        from fibsem.applications.autolamella.tools import grid_report_pdf
+        from fibsem.applications.autolamella.tools import grid_report_html
 
         seen = []
         monkeypatch.setattr(
-            grid_report_pdf,
+            grid_report_html,
             "generate_grid_report",
-            lambda exp, inventory=None: seen.append(exp) or "report.pdf",
+            lambda exp, inventory=None: seen.append(exp) or "report.html",
         )
         manager.unload_at_end = True
         manager.report_at_end = True
@@ -701,12 +703,12 @@ class TestEndOfRun:
     def test_a_failed_report_is_said_and_the_run_still_completes(
         self, manager, monkeypatch, caplog
     ):
-        from fibsem.applications.autolamella.tools import grid_report_pdf
+        from fibsem.applications.autolamella.tools import grid_report_html
 
         def broken(exp, inventory=None):
-            raise ImportError("No module named 'reportlab'")
+            raise OSError("the experiment folder is read-only")
 
-        monkeypatch.setattr(grid_report_pdf, "generate_grid_report", broken)
+        monkeypatch.setattr(grid_report_html, "generate_grid_report", broken)
         manager.report_at_end = True
         with caplog.at_level("WARNING"):
             run_with_stub(manager, ["overview_sem"], ["Grid-01"])
@@ -717,7 +719,12 @@ class TestEndOfRun:
     def test_headless_takes_the_same_options(
         self, microscope, experiment, monkeypatch, tmp_path
     ):
-        pytest.importorskip("reportlab")
+        from fibsem.applications.autolamella.tools import pdf_export
+
+        def no_browser(path):
+            raise pdf_export.PdfExportError("no browser")
+
+        monkeypatch.setattr(pdf_export, "html_to_pdf", no_browser)
         manager = run_grids(
             microscope,
             experiment,
@@ -729,7 +736,7 @@ class TestEndOfRun:
         assert manager.unload_at_end and manager.report_at_end
         assert microscope.sample_handling.loaded_grids == []
         assert unload_entries(experiment.get_grid_by_name("Grid-02"))
-        assert (tmp_path / "exp" / "grid-screening-report.pdf").exists()
+        assert (tmp_path / "exp" / "reporting" / "grid-screening-report.html").exists()
 
 
 class TestEndToEnd:

@@ -18,7 +18,7 @@ from fibsem.fm.progress import (
     FluorescenceAcquisitionProgress,
     FluorescenceAcquisitionStatus,
 )
-from fibsem.imaging.spot import SpotBurnProgress, SpotBurnStatus
+from fibsem.imaging.spot import SpotBurnProgress
 from fibsem.imaging.tiling.progress import (
     MODALITY_FLUORESCENCE,
     TiledProgress,
@@ -30,6 +30,7 @@ from fibsem.milling.progress import (
     MillingProgress,
     MillingProgressStatus,
 )
+from fibsem.progress import FAILED
 from fibsem.util.durations import format_duration_rounded
 
 # How long an outcome ("done", "cancelled", a failure) stays before the line goes.
@@ -87,6 +88,22 @@ def _fraction_left(
     )
 
 
+def _ended(
+    what: str, report, prefix: str = "", standalone: bool = False
+) -> Optional[ProgressLine]:
+    """The line for a *report* that ends its job, as it ended (a cancel is not a
+    failure); None while the job runs."""
+    outcome = report.status.outcome
+    if outcome is None:
+        return None
+    failed = outcome == FAILED
+    reason = f": {report.error}" if failed and report.error else ""
+    return ProgressLine(
+        what, f"{prefix}{outcome}{reason}", outcome=True, failed=failed,
+        standalone=standalone,
+    )  # fmt: skip
+
+
 class ProgressReader:
     """Reads each source's reports into lines, keeping what a later report leaves
     out: a delegating strategy's label, a milling stage, a tiled run's count."""
@@ -123,20 +140,9 @@ class ProgressReader:
         agent_mill = self._mill_owner.agent_mill(report, agent_in_control)
         what, standalone = ("Agent", True) if agent_mill else ("Milling", False)
         ended = f"{agent_mill} " if agent_mill else ""
-        if report.status is MillingProgressStatus.TASK_FAILED:
-            reason = f": {report.error}" if report.error else ""
-            return ProgressLine(
-                what, f"{ended}failed{reason}", outcome=True, failed=True,
-                standalone=standalone,
-            )  # fmt: skip
-        if report.status is MillingProgressStatus.TASK_CANCELLED:
-            return ProgressLine(
-                what, f"{ended}cancelled", outcome=True, standalone=standalone
-            )
-        if report.status.is_terminal:
-            return ProgressLine(
-                what, f"{ended}done", outcome=True, standalone=standalone
-            )
+        line = _ended(what, report, ended, standalone)
+        if line is not None:
+            return line
         label = self._milling_label.label(report)
         step = None
         stage, total = report.display_stage, report.total_stages
@@ -163,14 +169,10 @@ class ProgressReader:
             else "FIB/SEM overview"
         )
         self.tiling = not event.status.is_terminal
-        if event.status.is_terminal:
+        line = _ended(what, event)
+        if line is not None:
             self._tile_count = None
-            if event.status is TiledStatus.FAILED:
-                reason = f": {event.error}" if event.error else ""
-                return ProgressLine(what, f"failed{reason}", outcome=True, failed=True)
-            if event.status is TiledStatus.CANCELLED:
-                return ProgressLine(what, "cancelled", outcome=True)  # not a failure
-            return ProgressLine(what, "done", outcome=True)
+            return line
         words = _TILE_STEPS.get(event.status, "collecting tiles")
         if event.completed is not None and event.total:
             done = min(event.completed, event.total)
@@ -192,13 +194,9 @@ class ProgressReader:
     def spot_burn(self, report: SpotBurnProgress) -> ProgressLine:
         """One report from a spot burn, supervised or not."""
         what = "Spot burn"
-        if report.status.is_terminal:
-            if report.status is SpotBurnStatus.FAILED:
-                reason = f": {report.error}" if report.error else ""
-                return ProgressLine(what, f"failed{reason}", outcome=True, failed=True)
-            if report.status is SpotBurnStatus.CANCELLED:
-                return ProgressLine(what, "cancelled", outcome=True)
-            return ProgressLine(what, "done", outcome=True)
+        line = _ended(what, report)
+        if line is not None:
+            return line
         step = None
         if report.current_point and report.total_points:
             step = f"spot {report.current_point} of {report.total_points}"

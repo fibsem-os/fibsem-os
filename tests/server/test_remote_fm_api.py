@@ -320,7 +320,7 @@ def test_a_configuration_naming_a_remote_fm_connects_to_it(tmp_path):
     server = DeviceServer(demo_fm_devices()).start()
     try:
         settings = utils.load_yaml(
-            os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
+            os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml")
         )
         utils.configuration_device(settings, "fm").update(
             driver="remote", address="127.0.0.1", port=server.port
@@ -415,7 +415,7 @@ def test_a_configured_fm_comes_online_after_the_microscope_with_its_calibration(
 
     port = _free_port()
     settings = utils.load_yaml(
-        os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml")
     )
     utils.configuration_device(settings, "fm").update(
         driver="remote", address="127.0.0.1", port=port

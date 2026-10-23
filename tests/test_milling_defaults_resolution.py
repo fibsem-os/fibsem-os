@@ -39,7 +39,7 @@ def _owner(cls, name):
     return next(klass for klass in cls.__mro__ if name in vars(klass))
 
 
-MILLING = ("setup_milling", "run_milling", "finish_milling", "draw_rectangle")
+MILLING = ("setup_milling", "run_milling", "finish_milling", "draw_pattern")
 
 
 def test_thermo_mills_with_the_base_class_methods():

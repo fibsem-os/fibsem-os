@@ -11,7 +11,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-from fibsem.acting import ActorKind
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,

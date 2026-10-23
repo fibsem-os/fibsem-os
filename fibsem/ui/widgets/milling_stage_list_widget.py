@@ -641,13 +641,6 @@ class MillingStageListWidget(QWidget):
         self._sync_select_all()
         self.enabled_changed.emit(self.get_enabled_stages())
 
-    def set_pattern_column_visible(self, visible: bool) -> None:
-        """Show or hide the Pattern column in the header and all rows."""
-        self._show_pattern = visible
-        self._header.lbl_pattern.setVisible(visible)
-        for i in range(self._list.count()):
-            self._row(i).pattern_combo.setVisible(visible)
-
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------

@@ -6,7 +6,6 @@ channel names and colours. The builder must then turn confirmed answers into an 
 that saves and loads back as it was built. No Qt, no network.
 """
 
-import os
 from types import SimpleNamespace
 
 import numpy as np

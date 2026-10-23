@@ -79,8 +79,6 @@ def run_ui(argv: Optional[List[str]] = None, splash: Optional[Splash] = None):
 
     args = _parse_args(argv)
 
-    from fibsem.tools.bug_report import init_sentry
-
     # Ctrl+C: PyQt never runs Python's SIGINT handler while blocked in the C++ event
     # loop — and if the GUI thread wedges, no Python runs at all — so restore the OS
     # default disposition: SIGINT then terminates the process at the kernel level,
@@ -94,7 +92,6 @@ def run_ui(argv: Optional[List[str]] = None, splash: Optional[Splash] = None):
     if hasattr(signal, "SIGUSR1"):
         faulthandler.register(signal.SIGUSR1, all_threads=True)
 
-    init_sentry()  # inert unless crash reporting is enabled in preferences
     set_app_identity(AUTOLAMELLA.name, windows_app_id=AUTOLAMELLA.app_id)
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName(AUTOLAMELLA.name)

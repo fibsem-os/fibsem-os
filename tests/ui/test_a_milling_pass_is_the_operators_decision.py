@@ -124,7 +124,9 @@ def test_skip_is_the_operators_decision_on_the_pass(ui, qapp):
     assert decision.action == ACTION_SKIP
     assert decision.actor.kind is ActorKind.operator, "theirs, not the task's"
     assert decision.via == "workflow"
-    assert not proposal.unreviewed, "a person decided it"
+    assert proposal.current.outcome is not DecisionOutcome.Unreviewed, (
+        "a person decided it"
+    )
     assert ui.experiment.positions[0].latest_run_completed(ROUGH)
 
 

@@ -2,8 +2,7 @@ import logging
 import os
 import subprocess
 import sys
-from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 import numpy as np
 from PyQt5 import QtWidgets

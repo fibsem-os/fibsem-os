@@ -33,8 +33,9 @@ every offending tile -- never a label.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
 from typing import TYPE_CHECKING, Any, Optional, Tuple, Union
+
+from fibsem.progress import ProgressStatus, ends
 
 if TYPE_CHECKING:
     # Annotation-only, so this module stays free of a runtime dependency on either image
@@ -60,7 +61,7 @@ __all__ = [
 ]
 
 
-class TiledStatus(str, Enum):
+class TiledStatus(ProgressStatus):
     """Where a tiled run has got to.
 
     One vocabulary covering the whole run rather than a phase enum plus an outcome enum.
@@ -98,21 +99,8 @@ class TiledStatus(str, Enum):
     CANCELLED = "cancelled"
     FAILED = "failed"
 
-    @property
-    def is_terminal(self) -> bool:
-        """Whether this ends the run.
 
-        On the status rather than restated at each consumer. Three of them need the
-        question answered, and a membership tuple copied into three files is a tuple
-        that drifts -- the next status added to the enum is one somebody forgets to add
-        to one of them, and the symptom is a progress bar that never clears.
-        """
-        return self in _TERMINAL_STATUSES
-
-
-_TERMINAL_STATUSES = frozenset(
-    {TiledStatus.FINISHED, TiledStatus.CANCELLED, TiledStatus.FAILED}
-)
+ends(TiledStatus.FINISHED, TiledStatus.CANCELLED, TiledStatus.FAILED)
 
 
 # `eq=False`, so equality and hashing stay identity-based.
@@ -130,9 +118,7 @@ class TiledProgress:
 
     Most fields are absent on most reports, and that is the point: a stage move carries
     no counts, a tile carries no error, and a consumer reads whichever it understands.
-    `status` is the only thing every report has, and it is the only required field --
-    which is also what keeps this constructible on Python 3.8, where `kw_only` does not
-    exist and required fields have to come first.
+    `status` is the only thing every report has, and it is the only required field.
 
     Tile indices are 0-based on the wire, matching every other index in the codebase.
     `display_tile` is the only thing that adds one.

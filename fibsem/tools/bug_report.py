@@ -15,10 +15,6 @@ the mail is the user's step, on whichever machine they actually have email --
 the application's job ends at a findable file and an address to send it to.
 :func:`open_github_issue` is the one outbound action, and it reports whether it
 actually opened anything rather than assuming.
-
-An inert :func:`init_sentry` hook is included so automatic crash reporting can be
-enabled later (by installing ``sentry-sdk`` and setting a DSN in preferences)
-without any UI changes.
 """
 
 from __future__ import annotations
@@ -38,7 +34,7 @@ from urllib.parse import urlencode
 
 import fibsem
 import fibsem.config as fibsem_cfg
-from fibsem.versioning import get_revision, get_version_string
+from fibsem.versioning import get_revision
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
@@ -379,47 +375,3 @@ def open_github_issue(content: BugReportContent) -> SubmitResult:
         opened = False
 
     return SubmitResult(opened=opened, full_text=body, truncated=truncated)
-
-
-def init_sentry() -> bool:
-    """Initialise automatic crash reporting, if enabled and available.
-
-    Inert by default: returns ``False`` unless the user has opted in
-    (``reporting.crash_reporting_enabled``), provided a DSN, and installed
-    ``sentry-sdk``. Safe to call unconditionally at startup.
-    """
-    try:
-        prefs = fibsem_cfg.load_user_preferences()
-        reporting = getattr(prefs, "reporting", None)
-        if reporting is None or not getattr(
-            reporting, "crash_reporting_enabled", False
-        ):
-            return False
-        dsn = getattr(reporting, "sentry_dsn", "")
-        if not dsn:
-            return False
-
-        import sentry_sdk  # noqa: F401 - optional dependency
-    except ImportError:
-        logging.info("Crash reporting enabled but sentry-sdk is not installed.")
-        return False
-    except Exception as e:
-        logging.warning("Could not initialise crash reporting: %s", e)
-        return False
-
-    def _before_send(event, hint):
-        try:
-            return json.loads(scrub_text(json.dumps(event)))
-        except Exception:
-            return event
-
-    sentry_sdk.init(
-        dsn=dsn,
-        # Version plus commit, so a crash group identifies the exact code. Never
-        # the branch: Sentry disallows forward slashes in release names.
-        release=get_version_string(),
-        send_default_pii=False,
-        before_send=_before_send,
-    )
-    logging.info("Crash reporting initialised.")
-    return True

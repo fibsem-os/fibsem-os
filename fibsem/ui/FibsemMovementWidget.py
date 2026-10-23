@@ -23,7 +23,6 @@ from typing import Any, Callable, Optional
 
 from PyQt5 import QtWidgets
 
-from fibsem import config as cfg
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import FibsemStagePosition
 from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget

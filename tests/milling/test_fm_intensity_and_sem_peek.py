@@ -267,7 +267,9 @@ def test_fm_intensity_reads_the_sim_arctis_fm(
 
     # The sample scene off: noise frames come fast, where a rendered scene
     # takes about a second a frame.
-    with open(os.path.join(fconfig.CONFIG_PATH, "sim-arctis-configuration.yaml")) as f:
+    with open(
+        os.path.join(fconfig.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
+    ) as f:
         config = yaml.safe_load(f)
     config.setdefault("sim", {}).setdefault("sample", {})["enabled"] = False
     config_path = tmp_path / "sim-arctis-configuration.yaml"

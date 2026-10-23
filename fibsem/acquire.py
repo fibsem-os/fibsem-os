@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fibsem.autofunctions.acb import run_auto_contrast_brightness
 from fibsem.microscope import FibsemMicroscope
 from fibsem.services.imaging import acquisition_record
 from fibsem.structures import (

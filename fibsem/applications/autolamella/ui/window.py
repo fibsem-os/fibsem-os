@@ -81,19 +81,6 @@ from fibsem.workflows.status import (
 )
 from fibsem.workflows.workflow_edits import save_workflow_change
 
-# The PDF report needs the `reporting` extra (reportlab). The overview plot does not --
-# it is matplotlib and Qt -- so it is imported with the other dialogs above, where a
-# missing reportlab cannot take it down.
-REPORTING_AVAILABLE: bool = False
-try:
-    from fibsem.applications.autolamella.ui.dialogs.report import generate_report_dialog
-
-    REPORTING_AVAILABLE = True
-except ImportError as e:
-    logging.debug(
-        f"Could not import generate_report from fibsem.applications.autolamella.tools.reporting: {e}"
-    )
-
 # What to do next, shown in the window's status bar. Each names something visible
 # on screen at the moment it is shown -- three of these used to name menus that do
 # not exist ("Connection ->", "Experiment ->" are not menus; the File entries are
@@ -133,7 +120,6 @@ class AutoLamellaWindow(AppWindow):
                 save_protocol=self.export_protocol_ui,
                 fm_image_viewer=self._open_fm_image_viewer,
                 coincidence_viewer=self._open_coincidence_milling_viewer,
-                generate_report=self.action_generate_report,
                 generate_overview_plot=self.action_generate_overview_plot,
                 grid_report=self._on_generate_grid_report,
                 app_server=self._on_app_server_dialog,
@@ -163,7 +149,7 @@ class AutoLamellaWindow(AppWindow):
         # The embedded App Server follows its saved switch (set in Tools → App
         # Server) against the connected microscope.
         self.sync_app_server_with_preference()
-        d = self._preferences.display
+        d = self._preferences.qt
         self.run_border.set_on(d.border_enabled)
         self.toast_manager.problems_only = d.toast_problems_only
         # The lamella strip's density. Guarded because _apply_preferences also runs
@@ -171,7 +157,7 @@ class AutoLamellaWindow(AppWindow):
         if hasattr(self, "lamella_tab"):
             self.lamella_tab.cards.set_mode(d.lamella_card_mode)
         self.menu_bar.apply_preferences(self._preferences)
-        self.system_widget.refresh_first_run_offer(self._preferences)
+        self.system_widget.refresh_first_run_offer()
 
     def _on_generate_grid_report(self):
         """Tools → Reporting → Generate Grid Screening Report.
@@ -299,16 +285,9 @@ class AutoLamellaWindow(AppWindow):
         )
         self.panel.setAutoFillBackground(True)
         self._attach_run(self.panel)
-        # The Connection tab is a gate in a bar that otherwise means "the instrument
-        # needs you here now" -- it is the only tab that can never be a workflow
-        # step, and it sits at position 0, the default landing spot, for something
-        # done once a session. With the connection dialog on it has somewhere else
-        # to be reached from, so it goes.
-        #
-        # The widget itself stays either way: it owns the connection, and everything
-        # in the application follows its signals. Only the tab is conditional.
-        if not self.menu_bar.connection_chip_enabled:
-            self.panel.tabWidget.insertTab(0, self.system_widget, "Connection")
+        # The widget owns the connection, and everything in the application follows
+        # its signals; the tab is where the operator connects.
+        self.panel.tabWidget.insertTab(0, self.system_widget, "Connection")
         # After the Connection tab is in: hiding the Experiment tab while it is
         # the only one leaves the panel showing nothing.
         self.panel.refresh()
@@ -400,7 +379,7 @@ class AutoLamellaWindow(AppWindow):
             controls=self.workflow_controls,
             status_bar=self.status_bar,
             timeline=self.workflow_tab.timeline,
-            sound_enabled=lambda: self._preferences.display.sound_enabled,
+            sound_enabled=lambda: self._preferences.qt.sound_enabled,
             parent=self,
         )
         self.run_view = RunView(
@@ -425,13 +404,11 @@ class AutoLamellaWindow(AppWindow):
         self.run_relay.finished.connect(self._on_workflow_finished)
 
         self.experiment_header = ExperimentHeader(
-            chip_enabled=self.menu_bar.connection_chip_enabled,
             new_experiment=self.menu_bar.action_new_experiment,
             load_experiment=self.menu_bar.action_load_experiment,
             open_experiment_directory=self.menu_bar.action_open_experiment_directory,
             on_new_experiment=self.create_experiment,
             on_load_experiment=self.load_experiment,
-            on_connect=self.menu_bar.connect_microscope,
             on_about=self.open_information_dialog,
             toast_manager=self.toast_manager,
         )
@@ -564,7 +541,7 @@ class AutoLamellaWindow(AppWindow):
         and history."""
         self.lamella_tab = LamellaTab(
             self.session,
-            card_mode=self._preferences.display.lamella_card_mode,
+            card_mode=self._preferences.qt.lamella_card_mode,
         )
         self.lamella_tab.lamella_selected.connect(self._on_lamella_card_selected)
         cards = self.lamella_tab.cards
@@ -1262,23 +1239,6 @@ class AutoLamellaWindow(AppWindow):
 
         return AutoLamellaAppContext(self.session, event_buffer=event_buffer)
 
-    #### REPORT GENERATION
-    def action_generate_report(self) -> None:
-        """Generate a pdf report of the experiment."""
-        if self.experiment is None:
-            return
-
-        if not REPORTING_AVAILABLE:
-            notification_service.show_toast(
-                "Reporting tools are not available. "
-                'Install the reporting extra: pip install "fibsem[reporting]"',
-                "warning",
-            )
-            return
-
-        generate_report_dialog(self.experiment, parent=self)
-        return
-
     def action_generate_overview_plot(self) -> None:
         """Generate an plot with the lamella position on an overview image."""
         if self.experiment is None:
@@ -1362,8 +1322,7 @@ class AutoLamellaWindow(AppWindow):
         needs no experiment; this only picks a sensible first folder."""
         if self.experiment is not None and self.experiment.path:
             return str(self.experiment.path)
-        recent = fibsem_cfg.load_user_preferences().experiment.recent_experiments
-        for path in recent:
+        for path in fibsem_cfg.recent_experiment_paths():
             parent = os.path.dirname(path)
             if os.path.isdir(parent):
                 return parent
@@ -1487,7 +1446,7 @@ class AutoLamellaWindow(AppWindow):
 
         protocol_path = fui.open_save_file_dialog(
             msg="Select a protocol file",
-            path=str(cfg.TASK_PROTOCOL_PATH),
+            path=str(cfg.USER_PROTOCOL_PATH),
             _filter="*.yaml",
             parent=self,
         )

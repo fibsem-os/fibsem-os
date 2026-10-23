@@ -13,7 +13,6 @@ experiment ever written, and every image whose metadata joins on it.
 import os
 from pathlib import Path
 
-import pytest
 import yaml
 
 from fibsem.applications.autolamella.structures import (

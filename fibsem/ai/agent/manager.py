@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
+from fibsem import paths
 from fibsem.util import timestamps
 
 log = logging.getLogger("fibsem.agent.manager")
@@ -42,7 +43,7 @@ END_WAIT_S = 60.0
 
 
 def sessions_dir() -> Path:
-    return Path.home() / ".fibsem" / "agent" / "sessions"
+    return paths.user_dir() / "agent" / "sessions"
 
 
 def folder_name(session_id: str, started: Optional[float] = None) -> str:

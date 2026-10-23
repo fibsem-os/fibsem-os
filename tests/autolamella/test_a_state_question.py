@@ -77,7 +77,7 @@ def test_headless_the_position_goes_on_the_record_unreviewed(microscope, tmp_pat
 
     (question,) = lamella.proposals_from(REF)
     assert question.kind == STATE
-    assert question.unreviewed
+    assert question.current.outcome is DecisionOutcome.Unreviewed
     pose = question.values["stage_position"]
     assert isinstance(pose, FibsemStagePosition)
     assert question.current.values["stage_position"] == pose, "used as proposed"
@@ -128,7 +128,7 @@ def test_a_confirmed_position_is_checked_and_written_nowhere(microscope, tmp_pat
         ),
     )
     assert not looked.applied and looked.error_type == "invalid_value", looked
-    assert question.unreviewed
+    assert question.current.outcome is DecisionOutcome.Unreviewed
 
 
 def test_the_delta_between_positions_is_a_position():

@@ -116,7 +116,7 @@ failed = [p for p in exp.positions if p.is_failure]
 print(f"{len(failed)} of {len(exp.positions)} failed")
 
 for lamella in failed:
-    print(f"  {lamella.name}: {lamella.defect.description or 'no description'}")
+    print(f"  {lamella.name}: {lamella.defect.reason or 'no description'}")
     print(f"    got as far as: {lamella.completed_tasks}")
 ```
 
@@ -153,13 +153,14 @@ for lamella in exp.positions:
 The same objects are writable. Call `exp.save()` when you are done:
 
 ```python
-from fibsem.applications.autolamella.structures import Experiment, DefectType
+from fibsem.applications.autolamella.structures import Experiment
+from fibsem.workflows.quality import Verdict
 
 exp = Experiment.load("/path/to/my-experiment/experiment.yaml")
 
 for lamella in exp.positions:
     if "MillPolishing" not in lamella.completed_tasks:
-        lamella.defect.set_defect("did not reach polishing", state=DefectType.FAILURE)
+        lamella.defect.set_defect("did not reach polishing", state=Verdict.FAILED)
 
 exp.save()
 ```

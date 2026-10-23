@@ -6,8 +6,6 @@ Covers:
 - CorrelationInputData serialization of the new fields (incl. legacy files)
 """
 
-import math
-
 import numpy as np
 import pytest
 

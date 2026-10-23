@@ -577,24 +577,6 @@ class TescanBeam(Beam):
                     logging.error(f"Failed to restore beam settings: {restore_error}")
 
 
-def bind_tescan_beams(
-    microscope: TescanMicroscope, resources: Optional[Resources] = None
-) -> Dict[BeamType, TescanBeam]:
-    """Build ``beams[BeamType]`` for a connected Tescan microscope: one per enabled
-    column, so a disabled one is never touched."""
-    enabled = {
-        BeamType.ELECTRON: microscope.system.electron.enabled,
-        BeamType.ION: microscope.system.ion.enabled,
-    }
-    return {
-        beam_type: TescanBeam(
-            beam_type, microscope, microscope._connection, resources
-        ).connect()
-        for beam_type, on in enabled.items()
-        if on
-    }
-
-
 STAGE_FRAME_TESCAN = "tescan_native"
 """Tescan's own stage frame, stamped on an image from a Tescan with no stage device.
 
@@ -763,16 +745,6 @@ class TescanStage(Stage):
         logging.debug(f"Moving stage to {target}")
         self._move_absolute(target)
         logging.debug({"msg": "move_stage_relative", "position": delta.to_dict()})
-
-
-def bind_tescan_stage(
-    microscope: TescanMicroscope, resources: Optional[Resources] = None
-) -> Optional[TescanStage]:
-    """Build ``stage`` for a connected Tescan microscope, or None when the stage is
-    disabled, so it is never touched."""
-    if microscope.system.stage.enabled is False:
-        return None
-    return TescanStage(microscope, microscope._connection, resources).connect()
 
 
 def build_tescan_beam(entry: DeviceEntry, context: BuildContext) -> TescanBeam:

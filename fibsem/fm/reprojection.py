@@ -123,40 +123,6 @@ def project_image_point(
     return position
 
 
-def stage_position_from_fm_image(
-    image: "FluorescenceImage",
-    point: Point,
-) -> FibsemStagePosition:
-    """The stage position under a pixel of a fluorescence image.
-
-    The inverse of :func:`reproject_stage_positions_onto_fm_image`, and the projection
-    behind clicking a loaded overview. Reads the pose and transform the image records
-    rather than the live instrument's: click a saved overview after the stage has moved
-    and the answer must still describe that image, not the current view.
-
-    Args:
-        image: the image that was clicked.
-        point: pixel coordinates within it.
-
-    Returns:
-        FibsemStagePosition: the absolute position under that pixel.
-
-    Raises:
-        ValueError: if the image does not record the geometry it was captured under,
-            or has no stage position.
-    """
-    metadata = _require_projectable(image)
-    height, width = image.data.shape[-2:]
-
-    return project_image_point(
-        point=point,
-        base_position=metadata.stage_position,
-        pixel_size=metadata.pixel_size_x,
-        image_shape=(height, width),
-        geometry=metadata.geometry,
-    )
-
-
 def _require_projectable(image: "FluorescenceImage"):
     """The metadata a projection needs, or a ValueError naming what is missing."""
     metadata = image.metadata
