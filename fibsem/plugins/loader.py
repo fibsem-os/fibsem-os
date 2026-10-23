@@ -286,8 +286,8 @@ def clear_cache() -> None:
     """Forget every loaded group, so the next call re-walks the entry points.
 
     For tests. Calling this in a running application will make the registries
-    disagree with the module-level snapshots taken at import time
-    (``MILLING_PATTERNS``, ``TASK_REGISTRY``), which is worse than a stale list.
+    disagree with the module-level snapshot taken at import time
+    (``MILLING_PATTERNS``), which is worse than a stale list.
     """
     _CACHE.clear()
 

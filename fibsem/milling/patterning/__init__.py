@@ -59,7 +59,6 @@ BUILTIN_PATTERNS: Dict[str, Type[BasePattern]] = {
 
 # Default pattern
 DEFAULT_PATTERN = RectanglePattern
-DEFAULT_PATTERN_NAME = DEFAULT_PATTERN.name
 
 
 PATTERN_ENTRY_POINT_GROUP = "fibsem.milling.patterns"
@@ -76,9 +75,6 @@ PATTERN_PLUGINS: PluginRegistry[Type[BasePattern]] = PluginRegistry(
     builtins=BUILTIN_PATTERNS,
 )
 
-# Runtime registered patterns
-REGISTERED_PATTERNS: Dict[str, Type[BasePattern]] = PATTERN_PLUGINS.registered
-
 
 def register_pattern(pattern_cls: Type[BasePattern]) -> None:
     """Register a pattern class at runtime.
@@ -91,11 +87,6 @@ def register_pattern(pattern_cls: Type[BasePattern]) -> None:
         >>> register_pattern(CustomPattern)
     """
     PATTERN_PLUGINS.register(pattern_cls.name, pattern_cls)
-
-
-def get_pattern_plugin_records() -> Tuple[PluginRecord, ...]:
-    """Every ``fibsem.milling.patterns`` entry point and what became of it."""
-    return PATTERN_PLUGINS.plugin_records()
 
 
 def get_patterns() -> Dict[str, Type[BasePattern]]:
@@ -137,9 +128,8 @@ def get_pattern(name: str, config: Optional[Dict[str, Any]] = None) -> BasePatte
     return pattern_cls.from_dict(config or {})
 
 
-# Legacy support - maintain backward compatibility
+# Loading these at import loads the pattern plugins (`fibsem.plugins.loader`).
 MILLING_PATTERNS = get_patterns()
-MILLING_PATTERN_NAMES = get_pattern_names()
 DEFAULT_MILLING_PATTERN = DEFAULT_PATTERN
 
 # Legacy protocol mapping

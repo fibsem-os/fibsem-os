@@ -67,11 +67,6 @@ def register_monitor(monitor_cls: typing.Type[MillingMonitor[typing.Any]]) -> No
     MONITOR_PLUGINS.register(monitor_cls.name, monitor_cls)
 
 
-def get_monitor_plugin_records() -> typing.Tuple[PluginRecord, ...]:
-    """Every ``fibsem.milling.monitors`` entry point and what became of it."""
-    return MONITOR_PLUGINS.plugin_records()
-
-
 def monitor_class_for(
     config_class: typing.Type[MillingMonitorConfig],
 ) -> typing.Type[MillingMonitor[typing.Any]]:

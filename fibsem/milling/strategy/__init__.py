@@ -7,7 +7,6 @@ from fibsem.milling.strategy.standard import StandardMillingStrategy
 from fibsem.plugins.loader import PluginRecord, PluginRegistry, subclass_of
 
 DEFAULT_STRATEGY = StandardMillingStrategy
-DEFAULT_STRATEGY_NAME = DEFAULT_STRATEGY.name
 BUILTIN_STRATEGIES: typing.Dict[str, typing.Type[MillingStrategy[typing.Any]]] = {
     StandardMillingStrategy.name: StandardMillingStrategy,
     OvertiltTrenchMillingStrategy.name: OvertiltTrenchMillingStrategy,
@@ -28,9 +27,6 @@ STRATEGY_PLUGINS: PluginRegistry[typing.Type[MillingStrategy[typing.Any]]] = (
         builtins=BUILTIN_STRATEGIES,
     )
 )
-REGISTERED_STRATEGIES: typing.Dict[str, typing.Type[MillingStrategy[typing.Any]]] = (
-    STRATEGY_PLUGINS.registered
-)
 
 
 def get_strategies() -> typing.Dict[str, typing.Type[MillingStrategy[typing.Any]]]:
@@ -48,8 +44,3 @@ def get_strategy_names() -> typing.List[str]:
 
 def register_strategy(strategy_cls: typing.Type[MillingStrategy[typing.Any]]) -> None:
     STRATEGY_PLUGINS.register(strategy_cls.name, strategy_cls)
-
-
-def get_strategy_plugin_records() -> typing.Tuple[PluginRecord, ...]:
-    """Every ``fibsem.milling.strategies`` entry point and what became of it."""
-    return STRATEGY_PLUGINS.plugin_records()

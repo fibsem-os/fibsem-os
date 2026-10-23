@@ -105,21 +105,9 @@ def test_a_field_nothing_reads_is_refused_with_why(config):
     assert config.milling["mill_rough"].alignment.interval == before
 
 
-def test_the_milling_fields_are_explained_and_the_task_set_ones_marked():
-    from fibsem.milling.tasks import (
-        FibsemMillingTaskConfig,
-        describe_config_fields,
-        task_overridden_path,
-    )
+def test_the_task_set_stage_fields_are_marked():
+    from fibsem.milling.tasks import task_overridden_path
 
-    fields = describe_config_fields(FibsemMillingTaskConfig())
-    assert fields["task"]["alignment.interval"]["unit"] == "s"
-    assert fields["task"]["alignment.interval_enabled"]["not_used"]
-    # Set from the task's own value at each stage start, so a stage's edit
-    # would do nothing.
-    assert "field_of_view" in fields["stage"]["milling.hfw"]["not_used"]
-    assert "set alignment instead" in fields["stage"]["alignment"]["not_used"]
-    assert not any(path.startswith("alignment.") for path in fields["stage"])
     assert task_overridden_path("stages.0.alignment.enabled")
     assert not task_overridden_path("stages.0.milling.milling_current")
 

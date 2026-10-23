@@ -517,19 +517,6 @@ def set_milling_time_estimator(estimator: Optional[MillingTimeEstimator]) -> Non
     _milling_time_estimator = estimator
 
 
-@contextmanager
-def using_milling_time_estimator(
-    estimator: Optional[MillingTimeEstimator],
-) -> Iterator[None]:
-    """Install `estimator` for the duration of the block, then restore the previous one."""
-    previous = _milling_time_estimator
-    set_milling_time_estimator(estimator)
-    try:
-        yield
-    finally:
-        set_milling_time_estimator(previous)
-
-
 def estimate_stage_milling_time(stage: "FibsemMillingStage") -> float:
     """Estimated milling time for one stage.
 
@@ -585,10 +572,3 @@ def estimate_volume_time(volume: float, milling_current: float) -> float:
 
     time = (volume * 1e6**3) / sputter_rate
     return time * 0.75  # QUERY: accuracy of this estimate?
-
-
-def estimate_total_milling_time(stages: List[FibsemMillingStage]) -> float:
-    """Estimate the total milling time for a list of milling stages"""
-    if not isinstance(stages, list):
-        stages = [stages]
-    return sum([estimate_stage_milling_time(stage) for stage in stages])
