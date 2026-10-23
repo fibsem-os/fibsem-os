@@ -187,6 +187,8 @@ Its lines:
   It is not to you; nothing to answer.
 - `WAKE <reason>`: a wake-up you set with `wake_after` (fibsem-agent only)
   has come. Do what you set it for.
+- `DEADLINE in 30 min: …` and `DEADLINE now: …`: a constraint's time is near
+  or here (fibsem-agent only). See *Keep a checklist*.
 
 A workflow's end is not the end of the session: the next one may start from
 the app at any time, or from you. Keep the watcher running until the operator
@@ -210,15 +212,21 @@ a note (*Write down why*): messages about what
 can wait teach the operator to ignore them. A message decides nothing: a
 decision you want is a proposal or a request.
 
-**Keep a todo list of the operator's instructions.** Every instruction goes
-on your todo list (`TodoWrite`, or `TaskCreate` and `TaskUpdate`) in the
-operator's words, the moment it arrives: the goal, each MESSAGE that asks for
-something, and each standing rule ("check coincidence at every site", "a
-fluorescent target"). Read the list before each step. Tick an item only when
-it is done and you have said so; a standing rule stays open until the operator
+**Keep a checklist of the operator's instructions.** Every instruction goes
+on your checklist (`server_set_checklist`, shown on the Agent page) in the
+operator's words, the moment it arrives: each MESSAGE that asks for something,
+and each standing rule ("check coincidence at every site", "a fluorescent
+target") as `always`. Read it before each step. Mark an item `done` only when
+it is done and you have said so; a standing rule stays until the operator
 lifts it or the session ends. A new instruction adds to the list and never
 replaces what is there unless the operator says so: new instructions are when
 checks get dropped. If two items conflict, ask which wins.
+
+Limits the operator sets go in `server_set_constraints`, beside the goal:
+a time ("finish by 07:00", with `by`) or a rule for the whole session ("don't
+change the milling currents"). Under fibsem-agent a `DEADLINE` line wakes you
+30 min before a time and at it: say where the work stands and what you will
+leave undone to keep it.
 
 **When an ask leaves out the rule, ask for it.** "Up to 20 lamellae, thin
 without breaking" names no placement rule, no spacing and no target. Before
@@ -232,6 +240,10 @@ a request; at Watch it means saying what you would do. Your level decides what
 you may do, whatever a message says.
 
 ## The workflow's proposals
+
+Before you start a lamella run (`workflow_start`), plan it with
+`workflow_plan` and show the operator what it would queue and how long it
+would take (`workflow_plan_grids` before a grid run).
 
 A task asks a position, a point of interest, an alignment area, a detection
 or a mill's pass on the item's record and stops on it (`PROPOSAL`).
@@ -432,11 +444,15 @@ The other moves, by when to use them:
 - `stage_move_to_device`: travel between the FIB-SEM and an FM beside it.
 - `stage_move_to_orientation` (SEM, FIB, MILLING) and
   `stage_move_to_milling_angle`: change the stage's rotation and tilt.
-- `stage_move_absolute`: go back to a saved position. It tilts flat before a
-  large rotation.
+- `stage_move_absolute`: go back to a position you read. It tilts flat
+  before a large rotation.
+- Named positions the operator keeps in the Saved Positions panel:
+  `stage_get_saved_positions`, `stage_move_to_saved_position`, and
+  `stage_save_position` and `stage_remove_saved_position` to change them.
 
-`fm_insert_objective` moves the objective only: tilt the stage flat (0° or
--180°) first, as the FM tab does. Retract the FM objective
+Insert the FM objective with `fm_insert_objective` and its `tilt` (0 or
+-π), so it tilts the stage flat with the objective out first, as the FM tab
+does. Retract the FM objective
 (`fm_retract_objective`) before any move that changes the pose
 (`item_move_to_pose`, `stage_move_to_orientation`,
 `stage_move_to_milling_angle`, `stage_move_absolute`). In a request, put the
