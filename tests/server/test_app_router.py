@@ -1556,6 +1556,25 @@ def test_an_image_read_is_kept_by_the_browser_until_the_file_changes(
     assert "ETag" not in listing.headers
 
 
+def test_an_images_raw_planes_for_the_web_viewer(client, host, grid_with_overview):
+    import numpy as np
+
+    from fibsem.structures import FibsemImage
+
+    url = f"/app/experiment/planes/{OVERVIEW}"
+    answer = client.get(url, headers=AUTH)
+    assert answer.status_code == 200
+    header = json.loads(answer.headers["X-Planes"])
+    # the client undoes the gzip, as a browser does
+    values = np.frombuffer(answer.content, dtype=header["dtype"])
+    image = FibsemImage.load(os.path.join(str(host.experiment.path), OVERVIEW))
+    np.testing.assert_array_equal(values.reshape(header["shape"])[0, 0], image.data)
+    again = client.get(url, headers={**AUTH, "If-None-Match": answer.headers["ETag"]})
+    assert again.status_code == 304
+    refused = client.get(url, params={"factor": 3}, headers=AUTH)
+    assert refused.status_code == 422
+
+
 def test_experiment_files_crop_at_native_resolution(client, grid_with_overview):
     url = f"/app/experiment/files/{OVERVIEW}"
     box = client.get(url, params={"box": "32,16,20,10"}, headers=AUTH).json()
