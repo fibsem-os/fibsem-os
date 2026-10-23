@@ -1,12 +1,11 @@
-"""The main windows' status bar: one line on the left, the host's actions on the right
-(FIB-1188).
+"""The main windows' status bar: one line on the left, the host's actions on the right.
 
 The line says one thing at a time:
 
 - an **operation** while one runs outside a workflow -- a stage move, the images
   after it: "**Stage move** moving to the SEM orientation…";
 - otherwise the **agent's action**, while the agent is in control of the microscope:
-  "**Agent** focus sweep · 12s" (FIB-1375);
+  "**Agent** focus sweep · 12s";
 - otherwise the **run**, while a workflow runs: "**lamella-02 › Polishing** · 3 of 4";
 - otherwise the **instruction**, muted: "Create or load an experiment to begin."
 
@@ -507,8 +506,7 @@ class FibsemStatusBar(QStatusBar):
     @ensure_main_thread
     def _on_tiled_progress(self, event: TiledProgress) -> None:
         """One report from a tiled acquisition, either modality: the status bar is the
-        one consumer that wants both, while the overview tabs each want theirs
-        (FIB-725)."""
+        one consumer that wants both, while the overview tabs each want theirs."""
         self._show(self._reader.tiled(event))
 
     @ensure_main_thread

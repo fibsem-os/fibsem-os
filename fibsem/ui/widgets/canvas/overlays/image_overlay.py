@@ -1,4 +1,4 @@
-"""An image laid over the canvas through a transform of its own (FIB-1030).
+"""An image laid over the canvas through a transform of its own.
 
 A fluorescence overview on the FIB/SEM Overview tab, to begin with: a picture of the
 sample that has to be *placed* against the picture underneath rather than drawn where
@@ -13,7 +13,7 @@ square, mapped onto the canvas through a transform, so the pixels are never resa
 and a turn costs nothing. Built directly rather than via ``imshow`` -- that would
 autoscale the axes to the image and throw away the view.
 
-A stretch-to-fit overlay is not an alignment (FIB-355): the image's size on the canvas
+A stretch-to-fit overlay is not an alignment: the image's size on the canvas
 comes from its own pixel size, and the only things the user moves are the four numbers
 a similarity has. Anything the view does to it -- the squash of a tilted view, the
 mirror of the far side of the grid -- is the geometry's, supplied by the host.

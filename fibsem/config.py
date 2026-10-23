@@ -14,40 +14,17 @@ from fibsem import paths, state_move
 from fibsem.util.timestamps import to_datetime
 from fibsem.workflows.saved_format import saved_app
 
-# Documentation for a human reading a file, not a parsing switch -- from_dict does not
-# branch on it, and additive changes are detected from field presence instead (FIB-445
-# D3). Bumped to v4 when FibsemExperimentRef gained `name` and `id` became the UUID;
-# to v5 when it dropped its duplicates of the application/version fields, which
-# SystemInfo owns, and when `application_version` went entirely -- it was null in every
-# file ever written (FIB-448). Those keys are still present in v4-and-earlier files.
-# v6 replaced the embedded `system` (a whole SystemSettings, 1683 bytes) with
-# `system_info` and `hardware_geometry` (FIB-481). from_dict recovers both from a v5-
-# and-earlier `system` blob, so older files still load -- including their compustage
-# flag, which up to v5 had to be inferred from the model name.
-# v7 dropped `autogamma` from the recorded image settings along with the feature
-# itself (FIB-505). Older files still carry the key; it is ignored.
-# v8 added `workflow` -- which item and which task an image was acquired for
-# (FIB-466). Absent in earlier files, and absent in any image acquired outside a
-# workflow, which is a real answer rather than a missing one.
-# v9 added `hardware_geometry.poses` -- the pose the stage declared for each
-# orientation name (FIB-1101). Absent in earlier files, where
-# `FibsemHardwareGeometry.declared_poses` rebuilds them from `rotation_180` and
-# `is_compustage`.
-# v10 added `hardware_geometry.stage_frame` -- the frame the stage position is in,
-# "fibsem" or a driver's name for its instrument's own frame (FIB-1114). Absent in
-# earlier files, whose positions are in the frame their driver reported then.
-# v11 added `acquisition_datetime` -- when the image was acquired, as ISO 8601 with
-# the acquiring machine's UTC offset (FIB-1190). Absent in earlier files, whose time
-# is `microscope_state.timestamp`: a POSIX float, or AutoScript's naive
-# `%m/%d/%Y %H:%M:%S` string on a ThermoFisher image. Read either through
-# `fibsem.util.timestamps.acquisition_datetime_of`.
-# v12 added `roles` -- for each role the acquiring beam had filled (its `scanner`),
-# the device in it: name, class, driver, its parameters' last known values and its
-# facts. Absent in earlier files, and empty for a beam with no role filled: the
-# image came from the vendor's own scan.
+# Documentation for a human reading a file, not a parsing switch: from_dict detects
+# additive changes from field presence, and recovers `system_info` and
+# `hardware_geometry` from a v5-and-earlier `system` blob. The fields added since v8,
+# each absent in earlier files: `workflow` (the item and task an image was acquired
+# for), `hardware_geometry.poses` (rebuilt by `FibsemHardwareGeometry.declared_poses`
+# when absent), `hardware_geometry.stage_frame`, `acquisition_datetime` (read older
+# times through `fibsem.util.timestamps.acquisition_datetime_of`) and `roles` (the
+# device in each role the acquiring beam filled).
 METADATA_VERSION = "v12"
 # What an unversioned file is. Absent means written before versioning existed, i.e.
-# older than v1 -- not "current", which is what defaulting to METADATA_VERSION claimed.
+# older than v1, not "current".
 UNVERSIONED_METADATA = "v0"
 
 
@@ -146,7 +123,6 @@ def load_yaml(fname):
 DEFAULT_IP_ADDRESS = "192.168.0.1"
 
 
-# user configurations -> move to fibsem.db eventually
 DEFAULT_USER_CONFIGURATION_YAML: dict = {
     "configurations": {"default-configuration": {"path": None}},
     "default": "default-configuration",
@@ -240,8 +216,7 @@ DEFAULT_CHECKPOINT = "autolamella-mega-20240107.pt"
 # preferences do not save", with nothing pointing at the cause.
 #
 # Here rather than beside the widget that draws them so the preferences dialog can offer
-# the choice without fibsem.ui importing AutoLamella, which is the dependency direction
-# FIB-553/554/555 removed.
+# the choice without fibsem.ui importing AutoLamella.
 # Named for density rather than for what they draw, and ordered roomiest first, the
 # way Discord and Gmail order theirs. "Cozy" is the roomy one everywhere it appears in
 # a UI, so it cannot be the name of the tightest layout here -- someone reaching for it
@@ -278,7 +253,7 @@ class DisplayPreferences:
     # Removed rather than flipped. `to_dict` is `dataclasses.asdict`, so every save
     # writes the key and opening an experiment is enough to trigger a save: a new
     # default would have reached only a machine that had never run the app, while
-    # everyone else kept the pinned `false` (FIB-781). Older files still carry the
+    # everyone else kept the pinned `false`. Older files still carry the
     # key and `_sub_from_dict` drops it.
     border_enabled: bool = True
     # Only errors, warnings and a run's end pop up as toasts; the rest go to the
@@ -306,12 +281,12 @@ class DisplayPreferences:
     # still configured nothing.
     guided_setup_dismissed: bool = False
     # Which fields the bar under each view shows, by view kind ("SEM", "FIB", "FM"),
-    # in order (FIB-1186). Only a kind someone has customised has an entry: an absent
+    # in order. Only a kind someone has customised has an entry: an absent
     # kind takes the bar's defaults, so a later change to those defaults still reaches
     # everyone who never chose -- which a stored default would not, since every save
     # writes every key.
     info_bar_fields: Dict[str, List[str]] = field(default_factory=dict)
-    # What the History tab shows (FIB-1256): ``show``, ``status`` and ``task``, as
+    # What the History tab shows: ``show``, ``status`` and ``task``, as
     # ``HistoryFilter.to_dict`` writes them. Empty until someone filters, so the
     # tab's default still reaches everyone who never did; a value the tab does not
     # recognise shows everything.
@@ -320,36 +295,15 @@ class DisplayPreferences:
 
 @dataclass
 class FeatureFlags:
+    # A saved preferences file that names a flag not listed here still loads;
+    # unknown keys are ignored.
     coincidence_milling_enabled: bool = False
-    # `sample_holder_widget` retired 2026-09-02: the holder panel is the Microscope
-    # tab's Sample view now, shown on every machine. A saved preferences file that
-    # still names it loads fine; unknown keys are ignored.
-    # `bug_report_enabled` and `scripts_enabled` retired 2026-09-08: Help -> Report an
-    # Issue and Tools -> Scripts are shown to everyone. Same load rule as above.
-    # `grid_workflow` retired after the bench sessions on the Arctis and a fixed
-    # holder (FIB-1074): the Grids tab, the Workflow tab's Grids view, the
-    # Protocol tab's Grid page and the grid screening report are shown to everyone.
-    # Removed rather than defaulted on, since a changed default reaches only fresh
-    # installs; same load rule as above.
-    # `agent_server_enabled` retired 2026-10-11 (FIB-1035): the App Server is a
-    # lasting per-machine choice, not a staging flag, so it moved to
-    # `UserPreferences.app_server`. It was never in a release, so there is no
-    # migration; a saved file that still names it loads fine (unknown keys are
-    # ignored) and the App Server stays off until it is turned on again.
     # The connection chip in the tab-corner header, and the experiment buttons
     # waiting for a microscope alongside it. Off while the Connection tab is still
-    # how people connect: this is the header half of FIB-775, landing ahead of the
-    # tab removal so it can have bench time first.
-    #
-    # The dialog it opens is NOT gated -- File -> Connect to Microscope reaches it
-    # either way, which is how it gets exercised while this is off.
-    #
-    # A staging flag, and it goes the same way `napari_overview_tab` did: deleted
-    # when the chip replaces the tab, not kept as a preference.
+    # how people connect. The dialog it opens is not gated: File -> Connect to
+    # Microscope reaches it either way. A staging flag, deleted when the chip
+    # replaces the tab.
     connection_chip: bool = False
-    # `proposer_reviewer_workflow_enabled` retired 2026-10-18: every task's
-    # questions and result go on the record, and nothing waits on a decision
-    # once a task ends. Same load rule as above.
 
 
 @dataclass
@@ -390,7 +344,7 @@ class ReportingPreferences:
 @dataclass
 class AppServerPreferences:
     """The App Server: the HTTP API inside AutoLamella that the agent, the
-    dashboard and ``FibsemClient`` reach (FIB-1035).
+    dashboard and ``FibsemClient`` reach.
 
     Off by default and fail-closed (CONTRIBUTING's network rule): a missing or
     unreadable section reads as these defaults, so the server stays off. When on,
@@ -428,7 +382,7 @@ class UserPreferences:
     # None and [] are different, and the difference is the whole feature: None means
     # never configured, so the application uses its defaults, while [] means the user
     # turned everything off. Conflating them either resurrects hooks someone deleted or
-    # silences a fresh install. See FIB-497.
+    # silences a fresh install.
     hooks: Optional[List[dict]] = None
 
     def to_dict(self) -> dict:
@@ -561,13 +515,10 @@ def update_user_preferences(
 
 @dataclass
 class ExperimentSummary:
-    """What an experiment says about itself, read without loading it.
+    """What an experiment says about itself, read without loading it: for the
+    recents list, and for a directory listing of files nobody has opened.
 
-    Was ``RecentExperimentInfo``, when the recents list was the only caller.
-    Enumerating a directory asks the same question of a file nobody has opened
-    (FIB-457), so the name no longer claims the file is recent.
-
-    The instrument and operator come from the ``session`` record (FIB-451) and
+    The instrument and operator come from the ``session`` record and
     are absent from anything written before it, or from an experiment no session
     has adopted. That is a real answer -- nothing is known -- so they stay None
     rather than defaulting to a string that would group with other unknowns.

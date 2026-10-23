@@ -3,11 +3,6 @@
 Deliberately outside the UI package and free of Qt, so the same hooks a GUI run gets
 can be built headlessly, and so the defaults can be serialized and compared against a
 user's saved configuration without a QApplication.
-
-First step of FIB-497: before a user can override the defaults, the defaults have to
-be something you can round-trip through YAML and diff. They were previously four
-`manager.register(...)` calls inlined in the window's run set-up, reachable only
-by reading the source.
 """
 
 import logging

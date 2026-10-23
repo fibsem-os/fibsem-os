@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
 DISCOVERY_DIR = paths.user_dir()
 DISCOVERY_FILE = DISCOVERY_DIR / "app-server.json"
-# The file's name before the App Server rename (FIB-1035). Read, never written,
+# The file's name before the App Server rename. Read, never written,
 # for one release, so a sidecar finds an App Server that predates the rename;
 # delete after v0.6.x.
 LEGACY_DISCOVERY_FILE = DISCOVERY_DIR / "agent-server.json"
@@ -35,7 +35,7 @@ LEGACY_DISCOVERY_FILE = DISCOVERY_DIR / "agent-server.json"
 
 def fibsem_folder() -> str:
     """The folder the running ``fibsem`` package was imported from: the App
-    Server reports it, and the sidecar compares its own (FIB-1429)."""
+    Server reports it, and the sidecar compares its own."""
     import fibsem
 
     return str(Path(fibsem.__file__).resolve().parent)
@@ -44,7 +44,7 @@ def fibsem_folder() -> str:
 def code_mismatch(capabilities: dict, who: str) -> Optional[str]:
     """A warning when the App Server runs other ``fibsem`` code than *who*
     imports, from its /capabilities; None when they match. On the same
-    machine the folders are compared (FIB-1429); from another machine, whose
+    machine the folders are compared; from another machine, whose
     folders never match, the versions."""
     from fibsem import __version__
 
@@ -97,7 +97,7 @@ def write_discovery_file(
         "connect_token": auth.connect_token,
         "pid": os.getpid(),
         # No level: it changes while the server runs and a file
-        # would go stale. /capabilities is the live answer (FIB-1035).
+        # would go stale. /capabilities is the live answer.
     }
     with open(path, "w") as f:
         json.dump(payload, f, indent=2)

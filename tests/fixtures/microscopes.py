@@ -15,7 +15,7 @@ import pytest
 
 def demo_session(config: Optional[str] = None):
     """A connected Demo microscope. ``config`` is a file name in
-    ``fibsem/config`` (the shipped ones) or a path; None is the default configuration."""
+    ``fibsem/config`` (shipped) or a path; None is the default configuration."""
     from fibsem import config as cfg
     from fibsem import utils
 

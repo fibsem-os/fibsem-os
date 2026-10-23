@@ -1,6 +1,13 @@
-"""Milling patterns as image-space shapes, in napari's (row, column) convention: the
-vertex arrays the canvas overlays draw and the placement checks validate. Needs
-neither Qt nor napari."""
+"""Milling patterns as image-space shapes, with no napari behind them.
+
+The converters here turn a pattern's settings into the vertex arrays the canvas
+overlays draw and the placement checks validate. Their `_to_napari_` names say the
+shapes are in napari's (row, column) convention.
+
+Under `fibsem.milling.patterning` rather than `fibsem.ui` on purpose: importing
+anything under `fibsem.ui` runs that package's eager widget imports and so needs Qt,
+and this is geometry -- it has no business needing either.
+"""
 
 from __future__ import annotations
 
@@ -27,9 +34,7 @@ from fibsem.structures import (
 )
 
 # colour wheel
-# Shared by the napari shapes layer and by the bitmap converter below, which is
-# why it lives here rather than in `fibsem.ui.napari.patterns`: that module needs
-# napari, this one must not. `patterns.py` re-exports it (FIB-1027).
+# Used by the bitmap converter below.
 SHAPES_LAYER_PROPERTIES = {
     "edge_width": 0.5,
     "opacity": 0.5,
@@ -233,9 +238,8 @@ def convert_pattern_to_napari_polygon(
         raise ValueError(f"Pattern is not a Polygon: {pattern_settings}")
 
     # Vertices are (x, y) in microscope metres, the same frame as every other
-    # pattern's centre_x / centre_y. This previously added the image centre to
-    # both axes, which drew the polygon mirrored about it: microscope +y is up
-    # and image rows go down, so y has to be subtracted, not added (FIB-692).
+    # pattern's centre_x / centre_y. Microscope +y is up and image rows go down,
+    # so y is subtracted from the image centre, not added.
     points = [
         microscope_image_to_image_coordinates(
             Point(x=float(vx), y=float(vy)), shape, pixelsize

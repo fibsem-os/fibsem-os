@@ -1,4 +1,4 @@
-"""Who is in control of the microscope: one action at a time (FIB-1270).
+"""Who is in control of the microscope: one action at a time.
 
 One answer for everyone who acts on the instrument -- a workflow run, a user
 script, a server route, later the operator's own buttons -- instead of each
@@ -106,7 +106,7 @@ class Control:
         self._joined = 0
         # The last take, owner or borrower, kept after release: an action that
         # starts something and returns (start_milling) has let go of control
-        # while what it started runs on (FIB-1267's Stop agent).
+        # while what it started runs on, so Stop agent can still find it.
         self._last: Optional[InControl] = None
 
     @property

@@ -9,7 +9,7 @@ Nothing here reads the microscope and nothing here moves it.
 
 Every image says where it was taken and how it projects (``BeamStageProjection``
 and ``FMStageProjection`` both build from an image), so a click on it becomes a
-stage position from what the image recorded, the way the old minimap did. Images
+stage position from what the image recorded. Images
 of the same *view* -- the same beam at the same pose, or the fluorescence
 microscope -- register with each other by their recorded positions and share one
 frame. Views cannot be drawn in one frame (the FIB sees the grid foreshortened,

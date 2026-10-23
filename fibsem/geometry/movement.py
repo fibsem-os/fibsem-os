@@ -14,7 +14,7 @@ reprojection shares, and :func:`inverse_view_corrected_dy` is where a stage move
 in the image.
 
 Tescan's stage converts its own axes (y on the tilted plate, z chamber-vertical) to this
-frame inside its stage device, so these hold for it too (FIB-1114).
+frame inside its stage device, so these hold for it too.
 """
 
 from __future__ import annotations
@@ -30,22 +30,11 @@ from fibsem.structures import BeamType, FibsemHardwareGeometry, FibsemStagePosit
 # ── the view projection, without a microscope ────────────────────────────────
 #
 # Every view of the sample runs the same projection and differs only in how far its
-# viewing axis is tilted from the electron column: the electron column is 0, the ion
-# column is its `column_tilt`, the fluorescence camera is its `camera_tilt`. That is
-# already how the live path is written -- `StageMovement.view_corrected_movement(
-# expected_y, view_tilt)`, with `beam_view_tilt` and `camera_tilt` as its two
-# callers -- and these are the microscope-free form of the same thing, parameterised by
-# a recorded `FibsemHardwareGeometry` and pose instead of reading a live instrument.
-#
-# Microscope-free matters because these answer questions *about a saved image*: where a
-# stage position falls on it, and where a click on it points. Reading the pose or the
-# transform from the live instrument would make the answer depend on state the image
-# does not describe -- and looking at a saved image after the stage has moved is exactly
-# when someone asks.
-#
-# They live in geometry rather than beside either modality's reprojection module
-# because both use them. They arrived in `fibsem/fm/reprojection.py` with the camera tilt baked in,
-# which read as fluorescence-specific and was not.
+# viewing axis is tilted from the electron column: 0 for the electron column, the ion
+# column's `column_tilt`, the fluorescence camera's `camera_tilt`. These are the
+# microscope-free form of `StageMovement.view_corrected_movement`, taking a
+# recorded `FibsemHardwareGeometry` and pose, because they answer questions about a
+# saved image, which the live instrument's state no longer describes.
 
 
 def _image_y_flip(
@@ -57,7 +46,7 @@ def _image_y_flip(
     """-1 where the instrument mirrors the image, so image y runs against the geometry.
 
     Some instruments flip an image the beam takes of the back of the grid, so it reads
-    as if seen from the front (FIB-1101). Which side a view sees is the model's
+    as if seen from the front. Which side a view sees is the model's
     (`fibsem.geometry.frames.views_back`); that the instrument mirrors it is the
     driver's fact, `mirrors_back_view`. Others present the image as the beam sees it.
     """
@@ -119,7 +108,7 @@ def inverse_view_corrected_dy(
     wrong place.
 
     Not just the algebraic undo of :func:`view_corrected_stage_movement`, and the
-    difference is the point (FIB-766). The forward map only ever *produces* in-plane
+    difference is the point. The forward map only ever *produces* in-plane
     movements -- a click slides the sample along its own surface -- but this is fed
     arbitrary position deltas: two saved positions can differ in height, and a
     coincidence correction is a chamber-vertical move. So the delta is resolved into
@@ -130,11 +119,9 @@ def inverse_view_corrected_dy(
         e_y = u*cos(phi) - n*sin(phi)     phi = folded_tilt - a - view_tilt
 
     On in-plane deltas (n = 0) this agrees exactly with inverting the forward, which
-    is what the parity tests pin. Off-plane it is what the old form was not: a
-    chamber-vertical move projects to zero in the SEM view (its u and n image shifts
-    cancel -- the old form kept only the u half, showing a phantom shift), and to
-    sin(view_tilt) times the height in a tilted view (the FIB really does see a
-    height change move; the old form discarded dz and showed nothing). Verified
+    is what the parity tests pin. Off-plane, a chamber-vertical move projects to zero
+    in the SEM view (its u and n image shifts cancel), and to sin(view_tilt) times the
+    height in a tilted view (the FIB really does see a height change move). Verified
     against an independently calibrated 3D model in tests/test_projection_height.py.
 
     Args:
@@ -230,10 +217,10 @@ def vertical_move_delta(
     what keeps a feature already centred in the SEM where it is.
 
     The chamber-vertical is then decomposed into the tilted stage axes: y = m*sin(t),
-    z = m*cos(t) (FIB-773). Where the stage has the sample turned over the offset is
+    z = m*cos(t). Where the stage has the sample turned over the offset is
     reversed. The stage device says where that is (`Stage.turned_over`), not the stage
     type: past -90 degrees of tilt by default, which only a compustage reaches today,
-    at its FIB and FM poses (FIB-1124).
+    at its FIB and FM poses.
 
     Args:
         dx: offset along the displayed FIB image x-axis, in metres; moved as is.

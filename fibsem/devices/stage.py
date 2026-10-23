@@ -2,7 +2,7 @@
 the device.
 
 The stage is the raw hardware contract only: where it is, what it can reach, and
-"move to these coordinates" in the fibsem-os frame (FIB-1083). View-corrected moves
+"move to these coordinates" in the fibsem-os frame. View-corrected moves
 (``stable_move``, ``vertical_move``, ``project_stable_move``) depend on the beams as
 much as the stage, so they are not here; they belong to the views, built on top.
 
@@ -23,7 +23,7 @@ as for a beam, and the commands with four hooks: ``_move_absolute``,
 ``_move_relative``, ``_home`` and ``_link``. The base class does the rest once: the
 limit check, the ``stage`` resource, the read-back, and the change signals.
 
-The stage also declares its poses (FIB-1101): the rotation and tilt that each
+The stage also declares its poses: the rotation and tilt that each
 orientation name (SEM, FIB, and FM where the stage reaches it by re-posing) means on
 this stage. ``poses`` is a pure function of the geometry the microscope passes in,
 so the stage never asks its parent. MILLING is not a stage pose: it depends on the
@@ -171,7 +171,7 @@ class Stage(Device):
     linked = DeviceParameter(bool, doc="z linked to the working distance.")
 
     frame: str = STAGE_FRAME_FIBSEM
-    """The frame ``position`` is in, stamped on every image (FIB-1114)."""
+    """The frame ``position`` is in, stamped on every image."""
 
     def __init__(self, parent: Any = None, **kwargs: Any):
         super().__init__(name="stage", parent=parent, **kwargs)

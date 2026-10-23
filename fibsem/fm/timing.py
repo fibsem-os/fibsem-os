@@ -23,10 +23,8 @@ from fibsem.fm.structures import (
 
 # Timing constants for acquisition operations
 # Camera readout, processing and save, per image, on top of the exposure. Measured
-# against AutoLamella-2026-07-29-18-00-DEV-TEST (Thermo): a 42-image z-stack ran at
-# 2.31 s/image net of exposure and z movement, and a 32-image autofocus sweep at
-# 1.57 s/image. The earlier 0.5 s was an assumption, ~4x low, and it is what left the
-# fluorescence duration estimate at a third of the real figure.
+# on a Thermo run: a 42-image z-stack ran at 2.31 s/image net of exposure and z
+# movement, and a 32-image autofocus sweep at 1.57 s/image.
 #
 # The two figures differ because the z-stack writes each frame to OME-TIFF and the
 # autofocus sweep does not, so this is really two costs wearing one name. It takes the

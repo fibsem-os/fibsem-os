@@ -52,8 +52,8 @@ _DEFAULT_BACKGROUND = GRAY_CANVAS_COLOR  # empty space reads as "nothing acquire
 #     one              | 13.9 ms | 30.8 ms |  100 ms
 #     five             | 42.6 ms |  126 ms |  451 ms
 #
-# Raised 512 -> 2048 for FIB-658: a mosaic is tens of thousands of pixels across, and 512
-# showed ~0.02% of them -- too coarse to read the sample you just spent a run acquiring.
+# 2048: a mosaic is tens of thousands of pixels across, and 512 shows ~0.02% of them --
+# too coarse to read the sample you just spent a run acquiring.
 #
 # Distinct from how much a *caller* keeps, and that distinction decides what this figure
 # costs. A caller holding more than this can hand over a different part of it, or a
@@ -61,8 +61,8 @@ _DEFAULT_BACKGROUND = GRAY_CANVAS_COLOR  # empty space reads as "nothing acquire
 # is a ceiling rarely approached, since what it is asked for is bounded by the pixels the
 # image occupies on screen. The FIB/SEM overview works that way, so the table above is not
 # what it pays. The FM canvas does not yet -- it reduces a whole composite to this figure
-# and hands it over -- so the five-image column is FM's, and is what FIB-414 removes by
-# giving it a source of its own. Drop back to 1024 if it bites before then.
+# and hands it over -- so the five-image column is FM's until it has a source of its own.
+# Drop back to 1024 if it bites.
 #
 # The old figure here ("100 tiles at 1024 px take ~2.7 s") measured one artist *per tile*;
 # overviews are placed as a single image per run now, so it no longer describes this
@@ -159,9 +159,7 @@ WHOLE_IMAGE = ImageRegion(0.0, 1.0, 0.0, 1.0)
 # whatever it holds — returning the region rather than assuming it is what was asked for
 # is what keeps a patch drawn exactly over the ground it came from, instead of a fraction
 # of a pixel off. Returning None declines, leaving whatever is already drawn alone.
-DetailSource = Callable[
-    [ImageRegion, int], Optional[Tuple[np.ndarray, ImageRegion]]
-]
+DetailSource = Callable[[ImageRegion, int], Optional[Tuple[np.ndarray, ImageRegion]]]
 
 
 @dataclass
@@ -343,8 +341,12 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
             **kw,
         )
         self._placed[key] = PlacedImage(
-            key=key, artist=artist, extent=extent, detail=detail,
-            drawn=WHOLE_IMAGE, asked_px=int(max(shown.shape[:2])),
+            key=key,
+            artist=artist,
+            extent=extent,
+            detail=detail,
+            drawn=WHOLE_IMAGE,
+            asked_px=int(max(shown.shape[:2])),
         )
 
         # Framing first: what the screen can show of an image depends on where the camera
@@ -399,7 +401,7 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
 
         Matplotlib skips a hidden artist when it draws, so this is not only a visual
         change -- a canvas redraws every stored pixel of everything visible, and hiding
-        an image takes it out of that cost as surely as removing it would (FIB-414).
+        an image takes it out of that cost as surely as removing it would.
         """
         placed = self._placed.get(key)
         if placed is None:
@@ -447,7 +449,7 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         a rectangle, 3x out. The y direction is worse and stayed hidden longer: with
         nothing placed the scene is drawn *vertically mirrored*, and flips the right way
         up the moment the first tile lands. Nothing showed it while an empty canvas drew
-        nothing; it appeared as soon as the overlays did (FIB-616), first as labels
+        nothing; it appeared as soon as the overlays did, first as labels
         sitting under their shapes instead of over them.
 
         Applied by inverting rather than by setting limits: matplotlib's autoscale
@@ -490,12 +492,9 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         changed anything.
 
         Asking for the scale it already has changes nothing, and says so rather than
-        repainting. It used to repaint: the fluorescence tab sets this on every tile
-        grid refresh, which is every motion event of a drag, and until the first image
-        landed that was a full canvas repaint per event -- which is also what threw away
-        the blitted background the grid was being drawn over (FIB-752). It looked like
-        the tab getting *faster* once an image arrived, because that is when this call
-        starts refusing.
+        repainting: the fluorescence tab sets this on every tile grid refresh, which is
+        every motion event of a drag, and a repaint would also throw away the blitted
+        background the grid is drawn over.
         """
         if self._placed or not pixel_size or pixel_size <= 0:
             return False
@@ -568,10 +567,10 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
     def _view_moved_by_user(self) -> None:
         """A pan or a zoom hands the framing over. See :attr:`auto_fit`.
 
-        Zoom in on a feature and the next thing placed used to throw the view away and
-        refit to everything -- at the two moments you are most likely to be looking
-        closely, since a run ends by removing the preview and placing the stitch under
-        another key, which is two extent changes back to back (FIB-648).
+        Without it, zoom in on a feature and the next thing placed would throw the view
+        away and refit to everything -- at the two moments you are most likely to be
+        looking closely, since a run ends by removing the preview and placing the stitch
+        under another key, which is two extent changes back to back.
         """
         self.auto_fit = False
 
@@ -637,14 +636,16 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
                 continue  # off screen: leave the last patch, it costs nothing to keep
             fetch = self._visible_region(placed, margin=_DETAIL_MARGIN) or wanted
             budget = self._detail_budget(placed, fetch)
-            if not placed.stale and not self._needs_detail(placed, wanted, fetch, budget):
+            if not placed.stale and not self._needs_detail(
+                placed, wanted, fetch, budget
+            ):
                 continue
             try:
                 answer = placed.detail(fetch, budget)
             except Exception as e:
                 # A source that raises must not take the canvas with it: this runs off a
-                # timer, and PyQt5 aborts the process on an exception out of a slot
-                # (FIB-329). What is already drawn stays drawn.
+                # timer, and PyQt5 aborts the process on an exception out of a slot.
+                # What is already drawn stays drawn.
                 _logger.debug(f"Detail source for {placed.key!r} failed: {e}")
                 continue
             if answer is None:
@@ -680,8 +681,10 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         if right <= left or bottom <= top:
             return None
         return ImageRegion(
-            (left - xmin) / width, (right - xmin) / width,
-            (top - ymin) / height, (bottom - ymin) / height,
+            (left - xmin) / width,
+            (right - xmin) / width,
+            (top - ymin) / height,
+            (bottom - ymin) / height,
         )
 
     def _detail_budget(self, placed: PlacedImage, region: ImageRegion) -> int:
@@ -698,7 +701,9 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         if canvas_span <= 0:
             return self._display_max_px
         # Device pixels the region occupies across the axes, at the current scale.
-        across = (xmax - xmin) * region.width / canvas_span * max(1, self._axes_width_px())
+        across = (
+            (xmax - xmin) * region.width / canvas_span * max(1, self._axes_width_px())
+        )
         return int(max(1, min(self._display_max_px, np.ceil(across))))
 
     def _axes_width_px(self) -> int:
@@ -768,12 +773,15 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         xmin, xmax, ymax, ymin = placed.extent
         width, height = xmax - xmin, ymax - ymin
         placed.artist.set_data(downsample(data, self._display_max_px))
-        placed.artist.set_extent((
-            xmin + region.left * width,
-            xmin + region.right * width,
-            ymin + region.bottom * height,  # matplotlib takes (left, right, bottom, top)
-            ymin + region.top * height,
-        ))
+        placed.artist.set_extent(
+            (
+                xmin + region.left * width,
+                xmin + region.right * width,
+                ymin
+                + region.bottom * height,  # matplotlib takes (left, right, bottom, top)
+                ymin + region.top * height,
+            )
+        )
         placed.drawn = region
         placed.asked_px = budget
         placed.stale = False

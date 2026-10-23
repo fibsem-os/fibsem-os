@@ -66,8 +66,8 @@ def naming_problems(
     inventory: List[GridInventoryEntry],
     names: Mapping[str, str],
 ) -> List[str]:
-    """Why these names cannot be applied, or nothing. The Sample view's rules
-    (FIB-1137): a grid that has run keeps its name, and no two grids share one."""
+    """Why these names cannot be applied, or nothing. The Sample view's rules:
+    a grid that has run keeps its name, and no two grids share one."""
     final = screen_names(inventory, names)
     problems: List[str] = []
     for name, count in Counter(final.values()).items():

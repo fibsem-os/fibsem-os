@@ -4,10 +4,7 @@
 FM-specific bits the bare canvas should not carry: a per-channel layer model, the
 additive colour composite (:mod:`fm_composite`), and a toolbar **layers** popover
 (:class:`FMLayersPanel`) for per-channel visibility / colormap / opacity / gamma /
-contrast — the napari layer-controls equivalent, on matplotlib.
-
-Display only (Phase 6a); FM canvas interactions (position select, relative move)
-are Phase 6b.
+contrast.
 """
 
 from __future__ import annotations
@@ -87,7 +84,7 @@ _Z_STEP_BTN_STYLE = (
     f"QToolButton:disabled {{ color: {TEXT_MUTED_COLOR}; }}"
 )
 
-# napari-style dark theme for the floating layers panel. An f-string, so every
+# The dark theme for the floating layers panel. An f-string, so every
 # literal QSS brace is doubled -- Qt discards a malformed rule silently, so a
 # missed pair shows up as an unstyled widget rather than an error.
 _PANEL_QSS = f"""
@@ -421,7 +418,7 @@ class FMCanvasWidget(QWidget):
         z-stacks so the z-slider / max-projection toggle can scrub them.
 
         Pixel size and per-channel name/colour come from the image metadata; channels
-        upsert by name and blend additively (parity with the napari main tab). Defaults to
+        upsert by name and blend additively. Defaults to
         the max-intensity projection.
         """
         md = image.metadata
@@ -596,7 +593,7 @@ class FMCanvasWidget(QWidget):
         button = QToolButton()
         button.setText(glyph)
         # The one mouse-only way to step a single slice; 20 px read as 16 on
-        # screen and was the smallest target on the canvas (FIB-978).
+        # screen and was the smallest target on the canvas.
         button.setFixedSize(26, 24)
         button.setToolTip(tooltip)
         button.setStyleSheet(_Z_STEP_BTN_STYLE)
@@ -695,7 +692,7 @@ class FMCanvasWidget(QWidget):
     def hideEvent(self, event) -> None:
         # The panel is a top-level tool window, so it does not go away with this
         # widget on its own: closing the correlation dialog for one site left it
-        # floating over whatever came next (FIB-962).
+        # floating over whatever came next.
         super().hideEvent(event)
         # Also reached from C++ while a parent window is being destroyed: Qt hides
         # the children first. When that destruction is a Python garbage-collection
@@ -727,7 +724,7 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
 
     Layers are shared across everything placed, which is right for an overview — a mosaic
     should render uniformly, and per-image contrast would emphasise the seams rather than
-    hide them. See FIB-415 for the per-image case.
+    hide them.
 
     **The canvas is not FM-only.** It knows nothing about modality: ``add_image`` takes
     any 2-D or RGB array with a position and a pixel size, so a caller can place FIB or
@@ -859,7 +856,7 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         # Placed over other images rather than over a background, so it goes on as
         # colour plus coverage: an opaque frame hides whatever it covers, including
         # where it holds nothing itself. That is what painted a sparse overview's
-        # unacquired tiles black over the full one beneath it (FIB-519).
+        # unacquired tiles black over the full one beneath it.
         placed = to_rgba(rgb)
         if reshaped or key not in self.canvas.placed_keys:
             self.canvas.add_image(
@@ -958,8 +955,8 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         every region is a fresh array, so panning would restyle the image under the
         cursor. Held here instead, so which part is drawn cannot change how it looks.
 
-        Measured on the **stored** plane rather than the reduced one it is drawn through,
-        which is where this differs from what the widget used to do. `downsample`
+        Measured on the **stored** plane rather than the reduced one it is drawn through.
+        `downsample`
         box-averages, and averaging narrows a histogram by however much power the image
         has at the pixel scale -- so limits taken from the reduction are limits for one
         particular display cap, and a patch drawn at a different reduction would not
@@ -1008,8 +1005,8 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
 
         `downsample` box-averages, so this allocates rather than returning a view — 2 ms
         for a 1024x4712 mosaic plane, against the ~150 ms blend it saves by running
-        before the blend rather than after. It used to stride, which cost nothing at all;
-        the change bought back the fine structure that striding deleted.
+        before the blend rather than after. Striding would cost nothing but delete fine
+        structure.
 
         Runs on every layer change, once per held image per channel, so it is the one
         place where that per-call cost is multiplied. Watch it if either count grows.
@@ -1335,7 +1332,7 @@ class FMLayersPanel(QFrame):
             self.gamma.setValue(int(layer.gamma * 100))
             self.gamma_val.setText(f"{layer.gamma:.2f}")
             # `manual`, not `autocontrast`: a z-scrub turns `autocontrast` off to hold
-            # one clim across planes, and that is still Auto (FIB-1173).
+            # one clim across planes, and that is still Auto.
             self.autocontrast_cb.setChecked(not layer.manual)
             self.contrast.setEnabled(layer.manual)  # manual edits only when off
             if layer.data is not None:

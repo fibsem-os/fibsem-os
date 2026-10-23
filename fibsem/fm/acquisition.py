@@ -530,7 +530,7 @@ class FMTiledAcquisitionRunner:
             # Taken once for the whole run rather than per frame. On a TFS system the FM
             # and the beams share one imaging channel, and handing it back between every
             # pair of tiles would flick the microscope's own UI between views for the
-            # length of the acquisition. A no-op on any other mount (FIB-517).
+            # length of the acquisition. A no-op on any other mount.
             with self.microscope.fm.active_channel():
                 self._autofocus_if_mode(AutoFocusMode.ONCE)
                 self._run_tile_loop()
@@ -574,7 +574,7 @@ class FMTiledAcquisitionRunner:
         # reported as nothing at all: the tile bar stopped at N/N and the run looked
         # finished while the app built and wrote a multi-gigabyte array. Measured at
         # ~2.1 s per GB of mosaic on a local SSD -- about 7 s for a 5x5 at ARCTIS
-        # resolution in four channels, and worse to a network drive (FIB-725).
+        # resolution in four channels, and worse to a network drive.
         #
         # The beam tiler has always said "Stitching Tiles" here. This is the same phase
         # in the same place; it is only that the fluorescence stitch and save happen in
@@ -682,7 +682,7 @@ class FMTiledAcquisitionRunner:
         # succeeds. Each tile resets the objective to this before acquiring, so that a
         # run does not accumulate drift -- but resetting to where the *run* started
         # threw away whatever the sweep had just found, and `once` and `each_row` do
-        # their sweeping before the tile that would use it (FIB-516).
+        # their sweeping before the tile that would use it.
         self._tile_objective_position = self._resolve_objective_start()
         if self.centre_position is None:
             self.centre_position = self._initial_position
@@ -758,8 +758,8 @@ class FMTiledAcquisitionRunner:
 
         Moved now rather than at the first tile, because `once` autofocus sweeps before
         the tile loop and centres on wherever the objective is: starting from a saved
-        focus is worth most precisely when a sweep is about to search around it
-        (FIB-417). `_restore` still puts the objective back where the user left it --
+        focus is worth most precisely when a sweep is about to search around it.
+        `_restore` still puts the objective back where the user left it --
         choosing where to start is not moving house.
 
         Raises:
@@ -834,9 +834,6 @@ class FMTiledAcquisitionRunner:
         # the entire point of configuring more than one. Per-row and per-tile focus
         # runs only the narrowest -- they refine an already-good position, and paying
         # for a wide sweep at every tile would dominate the acquisition.
-        #
-        # Previously *all* modes used the narrowest pass alone, so a configured coarse
-        # pass was silently ignored even for the case it exists for.
         self._autofocus_full = replace(self.autofocus_settings, passes=enabled_passes)
         self._autofocus_fine = replace(
             self.autofocus_settings, passes=[enabled_passes[-1]]
@@ -853,7 +850,7 @@ class FMTiledAcquisitionRunner:
         Using the shared layout also keeps the row direction out of the tile loop.
         Row 0 is the top of the mosaic and later rows step down; `stitch_tileset`
         paints row 0 at canvas y=0 regardless, so the two have to agree. They
-        disagreed once already (#226).
+        disagreed once already.
         """
         self._grid = compute_tile_grid_from_fov(
             nrows=self._rows,
@@ -920,7 +917,7 @@ class FMTiledAcquisitionRunner:
         # progress report rather than an announcement -- it carries no tile coordinates,
         # because it is not about a tile. It used to name the first one *and* claim a
         # count of 1, which was a tile that had not been taken; conflating the two is
-        # what left one key meaning two things (FIB-736).
+        # what left one key meaning two things.
         #
         # `total` counts tiles that will actually be acquired, not grid cells -- a
         # progress bar that stops at 9/25 on a successful sparse run reads as a failure.
@@ -1037,7 +1034,7 @@ class FMTiledAcquisitionRunner:
         # Autofocus leaves the objective at best focus, so this is the answer it found.
         # Kept, because the next tile resets the objective before acquiring and would
         # otherwise undo the sweep that just ran -- which is what made `once` and
-        # `each_row` cost time and change nothing (FIB-516).
+        # `each_row` cost time and change nothing.
         self._tile_objective_position = self.microscope.fm.objective.position
         self.result.autofocus.append(
             {"mode": mode.value, "objective_position": self._tile_objective_position}
@@ -1091,7 +1088,7 @@ class FMTiledAcquisitionRunner:
         record.position = microscope.get_stage_position()
         # The focus tiles are meant to be acquired at, which is the run's starting
         # position until a sweep finds something better. Resetting to the *start* here
-        # is what discarded the `once` and `each_row` sweeps (FIB-516); for `each_tile`
+        # is what discarded the `once` and `each_row` sweeps; for `each_tile`
         # it now means each sweep begins from the last tile's answer rather than
         # walking back to the start every time.
         microscope.fm.objective.move_absolute(self._tile_objective_position)
@@ -1126,8 +1123,6 @@ class FMTiledAcquisitionRunner:
         record.objective_position = microscope.fm.objective.position
 
         if self.zparams is not None:
-            # TODO(FIB-394): make the projection method selectable; focus_stack()
-            # already exists and is simply not reachable from here.
             tile_image = tile_image.max_intensity_projection()
 
         return tile_image
@@ -1170,7 +1165,7 @@ class FMTiledAcquisitionRunner:
         tiler reports, and it belonged on the same signal all along. It grew up on the
         fluorescence one because this runner grew up in the FM package, next to a
         signal that was already there and that also carries z-stacks, channel
-        acquisitions and autofocus sweeps (FIB-725).
+        acquisitions and autofocus sweeps.
 
         What stays on the detector's signal is the work *inside* a tile: those are a
         different scale, and `FMOverviewWidget` draws them in a different bar.
@@ -1180,7 +1175,7 @@ class FMTiledAcquisitionRunner:
         call site would read more directly and would mean seven chances to leave the
         modality off -- and the default is beam, so the failure is silent and wrong:
         two consumers draw a beam overview from this signal and would paint a
-        fluorescence mosaic into it, which is the FIB-725 bug the field exists to stop.
+        fluorescence mosaic into it.
         """
         report_tiled_progress(
             self.microscope,
@@ -1255,7 +1250,7 @@ class FMTiledAcquisitionRunner:
             # used to say it twice per tile with two meanings: the tile *starting*
             # before the acquisition, and the tally after. One field cannot be both, and
             # a consumer choosing between them got a bar that changed scale at every
-            # boundary (FIB-736, FIB-739). `TILE_STARTED` carries no counts at all now,
+            # boundary. `TILE_STARTED` carries no counts at all now,
             # so there is nothing to choose between.
             completed=self._n_acquired,
             total=len(self._ordered),
@@ -1299,10 +1294,8 @@ class FMTiledAcquisitionRunner:
         """
         self._emit(
             TiledStatus.TILE_STARTED,
-            # 0-based, matching `_ordered[...]` and the completed-tile report above.
-            # This used to send `row + 1`, one function away from a sibling sending
-            # `tile.row`, so the same signal described the same grid two ways.
-            # `TiledProgress.display_tile` is where the offset for a reader lives now.
+            # 0-based, matching `_ordered[...]` and the completed-tile report above;
+            # `TiledProgress.display_tile` adds the offset for a reader.
             row_index=row,
             column_index=col,
             rows=self._rows,

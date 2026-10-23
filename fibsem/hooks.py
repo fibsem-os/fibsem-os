@@ -37,7 +37,7 @@ class HookEvent(str, Enum):
     # (work remains) nor cancelled (nobody pressed Stop).
     WORKFLOW_STALLED = "workflow_stalled"
     # The run died: an exception escaped the run itself, outside any one task's
-    # own handling (FIB-1037). Carries ``error``.
+    # own handling. Carries ``error``.
     WORKFLOW_FAILED = "workflow_failed"
     EXPERIMENT_COMPLETED = "experiment_completed"
 
@@ -173,11 +173,11 @@ class HookContext:
     skip_reason: Optional[str] = None
     # The requirements that stopped it, on a TASK_SKIPPED for missing_prereqs: the
     # tasks whose latest run did not complete. A reason alone left an agent guessing
-    # which requirement it was (FIB-1357).
+    # which requirement it was.
     missing_prereqs: Optional[List[str]] = None
     # How the run's tasks ended, by status ("completed", "failed", "skipped"), on
     # WORKFLOW_COMPLETED. A run in which everything was skipped still completes, and
-    # this is what says nothing ran (FIB-1357).
+    # this is what says nothing ran.
     task_counts: Optional[Dict[str, int]] = None
     # Which iteration of its item's tasks the work in flight is, for an application
     # whose items repeat their tasks (a volume position, once per slice). None

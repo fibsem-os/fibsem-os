@@ -2,7 +2,7 @@
 
 Deliberately free of any microscope import. Both the beam tiler and the fluorescence
 tiler consume this, and they have already drifted once -- the FM tiler stepped rows in
-the opposite direction to the beam tiler, reversing mosaic row order (#226). One
+the opposite direction to the beam tiler, reversing mosaic row order. One
 definition is the fix.
 
 Importing this module must not pull in `fibsem.microscope`; that is enforced by test,
@@ -114,7 +114,7 @@ def compute_tile_grid_from_fov(
 
     Keeping one implementation matters more than the convenience: the beam tiler and
     the fluorescence tiler stepping rows in opposite directions is what produced a
-    reversed mosaic (#226), and separate layout code is how that happened.
+    reversed mosaic, and separate layout code is how that happened.
 
     Args:
         nrows: Number of tile rows.

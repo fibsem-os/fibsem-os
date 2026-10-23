@@ -47,7 +47,7 @@ if TYPE_CHECKING:
     from fibsem.drivers.tescan.microscope import TescanMicroscope
     from fibsem.structures import DeviceEntry
 
-# The "current" choices (the old get_available_values' hard-coded list).
+# The "current" choices, a fixed list.
 _CURRENT_CHOICES: Dict[BeamType, List[float]] = {
     BeamType.ELECTRON: [1.0e-12],
     BeamType.ION: [20e-12, 60e-12, 0.2e-9, 0.74e-9, 2.0e-9, 7.6e-9, 28.0e-9, 120e-9],
@@ -59,13 +59,11 @@ _NOT_SETTABLE = ParameterMetadata(settable=False)
 class TescanBeam(Beam):
     """A Tescan column: ``SEM`` or ``FIB`` on the connection.
 
-    Each parameter was the matching branch of ``TescanMicroscope._get``/``_set``. A
-    write prepares the beam first (turns it on, stops the scan, waits until it is not
-    busy), as ``_set`` did for every beam key. The choices are what
-    ``get_available_values`` answered for a beam key.
+    A write prepares the beam first (turns it on, stops the scan, waits until it is
+    not busy).
 
-    What the Tescan API refuses is still written, so the old API keeps its message,
-    but reads as not settable: the current on both columns, the ion column's voltage
+    What the Tescan API refuses is still written, so the caller gets its message, but
+    reads as not settable: the current on both columns, the ion column's voltage
     (set by preset), and the resolution, dwell time and stigmation, which are read
     from the last image.
 
@@ -104,7 +102,7 @@ class TescanBeam(Beam):
 
     @property
     def _beam(self) -> Any:
-        """The vendor beam, looked up on every call, as the old branches did."""
+        """The vendor beam, looked up on every call."""
         return self.connection.beam(self.beam_type)
 
     def _prepared(self) -> Any:
@@ -370,7 +368,7 @@ class TescanBeam(Beam):
     # -- imaging and the autofunctions -----------------------------------------------
     # TescanMicroscope's acquire_image, autocontrast, auto_focus and live
     # view worker, moved as they are: the image is built from the frame's header, as
-    # before, and the SDK call holds the connection lock for the whole frame (FIB-786).
+    # before, and the SDK call holds the connection lock for the whole frame.
 
     def _acquire(self, image_settings: Optional[ImageSettings]) -> FibsemImage:
         from fibsem.drivers.tescan import microscope as tescan
@@ -583,15 +581,15 @@ STAGE_FRAME_TESCAN = "tescan_native"
 """Tescan's own stage frame, stamped on an image from a Tescan with no stage device.
 
 x and y run opposite the image, y rides on the tilt module and z is chamber-vertical,
-+z down (FIB-1114). A stage device converts into fibsem's frame and stamps that.
++z down. A stage device converts into fibsem's frame and stamps that.
 """
 
 
 TILT_AXIS_Z = 29.8e-3
 """z′₀, in metres: the Tescan z reading at which the converted frame puts the tilt axis.
 
-The working z′ in the 2026-07-22 session log (29.69 to 30.04 mm over the session), until
-the hardware session measures the eucentric z′ (FIB-1114). Not Tescan's
+The working z′ in a hardware session log (29.69 to 30.04 mm over the session), until
+the hardware session measures the eucentric z′. Not Tescan's
 ``eucentric_height``, which is the FIB working distance.
 """
 
@@ -602,7 +600,7 @@ def from_tescan_frame(
     """A position in Tescan's frame (metres, radians) in fibsem's frame.
 
     Tescan's x and y run opposite fibsem's; its y rides the tilt module and its z is
-    chamber-vertical, +z down, while fibsem's y and z both ride the tilt (FIB-1114):
+    chamber-vertical, +z down, while fibsem's y and z both ride the tilt:
 
         x = -x′,  y = -y′ - (z′ - z′₀)·sin t,  z = -(z′ - z′₀)·cos t
     """
@@ -639,7 +637,7 @@ class TescanStage(Stage):
     ``position`` is in fibsem's frame (:func:`from_tescan_frame`); every
     ``Stage.MoveTo`` is in Tescan's. Through the conversion a position puts the sample
     where a ThermoFisher stage at that position would, so the shared movement and
-    projection maths hold unchanged (FIB-1114).
+    projection maths hold unchanged.
 
     - ``read_position``: ``Stage.GetPosition`` in mm and degrees, converted.
     - ``_move_absolute``: one ``Stage.MoveTo``. y and z convert together, so when one

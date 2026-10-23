@@ -376,7 +376,6 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
                 self.microscope.stop_milling()
                 break
 
-            # TODO: support pause behaviour... just keep fm acq, pause milling
             # NOTE: the bbox is pushed to self.config.bbox by the viewer via
             # _on_bbox_update as the FM ROI rectangle changes.
 

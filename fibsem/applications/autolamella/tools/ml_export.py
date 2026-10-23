@@ -30,8 +30,6 @@ centre -- converts straight to pixels via the image's own pixel size.
 
 Failed lamellae are exported and tagged rather than dropped: a target a human picked
 that then failed is a useful hard negative, not data to discard.
-
-See FIB-305.
 """
 
 import argparse
@@ -162,7 +160,7 @@ def find_final_fib_image(lamella: Lamella) -> Optional[Tuple[str, str]]:
     for task_type in SOURCE_TASK_TYPES:
         candidates: List[str] = []
         for task_name in task_names_for_type(lamella, task_type):
-            # the latest run's, wherever it saved them (FIB-1275)
+            # the latest run's, wherever it saved them
             candidates.extend(
                 path
                 for path in latest_final_reference_images(lamella, task_name)

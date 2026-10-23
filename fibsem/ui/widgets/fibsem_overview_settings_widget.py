@@ -300,14 +300,9 @@ class FibsemOverviewSettingsWidget(QWidget):
         stack below, which is whether to acquire a stack at each tile -- either can be
         wanted without the other, and putting them in one panel said otherwise.
 
-        One row, and no longer because that is all the runner can act on. Until FIB-646
-        the runner called the instrument's own routine -- a beam, a reduced area, nothing
-        else -- so a mode was genuinely everything there was to offer. It now runs
-        `run_auto_focus` against a full sweep config: method, passes, probe frame.
-
-        None of that is exposed here, so the sweep runs at its default. Adding controls
-        for it is unbuilt rather than pending -- there is no issue tracking it, which is
-        worth knowing before assuming one exists.
+        One row. The runner runs `run_auto_focus` against a full sweep config (method,
+        passes, probe frame); none of that is exposed here, so the sweep runs at its
+        default.
         """
         self.combo_autofocus = self._field(
             ValueComboBox(
@@ -459,9 +454,8 @@ class FibsemOverviewSettingsWidget(QWidget):
         self.grid.set_grid_size(rows, cols)
 
     def set_save_directory(self, path: Optional[str]) -> None:
-        """Where a run writes. A method rather than a box the host reaches in and sets:
-        the tab used to poke `image_settings_widget.path_edit` through two layers, which
-        is a coupling to this widget's internal shape rather than to what it does."""
+        """Where a run writes. A method rather than a box the host reaches in and sets,
+        so the host couples to what this widget does, not its internal shape."""
         self.path_edit.setText(str(path) if path else "")
 
     @staticmethod

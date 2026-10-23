@@ -13,7 +13,7 @@ every driver.
 
 Live view is pulled rather than pushed: `FM.start_live` keeps the hardware acquiring,
 each `FM.acquire_frame` returns the next frame, and live view stops by itself when
-nobody asks for one (FIB-1096).
+nobody asks for one.
 """
 
 from __future__ import annotations
@@ -392,7 +392,7 @@ class FM(Device):
         filter is its ``to_dict()``.
         """
         # Taken before the driver runs, as `Beam.acquire` takes a beam image's, so
-        # every driver's frame has it (FIB-1190). A driver that reads the time off the
+        # every driver's frame has it. A driver that reads the time off the
         # instrument (odemis stamps it at exposure) has set its own, and keeps it,
         # unless it has no offset -- a server from before this, say.
         started = now_iso()

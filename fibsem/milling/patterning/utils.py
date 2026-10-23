@@ -295,7 +295,7 @@ def pattern_outline(pattern) -> List[List[Tuple[float, float]]]:
     """The lines a pattern's settings trace, in metres from the field's centre
     (y up): a closed ring of points for an area, two points for a line. For a
     kind this does not know, the box `pattern_extent` gives; none at all, [].
-    For drawing it on an image without the milling view (FIB-1411)."""
+    For drawing it on an image without the milling view."""
     from fibsem.structures import (
         FibsemBitmapSettings,
         FibsemCircleSettings,
@@ -350,7 +350,7 @@ def pattern_outline(pattern) -> List[List[Tuple[float, float]]]:
 
 def outside_field(pattern, width: float, height: float) -> bool:
     """Whether *pattern* reaches past a *width* × *height* field (metres),
-    centred on the beam, which a real instrument refuses to mill (FIB-1411)."""
+    centred on the beam, which a real instrument refuses to mill."""
     extent = pattern_extent(pattern)
     if extent is None:
         return False

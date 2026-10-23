@@ -137,7 +137,7 @@ class MillingStrategyConfig(Tagged, Configurable, ABC):
 class MillingStrategyResult:
     """What a strategy says about its run, for the experiment's record: why it
     stopped, a few facts, a figure it saved. Returned by ``MillingStrategy.run``
-    and recorded on the stage's line in the ``milling`` event (FIB-1257).
+    and recorded on the stage's line in the ``milling`` event.
 
     ``facts`` are keyed by a label a person reads, with the unit in the label
     (``"Mill time (s)": 250``), and hold plain values: the record is JSON.
@@ -321,7 +321,7 @@ class FibsemMillingStage(Configurable):
     imaging: ImageSettings = field(
         default_factory=ImageSettings
     )  # settings for post-milling acquisition
-    # What runs during each mill step of this stage (FIB-1481); each step makes
+    # What runs during each mill step of this stage; each step makes
     # its monitors afresh from these.
     monitors: Annotated[List[MillingMonitorConfig], AfterValidator(_installed)] = field(
         default_factory=list
@@ -569,4 +569,4 @@ def estimate_volume_time(volume: float, milling_current: float) -> float:
     sputter_rate = sputter_rate * (milling_current / sp_keys[0])
 
     time = (volume * 1e6**3) / sputter_rate
-    return time * 0.75  # QUERY: accuracy of this estimate?
+    return time * 0.75

@@ -87,7 +87,7 @@ path, so a demo named after a package it imports would shadow it.
 | `demo_milling_settings_widget.py` | `FibsemMillingSettingsWidget` |
 | `demo_milling_stage_list.py` | `MillingStageListWidget` |
 | `demo_milling_stages_widget.py` | `FibsemMillingStagesWidget` |
-| `demo_milling_task_config_widget2.py` | `MillingTaskConfigWidget2` |
+| `demo_milling_task_config_widget.py` | `MillingTaskConfigWidget` |
 | `demo_milling_task_viewer_widget.py` | `MillingTaskViewerWidget` |
 | `demo_pattern_settings_widget.py` | `FibsemPatternSettingsWidget` |
 

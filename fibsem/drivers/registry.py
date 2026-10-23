@@ -1,4 +1,4 @@
-"""Which driver connects to which manufacturer's microscope (FIB-1123).
+"""Which driver connects to which manufacturer's microscope.
 
 Each driver package describes itself with a ``DRIVER`` record in its ``__init__``: the
 canonical manufacturer name it answers to and the other spellings it accepts, its
@@ -25,7 +25,7 @@ no ``microscope_class``; it is never offered as a manufacturer.
 
 Built-ins in code, plugins in packages, as in fibsem's other plugin groups. A record
 rather than the class, so the format survives the microscope classes becoming device
-builders (FIB-1160): the entry is what changes, not the contract. The entry points
+builders: the entry is what changes, not the contract. The entry points
 are read once, by ``fibsem.plugins.loader``, the first time a driver is looked up or
 listed. When two drivers claim one manufacturer, the same order decides as for
 patterns, strategies and tasks: built-in, then registered at runtime, then plugin.

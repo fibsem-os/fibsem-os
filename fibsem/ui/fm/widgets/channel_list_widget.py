@@ -97,7 +97,7 @@ class _ChannelList(ReorderableListWidget):
         self._fm = fm
 
     def set_fm(self, fm) -> None:
-        """Point at a different microscope (FIB-525).
+        """Point at a different microscope.
 
         Only used to suppress selection changes during live acquisition, but a
         stale reference here means asking the *previous* microscope whether it is
@@ -667,7 +667,7 @@ class ChannelListWidget(QWidget):
         The excitation/emission choices are read from the microscope once, at
         construction, and handed to every row. On a reconnect that leaves each row
         offering the previous microscope's filters -- or, if the first connection
-        had no FM at all, nothing (FIB-525).
+        had no FM at all, nothing.
 
         Rebuilding the rows is how the new choices reach them: the rows take their
         item lists as constructor arguments, and the channel objects themselves are

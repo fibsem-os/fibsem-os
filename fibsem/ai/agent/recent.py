@@ -1,13 +1,13 @@
-"""What the agent did lately, one line each with how it ended (FIB-1414).
+"""What the agent did lately, one line each with how it ended.
 
 The agent card's Recent list: the agent's requests (asked, then approved,
 applying, then done or failed, or rejected with the operator's why), its
 suggestions on proposals (approved, declined with the why, or overruled),
 and what it does itself at Drive or was refused. The operator's messages to it
-are rows too, and its replies and notes (FIB-1423). Read from the session's
+are rows too, and its replies and notes. Read from the session's
 record, the event stream the event log shows, so the list and the log never
 disagree; only the agent's own entries make a row. Each row says the level it
-was done at (FIB-1426).
+was done at.
 
 The conversation (the operator's messages, the agent's replies and notes) is
 kept whole, newlines and all, for the card to draw as Markdown; an action is one
@@ -337,7 +337,7 @@ class RecentActions:
 
     def _on_request_cancelled(self, record, p, agent):
         self._applying.discard(p.get("request_id"))
-        # The agent taking it back says who ended it (sim session 2026-10-16).
+        # The agent taking it back says who ended it.
         if p.get("withdrawn"):
             return self._end(("request", p.get("request_id")), "withdrawn", MUTED)
         return self._end(
@@ -350,7 +350,7 @@ class RecentActions:
         if not agent:
             return False
         item = (p.get("item") or {}).get("name") or ""
-        # what it suggested: the reason is the card's Why (FIB-1492)
+        # what it suggested: the reason is the card's Why
         what = p.get("label") or kind_label(str(p.get("kind") or ""))
         text = f"Suggested on {item} · {p.get('task')} · {what}: {_suggested(p)}"
         return self._put(
@@ -480,7 +480,7 @@ class RecentActions:
         return False
 
     def _on_agent_note(self, record, p, agent):
-        # Its message to the operator (an answer to theirs, FIB-1423), or a note.
+        # Its message to the operator (an answer to theirs), or a note.
         return self._put(
             ("note", record.get("seq")),
             record,

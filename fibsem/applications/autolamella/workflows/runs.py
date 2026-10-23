@@ -5,7 +5,7 @@ work joins a running queue, the manager it runs on, and the hooks it fires (see
 Whether a lamella run can start: every linked lamella's grid must be on the stage.
 
 A lamella marked on a grid's stored overview belongs to that grid whether or not
-the grid is on the stage (FIB-71). Running it while the grid is in the magazine
+the grid is on the stage. Running it while the grid is in the magazine
 would drive the stage to that pose on whatever grid *is* there, so a run that
 includes one is refused, by name, before anything moves. There is no override:
 load the grid, or leave that lamella out.
@@ -162,7 +162,7 @@ def lamella_run_hooks() -> HookManager:
 
     Built per run, not once at startup, so a user's saved configuration takes
     effect on the next run without a restart, and the config dialog can never
-    be editing a manager a running workflow is holding (FIB-497). The hook set
+    be editing a manager a running workflow is holding. The hook set
     comes from the user's saved configuration when there is one, and from
     hook_defaults.default_hooks() when there is not; re-read each time, so
     editing user-preferences.yaml by hand takes effect on the next run.

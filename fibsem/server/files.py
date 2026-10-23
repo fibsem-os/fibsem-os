@@ -4,7 +4,7 @@ One folder listed at a time; a text file (yaml, json, log, md, csv) as text; an
 image as a preview with its metadata, the shape every image answer has
 (:func:`fibsem.server.images.image_answer`), or one region of it at native
 resolution. A file's raw bytes too (:func:`raw_file`), for an agent whose code
-runs on another machine (Patrick, 2026-10-21; previews only before).
+runs on another machine.
 
 Every path resolves inside the experiment folder, symlinks followed, so ``..``,
 an absolute path elsewhere and a link out of the folder are refused alike

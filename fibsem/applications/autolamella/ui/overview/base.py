@@ -19,7 +19,7 @@ have one implementation each.
 r, and differ only in tilt -- -23 degrees against -180. A test asserting where a marker
 landed cannot tell them apart, and a canvas marking the wrong one looks entirely
 plausible while putting every lamella on the far side of the grid. Anything checking this
-has to assert the tilt (FIB-709).
+has to assert the tilt.
 
 # What each tab says for itself
 
@@ -70,7 +70,7 @@ class AutoLamellaOverviewTabBase(QWidget):
     # place instead of four.
     lamella_selected = pyqtSignal(object)
     # Whether a run is in progress in this tab, forwarded from the widget. The window
-    # listens so it can stop the *other* overview taking the stage (FIB-706); it
+    # listens so it can stop the *other* overview taking the stage; it
     # connects to the tab rather than the widget because the widget is rebuilt on every
     # reconnection and a subscription to the old one would be stale and undisconnectable.
     acquiring_changed = pyqtSignal(bool)
@@ -97,7 +97,7 @@ class AutoLamellaOverviewTabBase(QWidget):
         self.overview: Optional[QWidget] = None
         # The microscope the current widget was built for. A reconnection hands out a
         # new object, and the old widget would go on reading geometry from an instrument
-        # nobody is driving (FIB-433), so the identity is worth keeping.
+        # nobody is driving, so the identity is worth keeping.
         self._microscope = None
         # Set while this tab is the one driving a selection, so the highlight it gets
         # back does not re-enter the list and fight whatever the user just clicked.
@@ -188,7 +188,7 @@ class AutoLamellaOverviewTabBase(QWidget):
         Asked *of the other tab* before anything drives the stage: a click-to-move on one
         overview while the other is mid-tileset does not fail loudly -- the run goes on
         stamping tiles with the poses it planned, so the mosaic comes out plausible and
-        wrong (FIB-706). Both widgets answer this; only one tab used to pass it on.
+        wrong. Both widgets answer this, and both tabs pass it on.
         """
         return self.overview is not None and self.overview.is_acquiring
 

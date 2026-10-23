@@ -410,7 +410,7 @@ class FibsemSpotBurnWidget(QWidget):
         """Called when the spot burn fails.
 
         Restores the button only. The failure terminal is emitted by `run_spot_burn`
-        itself (FIB-824), because this widget only ever sees a burn it started: an
+        itself, because this widget only ever sees a burn it started: an
         unsupervised workflow burn calls the producer directly, and used to report no
         failure at all.
 

@@ -172,7 +172,7 @@ class FibsemDetectorSettingsWidget(QWidget):
         self.settings_changed.emit(self.get_settings())
 
     def _set(self, label: str, setter, value) -> bool:
-        """Write ``value`` holding control (FIB-1488). Refused, the controls show
+        """Write ``value`` holding control. Refused, the controls show
         the detector's values again."""
         action = f"set the {self.beam_type.name} {label}"
         if operator_acts(

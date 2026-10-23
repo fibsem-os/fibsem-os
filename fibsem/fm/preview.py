@@ -1,7 +1,7 @@
 """Turning a fluorescence z-stack on disk into one displayable RGB image.
 
-Separate from the widgets that show it, and Qt-free, so it can be tested in CI —
-anything reaching through `fibsem.ui` is skipped there for lack of napari/PyQt5.
+Separate from the widgets that show it, and Qt-free, so it can be tested without the
+UI extras.
 """
 
 from __future__ import annotations

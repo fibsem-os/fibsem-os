@@ -118,7 +118,7 @@ class LinePlotWidget(QWidget):
 
         layout = QVBoxLayout()
 
-        # Create matplotlib figure and canvas with napari-style dark theme
+        # Create matplotlib figure and canvas with the dark theme
         self.figure = Figure(figsize=(4, 3), dpi=80)
         self.figure.patch.set_facecolor(DARK.background)
 

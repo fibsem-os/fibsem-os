@@ -113,7 +113,7 @@ class TaskConfigEditor(QWidget):
 
     def set_microscope(self, microscope: "FibsemMicroscope") -> None:
         """After a reconnect: the forms keep the microscope they were built with
-        otherwise. The milling editor's own children are not updated (FIB-530)."""
+        otherwise. The milling editor's own children are not updated."""
         self.milling.microscope = microscope
 
     def show_task(

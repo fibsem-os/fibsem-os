@@ -84,7 +84,7 @@ class FluorescenceOverviewTab(AutoLamellaOverviewTabBase):
 
         On a compustage deriving it would give the same answer; on an offset mount it
         would not, and the wrong answer there is a lamella with a milling pose 48 mm off
-        the beam axis that nothing rejects until something tries to mill it (FIB-93).
+        the beam axis that nothing rejects until something tries to mill it.
         Declaring it turns that into a refusal at the point of marking, where there is a
         user to tell.
         """

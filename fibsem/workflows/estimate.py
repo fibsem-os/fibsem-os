@@ -9,8 +9,6 @@ Everything here is plain data, so it can be checked against a real experiment
 without a microscope or a widget. Per-step durations come from each config's
 ``estimated_duration`` (see :mod:`fibsem.timing`); who has to be there while the
 run goes is not an estimate and is not here (``fibsem/workflows/attendance.py``).
-
-See FIB-666.
 """
 
 from __future__ import annotations
@@ -203,7 +201,7 @@ class QueueEstimate:
 
     Not a warning and never rendered as one: a task running long is ordinary variance,
     not an error. It is only how the row knows to stop predicting and report elapsed
-    instead -- see FIB-666.
+    instead --.
     """
 
 
@@ -230,7 +228,7 @@ def estimate_queue(
         schedule: ``scheduled_at`` per task name, for the tasks that have one
         now: the clock to walk from; defaults to the current time
         active_elapsed: seconds the running task has been going, excluding any pause for
-            a human -- see FIB-666 on why the countdown freezes but the elapsed shown on
+            a human -- on why the countdown freezes but the elapsed shown on
             the row does not
 
     Returns:
