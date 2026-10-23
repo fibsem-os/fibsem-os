@@ -300,7 +300,7 @@ def test_a_suggestion_and_a_decision_keep_the_evidence_they_cite():
     assert decision.to_dict()["evidence"] == "ab12cd34"
     assert Decision.from_dict(decision.to_dict()).evidence == "ab12cd34"
     # Saved only when there is one: old files read the same.
-    assert "evidence" not in Decision(DecisionOutcome.Confirmed, "agent:x").to_dict()
+    assert Decision(DecisionOutcome.Confirmed, "agent:x").to_dict()["evidence"] == ""
 
 
 def test_a_reference_image_is_cited_as_proposal_list_gives_it(client, context):
