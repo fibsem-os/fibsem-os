@@ -308,7 +308,7 @@ class AutoLamellaAppContext(AppContext):
 
         from fibsem.fm.preview import is_fluorescence_image
         from fibsem.imaging.thickness import DEFAULT_WINDOW, measure_lamella_band
-        from fibsem.structures import BeamType, FibsemImage, Point
+        from fibsem.structures import FibsemImage, Point
 
         experiment = self._experiment
         if experiment is None:
@@ -670,7 +670,7 @@ class AutoLamellaAppContext(AppContext):
                 patch,
                 version,
             )
-            if not isinstance(result, Refusal) and result.get("applied"):
+            if result.get("applied"):
                 session.changed.emit(
                     CONFIG,
                     {

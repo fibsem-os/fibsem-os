@@ -23,11 +23,10 @@ import logging
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from fibsem.acting import AGENT, acting
-from fibsem.server.app_context import find_item
-from fibsem.server.responses import no_experiment, refusal_of, refused
 from fibsem.util.records import content_hash
 from fibsem.workflows.config_patch import PatchError, apply_patch, check_patch
 from fibsem.workflows.edit_recording import PendingEdits
+from fibsem.workflows.experiment import find_item
 from fibsem.workflows.item import item_pose_positions
 from fibsem.workflows.status import TaskStatus
 from fibsem.workflows.task_configs import (
@@ -129,9 +128,15 @@ def touch_agent_patch(
         logging.debug("could not note what an agent patch changes", exc_info=True)
 
 
+def _refused(error_type: str, **why: Any) -> dict:
+    """An edit that did nothing: ``error`` says why, ``error_type`` what kind
+    of refusal it is (the App Server's status), and the names there are."""
+    return {"applied": False, "error_type": error_type, **why}
+
+
 def _apply(experiment, level, item_name, task_name, patch, version) -> dict:
     if experiment is None:
-        return no_experiment()
+        return _refused("no_experiment", error="No experiment is loaded.")
     if level == "item_fields":
         return patch_item_fields(experiment, item_name, patch, version)
     if level == "reorder_stages":
@@ -149,7 +154,7 @@ def patch_task_config(
     refused as stale, never half-merged."""
     _lamella, config, why = task_config_at(experiment, level, item_name, task_name)
     if why:
-        return refusal_of({"applied": False, **why})
+        return {"applied": False, "error_type": "not_found", **why}
     patched = patch_config(config, patch, version)
     if not patched["applied"]:
         return patched
@@ -202,9 +207,9 @@ def item_patch_refusal(lamella, patch: dict) -> Optional[str]:
 def patch_item_fields(experiment, item_name: str, patch: dict, version: str) -> dict:
     """The App Server's item patch: :func:`edit_item_fields` on the item named
     *item_name*, saved."""
-    lamella, refusal = find_item(experiment, item_name)
-    if refusal:
-        return refusal
+    lamella, why = find_item(experiment, item_name)
+    if why:
+        return _refused("not_found", **why)
     result = edit_item_fields(lamella, patch, version)
     if result["applied"]:
         result["saved"] = save_experiment(experiment, "agent item patch")
@@ -335,15 +340,15 @@ def reorder_milling_stages(
         protocol = getattr(experiment, "task_protocol", None)
         config_map = getattr(protocol, "task_config", None)
         if config_map is None:
-            return no_experiment()
+            return _refused("no_experiment", error="No experiment is loaded.")
         config = dict(config_map).get(task_name)
     else:
-        lamella, refusal = find_item(experiment, item_name)
-        if refusal:
-            return refusal
+        lamella, why = find_item(experiment, item_name)
+        if why:
+            return _refused("not_found", **why)
         config = dict(lamella.task_config).get(task_name)
     if config is None:
-        return refused("not_found", f"No task config named {task_name!r}.")
+        return _refused("not_found", error=f"No task config named {task_name!r}.")
     milling = getattr(config, "milling", None) or {}
     if milling_key not in milling:
         return {
@@ -398,19 +403,19 @@ def apply_protocol_to_item(
     does (``Experiment.apply_lamella_config``): the item keeps its milling
     pattern positions. No version check. ``task_names`` of None means every
     task the protocol defines."""
-    lamella, refusal = find_item(experiment, item_name)
-    if refusal:
-        return refusal
+    lamella, why = find_item(experiment, item_name)
+    if why:
+        return _refused("not_found", **why)
     protocol = getattr(experiment, "task_protocol", None)
     config_map = getattr(protocol, "task_config", None)
     if config_map is None:
-        return no_experiment()
+        return _refused("no_experiment", error="No experiment is loaded.")
     names = list(task_names) if task_names else list(config_map.keys())
     unknown = [n for n in names if n not in config_map]
     if unknown:
-        return refused(
+        return _refused(
             "not_found",
-            f"Not in the protocol: {unknown!r}.",
+            error=f"Not in the protocol: {unknown!r}.",
             task_names=list(config_map.keys()),
         )
     _, saved = copy_task_configs(experiment, [lamella.name], names)
