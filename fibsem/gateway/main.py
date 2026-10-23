@@ -18,6 +18,7 @@ import urllib.request
 from pathlib import Path
 from typing import List, Optional
 
+from fibsem.gateway.agent import GatewayAgent
 from fibsem.gateway.gateway import (
     GATEWAY_FILE,
     GATEWAY_PORT,
@@ -96,9 +97,10 @@ def run(port: int, tray: bool, connection: List[str]) -> int:
         return 1
     gateway = Gateway(connection)
     auth = GatewayAuth.from_disk()
+    agent = GatewayAgent(gateway, auth.pairing.tokens)
     server = uvicorn.Server(
         uvicorn.Config(
-            build_gateway_app(gateway, auth),
+            build_gateway_app(gateway, auth, agent),
             host="127.0.0.1",
             port=port,
             log_level="warning",
@@ -114,7 +116,7 @@ def run(port: int, tray: bool, connection: List[str]) -> int:
     gateway.start()
     print(f"Gateway at http://127.0.0.1:{port}/ui/gateway")
     try:
-        if not (tray and _run_tray(gateway, auth, port)):
+        if not (tray and _run_tray(gateway, auth, port, agent)):
             forever = threading.Event()
             # in short waits: Ctrl-C does not break a bare wait on Windows
             while not forever.wait(0.5):
@@ -138,13 +140,13 @@ def quit_gateway(gateway: Gateway) -> None:
         logging.warning("Gateway quit: %s", refusal)
 
 
-def _run_tray(gateway: Gateway, auth, port: int) -> bool:
+def _run_tray(gateway: Gateway, auth, port: int, agent=None) -> bool:
     """The tray's event loop until Quit; False when Qt or a tray isn't there."""
     try:
         from fibsem.gateway.ui.tray import run_tray
     except ImportError:
         return False
-    return run_tray(gateway, auth, port)
+    return run_tray(gateway, auth, port, agent)
 
 
 def _startup_folder() -> Path:

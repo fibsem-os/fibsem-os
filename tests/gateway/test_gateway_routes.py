@@ -292,3 +292,111 @@ def test_the_app_server_and_the_gateway_share_one_paired_file(tmp_path):
     }
     app_server.remove(app_server.match(hub).id)
     assert gateway.match(hub) is None
+
+
+class FakeAgent:
+    """Records what the agent routes ask for."""
+
+    def __init__(self):
+        self.calls = []
+        self.refuse = None
+
+    def state(self):
+        from fibsem.gateway.agent import AgentState
+
+        return AgentState(microscope="arctis-pc")
+
+    def profiles(self):
+        return [{"name": "default"}]
+
+    def configuration(self, name):
+        if self.refuse is not None:
+            raise self.refuse
+        return {"profile": {"name": name}}
+
+    def start(self, profile, goal, level, who, via, budget_usd=None, replace=False):
+        self.calls.append(
+            ("start", profile, goal, level, who, via, budget_usd, replace)
+        )
+        return self.state()
+
+    def end(self, who, via, stop_app=False, force=False):
+        self.calls.append(("end", who, via, stop_app, force))
+        return self.state()
+
+
+@pytest.fixture
+def with_agent(setup, tmp_path):
+    _, gateway, auth = setup
+    agent = FakeAgent()
+    return TestClient(build_gateway_app(gateway, auth, agent)), agent
+
+
+def test_the_operator_starts_and_ends_the_agent(with_agent):
+    client, agent = with_agent
+    r = client.post(
+        "/gateway/agent/start",
+        json={"profile": "overnight", "goal": " Mill 01 ", "level": "assist"},
+        headers=_as(OPERATOR_TOKEN),
+    )
+    assert r.status_code == 200 and r.json()["microscope"] == "arctis-pc"
+    r = client.post(
+        "/gateway/agent/end", json={"stop_app": True}, headers=_as(OPERATOR_TOKEN)
+    )
+    assert r.status_code == 200
+    assert agent.calls == [
+        ("start", "overnight", "Mill 01", "assist", "operator", "page", None, False),
+        ("end", "operator", "page", True, False),
+    ]
+
+
+def test_a_start_with_no_profile_takes_the_default_and_checks_the_budget(with_agent):
+    client, agent = with_agent
+    for budget in ("lots", -1):
+        r = client.post(
+            "/gateway/agent/start",
+            json={"budget_usd": budget},
+            headers=_as(OPERATOR_TOKEN),
+        )
+        assert r.json()["detail"]["error_type"] == "bad_budget"
+    client.post(
+        "/gateway/agent/start",
+        json={"budget_usd": "7.5", "replace": True},
+        headers=_as(OPERATOR_TOKEN),
+    )
+    assert agent.calls == [
+        ("start", "default", None, "watch", "operator", "page", 7.5, True)
+    ]
+
+
+def test_a_hub_needs_the_grant_to_start_the_agent(with_agent):
+    client, agent = with_agent
+    reader = _pair_hub(client, [])
+    assert client.get("/gateway/agent", headers=_as(reader["token"])).status_code == 200
+    r = client.post("/gateway/agent/start", json={}, headers=_as(reader["token"]))
+    assert r.status_code == 403
+    switcher = _pair_hub(client, [SWITCH_MODES])
+    r = client.post("/gateway/agent/end", json={}, headers=_as(switcher["token"]))
+    assert r.status_code == 200
+    assert agent.calls == [("end", "mac-mini", "hub", False, False)]
+    r = client.post(
+        "/gateway/agent/end", json={"force": True}, headers=_as(switcher["token"])
+    )
+    assert r.json()["detail"]["error_type"] == "operator_only"
+
+
+def test_the_profiles_routes(with_agent):
+    client, agent = with_agent
+    assert client.get("/gateway/agent/profiles").status_code == 401
+    r = client.get("/gateway/agent/profiles", headers=_as(OPERATOR_TOKEN))
+    assert r.json() == [{"name": "default"}]
+    r = client.get("/gateway/agent/profiles/default", headers=_as(OPERATOR_TOKEN))
+    assert r.json() == {"profile": {"name": "default"}}
+    agent.refuse = GatewayRefused(422, "bad_profile", "No profile 'x'")
+    r = client.get("/gateway/agent/profiles/x", headers=_as(OPERATOR_TOKEN))
+    assert (r.status_code, r.json()["detail"]["error_type"]) == (422, "bad_profile")
+
+
+def test_without_an_agent_there_are_no_agent_routes(setup):
+    client, _, _ = setup
+    assert client.get("/gateway/agent", headers=_as(OPERATOR_TOKEN)).status_code == 404

@@ -4,7 +4,8 @@
 /gateway/mode`` and ``/gateway/stop`` for the operator, or a hub the operator
 granted "may start and stop apps" (`SWITCH_MODES`); forcing past a running
 workflow, and ``/gateway/claim`` (a desktop launch on this PC), for the
-operator only. Pairing is the App Server's (`fibsem.server.pairing_routes`),
+operator only. ``/gateway/agent`` reads, starts and ends this PC's agent
+(`fibsem.gateway.agent`), with the same rules as the modes. Pairing is the App Server's (`fibsem.server.pairing_routes`),
 with the hub role, and the page is the web app's ``/ui/gateway``.
 """
 
@@ -12,12 +13,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.requests import HTTPConnection
 from fastapi.responses import RedirectResponse
 
+from fibsem.gateway.agent import AgentState, GatewayAgent
 from fibsem.gateway.gateway import (
     Gateway,
     GatewayRefused,
@@ -99,7 +101,9 @@ def _refused(status: int, error_type: str, message: str) -> HTTPException:
     return HTTPException(status, detail={"error_type": error_type, "message": message})
 
 
-def build_gateway_app(gateway: Gateway, auth: GatewayAuth) -> FastAPI:
+def build_gateway_app(
+    gateway: Gateway, auth: GatewayAuth, agent: Optional[GatewayAgent] = None
+) -> FastAPI:
     app = FastAPI(title="fibsem gateway")
     app.state.auth = auth
 
@@ -199,6 +203,64 @@ def build_gateway_app(gateway: Gateway, auth: GatewayAuth) -> FastAPI:
                 str(body.get("via") or "desktop launch"),
             ),
         )
+
+    if agent is not None:
+
+        @app.get("/gateway/agent", response_model=AgentState)
+        def get_agent(found: Caller = Depends(caller)):
+            """The running agent, or none, and the latest sessions."""
+            return agent.state()
+
+        @app.get("/gateway/agent/profiles")
+        def get_profiles(found: Caller = Depends(caller)) -> List[dict]:
+            """The profiles on this PC, as ``fibsem-agent --list-profiles``."""
+            return _act(found, {}, lambda force, via: agent.profiles())
+
+        @app.get("/gateway/agent/profiles/{name}")
+        def get_profile(name: str, found: Caller = Depends(caller)) -> dict:
+            """What *name* runs with, as ``fibsem-agent --show-config``."""
+            return _act(found, {}, lambda force, via: agent.configuration(name))
+
+        @app.post("/gateway/agent/start", response_model=AgentState)
+        def start_agent(body: Dict[str, Any], found: Caller = Depends(switcher)):
+            """``{profile, goal, level, budget_usd, replace}``: pair the agent,
+            set the level, start it. ``replace`` disconnects an agent paired
+            some other way."""
+            budget = body.get("budget_usd")
+            try:
+                budget = float(budget) if budget not in (None, "") else None
+            except (TypeError, ValueError):
+                raise _refused(422, "bad_budget", "The budget is a number of dollars.")
+            if budget is not None and budget <= 0:
+                raise _refused(422, "bad_budget", "The budget is above $0.")
+            profile = str(body.get("profile") or "default")
+            return _act(
+                found,
+                body,
+                lambda force, via: agent.start(
+                    profile,
+                    str(body.get("goal") or "").strip() or None,
+                    str(body.get("level") or "watch"),
+                    who=found.who,
+                    via=via,
+                    budget_usd=budget,
+                    replace=bool(body.get("replace", False)),
+                ),
+            )
+
+        @app.post("/gateway/agent/end", response_model=AgentState)
+        def end_agent(
+            body: Optional[Dict[str, Any]] = None, found: Caller = Depends(switcher)
+        ):
+            """``{stop_app, force}``: end the agent; with ``stop_app``, then the app."""
+            body = body or {}
+            return _act(
+                found,
+                body,
+                lambda force, via: agent.end(
+                    found.who, via, bool(body.get("stop_app", False)), force
+                ),
+            )
 
     app.include_router(build_pairing_router(auth))
     app.include_router(web_app_router())
