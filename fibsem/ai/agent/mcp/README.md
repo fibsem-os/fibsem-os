@@ -158,8 +158,15 @@ fibsem-agent
   rather than wait. Its log never shows a bearer token or an API key.
 - **Instructions.** It reads this checkout's skills and nothing else: not the
   checkout's `CLAUDE.md` (developer guidance) and not Claude Code's auto memory.
+- **Its session's folder.** Each session has one,
+  `~/.fibsem/agent/sessions/<date>-<session id>/`, kept by a resume:
+  `session.json` (what it runs with, and each run's start, exit code, reason
+  and spend) and `fibsem-agent.log`. A `stop` file there ends the run as
+  Ctrl-C does, which is how the gateway and the hub stop an agent they started
+  (`fibsem.ai.agent.manager`); `--session-id <uuid>` starts a new session
+  with an id chosen beforehand.
 - **What it says.** The agent's replies and tool calls go to the console and
-  to `~/.fibsem/agent/fibsem-agent-<time>.log` (`--log` to choose). What the
+  to the session's log (`--log` to choose another file). What the
   operator must read in the app, it sends as a message
   (`experiment_message_operator`, a toast on the web Agent page), answering a
   message from the Agent page with its `reply_to`; a judgment worth keeping is a note

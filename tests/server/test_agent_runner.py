@@ -512,14 +512,55 @@ def test_fibsem_agent_starts_with_its_status(tmp_path):
 def test_a_bare_resume_carries_on_the_last_session_in_the_same_folder(
     tmp_path, monkeypatch
 ):
+    from fibsem.ai.agent import manager
+
     monkeypatch.setattr(runner_mod.Path, "home", lambda: tmp_path)
-    work, other = tmp_path / "work", tmp_path / "other"
-    assert runner_mod.last_session(work) is None
-    runner_mod.keep_session(work, "first")
-    runner_mod.keep_session(other, "elsewhere")
-    runner_mod.keep_session(work, "second")
-    assert runner_mod.last_session(work) == "second"
-    assert runner_mod.last_session(other) == "elsewhere"
+    work = tmp_path / "work"
+    manager.SessionFolder.open("first", {"cwd": str(work)})
+    assert manager.last_session(work) == "first"
+    assert manager.folders()[0].parent == tmp_path / ".fibsem" / "agent" / "sessions"
+
+
+def test_each_session_has_a_folder_with_its_record_and_log(tmp_path, monkeypatch):
+    """No App Server answers, so the agent never starts: the run still leaves
+    its record, and how it ended."""
+    pytest.importorskip("claude_agent_sdk")
+    import uuid
+
+    from fibsem.ai.agent import manager
+
+    monkeypatch.setattr(runner_mod.Path, "home", lambda: tmp_path)
+    monkeypatch.delenv("FIBSEM_SERVER_TOKEN", raising=False)
+    session_id = str(uuid.uuid4())
+    handlers = list(runner_mod.log.handlers)
+    try:
+        code = runner_mod.main(
+            ["--url", "http://127.0.0.1:9", "--server-wait", "0"]
+            + ["--session-id", session_id, "--goal", "mill 01"]
+        )
+    finally:
+        for handler in runner_mod.log.handlers[len(handlers) :]:
+            handler.close()
+            runner_mod.log.removeHandler(handler)
+    assert code == 1
+    folder = manager.find_folder(session_id)
+    assert folder is not None and folder.name.endswith(session_id)
+    record = manager.read_json(folder / manager.RECORD)
+    assert record["goal"] == "mill 01"
+    assert record["url"] == "http://127.0.0.1:9"
+    assert record["mode"] == "none"
+    (run,) = record["runs"]
+    assert run["exit_code"] == 1 and run["resumable"] is True
+    assert "Session:" in (folder / manager.LOG).read_text(encoding="utf-8")
+
+
+def test_a_session_id_is_a_new_session_and_a_uuid(capsys):
+    with pytest.raises(SystemExit):
+        runner_mod.main(["--session-id", str(__import__("uuid").uuid4()), "--resume"])
+    assert "--resume carries one on" in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        runner_mod.main(["--session-id", "not-a-uuid"])
+    assert "not a UUID" in capsys.readouterr().err
 
 
 def test_a_bare_resume_with_no_earlier_session_says_so(tmp_path, monkeypatch, capsys):
