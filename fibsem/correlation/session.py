@@ -52,9 +52,9 @@ class RunOutcome(enum.Enum):
 
     # Adopted, and it describes the points as they are now.
     LIVE = "live"
-    # Adopted, but a point was moved while it ran (FIB-321).
+    # Adopted, but a point was moved while it ran.
     STALE = "stale"
-    # Not adopted: the result was cleared or replaced while it ran (FIB-1242).
+    # Not adopted: the result was cleared or replaced while it ran.
     SUPERSEDED = "superseded"
 
 
@@ -81,7 +81,7 @@ class CorrelationSession:
 
     def __init__(self) -> None:
         # The points and the selection, held once: the tab's lists and canvases
-        # draw from them through a Qt point store (FIB-973). Removing the FM
+        # draw from them through a Qt point store. Removing the FM
         # surface disarms the pre-correction; any change arms the auto-save.
         self.points = CorrelationPoints()
         self.points.subscribe(self._disarm_without_fm_surface)
@@ -95,11 +95,11 @@ class CorrelationSession:
         self._result: Optional[CorrelationResult] = None
         # Bumped whenever the result is cleared or replaced; a run started
         # before the bump delivers into a state it no longer describes, so its
-        # result is dropped (FIB-1242).
+        # result is dropped.
         self._generation = 0
         self._pending: Optional[PendingRun] = None
         # Reads in progress: an open is not an edit, and writing during one
-        # rewrote the file being read (FIB-1237).
+        # rewrote the file being read.
         self._reads = 0
         self._start_fresh()
 
@@ -109,26 +109,26 @@ class CorrelationSession:
         self.fm_image: Optional[FluorescenceImage] = None
         # What a run starts from (see seed): previous runs, ``(label, run)``
         # pairs most specific first, and the camera transform the host assumes
-        # for an FM stack that recorded none (FIB-881).
+        # for an FM stack that recorded none.
         self.prior_runs: List[Tuple[str, CorrelationRun]] = []
         self.assumed_fm_transform: Optional[CameraImageTransform] = None
-        # Ignore the previous run's placement offset for this lamella (FIB-979).
+        # Ignore the previous run's placement offset for this lamella.
         self.ignore_placement_offset = False
         # Positions as last seeded by the setup section, to detect manual edits
-        # before replacing them (None = nothing seeded yet). FIB-302.
+        # before replacing them (None = nothing seeded yet).
         self.seeded_positions: Optional[list] = None
-        # Experiment-global config; passed in on open, read back on close
-        # (FIB-298). The fit and RI choices on screen are the tab's widgets.
+        # Experiment-global config; passed in on open, read back on close.
+        # The fit and RI choices on screen are the tab's widgets.
         self.config = CorrelationConfig()
         # The run folder the auto-save writes; a destination, not a promise:
-        # it is created on the first write worth making (FIB-320).
+        # it is created on the first write worth making.
         self.project_dir: Optional[str] = None
         # Auto-save is armed by a load or an edit, never by an image load: an
         # open must not write until there is something of the user's to keep
-        # (FIB-977, see auto_save).
+        # (see auto_save).
         self._save_armed = False
         # Last auto-save failure, held so the status line keeps reporting it
-        # instead of claiming "Ready." while nothing is saved (FIB-316).
+        # instead of claiming "Ready." while nothing is saved.
         self.save_error: Optional[str] = None
 
     def reset(self) -> None:
@@ -222,7 +222,7 @@ class CorrelationSession:
 
         The one place a recorded z changes planes: a load, a legacy load and a
         seed all come through here, so a run saved from an interpolated stack
-        or another acquisition opens at the depth it was picked at (FIB-1239).
+        or another acquisition opens at the depth it was picked at.
         Without a loaded stack there is nothing to convert to, and the values
         are kept as recorded.
         """
@@ -282,7 +282,7 @@ class CorrelationSession:
         The surface points are in here too: they are single points held in their
         own fields rather than lists, and leaving them out meant a re-seed wiped
         a placed surface point — silently disarming any stored RI pre-correction
-        with it — without so much as a confirmation (FIB-319).
+        with it — without so much as a confirmation.
         """
         d = self.data
         coords = d.fib_coordinates + d.fm_coordinates + d.poi_coordinates
@@ -358,7 +358,7 @@ class CorrelationSession:
         # Record the surface this correction is about, as a *copy*: input_data is
         # the snapshot the transform was fitted to. Storing the live coordinate
         # would let a later drag of the surface line rewrite history — and, worse,
-        # launder an already-stale result back to "current" (FIB-315). The
+        # launder an already-stale result back to "current". The
         # correction reads it from there, so it goes in first and comes out
         # again if the correction refuses: a second Apply on a corrected result
         # must not record a surface dragged since.
@@ -383,7 +383,7 @@ class CorrelationSession:
     # ------------------------------------------------------------------
 
     def placement_offset(self) -> Optional[PlacementOffset]:
-        """A previous run's placement offset, or None (see FIB-979)."""
+        """A previous run's placement offset, or None (."""
         return placement_offset_from_runs(self.prior_runs) if self.prior_runs else None
 
     def seed(self) -> Seed:
@@ -429,10 +429,9 @@ class CorrelationSession:
         )
 
     def next_step(self, data: Optional[CorrelationInputData] = None) -> str:
-        """One sentence on what to do next, for the status line (FIB-978 §1.4).
+        """One sentence on what to do next, for the status line.
 
-        The bar's idle text used to be "Ready." or a count of what was missing;
-        this names the step, in the order the flow goes: images, FIB fiducials,
+        Names the step, in the order the flow goes: images, FIB fiducials,
         FM fiducials, the target, run.
         """
         if self.running:
@@ -506,7 +505,7 @@ class CorrelationSession:
 
     def supersede_run(self) -> None:
         """Make a run in flight deliver nothing: what it was started on has
-        been replaced (FIB-1242). Its seed goes too, so the status line of a
+        been replaced. Its seed goes too, so the status line of a
         result loaded or adopted next does not describe it."""
         self._generation += 1
         self.last_seed = None
@@ -517,8 +516,8 @@ class CorrelationSession:
 
         Whenever the points are replaced wholesale by a new source, any result
         belongs to the previous points; kept, it is drawn over the new points,
-        exported, and saved against coordinates it was never computed from
-        (FIB-318).
+        exported, and saved against coordinates it was never computed from.
+
         """
         self.supersede_run()
         if self._result is None:
@@ -549,9 +548,9 @@ class CorrelationSession:
         """Adopt a run's result, judged against the points as they are now.
 
         Returns LIVE when the result still describes the current points, STALE
-        when a point was dragged while it ran (FIB-321), and SUPERSEDED,
+        when a point was dragged while it ran, and SUPERSEDED,
         adopting nothing, for a run whose result was cleared or replaced while
-        it ran (FIB-1242).
+        it ran.
         """
         pending, self._pending = self._pending, None
         if pending is not None and pending.generation != self._generation:
@@ -601,10 +600,10 @@ class CorrelationSession:
         """Read a file in without writing one: no auto-save during the read,
         and none after it until an edit or a run arms it. Nests.
 
-        Opening a run used to rewrite it straight away -- ``set_data`` arms the
-        save and the load's own ``data_changed`` fired it -- so the file took the
-        names of whatever images happened to be open, and opening a folder with
-        the wrong reference overwrote the record of the right one (FIB-1237).
+        Without it, ``set_data`` arms the save and the load's own
+        ``data_changed`` fires it, so the file would take the names of whatever
+        images happened to be open, and opening a folder with the wrong reference
+        would overwrite the record of the right one.
         """
         self._reads += 1
         try:
@@ -623,13 +622,13 @@ class CorrelationSession:
         ``adopt_inputs=False`` when the caller has already loaded fresher
         coordinates: ``result.input_data`` is a record of what the transform was
         fitted to, not the current truth, so applying it would silently discard
-        every edit made after that run (FIB-295).
+        every edit made after that run.
         """
-        self.supersede_run()  # a run in flight delivers nothing (FIB-1242)
+        self.supersede_run()  # a run in flight delivers nothing
         if adopt_inputs and result.input_data:
             # Deep-copy: the points become editable, and sharing the Coordinate
             # objects with the result's snapshot would make every edit mutate it
-            # too, permanently defeating matches_inputs (FIB-315).
+            # too, permanently defeating matches_inputs.
             self.adopt_inputs(copy.deepcopy(result.input_data))
         # Continue commits result.poi[0].px_m to the protocol editor, so a result
         # that predates the current points must not arm it.
@@ -642,9 +641,8 @@ class CorrelationSession:
 
         Points are taken before the result so that, when a result is present,
         its staleness is judged against the freshly-loaded coordinates and its
-        own snapshot is not replayed over them -- the FIB-295 ordering, now the
-        only ordering because both come from one file. Without a result the
-        session's is dropped: it belongs to the previous points (FIB-318).
+        own snapshot is not replayed over them. Without a result the
+        session's is dropped: it belongs to the previous points.
         """
         self.adopt_inputs(state.input_data)
         if state.result is None:
@@ -657,7 +655,7 @@ class CorrelationSession:
         without arming the auto-save. Returns what it read.
 
         Dispatches on the file's shape (:func:`load_correlation_file`), so the
-        caller never picks the wrong loader -- the FIB-263 crash can't recur.
+        caller never picks the wrong loader.
         Raises, changing nothing, when the file cannot be read.
         """
         state = load_correlation_file(path)  # before the read: a bad file
@@ -688,7 +686,7 @@ class CorrelationSession:
         """Write the whole correlation (points and result) to ``path``, making
         its folder first, and return the path. An explicit save names where it
         goes: the dialogs offer the run folder, which is created on demand and
-        may not exist yet (FIB-320)."""
+        may not exist yet."""
         self.state.save(ensure_dir_for(path))
         return path
 
@@ -709,7 +707,7 @@ class CorrelationSession:
     def arm_auto_save(self) -> None:
         """Let the next ``auto_save`` write, though nothing has changed: a
         committed result is recorded in its run folder even when it was loaded
-        and not edited (FIB-1237)."""
+        and not edited."""
         self._save_armed = True
 
     def _arm_on_change(self, change: str, _coords) -> None:
@@ -728,14 +726,14 @@ class CorrelationSession:
         is no longer inert bookkeeping -- the setup section seeds from it. Saving
         from the first data change made every *open* a run: history counted opens
         rather than correlations, and a session the user cancelled came back as
-        the next open's starting coordinates (FIB-320). Once the folder exists it
+        the next open's starting coordinates. Once the folder exists it
         keeps its contents current, result or not.
 
         And nothing is written until a load or an edit has *armed* the save.
         Loading an image announces a change before any coordinates exist; on a
         folder that already holds a ``correlation.json`` the first such save used
         to overwrite it with an empty state, and the loader then read the file it
-        had just emptied -- opening a saved run destroyed its picks (FIB-977).
+        had just emptied -- opening a saved run destroyed its picks.
         ``set_data`` (every load and seed goes through it), any change to the
         points and an adopted result arm it; ``set_project_dir`` and the end of
         a read disarm it.
@@ -749,12 +747,12 @@ class CorrelationSession:
         due. Returns True when written, False when the write failed (the reason
         is in ``save_error`` until a write succeeds) and None when not due.
 
-        The whole state, every time, so the points and the result can never drift
-        apart on disk (which the split data/result files could; FIB-264,
-        FIB-295). A post-run edit rewrites with the (now-stale) result still
-        attached -- by design. The result carries its own ``input_data``
-        snapshot, so staleness stays derivable on load (``matches_inputs``) and
-        the result remains available to inspect; it is not silently discarded.
+        The whole state, every time, so the points and the result can never drift apart
+        on disk (which the split data/result files could). A post-run edit rewrites with
+        the (now-stale) result still attached -- by design. The result carries its own
+        ``input_data`` snapshot, so staleness stays derivable on load
+        (``matches_inputs``) and the result remains available to inspect; it is not
+        silently discarded.
         """
         if not self.auto_save_due():
             return None
@@ -762,8 +760,8 @@ class CorrelationSession:
             save_run(self.project_dir, self.state)
         except Exception as exc:
             # Never let this pass unseen: it is the only persistence path, so a
-            # swallowed failure silently discards the whole session's work
-            # (FIB-316).
+            # swallowed failure silently discards the whole session's work.
+            #
             logging.exception("Auto-save of correlation project failed")
             self.save_error = str(exc)
             return False
@@ -791,7 +789,7 @@ def ensure_dir_for(path: str) -> str:
     Every write site needs this now the run folder is created on demand: the
     auto-save mints it on the first result, and both save dialogs offer a
     default *inside* it -- so an explicitly-passed path can be just as absent
-    as a derived one (FIB-320). Called immediately before writing, so an
+    as a derived one. Called immediately before writing, so an
     abandoned session still leaves nothing behind.
     """
     parent = os.path.dirname(path)

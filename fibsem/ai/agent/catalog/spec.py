@@ -14,18 +14,18 @@ class ToolSpec:
     level: str  # the level the route needs: "watch" | "assist" | "drive"
     params: Dict[str, str] = field(default_factory=dict)  # name -> description
     # The params that may be left out; the rest are required. With params, the
-    # tool's arguments: a request is checked against them at filing (FIB-1425),
+    # tool's arguments: a request is checked against them at filing,
     # and the sidecar's signatures are pinned to them (test_sidecar).
     optional: Tuple[str, ...] = ()
     # Which router serves it: "microscope" unless the App Server's devices
-    # service is off (FIB-1035); "app" only when the server was built with an
+    # service is off; "app" only when the server was built with an
     # app_context; "services" (the analysis services) and "base" always.
     # /capabilities reports which.
     router: str = "microscope"
     # The optional /app part that serves it (fibsem.server.parts); "" for the
     # core. /capabilities lists the parts the app serves.
     part: str = ""
-    # Commands or changes the microscope, so takes control of it (FIB-1270).
+    # Commands or changes the microscope, so takes control of it.
     hardware: bool = False
     # The level note, where the level alone does not say it (request_create).
     note: str = ""
@@ -53,7 +53,7 @@ class ToolSpec:
 
     @property
     def level_note(self) -> str:
-        """What the tool needs, in the agent's terms (FIB-1035, FIB-1283)."""
+        """What the tool needs, in the agent's terms."""
         if self.note:
             return self.note
         if self.level == "watch":
@@ -195,15 +195,15 @@ OVERVIEW_CENTRE = (
     "on; the stage comes back to where it was (default where the stage is)"
 )
 
-# For a move that changes the pose (FIB-1497).
+# For a move that changes the pose.
 RETRACT_FIRST = " Retract the FM objective first."
-# For the safe move, which crosses to the other device by itself (#2096).
+# For the safe move, which crosses to the other device by itself.
 RETRACT_FIRST_SAFE_MOVE = (
     " Retract the FM objective first, except for a position at the other "
     "device on an offset FM mount: that move crosses with the objective out."
 )
 
-# For an FM image: inserted is not in focus (FIB-1497).
+# For an FM image: inserted is not in focus.
 NEAR_FOCUS = (
     " The objective must be near its focus, not only inserted: go to the "
     "item's objective position (item_move_to_objective_position) or run "

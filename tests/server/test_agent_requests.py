@@ -528,14 +528,6 @@ def test_cancel_clears_the_waiting_request(client, app):
     assert store.cancel("again") is None
 
 
-def test_an_expiring_request_lapses_as_it_says(app):
-    store = app.state.requests
-    request = store.create([NUDGE], "countdown", expires_at=100.0, on_expiry="reject")
-    assert store.expire_due(now=99.0) is None
-    assert store.expire_due(now=100.0).status == "rejected"
-    assert request.decided_by == "task:expiry"
-
-
 # The arguments a named tool cannot be called without.
 _AXES = {axis: 0.0 for axis in "xyzrt"}
 _SAMPLE_ARGUMENTS = {

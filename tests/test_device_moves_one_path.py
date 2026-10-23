@@ -55,7 +55,7 @@ def test_the_fm_is_the_flip_then_the_offset():
     arrived = microscope.get_stage_position()
     _assert_xy(arrived, start.x + OFFSET.x, start.y + OFFSET.y)
     assert microscope.get_stage_orientation() == "FM"
-    assert microscope.get_current_device() == "FM"
+    assert microscope.stage_movement.current_device() == "FM"
     assert microscope.fm.objective.state is InsertableDeviceState.INSERTED
     # Retracted, flipped where the stage stands, then the offset, then inserted.
     assert [c[0] for c in commands] == ["retract", "absolute", "relative", "insert"]
@@ -127,7 +127,7 @@ def test_far_from_the_centre_the_fm_is_still_reached():
     microscope.move_to_device("FM")
 
     assert microscope.get_stage_position().x == pytest.approx(0.95e-3, abs=1e-12)
-    assert microscope.get_current_device() == "FM"
+    assert microscope.stage_movement.current_device() == "FM"
 
 
 def test_back_to_the_beams_keeps_a_pose_they_image_from():
@@ -166,7 +166,7 @@ def test_the_pose_says_where_the_stage_is_and_no_window_does():
 
     assert microscope.is_at_device("FM", far_out)
     assert not microscope.is_at_device("FIBSEM", far_out)
-    assert microscope.get_current_device(far_out) == "FM"
+    assert microscope.stage_movement.current_device(far_out) == "FM"
 
     at_sem = pinned._start_position(microscope, "SEM")
     assert not microscope.is_at_device("FM", at_sem)

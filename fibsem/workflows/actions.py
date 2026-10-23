@@ -39,7 +39,7 @@ def action_record(
     agent). Other fields say how: tool, arguments, route, status, level, via,
     request_id and index for a request's step, error_type and message for one
     that failed or was refused. Empty fields are left out; a stop always has a
-    reason, `OPERATOR_STOP` when none was given (FIB-1495)."""
+    reason, `OPERATOR_STOP` when none was given."""
     payload: Dict[str, Any] = {"what": what, "ok": ok}
     if stops and not reason:
         reason = OPERATOR_STOP

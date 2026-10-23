@@ -106,18 +106,13 @@ class VolumeAppContext(AppContext):
 
     def slice_depth(self, item, iteration: Optional[int]) -> Optional[float]:
         """The iteration's cut times the protocol's slice thickness."""
-        from fibsem.applications.volume.tasks.milling import (
-            VolumeFIBMillingTaskConfig,
-        )
+        from fibsem.applications.volume.tasks.milling import volume_milling
 
-        experiment = self._experiment
-        protocol = getattr(experiment, "task_protocol", None)
+        protocol = getattr(self._experiment, "task_protocol", None)
         if iteration is None or protocol is None:
             return None
-        for config in protocol.task_config.values():
-            if isinstance(config, VolumeFIBMillingTaskConfig):
-                return iteration * config.slice_thickness
-        return None
+        config = volume_milling(protocol)
+        return iteration * config.slice_thickness if config is not None else None
 
     def item_version(self, item) -> str:
         return self._version(item)

@@ -20,7 +20,9 @@ from fibsem import utils
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, FibsemStagePosition, ImageSettings
 
-SIM_COMPUSTAGE_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+SIM_COMPUSTAGE_CONFIG = os.path.join(
+    cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
+)
 """The simulated compustage instrument: no pre-tilt, a fluorescence microscope fitted."""
 
 OVERVIEW_HFW = 900e-6

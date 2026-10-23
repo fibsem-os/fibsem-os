@@ -38,7 +38,7 @@ from fibsem.milling.strategy.coincidence import (
 from fibsem.structures import FibsemRectangle, InsertableDeviceState, Point
 
 SIM_ARCTIS_CONFIG_PATH = os.path.join(
-    fconfig.CONFIG_PATH, "sim-arctis-configuration.yaml"
+    fconfig.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
 )
 SETUP_NAME = "Setup Coincidence Milling"
 

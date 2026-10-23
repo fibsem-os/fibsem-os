@@ -46,7 +46,7 @@ class PlainCalls:
     Ubuntu 22.04) and unpickles every request; fibsem runs on numpy 2, whose pickles
     name ``numpy._core``, which numpy 1 does not have. A numpy value in a request then
     fails: a VA write raises ``ModuleNotFoundError``, and a move's future never
-    completes (FIB-1367). Through this every argument of a call and every VA write
+    completes. Through this every argument of a call and every VA write
     (``.value = ...``) goes out as `plain`. Reads come back untouched, and so does any
     other attribute assigned (a test configuring a stub).
 

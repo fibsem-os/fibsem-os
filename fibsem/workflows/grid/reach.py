@@ -1,9 +1,9 @@
 """Whether a grid overview fits within the stage's travel, asked before it runs.
 
 A grid overview larger than the stage can reach acquires the tiles in reach and
-skips the rest (FIB-1131). That is found out on the first grid; this asks the same
-question while the overview is still being sized, on the Protocol tab's Grid page
-(FIB-1152), through the same helpers the task uses, so the two cannot disagree.
+skips the rest. That is found out on the first grid; this asks the same
+question while the overview is still being sized, on the Protocol tab's Grid page,
+through the same helpers the task uses, so the two cannot disagree.
 
 Asked at each slot a grid overview would be centred on: the autoloader's working
 slot, or each occupied, calibrated slot of a fixed holder (every calibrated one when

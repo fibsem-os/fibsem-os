@@ -1,4 +1,4 @@
-"""A server's error answer as the local exception it names (FIB-1377), so a remote
+"""A server's error answer as the local exception it names, so a remote
 call raises what the local call would: the remote driver's, and the client's
 (`fibsem.client`)."""
 
@@ -37,8 +37,8 @@ def error_from(
     """The local exception a server's error *detail* names, or None when it has
     no local meaning. *status* is the answer's HTTP status, when there was one.
 
-    The detail has error_type and message; a server from before FIB-1377 sends
-    error and detail. A long command's failed run carries the same detail.
+    The detail has error_type and message; an older server sends error and
+    detail. A long command's failed run carries the same detail.
     """
     kind = detail.get("error_type", detail.get("error"))
     message = detail.get("message", detail.get("detail"))

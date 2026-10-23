@@ -81,13 +81,6 @@ def eulers_deg(rotation) -> np.ndarray:
     )
 
 
-def rotation_from_eulers_deg(angles) -> np.ndarray:
-    """The 3x3 rotation for x-convention Euler angles in degrees (inverse of the above)."""
-    return Rotation.from_euler(
-        "zxz", np.asarray(angles, dtype=float), degrees=True
-    ).as_matrix()
-
-
 # ── fitting ───────────────────────────────────────────────────────────────
 
 

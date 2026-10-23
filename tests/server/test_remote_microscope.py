@@ -123,7 +123,7 @@ def test_a_mill_runs_on_the_server_and_its_signals_cross(remote):
         remote.draw_patterns([_square()])
         remote.run_milling()  # waits on the server's run
         remote.finish_milling()
-        assert remote.get_milling_state() is MillingState.IDLE
+        assert remote.milling.state.get_value() is MillingState.IDLE
         # drawn, then cleared at the end of the run
         assert wait_for(lambda: len(drawn) >= 2)
         assert len(drawn[0]) == 1 and drawn[-1] == []

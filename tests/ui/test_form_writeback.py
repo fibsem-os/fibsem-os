@@ -51,7 +51,7 @@ def tescan(monkeypatch):
     from tests.fixtures import tescan_sdk
 
     system = utils.load_microscope_configuration(
-        os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
     ).system
     scope, _ = tescan_sdk.connect(monkeypatch, system)
     return scope

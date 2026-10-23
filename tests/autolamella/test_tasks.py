@@ -26,7 +26,7 @@ def _make_trench_task(microscope: FibsemMicroscope, tmp_path: Path) -> MillTrenc
 def compustage_microscope() -> FibsemMicroscope:
     microscope, _ = demo_session(compustage=True)
     microscope.system.stage.shuttle_pre_tilt = 0
-    microscope._update_orientations()
+    microscope.stage_movement.update_orientations()
     return microscope
 
 

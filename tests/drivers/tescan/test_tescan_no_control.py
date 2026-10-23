@@ -25,7 +25,7 @@ E, I = BeamType.ELECTRON, BeamType.ION
 @pytest.fixture
 def connected(monkeypatch):
     system = utils.load_microscope_configuration(
-        os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
     ).system
     return connect(monkeypatch, system)
 

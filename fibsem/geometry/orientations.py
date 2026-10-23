@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Mapping, Optional, Tuple
 
 import numpy as np
 
-from fibsem.movement import angle_difference, rotation_angle_is_smaller
+from fibsem.geometry.angles import angle_difference, rotation_angle_is_smaller
 from fibsem.structures import FibsemStagePosition
 from fibsem.transformations import convert_stage_tilt_to_milling_angle
 
@@ -118,8 +118,8 @@ def milling_angle_at(
 
     The sign follows `milling_angle_from_tilt`: past 90 when the surface tilts beyond
     normal to the beam, about the tilt axis. At the SEM rotation the two agree
-    exactly; away from it the normal leaves the tilt plane and only this one holds
-    (FIB-1392).
+    exactly; away from it the normal leaves the tilt plane and only this one holds.
+
     """
     from fibsem.geometry.frames import view_axis
 
@@ -144,7 +144,7 @@ def compucentric_rotation(
 
     Assumes a 180 degree rotation: x and y are reflected through the centre and r gains
     a half turn. A driver's ``rotation_centre`` c is the same centre its images are
-    reprojected with (FIB-1081); without one, the centre is the stage origin.
+    reprojected with; without one, the centre is the stage origin.
     """
     # The specimen-minus-raw offset is -c, so reflecting about c is -p + 2c.
     cx, cy = (0.0, 0.0) if rotation_centre is None else rotation_centre

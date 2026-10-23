@@ -35,20 +35,7 @@ from fibsem.autofunctions.stacking import (
     pixel_based_focus_selection,
 )
 
-
-def __getattr__(name):
-    if name == "percentile_stretch":
-        from fibsem.imaging.utils import percentile_stretch
-        return percentile_stretch
-    if name == "ImageStats":
-        from fibsem.structures import ImageStats
-        return ImageStats
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-
 __all__ = [
-    "ImageStats",
-    "percentile_stretch",
     "AutoContrastBrightnessSettings",
     "AutoContrastBrightnessIteration",
     "AutoContrastBrightnessResult",

@@ -47,7 +47,9 @@ def record_demo_experiment(
     root.mkdir(parents=True, exist_ok=True)
     microscope, _ = utils.setup_session(
         manufacturer="Demo",
-        config_path=os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml"),
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml"
+        ),
     )
     # After the session: setup_session configures logging of its own, and an
     # experiment's logfile is set up once the microscope is connected.

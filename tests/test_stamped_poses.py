@@ -26,7 +26,7 @@ STAGE_TYPES = [
 
 def _microscope(filename):
     microscope, _ = utils.setup_session(
-        config_path=os.path.join(cfg.CONFIG_PATH, filename), manufacturer="Demo"
+        config_path=os.path.join(cfg.SHIPPED_CONFIG_PATH, filename), manufacturer="Demo"
     )
     return microscope
 

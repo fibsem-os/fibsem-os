@@ -147,10 +147,8 @@ def add_defect_menu(menu: QMenu, lamella, on_changed) -> QMenu:
     """A "Verdict" submenu on *menu* writing `lamella.defect`; *on_changed* is
     called after a write. The one place a person sets a lamella's verdict.
 
-    It offered "No defect", which wrote `Verdict.NONE` -- an alias of `UNASSESSED`
-    -- so "I looked and it is fine" was stored as "nobody has looked", and there was
-    no way to mark a lamella good. Good, rework and failed are offered now, with
-    "Not assessed" to take a judgement back.
+    Good, rework and failed are offered, with "Not assessed" to take a judgement
+    back: looking and finding it fine is a verdict of its own, not "nobody has looked".
 
     Written as the App Server's item patch writes it (`edit_item_fields`): a new
     record, so every display of the verdict redraws off `lamella.events.defect`.

@@ -1765,14 +1765,6 @@ class FibsemOverviewWidget(QWidget):
         for key in self.aligned_images.keys():
             self.remove_aligned_image(key, announce=False)
 
-    def aligned_image_for_record(self, record_id: str):
-        """The aligned image kept under *record_id*, or None."""
-        for key in self.aligned_images.keys():
-            record = self.aligned_images.get(key)
-            if record is not None and record.record_id == record_id:
-                return record
-        return None
-
     def _on_aligned_image_selected(self, key: str) -> None:
         if self.aligned_image_panel.btn_align.isChecked():
             self._on_align_image_toggled(True)
@@ -3266,9 +3258,6 @@ class FibsemOverviewWidget(QWidget):
         frame: StageFrame, x: float, y: float, name: str = ""
     ) -> FibsemStagePosition:
         return stage_context.landmark(frame, x, y, name)
-
-    def _slot_landmark(self, slot: object) -> Optional[FibsemStagePosition]:
-        return stage_context.slot_landmark(self.microscope, slot)
 
     @property
     def target(self) -> Optional[FibsemStagePosition]:

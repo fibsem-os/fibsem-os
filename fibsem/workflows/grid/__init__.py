@@ -27,7 +27,6 @@ from fibsem.workflows.grid.registry import (
     get_grid_tasks,
     load_grid_task_config,
     load_grid_task_configs,
-    register_grid_task,
     run_grid_task,
 )
 
@@ -44,6 +43,5 @@ __all__ = [
     "get_grid_tasks",
     "load_grid_task_config",
     "load_grid_task_configs",
-    "register_grid_task",
     "run_grid_task",
 ]

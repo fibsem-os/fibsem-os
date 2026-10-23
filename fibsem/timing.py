@@ -16,11 +16,8 @@ Measured against ``AutoLamella-2026-07-29-18-00-DEV-TEST`` (Thermo), by pairing 
 ``INFO``/``DEBUG`` log entries each operation emits. One instrument, small n: treat
 these as starting values to be re-measured, not as settled. Each constant carries
 its own sample count and spread below.
-
-See FIB-666.
 """
 
-import logging
 from typing import TYPE_CHECKING, Iterable, Optional
 
 from fibsem.structures import (
@@ -48,7 +45,6 @@ IMAGE_OVERHEAD_S = 2.0
 # Stage moves. Absolute: n=19, median 7.41 s, p90 7.76 s, max 8.40 s.
 # Relative: n=31, median 3.37 s, p90 6.16 s, max 7.60 s -- a wider spread, since a
 # relative move covers anything from a nudge to a full traverse.
-# These replace fm/timing.py's unmeasured DEFAULT_STAGE_MOVE_TIME = 5.0.
 STAGE_MOVE_ABSOLUTE_S = 8.0
 STAGE_MOVE_RELATIVE_S = 6.5
 
@@ -91,7 +87,7 @@ REFERENCE_ALIGNMENT_S = 4.8
 # median 0.69 / 0.70 s across two runs -- small, but it is paid once per coordinate.
 SPOT_BURN_POINT_OVERHEAD_S = 0.75
 
-# Grid overview tiles on an Arctis (FIB-893, 2026-10-02): the move and settle between
+# Grid overview tiles on an Arctis: the move and settle between
 # tiles of a grid overview, net of the acquisition. A 3 x 3 SEM overview at 500 um took
 # about 3 minutes and a 3 x 6 FIB overview at 200 um about 4: about 20 s and 13 s a tile
 # all in, at 1536 x 1024. Net of a 1 us frame at IMAGE_OVERHEAD_S (3.6 s), that leaves
@@ -282,9 +278,3 @@ def beam_overview_cost(settings: Optional[OverviewAcquisitionSettings]) -> float
     # the runner returns the stage to where it started
     total += stage_move_cost(1)
     return total
-
-
-def log_estimate(label: str, seconds: float) -> None:
-    """Debug-log an estimate in the same shape everywhere, for later comparison
-    against the durations the experiment record already stores."""
-    logging.debug({"msg": "duration_estimate", "label": label, "seconds": seconds})

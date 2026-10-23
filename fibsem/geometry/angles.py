@@ -1,8 +1,7 @@
 """Comparing and wrapping angles, in radians.
 
-The one home for angle wrapping (FIB-1247): stage and manipulator positions compare
-their r and t through ``angle_difference``, and ``fibsem.movement`` re-exports these
-so its callers keep working.
+The one home for angle wrapping: stage and manipulator positions compare
+their r and t through ``angle_difference``.
 """
 
 import numpy as np

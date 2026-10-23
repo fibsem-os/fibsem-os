@@ -63,7 +63,7 @@ def render_canvas_to_axes(canvas, ax, *, dpi: int = PLOT_DPI) -> None:
     Deliberately canvas-agnostic: it needs a matplotlib figure and nothing else,
     so it works for ``ImagePointCanvas`` and the shared ``FibsemImageCanvas``
     alike and does not have to be rewritten when the correlation tab swaps from
-    one to the other (FIB-535). It replaces ``ImagePointCanvas.render_to_axes``,
+    one to the other. It replaces ``ImagePointCanvas.render_to_axes``,
     which re-created every artist by hand and had no equivalent on the shared
     stack.
 

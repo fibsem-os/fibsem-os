@@ -15,7 +15,6 @@ from fibsem.fm.reprojection import (
     project_image_point,
     project_stage_position,
     reproject_stage_positions_onto_fm_image,
-    stage_position_from_fm_image,
 )
 from fibsem.fm.structures import (
     CameraImageTransform,
@@ -26,11 +25,16 @@ from fibsem.geometry.movement import (
     inverse_view_corrected_dy,
     view_corrected_stage_movement,
 )
+from fibsem.geometry.projection import image_point_to_stage
 from fibsem.structures import FibsemStagePosition, Point
 
 TRANSFORMS = list(CameraImageTransform)
 SHAPE = (1024, 1024)
 PIXEL_SIZE = 1e-7  # 102.4 um across
+
+
+def _stage_at(image, point: Point) -> FibsemStagePosition:
+    return image_point_to_stage(image, point.x, point.y)
 
 
 @pytest.fixture(scope="module")
@@ -45,7 +49,7 @@ def _pose(microscope, *, compustage, pretilt_deg, rotation_deg, tilt_deg):
     """Pin the microscope into a known geometry without moving the stage."""
     microscope.stage_device.compustage = compustage
     microscope.system.stage.shuttle_pre_tilt = pretilt_deg
-    microscope._update_orientations()
+    microscope.stage_movement.update_orientations()
     position = FibsemStagePosition(
         x=0.0,
         y=0.0,
@@ -94,7 +98,7 @@ class TestParityWithTheLiveMicroscope:
             type(microscope.fm), "camera_tilt", property(lambda self: camera_tilt)
         )
 
-        live = microscope._inverse_view_corrected_stage_movement(
+        live = microscope.stage_movement.inverse_view_corrected_movement(
             dy=12e-6, dz=-3e-6, view_tilt=np.deg2rad(camera_tilt)
         )
         pure = inverse_view_corrected_dy(
@@ -126,7 +130,7 @@ class TestParityWithTheLiveMicroscope:
             type(microscope.fm), "camera_tilt", property(lambda self: camera_tilt)
         )
 
-        live = microscope._view_corrected_stage_movement(
+        live = microscope.stage_movement.view_corrected_movement(
             expected_y=17e-6, view_tilt=np.deg2rad(camera_tilt)
         )
         dy, dz = view_corrected_stage_movement(
@@ -155,7 +159,7 @@ class TestParityWithTheLiveMicroscope:
         )
         assert microscope.get_stage_orientation() != "FIB", "pose assumption drifted"
 
-        live = microscope._inverse_view_corrected_stage_movement(
+        live = microscope.stage_movement.inverse_view_corrected_movement(
             dy=12e-6, dz=-3e-6, view_tilt=np.deg2rad(microscope.fm.camera_tilt)
         )
         pure = inverse_view_corrected_dy(
@@ -307,9 +311,7 @@ class TestReprojectionOntoAnImage:
     def test_bound_drops_positions_outside_the_image(self, microscope, image):
         base = image.metadata.stage_position
         height, width = image.data.shape[-2:]
-        outside = stage_position_from_fm_image(
-            image, Point(x=float(width * 4), y=float(height * 4))
-        )
+        outside = _stage_at(image, Point(x=float(width * 4), y=float(height * 4)))
 
         assert len(reproject_stage_positions_onto_fm_image(image, [base, outside])) == 2
         assert (
@@ -369,7 +371,7 @@ class TestBothDirectionsFromAnImageAlone:
     def test_pixel_to_stage_and_back(self, image, pixel):
         point = Point(x=float(pixel[0]), y=float(pixel[1]))
 
-        position = stage_position_from_fm_image(image, point)
+        position = _stage_at(image, point)
         back = reproject_stage_positions_onto_fm_image(image, [position])[0]
 
         assert back.x == pytest.approx(point.x, abs=1e-6)
@@ -377,7 +379,7 @@ class TestBothDirectionsFromAnImageAlone:
 
     def test_it_does_not_follow_the_live_microscope(self, microscope, image):
         point = Point(x=300.0, y=800.0)
-        expected = stage_position_from_fm_image(image, point)
+        expected = _stage_at(image, point)
 
         _pose(
             microscope,
@@ -387,7 +389,7 @@ class TestBothDirectionsFromAnImageAlone:
             tilt_deg=25,
         )
         microscope.fm.set_image_transform(CameraImageTransform.NONE)
-        after = stage_position_from_fm_image(image, point)
+        after = _stage_at(image, point)
 
         assert (after.x, after.y, after.z) == (expected.x, expected.y, expected.z)
 
@@ -395,4 +397,4 @@ class TestBothDirectionsFromAnImageAlone:
         image.metadata.geometry = None
 
         with pytest.raises(ValueError, match="geometry"):
-            stage_position_from_fm_image(image, Point(x=0.0, y=0.0))
+            _stage_at(image, Point(x=0.0, y=0.0))
