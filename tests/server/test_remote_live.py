@@ -18,7 +18,6 @@ pytest.importorskip("websockets")
 from websockets.exceptions import InvalidStatus  # noqa: E402
 from websockets.sync.client import connect  # noqa: E402
 
-from fibsem import utils  # noqa: E402
 from fibsem.client.remote_microscope import RemoteMicroscope  # noqa: E402
 from fibsem.drivers.remote.devices import connect_remote_beams  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
@@ -77,12 +76,6 @@ def test_a_remote_beam_goes_live_on_a_device_server():
         assert image.metadata.image_settings.beam_type is BeamType.ELECTRON
     finally:
         server.stop()
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    return microscope
 
 
 @pytest.fixture(scope="module")

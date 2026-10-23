@@ -8,8 +8,6 @@ import os
 import pytest
 from psygnal.containers import EventedDict
 
-import fibsem.config as cfg
-from fibsem import utils
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MILL_ROUGH_KEY,
@@ -29,9 +27,9 @@ from fibsem.milling.patterning.utils import get_patterns_bounding_box
 from fibsem.structures import FibsemImage, FibsemRectangle, Point
 from fibsem.workflows.task import ALIGNMENT_REFERENCE_IMAGE_FILENAME
 from tests.autolamella._on_the_record import manager_for
+from tests.fixtures.microscopes import demo_microscope
 from tests.protocols import planned, task_protocol
 
-CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
 SETUP, FIDUCIAL, ROUGH = "Setup", "Mill Fiducial", "Rough Milling"
 
 # 01-alive-dory's area on the FIB-1035 test run, away from an off-centre POI
@@ -39,11 +37,7 @@ AREA = FibsemRectangle(left=0.66, top=0.22, width=0.28, height=0.25)
 POI = Point(x=27.5e-6, y=-9.6e-6)
 
 
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(manufacturer="Demo", config_path=CONFIG)
-    yield microscope
-    microscope.disconnect()
+microscope = demo_microscope(scope="function")
 
 
 def test_the_point_is_the_area_centre_in_the_image_frame():

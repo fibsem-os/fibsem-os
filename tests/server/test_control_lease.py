@@ -16,7 +16,6 @@ uvicorn = pytest.importorskip("uvicorn")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from fibsem import utils  # noqa: E402
 from fibsem.acting import AGENT, OPERATOR, WORKFLOW  # noqa: E402
 from fibsem.client.remote_microscope import RemoteMicroscope  # noqa: E402
 from fibsem.control import MicroscopeBusy, lending  # noqa: E402
@@ -28,18 +27,6 @@ from fibsem.structures import FibsemStagePosition  # noqa: E402
 TOKEN = "test-token"
 OPERATOR_TOKEN = "operator-token"
 MOVE = "/microscope/services/stage_movement/commands/move_relative"
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    previous = os.environ.get("FIBSEM_SIM_NO_DELAY")
-    os.environ["FIBSEM_SIM_NO_DELAY"] = "1"
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    yield microscope
-    if previous is None:
-        os.environ.pop("FIBSEM_SIM_NO_DELAY", None)
-    else:
-        os.environ["FIBSEM_SIM_NO_DELAY"] = previous
 
 
 @pytest.fixture(scope="module")

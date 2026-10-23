@@ -14,7 +14,6 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem import utils  # noqa: E402
 from fibsem.milling.patterning import get_pattern  # noqa: E402
 from fibsem.structures import FibsemMillingSettings  # noqa: E402
 from fibsem.ui.widgets.milling_settings_widget import (  # noqa: E402
@@ -23,12 +22,6 @@ from fibsem.ui.widgets.milling_settings_widget import (  # noqa: E402
 from fibsem.ui.widgets.pattern_settings_widget import (  # noqa: E402
     FibsemPatternSettingsWidget,
 )
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    scope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    return scope
 
 
 def _widget(microscope):

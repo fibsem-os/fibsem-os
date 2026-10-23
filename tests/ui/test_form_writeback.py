@@ -24,7 +24,6 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QCheckBox  # noqa: E402
 
-from fibsem import utils  # noqa: E402
 from fibsem.milling.base import get_strategy_config  # noqa: E402
 from fibsem.milling.patterning import get_pattern  # noqa: E402
 from fibsem.structures import FibsemMillingSettings  # noqa: E402
@@ -42,12 +41,6 @@ from fibsem.ui.widgets.pattern_settings_widget import (
 from fibsem.ui.widgets.strategy_settings_widget import (  # noqa: E402
     FibsemStrategySettingsWidget,
 )
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    scope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    return scope
 
 
 def _row(widget, field):

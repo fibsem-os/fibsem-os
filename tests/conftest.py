@@ -4,12 +4,18 @@ import os
 
 import pytest
 
+from tests.fixtures.microscopes import demo_microscope
+
 # The Demo microscope and the simulated fluorescence microscope sleep to emulate
 # real hardware timing, which otherwise makes the suite spend most of its
 # wall-clock asleep. Skip those simulated delays for the whole test run; real
 # drivers override the methods and are unaffected (see fibsem._timing.sim_sleep).
 # Use FIBSEM_SIM_NO_DELAY=0 to run with the delays enabled.
 os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
+
+# The Demo microscope on the default configuration, one per test module. A file
+# that needs another declares its own (tests/fixtures/microscopes.py).
+microscope = demo_microscope()
 
 
 @pytest.fixture(autouse=True)

@@ -66,12 +66,6 @@ def aquilos():
     return scope
 
 
-@pytest.fixture(scope="module")
-def microscope():
-    scope, _ = utils.setup_session(manufacturer="Demo")
-    return scope
-
-
 def _pose(microscope, *, compustage, pretilt_deg, rotation_deg, tilt_deg):
     """Pin the microscope into a known geometry without moving the stage."""
     microscope.stage_device.compustage = compustage

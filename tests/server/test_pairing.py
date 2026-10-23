@@ -15,7 +15,6 @@ uvicorn = pytest.importorskip("uvicorn")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from fibsem import utils  # noqa: E402
 from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
 from fibsem.client import pairing as client_pairing  # noqa: E402
 from fibsem.client.remote_microscope import RemoteMicroscope  # noqa: E402
@@ -148,13 +147,6 @@ def test_a_browser_asks_for_a_code_only_where_it_is_announced(pairing, clock):
 
 
 # --- the routes ---------------------------------------------------------------
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    return microscope
 
 
 @pytest.fixture

@@ -21,17 +21,12 @@ from fibsem.structures import (
     MicroscopeSettings,
     Point,
 )
+from tests.fixtures.microscopes import demo_microscope
 
 SHIPPED = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
 
 
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(
-        config_path=SHIPPED, manufacturer="Demo", setup_logging=False
-    )
-    yield microscope
-    microscope.disconnect()
+microscope = demo_microscope(scope="function")
 
 
 @pytest.mark.parametrize("beam_type", [BeamType.ELECTRON, BeamType.ION])

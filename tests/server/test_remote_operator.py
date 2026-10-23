@@ -4,7 +4,6 @@ operator, whatever the agent's level. The blocklist still applies.
 Skipped when the [server] extra is not installed.
 """
 
-import os
 import threading
 
 import pytest
@@ -12,7 +11,6 @@ import pytest
 pytest.importorskip("fastapi")
 uvicorn = pytest.importorskip("uvicorn")
 
-from fibsem import utils  # noqa: E402
 from fibsem.acting import OPERATOR, current_actor  # noqa: E402
 from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
 from fibsem.client.remote_microscope import RemoteMicroscope  # noqa: E402
@@ -23,18 +21,6 @@ from fibsem.workflows.actions import ACTION  # noqa: E402
 
 TOKEN = "agent-token"
 OPERATOR_TOKEN = "operator-token"
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    previous = os.environ.get("FIBSEM_SIM_NO_DELAY")
-    os.environ["FIBSEM_SIM_NO_DELAY"] = "1"
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    yield microscope
-    if previous is None:
-        os.environ.pop("FIBSEM_SIM_NO_DELAY", None)
-    else:
-        os.environ["FIBSEM_SIM_NO_DELAY"] = previous
 
 
 @pytest.fixture(scope="module")

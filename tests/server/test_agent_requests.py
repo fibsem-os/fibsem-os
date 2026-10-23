@@ -14,7 +14,6 @@ from fastapi.testclient import TestClient  # noqa: E402
 from psygnal.containers import EventedDict  # noqa: E402
 
 import fibsem.applications.autolamella  # noqa: E402
-from fibsem import utils  # noqa: E402
 from fibsem.acting import WORKFLOW, current_actor  # noqa: E402
 from fibsem.ai.agent.calls import EVIDENCE_HEADER  # noqa: E402
 from fibsem.ai.agent.catalog import CATALOG  # noqa: E402
@@ -53,13 +52,6 @@ class RecordingContext(AutoLamellaAppContext):
 
     def record_event(self, kind, payload):
         self.recorded.append((kind, payload, current_actor()))
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    return microscope
 
 
 @pytest.fixture

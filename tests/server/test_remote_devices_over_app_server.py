@@ -4,7 +4,6 @@ with its token and no event stream: what a drop-in microscope off the PC builds 
 Skipped when the [server] extra is not installed.
 """
 
-import os
 import threading
 
 import pytest
@@ -13,7 +12,6 @@ pytest.importorskip("fastapi")
 uvicorn = pytest.importorskip("uvicorn")
 requests = pytest.importorskip("requests")
 
-from fibsem import utils  # noqa: E402
 from fibsem.drivers.remote.devices import (  # noqa: E402
     DeviceClient,
     RemoteBeam,
@@ -24,18 +22,6 @@ from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.structures import BeamType, FibsemImage  # noqa: E402
 
 TOKEN = "test-token"
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    previous = os.environ.get("FIBSEM_SIM_NO_DELAY")
-    os.environ["FIBSEM_SIM_NO_DELAY"] = "1"
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    yield microscope
-    if previous is None:
-        os.environ.pop("FIBSEM_SIM_NO_DELAY", None)
-    else:
-        os.environ["FIBSEM_SIM_NO_DELAY"] = previous
 
 
 @pytest.fixture(scope="module")
