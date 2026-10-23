@@ -189,7 +189,7 @@ def render_report(
         ]
     else:
         body.append('<p class="muted">No task runs were recorded.</p>')
-    return _PAGE.format(title=_e(name), style=_STYLE, body="\n".join(body))
+    return html_page(f"{name} · AutoLamella report", "\n".join(body))
 
 
 def summarise(tables: EventTables, items: Sequence[str], tasks: Sequence[str]):
@@ -1061,10 +1061,16 @@ def _e(value: Any) -> str:
     return html.escape(str(value), quote=True)
 
 
+def html_page(title: str, body: str, style: str = "") -> str:
+    """A self-contained report page in this report's style; ``style`` is added
+    to it. The grid screening report is one too."""
+    return _PAGE.format(title=_e(title), style=_STYLE + style, body=body)
+
+
 _PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{title} · AutoLamella report</title>
+<title>{title}</title>
 <style>{style}</style></head>
 <body>
 {body}

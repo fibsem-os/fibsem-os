@@ -270,13 +270,13 @@ class MainMenuBar(QObject):
         self.action_generate_overview_plot.triggered.connect(
             self._actions.generate_overview_plot
         )
-        # The grid screening report (FIB-1057): what the Grids tab holds, as a PDF.
+        # The grid screening report (FIB-1057): what the Grids tab holds, as a page.
         self.action_generate_grid_report = QAction(
             "Generate Grid Screening Report", self
         )
         self.action_generate_grid_report.setToolTip(
-            "Write a PDF of every grid's overviews and verdicts under the "
-            "experiment folder, and open it"
+            "Write a page of every grid's overviews and verdicts under the "
+            "experiment folder, with its PDF, and open it"
         )
         self.action_generate_grid_report.triggered.connect(self._actions.grid_report)
         reporting_menu.addAction(self.action_generate_report)

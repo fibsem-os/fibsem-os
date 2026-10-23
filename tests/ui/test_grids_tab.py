@@ -602,28 +602,29 @@ class TestReport:
     def test_writes_under_the_experiment_and_opens_it(
         self, tab, experiment, monkeypatch
     ):
-        pytest.importorskip("reportlab")
         tab.btn_inventory.click()
         opened = []
         monkeypatch.setattr(tab, "open_report", opened.append)
         tab.generate_report()
         (path,) = opened
-        assert path == os.path.join(str(experiment.path), "grid-screening-report.pdf")
+        assert path == os.path.join(
+            str(experiment.path), "reporting", "grid-screening-report.html"
+        )
         assert os.path.getsize(path) > 0
-        assert tab.status_label.text() == "Report written: grid-screening-report.pdf"
+        assert tab.status_label.text() == "Report written: grid-screening-report.html"
         assert not tab.busy
 
-    def test_a_missing_reporting_extra_is_said_plainly(self, tab, monkeypatch):
-        import fibsem.applications.autolamella.ui.grids.tab as module
-
+    def test_a_report_that_cannot_be_written_is_said_plainly(
+        self, tab, experiment, monkeypatch
+    ):
         tab.btn_inventory.click()
 
         def refuse(*_args, **_kwargs):
-            raise ImportError("No module named 'reportlab'")
+            raise OSError("the experiment folder is read-only")
 
-        monkeypatch.setattr(module, "generate_grid_report", refuse)
+        monkeypatch.setattr(experiment, "write_grid_report", refuse)
         tab.generate_report()
-        assert "pip install fibsem-os[reporting]" in tab.status_label.text()
+        assert "the experiment folder is read-only" in tab.status_label.text()
 
 
 class TestNote:
@@ -695,18 +696,12 @@ class TestNote:
         report = collect_grid_report(experiment)
         assert report.sections[0].description == self.NOTE
 
-        pytest.importorskip("reportlab")
-        from fibsem.applications.autolamella.tools.grid_report_pdf import (
+        from fibsem.applications.autolamella.tools.grid_report_html import (
             generate_grid_report,
         )
 
         path = generate_grid_report(
-            experiment,
-            output_path=str(Path(experiment.path) / "report.pdf"),
-            compress=False,
+            experiment, output_path=str(Path(experiment.path) / "report.html")
         )
-        # Once on the cover, once under the grid's name. The cover's column wraps
-        # the note, so look for its two ends rather than the whole string.
-        pdf = Path(path).read_bytes()
-        assert pdf.count(b"Even ice across") == 2
-        assert pdf.count(b"east half.") == 2
+        # Once on the cover, once under the grid's name.
+        assert Path(path).read_text(encoding="utf-8").count(self.NOTE) == 2

@@ -6,7 +6,7 @@ that artifact exists only if someone remembers to open a Qt dialog before going 
 See FIB-461.
 
 Deliberately light on imports: these run from a hook, on the workflow's thread, so
-this module must not pull in matplotlib or reportlab.
+this module must not pull in matplotlib.
 """
 
 import json
