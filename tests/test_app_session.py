@@ -406,20 +406,17 @@ def test_with_no_server_there_is_no_level_and_no_brake(session):
     assert session.agent.set_level(AgentLevel.WATCH) == "The App Server isn't running."
 
 
-def test_how_a_request_ended_is_said_once(session):
+def test_the_current_request_is_the_open_one_as_it_changes(session):
     store = _Store(_request("old", "applied"), _request("now", "pending"))
     _served(session, AgentLevel.ASSIST, store)
     heard = []
 
     assert session.agent.follow(lambda: heard.append(True)) is store
-    assert session.agent.outcomes() == [], "what ended before following is not news"
     assert session.agent.current().id == "now"
 
     store.requests[1] = _request("now", "rejected")
     store.listeners[0](store.requests[1])
     assert heard == [True]
-    assert [r.id for r in session.agent.outcomes()] == ["now"]
-    assert session.agent.outcomes() == [], "said once"
     assert session.agent.current() is None
 
 

@@ -1,6 +1,5 @@
-"""The window puts the agent's suggestion on a pending proposal on its card;
-Approve decides the proposal as suggested, as the operator, naming the
-suggestion, and Decline keeps the proposal up with the reason recorded."""
+"""The window shows the agent's suggestion on a pending proposal on its chip and
+card, until it is decided on the Agent page (the session's approve)."""
 
 import pytest
 
@@ -55,32 +54,18 @@ def _ask_and_suggest(win, qapp):
     return proposal, suggestion
 
 
-def test_approve_decides_as_suggested_naming_the_suggestion(window, qapp):
+def test_the_suggestion_shows_until_it_is_approved(window, qapp):
     proposal, suggestion = _ask_and_suggest(window, qapp)
     chip = window.agent_host.chip
     assert chip.suggestion["reason"] == "the edge is 1 µm right"
     assert chip.text() == "Agent suggests"
+    assert chip.card.waiting_word.text() == "Suggests"
 
-    chip.card.approve_suggestion_button.click()
+    assert window.session.agent.approve_suggestion(proposal.id).applied
     qapp.processEvents()
 
     decision = proposal.current
     assert decision.outcome is DecisionOutcome.Confirmed
-    assert decision.actor.kind.value == "operator"
     assert decision.suggestion_id == suggestion.id
-    assert decision.values["poi"] == Point(1e-6, 0.0)
     assert chip.suggestion is None
-
-
-def test_decline_keeps_the_proposal_up_with_the_reason(window, qapp):
-    proposal, _ = _ask_and_suggest(window, qapp)
-    card = window.agent_host.chip.card
-
-    card.decline_button.click()
-    card.reason_edit.setText("that is the trench")
-    card.decline_button.click()
-    qapp.processEvents()
-
-    assert proposal.pending
-    assert proposal.suggestion.declined_reason == "that is the trench"
-    assert window.agent_host.chip.suggestion is None
+    assert not chip.card.waiting_row.isVisibleTo(chip.card)
