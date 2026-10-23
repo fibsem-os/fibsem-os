@@ -68,28 +68,6 @@ SPINBOX_STYLESHEET = f"""
     }}
 """
 
-COMBOBOX_STYLESHEET = f"""
-    QComboBox {{
-        background-color: {NEUTRAL_800};
-        color: white;
-        border: 1px solid #555;
-        padding: 4px 8px;
-        font-size: 10px;
-        min-width: 150px;
-    }}
-    QComboBox:hover {{
-        background-color: {NEUTRAL_750};
-    }}
-    QComboBox::drop-down {{
-        border: none;
-    }}
-    QComboBox QAbstractItemView {{
-        background-color: {NEUTRAL_800};
-        color: white;
-        selection-background-color: {NEUTRAL_750};
-    }}
-"""
-
 BUTTON_STYLESHEET = f"""
     QPushButton {{
         background-color: {NEUTRAL_800};

@@ -256,20 +256,6 @@ class TransformGestureOverlay(QObject, CanvasOverlay):
         angle = math.radians(self._rotation)
         return math.cos(angle), math.sin(angle)
 
-    def stretch_of(self, u: float, v: float) -> float:
-        """How long a unit vector in the body's frame comes out on the canvas.
-
-        A bar's *width* is measured across it, so a bar drawn as a wide line needs its
-        width scaled by the stretch of its normal -- one lying along the squashed
-        direction is drawn thinner, as the view really shows it.
-        """
-        if self._mirror:
-            u = -u
-        c, s = self._cos_sin()
-        x = c * u - s * v
-        y = (s * u + c * v) * self._squash
-        return math.hypot(x, y)
-
     # ── subclass hooks ────────────────────────────────────────────────────
 
     def _draw_body(self, animated: bool) -> list:
@@ -331,14 +317,6 @@ class TransformGestureOverlay(QObject, CanvasOverlay):
         except Exception as e:
             logger.debug(f"Could not measure the axes: {e}")
             return 0.0
-
-    def _points_for(self, width_units: float) -> float:
-        """A width in canvas units as a line width in points, so it tracks the zoom."""
-        per_unit = self._pixels_per_unit()
-        if per_unit <= 0:
-            return 1.0
-        dpi = self._ax.figure.dpi or 72.0
-        return max(0.5, width_units * per_unit * 72.0 / dpi)
 
     def _handle_offset_px(self) -> Optional[Tuple[float, float]]:
         """The rotation handle's offset from the centre, in display pixels.

@@ -58,10 +58,6 @@ CURRENT_POSITION_COLOUR = "#ffee58"  # where the stage is now
 # value it replaced was muted enough to disappear into a bright overview.
 SAVED_POSITION_COLOUR = "#00e5ff"  # a marked position
 SELECTED_POSITION_COLOUR = "#76ff03"  # the marked position under the selection
-# A position placed but not yet committed: a mark that creates a lamella when
-# it is confirmed. Magenta because the two above are taken and this has to
-# read as a different kind of thing rather than another state of the same one.
-DRAFT_POSITION_COLOUR = "#e040fb"  # placed, not yet created
 
 # The sample holder, drawn under everything else on the same canvases. Here for the
 # same reason as the markers above, and they had already drifted: the FIB/SEM overview

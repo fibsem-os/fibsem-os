@@ -223,11 +223,6 @@ class FibsemSpotBurnWidget(QWidget):
     # Workflow mode (button/hint visibility) + teardown
     # ------------------------------------------------------------------
 
-    @property
-    def is_burning(self) -> bool:
-        """Whether a spot burn is currently running."""
-        return self._is_burning
-
     def set_workflow_mode(self, active: bool) -> None:
         """Toggle workflow mode.
 

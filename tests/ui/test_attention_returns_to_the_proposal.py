@@ -42,9 +42,6 @@ class _DetWidget(QWidget):
     def _get_detected_features(self):
         return self.det
 
-    def confirm_button_clicked(self):
-        pass
-
     def clear_layers(self):
         self.det = None
 

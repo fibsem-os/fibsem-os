@@ -16,7 +16,6 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.config import (
     get_recent_experiments,
     load_user_preferences,
-    record_recent_experiment,
     save_user_preferences,
 )
 from fibsem.ui import utils as fui

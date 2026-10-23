@@ -68,7 +68,6 @@ class MillingTaskConfigWidget2(QWidget):
         microscope: FibsemMicroscope,
         milling_task_config: Optional[FibsemMillingTaskConfig] = None,
         milling_enabled: bool = True,
-        correlation_enabled: bool = True,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)

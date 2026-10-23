@@ -1145,10 +1145,6 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
             self._overlays.remove(overlay)
             self.draw_idle()
 
-    def clear_overlays(self) -> None:
-        for o in list(self._overlays):
-            self.remove_overlay(o)
-
     # ── active-overlay input gating ───────────────────────────────────────
 
     @property

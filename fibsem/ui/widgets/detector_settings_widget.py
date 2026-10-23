@@ -53,10 +53,6 @@ class _LabeledSlider(QWidget):
             return f"{value * 100:.1f}%"
         return f"{value:.{self._decimals}f}"
 
-    def set_pct_mode(self, enabled: bool):
-        self._pct_mode = enabled
-        self._value_label.setText(self._format(self._slider.value()))
-
     def _on_value_changed(self, value: float):
         self._value_label.setText(self._format(value))
         self.valueChanged.emit(value)

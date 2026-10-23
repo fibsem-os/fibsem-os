@@ -516,12 +516,12 @@ def test_set_selected_point_and_the_deprecated_field_still_work():
     ov = ctl._overlay_objs[fib]["poi"]
     assert ov.selected_indices() == [1], "PointsSpec.selected is honoured"
 
-    ctl.set_selected_point(BeamType.ION, "poi", 0)
+    ctl.set_selected_points(BeamType.ION, "poi", [0])
     assert ov.selected_indices() == [0]
-    ctl.set_selected_point(BeamType.ION, "poi", None)
+    ctl.set_selected_points(BeamType.ION, "poi", [])
     assert ov.selected_indices() == []
     assert ctl.overlay_selection(BeamType.ION, "poi") == []
-    print("ok: set_selected_point and PointsSpec.selected keep working")
+    print("ok: set_selected_points and PointsSpec.selected keep working")
 
 
 def test_mask_overlay_displays_and_removes():

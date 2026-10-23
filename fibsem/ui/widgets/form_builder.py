@@ -65,15 +65,6 @@ from fibsem.ui.widgets.custom_widgets import (
     unit_suffix,
 )
 
-# Fallback spinbox bounds, used when a field declares no limits.
-#
-# `ValueSpinBox` itself falls back to (0.0, 1e6), which is wrong for any field
-# that can go negative -- and a floor of zero does not error, it silently clamps.
-# The forms that had their own hardcoded ranges keep them by passing this
-# explicitly; the milling forms keep the spinbox defaults by passing None.
-DEFAULT_FLOAT_RANGE = (-1e10, 1e10)
-DEFAULT_INT_RANGE = (-2147483648, 2147483647)
-
 
 @dataclass(frozen=True)
 class FormDefaults:
