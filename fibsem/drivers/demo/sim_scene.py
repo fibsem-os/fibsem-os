@@ -198,6 +198,18 @@ BEAM_LAYERS = {
 # structure gradient (per pixel, on the canvas scale) passes the scale
 EDGE_INTENSITY = 45.0
 EDGE_GRADIENT_SCALE = 4.0
+# relief on a feature with height, per beam (canvas scale): how much a slope
+# facing the detector brightens (the far side darkens as much), and how much
+# a steep slope brightens whichever way it faces (secondary electron yield
+# grows with the angle of incidence)
+RELIEF = {
+    BeamType.ELECTRON: {"facing": 55.0, "steep": 70.0},
+    BeamType.ION: {"facing": 70.0, "steep": 90.0},
+}
+# the detector sits up the world y axis
+RELIEF_LIGHT = (0.35, 0.94)
+# m; a mound thicker than this hides the film, holes and bars under it
+RELIEF_OPAQUE = 1.5e-6
 # the FM reflection's view of the support, on the same scale
 RIP_FLAP_WIDTH = 1.5e-6  # m, the curled film edge round a rip
 HOLE_DEPTH = 45.0
@@ -244,6 +256,9 @@ class SceneFeature:
     # additive (a mound on top), 1 replaces the background inside its
     # outline - a cell body or an ice plate is opaque, a nucleus sits on top
     opacity: float = 0.0
+    # m; a feature with height is a mound the beams see in relief: its
+    # slopes shade toward the detector and brighten with steepness
+    height: float = 0.0
 
 
 @dataclass
@@ -502,6 +517,34 @@ class WorldTexture:
                 opacity=f.opacity,
                 cover=tile[2],
             )
+        relief = [self.features[idx] for idx in hit if self.features[idx].height > 0]
+        if relief:
+            # the mounds' surface, in pixels, so its gradient is the slope
+            surface = np.zeros((size, size), dtype=np.float32)
+            for f in relief:
+                sigma_x = f.sigma / tp
+                SampleScene._stamp_blob(
+                    [(surface, f.height / tp)],
+                    (f.x - x0) / tp + 0.5,
+                    (f.y - y0) / tp + 0.5,
+                    sigma_x,
+                    sigma_x * f.eccentricity,
+                    f.sharpness,
+                    angle=f.angle,
+                    wobble=f.wobble,
+                    wobble_phase=f.wobble_phase,
+                )
+            # a mound hides the film under it once it is thicker than a film
+            np.maximum(
+                tile[2], np.clip(surface * tp / RELIEF_OPAQUE, 0.0, 1.0), out=tile[2]
+            )
+            gy, gx = np.gradient(surface)
+            facing = gx * RELIEF_LIGHT[0] + gy * RELIEF_LIGHT[1]
+            steep = 1.0 / np.sqrt(1.0 + gx**2 + gy**2)
+            for k, b in enumerate(beams):
+                tile[k] += RELIEF[b]["facing"] * facing + RELIEF[b]["steep"] * (
+                    1.0 - steep
+                )
         return tile
 
 
