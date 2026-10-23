@@ -122,7 +122,10 @@ def test_eulers_are_the_saved_convention():
         assert 0.0 <= theta <= np.pi
         assert np.allclose(rz(psi) @ rx(theta) @ rz(phi), rotation)
         assert np.allclose(
-            solver.rotation_from_eulers_deg(solver.eulers_deg(rotation)), rotation
+            Rotation.from_euler(
+                "zxz", solver.eulers_deg(rotation), degrees=True
+            ).as_matrix(),
+            rotation,
         )
 
 

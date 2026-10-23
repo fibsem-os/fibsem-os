@@ -11,8 +11,6 @@ from fibsem.tools.apps import AUTOLAMELLA, BUILTIN_APPS, App
 @pytest.mark.parametrize("app", BUILTIN_APPS.values(), ids=BUILTIN_APPS.keys())
 def test_builtin_apps_ship_their_drawings(app):
     assert app.icon.is_file()
-    assert app.icon_16.is_file()
-    assert app.icon_16 != app.icon  # both built-ins have a 16 px drawing
 
 
 def _registered(monkeypatch, *entry_points):

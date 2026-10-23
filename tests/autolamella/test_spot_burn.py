@@ -8,7 +8,6 @@ These cover the failure modes that crashed the unsupervised (automatic) path:
 - the widget factory rendering float/int fields as a text box instead of a spinbox.
 """
 
-import threading
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -20,9 +19,7 @@ from fibsem.imaging.spot import (
     SpotBurnStatus,
     run_spot_burn,
 )
-from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, Point
-from fibsem.workflows.attention import Attention
 from fibsem.workflows.site_tasks.spot_burn import (
     SpotBurnFiducialTaskConfig,
 )
@@ -260,7 +257,9 @@ def test_update_spot_burn_ui_runs_stored_coordinates_headless(monkeypatch, tmp_p
     coords = [Point(0.5, 0.5), Point(0.6, 0.6)]
     microscope, _ = utils.setup_session(
         manufacturer="Demo",
-        config_path=os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml"),
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml"
+        ),
     )
     try:
         exp = Experiment(path=tmp_path, name="spot-exp")

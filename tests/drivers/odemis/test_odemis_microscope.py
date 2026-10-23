@@ -37,7 +37,7 @@ from fibsem.structures import (
 )
 from tests.fm import _odemis_stubs as stubs
 
-ODEMIS_CONFIG_PATH = os.path.join(cfg.CONFIG_PATH, "odemis-configuration.yaml")
+ODEMIS_CONFIG_PATH = os.path.join(cfg.SHIPPED_CONFIG_PATH, "odemis-configuration.yaml")
 
 FRAME_SHAPE = (1024, 1536)  # rows, columns
 
@@ -295,10 +295,7 @@ def test_acquire_image_needs_settings_or_a_beam(microscope):
 
 
 def test_there_is_no_chamber_camera(microscope):
-    with pytest.raises(
-        NotImplementedError, match="does not support acquire_chamber_image"
-    ):
-        microscope.acquire_chamber_image()
+    assert "chamber_camera" not in microscope.devices
 
 
 def test_auto_focus_runs_the_working_distance_sweep(microscope):
@@ -374,7 +371,7 @@ def test_set_patterning_mode_refuses_unknown_modes(microscope):
 
 
 def test_milling_state_is_read_on_the_milling_channel(microscope):
-    assert microscope.get_milling_state() is MillingState.IDLE
+    assert microscope.milling.state.get_value() is MillingState.IDLE
 
     names = [call[0] for call in microscope._connection.sdk.calls]
     assert names.index("set_active_view") < names.index("get_patterning_state")
@@ -429,7 +426,7 @@ def test_dropped_pattern_settings_are_warned_about(microscope, caplog):
         width=1e-6, height=1e-6, depth=1e-6, centre_x=0, centre_y=0, passes=3
     )
     with caplog.at_level("WARNING"):
-        microscope.draw_rectangle(settings)
+        microscope.draw_pattern(settings)
     assert "passes" in caplog.text
 
     caplog.clear()
@@ -437,12 +434,12 @@ def test_dropped_pattern_settings_are_warned_about(microscope, caplog):
         width=1e-6, height=1e-6, depth=1e-6, centre_x=0, centre_y=0
     )
     with caplog.at_level("WARNING"):
-        microscope.draw_rectangle(plain)
+        microscope.draw_pattern(plain)
     assert "ignores them" not in caplog.text
 
 
 def test_an_annulus_is_drawn_with_its_inner_diameter(microscope):
-    microscope.draw_circle(
+    microscope.draw_pattern(
         FibsemCircleSettings(
             radius=5e-6, depth=1e-6, centre_x=0, centre_y=0, thickness=1e-6
         )

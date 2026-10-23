@@ -30,7 +30,6 @@ and needs nothing beyond fibsem itself (see :mod:`fibsem.ai.agent.mcp.watch`).
 import argparse
 import base64
 import json
-import math
 import os
 import re
 import sys

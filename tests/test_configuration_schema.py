@@ -41,7 +41,7 @@ SHIPPED = (
 
 
 def _load(filename: str) -> dict:
-    return utils.load_yaml(os.path.join(cfg.CONFIG_PATH, filename))
+    return utils.load_yaml(os.path.join(cfg.SHIPPED_CONFIG_PATH, filename))
 
 
 # ---------------------------------------------------------------------------

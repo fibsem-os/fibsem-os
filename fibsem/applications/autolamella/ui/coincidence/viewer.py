@@ -466,9 +466,6 @@ class _InfoWidget(QWidget):
     # Live run metrics
     # ------------------------------------------------------------------
 
-    def show_run_metrics(self, visible: bool) -> None:
-        self._run_metrics_container.setVisible(visible)
-
     def update_run_metrics(self, stats: dict) -> None:
         self._frame_count += 1
         ts = stats.get("timestamp", time.time())

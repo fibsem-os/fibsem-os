@@ -23,7 +23,7 @@ from tests.fixtures.tescan_sdk import connect, image_at
 
 def _tescan(monkeypatch, stage=True):
     system = utils.load_microscope_configuration(
-        os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
     ).system
     system.stage.enabled = stage
     return connect(monkeypatch, system)
@@ -39,7 +39,7 @@ def _tescan(monkeypatch, stage=True):
 )
 def test_a_demo_stage_stamps_fibsem(filename):
     microscope, _ = utils.setup_session(
-        config_path=os.path.join(cfg.CONFIG_PATH, filename), manufacturer="Demo"
+        config_path=os.path.join(cfg.SHIPPED_CONFIG_PATH, filename), manufacturer="Demo"
     )
     assert microscope.hardware_geometry().stage_frame == STAGE_FRAME_FIBSEM
 

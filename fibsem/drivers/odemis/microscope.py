@@ -3,9 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
-
-import numpy as np
+from typing import TYPE_CHECKING, Optional, Tuple
 
 from fibsem.drivers.odemis import add_odemis_path
 from fibsem.drivers.odemis.connection import OdemisConnection
@@ -21,7 +19,6 @@ from fibsem.structures import (
     FibsemExperimentRef,
     FibsemImage,
     FibsemImageMetadata,
-    FibsemRectangle,
     FibsemStagePosition,
     FibsemUser,
     ImageSettings,
@@ -45,8 +42,6 @@ except ImportError as e:
 
 if TYPE_CHECKING:
     from odemis.driver.autoscript_client import SEM as OdemisAutoscriptClient
-
-    from fibsem.fm.microscope import FluorescenceMicroscope
 
 
 def stage_position_to_odemis_dict(position: FibsemStagePosition) -> dict:

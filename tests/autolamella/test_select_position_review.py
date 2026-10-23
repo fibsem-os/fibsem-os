@@ -192,7 +192,7 @@ def test_automated_the_point_is_recorded_unasked_and_nothing_waits(
         POINT_OF_INTEREST,
         ALIGNMENT_AREA,
     ], "the proposals nobody was asked"
-    assert all(p.unreviewed for p in recorded)
+    assert all(p.current.outcome is DecisionOutcome.Unreviewed for p in recorded)
     assert exp.pending_proposals() == []
 
 
@@ -204,7 +204,10 @@ def test_with_select_poi_off_the_point_is_not_asked(microscope, tmp_path):
     _run(_task(microscope, exp))
 
     (point,) = _points(lamella)
-    assert point.unreviewed and "turned off" in point.current.reason
+    assert (
+        point.current.outcome is DecisionOutcome.Unreviewed
+        and "turned off" in point.current.reason
+    )
     assert POINT_OF_INTEREST not in SelectMillingPositionTask.asks_for(
         lamella.task_config[SETUP]
     )

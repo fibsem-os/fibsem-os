@@ -53,8 +53,6 @@ from fibsem.ui.widgets.canvas.real_space_canvas import (  # noqa: E402
 )
 from fibsem.ui.widgets.overview_widget import (  # noqa: E402
     PICK_RADIUS_PX,
-    POSITION_FOV_HEIGHT,
-    POSITION_FOV_WIDTH,
     FibsemOverviewWidget,
 )
 

@@ -6,11 +6,9 @@ which, and that a backend without a stage device gets the same table as one with
 """
 
 import math
-import os
 
 import pytest
 
-import fibsem.config as cfg
 from fibsem import utils
 from fibsem.devices.stage import Axes, flip_stage_poses, rotating_stage_poses
 from fibsem.drivers.autoscript.devices import AutoscriptCompustage, AutoscriptStage
@@ -71,10 +69,10 @@ def test_without_a_stage_device_there_are_no_orientations():
     """Every backend builds a stage device; one switched off has no stage to orient."""
     microscope, _ = utils.setup_session(manufacturer="Demo")
     microscope.stage_device = None
-    microscope._update_orientations()
+    microscope.stage_movement.update_orientations()
     assert microscope.orientations == {}
     assert microscope._stage_poses() == {}
-    assert microscope._stage_turned_over(3.0) is False
+    assert microscope.stage_movement.turned_over(3.0) is False
 
 
 def _classifier(poses_deg):

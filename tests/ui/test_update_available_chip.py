@@ -38,10 +38,10 @@ def _clear_cached_status():
 @pytest.fixture
 def update_check_active(monkeypatch):
     """A wheel install whose user has opted in: the check actually runs."""
-    from fibsem.config import ReportingPreferences, UserPreferences
+    from fibsem.config import InstallPreferences, UserPreferences
 
     monkeypatch.setattr(update_check, "get_revision", lambda: None)
-    prefs = UserPreferences(reporting=ReportingPreferences(update_check_enabled=True))
+    prefs = UserPreferences(install=InstallPreferences(update_check_enabled=True))
     monkeypatch.setattr("fibsem.config.load_user_preferences", lambda: prefs)
 
 

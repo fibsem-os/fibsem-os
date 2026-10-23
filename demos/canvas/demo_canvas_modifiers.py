@@ -19,7 +19,6 @@ truncates the extra ``modifiers`` argument for slots that don't want it).
 
 import sys
 
-from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QApplication,
     QHBoxLayout,

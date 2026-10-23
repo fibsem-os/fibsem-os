@@ -1,7 +1,6 @@
 # fibsem structures
 from __future__ import annotations
 
-import json
 import logging
 import math
 import numbers
@@ -10,7 +9,7 @@ import sys
 import weakref
 from abc import ABC, abstractmethod
 from copy import deepcopy
-from dataclasses import MISSING, InitVar, asdict, dataclass, field, fields, replace
+from dataclasses import MISSING, InitVar, dataclass, field, fields, replace
 from datetime import datetime, tzinfo
 from enum import Enum, auto
 from pathlib import Path
@@ -59,7 +58,6 @@ from fibsem.codec import (
 from fibsem.config import (
     DEFAULT_STANDARD_RESOLUTION_LIST,
     METADATA_VERSION,
-    UNVERSIONED_METADATA,
 )
 from fibsem.util.timestamps import (
     acquisition_datetime_of,
@@ -761,7 +759,7 @@ class MillingState(Enum):
     PAUSED = 3
     ERROR = 4
     # The state could not be read. Not an error and not a guess -- a producer saying so
-    # deliberately, because on ThermoFisher `get_milling_state()` is a getter that
+    # deliberately, because on ThermoFisher reading the milling state is a getter that
     # *sets the active view* as a side effect, and a caller that must not disturb the
     # view has no way to ask. The coincidence milling strategy is exactly that caller:
     # it runs a fluorescence acquisition that holds the active view for the whole
@@ -774,7 +772,7 @@ class MillingState(Enum):
 
 
 # Milling is under way, in the sense that the caller should keep waiting. Read as a loop
-# condition -- `while get_milling_state() in ACTIVE_MILLING_STATES` guards the milling
+# condition -- `while milling.state.get_value() in ACTIVE_MILLING_STATES` guards the milling
 # waits and TESCAN's spot-burn poll.
 #
 # `UNKNOWN` is deliberately **not** in here, and both classifications have a failure
@@ -2275,7 +2273,7 @@ class FibsemMillingSettings(Configurable):
 DEVICE_AXES = ("x", "y", "z")
 
 # The named orientations the microscope derives poses for -- see
-# `_update_orientations`. The poses themselves are computed from physical parameters
+# `StageMovement.update_orientations`. The poses themselves are computed from physical parameters
 # (pre-tilt, column tilt, milling angle); these are the only names a device's
 # `available_orientations` may reference.
 KNOWN_ORIENTATIONS = ("SEM", "FIB", "MILLING", "FM")
@@ -2427,7 +2425,7 @@ class StageDeviceSettings:
         Devices may overlap, and on a compustage they fully do: the objective is under
         the grid, so the beams and the FM are the same place reached by flipping. The
         device axis is degenerate there and this question is not the one to ask -- see
-        `FibsemMicroscope.get_current_device`.
+        `StageMovement.current_device`.
 
         A device whose origin constrains an axis that `range` says nothing
         about answers **no**. The caller is "have I already arrived", and the two costs are
@@ -2641,7 +2639,7 @@ class StageSystemSettings(Configurable):
     #
     # **Written by the instrument, not by a file.** No configuration states it any
     # more: `FibsemMicroscope._read_stage_capabilities` fills it at connect from the
-    # stage's own axes, and again after `apply_configuration` replaces this record.
+    # stage's own axes.
     # The default here is what an unconnected `SystemSettings` holds, and it is the
     # rotating case because that is the commoner stage -- a compustage that never
     # reached a microscope has no orientations to get wrong.
@@ -2807,8 +2805,7 @@ def _detector_block_from(settings: dict) -> dict:
 
 # Written by `BeamSettings` / `FibsemDetectorSettings` and not defaults: the column's
 # alignment (working distance, stigmation, beam shift) and what the last autocontrast
-# left on the detector. A configuration does not record them, and Apply does not set
-# them (`FibsemMicroscope.set_beam_system_settings`).
+# left on the detector. A configuration does not record them.
 NOT_BEAM_DEFAULTS = (
     "working_distance",
     "stigmation",
@@ -4446,32 +4443,6 @@ class FibsemImage:
             data=_apply_gamma(self.data, gamma), metadata=deepcopy(self.metadata)
         )
 
-    def auto_contrast_brightness(
-        self,
-        clip_percentile_lo: float = 0.5,
-        clip_percentile_hi: float = 99.5,
-    ) -> "FibsemImage":
-        """Return a copy of the image with a percentile stretch applied.
-
-        Pixel values are clipped to [p_lo, p_hi] and linearly rescaled to fill
-        the full dtype range.
-
-        Args:
-            clip_percentile_lo: Lower clip percentile (default 0.5).
-            clip_percentile_hi: Upper clip percentile (default 99.5).
-
-        Returns:
-            FibsemImage: New image with stretched data and the same metadata.
-        """
-        from copy import deepcopy
-
-        from fibsem.imaging.utils import percentile_stretch
-
-        stretched = percentile_stretch(
-            self.data, clip_percentile_lo, clip_percentile_hi
-        )
-        return FibsemImage(data=stretched, metadata=deepcopy(self.metadata))
-
     def compute_stats(self) -> "ImageStats":
         """Compute histogram statistics for this image.
 
@@ -4560,17 +4531,6 @@ class FibsemImage:
             ),
         )
         return image
-
-
-@dataclass
-class ReferenceImages:
-    low_res_eb: FibsemImage
-    high_res_eb: FibsemImage
-    low_res_ib: FibsemImage
-    high_res_ib: FibsemImage
-
-    def __iter__(self) -> List[FibsemImage]:
-        yield self.low_res_eb, self.high_res_eb, self.low_res_ib, self.high_res_ib
 
 
 def check_data_format(data: np.ndarray) -> bool:

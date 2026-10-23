@@ -44,7 +44,6 @@ fibsem is installed, without the [mcp] extra.
 """
 
 import argparse
-import json
 import sys
 import time
 

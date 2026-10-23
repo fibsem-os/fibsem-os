@@ -26,7 +26,6 @@ from tests.fixtures.microscopes import demo_microscope
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-import numpy as np
 import pytest
 
 pytest.importorskip("PyQt5")

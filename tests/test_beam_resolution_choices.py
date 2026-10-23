@@ -48,7 +48,7 @@ def test_tescan_offers_the_standard_resolutions_read_only(monkeypatch):
     from tests.fixtures.tescan_sdk import connect
 
     system = utils.load_microscope_configuration(
-        os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
     ).system
     microscope, _ = connect(monkeypatch, system)
     for beam in microscope.beams.values():

@@ -32,7 +32,6 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
 from fibsem.server import AuthConfig, build_server
 from fibsem.structures import MicroscopeState
 from fibsem.workflows.event_recording import EventRecorder
-from fibsem.workflows.events import EventBuffer
 from tests.fixtures.main_window import close_window
 
 TOKEN = "test-token"

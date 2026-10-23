@@ -39,7 +39,6 @@ Nothing here has run on an instrument.
 """
 
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path

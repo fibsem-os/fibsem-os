@@ -32,7 +32,7 @@ from fibsem.structures import BeamType, FibsemHardwareGeometry, FibsemStagePosit
 # Every view of the sample runs the same projection and differs only in how far its
 # viewing axis is tilted from the electron column: 0 for the electron column, the ion
 # column's `column_tilt`, the fluorescence camera's `camera_tilt`. These are the
-# microscope-free form of `FibsemMicroscope._view_corrected_stage_movement`, taking a
+# microscope-free form of `StageMovement.view_corrected_movement`, taking a
 # recorded `FibsemHardwareGeometry` and pose, because they answer questions about a
 # saved image, which the live instrument's state no longer describes.
 
@@ -66,7 +66,7 @@ def view_corrected_stage_movement(
     """Split an in-image y-displacement across the stage y- and z-axes.
 
     The microscope-free form of
-    :meth:`FibsemMicroscope._view_corrected_stage_movement`.
+    :meth:`StageMovement.view_corrected_movement`.
 
     Args:
         expected_y: displacement along the image y-axis, in metres.
@@ -101,7 +101,7 @@ def inverse_view_corrected_dy(
     """Where a y/z stage movement lands in the image, as an in-image y-displacement.
 
     The microscope-free form of
-    :meth:`FibsemMicroscope._inverse_view_corrected_stage_movement`, parameterised by
+    :meth:`StageMovement.inverse_view_corrected_movement`, parameterised by
     the geometry rather than reading it off a live instrument. The two are held
     together by a parity test across the full pose matrix, because a projection that
     silently disagrees with the one used to move the stage puts every overlay in the

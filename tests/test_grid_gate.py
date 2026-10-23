@@ -16,14 +16,15 @@ from fibsem.applications.autolamella.workflows.runs import (
     run_refusal,
 )
 from fibsem.structures import MicroscopeState
-from fibsem.workflows.grids import GridRecord
 
 
 @pytest.fixture
 def arctis():
     microscope, _ = utils.setup_session(
         manufacturer="Demo",
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
+        ),
     )
     yield microscope
     microscope.disconnect()

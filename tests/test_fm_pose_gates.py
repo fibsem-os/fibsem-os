@@ -17,8 +17,8 @@ from fibsem.devices.stage import flip_stage_poses, rotating_stage_poses
 from fibsem.drivers.demo.simulator import STAGE_LIMITS_COMPUSTAGE
 from fibsem.structures import FibsemStagePosition
 
-IFLM_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
-ARCTIS_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+IFLM_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml")
+ARCTIS_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
 
 
 def _microscope(config_path: str):

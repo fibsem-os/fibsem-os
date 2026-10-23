@@ -1,44 +1,22 @@
 ######## TASK BASE DEFINITIONS ########
 
 
-import random
-import time
 from copy import deepcopy
-from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     ClassVar,
-    Dict,
     List,
-    Literal,
     Optional,
     Sequence,
-    Type,
     TypeVar,
 )
 
-import numpy as np
-
-from fibsem import constants, utils
-from fibsem.acting import AGENT
-from fibsem.applications.autolamella.protocol.constants import (
-    FIDUCIAL_KEY,
-    MILL_POLISHING_KEY,
-    MILL_ROUGH_KEY,
-    STRESS_RELIEF_KEY,
-    TRENCH_KEY,
-    UNDERCUT_KEY,
-)
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskConfig,
     Lamella,
 )
-from fibsem.applications.autolamella.workflows._default_milling_config import (
-    DEFAULT_MILLING_CONFIG,
-)
 from fibsem.applications.autolamella.workflows.core import (
-    align_feature_coincident,
     update_status_ui,
 )
 from fibsem.detection import detection as detection_module
@@ -52,19 +30,12 @@ from fibsem.detection.decided import (
 from fibsem.detection.detection import (
     DetectedFeatures,
     Feature,
-    LamellaBottomEdge,
-    LamellaCentre,
-    LamellaTopEdge,
 )
 from fibsem.fm.structures import ChannelSettings
 from fibsem.microscope import FibsemMicroscope
-from fibsem.milling.patterning.utils import get_pattern_reduced_area
-from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.structures import (
-    DEFAULT_ALIGNMENT_AREA,
     FibsemStagePosition,
     ImageSettings,
-    Point,
 )
 from fibsem.workflows.interaction import (
     INSTRUCTION_TIMEOUT_S,
@@ -78,7 +49,6 @@ from fibsem.workflows.proposals import (
     DecisionOutcome,
 )
 from fibsem.workflows.site_task import SiteTask
-from fibsem.workflows.status import TaskState
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager

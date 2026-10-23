@@ -22,7 +22,6 @@ from .fm_multi_channel_widget import FluorescenceMultiChannelWidget
 from .fm_overview_confirmation_dialog import FMOverviewConfirmationDialog
 from .fm_overview_settings_widget import FMOverviewSettingsWidget
 from .fm_overview_widget import FMOverviewWidget
-from .histogram_widget import HistogramWidget
 from .line_plot_widget import LinePlotWidget
 from .load_image_dialog import LoadImageDialog
 from .objective_control_widget import ObjectiveControlWidget
@@ -33,7 +32,6 @@ __all__ = [
     "ObjectiveControlWidget",
     "ChannelSettingsWidget",
     "CameraWidget",
-    "HistogramWidget",
     "LinePlotWidget",
     "AutofocusWidget",
     "LoadImageDialog",

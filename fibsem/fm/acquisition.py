@@ -10,6 +10,7 @@ import numpy as np
 
 from fibsem import utils
 from fibsem.cancellation import OperationCancelledError, raise_if_cancelled
+from fibsem.constants import TIME_FILE
 from fibsem.fm.calibration import run_coarse_fine_autofocus
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.progress import (
@@ -47,7 +48,6 @@ from fibsem.imaging.tiling.progress import (
 from fibsem.imaging.tiling.registration import compose_mosaic, measure_registration
 from fibsem.imaging.tiling.result import OverviewResult
 from fibsem.structures import (
-    BeamType,
     DeviceImagingState,
     FibsemStagePosition,
     InsertableDeviceState,
@@ -398,7 +398,7 @@ class OverviewDestination:
         Raises:
             OSError: if the directory cannot be made, or no free name was found.
         """
-        stem = basename or f"overview-{utils.current_timestamp_v3(timeonly=True)}"
+        stem = basename or f"overview-{utils.current_timestamp(TIME_FILE)}"
         # The timestamp is only good to the second, and two runs can start inside one --
         # a single-tile overview at a short exposure takes far less. Reusing the name
         # would let the second run overwrite the first tile for tile, silently, which is
@@ -1587,219 +1587,3 @@ def stitch_tileset(
 
     logging.info(f"Stitching complete: {mosaic_height}x{mosaic_width} mosaic created")
     return stitched_image
-
-
-def convert_grid_positions_to_stage_positions(
-    microscope: "FibsemMicroscope",
-    positions: List[Tuple[float, float]],
-    beam_type: BeamType = BeamType.ELECTRON,
-    base_position: Optional[FibsemStagePosition] = None,
-) -> List[FibsemStagePosition]:
-    """Convert grid positions to stage positions using microscope projection.
-
-    Takes a list of (x, y) grid positions and converts them to FibsemStagePosition
-    objects using the microscope's project_stable_move method. This accounts for
-    the microscope's coordinate system and current stage configuration.
-
-    Args:
-        microscope: The FibsemMicroscope instance to use for projection
-        positions: List of (x, y) tuples representing grid positions in meters
-        beam_type: Beam type to use for projection (default: ELECTRON)
-        base_position: Base stage position to project from (default: current position)
-
-    Returns:
-        List of FibsemStagePosition objects representing the projected stage positions
-
-    Example:
-        >>> # Generate grid positions
-        >>> positions = [(0.0, 0.0), (9e-6, 0.0), (0.0, 9e-6)]
-        >>> # Convert to stage positions
-        >>> stage_positions = convert_grid_positions_to_stage_positions(
-        ...     microscope, positions, BeamType.ELECTRON
-        ... )
-        >>> len(stage_positions)
-        9
-    """
-    if base_position is None:
-        base_position = microscope.get_stage_position()
-
-    stage_positions = []
-    for pos in positions:
-        x, y = pos
-        stage_position = microscope.project_stable_move(
-            dx=x, dy=y, beam_type=beam_type, base_position=base_position
-        )
-        stage_positions.append(stage_position)
-    return stage_positions
-
-
-def calculate_grid_coverage_area(
-    ncols: int, nrows: int, fov_x: float, fov_y: float, overlap: float = 0.1
-) -> Tuple[float, float]:
-    """Calculate the total area covered by a grid of tiles.
-
-    Determines the total width and height of the area covered by a grid of tiles
-    with specified dimensions, field of view, and overlap between adjacent tiles.
-
-    Args:
-        ncols: Number of columns in the grid (must be positive)
-        nrows: Number of rows in the grid (must be positive)
-        fov_x: Horizontal field of view size in meters
-        fov_y: Vertical field of view size in meters
-        overlap: Fraction of overlap between adjacent tiles (0.0 to 1.0)
-
-    Returns:
-        Tuple of (total_width, total_height) in meters representing the covered area
-
-    Raises:
-        ValueError: If grid dimensions, FOV, or overlap are invalid
-
-    Example:
-        >>> # Calculate area covered by 3x4 grid with 10x8 μm FOV and 10% overlap
-        >>> width, height = calculate_grid_coverage_area(3, 4, 10e-6, 8e-6, 0.1)
-        >>> print(f"Covers {width*1e6:.1f}x{height*1e6:.1f} μm")
-        Covers 28.0x30.4 μm
-
-        >>> # Calculate area covered by 2x2 grid with 20x20 μm FOV and no overlap
-        >>> width, height = calculate_grid_coverage_area(2, 2, 20e-6, 20e-6, 0.0)
-        >>> print(f"Covers {width*1e6:.1f}x{height*1e6:.1f} μm")
-        Covers 40.0x40.0 μm
-    """
-    # Validate inputs
-    if ncols <= 0 or nrows <= 0:
-        raise ValueError("Grid dimensions must be positive")
-    if fov_x <= 0 or fov_y <= 0:
-        raise ValueError("FOV dimensions must be positive")
-    if not 0.0 <= overlap < 1.0:
-        raise ValueError("Overlap must be between 0.0 and 1.0 (exclusive)")
-
-    # Calculate step size (distance between tile centers)
-    step_x = fov_x * (1.0 - overlap)
-    step_y = fov_y * (1.0 - overlap)
-
-    # Calculate total coverage area
-    # For n tiles: total_coverage = (n-1) * step + fov
-    if ncols == 1:
-        total_width = fov_x
-    else:
-        total_width = (ncols - 1) * step_x + fov_x
-
-    if nrows == 1:
-        total_height = fov_y
-    else:
-        total_height = (nrows - 1) * step_y + fov_y
-
-    return total_width, total_height
-
-
-def calculate_grid_dimensions(positions: List[Tuple[float, float]]) -> Tuple[int, int]:
-    """Calculate the number of rows and columns from grid positions.
-
-    Analyzes the grid positions to determine the number of unique rows and columns
-    in the grid layout. Works with regular grids where positions are arranged in
-    a rectangular pattern.
-
-    Args:
-        positions: List of (x, y) tuples representing grid positions in meters
-
-    Returns:
-        Tuple of (ncols, nrows) representing the grid dimensions
-        Returns (0, 0) if positions is empty
-
-    Example:
-        >>> positions = [(x * 9e-6, y * 7.2e-6) for y in range(3) for x in range(4)]
-        >>> ncols, nrows = calculate_grid_dimensions(positions)
-        >>> print(f"Grid: {ncols}x{nrows}")
-        Grid: 3x4
-    """
-    if not positions:
-        return 0, 0
-
-    # Extract unique x and y coordinates
-    x_coords = [pos[0] for pos in positions]
-    y_coords = [pos[1] for pos in positions]
-
-    # Count unique coordinates with tolerance for floating point precision
-    tolerance = 1e-10
-
-    # Find unique x coordinates (columns)
-    unique_x = []
-    for x in x_coords:
-        if not any(abs(x - ux) < tolerance for ux in unique_x):
-            unique_x.append(x)
-
-    # Find unique y coordinates (rows)
-    unique_y = []
-    for y in y_coords:
-        if not any(abs(y - uy) < tolerance for uy in unique_y):
-            unique_y.append(y)
-
-    ncols = len(unique_x)
-    nrows = len(unique_y)
-
-    return ncols, nrows
-
-
-def calculate_grid_overlap(
-    positions: List[Tuple[float, float]], fov_x: float, fov_y: float
-) -> Tuple[float, float]:
-    """Calculate the overlap between grid positions given the FOV dimensions.
-
-    Analyzes the spacing between adjacent grid positions to determine the overlap
-    fraction in both horizontal and vertical directions.
-
-    Args:
-        positions: List of (x, y) tuples representing grid positions in meters
-        fov_x: Horizontal field of view size in meters
-        fov_y: Vertical field of view size in meters
-
-    Returns:
-        Tuple of (horizontal_overlap, vertical_overlap) as fractions (0.0 to 1.0)
-        Returns (0.0, 0.0) if overlap cannot be determined
-
-    Example:
-        >>> positions = [(x * 9e-6, y * 7.2e-6) for y in range(3) for x in range(3)]
-        >>> overlap_x, overlap_y = calculate_grid_overlap(positions, 10e-6, 8e-6)
-        >>> print(f"Horizontal overlap: {overlap_x:.1%}, Vertical overlap: {overlap_y:.1%}")
-        Horizontal overlap: 10.0%, Vertical overlap: 10.0%
-    """
-    if len(positions) < 2:
-        return 0.0, 0.0
-
-    # We'll analyze all pairs of positions to find minimum steps
-
-    # Find minimum horizontal and vertical step distances
-    min_x_step = float("inf")
-    min_y_step = float("inf")
-
-    # Check all pairs of positions to find minimum steps
-    for i, pos1 in enumerate(positions):
-        for j, pos2 in enumerate(positions):
-            if i >= j:
-                continue
-
-            x1, y1 = pos1
-            x2, y2 = pos2
-
-            dx = abs(x2 - x1)
-            dy = abs(y2 - y1)
-
-            # Look for horizontal steps (same y, different x)
-            if abs(dy) < 1e-10 and dx > 1e-10:  # Same y coordinate
-                min_x_step = min(min_x_step, dx)
-
-            # Look for vertical steps (same x, different y)
-            if abs(dx) < 1e-10 and dy > 1e-10:  # Same x coordinate
-                min_y_step = min(min_y_step, dy)
-
-    # Calculate overlaps
-    overlap_x = 0.0
-    overlap_y = 0.0
-
-    if min_x_step != float("inf") and min_x_step > 0:
-        overlap_x = max(0.0, min(1.0, (fov_x - min_x_step) / fov_x))
-
-    if min_y_step != float("inf") and min_y_step > 0:
-        overlap_y = max(0.0, min(1.0, (fov_y - min_y_step) / fov_y))
-
-    return overlap_x, overlap_y

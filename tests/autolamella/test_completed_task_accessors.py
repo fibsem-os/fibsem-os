@@ -61,7 +61,7 @@ def test_a_failed_prerequisite_does_not_satisfy_the_gate(
     lamella: Lamella, workflow: AutoLamellaTaskProtocol
 ) -> None:
     """The blocking case: TaskManager._should_skip gates on has_completed_task, and
-    nothing else stops it -- is_failure reads defect.state, which only a human
+    nothing else stops it -- is_failure reads defect.verdict, which only a human
     clicking in the UI ever sets. A failed trench must not license an undercut."""
     lamella.task_history.append(_finished("MillTrench", TaskStatus.Failed))
 

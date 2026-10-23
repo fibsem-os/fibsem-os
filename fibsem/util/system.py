@@ -75,11 +75,6 @@ class DiskSpace:
     free: int
 
     @property
-    def fraction_used(self) -> float:
-        """Used over total, 0.0 for a volume reporting no size at all."""
-        return self.used / self.total if self.total else 0.0
-
-    @property
     def level(self) -> FreeSpaceLevel:
         return classify_free_space(self.free)
 

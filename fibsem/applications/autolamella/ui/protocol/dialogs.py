@@ -7,22 +7,18 @@ The line says which protocol is loaded; the dialog behind the pencil does the re
 
 from __future__ import annotations
 
-import logging
 from typing import Dict, List, Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QDialog,
     QDialogButtonBox,
-    QDoubleSpinBox,
     QFormLayout,
     QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QMessageBox,
     QVBoxLayout,
     QWidget,
 )
@@ -33,10 +29,8 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.constants import SI_TO_MICRO
 from fibsem.structures import (
-    BeamType,
     FibsemMillingSettings,
     ReferenceImageParameters,
-    field_specs,
 )
 from fibsem.ui.tokens import NEUTRAL_200, TEXT_MUTED_COLOR
 from fibsem.ui.utils import beam_spec

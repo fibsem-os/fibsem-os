@@ -102,7 +102,7 @@ def _tescan():
     from tests.fixtures.tescan_sdk import connect
 
     system = utils.load_microscope_configuration(
-        os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
     ).system
     with pytest.MonkeyPatch.context() as monkeypatch:
         microscope, _ = connect(monkeypatch, system)
@@ -231,7 +231,7 @@ def test_a_beam_key_is_answered_without_an_sdk_call(monkeypatch):
     from tests.fixtures.tescan_sdk import connect
 
     system = utils.load_microscope_configuration(
-        os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
     ).system
     microscope, fake = connect(monkeypatch, system)
     param = microscope.beams[BeamType.ION].parameters["detector_type"]

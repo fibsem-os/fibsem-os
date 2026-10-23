@@ -111,7 +111,7 @@ def main_window_fixture(
         window = module.AutoLamellaWindow()
         with pytest.MonkeyPatch.context() as mp:
             if config is not None:
-                path = os.path.join(cfg.CONFIG_PATH, config)
+                path = os.path.join(cfg.SHIPPED_CONFIG_PATH, config)
                 mp.setattr(
                     window.system_widget,
                     "load_configuration",
