@@ -45,8 +45,8 @@ from fibsem.workflows.grid.base import (
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
 
-# The output roles a results card, the Overview tab and the App Server read
-# (FIB-876). One per beam, plus the thumbnail and the tiles beside it.
+# The output roles a results card, the Overview tab and the App Server read.
+# One per beam, plus the thumbnail and the tiles beside it.
 ROLE_BY_BEAM = {BeamType.ELECTRON: "overview_sem", BeamType.ION: "overview_fib"}
 
 
@@ -157,7 +157,7 @@ class BeamOverviewGridTask(GridTask):
         image = overview.image
         self.record_output(self.config.role, image)
         # The tiles too, for what reads single frames rather than the stitch: the
-        # targeting model was trained on tiles (FIB-939).
+        # targeting model was trained on tiles.
         for tile in overview.tile_paths:
             self.record_output(f"{self.config.role}_tiles", tile)
 

@@ -1026,7 +1026,7 @@ class AppContext:
             text,
         )
         # With the item's id, so the record files the note under the item
-        # it is about, not whichever one is running (FIB-1328).
+        # it is about, not whichever one is running.
         self.record_event(
             NOTE,
             note_record(text, item_id=item_id, item_name=item_name, **fields),
@@ -1059,7 +1059,7 @@ class AppContext:
         self, kind: str, payload: Dict[str, Any], actor: Optional[str] = None
     ) -> None:
         """Put an event on the experiment's record: everything the server's
-        side writes, the agent's requests and their outcomes (FIB-1283)
+        side writes, the agent's requests and their outcomes
         among them. *actor* as for ``EventBuffer.append``."""
         if self._event_buffer is not None:
             self._event_buffer.append(kind, payload, actor=actor)
@@ -1144,7 +1144,7 @@ class AppContext:
         )
         if result.get("started"):
             # Who started it: the run's own workflow_started fires on its
-            # worker thread, which carries no one's mark (FIB-1414).
+            # worker thread, which carries no one's mark.
             self.record_event(
                 "workflow_start",
                 {"task_names": list(task_names), "item_names": item_names},
@@ -1190,7 +1190,7 @@ class AppContext:
 
     def edit_queue(self, item_name: str, task_name: str, action: str) -> Dict[str, Any]:
         """Remove or move a waiting (item, task) pair in the running workflow's
-        queue, as the timeline's menu does (FIB-1419).
+        queue, as the timeline's menu does.
 
         ``action`` is one of :data:`QUEUE_ACTIONS`: ``remove`` (it will not run;
         kept in the run record as Removed), ``move_up``, ``move_down`` or
@@ -1224,7 +1224,7 @@ class AppContext:
 
     # --- experiments and protocols: the File menu, for an agent at Drive ---------
     #
-    # Kept to known places (Patrick's call, 2026-10-14; widened 2026-10-20): a new
+    # Kept to known places: a new
     # experiment goes anywhere under the experiments folder, a load is a recent
     # experiment or one under that folder, and a protocol is one of the files in
     # the app's protocol folder, by name (discovery, above, lists the
@@ -1621,7 +1621,7 @@ class AppContext:
         - ``show_run_summary``: whether the window's run summary dialog opens
           when a run ends. Off leaves the run-end toast and its Show summary link: an agent
           starting many short runs turns it off so no dialog stands over the
-          window (FIB-1376).
+          window.
         - ``turn_beams_off``: whether the beams are turned off when a run ends.
 
         Each is read when it applies (a run's end), so a change

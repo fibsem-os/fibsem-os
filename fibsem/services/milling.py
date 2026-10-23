@@ -132,7 +132,7 @@ SAVED_BEAM_CONDITIONS = ("preset", "voltage", "current", "hfw")
 PATTERNING_MODES = ("Serial", "Parallel")
 
 # What a stage update leaves out and the run's own reports said: which run, which
-# task config, which stage (FIB-1356). A backend's poll loop and a strategy's tick
+# task config, which stage. A backend's poll loop and a strategy's tick
 # know only the countdown.
 _RUN_CONTEXT = (
     "milling_run_id",
@@ -287,7 +287,7 @@ def _prepare_line(kwargs: Dict[str, Any], ctx: wording.ActionContext) -> Dict[st
 
 
 # Whose estimate a mill's time is: the sputter-rate table's, at the mill's
-# current, not the instrument's (FIB-1412).
+# current, not the instrument's.
 _ESTIMATED = "estimated from the sputter rate"
 
 
@@ -421,7 +421,7 @@ class Milling(Service):
 
     # The patterns the next run mills, as drawn: the list so far after each
     # ``draw``, and empty when setup, ``clear`` or the end of a run removes them.
-    # The app draws an agent's mill from it (FIB-1375), which it has no config of.
+    # The app draws an agent's mill from it, which it has no config of.
     patterns_changed = Signal(object)
 
     # Each RTM read (`RtmFrame`), on the reader's thread: a subscriber returns
@@ -469,7 +469,7 @@ class Milling(Service):
         self._step: Optional[MillingStep] = None
         self._stage_run: Optional[MillingStageRun] = None
         # The stop of the milling task running on this service, if one is: ``stop``
-        # sets it, so the task starts no later stage (FIB-1398).
+        # sets it, so the task starts no later stage.
         self._task_stop: Optional[threading.Event] = None
         # A run is in progress, for ``stop`` to know there is something to stop.
         self._running = False
@@ -878,7 +878,7 @@ class Milling(Service):
         Refused with `NothingToStop` when nothing is milling and no task is running.
         """
         # The run first: one that has yet to register its task or start its
-        # step takes the stop from it (FIB-1506).
+        # step takes the stop from it.
         run = self.runs.latest
         starting = run is not None and run.state == RUNNING and run.command in _RUNS
         if starting:
@@ -896,7 +896,7 @@ class Milling(Service):
         starts no further step. A run in progress answers ``completed``; the
         milling task goes on to its next stage. Only a stage that mills
         through ``run`` has steps to end: coincidence milling, which starts
-        its own mill, ignores it until it moves to monitors (FIB-1484).
+        its own mill, ignores it until it moves to monitors.
 
         Refused with `NothingToStop` when nothing is milling and no stage runs.
         *by* is who the call is marked as, when it is (a server request), not
@@ -1003,7 +1003,7 @@ class Milling(Service):
         The patterns are cleared at the end, however the run ends. A ``stop_event``
         set while it runs stops the beam, and the run then raises
         `OperationCancelledError`; ``stop`` from another thread ends it, and it
-        answers ``cancelled`` rather than ``completed`` (FIB-1377). A failure stops
+        answers ``cancelled`` rather than ``completed``. A failure stops
         the beam before it is raised.
 
         Outside a milling task, the run is on the record as one ``milling`` event,
@@ -1063,7 +1063,7 @@ class Milling(Service):
         if ended.get("path") and not os.path.isdir(ended["path"]):
             if answer_empty_folder:
                 # The task's folder, whether or not it got to save anything: a
-                # stopped task answered none (FIB-1430).
+                # stopped task answered none.
                 os.makedirs(ended["path"], exist_ok=True)
             else:
                 # Nothing was saved (a stage that acquires no images, as
@@ -1201,9 +1201,9 @@ class Milling(Service):
     ) -> str:
         """A run outside a milling task (an agent's ``prepare`` and ``run``, or a
         script's): its stage updates carry the name it was set up with, and it
-        records one ``milling`` event with how it ended, as a task's run does
-        (FIB-1257, FIB-1377). It starts as a task does, so the milling panel's
-        Stop and the progress bars follow it (FIB-1496)."""
+        records one ``milling`` event with how it ended, as a task's run does.
+        It starts as a task does, so the milling panel's
+        Stop and the progress bars follow it."""
         payload: Dict[str, Any] = {
             # The id of its run on this service (`fibsem.devices.runs`), so
             # its events and its run share one id.
@@ -1230,7 +1230,7 @@ class Milling(Service):
             payload["ended_at"] = now_iso()
             self.session.record("milling", payload)
             # No task ends it, so the run does: the progress bars clear on a
-            # terminal report, and otherwise stay at the last tick (FIB-1401).
+            # terminal report, and otherwise stay at the last tick.
             self._report(
                 MillingProgress(
                     status=_ENDED_AS.get(
@@ -1390,7 +1390,7 @@ class Milling(Service):
         self._saved = save_beam_conditions(beam, SAVED_BEAM_CONDITIONS)
 
     def _write_back(self, beam: Beam, name: str, value: Any) -> None:
-        """Write one saved condition back to the beam, as the old API would."""
+        """Write one saved condition back to the beam, with no new checks."""
         getattr(beam, name).write_through(value)
 
     # -- what a driver implements -------------------------------------------------
@@ -1791,7 +1791,7 @@ def stage_running(microscope: Any, stage: Any = None) -> Iterator[Any]:
 @contextmanager
 def task_running(microscope: Any, stop_event: threading.Event) -> Iterator[None]:
     """A milling task runs on *microscope*'s milling service in the block, so the
-    service's ``stop`` sets ``stop_event`` and the whole task ends (FIB-1398).
+    service's ``stop`` sets ``stop_event`` and the whole task ends.
     Without a milling service nothing mills, and there is nothing to register."""
     milling = getattr(microscope, "milling", None)
     if milling is None:

@@ -74,17 +74,14 @@ def scipy_interpolation(
     ndarray
         Interpolated 3D image with adjusted z-axis resolution
 
-    The name is historical: this used to be scipy's ``zoom``, which is a general
-    n-dimensional resampler and walks every axis of the volume even though only
-    z changes here (9 s per 33x2048x2048 channel at order 1, 76 s at order 3).
-    Only z is resampled, so each output slice is a weighted blend of a few
-    source slices, done one slice at a time below in a fraction of the time.
-    The slice count, the sample grid and the rounding are zoom's own, so the
-    linear result is identical to zoom's to the last bit. The cubic result is
-    too on real data; on synthetic data with exact half-way values it can
-    differ by one grey level, because the four taps are summed in a different
-    order and a tie lands on the other side. The tests hold both paths to
-    zoom.
+    Only z is resampled (scipy's ``zoom`` walks every axis: 9 s per 33x2048x2048 channel
+    at order 1, 76 s at order 3), so each output slice is a weighted blend of a few
+    source slices, done one slice at a time below in a fraction of the time. The slice
+    count, the sample grid and the rounding are zoom's own, so the linear result is
+    identical to zoom's to the last bit. The cubic result is too on real data; on
+    synthetic data with exact half-way values it can differ by one grey level, because
+    the four taps are summed in a different order and a tie lands on the other side. The
+    tests hold both paths to zoom.
     """
     if method not in INTERPOLATION_METHODS:
         method = "linear"
@@ -110,7 +107,7 @@ def z_resample_scale(nz: int, new_nz: int) -> float:
     ``new_nz``-slice resampling: source slice ``s`` lands at ``s * scale``.
 
     The inverse of :func:`_zoom_grid`, whose end slices land on the end slices,
-    so the factor is ``(new_nz - 1) / (nz - 1)``, not ``new_nz / nz`` (FIB-1238).
+    so the factor is ``(new_nz - 1) / (nz - 1)``, not ``new_nz / nz``.
     """
     if nz < 2 or new_nz < 2:
         raise ValueError(
@@ -357,7 +354,7 @@ def interpolate_fm_volume(
             new_meta.z_positions = np.interp(src, np.arange(len(old)), old).tolist()
 
     # Resampled, but still this file's volume. The correlation UI names an image
-    # by its filepath (FIB-509), so dropping it here would blank the header and
+    # by its filepath, so dropping it here would blank the header and
     # record a null filename for every correlation run after an interpolation.
     return FluorescenceImage(
         data=interpolated,

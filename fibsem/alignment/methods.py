@@ -147,7 +147,7 @@ def shift_from_crosscorrelation(
     # spectra to the same energy, so a perfect match peaks at the pixel count.
     # Dividing by the masked images' norms instead read above 1 for every
     # match under the rectangular mask the alignment uses, so every step
-    # scored 1.00; and (ncc + 1) / 2 put unrelated images at 0.5 (FIB-1299).
+    # scored 1.00; and (ncc + 1) / 2 put unrelated images at 0.5.
     score = _ncc_score(xcorr)
 
     # np.unravel_index returns (row, col); row=Y, col=X
@@ -458,8 +458,8 @@ def shift_from_skimage_phase_correlation(
     dy_px, dx_px = -float(shift[0]), -float(shift[1])
     # Not 1 - error: with normalization="phase", skimage's error compares the
     # phase-normalised peak with the raw images' energy, so it is about 1 for
-    # every pair and the score was 0 for every pair, a perfect match included
-    # (FIB-1299). The height of the phase-correlation peak is the measure.
+    # every pair and the score was 0 for every pair, a perfect match included.
+    # The height of the phase-correlation peak is the measure.
     score = _phase_correlation_peak(ref_data, new_data)
 
     success = True

@@ -18,7 +18,7 @@ from fibsem.cancellation import (
 )
 from fibsem.devices.beam import scanned_resolution
 
-# Moved to the `tiling` package (FIB-390); re-exported so existing importers and the
+# Moved to the `tiling` package; re-exported so existing importers and the
 # public API are unaffected. `fibsem/imaging/__init__.py` star-imports this module.
 from fibsem.imaging.reduce import PreviewMosaic
 from fibsem.imaging.tiling.geometry import (  # noqa: E402,F401
@@ -139,7 +139,7 @@ class TiledAcquisitionRunner:
         # `_compute_grid` rather than here so it is read when the run starts rather
         # than when the runner is built. The stage still returns to where it started
         # afterwards: this is the grid's centre, not a new home. Matches
-        # `FMTiledAcquisitionRunner`, which has taken one since FIB-393.
+        # `FMTiledAcquisitionRunner`.
         self.centre_position = centre_position
         self._layout_check: Optional[TileLayoutCheck] = None
         # What the run did, filled in as it goes and kept whatever its end: the
@@ -157,10 +157,8 @@ class TiledAcquisitionRunner:
     def run(self) -> None:
         """Acquire all tiles.
 
-        Always emits a terminal progress update, whatever the outcome. Previously the
-        only one came from `_stitch`, so a caller using `run()` on its own, or any run
-        that was cancelled or failed, left consumers with no way to tell "done" from
-        "still going" -- the progress bar simply stopped moving.
+        Always emits a terminal progress update, whatever the outcome, so a run that
+        was cancelled or failed still tells "done" from "still going".
         """
         # Before `_setup`, which emits progress and makes a directory. A run with no
         # tiles is a configuration error, not an acquisition that failed: left to run
@@ -321,11 +319,9 @@ class TiledAcquisitionRunner:
         the grid offset so they are relative to centre rather than the top-left corner —
         using ``project_stable_move``.
 
-        Previously the code moved the stage to the top-left corner before projecting.
-        That move was unnecessary because ``project_stable_move`` is a pure mathematical
-        computation that depends only on tilt and rotation (which are constant throughout
-        a tiled acquisition), not on the absolute x/y/z coordinates.  Projecting from
-        centre with adjusted offsets gives identical results and saves one stage movement.
+        ``project_stable_move`` depends only on tilt and rotation (constant through a
+        tiled acquisition), not on the absolute x/y/z, so no move to the corner is
+        needed first.
 
         Mathematical equivalence:
             project(tile.dx, tile.dy, base=top_left)
@@ -444,8 +440,7 @@ class TiledAcquisitionRunner:
     def _build_mosaic_metadata(self, full_w: int, full_h: int) -> FibsemImageMetadata:
         """The mosaic's metadata, built before the first tile rather than after the last.
 
-        It used to be a deepcopy of whichever image happened to arrive first, patched
-        at stitch time. Building it up front buys three things:
+        Building it up front buys three things:
 
         * **A partial mosaic is a real image.** A cancelled run left a bare array with
           no position, pixel size or geometry, so nothing could place it or save it.
@@ -491,7 +486,7 @@ class TiledAcquisitionRunner:
 
         The mosaic is built here rather than acquired through `Beam.acquire`, so it
         has no acquisition time of its own; it was acquired from when its first tile
-        was (FIB-1190).
+        was.
 
         The planned `hfw / width` is right on every simulator and can be a fraction out
         on a column that quantises the field of view. Everything placed from this
@@ -627,13 +622,8 @@ class TiledAcquisitionRunner:
                     # The mosaic so far, decimated, and carrying metadata -- so a
                     # real-space display can place it as one image rather than assembling
                     # tiles of its own. One artist per run instead of one per tile, which
-                    # is what stops the canvas slowing down as tilesets accumulate
-                    # (FIB-627).
-                    #
-                    # The live `self._canvas` used to go out beside this, as a bare array,
-                    # because the napari minimap assigned it straight into a layer. That
-                    # array is the one this loop keeps painting into, so the tab was
-                    # rendering half-written tiles; it reads `preview.data` now.
+                    # is what stops the canvas slowing down as tilesets accumulate.
+                    # Never the live `self._canvas`: this loop keeps painting into it.
                     preview=self._preview_image(),
                     completed=self._n_tiles_acquired,
                     total=total_tiles,
@@ -670,10 +660,8 @@ class TiledAcquisitionRunner:
         # deepcopy so the stitched image gets its own snapshot rather than sharing the
         # runner's, which the preview also hands out.
         #
-        # The position it carries is the grid's *centre*. This used to be
-        # `_start_state`, where the stage began, which was the same thing until a run
-        # could be planned somewhere else -- a grid dragged 500 um away recorded 0, and
-        # the saved overview reloaded half a millimetre out.
+        # The position it carries is the grid's *centre*, not where the stage began:
+        # a run can be planned somewhere else.
         registration = self._register()
         data = self._canvas
         if registration.applied:
@@ -776,7 +764,7 @@ class TiledAcquisitionRunner:
 
         `run_auto_focus` rather than `microscope.auto_focus`: the vendor routine takes a
         beam and a reduced area and nothing else, so this was the one acquisition in the
-        codebase that could be told *when* to focus but not *how* (FIB-646). It is also
+        codebase that could be told *when* to focus but not *how*. It is also
         the only autofocus path that was still vendor-specific -- `ThermoMicroscope`
         forwards to `connection.auto_functions.run_auto_focus()`, and on Tescan and
         Odemis that path had never been exercised for a tiled run at all.
@@ -804,7 +792,7 @@ class TiledAcquisitionRunner:
 
         # None means the backend cannot set the working distance for this beam, so the
         # sweep declined to run rather than scoring images against a focus that never
-        # moved and reporting a WD it never applied (FIB-508, TESCAN ION). The tiles are
+        # moved and reporting a WD it never applied (TESCAN ION). The tiles are
         # still worth acquiring -- unfocused is not the same as wrong -- so this is a
         # warning and not a stop. Cancellation is the case that *does* stop, and it
         # arrives as OperationCancelledError from inside the sweep.
@@ -885,7 +873,6 @@ def acquire_tiled_overview(
 
 
 ##### REPROJECTION
-# TODO: move these to fibsem.imaging.reprojection?
 
 
 def convert_image_coord_to_stage_position(

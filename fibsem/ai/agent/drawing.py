@@ -185,7 +185,7 @@ def _chip(axes, text: str, out_width: int) -> None:
 def _evidence_marks(axes, marks: Optional[Dict[str, Any]], scale, out_width) -> None:
     """The agent's *marks* (its image's pixels) in the agent's purple: a cross
     per point, a box per area, each with its label and a dark halo, sized for
-    the picture shown a third as wide (FIB-1503)."""
+    the picture shown a third as wide."""
     from matplotlib import patheffects
     from matplotlib.patches import Rectangle
 
@@ -287,7 +287,7 @@ def picture_png(
     """*frame* with *layers* drawn on it, their legend at the top left, *chip*
     at the top right, and the agent's evidence *marks* (its pixels) when
     given; the scalebar and metadata bar under it. A PNG at most
-    `PICTURE_WIDTH` wide (FIB-1411). Patterns are drawn against this frame's
+    `PICTURE_WIDTH` wide. Patterns are drawn against this frame's
     field."""
     from matplotlib.patches import Rectangle
 

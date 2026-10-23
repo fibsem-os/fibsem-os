@@ -12,7 +12,7 @@ actions from them.
 
 Levels mirror the server's enforcement (fibsem/server/auth.py). The sidecar
 registers every tool the server's mounted routers serve, whatever the agent's
-level (FIB-1035): the level changes mid-session, and an MCP client may never
+level: the level changes mid-session, and an MCP client may never
 re-read its tool list, so the server's 403 is the gate and each description
 names the level it needs.
 """
@@ -105,7 +105,7 @@ def tools_for_capabilities(capabilities: Dict) -> Tuple[ToolSpec, ...]:
     """Catalog entries to offer given a full /capabilities payload.
 
     Every tool whatever the agent's level: the level changes mid-session and
-    the server's 403 is the gate (FIB-1035). The microscope's tools too while
+    the server's 403 is the gate. The microscope's tools too while
     its routes are off: the operator can turn them on mid-session, and until
     then each answers 404 ``microscope_off`` saying so, where tools fixed at
     start would need the agent to reconnect. Only the app's tools depend on

@@ -79,11 +79,11 @@ def run_folder(
     item_dir: Any, task_name: str, started: datetime, iteration: Optional[int] = None
 ) -> str:
     """Where one run of ``task_name`` on an item saves what it makes:
-    ``<item>/<task name>/<YYYYMMDD-HHMMSS>/`` (FIB-1275), so a re-run
+    ``<item>/<task name>/<YYYYMMDD-HHMMSS>/``, so a re-run
     overwrites nothing; ``<item>/<task name>/<iteration:04d>/`` for an item that
     runs in iterations, one folder per iteration. The item's shared state
     (``ref_alignment``, the coincidence setup reference) is not a run's, and
-    stays in the item's folder (FIB-1258).
+    stays in the item's folder.
 
     The task name is made safe for a folder name; a second run of the same
     second, or the same iteration, as one already saved gets ``-2``. Not created
@@ -277,7 +277,7 @@ class BaseTask(ABC):
         def _on_decided(item_id: str, task_name: str) -> None:
             # This question, and decided: ``decided`` also fires for the
             # previous question's fill-in, which can land after this one was
-            # recorded when the task asks twice in a row (FIB-1053).
+            # recorded when the task asks twice in a row.
             if (item_id, task_name) == (item.id, self.task_name):
                 current = item.proposal(task_name)
                 if (
@@ -290,7 +290,7 @@ class BaseTask(ABC):
         experiment.decided.connect(_on_decided)
         try:
             # While the question stands, the run lends its control of the
-            # microscope: whoever answers may act first (FIB-1270). Lent before
+            # microscope: whoever answers may act first. Lent before
             # the question is put, so nobody who sees it is refused.
             with lending():
                 if not experiment.ask_proposal(item.id, self.task_name, proposal):
@@ -357,7 +357,7 @@ class BaseTask(ABC):
         """Mill ``milling_config``, asking first when supervised; return the config
         as last used.
 
-        The mill and its loop are the task's, on this thread (FIB-1236), headless
+        The mill and its loop are the task's, on this thread, headless
         and with a window alike. Each pass is a ``milling`` proposal through
         ``ask``, on the record: the config this pass would mill, decided as run
         (mill the config as decided, then ask again with the pass counted and
@@ -365,12 +365,12 @@ class BaseTask(ABC):
         decided), skip or accept (end the loop). Whoever decides, the operator
         at the editor or an agent, changes what is milled by deciding with it.
         Asked of nobody, a pass is recorded as the kind's silence: the first
-        mills once, the next accepts, and a failed mill then fails the task
-        (FIB-1112).
+        mills once, the next accepts, and a failed mill then fails the task.
+
 
         Each run records how it ended (``FibsemMillingTask``). A task that mills
         nothing records that too, as a skipped ``milling`` event: with milling
-        turned off, or skipped at the proposal (FIB-1257).
+        turned off, or skipped at the proposal.
         """
         if not milling_enabled:
             record_milling_skipped(
@@ -420,10 +420,10 @@ class BaseTask(ABC):
                 if decision.action == ACTION_ACCEPT and passes:
                     if error is not None and watched is None:
                         # Nobody looked: the task fails, rather than recording
-                        # Completed with nothing milled (FIB-1112).
+                        # Completed with nothing milled.
                         raise error
                     # The config as milled, not an edit made after it: the
-                    # protocol must not claim what never ran (FIB-580).
+                    # protocol must not claim what never ran.
                     break
                 if watched is decision:
                     # Unreviewed, it is decided as proposed: the task's own
@@ -578,8 +578,8 @@ class BaseTask(ABC):
         """Acquire the item's alignment reference, ``ref_alignment``, in
         ``reduced_area`` with ``beam_type``.
 
-        Item state, read by later tasks (FIB-1258): in the item's folder and
-        overwritten each time, not in this run's own folder (FIB-1275).
+        Item state, read by later tasks: in the item's folder and
+        overwritten each time, not in this run's own folder.
         """
         self.log_status_message(
             "ACQUIRE_ALIGNMENT_REFERENCE_IMAGE",
@@ -650,7 +650,7 @@ class BaseTask(ABC):
 
     # -- lifecycle -------------------------------------------------------------
 
-    # Everything the task does, on its own thread, is the task's (FIB-1062).
+    # Everything the task does, on its own thread, is the task's.
     @acting(TASK)
     def run(self) -> None:
         self.pre_task()
@@ -690,7 +690,7 @@ class BaseTask(ABC):
             self.post_task()
         except Exception as e:
             # The work finished, but what follows it failed. It did not
-            # complete (FIB-1374).
+            # complete.
             cancelled = self._is_cancellation(e)
             try:
                 take_back_finish(
@@ -761,7 +761,7 @@ class BaseTask(ABC):
         Never replace the object: the item list and card widgets connect psygnal
         handlers to this instance and use them as their only refresh trigger;
         replacing it orphans those connections and they silently stop updating
-        mid-workflow (FIB-325)."""
+        mid-workflow."""
         state = self.item.task_state
         state.name = self.task_name
         state.start_timestamp = now()
@@ -779,7 +779,7 @@ class BaseTask(ABC):
         Runs on every terminal path, not just success. task_state is a single object
         that the next task's pre_task overwrites, so an outcome that isn't frozen here
         is gone from the experiment as soon as that item starts its next task --
-        leaving the logfile as the only record that the task ever failed. See FIB-490.
+        leaving the logfile as the only record that the task ever failed.
         """
         if self.item.task_state is None:
             raise ValueError("Task state is not set. Did you run pre_task()?")
@@ -868,7 +868,7 @@ class BaseTask(ABC):
     def _set_workflow_metadata(self) -> None:
         """Stamp everything acquired from here until the run ends with the item
         and task that produced it, rather than relying on which folder it
-        happens to sit in (FIB-466)."""
+        happens to sit in."""
         ref = getattr(self.microscope, "experiment", None)
         setter = getattr(ref, "set_workflow_metadata", None)
         if setter is not None:

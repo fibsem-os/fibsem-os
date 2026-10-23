@@ -14,7 +14,7 @@ From that, the rules the readers carry today are consequences, not branches:
 - a stage with the same rotation at SEM and FIB but a different tilt (JEOL) needs nothing.
 
 Rotations in radians throughout. Nothing here reads a microscope: the same answer serves
-a live move and a saved image (FIB-1101).
+a live move and a saved image.
 
 Whether a view sees the front or the back of the sample is geometry too
 (`views_back`). Some instruments mirror a back view so it reads as if from the front;
