@@ -203,6 +203,8 @@ export interface AgentState {
   facts: [string, string][];
   /** The agent has spent most of its budget: the session line warns. */
   budget_low: boolean;
+  /** The chip's words: the level, or what the agent asks for. */
+  chip: string;
 }
 
 /** One row of GET /app/agent/recent. */

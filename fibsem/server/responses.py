@@ -1333,6 +1333,8 @@ class AgentView:
     facts: List[List[str]] = field(default_factory=list)
     # whether it has spent most of its budget: the session line warns
     budget_low: bool = False
+    # the chip's word: what it asks for or is applying, or its level
+    chip: str = ""
 
 
 @dataclass
