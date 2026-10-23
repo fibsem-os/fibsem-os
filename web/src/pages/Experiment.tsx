@@ -11,6 +11,7 @@ import { encodePath } from "@/lib/files";
 import * as fmt from "@/lib/format";
 import type { Capabilities, FileEntry, FileRead, FolderListing } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { Replay } from "./experiment/Replay";
 
 const ICON = { folder: Folder, image: FileImage, text: FileText, other: FileIcon };
 
@@ -212,14 +213,49 @@ function Files() {
   );
 }
 
+const VIEWS = [
+  ["files", "Files"],
+  ["replay", "Replay"],
+] as const;
+
 export function ExperimentPage() {
   const { status, open } = useOpenExperiment();
+  const caps = useQuery({ queryKey: ["capabilities"], queryFn: () => api<Capabilities>("/capabilities") });
+  const [view, setView] = useState<"files" | "replay">("files");
   if (status.data && !open)
     return <div className="p-5 text-muted-foreground">No experiment is open.</div>;
+  const replay = caps.data?.parts?.includes("replay");
+  const shown = replay ? view : "files";
   return (
-    <div className="grid items-start gap-4 p-4 md:p-5 lg:grid-cols-[320px_minmax(0,1fr)]">
-      <Metadata />
-      {open && <Files key={open.path} />}
+    <div className="flex flex-col gap-3 p-4 md:p-5">
+      {replay && (
+        <div role="tablist" aria-label="View" className="flex gap-1">
+          {VIEWS.map(([key, label]) => (
+            <button
+              key={key}
+              role="tab"
+              aria-selected={shown === key}
+              onClick={() => setView(key)}
+              className={cn(
+                "cursor-pointer border-0 bg-transparent px-2.5 py-1 text-[13px]",
+                shown === key
+                  ? "text-foreground shadow-[inset_0_-2px_0_var(--primary)]"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+      {shown === "files" ? (
+        <div className="grid items-start gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
+          <Metadata />
+          {open && <Files key={open.path} />}
+        </div>
+      ) : (
+        open && <Replay key={open.path} />
+      )}
     </div>
   );
 }

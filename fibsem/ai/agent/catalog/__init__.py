@@ -55,6 +55,8 @@ CATALOG: Tuple[ToolSpec, ...] = (
 # (tests/server/test_catalog_discovery.py). A new route fails that test until
 # someone decides. Path parameter names don't matter.
 NOT_TOOLS: Dict[str, str] = {
+    "GET /app/experiment/replay": "The web page's replay timeline; app_get_events and item_get_history give the agent the same record.",
+    "GET /app/experiment/replay/{index}": "The web page's replay scene, images and overlays at one recorded action; the agent reads the record and images directly.",
     "GET /health": "Open liveness check, no token; the agent's first read is server_get_capabilities.",
     "GET /app/agent/session": "The agent's own report, read back by the app and the dashboard; the agent knows what it reported.",
     "GET /app/agent/transcript": "What fibsem-agent printed, read back by the web page; the agent has its own context.",
@@ -72,6 +74,7 @@ NOT_TOOLS: Dict[str, str] = {
     "DELETE /pairing/computers/{computer_id}": "The operator unpairs a computer (operator token only).",
     "PATCH /pairing/computers/{computer_id}": "The operator sets what a paired hub may do (operator token only).",
     "PUT /pairing/always_allow_local": "The operator's setting to allow agents logged in to this PC without a click (operator token only).",
+    "GET /app/experiment/planes/{path}": "Raw pixel planes the web viewer draws; the agent reads images as pictures with experiment_read_file.",
     "POST /app/experiment/evidence": "Every acting tool's evidence argument: the sidecar keeps it here first, then the call cites it.",
     "GET /app/events/history": "The web Events page's read of the run before the live buffer; an agent reads a finished run from its experiment folder.",
     "GET /app/experiment/export/image/options": "The web image export's form; an export is a file for a person, the agent reads images through experiment_read_file.",

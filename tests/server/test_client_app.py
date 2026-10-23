@@ -57,7 +57,14 @@ def client(microscope, auth, host):
 def test_the_app_offers_the_core_and_its_parts(client):
     app = client.app
     assert app.served and app.name == "AutoLamella"
-    assert app.parts == ["items", "poses", "grids", "milling_stages", "lamellae"]
+    assert app.parts == [
+        "items",
+        "poses",
+        "grids",
+        "milling_stages",
+        "lamellae",
+        "replay",
+    ]
     assert {"app_get_status", "proposal_list", "item_get", "grid_list"} <= set(
         app.tools
     )

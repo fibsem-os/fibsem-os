@@ -18,7 +18,8 @@ from PyQt5.QtWidgets import (
 from superqt import ensure_main_thread
 
 from fibsem import conversions
-from fibsem.fm.config import record_recent_channels
+from fibsem.fm.config import record_recent_channels, save_fm_configuration
+from fibsem.fm.progress import FluorescenceAcquisitionStatus
 from fibsem.fm.structures import (
     AutoFocusSettings,
     ChannelSettings,
@@ -43,6 +44,7 @@ from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
 )
+from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     TitledPanel,
@@ -535,8 +537,6 @@ class FMControlWidget(QWidget):
           arrives microseconds later overwrote both with something strictly better,
           having named the channel and the step.
         """
-        from fibsem.fm.progress import FluorescenceAcquisitionStatus
-
         if not self.progressBar_current_acquisition.isVisible():
             self.progressBar_current_acquisition.show()
         if not self.progressText.isVisible():
@@ -1072,7 +1072,6 @@ class FMControlWidget(QWidget):
         """Persist the current FM configuration as the auto-loaded working state."""
         if self.microscope.fm is None:
             return
-        from fibsem.fm.config import save_fm_configuration
 
         try:
             save_fm_configuration(
@@ -1126,7 +1125,5 @@ class _DemoHost(QWidget):
     stays empty."""
 
     def __init__(self):
-        from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
-
         super().__init__()
         self.view_controller = MicroscopeViewController(parent=self)

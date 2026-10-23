@@ -14,7 +14,7 @@ import types
 import pytest
 
 from fibsem.drivers.tescan import connection as tescan_connection
-from fibsem.drivers.tescan import microscope as tescan_module
+from fibsem.drivers.tescan import sdk
 from fibsem.drivers.tescan.services import TescanSpotBurn
 from fibsem.imaging.spot import SpotBurnSettings, SpotBurnStatus
 from fibsem.services import Service
@@ -26,14 +26,14 @@ from tests.drivers.tescan.test_tescan_milling_service import (  # noqa: F401  (f
     tescan_system,
 )
 
-SPOT_BURN_PRESET = tescan_module.SPOT_BURN_PRESET
+SPOT_BURN_PRESET = sdk.SPOT_BURN_PRESET
 
 
 @pytest.fixture
 def tescan(connect, monkeypatch):
     """A connected fake Tescan that can draw dots, and whose expositions end."""
     monkeypatch.setattr(
-        tescan_module,
+        sdk,
         "DepthUnit",
         types.SimpleNamespace(Second="Second"),
         raising=False,

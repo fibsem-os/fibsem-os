@@ -46,7 +46,7 @@ import matplotlib.patheffects as pe
 from PyQt5.QtCore import pyqtSignal
 
 from fibsem.correlation.points import POINT_RULES, point_names, types_on
-from fibsem.correlation.structures import Coordinate, PointType
+from fibsem.correlation.structures import Coordinate, PointStatus, PointType
 from fibsem.ui.tokens import ORANGE_COLOR
 from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
 from fibsem.ui.widgets.canvas.overlays.point_overlay import PointOverlay
@@ -389,7 +389,6 @@ class CoordinateOverlay(PointOverlay):
         rejected point fades but stays, so the record is visible on screen."""
         if idx >= len(self._coords) or idx >= len(self._artists):
             return
-        from fibsem.correlation.structures import PointStatus
 
         status = getattr(self._coords[idx], "status", "")
         line = self._artists[idx]
