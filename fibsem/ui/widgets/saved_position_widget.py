@@ -18,8 +18,6 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.saved_positions import load_saved_positions, save_saved_positions
-from fibsem.session_state import session_state_for
 from fibsem.structures import FibsemStagePosition
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION
@@ -206,73 +204,74 @@ class SavedPositionListWidget(QWidget):
         if self.microscope is None:
             self._header.btn_add.setEnabled(False)
 
+    def _service(self):
+        """The stage movement service that keeps the saved positions, or None
+        before the panel is connected: its edits are then only shown."""
+        return getattr(self.microscope, "stage_movement", None)
+
     def _load_default_positions(self) -> None:
         """The positions saved with this microscope configuration, if connected."""
-        if self.microscope is None:
-            return
-        positions = load_saved_positions(session_state_for(self.microscope))
-        if positions:
-            self.set_positions(positions)
+        service = self._service()
+        if service is not None:
+            self._show(service.saved_positions())
 
-    def _autosave(self) -> None:
-        if self.microscope is None:
-            return
+    def _saved(self, edit) -> bool:
+        """Make *edit* through the service and show what is saved; False, said
+        in the log, when the service refused it."""
+        service = self._service()
+        if service is None:
+            return True
         try:
-            save_saved_positions(
-                self.positions, session_state_for(self.microscope, writable=True)
-            )
+            edit(service)
         except Exception as e:
-            logging.warning(f"Failed to autosave positions: {e}")
+            logging.warning(f"Saved positions: {e}")
+            self._show(service.saved_positions())
+            return False
+        self._show(service.saved_positions())
+        return True
 
     # ------------------------------------------------------------------ #
     # Public API                                                           #
     # ------------------------------------------------------------------ #
 
     def add_position(self, position: FibsemStagePosition) -> None:
-        self.positions.append(position)
-        self._add_row(position)
-        self._update_empty_state()
-        self._autosave()
+        if self._service() is None:
+            self.positions.append(position)
+            self._add_row(position)
+            self._update_empty_state()
+        elif not self._saved(lambda s: s.save_position(position.name, position)):
+            return
         self.positions_updated.emit(self.positions)
         logging.info(f"Saved position added: {position.name}")
 
     def remove_position(self, position: FibsemStagePosition) -> None:
-        for i in range(self._list.count()):
-            if self._row(i).position is position:
-                self._list.takeItem(i)
-                break
-        if position in self.positions:
-            self.positions.remove(position)
-        if self._selected_position is position:
-            self._selected_position = None
-        self._update_empty_state()
-        self._autosave()
+        if self._service() is None:
+            for i in range(self._list.count()):
+                if self._row(i).position is position:
+                    self._list.takeItem(i)
+                    break
+            if position in self.positions:
+                self.positions.remove(position)
+            if self._selected_position is position:
+                self._selected_position = None
+            self._update_empty_state()
+        elif not self._saved(lambda s: s.remove_saved_position(position.name)):
+            return
         self.positions_updated.emit(self.positions)
         logging.info(f"Saved position removed: {position.name}")
 
     def update_position(self, position: FibsemStagePosition) -> None:
-        if self.microscope is None:
+        if self._service() is None or not self._saved(
+            lambda s: s.save_position(position.name)
+        ):
             return
-        current = self.microscope.get_stage_position()
-        position.x = current.x
-        position.y = current.y
-        position.z = current.z
-        position.r = current.r
-        position.t = current.t
-        position.coordinate_system = current.coordinate_system
-        for i in range(self._list.count()):
-            row = self._row(i)
-            if row.position is position:
-                row.refresh(position)
-                break
-        self._autosave()
         self.positions_updated.emit(self.positions)
         logging.info(f"Saved position updated: {position.name}")
 
     def get_positions(self) -> List[FibsemStagePosition]:
         return list(self.positions)
 
-    def set_positions(self, positions: List[FibsemStagePosition]) -> None:
+    def _show(self, positions: List[FibsemStagePosition]) -> None:
         self._list.clear()
         self.positions = []
         self._selected_position = None
@@ -280,7 +279,6 @@ class SavedPositionListWidget(QWidget):
             self.positions.append(position)
             self._add_row(position)
         self._update_empty_state()
-        self._autosave()
 
     # ------------------------------------------------------------------ #
     # Private helpers                                                     #
@@ -312,15 +310,21 @@ class SavedPositionListWidget(QWidget):
     def _on_add_clicked(self) -> None:
         if self.microscope is None:
             return
-        position = self.microscope.get_stage_position()
-        position.name = f"Position {len(self.positions):02d}"
-        self.add_position(deepcopy(position))
+        names = {p.name for p in self.positions}
+        index = len(self.positions)
+        while f"Position {index:02d}" in names:
+            index += 1
+        position = deepcopy(self.microscope.get_stage_position())
+        position.name = f"Position {index:02d}"
+        self.add_position(position)
 
     def _on_row_name_changed(self, position: FibsemStagePosition, name: str) -> None:
-        if not name.strip():
+        if not name.strip() or name == position.name:
             return
-        position.name = name
-        self._autosave()
+        if self._service() is None:
+            position.name = name
+        elif not self._saved(lambda s: s.rename_saved_position(position.name, name)):
+            return
         self.positions_updated.emit(self.positions)
 
     def _on_row_remove_clicked(self, position: FibsemStagePosition) -> None:

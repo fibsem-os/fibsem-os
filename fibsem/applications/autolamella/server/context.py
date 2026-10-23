@@ -63,7 +63,7 @@ from fibsem.workflows.outputs import (
     latest_item_output,
     saved_file,
 )
-from fibsem.workflows.runner import GRIDS, RunRequest
+from fibsem.workflows.runner import GRIDS, ITEMS, RunRequest
 from fibsem.workflows.session import CONFIG, GRID_RECORDS
 from fibsem.workflows.status import TaskStatus
 
@@ -1581,6 +1581,47 @@ class AutoLamellaAppContext(AppContext):
 
     # --- workflow control -------------------------------------------------------
 
+    def lamella_run_plan(
+        self,
+        task_names: List[str],
+        item_names: Optional[List[str]] = None,
+        run_next: bool = False,
+        add: bool = False,
+    ) -> Dict[str, Any]:
+        """What a lamella run would queue and cost, as the Workflow tab's
+        confirmation shows it, or with *add* what adding it to the running
+        queue would: no hardware, nothing queued (`plan_lamella_run`)."""
+        from fibsem.applications.autolamella.workflows.plan import plan_lamella_run
+
+        experiment = self._experiment
+        if experiment is None or experiment.task_protocol is None:
+            return {
+                "available": False,
+                "valid": False,
+                "reason": "no experiment is loaded",
+            }
+        request = RunRequest(
+            kind=ITEMS,
+            task_names=tuple(task_names),
+            names=tuple(item_names) if item_names is not None else None,
+        )
+        plan = plan_lamella_run(self._runner, experiment, request, run_next, add)
+        answer: Dict[str, Any] = {
+            "available": True,
+            "valid": plan.valid,
+            "add": add,
+            "run_next": plan.run_next,
+        }
+        if not plan.valid:
+            return {**answer, "reason": plan.reason, **plan.details}
+        return {
+            **answer,
+            "steps": [{"item": item, "task": task} for item, task in plan.pairs],
+            "already_queued": list(plan.already_queued),
+            "estimate": _run_estimate(plan.estimate),
+            "addition": _addition_estimate(plan.addition),
+        }
+
     def grid_workflow_plan(
         self,
         task_names: List[str],
@@ -1931,6 +1972,45 @@ class AutoLamellaAppContext(AppContext):
             ],
             "queue_version": edit.version,
         }
+
+
+def _when(value) -> Optional[str]:
+    return value.isoformat() if value is not None else None
+
+
+def _run_estimate(estimate) -> Optional[Dict[str, Any]]:
+    """A lamella run's estimate as the preflight dialog shows it."""
+    if estimate is None:
+        return None
+    return {
+        "work_seconds": estimate.work_seconds,
+        "hold_seconds": estimate.hold_seconds,
+        "expected_finish": _when(estimate.expected_finish),
+        "tasks": [
+            {
+                "task_name": row.name,
+                "count": row.count,
+                "seconds": row.seconds,
+                "scheduled_at": _when(row.scheduled_at),
+                "hold_seconds": row.hold_seconds,
+            }
+            for row in estimate.tasks
+        ],
+    }
+
+
+def _addition_estimate(addition) -> Optional[Dict[str, Any]]:
+    """What adding to the running queue costs, as its confirmation shows it."""
+    if addition is None:
+        return None
+    return {
+        "work_seconds": addition.work_seconds,
+        "delay_seconds": addition.delay_seconds,
+        "finish_before": _when(addition.finish_before),
+        "finish_after": _when(addition.finish_after),
+        "hold_seconds": addition.hold_seconds,
+        "priced": addition.is_priced,
+    }
 
 
 def _grid_plan_estimate(experiment, task_names, grid_names) -> Optional[Dict[str, Any]]:
