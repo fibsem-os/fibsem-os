@@ -64,10 +64,10 @@ from fibsem.workflows.queue import (
 
 
 class TaskNotRegisteredError(Exception):
-    """Exception raised when a task is not registered in the TASK_REGISTRY."""
+    """Exception raised when a task is not registered."""
 
     def __init__(self, task_type: str):
-        super().__init__(f"Task '{task_type}' is not registered in the TASK_REGISTRY.")
+        super().__init__(f"Task '{task_type}' is not registered.")
         self.task_type = task_type
 
     def __str__(self) -> str:

@@ -26,8 +26,6 @@ from fibsem.structures import FibsemMillingSettings
 from fibsem.ui.widgets.milling_stage_list_widget import MillingStageListWidget
 
 
-
-
 def _stage(name: str) -> FibsemMillingStage:
     return FibsemMillingStage(
         name=name,
