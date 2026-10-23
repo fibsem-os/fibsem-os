@@ -348,6 +348,8 @@ export interface StackSlice {
   z: number | null;
   pixel_size: number | null;
   hfw: number | null;
+  /** The file, relative to the experiment folder. */
+  path?: string | null;
 }
 
 /** GET /app/experiment/items/{name}/stack?role=: the item's images of one role, in iteration order. */
