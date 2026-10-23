@@ -40,15 +40,25 @@ def _image(shape) -> FluorescenceImage:
     return FluorescenceImage(data=data, metadata=metadata)
 
 
-@pytest.fixture(params=[None, "zlib"], ids=["contiguous", "compressed"])
+def _save_before_0_60(image: FluorescenceImage, path: str) -> None:
+    """As `FluorescenceImage.save` wrote a stack before 0.60: contiguous, no small copies."""
+    import tifffile
+
+    nc, nz, ny, nx = image.data.shape
+    with tifffile.TiffWriter(path) as tif:
+        tif.write(image.data.reshape(1, nc, nz, ny, nx), contiguous=True, photometric="minisblack")
+        tif.overwrite_description(image.get_ome_metadata().to_xml())
+
+
+@pytest.fixture(params=["0.60", "before 0.60"])
 def saved(request, tmp_path):
     def _save(shape):
         image = _image(shape)
         path = str(tmp_path / f"stack-{'x'.join(map(str, shape))}.ome.tiff")
-        if request.param:
-            image.save(path, compression=request.param)
-        else:
+        if request.param == "0.60":
             image.save(path)
+        else:
+            _save_before_0_60(image, path)
         return path, image
 
     return _save

@@ -25,7 +25,7 @@ import math
 import cv2
 import numpy as np
 
-__all__ = ["downsample", "downsample_mask", "PreviewMosaic",
+__all__ = ["downsample", "downsample_mask", "reduce_by", "PreviewMosaic",
            "PREVIEW_MAX_DIMENSION"]
 
 
@@ -88,7 +88,13 @@ def downsample(arr: np.ndarray, max_px: int) -> np.ndarray:
     h, w = arr.shape[:2]
     if h <= max_px and w <= max_px:
         return arr
-    factor = max(1, math.ceil(max(h, w) / max_px))
+    return reduce_by(arr, max(1, math.ceil(max(h, w) / max_px)))
+
+
+def reduce_by(arr: np.ndarray, factor: int) -> np.ndarray:
+    """*arr* averaged over *factor* x *factor* blocks, as :func:`downsample` reduces it:
+    ``ceil(n / factor)`` per axis, dtype kept, the ragged final block edge-padded."""
+    h, w = arr.shape[:2]
     out_h, out_w = math.ceil(h / factor), math.ceil(w / factor)
     too_many_channels = arr.ndim > 3 or (arr.ndim == 3 and arr.shape[2] > 4)
     if arr.dtype not in _CV2_DTYPES or too_many_channels:
