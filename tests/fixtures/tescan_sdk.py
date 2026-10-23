@@ -371,9 +371,7 @@ def install(monkeypatch, fake: Optional[FakeTescan] = None) -> FakeTescan:
     """Patch the driver so a connect, however it is made, connects to ``fake``."""
     fake = fake or FakeTescan()
     monkeypatch.setattr(sdk, "TESCAN_API_AVAILABLE", True, raising=False)
-    monkeypatch.setattr(
-        sdk, "Automation", lambda *args, **kwargs: fake, raising=False
-    )
+    monkeypatch.setattr(sdk, "Automation", lambda *args, **kwargs: fake, raising=False)
     monkeypatch.setattr(sdk, "Detector", FakeDetector, raising=False)
     monkeypatch.setattr(
         sdk,
@@ -384,9 +382,7 @@ def install(monkeypatch, fake: Optional[FakeTescan] = None) -> FakeTescan:
     # the fake switches columns at once
     monkeypatch.setattr(tescan_connection, "TESCAN_ELECTRON_TO_ION_SETTLE_TIME", 0)
     # DrawBeam: a layer's settings are the keywords they were made from
-    monkeypatch.setattr(
-        sdk, "IEtching", lambda **kwargs: kwargs, raising=False
-    )
+    monkeypatch.setattr(sdk, "IEtching", lambda **kwargs: kwargs, raising=False)
     monkeypatch.setattr(sdk, "DBStatus", DBStatus, raising=False)
     monkeypatch.setattr(
         sdk,
