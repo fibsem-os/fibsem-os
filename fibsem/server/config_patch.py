@@ -34,12 +34,15 @@ refuses identically:
 Qt-free; the GUI-thread caller owns marshalling.
 """
 
+import logging
 import types
 import typing
 from dataclasses import fields as dataclass_fields
 from dataclasses import is_dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple, Union
+
+from psygnal import EmitLoopError
 
 from fibsem.structures import field_specs
 
@@ -126,7 +129,12 @@ def _resolve(root: Any, path: str, value: Any, none_type: Optional[type] = None)
         elif isinstance(obj, list):
             obj[int(leaf)] = coerced
         else:
-            setattr(obj, leaf, coerced)
+            try:
+                setattr(obj, leaf, coerced)
+            except EmitLoopError:
+                # The value is set; a listener (a view) failed on the change.
+                # That is the view's fault, not a reason to fail the edit.
+                logging.exception("a listener failed on the change to %r", path)
 
     return setter, path, old, new
 
