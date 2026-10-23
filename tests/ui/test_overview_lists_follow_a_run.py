@@ -7,6 +7,8 @@ whole run.
 
 import os
 
+from tests.fixtures.main_window import main_window_fixture
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
@@ -17,34 +19,10 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.ui import window as module
 from fibsem.structures import FibsemStagePosition
 from fibsem.workflows.status import TaskStatus, WorkflowStatusUpdate
 
-
-@pytest.fixture
-def main_ui(qapp, monkeypatch):
-    import fibsem.config as fibsem_config
-
-    window = module.AutoLamellaWindow()
-    ui = window
-    config = os.path.join(
-        os.path.dirname(fibsem_config.__file__),
-        "config",
-        "sim-arctis-configuration.yaml",
-    )
-    monkeypatch.setattr(
-        ui.system_widget, "load_configuration", lambda configuration_name=None: config
-    )
-    ui.system_widget.connect_to_microscope()
-    yield window
-    ui.microscope.disconnect()
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
-        window.close()
-    finally:
-        qapp.quit = original_quit
+main_ui = main_window_fixture(connect=True, config="sim-arctis-configuration.yaml")
 
 
 def _statuses(tab):

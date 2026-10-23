@@ -9,6 +9,8 @@ the Overview canvas, and Run reaching the confirmation with no refusal.
 
 import os
 
+from tests.fixtures.main_window import close_window
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
@@ -38,12 +40,7 @@ def main_ui(qapp):
     assert stage.magazine is None, "the default Demo grew a loader"
     yield window
     ui.microscope.disconnect()
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
-        window.close()
-    finally:
-        qapp.quit = original_quit
+    close_window(window)
 
 
 def test_nothing_grid_aware_gets_in_the_way(main_ui, tmp_path, monkeypatch):

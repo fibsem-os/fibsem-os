@@ -14,7 +14,7 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from PyQt5.QtWidgets import QApplication, QDialog, QSizePolicy
+from PyQt5.QtWidgets import QDialog, QSizePolicy
 
 from fibsem.fm.structures import (
     AutoFocusMode,
@@ -26,11 +26,6 @@ from fibsem.fm.structures import (
 from fibsem.structures import TileOrderStrategy
 from fibsem.ui.fm.widgets.fm_sparse_selection_dialog import FMSparseSelectionDialog
 from fibsem.util.durations import format_duration_rounded
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    return QApplication.instance() or QApplication([])
 
 
 @pytest.fixture(scope="module")

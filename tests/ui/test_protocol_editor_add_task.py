@@ -11,7 +11,7 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from psygnal.containers import EventedDict  # noqa: E402
-from PyQt5.QtWidgets import QApplication, QDialog, QWidget  # noqa: E402
+from PyQt5.QtWidgets import QDialog, QWidget  # noqa: E402
 
 from fibsem import utils  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
@@ -23,11 +23,6 @@ from fibsem.applications.autolamella.ui.protocol import (
 )
 from fibsem.structures import MicroscopeState  # noqa: E402
 from tests.fixtures.app_session import app_session  # noqa: E402
-
-
-@pytest.fixture
-def qapp():
-    yield QApplication.instance() or QApplication([])
 
 
 @pytest.fixture

@@ -37,7 +37,6 @@ from fibsem.fm.structures import (
     FluorescenceImageMetadata,
 )
 from fibsem.structures import FibsemImage
-from fibsem.ui import notification_service
 from fibsem.ui.correlation.widgets.correlation_tab_widget import CorrelationTabWidget
 
 _app = QApplication.instance() or QApplication(sys.argv)
@@ -86,17 +85,6 @@ def tab():
     _app.processEvents()
     yield widget
     widget.close()
-
-
-@pytest.fixture
-def toasts(monkeypatch):
-    events = []
-    monkeypatch.setattr(
-        notification_service,
-        "show_toast",
-        lambda msg, notification_type="info": events.append((msg, notification_type)),
-    )
-    return events
 
 
 def _fm_points(tab):

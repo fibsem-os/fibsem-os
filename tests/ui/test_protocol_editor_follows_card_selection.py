@@ -6,6 +6,8 @@ and an edit made there was still written to it.
 
 import os
 
+from tests.fixtures.main_window import close_window
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
@@ -40,12 +42,7 @@ def main_ui(qapp):
     yield window
     window.lamella_tab.editor._edits._timer.stop()
     ui.microscope.disconnect()
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
-        window.close()
-    finally:
-        qapp.quit = original_quit
+    close_window(window)
 
 
 @pytest.fixture

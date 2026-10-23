@@ -23,7 +23,7 @@ from fibsem.structures import InsertableDeviceState
 pytest.importorskip("PyQt5")
 
 from PyQt5.QtCore import QObject, pyqtSignal
-from PyQt5.QtWidgets import QApplication, QLabel
+from PyQt5.QtWidgets import QLabel
 
 from fibsem.fm.progress import (
     FluorescenceAcquisitionProgress,
@@ -54,12 +54,6 @@ from fibsem.ui.widgets.custom_widgets import ValueComboBox
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
 from fibsem.ui.widgets.tile_mask_widget import TileMaskWidget
 from fibsem.util.durations import format_duration_rounded
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    app = QApplication.instance() or QApplication([])
-    yield app
 
 
 def plus_mask(n):

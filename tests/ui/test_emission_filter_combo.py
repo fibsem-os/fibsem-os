@@ -10,7 +10,6 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from PyQt5.QtCore import Qt  # noqa: E402
-from PyQt5.QtWidgets import QApplication  # noqa: E402
 
 from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope  # noqa: E402
 from fibsem.fm.structures import (  # noqa: E402
@@ -25,12 +24,6 @@ from fibsem.ui.fm.widgets.emission_filter_combo import (  # noqa: E402
 BLUE = EmissionFilter.band("425–475 nm", 425.0, 475.0)
 DUAL = EmissionFilter("505–535 / 600–650 nm", bands=[(505, 535), (600, 650)])
 FILTERS = [REFLECTION, BLUE, DUAL]
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    app = QApplication.instance() or QApplication([])
-    yield app
 
 
 class _BandedFilters:

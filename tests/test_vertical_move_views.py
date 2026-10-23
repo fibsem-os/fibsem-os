@@ -11,27 +11,17 @@ would break silently.
 """
 
 import inspect
-import os
 
 import pytest
 
-import fibsem.config as fibsem_config
-from fibsem import utils
 from fibsem.drivers.autoscript.microscope import ThermoMicroscope
 from fibsem.drivers.demo.simulator import DemoMicroscope
 from fibsem.drivers.tescan.microscope import TescanMicroscope
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType
+from tests.fixtures.microscopes import demo_microscope
 
-CONFIG_PATH = os.path.join(
-    os.path.dirname(fibsem_config.__file__), "config", "microscope-configuration.yaml"
-)
-
-
-@pytest.fixture
-def microscope():
-    scope, _ = utils.setup_session(manufacturer="Demo", config_path=CONFIG_PATH)
-    return scope
+microscope = demo_microscope("microscope-configuration.yaml", scope="function")
 
 
 # ---------------------------------------------------------------------------
