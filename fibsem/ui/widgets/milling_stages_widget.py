@@ -142,10 +142,10 @@ class FibsemMillingStagesWidget(QWidget):
         self._milling_widget.set_settings(stage.milling)
         self._pattern_widget.set_pattern(stage.pattern)
         self._strategy_widget.set_strategy(stage.strategy)
-        # Selecting a stage used to reveal three closed headers, so the click
-        # looked like it did nothing. Milling and Pattern open with the first
-        # selection; Strategy stays as the operator left it, since it usually has
-        # nothing to show. After that the panels keep whatever state they were put in.
+        # Milling and Pattern open with the first selection, so the click does not look
+        # like it did nothing; Strategy stays as the operator left it, since it usually
+        # has nothing to show. After that the panels keep whatever state they were put
+        # in.
         if not self._detail_widget.isVisible():
             self._milling_panel.expand()
             self._pattern_panel.expand()

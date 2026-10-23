@@ -97,7 +97,7 @@ def latest_final_reference_images(lamella: Lamella, task_name: str) -> List[str]
     """The final reference images of the latest run of ``task_name`` that left
     any: the task's images as they stand now.
 
-    Each run of a task keeps its own images (FIB-1275), so the union over every
+    Each run of a task keeps its own images, so the union over every
     run -- what :func:`final_reference_images` gives -- is every set the task
     ever made; a reader showing the task's result wants the newest. A task none
     of whose runs recorded outputs is from before outputs existed, and is found
@@ -116,7 +116,7 @@ def latest_final_reference_images(lamella: Lamella, task_name: str) -> List[str]
 def latest_task_image(lamella: Lamella, suffix: str) -> str:
     """The last completed task's most zoomed final image ending in ``suffix``,
     from its latest run, relative to the lamella folder; empty when it left
-    none. The run's record says which, wherever it saved them (FIB-1275)."""
+    none. The run's record says which, wherever it saved them."""
     task = lamella.last_completed_task
     if task is None:
         return ""
@@ -132,7 +132,7 @@ def lamella_images(lamella: Lamella, suffix: str) -> List[str]:
     """The lamella's image files ending in ``suffix``, relative to its folder:
     those in the folder itself (every image of an experiment from before task
     run folders, and the lamella's shared state), then each run's recorded images
-    kept in its own folder (FIB-1275), oldest run first.
+    kept in its own folder, oldest run first.
 
     What a picker offers: everything that is the lamella's, wherever its run put
     it, without walking the folder tree.
@@ -161,7 +161,7 @@ def images_by_task(lamella: Lamella) -> List[Tuple[str, List[str], List[str]]]:
 
     What a workflow animation is made of: a frame per task. One entry per task name,
     sitting where the task last ran, with the latest run's reference images (each
-    run keeps its own, FIB-1275). Fluorescence stacks accumulate across runs,
+    run keeps its own). Fluorescence stacks accumulate across runs,
     oldest first. A run that recorded nothing (cancelled, or failed before saving)
     adds nothing, and a task none of whose runs left an image has no entry.
     """
@@ -213,7 +213,7 @@ class PreviewSources:
     def item_image(self, item_name: str) -> Optional["FibsemImage"]:
         """An item's last FIB image, the one its point of interest and
         alignment area are drawn on: its last completed task's final one, else
-        the last one listed (FIB-1424)."""
+        the last one listed."""
         from fibsem.structures import FibsemImage
 
         lamella = self._lamella(item_name)

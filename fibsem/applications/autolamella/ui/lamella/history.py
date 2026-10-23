@@ -402,7 +402,7 @@ class LamellaTaskImageWidget(QWidget):
         self._expanded: Set[Tuple[str, int]] = set()
         # A run's operations opened or folded by a click, by run: kept across a
         # rebuild like the lines. A run nobody clicked is open only when one of
-        # its operations needs a look (FIB-1361).
+        # its operations needs a look.
         self._operations_open: Dict[str, bool] = {}
         # Whether the experiment records its events: without the file nothing
         # was ever recorded, so "no operations" would be a claim it cannot make.
@@ -451,7 +451,7 @@ class LamellaTaskImageWidget(QWidget):
 
         # What can be done with the lamella's history, behind "...": open its
         # folder, and export the workflow GIF made of the runs and images this tab
-        # shows (FIB-1311). Kept by the widget and moved into each header, as the
+        # shows. Kept by the widget and moved into each header, as the
         # filter is; the menu is unparented for the same reason as the filter's.
         self._actions_button = QToolButton(self)
         self._actions_button.setFixedSize(QSize(26, 26))
@@ -510,7 +510,7 @@ class LamellaTaskImageWidget(QWidget):
 
         `set_lamella` skips the lamella it already shows, so without this the
         panel kept the history it was opened with until another lamella was
-        selected and back (FIB-1111). A cached image goes when its file has
+        selected and back. A cached image goes when its file has
         changed: a re-run writes its reference images to the same filenames, so
         its pixmap would be the previous run's picture. The others stay, so a
         refresh after each task reads only the images that task wrote.
@@ -881,7 +881,7 @@ class LamellaTaskImageWidget(QWidget):
 
     def _operations_fold(self, run: HistoryRun) -> QWidget:
         """``› ✓ 3 operations · all completed   6 s``, the run's operations
-        under it. Folded unless one needs a look or it was opened (FIB-1361):
+        under it. Folded unless one needs a look or it was opened:
         a run that went to plan is one line, and one that did not shows why."""
         box = QWidget()
         box.setStyleSheet("background: transparent;")
@@ -1029,8 +1029,8 @@ class LamellaTaskImageWidget(QWidget):
         facts.setHorizontalSpacing(12)
         facts.setVerticalSpacing(2)
         # (name, text, indented, figure): the facts, then for a mill each stage
-        # with, indented under it, what its strategy (FIB-1257) and monitors
-        # (FIB-1481) said and the drift corrections it ran (FIB-1351)
+        # with, indented under it, what its strategy and monitors
+        # said and the drift corrections it ran
         rows: List[Tuple[str, str, bool, Optional[str]]] = [
             (name, value, False, None) for name, value in operation_facts(operation)
         ]
@@ -1185,7 +1185,7 @@ class LamellaTaskImageWidget(QWidget):
             tile.setToolTip(summary)
 
     def _open_expanded(self, filepath: str) -> None:
-        """Open the image at full resolution in the image viewer (FIB-1189), with all
+        """Open the image at full resolution in the image viewer, with all
         of this lamella's images to step through in task order. Each tile stands in
         for its image until the file is read."""
         paths = list(self._task_names) or [filepath]

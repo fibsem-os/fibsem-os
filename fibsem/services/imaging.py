@@ -963,7 +963,7 @@ def _fm_image_summary(image: Any) -> Dict[str, Any]:
 
 def _substituted(channels: List[ChannelSettings], image: Any) -> Dict[str, Any]:
     """``substituted``: each channel whose excitation the filter set doesn't have,
-    and the nearest band it took instead, as the image records it (FIB-1520).
+    and the nearest band it took instead, as the image records it.
     Nothing when every channel got what it asked for."""
     notes = [
         f"{asked.name}: {asked.excitation_wavelength:g} nm excitation is not on this "

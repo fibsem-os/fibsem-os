@@ -1,4 +1,4 @@
-"""A synthetic sample the simulated microscope images through its projections (FIB-874).
+"""A synthetic sample the simulated microscope images through its projections.
 
 The simulator's default imaging (file sequences, or the SEM/FIB text cards)
 serves unrelated pictures per beam: nothing about them reflects the stage
@@ -198,6 +198,18 @@ BEAM_LAYERS = {
 # structure gradient (per pixel, on the canvas scale) passes the scale
 EDGE_INTENSITY = 45.0
 EDGE_GRADIENT_SCALE = 4.0
+# relief on a feature with height, per beam (canvas scale): how much a slope
+# facing the detector brightens (the far side darkens as much), and how much
+# a steep slope brightens whichever way it faces (secondary electron yield
+# grows with the angle of incidence)
+RELIEF = {
+    BeamType.ELECTRON: {"facing": 55.0, "steep": 70.0},
+    BeamType.ION: {"facing": 70.0, "steep": 90.0},
+}
+# the detector sits up the world y axis
+RELIEF_LIGHT = (0.35, 0.94)
+# m; a mound thicker than this hides the film, holes and bars under it
+RELIEF_OPAQUE = 1.5e-6
 # the FM reflection's view of the support, on the same scale
 RIP_FLAP_WIDTH = 1.5e-6  # m, the curled film edge round a rip
 HOLE_DEPTH = 45.0
@@ -244,6 +256,9 @@ class SceneFeature:
     # additive (a mound on top), 1 replaces the background inside its
     # outline - a cell body or an ice plate is opaque, a nucleus sits on top
     opacity: float = 0.0
+    # m; a feature with height is a mound the beams see in relief: its
+    # slopes shade toward the detector and brighten with steepness
+    height: float = 0.0
 
 
 @dataclass
@@ -264,8 +279,8 @@ class SceneGrid:
 @dataclass
 class MilledRegion:
     """A pattern that was milled: a convex polygon on the sample surface,
-    in world coordinates (metres), that every later view shows as a trench
-    (FIB-877). Kept as corners rather than a shape description because the
+    in world coordinates (metres), that every later view shows as a trench.
+    Kept as corners rather than a shape description because the
     view-to-world mapping at the milling pose is a foreshortening: a
     rectangle rotated in the FIB image is not a rectangle of any rotation
     on the surface."""
@@ -274,7 +289,7 @@ class MilledRegion:
     depth: float = 1.0  # m, recorded only
     # m; width of the bright rim round the region. A trench has none; a spot
     # burn has one, the redeposition halo that makes the mark easy to find in
-    # the reflection channel and the SEM (FIB-954).
+    # the reflection channel and the SEM.
     halo: float = 0.0
 
 
@@ -502,6 +517,34 @@ class WorldTexture:
                 opacity=f.opacity,
                 cover=tile[2],
             )
+        relief = [self.features[idx] for idx in hit if self.features[idx].height > 0]
+        if relief:
+            # the mounds' surface, in pixels, so its gradient is the slope
+            surface = np.zeros((size, size), dtype=np.float32)
+            for f in relief:
+                sigma_x = f.sigma / tp
+                SampleScene._stamp_blob(
+                    [(surface, f.height / tp)],
+                    (f.x - x0) / tp + 0.5,
+                    (f.y - y0) / tp + 0.5,
+                    sigma_x,
+                    sigma_x * f.eccentricity,
+                    f.sharpness,
+                    angle=f.angle,
+                    wobble=f.wobble,
+                    wobble_phase=f.wobble_phase,
+                )
+            # a mound hides the film under it once it is thicker than a film
+            np.maximum(
+                tile[2], np.clip(surface * tp / RELIEF_OPAQUE, 0.0, 1.0), out=tile[2]
+            )
+            gy, gx = np.gradient(surface)
+            facing = gx * RELIEF_LIGHT[0] + gy * RELIEF_LIGHT[1]
+            steep = 1.0 / np.sqrt(1.0 + gx**2 + gy**2)
+            for k, b in enumerate(beams):
+                tile[k] += RELIEF[b]["facing"] * facing + RELIEF[b]["steep"] * (
+                    1.0 - steep
+                )
         return tile
 
 
@@ -513,7 +556,7 @@ class SampleScene:
     on the world origin) with randomly clustered cell-like blobs scattered
     over the film, plus a fiducial-like cross at the origin. The mesh is
     deliberately periodic: it reproduces the rival-correlation-peak trap that
-    real grid bars create (FIB-711), so window constraints are testable.
+    real grid bars create, so window constraints are testable.
     """
 
     coincidence_offset: float = 10e-6  # m, initial height error at boot
@@ -822,7 +865,7 @@ class SampleScene:
         beam_shift: Tuple[float, float] = (0.0, 0.0),
         beam_current: Optional[float] = None,
     ) -> List[MilledRegion]:
-        """Commit milling patterns to the world (FIB-877).
+        """Commit milling patterns to the world.
 
         Patterns are in microscope image coordinates of the milling beam's
         view at this pose (metres from the centre, y up); each becomes a
@@ -891,7 +934,7 @@ class SampleScene:
         diameter: float = SPOT_BURN_DIAMETER,
         halo: float = SPOT_BURN_HALO,
     ) -> List[MilledRegion]:
-        """Commit spot burns to the world (FIB-954).
+        """Commit spot burns to the world.
 
         Points are in microscope image coordinates of the burning beam's view
         at this pose (metres from the centre, y up), the same convention
@@ -1590,7 +1633,7 @@ class SampleScene:
             self._stamp_feature(canvas, f, u, v, pixel_size, fs, 0.0, intensity=weight)
         # milled regions after the features: a trench or a burn removes the
         # material, so in reflection it reads dark through whatever cell was
-        # there, and a burn's rim stays visible on top of it (FIB-954)
+        # there, and a burn's rim stays visible on top of it
         if bars > 0 and self.milled:
             canvas[self.milled_mask(xs_world, ys_world)] = -bars * MILL_DEPTH
             halo = self.halo_mask(xs_world, ys_world, pixel_size)

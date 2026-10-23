@@ -78,7 +78,7 @@ class BaseExperiment:
         # The instrument, operator and software that last worked on this. Filled in
         # by register_metadata, when a session adopts the experiment and there is a
         # microscope to ask; None until then, because creating an experiment happens
-        # in a dialog that has no microscope. See FIB-451.
+        # in a dialog that has no microscope.
         self.session: Optional[SessionInfo] = None
         # Why the last save failed, or None when the file holds what memory
         # does. Not written: it describes the file, not the experiment.
@@ -141,8 +141,8 @@ class BaseExperiment:
         self.created_at = to_datetime(ddict.get("created_at"))
         self.id = ddict.get("_id", "NULL")
         self.metadata = ddict.get("metadata", {})
-        # Absent from every experiment written before FIB-451, and from any that no
-        # session has adopted yet. Both mean the same thing -- nothing is known about
+        # Absent from older experiments, and from any that no session has adopted
+        # yet. Both mean the same thing -- nothing is known about
         # what produced this -- and None says that without guessing.
         session = ddict.get("session")
         self.session = SessionInfo.from_dict(session) if session else None
@@ -151,7 +151,7 @@ class BaseExperiment:
     @property
     def unsaved(self) -> bool:
         """Whether the last save failed, so the file is behind memory and the
-        event log (FIB-1352). The next save that succeeds catches it up."""
+        event log. The next save that succeeds catches it up."""
         return self.save_error is not None
 
     def save(self, save_protocol: bool = False) -> None:
@@ -159,7 +159,7 @@ class BaseExperiment:
 
         A save that fails raises, and leaves the experiment ``unsaved`` until
         one succeeds: a read-only or locked file, a full disk, a value that
-        cannot be written. Nothing in memory is lost by it (FIB-1352).
+        cannot be written. Nothing in memory is lost by it.
         """
         try:
             with EXPERIMENT_WRITE_LOCK:
@@ -270,7 +270,7 @@ class BaseExperiment:
         reads one on every click to preview it -- so the callers that do want it
         say so. The app calls this when it adopts an experiment; a headless
         script that wants its output in the experiment folder calls it after
-        loading or creating one. See FIB-421.
+        loading or creating one.
 
         Returns:
             The path of the logfile being written to.
@@ -280,11 +280,8 @@ class BaseExperiment:
     def register_metadata(self, microscope: "FibsemMicroscope") -> None:
         """Stamp this experiment's identity onto the images ``microscope`` acquires.
 
-        Which experiment produced an image is a property of the run, not of the GUI.
-        This previously happened only in AutoLamellaUI, so images acquired from a
-        script, a headless run, or the standalone FibsemUI carried the microscope's
-        default ``FibsemExperimentRef()`` -- id ``None`` -- and could not be associated
-        with an experiment afterwards. See FIB-449.
+        Which experiment produced an image is a property of the run, not of the GUI,
+        so a script, a headless run and the standalone FibsemUI call it too.
 
         Mirrors ``configure_logging``: ``load`` and ``create`` deliberately do not
         call it, because reading an experiment must not reach into the caller's
@@ -294,7 +291,7 @@ class BaseExperiment:
 
         Registration also runs the other way: this is the only moment the experiment
         meets a microscope, so it is where the experiment learns which session is
-        working on it -- instrument, operator, software and plugins (FIB-451).
+        working on it -- instrument, operator, software and plugins.
         """
         from fibsem.utils import _register_metadata
 
@@ -311,10 +308,9 @@ class BaseExperiment:
             microscope, user=self._declared_user(), previous=self.session
         )
 
-        # Written now rather than left to whatever saves next -- relying on someone
-        # else's save is how FIB-490 lost every failed task. Only for an experiment
+        # Written now rather than left to whatever saves next. Only for an experiment
         # that already has a file, though: constructing one deliberately does not
-        # touch the disk (FIB-420), and both `create` and `load` guarantee a file
+        # touch the disk, and both `create` and `load` guarantee a file
         # exists, so in a real run this always writes. A caller driving an
         # in-memory experiment is not asking this method to give it a directory.
         if os.path.exists(os.path.join(self.path, EXPERIMENT_FILENAME)):

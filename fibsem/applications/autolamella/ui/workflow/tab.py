@@ -23,7 +23,6 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.acting import OPERATOR
-from fibsem.applications.autolamella.ui.common.run_refusal import refused_during_run
 from fibsem.applications.autolamella.ui.grids.run import GridWorkflowWidget
 from fibsem.applications.autolamella.ui.grids.screen import (
     ScreenGridsDialog,
@@ -47,6 +46,7 @@ from fibsem.applications.autolamella.workflows.estimate import (
 from fibsem.applications.autolamella.workflows.plan import plan_lamella_run
 from fibsem.structures import BeamType
 from fibsem.ui import notification_service
+from fibsem.ui.run.run_refusal import refused_during_run
 from fibsem.ui.tokens import SURFACE_COLOR
 from fibsem.ui.widgets.workflow.timeline import WorkflowProgressWidget
 from fibsem.workflows.attendance import (
@@ -270,7 +270,7 @@ class WorkflowTab(QWidget):
 
     def _on_screen_all_grids(self) -> None:
         """One click: read the magazine, scan and name the grids in one dialog,
-        then the ticked tasks on every grid it found (FIB-898, FIB-1138)."""
+        then the ticked tasks on every grid it found."""
         ui = self._session
         if ui.runner.is_running or ui.experiment is None:
             return
@@ -714,7 +714,7 @@ class WorkflowTab(QWidget):
         task config, and the timeline is generic — it has no business reaching for an
         Experiment. Recomputed on workflow start and on a queue edit only, never per
         status update: `estimated_duration` walks every milling stage of every task, and
-        the status path is the one already watched for latency (FIB-683).
+        the status path is the one already watched for latency.
         """
         experiment = self._session.experiment
         if experiment is None:

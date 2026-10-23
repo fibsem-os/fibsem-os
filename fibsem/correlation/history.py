@@ -1,9 +1,9 @@
 """A lamella's correlation history — the on-disk run folders.
 
 Each correlation that records a result writes a run to
-``<lamella>/Correlation/<timestamp>/correlation.json`` (FIB-264). This names and
+``<lamella>/Correlation/<timestamp>/correlation.json``. This names and
 writes those folders (:func:`new_run_dir`, :func:`save_run`) and reconstructs the
-history from them so a new correlation can seed from the previous one (FIB-299).
+history from them so a new correlation can seed from the previous one.
 Nothing else is persisted — the history *is* the folders.
 
 It also finds what a folder on disk holds for a correlation: the experiment and
@@ -38,7 +38,7 @@ CORRELATION_FILENAME = "correlation.json"
 EXPERIMENT_FILENAME = "experiment.yaml"
 PROTOCOL_FILENAME = "protocol.yaml"
 
-# The project file before it was consolidated (FIB-264): still *read* for
+# The project file before it was consolidated: still *read* for
 # back-compat with projects saved by earlier versions; nothing writes them now.
 LEGACY_DATA_FILENAME = "correlation_data.json"
 LEGACY_RESULT_FILENAME = "correlation_result.json"
@@ -57,7 +57,7 @@ def new_run_dir(lamella_path: str, now: Optional[datetime.datetime] = None) -> s
 
     It is created only when the run records something (:func:`save_run`):
     creating it on open made every open a run, and an abandoned session became
-    the next open's starting coordinates (FIB-320).
+    the next open's starting coordinates.
     """
     now = now or datetime.datetime.now()
     return os.path.join(correlation_dir(lamella_path), now.strftime(DATETIME_FILE))
@@ -140,7 +140,7 @@ class LamellaCorrelation:
 def correlation_record(
     result: CorrelationResult, lamella: Any, run_folder: Optional[str], root: Any
 ) -> Dict[str, Any]:
-    """An accepted correlation, for the experiment's record (FIB-1068): what it
+    """An accepted correlation, for the experiment's record: what it
     gave, how well it fits, and the run folder that holds the rest. Whoever
     moves an item's point of interest to a run's answer records this."""
     from fibsem.correlation.verdict import verdict_tier
@@ -182,7 +182,7 @@ def recorded_image_basename(name: Optional[str]) -> Optional[str]:
 
     Runs written on the instrument PC can record a full Windows path, which
     ``os.path.basename`` on another platform leaves whole, so both separators
-    are split on here (FIB-1237).
+    are split on here.
     """
     if not name:
         return None
@@ -240,7 +240,7 @@ def _discover_correlation_files(directory: str) -> Dict[str, Optional[str]]:
     Conventions (matching the widget's auto-save + typical exports):
       - FM image   : ``*.ome.tif`` / ``*.ome.tiff``
       - FIB image  : ``*_ib.tif`` / ``*_ib.tiff`` (else the first non-OME TIFF)
-      - correlation: ``correlation.json`` (FIB-264 consolidated file)
+      - correlation: ``correlation.json``
       - data       : ``correlation_data.json``   (legacy, still read)
       - result     : ``correlation_result.json`` (legacy, still read)
     """
@@ -361,7 +361,7 @@ def spot_burn_field_width_mismatch(
     The coordinates are fractions of the image the burns were placed on, so
     they land right on any image with the same field width, at any
     resolution, and nowhere useful on one at another: 1.5x out from the
-    centre on a 150 um image of a 100 um pattern (FIB-1233). Unknown on
+    centre on a 150 um image of a 100 um pattern. Unknown on
     either side is not a reason to refuse.
     """
     settings = getattr(getattr(fib_image, "metadata", None), "image_settings", None)
@@ -389,8 +389,8 @@ def _images_beside_a_run(lamella_dir: str) -> Dict[str, Optional[str]]:
     discovery order would take whichever sorts first. Correlation fiducials are
     picked on a post-burn reference, so prefer the spot-burn task's final one.
 
-    This is a guess, used only for a run that records no image names (before
-    FIB-1019): picking the wrong reference shifts every FIB coordinate. The
+    This is a guess, used only for a run that records no image names (older
+    runs): picking the wrong reference shifts every FIB coordinate. The
     caller logs what it chose.
     """
     ib = sorted(glob.glob(os.path.join(lamella_dir, "*_ib.tif")))
@@ -475,10 +475,10 @@ def discover_project(directory: str) -> Dict[str, Optional[str]]:
 
     ``{"fib", "fm", "correlation", "data", "result"}``, each a path or None (see
     :func:`_discover_correlation_files` for the names looked for). The images are
-    the ones the run records it was picked on (FIB-1019), looked for in the run
+    the ones the run records it was picked on, looked for in the run
     folder and then the lamella folder above it. A recorded image that cannot be
     found is left as None rather than replaced by a guess: the fiducials are
-    pixels in that image (FIB-1237). Only a run that records no names falls back
+    pixels in that image. Only a run that records no names falls back
     to guessing.
     """
     found = _discover_correlation_files(directory)
@@ -514,7 +514,7 @@ def discover_project(directory: str) -> Dict[str, Optional[str]]:
     # A run folder holds correlation.json; the images live in the lamella
     # folder above it. The launcher already walks up there for the spot-burn
     # pattern and the transform priors, so do the same for the images rather
-    # than opening with points and empty canvases (FIB-1018).
+    # than opening with points and empty canvases.
     unrecorded = [k for k in ("fib", "fm") if not recorded[k] and not found[k]]
     if unrecorded and above_run:
         above = _images_beside_a_run(above_run)

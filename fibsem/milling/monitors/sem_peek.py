@@ -1,5 +1,5 @@
 """SEM peek: every ``interval`` seconds of milled time, pause the mill, take
-an SEM image, and resume (FIB-1482).
+an SEM image, and resume.
 
 Not a live monitor: it images only while the pattern is paused, so the step
 keeps looking at the instrument as usual. Its files: each image

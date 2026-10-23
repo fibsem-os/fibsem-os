@@ -9,7 +9,7 @@ it starts with, on simulated time: each wait is ``sim_sleep``, which the test su
 turns off, and the time counts as it would have passed. A ``start`` alone runs until
 something stops it. Each pattern takes a few seconds, or, with
 ``FIBSEM_SIM_MILL_SCALE`` set, that fraction of the sputter-rate estimate for what
-is drawn, so a stop can be tried mid-mill (FIB-1496).
+is drawn, so a stop can be tried mid-mill.
 
 `DemoSpotBurn` is the shared point-by-point burn, also on simulated time, and
 `DemoCoating` the shared coating, whose valve stays open for simulated time.

@@ -62,8 +62,8 @@ def current_timestamp_v3(timeonly: bool = True) -> str:
 
 # `MU_SYMBOL` rather than a literal, and specifically U+00B5 MICRO SIGN rather than
 # U+03BC GREEK SMALL LETTER MU. The two are indistinguishable on screen and unequal to
-# every string comparison, and this table used to disagree with `constants.MICRON_SYMBOL`
-# -- which every spin-box suffix and scalebar already uses. `imaging/drawing.py` records
+# every string comparison, and this table agrees with `constants.MICRON_SYMBOL`,
+# which every spin-box suffix and scalebar already uses. `imaging/drawing.py` records
 # the reason the house character is the micro sign: the default font on Windows has no
 # glyph for the Greek letter, so the Greek one renders as a box on the platform most
 # instruments are driven from.
@@ -284,8 +284,6 @@ def make_logging_directory(path: Optional[Path] = None, name="run"):
     return directory
 
 
-# TODO: better logs: https://www.toptal.com/python/in-depth-python-logging
-# https://stackoverflow.com/questions/61483056/save-logging-debug-and-show-only-logging-info-python
 def configure_logging(
     path: Path = "",
     log_filename="logfile",
@@ -1014,7 +1012,6 @@ def save_positions(positions: list, path: str = None, overwrite: bool = False) -
     save_yaml(path, pdict)
 
 
-# TODO: re-think this, dont like the pop ups
 def _register_metadata(
     microscope: "FibsemMicroscope",
     application_software: str,
@@ -1024,18 +1021,16 @@ def _register_metadata(
     """Stamp user, experiment and application identity onto what ``microscope`` acquires.
 
     ``experiment_id`` is the stable join key and should always be supplied; it is
-    optional only so a caller that has no ID yet still registers something. It used
-    to be omitted entirely and ``id`` carried the name, which meant a rename silently
-    broke the link from every image written before it. See FIB-446.
+    optional only so a caller that has no ID yet still registers something.
 
     Which application is running goes on ``SystemInfo``, not on the experiment
     reference. It is a property of the running system, and putting it in one place
-    is what lets the reference carry identity only (FIB-445 D1, FIB-448).
+    is what lets the reference carry identity only.
 
     There is no application *version* to record. An application shipped inside
     fibsem has no version of its own -- passing ``fibsem.__version__`` for it only
     made two fields tautologically equal -- and ``info.fibsem_revision`` already
-    pins the exact commit doing the work. See FIB-448.
+    pins the exact commit doing the work.
     """
     from fibsem.structures import FibsemExperimentRef, FibsemUser
 

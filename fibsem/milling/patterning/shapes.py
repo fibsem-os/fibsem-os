@@ -1,15 +1,8 @@
 """Milling patterns as image-space shapes, with no napari behind them.
 
 The converters here turn a pattern's settings into the vertex arrays the canvas
-overlays draw and the placement checks validate. They keep their `_to_napari_` names
-because the shapes are in napari's (row, column) convention and every caller and test
-was written against those names; what changed is only where they live.
-
-They used to sit in `fibsem/ui/napari/patterns.py`, which imports napari at module
-level -- so every widget that wanted a colour name or a placement check dragged 194
-napari modules into the main application, and the conversion tests skipped on CI
-(which installs no napari). The napari half -- layer properties, `NapariPattern`,
-`draw_milling_patterns_in_napari` -- stays there and imports from here.
+overlays draw and the placement checks validate. Their `_to_napari_` names say the
+shapes are in napari's (row, column) convention.
 
 Under `fibsem.milling.patterning` rather than `fibsem.ui` on purpose: importing
 anything under `fibsem.ui` runs that package's eager widget imports and so needs Qt,
@@ -42,9 +35,7 @@ from fibsem.structures import (
 )
 
 # colour wheel
-# Shared by the napari shapes layer and by the bitmap converter below, which is
-# why it lives here rather than in `fibsem.ui.napari.patterns`: that module needs
-# napari, this one must not. `patterns.py` re-exports it (FIB-1027).
+# Used by the bitmap converter below.
 SHAPES_LAYER_PROPERTIES = {
     "edge_width": 0.5,
     "opacity": 0.5,
@@ -285,9 +276,8 @@ def convert_pattern_to_napari_polygon(
         raise ValueError(f"Pattern is not a Polygon: {pattern_settings}")
 
     # Vertices are (x, y) in microscope metres, the same frame as every other
-    # pattern's centre_x / centre_y. This previously added the image centre to
-    # both axes, which drew the polygon mirrored about it: microscope +y is up
-    # and image rows go down, so y has to be subtracted, not added (FIB-692).
+    # pattern's centre_x / centre_y. Microscope +y is up and image rows go down,
+    # so y is subtracted from the image centre, not added.
     points = [
         microscope_image_to_image_coordinates(
             Point(x=float(vx), y=float(vy)), shape, pixelsize
@@ -314,8 +304,7 @@ NAPARI_DRAWING_DICT = {
 def convert_point_to_napari(resolution: list, pixel_size: float, centre: Point):
     # `resolution` is [x, y] (structures.py: "resolution of the acquired image
     # in pixels, [x, y]"), the opposite order to a numpy `shape`. Swap it here
-    # rather than at the reader: the old code indexed [1] then [0] to compensate,
-    # which reads like a bug and is not one.
+    # rather than at the reader.
     pt = microscope_image_to_image_coordinates(
         centre, (resolution[1], resolution[0]), pixel_size
     )

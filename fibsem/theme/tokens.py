@@ -10,11 +10,8 @@ to copy colours out of here by hand rather than import them.
 ``fibsem.ui.tokens`` re-exports every name below, so existing callers doing
 ``from fibsem.ui.tokens import SURFACE_COLOR`` keep working unchanged.
 
-These previously lived at the *bottom* of ``fibsem.ui.stylesheets``, below every
-QSS constant that would want to consume them, which is why none of those
-constants could interpolate a token. Defining them here and importing them at
-the top of ``stylesheets`` is what makes the palette the single source of truth
-rather than a parallel set of names that happen to agree.
+``stylesheets`` imports them at the top, so its QSS constants interpolate the
+tokens and the palette has one source of truth.
 
 ``fibsem.ui.stylesheets`` re-exports every name below, so existing callers doing
 ``from fibsem.ui.stylesheets import BORDER_COLOR`` keep working unchanged.
@@ -39,6 +36,9 @@ SEMANTIC_ERROR_HOVER_COLOR = "#BF2A38"
 SEMANTIC_ERROR_PRESSED_COLOR = "#b71c1c"
 SEMANTIC_WARNING_COLOR = "#E3B617"
 PURPLE_COLOR = "#7C3AED"
+# Marks on an image: the agent's in a light purple that reads on a dark or
+# grey image (the web's), the operator's in the accent blue.
+AGENT_MARK_COLOR = "#a78bfa"
 ORANGE_COLOR = "#ff9800"
 DEFECT_ORANGE_COLOR = "#e8a020"
 
@@ -81,7 +81,7 @@ SEM_BEAM_MUTED_COLOUR = "#7fae8a"
 FIB_BEAM_MUTED_COLOUR = "#c49a58"
 
 # ---------------------------------------------------------------------------
-# Napari-dark surface palette
+# Dark surface palette
 #
 # The tokens the hand-built dialogs style themselves from. Named for the role
 # they play rather than the shade they are, because that is what a caller is
@@ -159,7 +159,7 @@ NEUTRAL_900 = "#1a1b1e"
 #
 # A widget that styles each label inline picks a size and a colour every time,
 # and across the correlation widgets that produced 33 labels at 11 px, 17 at
-# 12 px, and five different "muted" greys for the same job (FIB-978). These are
+# 12 px, and five different "muted" greys for the same job. These are
 # the roles a label can have; a widget names the role, not the numbers.
 #
 # Stylesheet fragments, so they compose: ``f"{CAPTION_STYLE} margin-left: 8px;"``.
@@ -206,10 +206,7 @@ PENDING_COLOR = NEUTRAL_700
 # ---------------------------------------------------------------------------
 # Deprecated aliases.
 #
-# Each of these was a second literal spelling of the colour above it, which is
-# how a palette drifts: someone retunes SURFACE_COLOR, GRAY_BACKGROUND_COLOR
-# stays behind, and two halves of the app disagree with no diff that shows it.
-# Assigned rather than duplicated so that can no longer happen.
+# Assigned rather than spelled out again, so retuning a colour retunes its aliases.
 #
 # Prefer the role-named token in new code. These are kept because ~90 modules
 # import them and the rename is not worth the churn in this pass.

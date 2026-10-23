@@ -24,7 +24,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.routing import APIRoute
 
 from fibsem.ai.agent.calls import current_call
-from fibsem.server import files
+from fibsem.server import exports, files
 from fibsem.server.auth import refuse_dashboard, take_control
 from fibsem.server.parts import (
     GRIDS,
@@ -36,6 +36,7 @@ from fibsem.server.parts import (
     served_parts,
 )
 from fibsem.server.responses import (
+    AnimationFrames,
     AppStatus,
     ConfigEdit,
     Decided,
@@ -52,9 +53,13 @@ from fibsem.server.responses import (
     GridPlan,
     Grids,
     GridTasksQueued,
+    ImageDrawn,
+    ImageExportForm,
+    ImagePairDrawn,
     ItemDetail,
     ItemEdit,
     ItemHistory,
+    ItemMillingDrawn,
     ItemStack,
     LamellaDefaultsSet,
     LogRead,
@@ -332,6 +337,33 @@ def _app_type(context: Any, base: type) -> type:
 _JPEG = {200: {"content": {"image/jpeg": {}}, "description": "A JPEG image."}}
 # A file read raw (``raw=true``) answers the file as it is.
 _RAW_FILE = {200: {"content": {"application/octet-stream": {}}}}
+# An export answers the file it makes, to download.
+_EXPORT = {
+    200: {
+        "content": {exports.MEDIA_TYPES[ext]: {} for ext in exports.MEDIA_TYPES},
+        "description": "The exported file.",
+    }
+}
+
+
+def _download(content: bytes, name: str) -> Response:
+    """*content* as the file *name*, for a browser to save."""
+    return Response(
+        content,
+        media_type=exports.MEDIA_TYPES[os.path.splitext(name)[1]],
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}"},
+    )
+
+
+def _export_body(body: Dict[str, Any], default_format: str):
+    """An export's options (None: the dialog's defaults) and format."""
+    options = body.get("options")
+    if options is not None and not isinstance(options, dict):
+        raise _missing_field("options, when given, is an object.")
+    fmt = body.get("format", default_format)
+    if not isinstance(fmt, str):
+        raise _missing_field("format, when given, is a string.")
+    return options, fmt
 
 
 def build_app_router(context: Any) -> APIRouter:
@@ -512,8 +544,10 @@ def build_app_router(context: Any) -> APIRouter:
         responses=_JPEG,
         tags=[GRIDS],
     )
-    def grid_output_image(grid_name: str, filename: str):
-        return _jpeg_or_404(context.grid_output_image(grid_name, filename))
+    def grid_output_image(grid_name: str, filename: str, cells: bool = False):
+        # cells: the overview's named cells drawn on it, listed in the
+        # metadata header.
+        return _jpeg_or_404(context.grid_output_image(grid_name, filename, cells=cells))
 
     # {filename:path}: any saved image's path in the experiment, slashes and all.
     @router.get(
@@ -604,12 +638,32 @@ def build_app_router(context: Any) -> APIRouter:
         y: Optional[float] = None,
         fx: Optional[float] = None,
         fy: Optional[float] = None,
+        crop: Optional[str] = None,
     ):
         # Any saved image in the experiment, beam or FM: a point on it as a
-        # stage position, from the image's own metadata.
+        # stage position, from the image's own metadata. crop: the point is
+        # read off a crop's picture, a cell's name (B3) or "x,y,width,height".
         px = None if x is None or y is None else [x, y]
         fraction = None if fx is None or fy is None else [fx, fy]
-        return _typed(context.image_stage_position(path, px, fraction))
+        if crop is not None and "," in crop:
+            crop = _numbers(crop)
+        return _typed(context.image_stage_position(path, px, fraction, crop))
+
+    def _flags(body: Dict[str, Any], *keys: str) -> Dict[str, bool]:
+        """*body*'s true-or-false *keys* that are given, or the 422."""
+        flags = {}
+        for key in keys:
+            if key in body:
+                if not isinstance(body[key], bool):
+                    raise HTTPException(
+                        status_code=422,
+                        detail={
+                            "error_type": "invalid",
+                            "message": f"{key} is true or false",
+                        },
+                    )
+                flags[key] = body[key]
+        return flags
 
     @router.post(
         "/experiment/images/markers", response_model=MarkersDrawn, tags=[LAMELLAE]
@@ -628,7 +682,68 @@ def build_app_router(context: Any) -> APIRouter:
                 status_code=422,
                 detail={"error_type": "invalid", "message": "grid_name is a string"},
             )
-        return _answer_or_refusal(context.render_markers(path, grid_name))
+        return _answer_or_refusal(
+            context.render_markers(path, grid_name, **_flags(body, "fov", "current"))
+        )
+
+    def _draw_options(body: Dict[str, Any]) -> Dict[str, Any]:
+        options: Dict[str, Any] = _flags(body, "crosshair", "metadata_bar")
+        channels = body.get("channels")
+        if channels is not None:
+            options["channels"] = _names(
+                body, "channels", "the fluorescence channels to show, by name"
+            )
+        return options
+
+    @router.post("/experiment/images/drawn", response_model=ImageDrawn)
+    def draw_image(body: Dict[str, Any]):
+        # A POST because the picture is saved beside the image, as markers are.
+        path = _required_text(body, "path", "a saved image inside the experiment")
+        return _typed(
+            context.draw_image(path, body.get("marks"), **_draw_options(body))
+        )
+
+    @router.post("/experiment/images/pair", response_model=ImagePairDrawn)
+    def draw_pair(body: Dict[str, Any]):
+        before = _required_text(body, "before", "a saved image inside the experiment")
+        after = _required_text(body, "after", "a saved image inside the experiment")
+        options = _draw_options(body)
+        options.pop("crosshair", None)
+        return _typed(context.draw_pair(before, after, body.get("marks"), **options))
+
+    @router.post(
+        "/experiment/items/{item_name}/milling/drawn",
+        response_model=ItemMillingDrawn,
+        tags=[LAMELLAE],
+    )
+    def draw_item_milling(item_name: str, body: Dict[str, Any]):
+        # A POST because the picture is saved beside the image, as markers are.
+        tasks = body.get("task_names")
+        if isinstance(tasks, str):
+            tasks = [tasks]
+        if not isinstance(tasks, list) or not tasks:
+            raise _missing_field(
+                "Pass task_names: the milling tasks to draw, the first in colour."
+            )
+        task_names = _names({"task_names": tasks}, "task_names", "task names")
+        background = body.get("background", "related")
+        if background not in ("related", "none"):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "invalid",
+                    "message": "background is related or none",
+                },
+            )
+        options = _flags(body, "scan_direction", "alignment_area", "metadata_bar")
+        image_path = body.get("image_path")
+        if image_path is not None and not isinstance(image_path, str):
+            raise _missing_field("image_path, when given, is a saved ion image.")
+        return _typed(
+            context.draw_item_milling(
+                item_name, task_names, image_path, background, **options
+            )
+        )
 
     @router.post("/experiment/images/pixels", response_model=SavedImagePixels)
     def image_pixels(body: Dict[str, Any]):
@@ -681,6 +796,7 @@ def build_app_router(context: Any) -> APIRouter:
         width: Optional[int] = None,
         z: Optional[int] = None,
         channels: Optional[str] = None,
+        cells: Optional[str] = None,
         raw: bool = False,
         experiment: Optional[str] = None,
     ):
@@ -702,8 +818,12 @@ def build_app_router(context: Any) -> APIRouter:
         # width: the preview's at most, for a thumbnail or a full-size view.
         # A fluorescence stack: plane z (0 the first; none, the max projection)
         # in channels, comma-separated names (none, all).
+        # cells: "true" draws the image's named cells on the preview; names,
+        # comma-separated ("B3,C4"), crop those cells.
+        show_cells = (cells or "").strip().lower() == "true"
+        crops = None if show_cells or not cells else [c for c in cells.split(",") if c]
         tag = _files_answer(
-            experiment, files.read_etag, path, box, fraction, width, z, channels
+            experiment, files.read_etag, path, box, fraction, width, z, channels, cells
         )
         # kept by the browser, but asked about each time: an unchanged file answers 304
         cache = {"ETag": tag, "Cache-Control": "no-cache"} if tag else {}
@@ -719,9 +839,55 @@ def build_app_router(context: Any) -> APIRouter:
             max_width=files.preview_width(width),
             z=z,
             channels=[c for c in (channels or "").split(",") if c] or None,
+            cells=show_cells,
+            crops=crops,
         )
         _record_read(experiment, path, False)
         return JSONResponse(jsonable_encoder(answer), headers=cache)
+
+    # -- exports: the Qt export dialogs' files, for a person to download ---------
+    # Each renders, so a POST computes and changes nothing; FastAPI runs these
+    # plain functions in its threadpool, off the event loop.
+
+    @router.get("/experiment/export/image/options", response_model=ImageExportForm)
+    def image_export_form(path: str, experiment: Optional[str] = None):
+        return answer(_files_answer(experiment, exports.image_form, path))
+
+    @router.post("/experiment/export/image", responses=_EXPORT)
+    def export_image(body: Dict[str, Any], experiment: Optional[str] = None):
+        path = _required_text(body, "path", "an image inside the experiment")
+        options, fmt = _export_body(body, "png")
+        content, name = _files_answer(
+            experiment, exports.image_file, path, options, fmt
+        )
+        return _download(content, name)
+
+    def _animation_steps(item_name: str) -> Dict[str, Any]:
+        return _answer_or_refusal(context.animation_steps(item_name))
+
+    @router.get(
+        "/experiment/export/animation/frames",
+        response_model=AnimationFrames,
+        tags=[LAMELLAE],
+    )
+    def animation_frames(item_name: str):
+        found = _animation_steps(item_name)
+        return answer(
+            exports.animation_frames(found["root"], found["item_name"], found["steps"])
+        )
+
+    @router.post("/experiment/export/animation", responses=_EXPORT, tags=[LAMELLAE])
+    def export_animation(body: Dict[str, Any]):
+        item_name = _required_text(body, "item_name", "the lamella to animate")
+        options, fmt = _export_body(body, "gif")
+        found = _animation_steps(item_name)
+        try:
+            content, name = exports.animation_file(
+                found["item_name"], found["steps"], options, fmt
+            )
+        except files.FileRefusal as refusal:
+            raise HTTPException(status_code=refusal.status, detail=refusal.detail)
+        return _download(content, name)
 
     @router.get("/workflow/proposals", response_model=Proposals)
     def proposals():
@@ -749,7 +915,7 @@ def build_app_router(context: Any) -> APIRouter:
     def add_note(body: Dict[str, Any]):
         # Observations for the record — event stream + experiment log. On the
         # read router, a POST the dashboard token is refused: a watching agent
-        # notes what it sees (FIB-1035), and a note changes nothing.
+        # notes what it sees, and a note changes nothing.
         text, item_name = _note_body(body)
         cited = cited_evidence(context)
         result = context.add_note(
@@ -837,7 +1003,7 @@ def build_app_control_router(context: Any) -> APIRouter:
     """Routes that act on the session rather than observe it.
 
     Mounted (by build_server) at Drive: the operator raises the level from the
-    Agent chip (FIB-1035).
+    Agent chip.
     """
     router = _router()
 
@@ -1067,7 +1233,7 @@ def _stop_reason(body: Optional[Dict[str, Any]]) -> str:
 def build_app_stop_router(context: Any) -> APIRouter:
     """Stopping the run. Mounted (by build_server) at Drive, with a reason: the
     workflow is never the agent's own, so at Assist the stop goes in a request
-    the operator approves (FIB-1283); a watching agent stops nothing (FIB-1035)."""
+    the operator approves; a watching agent stops nothing."""
     router = _router()
 
     @router.post("/workflow/stop", response_model=Stopped)
@@ -1089,7 +1255,7 @@ def build_app_stop_router(context: Any) -> APIRouter:
 
 def build_app_config_router(context: Any) -> APIRouter:
     """Routes that edit configuration (protocols, item configs, schedules,
-    run options). Mounted at Drive, like the control router (FIB-864)."""
+    run options). Mounted at Drive, like the control router."""
     router = _router()
     item_edit = ItemEdit[_app_type(context, ItemDetail)]
 

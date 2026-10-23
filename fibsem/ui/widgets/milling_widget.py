@@ -25,10 +25,10 @@ from fibsem.util.durations import format_duration_precise
 from fibsem.workflows.actions import record_operator_action
 
 if TYPE_CHECKING:
-    from fibsem.ui.widgets.milling_task_config_widget2 import MillingTaskConfigWidget2
+    from fibsem.ui.widgets.milling_task_config_widget import MillingTaskConfigWidget
 
 
-class FibsemMillingWidget2(QWidget):
+class FibsemMillingWidget(QWidget):
     """Widget for running a milling task with FibsemMicroscope.
     This widget provides a button to start the milling task and handles
     the threading and progress updates.
@@ -36,9 +36,7 @@ class FibsemMillingWidget2(QWidget):
 
     finished_milling_signal = pyqtSignal()
 
-    def __init__(
-        self, microscope: FibsemMicroscope, parent: "MillingTaskConfigWidget2"
-    ):
+    def __init__(self, microscope: FibsemMicroscope, parent: "MillingTaskConfigWidget"):
         super().__init__(parent)
         self.microscope = microscope
         self.parent_widget = parent
@@ -54,7 +52,7 @@ class FibsemMillingWidget2(QWidget):
         # What the instrument last said it was doing. See `pause_resume_milling`.
         self._milling_state: Optional[MillingState] = None
         # A milling task someone else runs on the milling service is in progress:
-        # the workflow's mill, which runs on the workflow thread (FIB-1236). Set by
+        # the workflow's mill, which runs on the workflow thread. Set by
         # its task start and cleared by its end, so the controls follow it too.
         self._service_task = False
         layout = QGridLayout()
@@ -89,8 +87,6 @@ class FibsemMillingWidget2(QWidget):
         if self.parent_widget._milling_enabled and milling is not None:
             milling.progress.changed.connect(self._on_milling_progress)
 
-        # TODO: milling message display
-
         layout.addWidget(self.pushButton_run_milling, 0, 0, 1, 2)
         layout.addWidget(self.progressBar_milling_stages, 1, 0, 1, 2)
         layout.addWidget(self.progressBar_milling, 2, 0, 1, 2)
@@ -119,7 +115,7 @@ class FibsemMillingWidget2(QWidget):
         # Total-by-construction decode. Every in-tree producer emits a
         # `MillingProgress` and this is a no-op for them; it stands because a
         # plugin-loaded strategy is a producer too, and psygnal hands whatever it
-        # emits to this slot unchanged (FIB-797).
+        # emits to this slot unchanged.
         report = MillingProgress.from_payload(payload)
         logging.debug("Milling progress: %s", report)
 
@@ -159,8 +155,8 @@ class FibsemMillingWidget2(QWidget):
 
         elif report.status is MillingProgressStatus.STAGE_UPDATE:
             if self.progressBar_milling.isHidden():
-                # A mill with no stage start before it: a service run, the agent's
-                # (FIB-1375). Its countdown gets the bar; it has no stages to count.
+                # A mill with no stage start before it: a service run, the agent's.
+                # Its countdown gets the bar; it has no stages to count.
                 self.progressBar_milling.setRange(0, 100)
                 self.progressBar_milling.setValue(0)
                 self.progressBar_milling.setVisible(True)
@@ -168,7 +164,7 @@ class FibsemMillingWidget2(QWidget):
             # Falsy rather than `is None`, so an estimate of zero takes this branch
             # instead of dividing by it. That division runs inside a queued Qt slot, and
             # on PyQt5 an exception escaping one is `qFatal` -- the process aborts with
-            # nothing in the logfile (FIB-329).
+            # nothing in the logfile.
             if remaining_time is None or not report.estimated_time:
                 # No countdown to draw, but the producer's words are still worth showing:
                 # this is the branch a strategy's own report lands in, and it used to
@@ -245,8 +241,8 @@ class FibsemMillingWidget2(QWidget):
             if not milling_task_config.enabled_stages:
                 raise ValueError("No milling stages defined in the configuration.")
 
-            # The milling service's run, the one the agent and the workflow use
-            # (FIB-1451). Without a task's folder, the run saves where the
+            # The milling service's run, the one the agent and the workflow use.
+            # Without a task's folder, the run saves where the
             # config's imaging path says, as it always has from this button.
             if output_dir is None:
                 output_dir = milling_task_config.acquisition.imaging.path
@@ -312,7 +308,7 @@ class FibsemMillingWidget2(QWidget):
         # the run holds its own deep copy of the config, so an edit made mid-mill does
         # not reach the beam -- but it is written back as the task's config when the
         # task finishes, leaving the protocol claiming a pattern position that was
-        # never milled (FIB-580). Explicitly disabling a child survives the workflow
+        # never milled. Explicitly disabling a child survives the workflow
         # enabling this widget's parent, and the `finally` in _milling_worker means
         # the unlock runs even when the task raises.
         self.parent_widget.config_widget.setEnabled(not milling)

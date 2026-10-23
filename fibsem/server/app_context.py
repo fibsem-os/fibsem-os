@@ -23,6 +23,8 @@ from fibsem.server.responses import (
     ExperimentRef,
     ExperimentSummary,
     HistoryRow,
+    ImageDrawn,
+    ImagePairDrawn,
     ImagePayload,
     ItemDetail,
     ItemStack,
@@ -184,17 +186,20 @@ class AppContext:
             return None, {"error_type": "not_found", "message": f"{path} is a folder."}
         return target, None
 
-    def image_stage_position(self, path: str, px=None, fraction=None) -> Any:
+    def image_stage_position(self, path: str, px=None, fraction=None, crop=None) -> Any:
         """The stage position under a point of any saved image in the
         experiment, beam or fluorescence, through the same projection the
         overview canvases use, built from the image's own metadata: it converts
         as the image was taken, wherever the stage is now. ``px`` is [x, y] in
         source pixels (origin top-left, +y down); ``fraction`` is [x, y] from 0
-        to 1 across the image."""
+        to 1 across the image. With *crop* (a cell's name or a box), both are
+        read off that crop's picture instead (`fibsem.imaging.cells`)."""
         target, refusal = self._experiment_image(path)
         if refusal:
             return refusal
         try:
+            if crop is not None:
+                px, fraction = _uncropped_point(target, crop, px, fraction)
             position = image_point_to_stage_position(target, px=px, fraction=fraction)
         except ValueError as exc:
             return {"error_type": "invalid", "message": str(exc)}
@@ -225,6 +230,81 @@ class AppContext:
             inside = 0 <= x <= block["width"] and 0 <= y <= block["height"]
             points.append(PixelPoint(px=[x, y], inside=inside))
         return SavedImagePixels(path, block, points)
+
+    def draw_image(
+        self,
+        path: str,
+        marks: Any = None,
+        crosshair: bool = False,
+        metadata_bar: bool = True,
+        channels: Optional[List[str]] = None,
+    ) -> Any:
+        """A saved image in the experiment (beam, or a fluorescence stack's max
+        projection) with *marks* (the one marks vocabulary, its pixels) drawn
+        on it, as evidence draws them, the centre *crosshair*, the scale bar
+        and the metadata bar. Saved as ``drawn/<image>.png`` beside the image
+        (replaced when drawn again), a path to cite as evidence."""
+        from fibsem.imaging.marks import (
+            drawn_path,
+            drawn_picture,
+            image_stem,
+            save_drawn,
+        )
+
+        target, refusal = self._experiment_image(path)
+        if refusal:
+            return refusal
+        checked, refusal = _checked_marks(marks, target)
+        if refusal:
+            return refusal
+        try:
+            rgb = drawn_picture(
+                target,
+                checked,
+                crosshair=crosshair,
+                metadata_bar=metadata_bar,
+                channels=channels,
+            )
+        except ValueError as exc:
+            return {"error_type": "invalid", "message": str(exc)}
+        saved = drawn_path(target, image_stem(target))
+        return ImageDrawn(path, saved, checked, save_drawn(rgb, saved))
+
+    def draw_pair(
+        self,
+        before: str,
+        after: str,
+        marks: Any = None,
+        metadata_bar: bool = True,
+        channels: Optional[List[str]] = None,
+    ) -> Any:
+        """Two saved images of the experiment side by side at one scale, each
+        with its own bars, *marks* (in *before*'s pixels) drawn on both: pre and
+        post mill, before and after an alignment, SEM next to FIB. Saved as
+        ``drawn/<before>-<after>.png`` beside *before*."""
+        from fibsem.imaging.marks import drawn_pair, drawn_path, image_stem, save_drawn
+
+        first, refusal = self._experiment_image(before)
+        if refusal:
+            return refusal
+        second, refusal = self._experiment_image(after)
+        if refusal:
+            return refusal
+        checked, refusal = _checked_marks(marks, first)
+        if refusal:
+            return refusal
+        try:
+            rgb = drawn_pair(
+                first,
+                second,
+                checked,
+                metadata_bar=metadata_bar,
+                channels=channels,
+            )
+        except ValueError as exc:
+            return {"error_type": "invalid", "message": str(exc)}
+        saved = drawn_path(first, f"{image_stem(first)}-{image_stem(second)}")
+        return ImagePairDrawn(before, after, saved, checked, save_drawn(rgb, saved))
 
     @property
     def _runner(self):
@@ -1033,7 +1113,7 @@ class AppContext:
             text,
         )
         # With the item's id, so the record files the note under the item
-        # it is about, not whichever one is running (FIB-1328).
+        # it is about, not whichever one is running.
         self.record_event(
             NOTE,
             note_record(text, item_id=item_id, item_name=item_name, **fields),
@@ -1066,7 +1146,7 @@ class AppContext:
         self, kind: str, payload: Dict[str, Any], actor: Optional[str] = None
     ) -> None:
         """Put an event on the experiment's record: everything the server's
-        side writes, the agent's requests and their outcomes (FIB-1283)
+        side writes, the agent's requests and their outcomes
         among them. *actor* as for ``EventBuffer.append``."""
         if self._event_buffer is not None:
             self._event_buffer.append(kind, payload, actor=actor)
@@ -1151,7 +1231,7 @@ class AppContext:
         )
         if result.get("started"):
             # Who started it: the run's own workflow_started fires on its
-            # worker thread, which carries no one's mark (FIB-1414).
+            # worker thread, which carries no one's mark.
             self.record_event(
                 "workflow_start",
                 {"task_names": list(task_names), "item_names": item_names},
@@ -1197,7 +1277,7 @@ class AppContext:
 
     def edit_queue(self, item_name: str, task_name: str, action: str) -> Dict[str, Any]:
         """Remove or move a waiting (item, task) pair in the running workflow's
-        queue, as the timeline's menu does (FIB-1419).
+        queue, as the timeline's menu does.
 
         ``action`` is one of :data:`QUEUE_ACTIONS`: ``remove`` (it will not run;
         kept in the run record as Removed), ``move_up``, ``move_down`` or
@@ -1231,7 +1311,7 @@ class AppContext:
 
     # --- experiments and protocols: the File menu, for an agent at Drive ---------
     #
-    # Kept to known places (Patrick's call, 2026-10-14; widened 2026-10-20): a new
+    # Kept to known places: a new
     # experiment goes anywhere under the experiments folder, a load is a recent
     # experiment or one under that folder, and a protocol is one of the files in
     # the app's protocol folder, by name (discovery, above, lists the
@@ -1628,7 +1708,7 @@ class AppContext:
         - ``show_run_summary``: whether the window's run summary dialog opens
           when a run ends. Off leaves the run-end toast and its Show summary link: an agent
           starting many short runs turns it off so no dialog stands over the
-          window (FIB-1376).
+          window.
         - ``turn_beams_off``: whether the beams are turned off when a run ends.
 
         Each is read when it applies (a run's end), so a change
@@ -1745,3 +1825,26 @@ class AppContext:
         if not result["applied"]:
             return {"error_type": "invalid", "error": result["error"]}
         return result
+
+
+def _uncropped_point(target: str, crop: Any, px, fraction):
+    """``(px, None)``: the image's pixels under a point read off *crop*'s
+    picture, *px* in its pixels or *fraction* of it. Raises ValueError."""
+    from fibsem.imaging.cells import from_crop
+
+    scale, x0, y0, box = from_crop(target, crop)
+    if (px is None) == (fraction is None):
+        raise ValueError("Give exactly one of px ([x, y] source pixels) or fraction.")
+    if px is not None:
+        return [px[0] * scale + x0, px[1] * scale + y0], None
+    return [x0 + fraction[0] * box[2], y0 + fraction[1] * box[3]], None
+
+
+def _checked_marks(marks: Any, image_path: str):
+    """``(marks, None)`` checked and placed on the stage, or ``(None, refusal)``."""
+    from fibsem.workflows.evidence import EvidenceRefused, checked_marks
+
+    try:
+        return checked_marks(marks, image_path), None
+    except EvidenceRefused as refusal:
+        return None, {"error_type": refusal.error_type, "message": refusal.message}

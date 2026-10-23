@@ -5,10 +5,10 @@ correlation (a service, a script) calls the same functions, so a fit made
 outside the tab is seeded, judged and recorded the way the tab's is.
 
 - :func:`seed_for` builds the transform the fit starts from: a previous run's
-  fitted rotation and scale (FIB-956), else the images' geometry (FIB-881),
-  placed with a previous run's calibrated offset (FIB-979).
+  fitted rotation and scale, else the images' geometry,
+  placed with a previous run's calibrated offset.
 - :func:`fit_transform` runs the fit from that seed and attaches the verdict's
-  evidence (FIB-956) and the placement offset this run measured (FIB-979).
+  evidence and the placement offset this run measured.
 - :func:`fm_to_fib` maps more FM points through a fitted result.
 - :func:`run_correlation_from_data` is the fit itself: the rigid solve
   (:mod:`fibsem.correlation.solver`) on the picked points, both branches
@@ -104,7 +104,7 @@ def geometry_transform(
 
     ``assumed_fm_transform`` is the camera transform to assume for an FM stack
     that recorded no geometry (the host's assumption; the library never
-    guesses, FIB-881).
+    guesses).
     """
     from fibsem.correlation.geometry import (
         NominalTransformError,
@@ -191,10 +191,10 @@ def seed_for(
     ``runs`` are previous correlation runs, ``(label, run)`` pairs most
     specific first (see :func:`fibsem.correlation.prior.experiment_runs`). An
     image that records no geometry gets an unseeded fit rather than a seed built
-    on a guess (FIB-881), unless ``assumed_fm_transform`` names the camera
+    on a guess, unless ``assumed_fm_transform`` names the camera
     transform to assume. The stage metadata misses by microns to tens of
     microns; a previous run measured that miss, so the placement adds it unless
-    ``use_placement_offset`` is False (FIB-979). A previous run's fitted
+    ``use_placement_offset`` is False. A previous run's fitted
     rotation and scale beat the geometry's; its translation is that run's stage
     offset, so the geometry's is used.
     """
@@ -280,7 +280,7 @@ def measure_placement_offset(
     metadata_translation: Optional[np.ndarray],
 ) -> Optional[list]:
     """This run's placement miss: where its fiducials put FM (0, 0) in the FIB
-    image minus where the stage metadata put it, in microns (FIB-979).
+    image minus where the stage metadata put it, in microns.
 
     Measured with the seed's rotation and scale, the way the next lamella
     will apply it, from the pairs the user placed: an accepted prediction
@@ -533,8 +533,8 @@ def _reproject_poi_via_transform(
         # cleanly through the matmul below and yields plausible garbage instead
         # of raising, and a broken transform here is the same broken transform
         # that produced the result's own POI, so there is nothing worth
-        # salvaging. This used to log a warning and return [], which dropped the
-        # ghost marker and left the run looking fine.
+        # salvaging. Returning [] would drop the ghost marker and leave the run
+        # looking fine.
         raise ValueError(
             f"Cannot reproject POI: expected a 3x3 rotation matrix, got {R.shape}"
         )
@@ -557,7 +557,7 @@ def _reproject_poi_via_transform(
     return pois
 
 
-# ── seeding the fit from the geometry (FIB-881) ───────────────────────────
+# ── seeding the fit from the geometry ───────────────────────────
 
 
 def _fit_from_seed(
@@ -570,7 +570,7 @@ def _fit_from_seed(
 
 # The two branches of an unseeded fit are told apart only by the depth of the
 # fiducials; when they fit within this of each other, the points cannot say
-# which is real (FIB-1249). Relative, with a 1 px floor for very good fits.
+# which is real. Relative, with a 1 px floor for very good fits.
 _MIRROR_CLOSE_FRACTION = 0.25
 _MIRROR_CLOSE_PX = 1.0
 
@@ -763,7 +763,7 @@ def run_correlation_from_data(
 
     # Unseeded: solve the *other* branch of what was found as well, and keep the
     # better. The unseeded search covers every rotation, but a mirror that fits
-    # nearly as well is a warning in its own right (FIB-1249), so its RMS is
+    # nearly as well is a warning in its own right, so its RMS is
     # measured here. When the mirror wins, the final fit is re-run from it, as
     # the seeded path does; when the first fit was better, it is returned as is.
     if branch_check is None and len(fm_coords) >= MIN_PAIRS:

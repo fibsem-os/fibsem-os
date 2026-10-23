@@ -1,7 +1,7 @@
 """Read an experiment's recorded actions back as a timeline, for replay.
 
 An experiment recorded with the event stream has an ``events.jsonl`` beside its
-log (FIB-455), and that is read when it is there: every event already says which
+log, and that is read when it is there: every event already says which
 lamella or grid and task it belongs to, and names the file an image was saved
 to. Experiments recorded before it are read from the log, as follows.
 

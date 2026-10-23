@@ -7,7 +7,7 @@ per site, and until this task existed they lived only in the operator's hands fo
 the duration of one manual run in the coincidence viewer.
 
 This task puts the microscope where that mill will happen, hands the operator the
-viewer to place the boxes (FIB-911), and records what they leave behind on the
+viewer to place the boxes, and records what they leave behind on the
 lamella. ``MillCoincidentTask`` reads that record back by task name. Headless --
 no window -- it records the defaults and the objective position it used,
 without waiting.
@@ -18,7 +18,7 @@ hand-off, so the protocol's ``supervise`` flag does not gate it.
 The objective position is a *task parameter*, not a pose. The coincidence pose is
 the milling pose with the objective inserted, and storing an objective position on
 ``milling_pose`` would make every other mill task drive the objective, because
-``set_microscope_state`` moves it whenever the field is set. See FIB-907.
+``set_microscope_state`` moves it whenever the field is set.
 """
 
 from __future__ import annotations
@@ -172,8 +172,8 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
             # 3. the FIB frame the boxes are drawn against, and one FM frame so the
             # viewer opens with something to draw on. Recorded under its own name so
             # the conventional reference sets are not polluted (see _acquire_channels).
-            # Lamella state, read by Mill Coincident (FIB-1258): in the lamella's
-            # folder, not in this run's own folder (FIB-1275).
+            # Lamella state, read by Mill Coincident: in the lamella's
+            # folder, not in this run's own folder.
             state_settings = deepcopy(image_settings)
             state_settings.path = str(self.lamella.path)
             self._acquire_channels(
@@ -186,7 +186,7 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
             self._acquire_fm_frame()
 
             # 4. hand-off. Without a UI there is nobody to hand to: record what we
-            # used and move on. The viewer's setup mode (FIB-911) plugs in here.
+            # used and move on. The viewer's setup mode plugs in here.
             if self.responder is not None:
                 self._hand_off()
 
@@ -201,7 +201,7 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
             )
         finally:
             # on every exit, including abort: an inserted objective blocks the next
-            # stage move, and the end-of-queue retract is too late for that (FIB-376)
+            # stage move, and the end-of-queue retract is too late for that
             self._retract_objective()
 
     # ------------------------------------------------------------------
@@ -323,9 +323,8 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
         return protocol.get_attention(self.task_name)
 
     def _hand_off(self) -> None:
-        """Give the operator the viewer to place the boxes. Wired in FIB-911.
-
-        Until then a supervised run is the same as a headless one: the defaults and
+        """Give the operator the viewer to place the boxes. Not built yet, so a
+        supervised run is the same as a headless one: the defaults and
         the objective position are recorded, and the operator adjusts nothing.
         """
         logging.info(
