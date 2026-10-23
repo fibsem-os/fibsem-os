@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, ListFilter } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Popup } from "@/components/ui/popup";
@@ -131,9 +131,14 @@ function Actions({ rows, folded }: { rows: RecentRow[]; folded: boolean }) {
   );
 }
 
-/** What fibsem-agent printed between two rows, in one line, "Working · 6 steps". */
-function Working({ lines, folded }: { lines: TranscriptLine[]; folded: boolean }) {
-  const [open, setOpen] = useState(false);
+/** What fibsem-agent printed between two rows, in one line, "Working · 6 steps".
+ * Open while the agent still adds to it, and it stays open when the agent moves
+ * on, as a run of actions does; the reader folds it. */
+function Working({ lines, folded, live }: { lines: TranscriptLine[]; folded: boolean; live: boolean }) {
+  const [open, setOpen] = useState(live);
+  useEffect(() => {
+    if (live) setOpen(true);
+  }, [live]);
   const shown = !folded || open;
   const why = new Map<string, string>();
   for (const l of lines) if (l.kind === "failed" && l.step != null) why.set(`${l.session_id}|${l.step}`, l.text);
@@ -192,6 +197,7 @@ function Working({ lines, folded }: { lines: TranscriptLine[]; folded: boolean }
 }
 
 const time = (t: string) => Date.parse(t);
+const LIVE_FOR_MS = 60_000;
 
 function Record({ rows, lines, show }: { rows: RecentRow[]; lines: TranscriptLine[]; show: Show }) {
   const out: JSX.Element[] = [];
@@ -210,10 +216,17 @@ function Record({ rows, lines, show }: { rows: RecentRow[]; lines: TranscriptLin
     if (run.length) out.push(<Actions key={keyOf(run[0])} rows={run} folded={show === "all"} />);
     run = [];
   };
-  const endWorking = () => {
+  const endWorking = (live = false) => {
     if (working.length) {
       end();
-      out.push(<Working key={`w|${working[0].session_id}|${working[0].seq ?? working[0].t}`} lines={working} folded={show === "all"} />);
+      out.push(
+        <Working
+          key={`w|${working[0].session_id}|${working[0].seq ?? working[0].t}`}
+          lines={working}
+          folded={show === "all"}
+          live={live}
+        />,
+      );
     }
     working = [];
   };
@@ -234,7 +247,9 @@ function Record({ rows, lines, show }: { rows: RecentRow[]; lines: TranscriptLin
   end();
   if (transcript) {
     working.push(...lines.slice(next));
-    endWorking();
+    // The newest block is live while its lines still arrive (every 10 s).
+    const last = working[working.length - 1];
+    endWorking(!!last && Date.now() - time(last.t) < LIVE_FOR_MS);
   }
   return <>{out}</>;
 }
@@ -258,6 +273,9 @@ export function AgentPage() {
         `/app/agent/transcript${since ? `?since=${encodeURIComponent(since)}` : ""}`,
       ),
     refetchInterval: TRANSCRIPT_EVERY_MS,
+    // A new oldest row starts a new read: keep the lines shown until it answers,
+    // so the blocks don't vanish, fold and jump.
+    placeholderData: keepPreviousData,
   });
   const [show, setShow] = useState<Show>("all");
   const list = useRef<HTMLDivElement>(null);
@@ -364,7 +382,8 @@ export function AgentPage() {
         </div>
       </section>
       <div className="flex flex-col gap-2.5 border-t border-border pt-3 pb-4">
-        {a.now && <div className="text-[13px] text-muted-foreground">{a.now}</div>}
+        {/* Kept while a session runs, so the composer doesn't move as commands start and end. */}
+        {(a.session || a.now) && <div className="min-h-5 text-[13px] text-muted-foreground">{a.now}</div>}
         {a.waiting && (
           <div className="text-[13px]">
             <b>Waiting on a decision:</b> {a.waiting.proposal}{" "}

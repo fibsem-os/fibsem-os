@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import os
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any, ClassVar, Optional, Type
 
 from fibsem import acquire
 from fibsem.applications.volume.position import VolumePosition
-from fibsem.structures import BeamType, FibsemImage, ImageSettings
+from fibsem.milling.tasks import FibsemMillingTaskConfig
+from fibsem.structures import BeamType, FibsemImage, ImageSettings, Point
 from fibsem.util.timestamps import now
 from fibsem.workflows.proposals import STATE
 from fibsem.workflows.site_task import get_task_supervision
@@ -20,6 +22,18 @@ if TYPE_CHECKING:
 
 # The output role a task's reference images are recorded under.
 REFERENCE_ROLE = "reference"
+
+
+def placed(
+    milling: FibsemMillingTaskConfig, poi: Optional[Point]
+) -> FibsemMillingTaskConfig:
+    """A copy of *milling* with every pattern at *poi*: where a task mills it.
+    None leaves each pattern where it is set."""
+    config = deepcopy(milling)
+    if poi is not None:
+        for stage in config.stages:
+            stage.pattern.point = deepcopy(poi)
+    return config
 
 
 class VolumeTask(BaseTask):

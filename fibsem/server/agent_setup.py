@@ -95,7 +95,8 @@ def agent_setup_text(
         "from the Agent chip, or the chat page with no window.\n"
         "5. If you ask me before each tool, tell me which fibsem tools I can allow "
         "for good: the ones that only read (marked read-only), and "
-        "experiment_add_note, which only adds a note.\n"
+        "experiment_add_note and experiment_message_operator, which only add a "
+        "note or a message.\n"
     )
 
 

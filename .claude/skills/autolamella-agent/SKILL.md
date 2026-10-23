@@ -181,7 +181,7 @@ Its lines:
 - `LEVEL <level> (was <level>)`: the operator changed your level. Re-read
   `server_get_capabilities` and work by the skill the line names.
 - `MESSAGE id=…`: the operator wrote to you from the Agent card. See
-  *Messages from the operator*.
+  *Messages*.
 - `NOTE from the operator on <grid>`: the operator kept a note on a grid.
   It is not to you; nothing to answer.
 
@@ -190,13 +190,21 @@ the app at any time, or from you. Keep the watcher running until the operator
 says the session is done. It exits 1 when the app can't be watched; say so
 rather than going idle.
 
-## Messages from the operator
+## Messages
 
-The operator can write to you from the Agent card. The watcher prints it as
-`MESSAGE id=ab12 from the operator: <text>`. Answer with `experiment_add_note`
-and `reply_to` set to that id: the card shows your note as your reply, under
-their message. Answer every message, even if only to say you can't do what it
-asks and why.
+The operator can write to you from the Agent card or the web Agent page. The
+watcher prints it as `MESSAGE id=ab12 from the operator: <text>`. Answer with
+`experiment_message_operator` and `reply_to` set to that id: the card shows
+your answer under their message. Answer every message, even if only to say
+you can't do what it asks and why.
+
+Write to the operator yourself, with `experiment_message_operator` and no
+`reply_to`, when they should read it now: you have stopped and need them (a
+hardware error, a site you can't fix, a question whose wrong answer can't be
+undone), or something happened they asked to hear about. The window shows it
+as a toast. Everything else is a note (*Write down why*): messages about what
+can wait teach the operator to ignore them. A message decides nothing: a
+decision you want is a proposal or a request.
 
 **When an ask leaves out the rule, ask for it.** "Up to 20 lamellae, thin
 without breaking" names no placement rule, no spacing and no target. Before
@@ -225,7 +233,8 @@ because the operator decided it. That refusal is correct; re-read and carry on.
 
 Chat is not kept; the experiment folder is. `experiment_add_note` puts a
 note on the event stream and in the experiment's log, under the item if you
-name one. Notes change nothing, so they work at every level but Off.
+name one. Notes change nothing and tell nobody, so they work at every level
+but Off; what the operator must read now is a message (*Messages*).
 
 Every time you act, or say what you would do at Watch, add a note first: what
 you looked at, what you saw in it, then what you did.
@@ -385,7 +394,9 @@ fresh image and a sentence to the operator before you go on. Setup's own
 autofocus (`use_autofocus`, on by default) applies its best working distance
 without that check: on dark FIB views it has picked a wrong one, so read the
 working distance after Setup and compare. On a coated or tilted surface that
-one focus can't hold, use a focus stack.
+one focus can't hold, use a focus stack. At the 15° milling angle the FIB's
+focus changes across the frame: autofocus with a `reduced_area` on the site
+and judge focus only near the POI.
 
 **Move with `stage_stable_move`.** To bring something you see to the centre
 of an image, call `stage_stable_move` with its offset from the image centre in
@@ -448,7 +459,9 @@ centre it in one beam with `stage_stable_move`, find it in the other beam's
 image, and `stage_vertical_move` by its offset there (`beam_type` = the beam
 you measured in). Cap each step to a few µm, take both images again, and
 repeat until it is centred in both. Work from whichever beam has it centred
-already. Don't use the coincidence commands: this loop worked better on a
+already. Do it before any overview, and again at each site at Setup on a bent
+grid: on one grid the coincident height ran from +20.8 to +33.6 µm between
+sites. Don't use the coincidence commands: this loop worked better on a
 real instrument. A coincidence error shows only as a vertical offset in the
 image, never side to side.
 
@@ -469,6 +482,20 @@ that fails while moving (a hardware error, the touch alarm, stopped partway)
 may have hit something. Then stop moving: don't retry it, and don't reach the
 same place another way. Read the stage position, add a note saying what you
 asked for and what happened, and hand back to the operator.
+
+**A hardware error is the operator's.** When a command, mill, spot burn, image
+or run fails with an error from the instrument, stop. That is a `500` (its
+`error_type` names the exception) or a run that ends `failed` in the
+instrument's words: "Module is Unavailable (hardware is degraded)", "No
+connection to CAPP hardware", a device that timed out. Don't run it again, not
+even once, and don't reach the same thing another way (another current,
+another tool, requeueing the task): three spot burns into a degraded module
+only added errors. Read what you can without imaging (`microscope_get_state`,
+`stage_get_position`), then send the operator a message
+(`experiment_message_operator`) quoting the error word for word, what you were
+doing and where things were left, and wait until they say it is fixed. Our
+own refusals (`403`, `409`, `422`) are not hardware errors: they keep their
+rules above.
 
 **Milling.** Mill a protocol's stage with `milling_run_stage` (a
 `FibsemMillingStage` dict, e.g. one from `item_get_task_config`) and a
@@ -612,7 +639,12 @@ image again before acting on it.
 **Reading an FM stack.** Judge a target from its planes, not the max
 projection: `experiment_read_file` with `z` (and `channels`) shows one plane,
 and the metadata gives each channel's `sharpest_plane`. The projection hides
-which depth a spot is at and whether a neighbour sits above it.
+which depth a spot is at and whether a neighbour sits above it. Look for small
+targets (centriole doublets) plane by plane in full-resolution crops
+(`experiment_read_file` with `z`, `experiment_crop_image`): a downsampled
+view loses them. Until the emission-filter read-back is fixed, an FM image's
+metadata can say Reflection for a fluorescence channel: go by the channel's
+name and settings.
 
 **Correlating FM to FIB.** `correlation_correlate` fits a saved FM stack to
 a saved FIB image from fiducial pairs you give (FIB pixels; FM pixels and
@@ -640,10 +672,11 @@ image and its path, and `service_call_command` imaging `stop`, with a reason,
 ends either one. `fm_acquire_overview` is the fluorescence one, from the FM
 pose with the objective in and near its focus: inserted is not enough. Go to
 the item's stored objective position (`item_move_to_objective_position`) or
-run `fm_auto_focus` first, for any FM image. Once it is in focus,
-`fm_save_focus_position` saves that objective position: an overview with
-`objective_start` `focus` starts there (and is refused while none is saved).
-`fm_auto_focus`'s `settings` set the sweep
+run `fm_auto_focus` first, for any FM image. Focus in reflection, not in a
+fluorescence channel. Once it is in focus, `fm_save_focus_position` saves
+that objective position: an overview with `objective_start` `focus` starts
+there (and is refused while none is saved). `fm_auto_focus`'s `settings` set
+the sweep
 (`passes` of `search_range` and `step_size`, in metres of objective travel),
 and `fm_acquire_overview` takes the same as `autofocus_settings` for its
 `autofocus_mode`. `fm_estimate_overview` gives its whole run time,
@@ -712,7 +745,8 @@ on the feature itself before acting, as an operator would.
   (2) within 10 µm of a bar, only if the square has no cell in the middle, and
   ranked below every square that has; (3) on a bar: never mill it.
 - The film under the site has to be intact. A broken, sheeted or covered
-  square is not a site.
+  square is not a site. Check each site in the FIB and SEM (bars, torn or
+  curled film) before spending FM time on it.
 - Methods that worked on an uncoated grid: GrabCut on the holey film, tracing
   the grid bars by hand where shading defeats a threshold, and a piece of
   debris as an anchor to find the same place again. GrabCut needs code you

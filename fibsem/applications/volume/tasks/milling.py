@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import ClassVar
 
-from fibsem.applications.volume.position import FIB_REFERENCE
-from fibsem.applications.volume.tasks.base import VolumeTask
+from fibsem.applications.volume.position import FIB_REFERENCE, VolumePosition
+from fibsem.applications.volume.tasks.base import VolumeTask, placed
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning.patterns import RectanglePattern
 from fibsem.milling.tasks import FibsemMillingTaskConfig, run_milling_task
@@ -64,6 +63,14 @@ class VolumeFIBMillingTaskConfig(TaskConfig):
     )
 
 
+def slice_milling_at(
+    config: VolumeFIBMillingTaskConfig, position: VolumePosition, slice: int
+) -> FibsemMillingTaskConfig:
+    """What *config* mills for *position*'s slice *slice* (from 0): its patterns
+    at that slice's point of interest."""
+    return placed(config.milling, position.slice_poi(slice, config.slice_thickness))
+
+
 class VolumeFIBMillingTask(VolumeTask):
     """Move to the milling pose, align to the position's FIB reference, and mill
     the slice at its point of interest."""
@@ -75,10 +82,7 @@ class VolumeFIBMillingTask(VolumeTask):
         self._move_to_pose()
         self._align_reference_image(FIB_REFERENCE, required=True)
 
-        config = deepcopy(self.config.milling)
-        poi = self.position.slice_poi(self.slice, self.config.slice_thickness)
-        for stage in config.stages:
-            stage.pattern.point = deepcopy(poi)
+        config = slice_milling_at(self.config, self.position, self.slice)
         config.acquisition.imaging.path = self.output_dir
 
         self.log_status_message(

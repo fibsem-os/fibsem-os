@@ -45,22 +45,44 @@ def _stack(data: np.ndarray, colors, pixel_size: float = 1e-7) -> FluorescenceIm
     return FluorescenceImage(data=data, metadata=metadata)
 
 
-@pytest.fixture
-def stack_on_disk(monkeypatch):
-    """Hand a prepared FluorescenceImage to load_projection as if read from disk.
+class _StackInMemory:
+    """A StackFile over a FluorescenceImage already in hand."""
 
-    Deliberately does not go through save()/load(). Those transpose C and Z for
-    most real shapes (FIB-279), so a fixture built that way would test the
-    serialiser's bug rather than this module's contract, which is: given what load
-    returns, project over z and composite.
+    def __init__(self, path, image: FluorescenceImage):
+        self.path, self.metadata = path, image.metadata
+        self._data = image.data
+        self.shape = image.data.shape
+        self.channels, self.planes = self.shape[:2]
+
+    def plane(self, channel: int, z: int) -> np.ndarray:
+        return self._data[channel, z]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        pass
+
+
+@pytest.fixture
+def stack_on_disk(monkeypatch, tmp_path):
+    """Hand a prepared FluorescenceImage to the preview as if read from disk.
+
+    Deliberately does not go through save(): metadata that doesn't describe
+    every channel, or a stack with no channels, can't be written, and the
+    preview still has to cope with them.
     """
+    images = {}
+    monkeypatch.setattr(
+        "fibsem.fm.stack_file.StackFile",
+        lambda path: _StackInMemory(path, images[path]),
+    )
 
     def _install(image: FluorescenceImage) -> str:
-        monkeypatch.setattr(
-            "fibsem.fm.preview.FluorescenceImage.load",
-            staticmethod(lambda _path: image),
-        )
-        return "stack.ome.tiff"
+        path = str(tmp_path / f"stack-{len(images)}.ome.tiff")
+        open(path, "wb").close()
+        images[path] = image
+        return path
 
     return _install
 
@@ -190,17 +212,32 @@ def test_each_channel_is_its_own_projected_layer():
     assert layers[0].data[1, 1] == 900 and layers[1].data[5, 5] == 700
 
 
-def test_gray_channels_in_a_stack_take_the_palette():
+def test_gray_channels_in_a_stack_take_the_colour_of_their_light():
     """Gray is the settings' default, so a stack of gray channels would draw as
-    one gray blur (FIB-1517): each takes its palette colour instead, and the
-    legend says so. A lone gray channel stays gray."""
-    data = np.zeros((2, 3, 8, 8), dtype=np.uint16)
-    image = _stack(data, ["gray", "gray"])
+    one gray blur (FIB-1517): reflection stays gray and each other channel takes
+    the colour of its excitation, and the legend says so. A lone gray channel
+    stays gray, and a colour set on purpose is kept."""
+    data = np.zeros((5, 3, 8, 8), dtype=np.uint16)
+    image = _stack(data, ["gray"] * 5)
+    for channel, (name, nm) in zip(
+        image.metadata.channels,
+        [("Reflection", 550), ("DAPI", 405), ("GFP", 488), ("RFP", 561), ("Cy5", 640)],
+    ):
+        channel.name, channel.excitation_wavelength = name, nm
     colors = [layer.color for layer in projection_layers(image)]
-    assert colors == ["violet", "blue"]
+    assert colors == ["gray", "blue", "green", "red", "violet"]
     assert [c["color"] for c in stack_facts(image)["channels"]] == colors
     lone = _stack(np.zeros((1, 3, 8, 8), dtype=np.uint16), ["gray"])
     assert projection_layers(lone)[0].color == "gray"
+    chosen = _stack(np.zeros((2, 3, 8, 8), dtype=np.uint16), ["cyan", "yellow"])
+    assert [layer.color for layer in projection_layers(chosen)] == ["cyan", "yellow"]
+
+
+def test_a_gray_channel_with_no_light_recorded_takes_the_palette():
+    image = _stack(np.zeros((2, 3, 8, 8), dtype=np.uint16), ["gray", "gray"])
+    for channel in image.metadata.channels:
+        channel.excitation_wavelength = None
+    assert [layer.color for layer in projection_layers(image)] == ["violet", "blue"]
 
 
 def test_the_composite_is_the_blend_of_the_layers():

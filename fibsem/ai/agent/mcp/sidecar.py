@@ -1300,13 +1300,16 @@ def build_sidecar(client, capabilities):
     def item_get_task_config(item_name: str, task_name: str):
         return _routed("item_get_task_config", item_name=item_name, task_name=task_name)
 
-    def experiment_add_note(
+    def experiment_add_note(text: str, item_name: Optional[str] = None):
+        return _tool("experiment_add_note", text=str(text), item_name=item_name)
+
+    def experiment_message_operator(
         text: str, item_name: Optional[str] = None, reply_to: Optional[str] = None
     ):
         body = {"text": str(text), "item_name": item_name}
         if reply_to:
             body["reply_to"] = str(reply_to)
-        return _tool("experiment_add_note", **body)
+        return _tool("experiment_message_operator", **body)
 
     def request_create(actions: list, reason: str):
         body = {"actions": list(actions), "reason": str(reason)}
@@ -1838,6 +1841,7 @@ def build_sidecar(client, capabilities):
             item_set_objective_position_on_all,
             item_set_position,
             experiment_add_note,
+            experiment_message_operator,
             server_report_session,
             request_create,
             request_withdraw,

@@ -32,6 +32,7 @@ from typing import Any, Dict, List, Optional
 from fibsem.acting import AGENT, OPERATOR
 from fibsem.ai.agent.catalog.describe import describe_action, describe_done
 from fibsem.util import wording
+from fibsem.workflows.actions import is_message
 from fibsem.workflows.proposals import kind_label
 
 # Rows kept: the card scrolls through them all.
@@ -40,8 +41,8 @@ SIZE = 50
 # How a row ended, as the card colours it.
 WAITING, RUNNING, OK, ERROR, MUTED = "waiting", "running", "ok", "error", "muted"
 
-# What a row is: the operator's message, the agent's reply or note, or an action.
-YOU, REPLY, NOTE, ACTION = "you", "reply", "note", "action"
+# What a row is: the operator's message, the agent's message or note, or an action.
+YOU, MESSAGE, NOTE, ACTION = "you", "message", "note", "action"
 
 # The levels the agent acts at, as rows name them.
 ASSIST, DRIVE = "assist", "drive"
@@ -100,7 +101,7 @@ class RecentRow:
     evidence: Optional[Dict[str, Any]] = None
     # Why it failed, or was refused, declined or rejected; "" otherwise.
     why: str = ""
-    # YOU, REPLY or NOTE for the conversation, else ACTION.
+    # YOU, MESSAGE or NOTE for the conversation, else ACTION.
     kind: str = ACTION
     # When, as the record has it (ISO with its offset): the web page places
     # the agent's transcript between the rows by it.
@@ -474,23 +475,23 @@ class RecentActions:
     def _on_note(self, record, p, agent):
         if agent:
             return self._on_agent_note(record, p, agent)
-        if record.get("actor") == OPERATOR and p.get("id"):
+        if record.get("actor") == OPERATOR and is_message(record):
             return self._on_operator_message(record, p, agent)
         return False
 
     def _on_agent_note(self, record, p, agent):
-        # Its answer to the operator's message (FIB-1423), or an observation.
+        # Its message to the operator (an answer to theirs, FIB-1423), or a note.
         return self._put(
             ("note", record.get("seq")),
             record,
             p.get("text", ""),
             "",
             MUTED,
-            kind=REPLY if p.get("reply_to") else NOTE,
+            kind=MESSAGE if is_message(record) else NOTE,
         )
 
     def _on_operator_message(self, record, p, agent):
-        # The operator's own line, at no level: the agent answers with a note.
+        # The operator's own line, at no level: the agent answers with a message.
         return self._put(
             ("message", record.get("seq")),
             record,

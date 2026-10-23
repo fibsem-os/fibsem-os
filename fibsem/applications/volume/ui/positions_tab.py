@@ -1,7 +1,8 @@
 """The volume window's Positions tab: a card per position, and the selected
-position's slices as one stack, scrubbed with a slider.
+position's stored fields (Position) and its slices as one stack, scrubbed with
+a slider (Slices).
 
-What it shows comes from the App Server's own reads on ``VolumeAppContext``,
+What the cards and slices show comes from the App Server's own reads on ``VolumeAppContext``,
 the ones the web Positions page makes: the experiment summary for the cards
 and ``item_stack`` for the slices.
 """
@@ -24,6 +25,7 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSlider,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -31,6 +33,7 @@ from PyQt5.QtWidgets import (
 from fibsem.applications.volume.server import VolumeAppContext
 from fibsem.applications.volume.tasks.acquisition import SLICE_ROLE
 from fibsem.applications.volume.tasks.milling import SLICE_FIB_ROLE
+from fibsem.applications.volume.ui.position_editor import PositionEditor
 from fibsem.ui.thumbnails import cached_thumbnail, load_and_resize
 from fibsem.ui.tokens import (
     ACCENT_COLOR,
@@ -347,15 +350,20 @@ class PositionsTab(QWidget):
         self.title.setStyleSheet(
             f"font-size: 14px; font-weight: 600; color: {TEXT_STRONG_COLOR};"
         )
+        self.editor = PositionEditor(session)
         self.scrubber = SliceScrubber()
+        self.views = QTabWidget()
+        self.views.addTab(self.editor, "Position")
+        self.views.addTab(self.scrubber, "Slices")
 
         right = QVBoxLayout()
         right.addWidget(self.title)
-        right.addWidget(self.scrubber, 1)
+        right.addWidget(self.views, 1)
         layout = QHBoxLayout(self)
         layout.addWidget(self.list)
         layout.addLayout(right, 1)
         self.list.currentItemChanged.connect(lambda *_: self._show_selected(False))
+        self.editor.edited.connect(self.refresh)
         self.refresh()
 
     @property
@@ -393,6 +401,7 @@ class PositionsTab(QWidget):
     def _show_selected(self, keep: bool) -> None:
         name = self.selected
         self.title.setText(name or "")
+        self.editor.show_position(name)
         if name is None:
             self.scrubber.set_stacks({}, {}, 0)
             return

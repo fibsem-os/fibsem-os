@@ -1,5 +1,6 @@
-"""The volume window on Demo: positions added and edited from the Positions
-panel, and the protocol from the Protocol tab, each by the experiment's or
+"""The volume window on Demo: positions added and posed from the Positions
+panel, their stored fields edited on the Positions tab, and the protocol from
+the Protocol tab, each by the experiment's or
 ``workflow_edits``' own call, as the App Server makes it."""
 
 import os
@@ -55,28 +56,45 @@ def test_add_position_here_takes_the_microscope_state(window):
     panel.add_button.click()
 
     experiment = window.experiment
-    names = [p.name for p in experiment.positions]
-    assert [n[:3] for n in names] == ["01-", "02-"]
+    first, second = (p.name for p in experiment.positions)
+    assert first.startswith("01-") and second.startswith("02-")
     pose = experiment.positions[0].poses[MILLING_POSE]
     assert pose.stage_position == window.microscope.get_stage_position()
-    assert panel.selected.name == names[1]
-    assert panel.list.item(0).text().endswith("0 of 10")
+    assert panel.selected.name == second
+    assert row_text(panel, 0)[:2] == [first, "0 of 10"]
     assert window.status_bar.text.startswith("Ready to run")
     assert window.workflow_controls.run_btn.isEnabled()
 
 
-def test_the_panel_edits_through_the_experiment(window, toasts):
+def row_text(panel, row: int) -> list:
+    from PyQt5.QtWidgets import QLabel
+
+    widget = panel.list.itemWidget(panel.list.item(row))
+    return [label.text() for label in widget.findChildren(QLabel)]
+
+
+def row_button(panel, row: int, text: str):
+    from PyQt5.QtWidgets import QPushButton
+
+    widget = panel.list.itemWidget(panel.list.item(row))
+    return next(b for b in widget.findChildren(QPushButton) if b.text() == text)
+
+
+def test_a_rows_update_sets_its_milling_pose_from_current(window, toasts):
     panel = window.panel.experiment_tab
     panel.add_button.click()
     panel.add_button.click()
+    microscope = window.microscope
+    stage = microscope.get_stage_position()
+    stage.x += 20e-6
+    microscope.move_stage_absolute(stage)
 
-    # names are fixed when a position is added
-    assert panel.name_label.text() == window.experiment.positions[1].name
+    row_button(panel, 0, "Update").click()
 
-    panel.slices_spin.setValue(40)
-    panel.slices_spin.editingFinished.emit()
-    assert window.experiment.positions[1].iterations == 40
-    assert panel.list.item(1).text().endswith("0 of 40")
+    first, second = window.experiment.positions
+    assert first.poses[MILLING_POSE].stage_position.x == pytest.approx(stage.x)
+    assert second.poses[MILLING_POSE].stage_position.x != pytest.approx(stage.x)
+    assert toasts == []
 
 
 def test_a_position_that_has_cut_keeps_its_milling_pose(window, toasts):
@@ -87,12 +105,152 @@ def test_a_position_that_has_cut_keeps_its_milling_pose(window, toasts):
         TaskState(name="Volume FIB Milling", status=TaskStatus.Completed, iteration=0)
     )
 
-    panel.set_pose_button.click()
+    panel.set_pose_buttons[MILLING_POSE].click()
 
     assert toasts == [f"{position.name} has cut slices at its milling pose."]
-    panel.pose_combo.setCurrentText("SEM_IMAGING")
-    panel.set_pose_button.click()
+    panel.set_pose_buttons["SEM_IMAGING"].click()
     assert "SEM_IMAGING" in position.poses
+
+
+def test_the_panel_edits_nothing_stored_on_the_image(window):
+    panel = window.panel.experiment_tab
+    for name in ("slices_spin", "poi_button", "area_button"):
+        assert not hasattr(panel, name)
+
+
+@pytest.fixture
+def position_view(window, qapp):
+    """The Positions tab's Position view on a position with a saved FIB image
+    of its face, taken at its milling pose."""
+    from fibsem import acquire
+    from fibsem.structures import BeamType, ImageSettings
+
+    from .conftest import set_up_position
+
+    experiment = window.experiment
+    position = set_up_position(experiment, window.microscope, "aspen")
+    folder = experiment.position_path(position)
+    settings = ImageSettings(beam_type=BeamType.ION, hfw=50e-6, resolution=(256, 170))
+    image = acquire.acquire_image(window.microscope, settings)
+    image.save(str(folder / "ref_setup_face_ib.tif"))
+    tab = window.positions_tab
+    tab.refresh()
+    qapp.processEvents()
+    return tab.editor
+
+
+def test_the_position_view_shows_a_saved_fib_image_not_the_alignment_one(
+    position_view,
+):
+    editor = position_view
+    combo = editor.image_combo
+    assert [combo.itemText(i) for i in range(combo.count())] == ["ref_setup_face"]
+    assert editor.image is not None
+    assert editor.hint.text().startswith("Right-click")
+
+
+def test_the_position_view_edits_through_the_experiment(window, position_view, toasts):
+    from fibsem.structures import BeamType, FibsemRectangle, Point
+
+    editor = position_view
+    experiment = editor.experiment
+
+    editor.place_poi(Point(1e-6, -2e-6))
+    assert experiment.positions[0].poi == Point(1e-6, -2e-6)
+    assert editor.poi_label.text() == "x 1.00 µm · y -2.00 µm"
+
+    editor.area_check.setChecked(True)
+    area = FibsemRectangle(0.3, 0.3, 0.2, 0.2)
+    editor.view_controller.overlay_edited.emit(BeamType.ION, "position_alignment", area)
+    assert experiment.positions[0].alignment_area == area
+
+    editor.slices_spin.setValue(40)
+    editor.slices_spin.editingFinished.emit()
+    assert experiment.positions[0].iterations == 40
+
+    editor.description_edit.setText("near the crack")
+    editor.description_edit.editingFinished.emit()
+    assert experiment.positions[0].description == "near the crack"
+
+    assert editor.name_label.text() == "aspen"
+    assert toasts == []
+
+
+def test_the_position_view_draws_the_milling_where_it_mills(position_view):
+    from fibsem.applications.volume.position_milling import position_millings
+
+    editor = position_view
+    position = editor.position
+    position.iterations = 100
+    editor.show_position(position.name)
+    combo = editor.milling_combo
+    assert [combo.itemText(i) for i in range(combo.count())] == [
+        "Volume FIB Milling",
+        "Setup · Trench",
+        "Setup · Fiducial",
+        "Setup · Face",
+    ]
+
+    def millings():
+        return {m.label: m for m in position_millings(editor.experiment, position)}
+
+    # nothing cut: slice 1 next at the point of interest, the rest to cut below
+    progress = millings()["Volume FIB Milling"]
+    stages = progress.milling.stages
+    assert [s.name for s in stages] == ["Next · slice 1", "To cut · slices 2 to 100"]
+    assert progress.styles == ("outline", "dashed")
+    assert stages[0].pattern.point == position.poi
+    # the band runs from slice 2's top to slice 100's bottom
+    poi_y, t, h = position.poi.y, 200e-9, stages[0].pattern.height
+    band = stages[1].pattern
+    assert band.point.y + band.height / 2 == pytest.approx(poi_y - t + h / 2)
+    assert band.point.y - band.height / 2 == pytest.approx(poi_y - 99 * t - h / 2)
+    face = millings()["Setup · Face"].milling
+    assert face.stages[0].pattern.point == position.poi
+    # the trench mills where its config sets it, not at the point of interest
+    trench = editor.experiment.task_protocol.task_config["Setup FIB Milling Position"]
+    assert millings()["Setup · Trench"].milling.stages[1].pattern.point == (
+        trench.trench.stages[1].pattern.point
+    )
+    assert editor.depth_label.text() == "0.0 of 20.0 µm (100 × 0.200 µm)"
+
+    # two slices cut: those filled, slice 3 next, two thicknesses down
+    for iteration in (0, 1):
+        position.task_history.append(
+            TaskState(
+                name="Volume FIB Milling",
+                status=TaskStatus.Completed,
+                iteration=iteration,
+            )
+        )
+    editor.show_position(position.name)
+    assert combo.currentText() == "Volume FIB Milling"
+    progress = millings()["Volume FIB Milling"]
+    stages = progress.milling.stages
+    assert [s.name for s in stages] == [
+        "Cut · slices 1 to 2",
+        "Next · slice 3",
+        "To cut · slices 4 to 100",
+    ]
+    assert progress.styles == ("filled", "outline", "dashed")
+    assert stages[1].pattern.point.y == pytest.approx(poi_y - 2 * t)
+    assert editor.depth_label.text().startswith("0.4 of ")
+
+
+def test_the_position_view_says_the_experiments_refusals(position_view, toasts):
+    from fibsem.structures import Point
+
+    editor = position_view
+    position = editor.position
+    position.task_history.append(
+        TaskState(name="Volume FIB Milling", status=TaskStatus.Completed, iteration=0)
+    )
+
+    editor.place_poi(Point(1e-6, 0))
+
+    assert toasts == ["aspen has cut slices from its point of interest."]
+    assert position.poi == Point(0, 1e-6)
+    assert editor.poi_label.text() == "x 0.00 µm · y 1.00 µm"
 
 
 def test_the_protocol_tab_edits_through_workflow_edits(window, qapp, toasts):
@@ -118,36 +276,6 @@ def test_the_protocol_tab_edits_through_workflow_edits(window, qapp, toasts):
     assert names[-1] not in protocol.task_config
     assert [t.name for t in tab.tasks.get_tasks()] == names[:-1]
     assert [p["field"] for p in recorded] == ["attention", "order", "tasks"]
-    assert toasts == []
-
-
-def test_the_point_picked_on_the_fib_image_is_the_positions(window, toasts):
-    from fibsem.structures import Point
-
-    panel = window.panel.experiment_tab
-    panel.add_button.click()
-
-    class Marker:
-        shown_at = None
-
-        def show(self, poi, fallback=None):
-            self.shown_at = poi
-            return True
-
-        def read(self):
-            return Point(1e-6, -2e-6)
-
-        def remove(self):
-            pass
-
-    panel.poi_marker = marker = Marker()
-    panel.poi_button.click()
-    assert marker.shown_at == Point(0, 0)
-    assert panel.poi_button.text() == "Done"
-    panel.poi_button.click()
-
-    assert window.experiment.positions[0].poi == Point(1e-6, -2e-6)
-    assert panel.poi_label.text() == "x 1.00 µm · y -2.00 µm"
     assert toasts == []
 
 
@@ -184,6 +312,43 @@ def test_the_task_clicked_shows_its_settings_and_writes_them(window, qapp, monke
         "protocol.milling",
         "protocol.slice_thickness",
     ]
+
+
+def test_slice_milling_shows_what_a_slice_changes_and_writes_it(window, qapp):
+    tab = window.protocol_tab
+    config = window.experiment.task_protocol.task_config["Volume FIB Milling"]
+    tab.tasks.set_current("Volume FIB Milling")
+    form, editor = tab.slice_form, tab.task_editor
+    assert not form.isHidden() and not tab.slice_preview.isHidden()
+    assert editor.isHidden() and editor.milling.isHidden()
+    assert form.warning.isHidden()  # 200 nm cut, 200 nm slices
+
+    form._controls["slice_thickness"].write(250e-9)
+    assert config.slice_thickness == pytest.approx(250e-9)
+    assert "0.050 µm is left between slices" in form.warning.text()
+    assert not form.warning.isHidden()
+
+    form._controls["width"].write(12e-6)
+    assert config.milling.stages[0].pattern.width == pytest.approx(12e-6)
+
+    # the preview: slice 1 at the centre, the next two a thickness below each
+    from fibsem.applications.volume.ui.slice_milling import preview_slices
+
+    slices = preview_slices(config)
+    assert [s.name for s in slices] == ["Slice 1", "Slice 2", "Slice 3"]
+    assert [s.pattern.point.y for s in slices] == pytest.approx([0, -250e-9, -5e-7])
+
+    form.all_settings_button.click()
+    assert not editor.isHidden() and not editor.milling.isHidden()
+    assert form.isHidden() and tab.slice_preview.isHidden()
+    tab.slice_settings_button.click()
+    assert not form.isHidden() and editor.isHidden()
+
+    # another task shows the full editor, and coming back shows the slice form
+    tab.tasks.set_current("Setup FIB Milling Position")
+    assert form.isHidden() and not editor.isHidden()
+    tab.tasks.set_current("Volume FIB Milling")
+    assert not form.isHidden()
 
 
 def test_a_task_with_several_millings_picks_the_one_shown(window):
@@ -255,6 +420,7 @@ def test_the_positions_tab_scrubs_a_positions_slices(window, qapp):
     assert [s.filename for s in scrubber.slices][0].endswith("_ib.tif")
     assert scrubber.index == 1
 
+    tab.views.setCurrentWidget(scrubber)
     tab.list.setCurrentRow(1)
     assert tab.title.text() == "birch"
     assert scrubber.slices == []
