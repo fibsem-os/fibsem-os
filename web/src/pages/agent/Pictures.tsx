@@ -105,6 +105,8 @@ export function CardPicture({ kind, version }: { kind: "request" | "suggestion";
     queryKey: ["app/agent/pictures", kind, version],
     queryFn: () => api<{ image_b64_png: string }>(`/app/agent/pictures/${kind}`),
     staleTime: Infinity,
+    // A redrawn picture replaces the last one once it has loaded.
+    placeholderData: (previous, last) => (last?.queryKey[1] === kind ? previous : undefined),
   });
   if (!answer.data) return null;
   return (

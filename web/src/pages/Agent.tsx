@@ -382,7 +382,8 @@ export function AgentPage() {
         </div>
       </section>
       <div className="flex flex-col gap-2.5 border-t border-border pt-3 pb-4">
-        {a.now && <div className="text-[13px] text-muted-foreground">{a.now}</div>}
+        {/* Kept while a session runs, so the composer doesn't move as commands start and end. */}
+        {(a.session || a.now) && <div className="min-h-5 text-[13px] text-muted-foreground">{a.now}</div>}
         {a.waiting && (
           <div className="text-[13px]">
             <b>Waiting on a decision:</b> {a.waiting.proposal}{" "}

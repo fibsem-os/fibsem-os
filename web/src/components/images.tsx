@@ -1,12 +1,12 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Facts } from "@/components/ui/card";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Stepper } from "@/components/stepper";
 import { type StackView, useFileRead } from "@/lib/files";
 import * as fmt from "@/lib/format";
-import type { StackFacts } from "@/lib/types";
+import type { ImagePayload, StackFacts } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const BEAM: Record<string, string> = { ELECTRON: "SEM", ION: "FIB" };
@@ -194,13 +194,16 @@ function metadata(summary: Record<string, unknown> | undefined, size: number | n
 
 /** The viewer: one image large with its metadata, previous and next through *paths*. */
 export function ImageViewer({ paths, at, onClose }: { paths: string[]; at: number | null; onClose: () => void }) {
-  const [index, setIndex] = useState(at ?? 0);
+  // The open image by its path, so images added to *paths* while it is open don't move it.
+  const [path, setPath] = useState(at == null ? null : (paths[at] ?? null));
   const [opened, setOpened] = useState(at);
+  const last = useRef<ImagePayload | undefined>(undefined);
   if (at !== opened) {
     setOpened(at);
-    if (at != null) setIndex(at);
+    setPath(at == null ? null : (paths[at] ?? null));
+    last.current = undefined;
   }
-  const path = at == null ? null : paths[index];
+  const index = Math.max(0, path ? paths.indexOf(path) : 0);
   const [view, setView] = useState<StackView>(WHOLE);
   const [viewOf, setViewOf] = useState(path);
   if (path !== viewOf) {
@@ -209,9 +212,12 @@ export function ImageViewer({ paths, at, onClose }: { paths: string[]; at: numbe
   }
   const read = useFileRead(path, 1600, view);
   const p = read.data?.preview;
+  // The last image stays up, dimmed, while the next is read, so the box keeps its size.
+  if (p) last.current = p;
+  const shown = p ?? (read.error ? undefined : last.current);
   const fm = read.data?.summary?.fm;
   const stack = fm && fm.z_planes > 1 ? fm : undefined;
-  const step = (by: number) => setIndex((i) => (i + by + paths.length) % paths.length);
+  const step = (by: number) => setPath(paths[(index + by + paths.length) % paths.length]);
   const plane = (by: number) => {
     if (!stack) return;
     const from = view.z ?? stack.channels.find((c) => c.sharpest_plane != null)?.sharpest_plane ?? 0;
@@ -234,8 +240,12 @@ export function ImageViewer({ paths, at, onClose }: { paths: string[]; at: numbe
           }}
         >
           <div className="flex min-h-[240px] items-center justify-center bg-black p-2">
-            {p ? (
-              <img className="block max-h-[70vh] w-full object-contain" alt={name} src={`data:image/jpeg;base64,${p.image_b64_jpeg}`} />
+            {shown ? (
+              <img
+                className={cn("block max-h-[70vh] w-full object-contain", !p && "opacity-50")}
+                alt={name}
+                src={`data:image/jpeg;base64,${shown.image_b64_jpeg}`}
+              />
             ) : (
               <span className="text-[13px] text-muted-foreground">{read.error ? read.error.message : "Reading…"}</span>
             )}
