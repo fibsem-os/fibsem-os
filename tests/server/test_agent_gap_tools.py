@@ -579,6 +579,8 @@ def test_alignment_methods_are_compared_on_saved_images(driving, arctis):  # noq
         ),
         ("microscope_set_state", {"microscope_state": {}}, "the stage moves"),
         ("fm_save_focus_position", {}, "as the focus position"),
+        ("beam_turn_on", {"beam_type": "ION"}, "Turn it on"),
+        ("beam_turn_off", {"beam_type": "ION"}, "Turn it off"),
     ],
 )
 def test_the_operator_reads_each_new_action_plainly(tool, arguments, change):

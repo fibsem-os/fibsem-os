@@ -31,8 +31,9 @@ from fibsem.services.stage_movement import StageMovement
 # run; ALL blocks every one.
 ALL = "*"
 _BLOCKED: Tuple[Tuple[type, Dict[str, Any]], ...] = (
-    # Switching a column off; the app's image-to-stage geometry assumes its own
-    # corrections (scan rotation is allowed); the source gas.
+    # The on write, which turn_on and turn_off cover; the app's image-to-stage
+    # geometry assumes its own corrections (scan rotation is allowed); the
+    # source gas.
     (Beam, {"write": {"on", "angular_correction", "tilt_correction", "plasma_gas"}}),
     # Pumping and venting: the operator's, at the microscope. State and pressure
     # stay readable.
@@ -61,7 +62,7 @@ _BLOCKED: Tuple[Tuple[type, Dict[str, Any]], ...] = (
 )
 
 _WHY = {
-    Beam: "a column setting the operator keeps",
+    Beam: "a column setting the operator keeps; switch a beam with beam_turn_on or beam_turn_off",
     Chamber: "pumping and venting are the operator's, at the microscope",
     Stage: "homing and the stage link are the operator's; move with stage_move_absolute",
     Manipulator: "the manipulator is the operator's for now",

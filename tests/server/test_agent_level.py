@@ -147,6 +147,8 @@ def test_what_is_never_allowed_says_so_below_drive(client, auth, level):
     # What the blocklist allows is still the level's.
     moved = client.post(MOVE_RELATIVE, headers=AGENT, json=_NUDGE)
     assert _error(moved) == ("level" if level is AgentLevel.WATCH else "ask_first")
+    on = client.post("/microscope/devices/ion/commands/turn_on", headers=AGENT, json={})
+    assert _error(on) == ("level" if level is AgentLevel.WATCH else "ask_first")
 
 
 def test_watch_refuses_a_hardware_command_naming_the_level(client, auth):
