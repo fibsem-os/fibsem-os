@@ -144,16 +144,6 @@ def test_the_hints_are_the_question_marks_tooltip(panel):
     assert not any("to run the workflow" in t for t in texts)
 
 
-@pytest.fixture
-def no_quit(qapp):
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
-        yield
-    finally:
-        qapp.quit = original_quit
-
-
 def test_the_status_line_says_what_the_selection_allows(no_quit, qapp, tmp_path):
     """The footer's "Select a lamella and a task to run the workflow" is the status
     line's last instruction now, and it follows the ticks."""

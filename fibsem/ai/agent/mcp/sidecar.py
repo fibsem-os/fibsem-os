@@ -455,6 +455,12 @@ def build_sidecar(client, capabilities):
     def server_get_capabilities():
         return _tool("server_get_capabilities")
 
+    def server_set_constraints(constraints: List[Dict[str, Any]]):
+        return _tool("server_set_constraints", constraints=constraints)
+
+    def server_set_checklist(checklist: List[Dict[str, Any]]):
+        return _tool("server_set_checklist", checklist=checklist)
+
     def server_report_session(
         session_id: Optional[str] = None,
         model: Optional[str] = None,
@@ -1874,6 +1880,8 @@ def build_sidecar(client, capabilities):
             experiment_add_note,
             experiment_message_operator,
             server_report_session,
+            server_set_constraints,
+            server_set_checklist,
             request_create,
             request_withdraw,
             request_get,

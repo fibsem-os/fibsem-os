@@ -6,14 +6,17 @@ goal, on what budget, how much spent -- only the agent's harness knows, so the
 harness reports it here: ``fibsem-agent`` after every turn, Claude Code through
 ``server_report_session``. fibsem-agent also says what it can do: code mode and
 its folder, effort, skills. Self-reported, like the client's name: a label for
-the operator, not an identity. A session starting, its goal changing and its end
-go on the record, and so does the spend first reaching 80% of the budget; the
-spend in between is state, read with GET.
+the operator, not an identity. The agent also keeps the operator's constraints
+(``server_set_constraints``) and its checklist (``server_set_checklist``) here,
+for the Agent page. A session starting, its goal or constraints changing and
+its end go on the record, and so does the spend first reaching 80% of the
+budget; the spend and the checklist in between are state, read with GET.
 """
 
 import logging
 import math
-from typing import Any, Callable, Dict, Optional
+from datetime import datetime, timedelta
+from typing import Any, Callable, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
@@ -26,11 +29,16 @@ SESSION_STARTED = "agent_session_started"
 SESSION_GOAL = "agent_session_goal"
 SESSION_ENDED = "agent_session_ended"
 SESSION_BUDGET = "agent_session_budget"
+SESSION_CONSTRAINTS = "agent_session_constraints"
 
 MAX_TEXT = 500
 _TEXT = ("session_id", "model", "goal", "reason", "harness", "effort", "workdir")
 _NUMBERS = ("budget_usd", "spent_usd")
 MAX_SKILLS = 20
+MAX_ITEM = 200
+MAX_CHECKLIST = 50
+MAX_CONSTRAINTS = 10
+CHECK_STATES = ("open", "done", "always")
 
 
 def _refused(message: str) -> HTTPException:
@@ -44,7 +52,16 @@ def _checked(body: Dict[str, Any]) -> Dict[str, Any]:
     known = (
         set(_TEXT)
         | set(_NUMBERS)
-        | {"turns", "ended", "code", "files", "resumed", "skills"}
+        | {
+            "turns",
+            "ended",
+            "code",
+            "files",
+            "resumed",
+            "skills",
+            "checklist",
+            "constraints",
+        }
     )
     unknown = sorted(set(body) - known)
     if unknown:
@@ -92,11 +109,68 @@ def _checked(body: Dict[str, Any]) -> Dict[str, Any]:
                 "100 characters."
             )
         report["skills"] = [s.strip() for s in skills]
+    if body.get("checklist") is not None:
+        report["checklist"] = _checklist(body["checklist"])
+    if body.get("constraints") is not None:
+        report["constraints"] = _constraints(body["constraints"])
     ended = body.get("ended")
     if ended is not None and not isinstance(ended, bool):
         raise _refused("ended is true or false.")
     report["ended"] = bool(ended)
     return report
+
+
+def _text(item: Any, what: str) -> str:
+    text = item.get("text") if isinstance(item, dict) else None
+    if not isinstance(text, str) or not text.strip() or len(text) > MAX_ITEM:
+        raise _refused(f"Each {what} has a text of at most {MAX_ITEM} characters.")
+    return text.strip()
+
+
+def _checklist(items: Any) -> List[Dict[str, str]]:
+    """Each item {text, state}: open (the default), done, or always for a
+    standing rule."""
+    if not isinstance(items, list) or len(items) > MAX_CHECKLIST:
+        raise _refused(f"checklist is a list of at most {MAX_CHECKLIST} items.")
+    checked = []
+    for item in items:
+        state = item.get("state", "open") if isinstance(item, dict) else None
+        if state not in CHECK_STATES:
+            raise _refused(f"An item's state is one of {list(CHECK_STATES)}.")
+        checked.append({"text": _text(item, "item"), "state": state})
+    return checked
+
+
+def deadline(by: str, now: Optional[datetime] = None) -> datetime:
+    """*by* as a time with its offset: "07:00" is its next occurrence here, an
+    ISO date and time without an offset is this computer's local time."""
+    now = now or datetime.now().astimezone()
+    try:
+        clock = datetime.strptime(by, "%H:%M")
+    except ValueError:
+        when = datetime.fromisoformat(by)
+        return when if when.tzinfo else when.astimezone()
+    when = now.replace(hour=clock.hour, minute=clock.minute, second=0, microsecond=0)
+    return when if when > now else when + timedelta(days=1)
+
+
+def _constraints(items: Any) -> List[Dict[str, str]]:
+    """Each {text, by?}: by, when given, is stored as a time with its offset."""
+    if not isinstance(items, list) or len(items) > MAX_CONSTRAINTS:
+        raise _refused(f"constraints is a list of at most {MAX_CONSTRAINTS} items.")
+    checked = []
+    for item in items:
+        constraint = {"text": _text(item, "constraint")}
+        by = item.get("by")
+        if by is not None:
+            try:
+                constraint["by"] = deadline(str(by)).isoformat(timespec="minutes")
+            except ValueError:
+                raise _refused(
+                    "by is a time, 07:00, or an ISO date and time, 2026-10-24T07:00."
+                ) from None
+        checked.append(constraint)
+    return checked
 
 
 def report(auth: AuthConfig, body: Dict[str, Any]) -> tuple:
@@ -109,7 +183,13 @@ def report(auth: AuthConfig, body: Dict[str, Any]) -> tuple:
     starts = (
         previous is None
         or previous.get("ended")
-        or (session_id is not None and session_id != previous.get("session_id"))
+        # A session that has no id yet takes the first one reported: the agent
+        # may set its checklist before its harness first reports.
+        or (
+            session_id is not None
+            and previous.get("session_id") is not None
+            and session_id != previous.get("session_id")
+        )
     )
     kinds = []
     if starts:
@@ -119,6 +199,10 @@ def report(auth: AuthConfig, body: Dict[str, Any]) -> tuple:
         session = {**previous, **fields}
         if "goal" in fields and fields["goal"] != previous.get("goal"):
             kinds.append(SESSION_GOAL)
+        if "constraints" in fields and fields["constraints"] != previous.get(
+            "constraints"
+        ):
+            kinds.append(SESSION_CONSTRAINTS)
     if budget_low(session) and (starts or not budget_low(previous)):
         kinds.append(SESSION_BUDGET)
     if ended:

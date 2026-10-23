@@ -264,6 +264,30 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
     ),
     ToolSpec(
+        name="server_set_constraints",
+        returns="AgentSession",
+        description='Keep the operator\'s constraints for this session where the Agent page shows them, beside the goal: limits the work must keep, in the operator\'s words, such as "finish by 07:00" or "don\'t change the milling currents". Give the whole list each time; an empty list clears it. A constraint with a time takes it as by: 07:00 (its next occurrence) or an ISO date and time. Under fibsem-agent you are woken 30 min before each time and at it.',
+        method="POST",
+        path="/app/agent/session",
+        level="watch",
+        router="app",
+        params={
+            "constraints": "the whole list, each {text, by?}: text in the operator's words, by the time it must be done by",
+        },
+    ),
+    ToolSpec(
+        name="server_set_checklist",
+        returns="AgentSession",
+        description="Keep your checklist of the operator's instructions where the Agent page shows it: each item {text, state}, state open (the default), done when it is finished, or always for a standing rule that stays until the operator lifts it. Give the whole list each time, in the operator's words; it replaces the last one. Update it when an instruction arrives and when an item is done.",
+        method="POST",
+        path="/app/agent/session",
+        level="watch",
+        router="app",
+        params={
+            "checklist": "the whole list, each {text, state}: state open, done or always",
+        },
+    ),
+    ToolSpec(
         name="microscope_get_info",
         description="The microscope: manufacturer, model, serial number and software version, which optional hardware is fitted, and its system settings.",
         method="GET",

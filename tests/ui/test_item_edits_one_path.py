@@ -11,6 +11,8 @@ widget calls, each route through the context method the route calls.
 import os
 from copy import deepcopy
 
+from tests.fixtures.main_window import main_window_fixture
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
@@ -46,21 +48,7 @@ from fibsem.workflows.quality import Verdict  # noqa: E402
 _HOLDERS = (config_edits, lamella_editor_module, lamella_display)
 
 
-@pytest.fixture(scope="module")
-def window(qapp):
-    from fibsem.applications.autolamella.ui import window as module
-
-    win = module.AutoLamellaWindow()
-    win.system_widget.connect_to_microscope()
-    yield win
-    if win.microscope is not None:
-        win.microscope.disconnect()
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
-        win.close()
-    finally:
-        qapp.quit = original_quit
+window = main_window_fixture(connect=True, scope="module", name="window")
 
 
 @pytest.fixture

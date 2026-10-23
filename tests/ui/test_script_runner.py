@@ -15,13 +15,6 @@ from fibsem.cancellation import OperationCancelledError  # noqa: E402
 from fibsem.ui.widgets.script_runner import ScriptRunner  # noqa: E402
 
 
-@pytest.fixture
-def qapp():
-    from PyQt5.QtWidgets import QApplication
-
-    yield QApplication.instance() or QApplication([])
-
-
 class FakeContext:
     """Stands in for whatever an application hands its scripts.
 

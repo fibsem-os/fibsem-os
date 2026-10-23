@@ -24,6 +24,7 @@ import contextvars
 import importlib
 import logging
 import threading
+import time
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
@@ -171,6 +172,73 @@ _BUILTIN_RUNS: Dict[str, str] = {
 }
 
 
+@dataclass(frozen=True)
+class RunFailure:
+    """A task of the run that failed: its item and task, why, and when (epoch s)."""
+
+    what: str
+    message: str
+    at: float
+
+
+class RunLine:
+    """What the run last said, for a reader that asks rather than listens (the
+    App Server's status): its last lifecycle report, the step it is on, who
+    holds it and since when, and its failures. A new run starts it over; the
+    failures stay after the run ends, as the window's failure line does."""
+
+    def __init__(self) -> None:
+        self.reset()
+
+    def reset(self) -> None:
+        self.report: Optional[Any] = None
+        # The task's step (`log_status_message`), and the run's own line
+        # ("Loading grid G2...", "Waiting: ..."), which wins while it says something.
+        self.task_step = ""
+        self.run_step = ""
+        self.hold: Optional[Any] = None
+        self.held_since: Optional[float] = None
+        self.failures: List[RunFailure] = []
+
+    @property
+    def step(self) -> str:
+        return self.run_step or self.task_step
+
+    def take_status(self, event: Any) -> None:
+        """A ``WorkflowStatusEvent``."""
+        if event.status_bar is not None:
+            self.run_step = event.status_bar
+        report = event.report
+        if report is None:
+            return
+        if report.status is TaskStatus.InProgress:
+            self.task_step = ""  # a new task, with no step said yet
+        self.report = report
+        if report.status is TaskStatus.Failed:
+            self.failures.append(
+                RunFailure(
+                    f"{report.item_name} › {report.task_name}",
+                    report.error_message or "failed",
+                    time.time(),
+                )
+            )
+
+    def take_hold(self, hold: Any) -> None:
+        """A ``Hold``, or None when released. The same hold again keeps its clock."""
+        if hold is None:
+            self.held_since = None
+        elif self.hold is None:
+            self.held_since = time.time()
+        self.hold = hold
+
+    def take_step(self, step: str) -> None:
+        self.task_step = step or ""
+
+    def ended(self) -> None:
+        self.hold = self.held_since = None
+        self.run_step = self.task_step = ""
+
+
 def register_app_runs(app: str, runs: AppRuns) -> None:
     APP_RUNS[app] = runs
 
@@ -222,6 +290,7 @@ class WorkflowRunner:
         # its manager is gone: the App Server's run summary reads them.
         self.last_summary: Optional[Any] = None
         self.last_note: str = ""
+        self.line = RunLine()
 
     @property
     def is_running(self) -> bool:
@@ -370,6 +439,7 @@ class WorkflowRunner:
                 deciders=self._session.deciders,
                 images=self._session.images,
             )
+            self.line.reset()
             self.relay(self.manager)
             # The run is whoever started it: the agent's run records its
             # events as the agent's, so it runs in a copy of the
@@ -394,11 +464,14 @@ class WorkflowRunner:
         as this runner's own, for a window or anyone else listening."""
         manager.queue_changed.connect(self.queue_changed)
         manager.status.connect(self._on_status)
+        manager.held.connect(self.line.take_hold)
         manager.held.connect(self.held)
         manager.pending.connect(self.pending)
+        manager.step.connect(self.line.take_step)
         manager.step.connect(self.step)
 
     def _on_status(self, event: Any) -> None:
+        self.line.take_status(event)
         if len(self.status):
             self.status.emit(event)
         elif event.report is None:
@@ -416,6 +489,7 @@ class WorkflowRunner:
                 logging.warning(f"Failed to build the run summary: {e}")
                 self.last_summary = None
             self.last_note = manager.closing_note()
+            self.line.ended()
             with self._lock:
                 self.manager = None
                 self._thread = None
