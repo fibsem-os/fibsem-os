@@ -1,22 +1,33 @@
-"""The right-hand panel of an app's window: the app's experiment tab, the
-microscope's tabs, the workflow line and the prompt bar.
+"""The microscope's control tabs, and the right-hand panel of an app's window
+built on them.
 
-The microscope's tabs (Image, Movement, Milling, Sample, Fluorescence,
-Detection, Spot Burn) are built when a microscope connects and dropped when it
-goes, by `show_microscope`. The panel redraws itself when the session changes
-and when the open experiment's positions do.
+`MicroscopeControls` holds the microscope's tabs (Image, Movement, Milling,
+Sample, Manipulator, Fluorescence, Detection, Spot Burn), built when a
+microscope connects and dropped when it goes, by `show_microscope`. Every
+window uses it: fibsemOS directly, the apps through `MicroscopePanel`, which
+adds the app's experiment tab, the workflow line and the prompt bar, and
+redraws itself when the session changes and when the open experiment's
+positions do.
 """
 
 import logging
-from typing import TYPE_CHECKING, Any, Callable, Optional, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Optional, Protocol, Tuple
 
 from psygnal import EmissionInfo
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import QGridLayout, QLabel, QTabWidget, QWidget
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import (
+    QGridLayout,
+    QLabel,
+    QSplitter,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
 from superqt import ensure_main_thread
 
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import FibsemStagePosition, MicroscopeSettings
+from fibsem.theme.tokens import GRAY_ICON_COLOR
 from fibsem.ui import (
     DETECTION_AVAILABLE,
     FibsemImageSettingsWidget,
@@ -24,7 +35,10 @@ from fibsem.ui import (
     FibsemSpotBurnWidget,
     MillingTaskViewerWidget,
 )
+from fibsem.ui.FibsemManipulatorWidget import FibsemManipulatorWidget
 from fibsem.ui.FibsemSampleWidget import FibsemSampleWidget
+from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.qt.connections import connect_on_gui_thread
 from fibsem.ui.widgets.custom_widgets import scrollable
 from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
 from fibsem.ui.widgets.workflow.prompt_bar import PromptBar
@@ -39,7 +53,7 @@ if TYPE_CHECKING:
     from fibsem.workflows.session import AppSession
     from fibsem.workflows.status import WorkflowStatusEvent
 
-__all__ = ["ItemTab", "MicroscopePanel"]
+__all__ = ["ItemTab", "MicroscopeControls", "MicroscopePanel", "add_microscope_tab"]
 
 
 class ItemTab(Protocol):
@@ -59,10 +73,288 @@ class ItemTab(Protocol):
         """The selected item changed."""
 
 
-class MicroscopePanel(QWidget):
-    # The session's `changed`, carried to the GUI thread.
-    _session_changed = pyqtSignal(str)
+class MicroscopeControls(QWidget):
+    """The microscope's control tabs, in `tabWidget`. A host puts its own tabs
+    beside them (the Connection tab, an app's experiment tab)."""
 
+    def __init__(
+        self,
+        *,
+        view_controller: Callable[[], Any],
+        overview_acquiring: Callable[[], bool] = lambda: False,
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        """*view_controller* is the window's quad view, once it has one;
+        *overview_acquiring* says whether an Overview tab is mid-tileset."""
+        super().__init__(parent)
+        self._view_controller = view_controller
+        self._overview_acquiring = overview_acquiring
+        # the microscope whose moves the stage readout follows
+        self._stage_followed: Optional[FibsemMicroscope] = None
+
+        self.image_widget: Optional[FibsemImageSettingsWidget] = None
+        self.movement_widget: Optional[FibsemMovementWidget] = None
+        self.spot_burn_widget: Optional[FibsemSpotBurnWidget] = None
+        self.fm_control_widget: Optional[FMControlWidget] = None
+        self.sample_widget: Optional[FibsemSampleWidget] = None
+        self.manipulator_widget: Optional[FibsemManipulatorWidget] = None
+        self.milling_task_config_widget: Optional[MillingTaskViewerWidget] = None
+        self.milling_tab: Optional[QWidget] = None  # the scroll area around it
+        self.det_widget: Optional["FibsemEmbeddedDetectionWidget"] = None
+
+        self.gridLayout = QGridLayout(self)
+        self.tabWidget = QTabWidget(self)
+        self.gridLayout.addWidget(self.tabWidget, 1, 0, 1, 2)
+
+    # What an app's widgets add to the tabs; none without an app.
+
+    def _images(self) -> Optional[Any]:
+        """Where the latest image of each beam is kept."""
+        return None
+
+    def _lamella_list(self) -> Optional[Any]:
+        """The item selection the Image and Fluorescence tabs follow."""
+        return None
+
+    def _experiment(self) -> Optional[Any]:
+        """The open experiment, where images can be saved."""
+        return None
+
+    def _revise_prompt(self, msg: str, can_continue: bool) -> None:
+        """Say *msg* on the question a run is asking."""
+
+    def handle_acquisition_update(self, ddict: dict) -> None:
+        """An acquisition reported progress."""
+
+    @property
+    def _overview_is_acquiring(self) -> bool:
+        """Whether either overview modality is mid-tileset.
+
+        Asked of the Overview tab rather than of a widget held here: the tab owns both
+        modalities and rebuilds its widgets on every reconnection, so anything holding
+        one of them directly would be answering for a widget that had been replaced.
+        """
+        return self._overview_acquiring()
+
+    @ensure_main_thread
+    def _on_stage_position_updated(self, stage_position: FibsemStagePosition) -> None:
+        """Callback for when the stage position is updated."""
+        if self._overview_is_acquiring:
+            # Mid-tileset the stage moves once per tile, and refreshing the readout on
+            # each is churn nobody reads.
+            return
+        if self.movement_widget is not None:
+            # pass the position from the signal; re-querying the microscope here races
+            # with the worker thread driving the move (see TescanMicroscope socket lock)
+            self.movement_widget.update_ui(stage_position=stage_position)
+
+    def _follow_stage(self, microscope: Optional[FibsemMicroscope]) -> None:
+        """Keep the stage readout on ``microscope``'s moves, and off any other's.
+
+        The readout follows the microscope, not the experiment: a move with no
+        experiment open still moves the stage."""
+        followed = self._stage_followed
+        if followed is microscope:
+            return
+        if followed is not None and followed.stage is not None:
+            try:
+                followed.stage.position.changed.disconnect(
+                    self._on_stage_position_updated
+                )
+            except Exception as e:
+                logging.debug(f"Could not disconnect microscope stage events: {e}")
+        if microscope is not None and microscope.stage is not None:
+            microscope.stage.position.changed.connect(self._on_stage_position_updated)
+        self._stage_followed = microscope
+
+    def front_tab(self, widget: QWidget) -> None:
+        """Bring forward the tab that holds *widget*.
+
+        The widget may be the tab itself or sit inside a wrapper (the Milling tab is
+        a scroll area around its editor). ``setCurrentWidget`` on a widget that is
+        not a direct tab is a silent no-op, which is how the responder stopped
+        fronting the Milling tab once the wrapper arrived.
+        """
+        candidate = widget
+        while candidate is not None and self.tabWidget.indexOf(candidate) == -1:
+            candidate = candidate.parentWidget()
+        if candidate is not None:
+            # A hidden tab cannot be fronted: Detection is hidden until it is
+            # asked for, so bringing it forward has to un-hide it first or the
+            # call is a second silent no-op.
+            self.tabWidget.setTabVisible(self.tabWidget.indexOf(candidate), True)
+            self.tabWidget.setCurrentWidget(candidate)
+
+    def show_microscope(
+        self,
+        microscope: Optional[FibsemMicroscope],
+        settings: Optional[MicroscopeSettings],
+    ) -> None:
+        """Build the microscope's tabs, or drop them for None."""
+        self._follow_stage(microscope)
+
+        if microscope is not None:
+            # reusable components
+            self.image_widget = FibsemImageSettingsWidget(
+                microscope=microscope,
+                image_settings=settings.image,  # type: ignore
+                parent=self,
+                images=self._images(),
+                view_controller=self._view_controller,
+                toggle_movement=lambda enable: (
+                    self.movement_widget._toggle_interactions(enable, caller="ui")
+                ),
+                lamella_list=self._lamella_list(),
+                experiment=self._experiment,
+                revise_prompt=self._revise_prompt,
+            )
+            self.movement_widget = FibsemMovementWidget(
+                microscope=microscope,
+                image_widget=self.image_widget,
+                view_controller=self._view_controller,
+                milling_widget=lambda: self.milling_task_config_widget,
+                parent=self,
+            )
+
+            # add widgets to tabs
+            self.tabWidget.addTab(self.image_widget, "Image")
+            self.tabWidget.addTab(self.movement_widget, "Movement")
+            self.milling_task_config_widget = MillingTaskViewerWidget(
+                microscope=microscope,
+                image_widget=self.image_widget,
+                parent=self,
+            )
+            # The tab scrolls the milling widget. The tab is
+            # kept by name because indexOf / setCurrentWidget want the tab, not the
+            # widget inside it -- see front_tab.
+            self.milling_tab = scrollable(self.milling_task_config_widget)
+            self.tabWidget.addTab(self.milling_tab, "Milling")
+
+            # The hardware view of the grids: the holder, and the magazine when
+            # there is one. Slot moves go through the Movement widget, the same
+            # route as a saved position, so the readout and post-move images follow.
+            self.sample_widget = FibsemSampleWidget(microscope=microscope, parent=self)
+            self.sample_widget.move_to_requested.connect(
+                self.movement_widget.move_to_position
+            )
+            self.tabWidget.addTab(self.sample_widget, "Sample")
+
+            if microscope.is_available("manipulator"):
+                self.manipulator_widget = FibsemManipulatorWidget(
+                    microscope=microscope,
+                    settings=settings,
+                    image_widget=self.image_widget,
+                    parent=self,
+                )
+                self.tabWidget.addTab(self.manipulator_widget, "Manipulator")
+
+            if microscope.fm is not None:
+                self.fm_control_widget = FMControlWidget(
+                    microscope=microscope,
+                    parent=self,
+                    view_controller=self._view_controller,
+                    lamella_list=self._lamella_list(),
+                    experiment=self._experiment,
+                    set_host_enabled=self.setEnabled,
+                )
+                if settings is not None and settings.fm is not None:
+                    self.fm_control_widget._apply_fluorescence_configuration(
+                        settings.fm
+                    )
+                self.tabWidget.addTab(self.fm_control_widget, "Fluorescence")
+
+            # add the detection widget if ml dependencies are available
+            if DETECTION_AVAILABLE:
+                self.det_widget = FibsemEmbeddedDetectionWidget(
+                    parent=self, view_controller=self._view_controller
+                )
+                self.tabWidget.addTab(self.det_widget, "Detection")
+                self.tabWidget.setTabVisible(
+                    self.tabWidget.indexOf(self.det_widget), False
+                )
+
+            # spot burn widget (optional)
+            self.spot_burn_widget = FibsemSpotBurnWidget(
+                microscope=microscope,
+                image_widget=self.image_widget,
+                view_controller=self._view_controller,
+                parent=self,
+            )
+            self.tabWidget.addTab(self.spot_burn_widget, "Spot Burn")
+            self.tabWidget.setTabVisible(
+                self.tabWidget.indexOf(self.spot_burn_widget), False
+            )
+
+            self.image_widget.acquisition_progress_signal.connect(
+                self.handle_acquisition_update
+            )
+        else:
+            if self.image_widget is None:
+                return
+
+            # remove tabs
+            if self.manipulator_widget is not None:
+                self.tabWidget.removeTab(
+                    self.tabWidget.indexOf(self.manipulator_widget)
+                )
+                self.manipulator_widget.deleteLater()
+                self.manipulator_widget = None
+            if self.sample_widget is not None:
+                self.sample_widget._teardown_connections()
+                self.tabWidget.removeTab(self.tabWidget.indexOf(self.sample_widget))
+                self.sample_widget.deleteLater()
+                self.sample_widget = None
+            if self.fm_control_widget is not None:
+                # deleteLater fires neither closeEvent nor close_widget, so tear
+                # down the FM widget's external signal connections explicitly
+                self.fm_control_widget._teardown_connections()
+                self.tabWidget.removeTab(self.tabWidget.indexOf(self.fm_control_widget))
+                self.fm_control_widget.deleteLater()
+                self.fm_control_widget = None
+            if self.det_widget is not None:
+                self.det_widget._teardown_connections()
+                self.tabWidget.removeTab(self.tabWidget.indexOf(self.det_widget))
+                self.det_widget.deleteLater()
+                self.det_widget = None
+            if self.spot_burn_widget is not None:
+                self.spot_burn_widget.disconnect_signals()
+                self.tabWidget.removeTab(self.tabWidget.indexOf(self.spot_burn_widget))
+                self.spot_burn_widget.deleteLater()
+                self.spot_burn_widget = None
+            if self.milling_task_config_widget is not None:
+                self.tabWidget.removeTab(self.tabWidget.indexOf(self.milling_tab))
+                self.milling_tab.deleteLater()  # owns the widget
+                self.milling_tab = None
+                self.milling_task_config_widget = None
+            if self.movement_widget is not None:
+                self.movement_widget._teardown_connections()
+                self.tabWidget.removeTab(self.tabWidget.indexOf(self.movement_widget))
+                self.movement_widget.deleteLater()
+                self.movement_widget = None
+            if self.image_widget is not None:
+                self.image_widget._teardown_connections()
+                self.tabWidget.removeTab(self.tabWidget.indexOf(self.image_widget))
+                self.image_widget.acquisition_progress_signal.disconnect(
+                    self.handle_acquisition_update
+                )
+                self.image_widget.deleteLater()
+                self.image_widget = None
+
+    def set_spot_burn_widget_active(self, active: bool = True) -> None:
+        """Set the spot burn widget active (sets the tab visible, activate point layer)."""
+        if self.spot_burn_widget is None:
+            return
+
+        idx = self.tabWidget.indexOf(self.spot_burn_widget)
+        self.tabWidget.setTabVisible(idx, active)
+        if active:
+            self.tabWidget.setCurrentIndex(idx)
+            self.spot_burn_widget.set_active()
+        else:
+            self.spot_burn_widget.set_inactive()
+
+
+class MicroscopePanel(MicroscopeControls):
     def __init__(
         self,
         session: "AppSession",
@@ -75,32 +367,20 @@ class MicroscopePanel(QWidget):
         """*experiment_tab* builds the app's tab for this panel;
         *view_controller* is the window's quad view, once it has one;
         *overview_acquiring* says whether the Overview tab is mid-tileset."""
-        super().__init__(parent)
+        super().__init__(
+            view_controller=view_controller,
+            overview_acquiring=overview_acquiring,
+            parent=parent,
+        )
         self.session = session
-        self._view_controller = view_controller
-        self._overview_acquiring = overview_acquiring
-        # the microscope whose moves the stage readout follows
-        self._stage_followed: Optional[FibsemMicroscope] = None
         # the experiment whose position events the panel follows
         self._experiment_followed: Optional[Any] = None
 
-        self.image_widget: Optional[FibsemImageSettingsWidget] = None
-        self.movement_widget: Optional[FibsemMovementWidget] = None
-        self.spot_burn_widget: Optional[FibsemSpotBurnWidget] = None
-        self.fm_control_widget: Optional[FMControlWidget] = None
-        self.sample_widget: Optional[FibsemSampleWidget] = None
-        self.milling_task_config_widget: Optional[MillingTaskViewerWidget] = None
-        self.milling_tab: Optional[QWidget] = None  # the scroll area around it
-        self.det_widget: Optional["FibsemEmbeddedDetectionWidget"] = None
-
-        self.gridLayout = QGridLayout(self)
-        self.tabWidget = QTabWidget(self)
         self.experiment_tab = experiment_tab(self)
         self.tabWidget.addTab(self.experiment_tab, self.experiment_tab.title)
         self.label_workflow_information = QLabel("Workflow Information")
         self.prompt_bar = PromptBar()
 
-        self.gridLayout.addWidget(self.tabWidget, 1, 0, 1, 2)
         self.gridLayout.addWidget(self.label_workflow_information, 2, 0, 1, 2)
         self.gridLayout.addWidget(self.prompt_bar, 3, 0, 1, 2)
         self.tabWidget.setCurrentIndex(0)
@@ -109,11 +389,19 @@ class MicroscopePanel(QWidget):
         self.label_workflow_information.setWordWrap(True)
 
         session.runner.starting.connect(self._on_run_starting)
-        self._session_changed.connect(self._on_session_changed)
-        session.changed.connect(self._hear_session)
+        connect_on_gui_thread(self, session.changed, self._on_session_changed)
 
-    def _hear_session(self, what: str) -> None:
-        self._session_changed.emit(what)
+    def _images(self) -> Optional[Any]:
+        return self.session.images
+
+    def _lamella_list(self) -> Optional[Any]:
+        return self.experiment_tab.lamella_list
+
+    def _experiment(self) -> Optional[Any]:
+        return self.session.experiment
+
+    def _revise_prompt(self, msg: str, can_continue: bool) -> None:
+        self.prompt_bar.revise(msg, can_continue=can_continue)
 
     def refresh(self) -> None:
         """Redraw for the current state of the session."""
@@ -210,220 +498,6 @@ class MicroscopePanel(QWidget):
             self.image_widget.lineEdit_image_path.setText(image_path)
             self.image_widget.lineEdit_image_label.setText("default-image")
 
-    @property
-    def _overview_is_acquiring(self) -> bool:
-        """Whether either overview modality is mid-tileset.
-
-        Asked of the Overview tab rather than of a widget held here: the tab owns both
-        modalities and rebuilds its widgets on every reconnection, so anything holding
-        one of them directly would be answering for a widget that had been replaced.
-        """
-        return self._overview_acquiring()
-
-    @ensure_main_thread
-    def _on_stage_position_updated(self, stage_position: FibsemStagePosition) -> None:
-        """Callback for when the stage position is updated."""
-        if self._overview_is_acquiring:
-            # Mid-tileset the stage moves once per tile, and refreshing the readout on
-            # each is churn nobody reads.
-            return
-        if self.movement_widget is not None:
-            # pass the position from the signal; re-querying the microscope here races
-            # with the worker thread driving the move (see TescanMicroscope socket lock)
-            self.movement_widget.update_ui(stage_position=stage_position)
-
-    def _follow_stage(self, microscope: Optional[FibsemMicroscope]) -> None:
-        """Keep the stage readout on ``microscope``'s moves, and off any other's.
-
-        The readout follows the microscope, not the experiment: a move with no
-        experiment open still moves the stage."""
-        followed = self._stage_followed
-        if followed is microscope:
-            return
-        if followed is not None and followed.stage is not None:
-            try:
-                followed.stage.position.changed.disconnect(
-                    self._on_stage_position_updated
-                )
-            except Exception as e:
-                logging.debug(f"Could not disconnect microscope stage events: {e}")
-        if microscope is not None and microscope.stage is not None:
-            microscope.stage.position.changed.connect(self._on_stage_position_updated)
-        self._stage_followed = microscope
-
-    def front_tab(self, widget: QWidget) -> None:
-        """Bring forward the tab that holds *widget*.
-
-        The widget may be the tab itself or sit inside a wrapper (the Milling tab is
-        a scroll area around its editor). ``setCurrentWidget`` on a widget that is
-        not a direct tab is a silent no-op, which is how the responder stopped
-        fronting the Milling tab once the wrapper arrived.
-        """
-        candidate = widget
-        while candidate is not None and self.tabWidget.indexOf(candidate) == -1:
-            candidate = candidate.parentWidget()
-        if candidate is not None:
-            # A hidden tab cannot be fronted: Detection is hidden until it is
-            # asked for, so bringing it forward has to un-hide it first or the
-            # call is a second silent no-op.
-            self.tabWidget.setTabVisible(self.tabWidget.indexOf(candidate), True)
-            self.tabWidget.setCurrentWidget(candidate)
-
-    def show_microscope(
-        self,
-        microscope: Optional[FibsemMicroscope],
-        settings: Optional[MicroscopeSettings],
-    ) -> None:
-        """Build the microscope's tabs, or drop them for None."""
-        self._follow_stage(microscope)
-
-        if microscope is not None:
-            # reusable components
-            self.image_widget = FibsemImageSettingsWidget(
-                microscope=microscope,
-                image_settings=settings.image,  # type: ignore
-                parent=self,
-                images=self.session.images,
-                view_controller=self._view_controller,
-                toggle_movement=lambda enable: (
-                    self.movement_widget._toggle_interactions(enable, caller="ui")
-                ),
-                lamella_list=self.experiment_tab.lamella_list,
-                experiment=lambda: self.session.experiment,
-                revise_prompt=lambda msg, ok: self.prompt_bar.revise(
-                    msg, can_continue=ok
-                ),
-            )
-            self.movement_widget = FibsemMovementWidget(
-                microscope=microscope,
-                image_widget=self.image_widget,
-                view_controller=self._view_controller,
-                milling_widget=lambda: self.milling_task_config_widget,
-                parent=self,
-            )
-
-            # add widgets to tabs
-            self.tabWidget.addTab(self.image_widget, "Image")
-            self.tabWidget.addTab(self.movement_widget, "Movement")
-            self.milling_task_config_widget = MillingTaskViewerWidget(
-                microscope=microscope,
-                image_widget=self.image_widget,
-                parent=self,
-            )
-            # The tab scrolls the milling widget. The tab is
-            # kept by name because indexOf / setCurrentWidget want the tab, not the
-            # widget inside it -- see front_tab.
-            self.milling_tab = scrollable(self.milling_task_config_widget)
-            self.tabWidget.addTab(self.milling_tab, "Milling")
-
-            # The hardware view of the grids: the holder, and the magazine when
-            # there is one. Slot moves go through the Movement widget, the same
-            # route as a saved position, so the readout and post-move images follow.
-            self.sample_widget = FibsemSampleWidget(microscope=microscope, parent=self)
-            self.sample_widget.move_to_requested.connect(
-                self.movement_widget.move_to_position
-            )
-            self.tabWidget.addTab(self.sample_widget, "Sample")
-
-            if microscope.fm is not None:
-                self.fm_control_widget = FMControlWidget(
-                    microscope=microscope,
-                    parent=self,
-                    view_controller=self._view_controller,
-                    lamella_list=self.experiment_tab.lamella_list,
-                    experiment=lambda: self.session.experiment,
-                    set_host_enabled=self.setEnabled,
-                )
-                if settings is not None and settings.fm is not None:
-                    self.fm_control_widget._apply_fluorescence_configuration(
-                        settings.fm
-                    )
-                self.tabWidget.addTab(self.fm_control_widget, "Fluorescence")
-
-            # add the detection widget if ml dependencies are available
-            if DETECTION_AVAILABLE:
-                self.det_widget = FibsemEmbeddedDetectionWidget(
-                    parent=self, view_controller=self._view_controller
-                )
-                self.tabWidget.addTab(self.det_widget, "Detection")
-                self.tabWidget.setTabVisible(
-                    self.tabWidget.indexOf(self.det_widget), False
-                )
-
-            # spot burn widget (optional)
-            self.spot_burn_widget = FibsemSpotBurnWidget(
-                microscope=microscope,
-                image_widget=self.image_widget,
-                view_controller=self._view_controller,
-                parent=self,
-            )
-            self.tabWidget.addTab(self.spot_burn_widget, "Spot Burn")
-            self.tabWidget.setTabVisible(
-                self.tabWidget.indexOf(self.spot_burn_widget), False
-            )
-
-            self.image_widget.acquisition_progress_signal.connect(
-                self.handle_acquisition_update
-            )
-        else:
-            if self.image_widget is None:
-                return
-
-            # remove tabs
-            if self.sample_widget is not None:
-                self.sample_widget._teardown_connections()
-                self.tabWidget.removeTab(self.tabWidget.indexOf(self.sample_widget))
-                self.sample_widget.deleteLater()
-                self.sample_widget = None
-            if self.fm_control_widget is not None:
-                # deleteLater fires neither closeEvent nor close_widget, so tear
-                # down the FM widget's external signal connections explicitly
-                self.fm_control_widget._teardown_connections()
-                self.tabWidget.removeTab(self.tabWidget.indexOf(self.fm_control_widget))
-                self.fm_control_widget.deleteLater()
-                self.fm_control_widget = None
-            if self.det_widget is not None:
-                self.det_widget._teardown_connections()
-                self.tabWidget.removeTab(self.tabWidget.indexOf(self.det_widget))
-                self.det_widget.deleteLater()
-                self.det_widget = None
-            if self.spot_burn_widget is not None:
-                self.spot_burn_widget.disconnect_signals()
-                self.tabWidget.removeTab(self.tabWidget.indexOf(self.spot_burn_widget))
-                self.spot_burn_widget.deleteLater()
-                self.spot_burn_widget = None
-            if self.milling_task_config_widget is not None:
-                self.tabWidget.removeTab(self.tabWidget.indexOf(self.milling_tab))
-                self.milling_tab.deleteLater()  # owns the widget
-                self.milling_tab = None
-                self.milling_task_config_widget = None
-            if self.movement_widget is not None:
-                self.movement_widget._teardown_connections()
-                self.tabWidget.removeTab(self.tabWidget.indexOf(self.movement_widget))
-                self.movement_widget.deleteLater()
-                self.movement_widget = None
-            if self.image_widget is not None:
-                self.image_widget._teardown_connections()
-                self.tabWidget.removeTab(self.tabWidget.indexOf(self.image_widget))
-                self.image_widget.acquisition_progress_signal.disconnect(
-                    self.handle_acquisition_update
-                )
-                self.image_widget.deleteLater()
-                self.image_widget = None
-
-    def set_spot_burn_widget_active(self, active: bool = True) -> None:
-        """Set the spot burn widget active (sets the tab visible, activate point layer)."""
-        if self.spot_burn_widget is None:
-            return
-
-        idx = self.tabWidget.indexOf(self.spot_burn_widget)
-        self.tabWidget.setTabVisible(idx, active)
-        if active:
-            self.tabWidget.setCurrentIndex(idx)
-            self.spot_burn_widget.set_active()
-        else:
-            self.spot_burn_widget.set_inactive()
-
     def set_current_workflow_message(
         self, msg: Optional[str] = None, show: bool = True
     ):
@@ -455,3 +529,30 @@ class MicroscopePanel(QWidget):
         """Where the run was started, before its thread starts."""
         if self.milling_task_config_widget is not None:
             self.milling_task_config_widget.clear()
+
+
+def add_microscope_tab(
+    tab_widget: QTabWidget,
+    view_controller: Any,
+    controls: QWidget,
+    sizes: Tuple[int, int] = (700, 550),
+    controls_min_width: int = 500,
+) -> QWidget:
+    """Add the window's Microscope tab, the quad view beside *controls*, to
+    *tab_widget*, and return it."""
+    container = QWidget()
+    layout = QVBoxLayout(container)
+    layout.setContentsMargins(0, 0, 0, 0)
+    splitter = QSplitter(Qt.Horizontal)
+    splitter.setChildrenCollapsible(False)
+    splitter.addWidget(view_controller.widget)
+    splitter.addWidget(controls)
+    splitter.setSizes(list(sizes))
+    controls.setMinimumWidth(controls_min_width)
+    layout.addWidget(splitter)
+    tab_widget.addTab(
+        container,
+        fibsem_icon("mdi:microscope", color=GRAY_ICON_COLOR),
+        "Microscope",
+    )
+    return container

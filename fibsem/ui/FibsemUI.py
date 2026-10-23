@@ -15,10 +15,8 @@ from typing import List, Optional
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
-    QApplication,
     QLabel,
     QMainWindow,
-    QSplitter,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -28,19 +26,14 @@ from fibsem.imaging.overview_session import OverviewSession
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import MicroscopeSettings
 from fibsem.theme.tokens import GRAY_ICON_COLOR
-from fibsem.tools.app_identity import set_app_identity
 from fibsem.tools.apps import FIBSEM_UI
 from fibsem.tools.desktop_launch import Splash
-from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
-from fibsem.ui.FibsemManipulatorWidget import FibsemManipulatorWidget
-from fibsem.ui.FibsemMovementWidget import FibsemMovementWidget
-from fibsem.ui.FibsemSampleWidget import FibsemSampleWidget
 from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
 from fibsem.ui.icon import fibsem_icon, fibsemos_icon
+from fibsem.ui.qt.app import start_qt_app
 from fibsem.ui.stylesheets import NAPARI_STYLE
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
-from fibsem.ui.widgets.custom_widgets import scrollable
-from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
+from fibsem.ui.widgets.microscope_panel import MicroscopeControls, add_microscope_tab
 from fibsem.ui.widgets.overview_widget import FibsemOverviewWidget
 from fibsem.ui.widgets.status_bar import FibsemStatusBar
 from fibsem.versioning import get_version_string
@@ -49,7 +42,7 @@ NO_MICROSCOPE_MESSAGE = "Connect to a microscope to acquire an overview."
 
 
 class FibsemUI(QMainWindow):
-    def __init__(self, viewer=None):
+    def __init__(self):
         super().__init__()
 
         # The app's dark theme, matching AutoLamellaWindow; a standalone window sets it
@@ -59,25 +52,10 @@ class FibsemUI(QMainWindow):
         # get_version_string (not fibsem.__version__) so the running git revision shows.
         self.setWindowTitle(f"fibsemOS v{get_version_string()}")
 
-        # Viewer-less by default: the quad-view controller is the display. A caller
-        # that passes a napari Viewer gets layers too; the image/movement widgets read
-        # it off this attribute.
-        self.viewer = viewer
-
         self.microscope: Optional[FibsemMicroscope] = None
         self.settings: Optional[MicroscopeSettings] = None
 
-        self.image_widget: Optional[FibsemImageSettingsWidget] = None
-        self.movement_widget: Optional[FibsemMovementWidget] = None
-        self.milling_widget: Optional[MillingTaskViewerWidget] = None
-        self.sample_widget: Optional[MillingTaskViewerWidget] = None
-        self.manipulator_widget: Optional[FibsemManipulatorWidget] = None
         self.overview_widget: Optional[FibsemOverviewWidget] = None
-
-        # The control tabs that exist only while a microscope is connected, in the order
-        # they were added. Held so that adding and removing them is by identity, not
-        # index: one of them is conditional.
-        self._microscope_tabs: List[QWidget] = []
 
         self.tab_widget = QTabWidget()
         self.setCentralWidget(self.tab_widget)
@@ -97,30 +75,25 @@ class FibsemUI(QMainWindow):
 
     def _create_microscope_tab(self) -> None:
         """The quad view beside the control panel."""
-        container = QWidget()
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-
         # The controller's SEM/FIB/FM canvases are the display and drive the control
         # widgets, which resolve it through their parent.
         self.view_controller = MicroscopeViewController(parent=self)
 
-        self.control_tabs = QTabWidget()
+        # The same control tabs AutoLamella and Volume show, after the Connection tab.
+        self.controls = MicroscopeControls(
+            view_controller=lambda: self.view_controller,
+            overview_acquiring=self._overview_is_acquiring,
+            parent=self,
+        )
         self.system_widget = FibsemSystemSetupWidget(parent=self)
-        self.control_tabs.addTab(self.system_widget, "Connection")
+        self.controls.tabWidget.addTab(self.system_widget, "Connection")
 
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.setChildrenCollapsible(False)
-        splitter.addWidget(self.view_controller.widget)
-        splitter.addWidget(self.control_tabs)
-        splitter.setSizes([720, 460])
-        splitter.widget(1).setMinimumWidth(420)
-        layout.addWidget(splitter)
-
-        self.tab_widget.addTab(
-            container,
-            fibsem_icon("mdi:microscope", color=GRAY_ICON_COLOR),
-            "Microscope",
+        add_microscope_tab(
+            self.tab_widget,
+            self.view_controller,
+            self.controls,
+            sizes=(720, 460),
+            controls_min_width=420,
         )
 
     def _create_overview_tab(self) -> None:
@@ -161,20 +134,32 @@ class FibsemUI(QMainWindow):
         self.microscope = self.system_widget.microscope
         self.settings = self.system_widget.settings
         self.status_bar.set_microscope(self.microscope)
-        self.update_microscope_ui()
+        self._show_microscope()
+        self._build_overview()
         self.update_ui()
 
     def disconnect_from_microscope(self) -> None:
         self.microscope = None
         self.settings = None
         self.status_bar.set_microscope(None)
-        self.update_microscope_ui()
+        self.view_controller.clear()
+        self._show_microscope()
+        self._drop_overview()
         self.update_ui()
-        self.image_widget = None
-        self.movement_widget = None
-        self.milling_widget = None
-        self.sample_widget = None
-        self.overview_widget = None
+
+    def _show_microscope(self) -> None:
+        """The control tabs for the connected microscope, or none."""
+        self.controls.show_microscope(self.microscope, self.settings)
+        image_widget = self.controls.image_widget
+        # The defaults' "Read from Acquire Tab" reads this tab.
+        self.system_widget.set_current_imaging(
+            image_widget._get_image_settings_from_ui
+            if image_widget is not None
+            else None
+        )
+
+    def _overview_is_acquiring(self) -> bool:
+        return self.overview_widget is not None and self.overview_widget.is_acquiring
 
     def closeEvent(self, event) -> None:  # noqa: N802 (Qt override)
         """Let the instrument go rather than leave the client open until the
@@ -183,102 +168,7 @@ class FibsemUI(QMainWindow):
             self.microscope.try_disconnect()
         super().closeEvent(event)
 
-    # ── the widgets a connection brings with it ──────────────────────────
-
-    def _add_control_tab(self, widget: QWidget, label: str) -> None:
-        """Add a control tab that lives only for as long as this connection does."""
-        self.control_tabs.addTab(widget, label)
-        self._microscope_tabs.append(widget)
-
-    def update_microscope_ui(self) -> None:
-        if self.microscope is not None:
-            # reusable components
-            self.image_widget = FibsemImageSettingsWidget(
-                microscope=self.microscope,
-                image_settings=self.settings.image,
-                parent=self,
-                view_controller=lambda: self.view_controller,
-                toggle_movement=lambda enable: (
-                    self.movement_widget._toggle_interactions(enable, caller="ui")
-                ),
-            )
-            self.movement_widget = FibsemMovementWidget(
-                microscope=self.microscope,
-                image_widget=self.image_widget,
-                view_controller=lambda: self.view_controller,
-                milling_widget=lambda: self.milling_widget,
-                parent=self,
-            )
-            self.milling_widget = MillingTaskViewerWidget(
-                microscope=self.microscope,
-                parent=self,
-                image_widget=self.image_widget,  # lets it resolve the quad controller
-            )
-            if self.microscope.is_available("manipulator"):
-                self.manipulator_widget = FibsemManipulatorWidget(
-                    microscope=self.microscope,
-                    settings=self.settings,
-                    viewer=self.viewer,
-                    image_widget=self.image_widget,
-                    parent=self,
-                )
-            else:
-                self.manipulator_widget = None
-
-            # The hardware view of the grids: the holder, and the magazine when
-            # there is one. Slot moves go through the Movement widget, the same
-            # route as a saved position, so the readout and post-move images follow.
-            self.sample_widget = FibsemSampleWidget(
-                microscope=self.microscope, parent=self
-            )
-            self.sample_widget.move_to_requested.connect(
-                self.movement_widget.move_to_position
-            )
-
-            # add widgets to tabs
-            self._add_control_tab(self.image_widget, "Image")
-            self._add_control_tab(self.movement_widget, "Movement")
-            # the tab scrolls the milling widget
-            self._add_control_tab(scrollable(self.milling_widget), "Milling")
-            self._add_control_tab(self.sample_widget, "Sample")
-
-            if self.microscope.is_available("manipulator"):
-                self._add_control_tab(self.manipulator_widget, "Manipulator")
-
-            self.system_widget.image_widget = self.image_widget
-            self.system_widget.set_current_imaging(
-                self.image_widget._get_image_settings_from_ui
-            )
-            self.system_widget.milling_widget = self.milling_widget
-
-            self._build_overview()
-
-        else:
-            if not self._microscope_tabs:
-                return
-
-            # remove tabs
-            for widget in reversed(self._microscope_tabs):
-                index = self.control_tabs.indexOf(widget)
-                if index != -1:
-                    self.control_tabs.removeTab(index)
-            self._microscope_tabs.clear()
-
-            self.image_widget.clear_viewer()
-            # Drop the widgets' controller/canvas connections before deleteLater — the
-            # canvases persist across a reconnect, so a leaked slot would fire on a dead
-            # widget (deleteLater fires neither closeEvent nor close).
-            self.image_widget._teardown_connections()
-            self.image_widget.deleteLater()
-            self.movement_widget._teardown_connections()
-            self.movement_widget.deleteLater()
-            self.milling_widget.deleteLater()
-            self.sample_widget._teardown_connections()
-            self.sample_widget.deleteLater()
-            if self.manipulator_widget is not None:
-                self.manipulator_widget.deleteLater()
-
-            self._drop_overview()
+    # ── the overview a connection brings with it ─────────────────────────
 
     def _build_overview(self) -> None:
         """Fill the Overview tab in, now that there is an instrument to scale it."""
@@ -321,12 +211,7 @@ def main(argv: Optional[List[str]] = None, splash: Optional[Splash] = None):
     flags. ``splash`` is the launcher's splash screen (fibsem.tools.desktop_launch),
     closed once the main window is up.
     """
-    # The quad-view controller is the display, and the overview is a tab beside it.
-    set_app_identity(FIBSEM_UI.name, windows_app_id=FIBSEM_UI.app_id)
-    app = QApplication.instance() or QApplication([])
-    app.setApplicationName(FIBSEM_UI.name)
-    app.setStyle("Fusion")
-    app.setWindowIcon(fibsemos_icon())
+    app = start_qt_app(FIBSEM_UI, fibsemos_icon())
     fibsem_ui = FibsemUI()
     fibsem_ui.show()
     if splash is not None:
