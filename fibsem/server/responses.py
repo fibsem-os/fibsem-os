@@ -1016,9 +1016,6 @@ class AgentRequestView:
     cancel_reason: str = ""
     # one per action run: tool, status_code, ok, and the route's answer
     results: List[Dict[str, Any]] = field(default_factory=list)
-    expires_at: Optional[float] = None
-    # what lapsing does, while it can lapse
-    on_expiry: Optional[str] = None
     # the beam image the card draws the actions' values on
     image: Optional[str] = None
     # what the agent judged from (`fibsem.workflows.evidence`, its record)

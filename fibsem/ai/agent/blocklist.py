@@ -137,23 +137,3 @@ def in_experiment(
         ):
             kwargs[name] = os.path.join(root, value)
     return kwargs
-
-
-def image_refusal(
-    image: Any, experiment_path: Callable[[], Optional[str]]
-) -> Optional[Tuple[int, str, str]]:
-    """Why the image the agent's evidence is in is refused, as (status,
-    error_type, message), or None: an image file inside the open experiment, as
-    the image tools answered its path. A request and a suggested answer take
-    one (FIB-1424)."""
-    if not isinstance(image, str) or not os.path.isfile(image):
-        return (
-            422,
-            "invalid",
-            "image is the path of an image file you took or read (as the image "
-            "tools answered it), or left out.",
-        )
-    why = path_outside({"image_path": image}, experiment_path)
-    if why:
-        return 403, "not_allowed", f"image: {why}."
-    return None
