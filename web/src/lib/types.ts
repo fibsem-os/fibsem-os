@@ -416,5 +416,4 @@ export interface GridMarkers {
   unplaced: { item_name: string; reason: string }[];
   linked?: boolean;
   reason?: string;
-  error?: string;
 }

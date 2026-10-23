@@ -18,6 +18,7 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.codec import encode
+from fibsem.server.responses import Refusal
 from fibsem.structures import MicroscopeState
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.status import TaskStatus
@@ -43,8 +44,17 @@ def microscope():
 
 
 def _plain(value):
-    """A context read as the wire carries it."""
+    """A context read as the wire carries it; a refusal as its error detail."""
+    if isinstance(value, Refusal):
+        return value.detail
     return value if isinstance(value, dict) else encode(value)
+
+
+def _refused(value, error_type):
+    """*value* is a refusal of *error_type*; its detail."""
+    assert isinstance(value, Refusal), value
+    assert value.error_type == error_type, value
+    return value.detail
 
 
 def _assert_json_safe(payload):
@@ -58,15 +68,15 @@ def test_every_method_tolerates_an_empty_host():
         _plain(ctx.queue()),
         _plain(ctx.experiment_summary()),
         _plain(ctx.task_history()),
-        ctx.run_summary(),
-        ctx.protocol(),
+        _plain(ctx.run_summary()),
+        _plain(ctx.protocol()),
         _plain(ctx.task_outputs("anything")),
         _plain(ctx.item_detail("anything")),
     ]
     for payload in payloads:
         _assert_json_safe(payload)
     assert _plain(ctx.status())["experiment"] is None
-    assert _plain(ctx.queue()) == {"available": False, "items": [], "version": None}
+    assert _plain(ctx.queue()) == {"items": [], "version": None}
 
 
 def test_resolution_is_call_time_not_construction_time(experiment):
@@ -91,12 +101,11 @@ def test_status_and_summaries_reflect_a_real_experiment(experiment):
     assert status["workflow"]["running"] is False
 
     summary = _plain(ctx.experiment_summary())
-    assert summary["available"] is True
     assert len(summary["items"]) == 2
     _assert_json_safe(summary)
 
-    protocol = ctx.protocol()
-    assert protocol["available"] is True
+    protocol = _plain(ctx.protocol())
+    assert protocol["tasks"] is not None
     _assert_json_safe(protocol)
 
 
@@ -107,7 +116,6 @@ def test_task_outputs_for_a_real_item_and_a_missing_one(experiment):
 
     name = experiment.positions[0].name
     payload = _plain(ctx.task_outputs(name))
-    assert payload["available"] is True
     assert payload["item_name"] == name
     assert payload["final_reference_images"] == []  # nothing has run
     _assert_json_safe(payload)
@@ -123,9 +131,8 @@ def test_task_outputs_for_a_real_item_and_a_missing_one(experiment):
     assert completed["completed_tasks"] == ["Rough Milling"]
     _assert_json_safe(completed)
 
-    missing = _plain(ctx.task_outputs("no-such-item"))
-    assert missing["available"] is False
-    assert "no-such-item" in missing["error"]
+    missing = _refused(ctx.task_outputs("no-such-item"), "not_found")
+    assert "no-such-item" in missing["message"]
 
 
 def test_output_image_renders_recorded_outputs_only(experiment):
@@ -165,12 +172,10 @@ def test_output_image_renders_recorded_outputs_only(experiment):
     stack = ctx.output_image(lamella.name, zname)
     assert stack["jpeg"][:2] == b"\xff\xd8"
 
-    unknown = ctx.output_image(lamella.name, "not-listed.tif")
-    assert unknown["jpeg"] is None
+    unknown = _refused(ctx.output_image(lamella.name, "not-listed.tif"), "not_found")
     assert sorted(unknown["filenames"]) == [zname, fname]
 
-    missing = ctx.output_image("no-such-item", fname)
-    assert missing["available"] is False
+    _refused(ctx.output_image("no-such-item", fname), "not_found")
 
     # task_outputs keeps the per-run grouping: which task produced which file.
     payload = _plain(ctx.task_outputs(lamella.name))
@@ -197,7 +202,6 @@ def test_task_config_documents_carry_the_full_config_and_a_version(experiment):
     lamella.task_config["Rough Milling"] = config
 
     doc = ctx.protocol_task_config("Rough Milling")
-    assert doc["available"] is True
     assert doc["level"] == "protocol"
     assert doc["config"]["task_type"] == config.to_dict()["task_type"]
     assert len(doc["version"]) == 16
@@ -214,12 +218,12 @@ def test_task_config_documents_carry_the_full_config_and_a_version(experiment):
     config.sync_polishing_position = not config.sync_polishing_position
     assert ctx.protocol_task_config("Rough Milling")["version"] != doc["version"]
 
-    unknown = ctx.protocol_task_config("No Such Task")
-    assert unknown["available"] is True
+    unknown = _refused(ctx.protocol_task_config("No Such Task"), "not_found")
     assert "task_names" in unknown
-    missing_item = ctx.item_task_config("no-such-item", "Rough Milling")
-    assert missing_item["available"] is False
-    no_config = ctx.item_task_config(lamella.name, "No Such Task")
+    _refused(ctx.item_task_config("no-such-item", "Rough Milling"), "not_found")
+    no_config = _refused(
+        ctx.item_task_config(lamella.name, "No Such Task"), "not_found"
+    )
     assert no_config["task_names"] == ["Rough Milling"]
 
 
@@ -240,7 +244,6 @@ def test_item_detail_serves_the_durable_item_facts(experiment):
     lamella.milling_pose = MicroscopeState()
 
     detail = _plain(ctx.item_detail(lamella.name))
-    assert detail["available"] is True
     assert detail["item_name"] == lamella.name
     assert detail["poi"] == {"x": 1.5e-6, "y": -2.5e-6, "name": None}
     assert detail["alignment_area"]["left"] == 0.6
@@ -249,24 +252,19 @@ def test_item_detail_serves_the_durable_item_facts(experiment):
     assert "MILLING" in detail["poses"]
     _assert_json_safe(detail)
 
-    missing = _plain(ctx.item_detail("no-such-item"))
-    assert missing["available"] is False
-    assert "no-such-item" in missing["error"]
+    missing = _refused(ctx.item_detail("no-such-item"), "not_found")
+    assert "no-such-item" in missing["message"]
 
 
 def test_stop_workflow_takes_the_stop_path_only_while_running():
     host = stub_session()
     ctx = AutoLamellaAppContext(host)
-    idle = ctx.stop_workflow()
-    assert idle == {
-        "available": True,
-        "stopped": False,
-        "reason": "no workflow is running",
-    }
+    idle = _plain(ctx.stop_workflow())
+    assert idle == {"stopped": False, "reason": "no workflow is running"}
     assert host.runner.stops == []
 
     host.runner.is_running = True
-    assert ctx.stop_workflow() == {"available": True, "stopped": True}
+    assert _plain(ctx.stop_workflow()) == {"stopped": True}
     assert host.runner.stops == ["run"]
 
 
@@ -297,14 +295,13 @@ def test_set_supervision_flips_the_live_protocol(experiment):
         experiment.task_protocol.get_attention("Rough Milling") is Attention.supervised
     )
 
-    unknown = ctx.set_supervision("No Such Task", True)
-    assert unknown["applied"] is False
+    unknown = _refused(ctx.set_supervision("No Such Task", True), "not_found")
     assert unknown["task_names"] == ["Rough Milling"]
     _assert_json_safe(unknown)
 
-    assert (
-        AutoLamellaAppContext(stub_session()).set_supervision("x", True)["available"]
-        is False
+    _refused(
+        AutoLamellaAppContext(stub_session()).set_supervision("x", True),
+        "no_experiment",
     )
 
 
@@ -315,22 +312,17 @@ def test_set_workflow_options_turns_the_run_summary_off_and_saves(experiment):
     assert ctx.protocol()["options"]["show_run_summary"] is True  # the default
 
     applied = ctx.set_workflow_options(show_run_summary=False)
-    assert applied == {
-        "available": True,
-        "applied": True,
-        "saved": True,
-        "show_run_summary": False,
-    }
+    assert applied == {"applied": True, "saved": True, "show_run_summary": False}
     assert experiment.task_protocol.options.show_run_summary is False
     assert ctx.protocol()["options"]["show_run_summary"] is False
     _assert_json_safe(applied)
 
-    assert AutoLamellaAppContext(stub_session()).set_workflow_options(
-        show_run_summary=False
-    ) == {
-        "available": False,
-        "applied": False,
-    }
+    _refused(
+        AutoLamellaAppContext(stub_session()).set_workflow_options(
+            show_run_summary=False
+        ),
+        "no_experiment",
+    )
 
 
 def test_supervision_sets_attention_and_names_no_supervisor(experiment):
@@ -347,7 +339,6 @@ def test_supervision_sets_attention_and_names_no_supervisor(experiment):
     assert "supervisor" not in ctx.protocol()["tasks"][-1]
     applied = ctx.set_supervision("Rough Milling", True)
     assert applied == {
-        "available": True,
         "applied": True,
         "saved": True,
         "task_name": "Rough Milling",
@@ -383,9 +374,10 @@ def test_requeue_task_reruns_a_completed_pair(experiment, microscope):
     ctx = AutoLamellaAppContext(host)
 
     # Before a run there is no queue: a structured refusal, not an error.
-    idle = ctx.requeue_task(experiment.positions[0].name, "Rough Milling")
-    assert idle["queued"] is False
-    assert "no workflow is running" in idle["reason"]
+    idle = _refused(
+        ctx.requeue_task(experiment.positions[0].name, "Rough Milling"), "not_running"
+    )
+    assert "no workflow is running" in idle["message"]
 
     manager = TaskManager(microscope, experiment)
     manager.queue.build_from_matrix(
@@ -395,26 +387,24 @@ def test_requeue_task_reruns_a_completed_pair(experiment, microscope):
     name = experiment.positions[0].name
 
     # A pair still waiting runs once: asking again is refused, not queued twice.
-    waiting = ctx.requeue_task(name, "Rough Milling")
-    assert waiting["queued"] is False
-    assert waiting["error_type"] == "already_queued"
+    _refused(ctx.requeue_task(name, "Rough Milling"), "already_queued")
 
     first = next(i for i in manager.queue.items if i.item_name == name)
     manager.queue.mark_done(first, TaskStatus.Completed)
     before = len(manager.queue.items)
-    queued = ctx.requeue_task(name, "Rough Milling")
+    queued = _plain(ctx.requeue_task(name, "Rough Milling"))
     assert queued["queued"] is True
     assert queued["queue_version"] == manager.queue.version
     assert len(manager.queue.items) == before + 1
     _assert_json_safe(queued)
-    again = ctx.requeue_task(name, "Rough Milling")
-    assert again["error_type"] == "already_queued"
+    _refused(ctx.requeue_task(name, "Rough Milling"), "already_queued")
     assert len(manager.queue.items) == before + 1
 
     # Refusals stay structured: unknown item, unknown task.
-    assert ctx.requeue_task("no-such-item", "Rough Milling")["queued"] is False
-    bad_task = ctx.requeue_task(experiment.positions[0].name, "No Such Task")
-    assert bad_task["queued"] is False
+    _refused(ctx.requeue_task("no-such-item", "Rough Milling"), "not_found")
+    bad_task = _refused(
+        ctx.requeue_task(experiment.positions[0].name, "No Such Task"), "not_found"
+    )
     assert bad_task["task_names"] == ["Rough Milling"]
 
 
@@ -431,7 +421,6 @@ def test_queue_snapshot_uses_item_name_vocabulary(experiment, microscope):
     ctx = AutoLamellaAppContext(host)
 
     queue = _plain(ctx.queue())
-    assert queue["available"] is True
     assert len(queue["items"]) == 4  # 2 tasks x 2 items
     first = queue["items"][0]
     assert set(first) == {"id", "item_name", "task_name", "status"}
@@ -463,7 +452,7 @@ def test_edit_queue_removes_or_moves_a_waiting_pair(experiment, microscope):
     first, second = (p.name for p in experiment.positions[:2])
 
     # No run, no queue: a structured refusal.
-    assert ctx.edit_queue(first, "Rough Milling", "remove")["applied"] is False
+    _refused(ctx.edit_queue(first, "Rough Milling", "remove"), "not_running")
 
     manager = TaskManager(microscope, experiment)
     manager.queue.build_from_matrix(["Rough Milling"], [first, second])
@@ -471,18 +460,16 @@ def test_edit_queue_removes_or_moves_a_waiting_pair(experiment, microscope):
 
     running = manager.queue.next()
     assert running.item_name == first
-    refused = ctx.edit_queue(first, "Rough Milling", "remove")
-    assert refused["error_type"] == "not_pending"
-    assert "running" in refused["error"]
+    refused = _refused(ctx.edit_queue(first, "Rough Milling", "remove"), "not_pending")
+    assert "running" in refused["message"]
 
-    removed = ctx.edit_queue(second, "Rough Milling", "remove")
+    removed = _plain(ctx.edit_queue(second, "Rough Milling", "remove"))
     assert removed["applied"] is True and removed["changed"] is True
     assert removed["queue_version"] == manager.queue.version
     _assert_json_safe(removed)
     assert manager.queue.pending == []
-    again = ctx.edit_queue(second, "Rough Milling", "remove")
-    assert again["error_type"] == "not_pending"
-    assert "removed" in again["error"]
+    again = _refused(ctx.edit_queue(second, "Rough Milling", "remove"), "not_pending")
+    assert "removed" in again["message"]
 
     (event,) = [
         e for e in buffer.events_since(0)["events"] if e["kind"] == "queue_changed"
@@ -490,11 +477,8 @@ def test_edit_queue_removes_or_moves_a_waiting_pair(experiment, microscope):
     assert event["payload"]["action"] == "remove"
     assert event["payload"]["item_name"] == second
 
-    assert ctx.edit_queue("no-such", "Rough Milling", "remove")["error_type"] == (
-        "not_found"
-    )
-    bad = ctx.edit_queue(second, "Rough Milling", "shuffle")
-    assert bad["error_type"] == "invalid"
+    _refused(ctx.edit_queue("no-such", "Rough Milling", "remove"), "not_found")
+    bad = _refused(ctx.edit_queue(second, "Rough Milling", "shuffle"), "invalid")
     assert "remove" in bad["action_names"]
 
 
@@ -514,9 +498,7 @@ def test_edit_queue_keeps_the_grid_load_step(experiment, microscope):
     )
     host.runner.manager = manager
 
-    refused = ctx.edit_queue("grid-1", LOAD_ENTRY_NAME, "remove")
-
-    assert refused["applied"] is False and refused["error_type"] == "fixed"
+    _refused(ctx.edit_queue("grid-1", LOAD_ENTRY_NAME, "remove"), "fixed")
     assert [i.task_name for i in manager.queue.pending] == [LOAD_ENTRY_NAME, "Overview"]
 
 
