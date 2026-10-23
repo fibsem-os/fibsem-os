@@ -1,5 +1,5 @@
 from fibsem.drivers.autoscript.microscope import THERMO_API_AVAILABLE
-from fibsem.drivers.tescan.microscope import TESCAN_API_AVAILABLE, TESCAN_API_VERSION
+from fibsem.drivers.tescan.sdk import TESCAN_API_AVAILABLE, TESCAN_API_VERSION
 
 
 def main():

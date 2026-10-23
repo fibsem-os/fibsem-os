@@ -20,6 +20,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import logging
+import re
 from typing import TYPE_CHECKING, Any, Optional, Sequence, Tuple, Union
 
 import numpy as np
@@ -28,8 +29,8 @@ import fibsem.constants as constants
 from fibsem.cancellation import AnyStopEvent, OperationCancelledError
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import ParameterMetadata, command
-from fibsem.drivers.tescan import microscope as tescan
-from fibsem.drivers.tescan.microscope import (
+from fibsem.drivers.tescan import sdk
+from fibsem.drivers.tescan.sdk import (
     DEFAULT_IMAGING_PRESET,
     SPOT_BURN_PRESET,
     TESCAN_SCAN_DIRECTIONS,
@@ -44,6 +45,7 @@ from fibsem.structures import (
     BeamType,
     CrossSectionPattern,
     FibsemCircleSettings,
+    FibsemHardwareGeometry,
     FibsemLineSettings,
     FibsemMillingSettings,
     FibsemRectangleSettings,
@@ -58,6 +60,107 @@ if TYPE_CHECKING:
     from fibsem.drivers.tescan.connection import TescanConnection
     from fibsem.drivers.tescan.microscope import TescanMicroscope
     from fibsem.milling.base import FibsemMillingStage
+
+
+# A current token inside a free-form TESCAN preset name, e.g. "30 keV; 100 pA" or
+# "30 keV; 2nA; my cool preset". Only prefixed units (pA/nA/uA/µA): a bare "A" in an
+# arbitrary name (e.g. "slot 2A") is far more likely noise than a beam current.
+_PRESET_CURRENT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*([pnuµ])A(?![a-zA-Z])")
+_SI_CURRENT_PREFIX = {"p": 1e-12, "n": 1e-9, "u": 1e-6, "µ": 1e-6}
+
+
+def parse_current_from_preset(preset: Optional[str]) -> Optional[float]:
+    """Parse the beam current (in A) out of a TESCAN preset name, or None.
+
+    Preset names are free-form on the instrument, but conventionally embed the
+    beam conditions ("30 keV; 100 pA"). The first current-looking token wins.
+    """
+    if not preset:
+        return None
+    match = _PRESET_CURRENT_RE.search(preset)
+    if match is None:
+        return None
+    return float(match.group(1)) * _SI_CURRENT_PREFIX[match.group(2)]
+
+
+def estimate_preset_milling_time(
+    stage: FibsemMillingStage, own: TescanMillingSettings
+) -> Optional[float]:
+    """Dose-model estimate t = volume / (rate × current) for a preset-driven stage,
+    milled with *own*, the stage's Tescan settings.
+
+    The same inputs DrawBeam computes the real exposure from: the stage's own
+    (per-material) etch rate and the current embedded in the preset name. The
+    shared sputter-rate table is a silicon calibration keyed on a current field
+    TESCAN milling ignores. Returns None (the caller falls back to the table)
+    when the preset carries no parseable current or the rate is unusable.
+    """
+    pattern_time = getattr(stage.pattern, "time", 0)
+    if pattern_time:
+        return pattern_time
+
+    current = parse_current_from_preset(own.preset)
+    rate = own.rate  # m³/A/s
+    if current is None or current <= 0 or not rate or rate <= 0:
+        return None
+
+    volume = stage.pattern.volume  # m³
+    if (
+        hasattr(stage.pattern, "cross_section")
+        and stage.pattern.cross_section is CrossSectionPattern.CleaningCrossSection
+    ):
+        volume *= 0.66  # ccs is approx 2/3 of the volume of a rectangle
+    return volume / (rate * current)
+
+
+def coincident_from_sem_stage_movement_tescan_from_geometry(
+    geometry: FibsemHardwareGeometry,
+    stage_position: FibsemStagePosition,
+    dy: float,
+) -> Tuple[float, float]:
+    """Tescan coincidence correction from the SEM view — the single source of the math.
+
+    The SEM-view mirror of ``vertical_move``: slide the sample along the FIB line
+    of sight, which is invisible in the FIB image, until the offset seen in the
+    SEM closes. A feature already positioned in the FIB view therefore lands on
+    both beam axes at once — at the coincidence point. Both gestures move the
+    sample by dy/sin(angle between the two axes), symmetric in the two
+    directions.
+
+    The FIB axis is chamber-fixed, so the sample plane — and with it the shuttle
+    pre-tilt — cancels out of this move entirely; only the stage tilt (the
+    y-axis rides the tilt module) and the column tilts appear:
+
+        y_move = dy * sin(fib) / (cos(tilt) * sin(fib - sem))
+        z_move = dy * cos(fib - tilt) / (cos(tilt) * sin(fib - sem))
+
+    which for a vertical SEM column (sem = 0) reduces to y = dy/cos(tilt),
+    z = dy*(tan(tilt) + cot(fib)). See
+    https://linear.app/fibsemos/document/tescan-sample-plane-stage-movement-stable-move-derivation-ae56d0f2c414
+    for the derivation, the figures, and how the signs are pinned by the two
+    hardware-verified moves.
+
+    Args:
+        geometry: fixed instrument geometry (only the column tilts are used —
+            the pre-tilt and rotation references drop out of this move).
+        stage_position: stage pose (tilt t, radians).
+        dy: offset along the image y-axis in the SEM view, in metres.
+
+    Returns:
+        (y_move, z_move) in metres — before the stage-axis inversion the caller
+        applies (``y_stage = -y_move``, z unchanged), in Tescan's own frame.
+    """
+    stage_tilt = stage_position.t if stage_position.t is not None else 0.0
+    sem_column_tilt = np.deg2rad(geometry.column_tilt)
+    fib_column_tilt = np.deg2rad(geometry.fib_column_tilt)
+
+    # distance along the FIB axis that closes a SEM-view offset of dy: one
+    # beam axis, seen from the other, is foreshortened by sin(angle between them)
+    axis_move = dy / np.sin(fib_column_tilt - sem_column_tilt)
+
+    y_move = axis_move * np.sin(fib_column_tilt) / np.cos(stage_tilt)
+    z_move = axis_move * np.cos(fib_column_tilt - stage_tilt) / np.cos(stage_tilt)
+    return float(y_move), float(z_move)
 
 
 class TescanMilling(Milling):
@@ -82,9 +185,7 @@ class TescanMilling(Milling):
         # Tescan milling is preset-driven: the dose model (stage rate x preset
         # current), not the shared table keyed on the unused milling_current. A
         # preset the model can't read falls back to the table.
-        estimate = tescan.estimate_preset_milling_time(
-            stage, cls.own_settings(stage.milling)
-        )
+        estimate = estimate_preset_milling_time(stage, cls.own_settings(stage.milling))
         if estimate is None:
             return super().estimate_stage(stage)
         return estimate
@@ -107,7 +208,7 @@ class TescanMilling(Milling):
         microscope.milling_channel = settings.milling_channel
         # QUERY: do we need to set this here as it is also set in IEtching?
         self.ion.preset.write_through(own.preset)
-        layer_settings = tescan.IEtching(
+        layer_settings = sdk.IEtching(
             syncWriteField=False,
             writeFieldSize=settings.hfw,
             beamCurrent=microscope.get_beam_current(settings.milling_channel),
@@ -174,13 +275,13 @@ class TescanMilling(Milling):
             CenterX=centre.x,
             CenterY=centre.y,
             Depth=exposure_time,
-            DepthUnit=tescan.DepthUnit.Second,
+            DepthUnit=sdk.DepthUnit.Second,
         )
 
     def read_state(self) -> MillingState:
         with self.connection.lock:
             status = self.connection.sdk.DrawBeam.GetStatus()[0]
-        return tescan.DrawBeamStatusToPatterningState[status]
+        return sdk.DrawBeamStatusToPatterningState[status]
 
     def _start(self) -> None:
         with self.connection.lock:
@@ -191,12 +292,12 @@ class TescanMilling(Milling):
         # TODO: improve thread safety to stop from another thread
         thread_connection = None
         try:
-            thread_connection = tescan.Automation(
+            thread_connection = sdk.Automation(
                 self.connection.ip_address, port=self.connection.port
             )
             if (
                 thread_connection.DrawBeam.GetStatus()[0]
-                == tescan.DBStatus.ProjectLoadedExpositionInProgress
+                == sdk.DBStatus.ProjectLoadedExpositionInProgress
             ):
                 logging.info("Milling is in progress, stopping now...")
                 thread_connection.DrawBeam.Stop()
@@ -240,7 +341,7 @@ class TescanMilling(Milling):
         connection = self.connection
         with connection.lock:
             status, total, elapsed = connection.sdk.DrawBeam.GetStatus()
-        state = tescan.DrawBeamStatusToPatterningState[status]
+        state = sdk.DrawBeamStatusToPatterningState[status]
         if total <= 0:  # DrawBeam reports no total until the exposition is under way
             return progress_update(state=state)
         if state is MillingState.RUNNING:
@@ -332,7 +433,7 @@ class TescanStageMovement(StageMovement):
             dx *= -1.0
             dy *= -1.0
 
-        y_move, z_move = tescan.coincident_from_sem_stage_movement_tescan_from_geometry(
+        y_move, z_move = coincident_from_sem_stage_movement_tescan_from_geometry(
             geometry=self.parent.hardware_geometry(),
             stage_position=self._position(),
             dy=dy,

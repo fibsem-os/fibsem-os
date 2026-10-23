@@ -24,7 +24,8 @@ import pytest
 
 from fibsem.drivers.tescan import connection as tescan_connection
 from fibsem.drivers.tescan import devices as tescan_devices
-from fibsem.drivers.tescan import microscope as tescan_module
+from fibsem.drivers.tescan import microscope as tescan_microscope
+from fibsem.drivers.tescan import sdk
 from fibsem.drivers.tescan import services as tescan_services
 from fibsem.drivers.tescan.connection import TescanConnection
 from fibsem.drivers.tescan.microscope import TescanMicroscope
@@ -98,7 +99,7 @@ class _LockAudit(ast.NodeVisitor):
 
 @pytest.mark.parametrize(
     "module",
-    [tescan_module, tescan_connection, tescan_devices, tescan_services],
+    [tescan_microscope, tescan_connection, tescan_devices, tescan_services],
     ids=lambda m: m.__name__,
 )
 def test_every_sdk_call_site_is_under_the_connection_lock(module):
@@ -166,7 +167,7 @@ def make_microscope(monkeypatch):
     # the status mapping is defined inside the SDK-gated import block, absent
     # without tescanautomation installed (same pattern as the spot-burn tests)
     monkeypatch.setattr(
-        tescan_module,
+        sdk,
         "DrawBeamStatusToPatterningState",
         {"IDLE": MillingState.IDLE},
         raising=False,

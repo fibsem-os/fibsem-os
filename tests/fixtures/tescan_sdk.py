@@ -24,7 +24,7 @@ from typing import List, Optional, Sequence
 import numpy as np
 
 from fibsem.drivers.tescan import connection as tescan_connection
-from fibsem.drivers.tescan import microscope as tescan_module
+from fibsem.drivers.tescan import sdk
 from fibsem.drivers.tescan.images import image_from_tescan
 from fibsem.drivers.tescan.microscope import TescanMicroscope
 from fibsem.structures import (
@@ -370,13 +370,13 @@ class FakeTescan(Node):
 def install(monkeypatch, fake: Optional[FakeTescan] = None) -> FakeTescan:
     """Patch the driver so a connect, however it is made, connects to ``fake``."""
     fake = fake or FakeTescan()
-    monkeypatch.setattr(tescan_module, "TESCAN_API_AVAILABLE", True, raising=False)
+    monkeypatch.setattr(sdk, "TESCAN_API_AVAILABLE", True, raising=False)
     monkeypatch.setattr(
-        tescan_module, "Automation", lambda *args, **kwargs: fake, raising=False
+        sdk, "Automation", lambda *args, **kwargs: fake, raising=False
     )
-    monkeypatch.setattr(tescan_module, "Detector", FakeDetector, raising=False)
+    monkeypatch.setattr(sdk, "Detector", FakeDetector, raising=False)
     monkeypatch.setattr(
-        tescan_module,
+        sdk,
         "Bpp",
         types.SimpleNamespace(Grayscale_8_bit="Grayscale_8_bit"),
         raising=False,
@@ -385,11 +385,11 @@ def install(monkeypatch, fake: Optional[FakeTescan] = None) -> FakeTescan:
     monkeypatch.setattr(tescan_connection, "TESCAN_ELECTRON_TO_ION_SETTLE_TIME", 0)
     # DrawBeam: a layer's settings are the keywords they were made from
     monkeypatch.setattr(
-        tescan_module, "IEtching", lambda **kwargs: kwargs, raising=False
+        sdk, "IEtching", lambda **kwargs: kwargs, raising=False
     )
-    monkeypatch.setattr(tescan_module, "DBStatus", DBStatus, raising=False)
+    monkeypatch.setattr(sdk, "DBStatus", DBStatus, raising=False)
     monkeypatch.setattr(
-        tescan_module,
+        sdk,
         "DrawBeamStatusToPatterningState",
         {
             DBStatus.ProjectNotLoaded: MillingState.IDLE,

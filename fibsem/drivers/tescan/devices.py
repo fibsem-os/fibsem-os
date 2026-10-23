@@ -29,7 +29,7 @@ from fibsem.devices.beam import UNBOUNDED_SHIFT_LIMITS, Beam
 from fibsem.devices.core import ParameterMetadata, Resources
 from fibsem.devices.entries import beam_type_of
 from fibsem.devices.stage import AXIS_UNITS, UNLIMITED, Stage
-from fibsem.drivers.tescan import images
+from fibsem.drivers.tescan import images, sdk
 from fibsem.structures import (
     BeamSettings,
     BeamType,
@@ -84,14 +84,10 @@ class TescanBeam(Beam):
         connection: TescanConnection,
         resources: Optional[Resources] = None,
     ):
-        from fibsem.drivers.tescan.microscope import (
-            TESCAN_PRESERVE_SETTINGS_ON_PRESET_CHANGE,
-        )
-
         super().__init__(beam_type, parent=parent, resources=resources)
         self.connection = connection
         self.preserve_settings_on_preset_change: bool = (
-            TESCAN_PRESERVE_SETTINGS_ON_PRESET_CHANGE
+            sdk.TESCAN_PRESERVE_SETTINGS_ON_PRESET_CHANGE
         )
         # The detector the column images with, set by write_detector_type.
         self._detector: Any = None
@@ -200,19 +196,15 @@ class TescanBeam(Beam):
             return self._beam.Optics.GetViewfield() * constants.MILLIMETRE_TO_METRE
 
     def write_hfw(self, value: float) -> None:
-        from fibsem.drivers.tescan.microscope import LIMITS
-
         with self._lock:
             beam = self._prepared()
-            limits = LIMITS[self.beam_type]["hfw"]
+            limits = sdk.LIMITS[self.beam_type]["hfw"]
             value = np.clip(value, limits[0], limits[1])
             beam.Optics.SetViewfield(value * constants.METRE_TO_MILLIMETRE)
             logging.debug(f"{self.beam_type.name} HFW set to {value} m.")
 
     def metadata_hfw(self) -> ParameterMetadata:
-        from fibsem.drivers.tescan.microscope import LIMITS
-
-        low, high = LIMITS[self.beam_type]["hfw"]
+        low, high = sdk.LIMITS[self.beam_type]["hfw"]
         return ParameterMetadata(limits=RangeLimit(min=low, max=high))
 
     def read_scan_rotation(self) -> float:
@@ -373,8 +365,6 @@ class TescanBeam(Beam):
     # before, and the SDK call holds the connection lock for the whole frame (FIB-786).
 
     def _acquire(self, image_settings: Optional[ImageSettings]) -> FibsemImage:
-        from fibsem.drivers.tescan import microscope as tescan
-
         microscope = self.parent
         connection = self.connection
         beam_type = self.beam_type
@@ -418,7 +408,7 @@ class TescanBeam(Beam):
             else:
                 image = beam.Scan.AcquireImage(
                     Detector=detector,
-                    Bpp=tescan.Bpp.Grayscale_8_bit,
+                    Bpp=sdk.Bpp.Grayscale_8_bit,
                     Width=image_width,
                     Height=image_height,
                     DwellTime=dwell_time_ns,
@@ -497,9 +487,7 @@ class TescanBeam(Beam):
 
     def _get_detector(self, detector_type: Union[Any, str]) -> Optional[Any]:
         """The SDK detector named ``detector_type``, or None if the column has none."""
-        from fibsem.drivers.tescan import microscope as tescan
-
-        if isinstance(detector_type, tescan.Detector):
+        if isinstance(detector_type, sdk.Detector):
             detector_type = detector_type.name
 
         for detector in self.list_detectors():
@@ -709,11 +697,9 @@ class TescanStage(Stage):
         )
 
     def read_position(self) -> FibsemStagePosition:
-        from fibsem.drivers.tescan.microscope import from_tescan_stage_position
-
         with self._lock:
             position = self.connection.sdk.Stage.GetPosition()
-        return self.from_native(from_tescan_stage_position(position))
+        return self.from_native(sdk.from_tescan_stage_position(position))
 
     def metadata_position(self) -> ParameterMetadata:
         return ParameterMetadata(limits={axis: UNLIMITED for axis in AXIS_UNITS})
@@ -746,10 +732,8 @@ class TescanStage(Stage):
         return FibsemStagePosition(x=x, y=y, z=z, r=position.r, t=position.t)
 
     def _move_absolute(self, position: FibsemStagePosition) -> None:
-        from fibsem.drivers.tescan.microscope import to_tescan_stage_position
-
         logging.info(f"Moving stage to {position}.")
-        x, y, z, r, t = to_tescan_stage_position(position=self._native(position))
+        x, y, z, r, t = sdk.to_tescan_stage_position(position=self._native(position))
         with self._lock:
             self.connection.sdk.Stage.MoveTo(x=x, y=y, z=z, rot=r, tiltx=t)
         logging.debug({"msg": "move_stage_absolute", "position": position.to_dict()})

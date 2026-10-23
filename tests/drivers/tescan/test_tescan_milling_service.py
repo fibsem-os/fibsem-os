@@ -18,7 +18,7 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.drivers.tescan import connection as tescan_connection
-from fibsem.drivers.tescan import microscope as tescan_module
+from fibsem.drivers.tescan import sdk
 from fibsem.drivers.tescan.services import TescanMilling
 from fibsem.milling.progress import MillingProgressStatus
 from fibsem.services.milling import UnsupportedPattern
@@ -49,7 +49,7 @@ def connect(monkeypatch, tescan_system):
         fake.FIB.Preset.names = [
             MILL_PRESET,
             IMAGING_PRESET,
-            tescan_module.DEFAULT_IMAGING_PRESET,
+            sdk.DEFAULT_IMAGING_PRESET,
         ]
         return tescan_sdk.connect(monkeypatch, tescan_system, fake)
 
@@ -168,7 +168,7 @@ def test_milling_makes_the_same_drawbeam_calls(connect, imaging_preset):
     # the same layer, patterns, run and unload
     assert _plain(drawbeam(fake)) == old["drawbeam"]
     # the milling preset, then the one milling found (or the imaging default)
-    restored = imaging_preset or tescan_module.DEFAULT_IMAGING_PRESET
+    restored = imaging_preset or sdk.DEFAULT_IMAGING_PRESET
     assert activated(fake) == old["activated"] == [MILL_PRESET, restored]
 
 
@@ -227,7 +227,7 @@ def test_stop_connects_on_the_port_the_microscope_connected_on(connect, monkeypa
         opened.append((args, kwargs))
         return fake
 
-    monkeypatch.setattr(tescan_module, "Automation", automation, raising=False)
+    monkeypatch.setattr(sdk, "Automation", automation, raising=False)
     microscope.stop_milling()
     assert opened == [(("localhost",), {"port": 8301})]
 
@@ -388,7 +388,7 @@ def test_a_second_setup_keeps_the_preset_milling_found(connect):
 
 def test_each_milling_puts_back_the_preset_it_found(connect):
     microscope, fake = connect()
-    for found in (IMAGING_PRESET, tescan_module.DEFAULT_IMAGING_PRESET):
+    for found in (IMAGING_PRESET, sdk.DEFAULT_IMAGING_PRESET):
         microscope.set_preset(found, BeamType.ION)
         microscope.setup_milling(_recipe())
         microscope.finish_milling()

@@ -1,66 +1,19 @@
 import logging
-import re
-import sys
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Optional
 
-import numpy as np
-
-import fibsem.constants as constants
+from fibsem.drivers.tescan import sdk
 from fibsem.drivers.tescan.connection import TescanConnection
 from fibsem.drivers.tescan.devices import STAGE_FRAME_TESCAN
-from fibsem.drivers.tescan.settings import TescanMillingSettings
+from fibsem.drivers.tescan.services import (
+    TescanStageMovement,
+    bind_tescan_milling,
+    bind_tescan_spot_burn,
+)
 from fibsem.microscope import (
     BEAM_TYPES,
     STAGE_TYPES,
     FibsemMicroscope,
 )
-
-TESCAN_API_AVAILABLE = False
-# Read through this rather than importing tescanautomation yourself: the guarded
-# import below is also what strips the SDK's PySide6 GUI modules out of
-# sys.modules, and that has to have happened first.
-TESCAN_API_VERSION: Optional[str] = None
-TESCAN_PRESERVE_SETTINGS_ON_PRESET_CHANGE = True  # Restore rotation/FOV/shift across preset changes, if false, use the values stored in the preset
-SPOT_BURN_PRESET = "30 keV; 100 pA"  # Beam conditions used for spot burning
-DEFAULT_IMAGING_PRESET = (
-    "30 keV; 10 pA"  # Fallback for finish_milling when no preset was snapshotted
-)
-# The DrawBeam scanning paths a pattern can take.
-TESCAN_SCAN_DIRECTIONS = (
-    "ZigZag",
-    "Flyback",
-    "RLE",
-    "SpiralInsideOut",
-    "SpiralOutsideIn",
-)
-
-try:
-    import tescanautomation
-    from tescanautomation import Automation
-
-    # Bpp, Detector, DepthUnit and IEtching are read through this module by devices.py
-    # and services.py.
-    from tescanautomation.Common import Bpp, Detector, Document  # noqa: F401
-    from tescanautomation.DrawBeam import DepthUnit, IEtching  # noqa: F401
-    from tescanautomation.DrawBeam import Status as DBStatus
-
-    sys.modules.pop("tescanautomation.GUI")
-    sys.modules.pop("tescanautomation.pyside6gui")
-    sys.modules.pop("tescanautomation.pyside6gui.imageViewer_private")
-    sys.modules.pop("tescanautomation.pyside6gui.infobar_private")
-    sys.modules.pop("tescanautomation.pyside6gui.infobar_utils")
-    sys.modules.pop("tescanautomation.pyside6gui.rc_GUI")
-    sys.modules.pop("tescanautomation.pyside6gui.workflow_private")
-    sys.modules.pop("PySide6.QtCore")
-    TESCAN_API_AVAILABLE = True
-    # getattr, not attribute access: this runs inside the try, so an SDK build
-    # without __version__ would otherwise be caught below and disable the whole
-    # Tescan backend over a missing version string.
-    TESCAN_API_VERSION = getattr(tescanautomation, "__version__", None)
-except Exception as e:
-    logging.debug(f"Automation (TESCAN) not installed. {e}")
-
-from fibsem.milling.base import FibsemMillingStage
 from fibsem.structures import (  # noqa
     ACTIVE_MILLING_STATES,
     BeamSystemSettings,
@@ -84,158 +37,7 @@ from fibsem.structures import (  # noqa
     SystemSettings,
 )
 
-
-def from_tescan_stage_position(position: Tuple[float]) -> FibsemStagePosition:
-    """Convert a Tescan stage position to a FibsemStagePosition object."""
-    x, y, z, r, t = position[:5]  # stage can be up to 6D
-
-    stage_position = FibsemStagePosition(
-        x=x * constants.MILLIMETRE_TO_METRE,
-        y=y * constants.MILLIMETRE_TO_METRE,
-        z=z * constants.MILLIMETRE_TO_METRE,
-        r=r * constants.DEGREES_TO_RADIANS,
-        t=t * constants.DEGREES_TO_RADIANS,
-        coordinate_system="RAW",
-    )
-    return stage_position
-
-
-def to_tescan_stage_position(position: FibsemStagePosition) -> Tuple[float]:
-    """Convert a FibsemStagePosition object to a Tescan stage position."""
-    x = position.x * constants.METRE_TO_MILLIMETRE if position.x is not None else None
-    y = position.y * constants.METRE_TO_MILLIMETRE if position.y is not None else None
-    z = position.z * constants.METRE_TO_MILLIMETRE if position.z is not None else None
-    r = position.r * constants.RADIANS_TO_DEGREES if position.r is not None else None
-    t = position.t * constants.RADIANS_TO_DEGREES if position.t is not None else None
-    return x, y, z, r, t
-
-
-def coincident_from_sem_stage_movement_tescan_from_geometry(
-    geometry: FibsemHardwareGeometry,
-    stage_position: FibsemStagePosition,
-    dy: float,
-) -> Tuple[float, float]:
-    """Tescan coincidence correction from the SEM view — the single source of the math.
-
-    The SEM-view mirror of ``vertical_move``: slide the sample along the FIB line
-    of sight, which is invisible in the FIB image, until the offset seen in the
-    SEM closes. A feature already positioned in the FIB view therefore lands on
-    both beam axes at once — at the coincidence point. Both gestures move the
-    sample by dy/sin(angle between the two axes), symmetric in the two
-    directions.
-
-    The FIB axis is chamber-fixed, so the sample plane — and with it the shuttle
-    pre-tilt — cancels out of this move entirely; only the stage tilt (the
-    y-axis rides the tilt module) and the column tilts appear:
-
-        y_move = dy * sin(fib) / (cos(tilt) * sin(fib - sem))
-        z_move = dy * cos(fib - tilt) / (cos(tilt) * sin(fib - sem))
-
-    which for a vertical SEM column (sem = 0) reduces to y = dy/cos(tilt),
-    z = dy*(tan(tilt) + cot(fib)). See
-    https://linear.app/fibsemos/document/tescan-sample-plane-stage-movement-stable-move-derivation-ae56d0f2c414
-    for the derivation, the figures, and how the signs are pinned by the two
-    hardware-verified moves.
-
-    Args:
-        geometry: fixed instrument geometry (only the column tilts are used —
-            the pre-tilt and rotation references drop out of this move).
-        stage_position: stage pose (tilt t, radians).
-        dy: offset along the image y-axis in the SEM view, in metres.
-
-    Returns:
-        (y_move, z_move) in metres — before the stage-axis inversion the caller
-        applies (``y_stage = -y_move``, z unchanged), in Tescan's own frame.
-    """
-    stage_tilt = stage_position.t if stage_position.t is not None else 0.0
-    sem_column_tilt = np.deg2rad(geometry.column_tilt)
-    fib_column_tilt = np.deg2rad(geometry.fib_column_tilt)
-
-    # distance along the FIB axis that closes a SEM-view offset of dy: one
-    # beam axis, seen from the other, is foreshortened by sin(angle between them)
-    axis_move = dy / np.sin(fib_column_tilt - sem_column_tilt)
-
-    y_move = axis_move * np.sin(fib_column_tilt) / np.cos(stage_tilt)
-    z_move = axis_move * np.cos(fib_column_tilt - stage_tilt) / np.cos(stage_tilt)
-    return float(y_move), float(z_move)
-
-
-FibsemStagePosition.from_tescan_stage_position = from_tescan_stage_position
-
-try:
-    DrawBeamStatusToPatterningState = {
-        DBStatus.ProjectNotLoaded: MillingState.IDLE,
-        DBStatus.ProjectLoadedExpositionIdle: MillingState.IDLE,
-        DBStatus.ProjectLoadedExpositionInProgress: MillingState.RUNNING,
-        DBStatus.ProjectLoadedExpositionPaused: MillingState.PAUSED,
-        DBStatus.Unknown: MillingState.ERROR,
-    }
-except Exception:
-    pass
-
-SEM_LIMITS: Dict[str, Tuple] = {
-    "hfw": (1.0e-6, 2580.0e-6),
-}
-FIB_LIMITS: Dict[str, Tuple] = {
-    "hfw": (1.0e-6, 450.0e-6),
-}
-
-LIMITS = {
-    BeamType.ELECTRON: SEM_LIMITS,
-    BeamType.ION: FIB_LIMITS,
-}
-
-
-# A current token inside a free-form TESCAN preset name, e.g. "30 keV; 100 pA" or
-# "30 keV; 2nA; my cool preset". Only prefixed units (pA/nA/uA/µA): a bare "A" in an
-# arbitrary name (e.g. "slot 2A") is far more likely noise than a beam current.
-_PRESET_CURRENT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*([pnuµ])A(?![a-zA-Z])")
-_SI_CURRENT_PREFIX = {"p": 1e-12, "n": 1e-9, "u": 1e-6, "µ": 1e-6}
-
-
-def parse_current_from_preset(preset: Optional[str]) -> Optional[float]:
-    """Parse the beam current (in A) out of a TESCAN preset name, or None.
-
-    Preset names are free-form on the instrument, but conventionally embed the
-    beam conditions ("30 keV; 100 pA"). The first current-looking token wins.
-    """
-    if not preset:
-        return None
-    match = _PRESET_CURRENT_RE.search(preset)
-    if match is None:
-        return None
-    return float(match.group(1)) * _SI_CURRENT_PREFIX[match.group(2)]
-
-
-def estimate_preset_milling_time(
-    stage: FibsemMillingStage, own: TescanMillingSettings
-) -> Optional[float]:
-    """Dose-model estimate t = volume / (rate × current) for a preset-driven stage,
-    milled with *own*, the stage's Tescan settings.
-
-    The same inputs DrawBeam computes the real exposure from: the stage's own
-    (per-material) etch rate and the current embedded in the preset name. The
-    shared sputter-rate table is a silicon calibration keyed on a current field
-    TESCAN milling ignores. Returns None (the caller falls back to the table)
-    when the preset carries no parseable current or the rate is unusable.
-    """
-    pattern_time = getattr(stage.pattern, "time", 0)
-    if pattern_time:
-        return pattern_time
-
-    current = parse_current_from_preset(own.preset)
-    rate = own.rate  # m³/A/s
-    if current is None or current <= 0 or not rate or rate <= 0:
-        return None
-
-    volume = stage.pattern.volume  # m³
-    if (
-        hasattr(stage.pattern, "cross_section")
-        and stage.pattern.cross_section is CrossSectionPattern.CleaningCrossSection
-    ):
-        volume *= 0.66  # ccs is approx 2/3 of the volume of a rectangle
-    return volume / (rate * current)
-
+FibsemStagePosition.from_tescan_stage_position = sdk.from_tescan_stage_position
 
 # The device types each connect step builds (``FibsemMicroscope._build_devices``).
 # The FM is built on its own path; any other type a configuration adds is built last.
@@ -264,7 +66,7 @@ class TescanMicroscope(FibsemMicroscope):
     _connection: Optional[TescanConnection] = None
 
     def __init__(self, system_settings: SystemSettings):
-        if not TESCAN_API_AVAILABLE:
+        if not sdk.TESCAN_API_AVAILABLE:
             raise ImportError(
                 "The TESCAN Automation API is not available. Please see the user guide for installation instructions."
             )
@@ -306,7 +108,7 @@ class TescanMicroscope(FibsemMicroscope):
         """
         logging.info(f"Microscope client connecting to [{ip_address}:{port}]")
         self._connection = TescanConnection(
-            Automation(ip_address, port), ip_address, port
+            sdk.Automation(ip_address, port), ip_address, port
         )
         logging.info(f"Microscope client connected to [{ip_address}:{port}]")
 
@@ -362,22 +164,16 @@ class TescanMicroscope(FibsemMicroscope):
     def _build_milling(self) -> None:
         """Build the milling service over the beams; the milling methods then go to it
         (`FibsemMicroscope`). Without an ion beam there is none, and they raise."""
-        from fibsem.drivers.tescan.services import bind_tescan_milling
-
         self.milling = bind_tescan_milling(self)
 
     def _build_stage_movement(self, service: Optional[type] = None) -> None:
         """Build the stage movement service, with Tescan's own coincidence move from
         the SEM view (`TescanStageMovement`)."""
-        from fibsem.drivers.tescan.services import TescanStageMovement
-
         super()._build_stage_movement(service or TescanStageMovement)
 
     def _build_spot_burn(self) -> None:
         """Build the spot burn service over the milling service; `run_spot_burn` then
         goes to it. Without milling there is none, and the method below burns."""
-        from fibsem.drivers.tescan.services import bind_tescan_spot_burn
-
         self.spot_burn = bind_tescan_spot_burn(self)
 
     @property
