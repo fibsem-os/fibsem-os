@@ -13,7 +13,6 @@ from typing import Dict, Iterator, Optional, Sequence
 
 import pytest
 from psygnal.containers import EventedDict
-from PyQt5.QtCore import QCoreApplication, QEvent
 
 from tests.protocols import planned, task_protocol
 
@@ -72,6 +71,8 @@ def main_window(
             win.close()
         finally:
             qapp.quit = original_quit
+        from PyQt5.QtCore import QCoreApplication, QEvent
+
         win.deleteLater()
         QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         qapp.processEvents()
