@@ -11,7 +11,10 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.ui import utils as fui
+from fibsem.applications.autolamella.ui.protocol.picker import (
+    ProtocolSummary,
+    pick_protocol,
+)
 from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
@@ -19,12 +22,6 @@ from fibsem.ui.stylesheets import (
 from fibsem.ui.widgets.custom_widgets import TitledPanel
 
 # Error message constants
-ERROR_INVALID_PROTOCOL_TITLE = "Invalid Protocol"
-ERROR_INVALID_PROTOCOL_MSG = (
-    "The selected protocol file is not valid. It may be corrupted, incorrectly formatted, or missing required fields.\n\n"
-    "Error: {error}\n\n"
-    "Please select a valid protocol file (*.yaml)."
-)
 
 ERROR_NO_PROTOCOL_TITLE = "No Protocol"
 ERROR_NO_PROTOCOL_MSG = "Please select a task protocol file."
@@ -114,32 +111,8 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
 
         protocol_layout.addLayout(protocol_button_layout)
 
-        # Protocol form fields (all read-only)
-        protocol_form_layout = QtWidgets.QFormLayout()
-
-        self.lineEdit_protocol_name = QtWidgets.QLineEdit()
-        self.lineEdit_protocol_name.setEnabled(False)
-        self.lineEdit_protocol_name.setPlaceholderText("No protocol loaded")
-
-        self.lineEdit_protocol_description = QtWidgets.QLineEdit()
-        self.lineEdit_protocol_description.setEnabled(False)
-        self.lineEdit_protocol_description.setPlaceholderText("No protocol loaded")
-
-        self.lineEdit_protocol_path = QtWidgets.QLineEdit()
-        self.lineEdit_protocol_path.setEnabled(False)
-        self.lineEdit_protocol_path.setPlaceholderText("No protocol loaded")
-        self.lineEdit_protocol_path.setCursorPosition(0)
-
-        self.lineEdit_protocol_tasks = QtWidgets.QLineEdit()
-        self.lineEdit_protocol_tasks.setEnabled(False)
-        self.lineEdit_protocol_tasks.setPlaceholderText("0")
-
-        protocol_form_layout.addRow("Name", self.lineEdit_protocol_name)
-        protocol_form_layout.addRow("Description", self.lineEdit_protocol_description)
-        protocol_form_layout.addRow("Path", self.lineEdit_protocol_path)
-        protocol_form_layout.addRow("Tasks", self.lineEdit_protocol_tasks)
-
-        protocol_layout.addLayout(protocol_form_layout)
+        self.protocol_summary = ProtocolSummary()
+        protocol_layout.addWidget(self.protocol_summary)
 
         # Protocol warning/info label
         self.label_protocol_warning = QtWidgets.QLabel(
@@ -224,29 +197,10 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
 
     def _select_protocol(self):
         """Open dialog to select a protocol file."""
-        # Open file dialog at the directory of the current protocol or default
-        protocol_path = fui.open_existing_file_dialog(
-            msg="Select a task protocol file (*.yaml)",
-            path=str(cfg.USER_PROTOCOL_PATH),
-            parent=self,
-        )
-
-        if not protocol_path or protocol_path == "":
+        picked = pick_protocol(self, str(cfg.USER_PROTOCOL_PATH))
+        if picked is None:
             return
-
-        # Validate the protocol file
-        try:
-            loaded_protocol = AutoLamellaTaskProtocol.load(protocol_path)
-        except Exception as e:
-            logging.error(f"Failed to load protocol: {e}")
-            self.btn_ok.setEnabled(False)  # Keep OK button disabled on error
-            QtWidgets.QMessageBox.critical(
-                self,
-                ERROR_INVALID_PROTOCOL_TITLE,
-                ERROR_INVALID_PROTOCOL_MSG.format(error=e),
-            )
-            return
-
+        protocol_path, loaded_protocol = picked
         self.protocol = loaded_protocol
         self.protocol_path = protocol_path
         self._protocol_changed = not self._is_protocol_same_as_initial(loaded_protocol)
@@ -254,28 +208,12 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
             self.protocol_path = self._initial_protocol_path
         self.btn_ok.setEnabled(True)  # Enable OK button when new protocol is loaded
         self._update_protocol_display()
-        logging.info(f"Protocol loaded successfully from {protocol_path}")
-
     def _update_protocol_display(self):
         """Update the protocol information display."""
-        if self.protocol is None:
-            self.lineEdit_protocol_name.setText("")
-            self.lineEdit_protocol_description.setText("")
-            self.lineEdit_protocol_path.setText("")
-            self.lineEdit_protocol_tasks.setText("0")
-            self._update_warning_visibility()
-            return
-
-        self.lineEdit_protocol_name.setText(self.protocol.name or "")
-        self.lineEdit_protocol_description.setText(self.protocol.description or "")
-        display_path = (
-            self.protocol_path if self.protocol_path else "(Current protocol)"
+        self.protocol_summary.show_protocol(
+            self.protocol, self.protocol_path or "(Current protocol)"
         )
-        self.lineEdit_protocol_path.setText(display_path)
-        self.lineEdit_protocol_path.setCursorPosition(0)
-        self.lineEdit_protocol_tasks.setText(str(len(self.protocol.task_config)))
         self._update_warning_visibility()
-
     def _on_ok_clicked(self):
         """Accept the chosen protocol. The window adopts and saves it; the
         dialog saves nothing itself."""

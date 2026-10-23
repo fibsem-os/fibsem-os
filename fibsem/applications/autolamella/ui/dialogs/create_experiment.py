@@ -16,10 +16,13 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
+from fibsem.applications.autolamella.ui.protocol.picker import (
+    ProtocolSummary,
+    pick_protocol,
+)
 from fibsem.config import load_user_preferences
 from fibsem.constants import DATETIME_EXPERIMENT
 from fibsem.theme.tokens import ERROR_COLOR, TEXT_MUTED_COLOR, WARN_COLOR
-from fibsem.ui import utils as fui
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
@@ -209,32 +212,8 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
         self.btn_select_protocol = QtWidgets.QPushButton("Select")
         self.btn_select_protocol.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
 
-        # Protocol form fields (all read-only)
-        protocol_form_layout = QtWidgets.QFormLayout()
-
-        self.lineEdit_protocol_name = QtWidgets.QLineEdit()
-        self.lineEdit_protocol_name.setEnabled(False)
-        self.lineEdit_protocol_name.setPlaceholderText("No protocol loaded")
-
-        self.lineEdit_protocol_description = QtWidgets.QLineEdit()
-        self.lineEdit_protocol_description.setEnabled(False)
-        self.lineEdit_protocol_description.setPlaceholderText("No protocol loaded")
-
-        self.lineEdit_protocol_path = QtWidgets.QLineEdit()
-        self.lineEdit_protocol_path.setEnabled(False)
-        self.lineEdit_protocol_path.setPlaceholderText("No protocol loaded")
-        self.lineEdit_protocol_path.setCursorPosition(0)
-
-        self.lineEdit_protocol_tasks = QtWidgets.QLineEdit()
-        self.lineEdit_protocol_tasks.setEnabled(False)
-        self.lineEdit_protocol_tasks.setPlaceholderText("0")
-
-        protocol_form_layout.addRow("Name", self.lineEdit_protocol_name)
-        protocol_form_layout.addRow("Description", self.lineEdit_protocol_description)
-        protocol_form_layout.addRow("Path", self.lineEdit_protocol_path)
-        protocol_form_layout.addRow("Tasks", self.lineEdit_protocol_tasks)
-
-        protocol_layout.addLayout(protocol_form_layout)
+        self.protocol_summary = ProtocolSummary()
+        protocol_layout.addWidget(self.protocol_summary)
 
         # Protocol tooltip/info label
         protocol_info_label = QtWidgets.QLabel(
@@ -406,49 +385,17 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
 
     def _select_protocol(self):
         """Open dialog to select a protocol file."""
-        # Open file dialog at the directory of the current protocol or default
         start_path = cfg.USER_PROTOCOL_PATH
         if self.protocol_path:
             start_path = os.path.dirname(self.protocol_path)
-
-        protocol_path = fui.open_existing_file_dialog(
-            msg="Select a task protocol file (*.yaml)",
-            path=start_path,
-            parent=self,
-        )
-
-        if not protocol_path or protocol_path == "":
+        picked = pick_protocol(self, str(start_path))
+        if picked is None:
             return
-
-        # Validate the protocol file
-        try:
-            self.protocol = AutoLamellaTaskProtocol.load(protocol_path)
-            self.protocol_path = protocol_path
-            self._update_protocol_display()
-            logging.info(f"Protocol loaded successfully from {protocol_path}")
-        except Exception as e:
-            logging.error(f"Failed to load protocol: {e}")
-            QtWidgets.QMessageBox.critical(
-                self,
-                "Invalid Protocol",
-                "The selected protocol file is not valid. It may be corrupted, incorrectly formatted, or missing required fields.\n\nPlease select a valid protocol file (*.yaml).",
-            )
-
+        self.protocol_path, self.protocol = picked
+        self._update_protocol_display()
     def _update_protocol_display(self):
         """Update the protocol information display."""
-        if self.protocol is None:
-            self.lineEdit_protocol_name.setText("")
-            self.lineEdit_protocol_description.setText("")
-            self.lineEdit_protocol_path.setText("")
-            self.lineEdit_protocol_tasks.setText("0")
-            return
-
-        self.lineEdit_protocol_name.setText(self.protocol.name or "")
-        self.lineEdit_protocol_description.setText(self.protocol.description or "")
-        self.lineEdit_protocol_path.setText(self.protocol_path or "")
-        self.lineEdit_protocol_path.setCursorPosition(0)
-        self.lineEdit_protocol_tasks.setText(str(len(self.protocol.task_config)))
-
+        self.protocol_summary.show_protocol(self.protocol, self.protocol_path or "")
     def _on_ok_clicked(self):
         """Handle OK button click - validate and create experiment."""
         # Validate experiment name
