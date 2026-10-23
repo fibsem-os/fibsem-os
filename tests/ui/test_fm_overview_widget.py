@@ -5305,7 +5305,7 @@ class TestTheCameraTransformReachesTheProjection:
         """
         import inspect
 
-        source = inspect.getsource(FMOverviewWidget.closeEvent)
+        source = inspect.getsource(FMOverviewWidget._subscriptions)
         assert "transform_changed" in source, (
             "the transform subscription is not in closeEvent's teardown list"
         )

@@ -18,6 +18,7 @@ from PyQt5.QtCore import QPoint, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QDialog,
     QHBoxLayout,
+    QLabel,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -42,8 +43,6 @@ from fibsem.fm.structures import (
 )
 from fibsem.imaging.overview_session import (
     FLUORESCENCE,
-    POSITIONS,
-    SELECTION,
     OverviewSession,
 )
 from fibsem.imaging.tiling import unreachable_tiles
@@ -92,12 +91,10 @@ from fibsem.ui.widgets.canvas.overlays.tile_grid_options_panel import (
 from fibsem.ui.widgets.canvas.overlays.tile_grid_overlay import TileGridOverlay
 from fibsem.ui.widgets.canvas.stage_frame import FMStageProjection, StageFrame
 from fibsem.ui.widgets.custom_widgets import (
-    ContextMenu,
-    ContextMenuConfig,
     ElidedLabel,
     IconToolButton,
-    TitledPanel,
 )
+from fibsem.ui.widgets.overview_base import OverviewWidgetBase
 from fibsem.ui.widgets.overview_list_widget import OverviewListWidget
 from fibsem.ui.widgets.progress_widget import (
     FibsemProgressWidget,
@@ -187,19 +184,13 @@ class PlacedOverviewImageRecord:
 # throughout, and the phase goes to the status label instead.
 
 
-class FMOverviewWidget(QWidget):
+class FMOverviewWidget(OverviewWidgetBase):
     """Configure, run and view a fluorescence overview acquisition."""
 
     overview_acquired = pyqtSignal(FluorescenceImage)
     # A run that failed before its run could report it on `tiled_progress`: the
     # service refused it, or its folder could not be made. Crosses from the worker.
     _run_failed = pyqtSignal(str)
-    # Whether a run is in progress here. A *state*, re-emitted on every change
-    # rather than an edge, so a host that connects late or recomputes from
-    # several facts cannot end up holding a stale answer. The host that matters
-    # is the window, which must stop the other overview driving the stage while
-    # this one is mid-tileset (FIB-706).
-    acquiring_changed = pyqtSignal(bool)
 
     # A user right-clicked the canvas and asked for a position there. Both carry a
     # *fluorescence* stage position -- the canvas is anchored on the FM side, and both
@@ -211,10 +202,6 @@ class FMOverviewWidget(QWidget):
     # simulator. A host that owns an experiment decides what a position *means*, whether
     # the user should be asked first, and what else moves with it.
     position_add_requested = pyqtSignal(object)  # FibsemStagePosition
-    position_move_requested = pyqtSignal(str, object)  # name, FibsemStagePosition
-    # A marked position was clicked. Emitted with the name it was marked under, so a
-    # host can select whatever that name means to it.
-    position_selected = pyqtSignal(str)
 
     # Internal hop from the acquisition thread to the GUI thread. The microscope's
     # progress signals are psygnals, which call their callbacks synchronously on
@@ -234,13 +221,9 @@ class FMOverviewWidget(QWidget):
     # hands a slot whatever was emitted. Both marshal to `PyQt_PyObject` regardless, so
     # `object` is the honest declaration rather than a looser one.
     _fm_progress_received = pyqtSignal(object)
-    # Same hop for stage moves: `stage.position.changed` is a psygnal, so it fires
-    # on whichever thread moved the stage -- a worker, during an acquisition.
-    _stage_moved = pyqtSignal(object)
-    # And for something starting or finishing on the FM, which is reported from
+    # Same hop for something starting or finishing on the FM, which is reported from
     # whichever thread finished with it -- for our own runs, the acquisition worker.
     _fm_acquiring_changed = pyqtSignal(bool)
-    _session_changed = pyqtSignal(str)
 
     def __init__(
         self,
@@ -248,13 +231,9 @@ class FMOverviewWidget(QWidget):
         channel_settings: Optional[List[ChannelSettings]] = None,
         parent: Optional[QWidget] = None,
     ):
-        super().__init__(parent)
+        super().__init__(session, parent)
         if session.kind != FLUORESCENCE:
             raise ValueError("This widget draws a fluorescence overview session.")
-        # The positions, selection, lock, run state, mosaic and cached stage
-        # position: the overview's, which a host writes (FIB-1449).
-        self.session = session
-        self.microscope = session.microscope
         self.fm = session.microscope.fm
 
         # Cancel has been pressed on the run under way; the imaging service stops it.
@@ -299,9 +278,6 @@ class FMOverviewWidget(QWidget):
         # Where acquired overviews are written: the Output panel's folder (see
         # `set_save_directory`), else the working directory, as on the beam tab.
         self._saved_path: Optional[str] = None
-        # Set by `_on_move_errored` so `_on_move_finished`, which always runs, knows
-        # not to clear a message the failure has just put up.
-        self._move_failed: bool = False
 
         self._init_ui(channel_settings or self._default_channels())
         self._sync_tile_fov()
@@ -325,36 +301,16 @@ class FMOverviewWidget(QWidget):
         self.microscope.imaging.tiled_progress.connect(self._on_tile_progress)
         self.microscope.imaging.overview_acquired.connect(self._on_acquired)
         self.fm.acquisition_progress_signal.connect(self._on_fm_progress)
-        self._stage_moved.connect(self._on_stage_moved)
-        self._session_changed.connect(self._on_session_changed)
-        self.session.changed.connect(self._on_session_signal)
-        # A plain bound method, not `self._stage_moved.emit`, matching how the progress
-        # signal is subscribed just above. psygnal holds bound methods weakly and drops
-        # them when the owner is collected, which a Qt signal's `emit` does not get: PyQt
-        # builds a new wrapper on every access, so psygnal cannot weakref it, cannot
-        # match it at disconnect time -- and says nothing when the disconnect therefore
-        # removes nothing. Emitting into a widget Qt had already torn down was a segfault.
-        if self.microscope.stage is not None:
-            self.microscope.stage.position.changed.connect(self._on_stage_signal)
+        self._follow_session()
         self._fm_acquiring_changed.connect(self._on_fm_acquiring_changed)
         self.fm.acquiring_changed.connect(self._on_fm_acquiring_signal)
-        # Marshalled by `@ensure_main_thread` on the slot rather than by relaying
-        # through a Qt signal like the three above. That decorator is the contract
-        # `FibsemMicroscope` states for its psygnals and what most of the UI does; the
-        # relay is this widget's own dialect. Still a plain bound method, so psygnal can
-        # hold it weakly and match it at disconnect time.
+        # Marshalled by `@ensure_main_thread` on the slot. A plain bound method, so
+        # psygnal can hold it weakly and match it at disconnect time.
         self.fm.objective.position_changed.connect(self._on_objective_moved)
         # Same contract as the objective's, and for the same reason: the transform is an
         # input to every projection this widget draws through, and the projection is kept
         # rather than re-read, so nothing else would notice it moved (FIB-521).
         self.fm.transform_changed.connect(self._on_transform_changed)
-        # Same contract again. The holder's slots are drawn from its calibration, and
-        # a stage move no longer redraws them, so a recalibration has to say so. On
-        # the sample handling service, which a microscope with no stage doesn't have.
-        if self.microscope.sample_handling is not None:
-            self.microscope.sample_handling.holder_changed.connect(
-                self._on_holder_changed
-            )
         self._refresh_current_position()
         self._refresh_objective_info()
         self._refresh_orientation_banner()
@@ -645,28 +601,7 @@ class FMOverviewWidget(QWidget):
         self.canvas.canvas.canvas_right_clicked.connect(self._on_canvas_right_clicked)
         self.canvas.canvas.cursor_moved.connect(self._on_cursor_moved)
 
-    def _section(self, title: str, widget: QWidget) -> QWidget:
-        return TitledPanel(title, content=widget)
-
     # ── state ────────────────────────────────────────────────────────────
-
-    @property
-    def is_acquiring(self) -> bool:
-        """Whether an overview acquisition is running here.
-
-        `_running` as well as the worker, and the order is why: `acquire` calls
-        `_set_running(True)` *before* it builds the worker, so for the width of that
-        gap a worker-only answer says no while a run is starting. That gap is exactly
-        when `acquiring_changed` is emitted, so a host locking the other overview off
-        this property got False and locked nothing (FIB-706).
-
-        Keeping the worker check as well as the flag, rather than replacing it: the
-        union is true over a superset of the interval either is, and every caller is a
-        guard, so being early and late is the safe direction to be wrong in.
-        """
-        return self.session.running or (
-            self._worker is not None and self._worker.is_alive()
-        )
 
     @property
     def channels(self) -> List[ChannelSettings]:
@@ -1192,32 +1127,6 @@ class FMOverviewWidget(QWidget):
                 self._controls_layout.count() - 1, section
             )
 
-    def set_positions(self, positions: List[FibsemStagePosition]) -> None:
-        """Stage positions to mark on the overview, e.g. saved lamella positions.
-
-        Names are carried onto the markers, so a caller does not have to keep a
-        parallel list of labels in the order it happened to pass them.
-
-        These are *fluorescence* poses. A lamella carries one of each, and the beam-side
-        pose is a different place on this canvas -- on a compustage the stage flips
-        between them -- so a host passing the wrong one would mark every position
-        somewhere the sample is not. See `build_lamella_poses`.
-        """
-        self.session.set_positions(positions)
-
-    def set_selected_position(self, name: Optional[str]) -> None:
-        """Pick out one of the marked positions, or None for none.
-
-        By name rather than index: the host's list and this one are rebuilt
-        independently from the same experiment, and an index would silently point at a
-        different lamella the moment one was removed.
-        """
-        self.session.select(name or None)
-
-    @property
-    def selected_position(self) -> Optional[str]:
-        return self.session.selected
-
     def set_save_directory(self, path: Optional[str]) -> None:
         """Write acquired overviews under *path*, or None to keep them in memory only.
 
@@ -1313,25 +1222,6 @@ class FMOverviewWidget(QWidget):
             "Selecting again replaces it."
         )
         self._refresh_tile_grid()
-
-    def set_interactive(self, enabled: bool, reason: str = "") -> None:
-        """Allow or forbid starting work, without touching a run already in progress.
-
-        For a host that owns the instrument for a while -- an AutoLamella workflow --
-        and needs the tab to stop competing for it. Cancel stays live regardless, so a
-        lock arriving mid-run cannot strand an acquisition with no way to stop it.
-
-        Deliberately not `setEnabled(False)` on the whole widget: greying out the canvas
-        would also stop you *reading* the overview you just acquired, and looking at it
-        costs the workflow nothing.
-
-        *reason* completes the sentence "Cannot move the stage while ___" when a move is
-        refused. The widget cannot know why it was locked -- a workflow owning the
-        instrument and the other overview being mid-tileset are the same `False` here --
-        and a refusal naming the wrong one is barely better than one naming nothing
-        (FIB-706).
-        """
-        self.session.set_interactive(enabled, reason)
 
     def set_origin(self, position: Optional[FibsemStagePosition]) -> None:
         """Anchor the canvas frame at *position*, or None to go back to automatic.
@@ -1494,34 +1384,6 @@ class FMOverviewWidget(QWidget):
             t=current.t,
             coordinate_system=origin.coordinate_system,
         )
-
-    def _toggle_overlays(self) -> None:
-        """Show or hide the overlays popover, anchored under its button."""
-        self.overlay_popover.set_open(self.btn_overlays.isChecked(), self.btn_overlays)
-
-    def reset_context_overlay_defaults(self) -> None:
-        """Re-resolve the holder-dependent overlay defaults, as the beam tab does:
-        a slot calibrated mid-session turns the boundary and slot markers on
-        without a reconnect, and only when the answer changed."""
-        calibrated = stage_context.holder_is_calibrated(self.microscope)
-        if calibrated == self._context_defaults_for_calibrated:
-            return
-        self._context_defaults_for_calibrated = calibrated
-        for key, _label, shown in stage_context.context_overlay_entries(
-            self.microscope
-        ):
-            self.overlay_controls.set_visible(key, shown)
-
-    @ensure_main_thread
-    def _on_holder_changed(self, _holder) -> None:
-        """Slots calibrated, or another holder fitted: redraw where they are.
-
-        Always, not only when the overlay defaults flip -- recalibrating a slot on a
-        holder that was already calibrated changes nothing `reset_context_overlay_defaults`
-        looks at, and moves the slot all the same.
-        """
-        self.reset_context_overlay_defaults()
-        self._refresh_stage_metadata()
 
     def _refresh_stage_metadata(self) -> None:
         """Draw where the sample and the stage can physically go.
@@ -1929,25 +1791,6 @@ class FMOverviewWidget(QWidget):
 
     # ── canvas interaction ───────────────────────────────────────────────
 
-    def _on_session_signal(self, part: str) -> None:
-        """Called by psygnal, on whichever thread changed the session."""
-        self._session_changed.emit(part)
-
-    def _on_session_changed(self, part: str) -> None:
-        if part in (POSITIONS, SELECTION):
-            self._refresh_positions()
-        else:
-            self._apply_enabled_state()
-
-    def _on_stage_signal(self, position: FibsemStagePosition) -> None:
-        """Called by psygnal, on whichever thread polled. Touches no widgets.
-
-        The counterpart of :meth:`_on_tile_progress`, and a real method rather than the
-        signal's `emit` for a reason beyond symmetry -- see the note where it is
-        connected.
-        """
-        self._stage_moved.emit(position)
-
     def _on_stage_moved(self, position: FibsemStagePosition) -> None:
         """A poll found the stage somewhere new.
 
@@ -2005,213 +1848,6 @@ class FMOverviewWidget(QWidget):
                 return True
         return False
 
-    def _on_canvas_clicked(self, x: float, y: float, modifiers=None) -> None:
-        """Select a marked position if the click landed on one.
-
-        A miss leaves the selection alone rather than clearing it, which is where this
-        parts company with the minimap's interactive overlay. Clearing would have to
-        travel: the host syncs its other lists from the selection, and their handlers
-        ignore None -- so an empty click would blank this canvas and nothing else, which
-        is worse than a selection that outstays its welcome. Nothing here is destroyed
-        by keeping it.
-        """
-        name = self._position_at(x, y)
-        if name is None:
-            return
-        self.set_selected_position(name)
-        self.position_selected.emit(name)
-
-    # Screen-space hit radius, matching `PointOverlay`'s. In pixels rather than stage
-    # microns so that how close you have to click does not change with the zoom.
-    PICK_RADIUS_PX = 12
-
-    def _position_at(
-        self, x: float, y: float, crosshair_only: bool = False
-    ) -> Optional[str]:
-        """The marked position under a canvas point, or None.
-
-        A click hits a position if it lands inside that position's field-of-view box
-        **or** within `PICK_RADIUS_PX` of its crosshair. The union rather than either
-        alone, because neither is reliably the bigger target: the box wins once you are
-        zoomed into a region, the fixed radius wins at whole-grid zoom where the box
-        shrinks below it -- see `FieldOfViewOverlay.covers`.
-
-        The radius is measured on screen, not in data units: at a wide zoom every marker
-        would be within any sensible micron radius of the click, and at a tight one none
-        would be. Nearest crosshair wins among the hits, which also settles overlapping
-        boxes -- and lamellae closer together than one camera frame do overlap.
-                *crosshair_only* drops the box and leaves the radius, for a caller that has to
-        share the canvas with something else. The tile grid stands aside wherever this
-        answers a name (FIB-767), and a field-of-view box is a large thing to reserve:
-        it is a whole tile on the fluorescence tab by construction, and a whole tile on
-        this one at any HFW of 100 um or under. Reserving it would leave tiles that
-        cannot be toggled at all, with nothing on screen to say why -- where reserving
-        only the crosshair costs at worst a click that toggles a tile you meant to
-        select, which greys out visibly and undoes with one more click.
-        """
-        frame = self._frame()
-        ax = getattr(self.canvas.canvas, "_ax", None)
-        if frame is None or ax is None or not self.session.positions:
-            return None
-        try:
-            transform = ax.transData
-            click = transform.transform((x, y))
-        except Exception as e:
-            logging.debug(f"Could not resolve the click for picking: {e}")
-            return None
-
-        best_name, best_distance = None, float("inf")
-        for position in self.session.positions:
-            name = position.name
-            if not name:
-                continue
-            try:
-                centre = frame.to_canvas(position)
-                point = transform.transform(centre)
-            except Exception:
-                continue
-            distance = ((click[0] - point[0]) ** 2 + (click[1] - point[1]) ** 2) ** 0.5
-            # `centre` is in canvas units and `point` in screen pixels: the box is a
-            # fixed piece of sample, the radius a fixed piece of screen.
-            if distance >= self.PICK_RADIUS_PX and (
-                crosshair_only or not self.position_overlay.covers(centre, x, y)
-            ):
-                continue
-            if distance < best_distance:
-                best_name, best_distance = name, distance
-        return best_name
-
-    def _on_canvas_double_clicked(self, x: float, y: float, modifiers=None) -> None:
-        """Move the stage to the double-clicked point.
-
-        Double-click rather than a single click, matching the minimap and the
-        coincidence viewer: a single click is how the canvas is explored, and a stage
-        that moved on every stray click would be unusable.
-        """
-        target = self._stage_position_at(x, y) if self._may_move() else None
-        if target is None:
-            return
-        self.move_to(target)
-
-    def _may_move(self) -> bool:
-        """Whether driving the stage from this tab is allowed right now, and say if not.
-
-        The orientation check here used to be a predicate an escape flag answered yes
-        to unconditionally -- so it refused nothing. It now asks the enforced
-        question, which is what it was always meant to mean: a click is a stage move
-        computed through a frame built from the current pose, and from a pose the
-        objective cannot image from there is nothing that has checked where it would
-        send the stage (FIB-436).
-        """
-        # The lock covers the canvas as well as the buttons, as on the beam overview
-        # (FIB-706).
-        refusal = (
-            "Cannot move the stage during an acquisition."
-            if self.is_acquiring
-            else self.session.move_refusal()
-        )
-        if refusal is not None:
-            notification_service.show_toast(refusal, "warning")
-            return False
-        if not self.at_acquisition_orientation():
-            notification_service.show_toast(
-                f"Cannot move the stage from {self._where_the_stage_is()} — the "
-                f"overview needs to be at {self._where_the_stage_needs_to_be()}.",
-                "warning",
-            )
-            return False
-        return True
-
-    def move_to(self, position: FibsemStagePosition) -> None:
-        """Drive the stage to *position*, off the GUI thread.
-
-        Public because a host drives it too -- picking a saved position out of a list is
-        the same act as double-clicking where it is drawn, and they should not be able to
-        disagree about whether a move is allowed or how it is reported.
-
-        The limits are checked here rather than trusted from the caller: a stored
-        position can be outside them on a system it was not recorded on.
-        """
-        if not self._may_move():
-            return
-        stage = self.microscope.stage
-        limits = stage.position.limits if stage is not None else None
-        if limits and not position.is_within_limits(limits, axes=["x", "y"]):
-            notification_service.show_toast(
-                "That position is outside the stage limits.", "warning"
-            )
-            return
-
-        self.status.setText(f"Moving to {self._describe(position)}…")
-        worker = FunctionWorker(self.session.move_to, position)
-        worker.errored.connect(self._on_move_errored)
-        worker.finished.connect(self._on_move_finished)
-        worker.start(control=control_of(self.microscope), action="move stage")
-
-    def _on_canvas_right_clicked(self, x: float, y: float, modifiers=None) -> None:
-        """Offer to put a position at the right-clicked point."""
-        config = self._position_menu(x, y)
-        if config is None:
-            return
-        ContextMenu(config, parent=self).show_at_cursor()
-
-    def _position_menu(self, x: float, y: float) -> Optional[ContextMenuConfig]:
-        """What right-clicking at a canvas point offers, or None to offer nothing.
-
-        Separate from showing it because `show_at_cursor` runs a modal event loop, and
-        everything worth checking -- whether the menu appears at all, what it offers,
-        and which position each entry would request -- is decided here. A test that had
-        to open the menu could only hang.
-
-        The widget creates nothing itself: each entry emits a request and lets a host
-        that owns an experiment decide. So the menu appears whenever the point is
-        somewhere the stage could go, even with nobody listening -- there is nothing
-        here that could tell the difference, and a menu that stayed shut because no host
-        was connected would make the standalone app behave differently for no visible
-        reason.
-        """
-        if self.session.running or self.is_acquiring or not self.session.interactive:
-            # `_running` and `_interactive` are the two facts `_apply_enabled_state`
-            # gates the controls on, and this is gated on the same two for the same
-            # reason: marking is cheap in itself, but a host that has taken the
-            # instrument is usually a workflow iterating `experiment.positions`, and
-            # adding one underneath it is not a thing to do quietly. `is_acquiring`
-            # comes along because the double-click asks it, and a right-click that was
-            # allowed where a double-click was refused would just be confusing.
-            notification_service.show_toast(
-                "Cannot mark positions while an acquisition is running.", "warning"
-            )
-            return None
-        # Marking has to survive being written down: the position becomes a lamella's
-        # *fluorescence* pose, so it must be one the objective actually images from --
-        # however right it looked on screen.
-        if not self.at_acquisition_orientation():
-            notification_service.show_toast(
-                f"Move to the fluorescence position before marking on the overview "
-                f"(the stage is at {self.microscope.get_stage_orientation()}).",
-                "warning",
-            )
-            return None
-
-        target = self._stage_position_at(x, y)
-        if target is None:
-            return None
-
-        config = ContextMenuConfig()
-        config.add_action(
-            "Add Position Here",
-            callback=lambda: self.position_add_requested.emit(target),
-            tooltip=f"Add a position at {self._describe(target)}",
-        )
-        selected = self.session.selected
-        if selected:
-            config.add_action(
-                f"Move Selected Position Here ({selected})",
-                callback=lambda: self.position_move_requested.emit(selected, target),
-                tooltip=f"Move {selected} to {self._describe(target)}",
-            )
-        return config
-
     def _stage_position_at(self, x: float, y: float) -> Optional[FibsemStagePosition]:
         """The stage position a canvas point names, or None if it is not usable.
 
@@ -2235,37 +1871,7 @@ class FMOverviewWidget(QWidget):
             logging.debug(f"Could not resolve the clicked position: {e}")
             return None
 
-        stage = self.microscope.stage
-        limits = stage.position.limits if stage is not None else None
-        if limits and not target.is_within_limits(limits, axes=["x", "y"]):
-            notification_service.show_toast(
-                "That position is outside the stage limits.", "warning"
-            )
-            return None
-        return target
-
-    def _on_move_errored(self, error: object) -> None:
-        """The stage did not get there. Say that, rather than leaving "Moving to …" up."""
-        self._move_failed = True
-        self.status.setText(f"Could not move the stage: {error}")
-        notification_service.show_toast("Could not move the stage.", "error")
-
-    def _on_move_finished(self) -> None:
-        """Always runs, after `errored` when there was one.
-
-        A failure has already put its own message up and that should stand; only a
-        success replaces the "Moving to …" line. What it is replaced with is where the
-        stage actually got to, read back by the worker rather than assumed from the
-        target.
-        """
-        if self._move_failed:
-            self._move_failed = False
-            return
-        position = self._current_stage_position()
-        if position is None:
-            self.status.setText("Moved.")
-            return
-        self.status.setText(f"At {self._describe(position)}")
+        return target if self._within_limits(target) else None
 
     def _on_grid_move(self, x: float, y: float) -> None:
         """The grid was dragged: plan the next overview around the point it landed on.
@@ -2660,15 +2266,6 @@ class FMOverviewWidget(QWidget):
         self._saved_path = path
         self.overview_acquired.emit(mosaic)
 
-    def cancel(self) -> None:
-        if not self.is_acquiring:
-            return
-        logging.info("Cancelling overview acquisition")
-        self._cancelling = True
-        self.microscope.imaging.stop()
-        self._apply_enabled_state()
-        self.status.setText("Cancelling…")
-
     def _set_progress_visible(self, visible: bool) -> None:
         """Show the progress bars only while there is progress to show.
 
@@ -2955,60 +2552,47 @@ class FMOverviewWidget(QWidget):
 
     # ── lifecycle ────────────────────────────────────────────────────────
 
-    def hideEvent(self, event) -> None:
-        # The tile grid panel is a top-level window, so it does not go with this
-        # widget on its own: switching tab left it floating over the next one
-        # (FIB-1110). The button is unchecked with it, so one click opens it again.
-        # Reached from C++ during teardown too, where raising is fatal under PyQt5,
-        # so looked up tolerantly and never raises.
-        super().hideEvent(event)
-        panel = self.__dict__.get("tile_grid_panel")
-        button = self.__dict__.get("btn_tile_grid")
-        try:
-            if panel is not None:
-                panel.hide()
-            if button is not None:
-                button.setChecked(False)
-        except RuntimeError:  # wrapped C/C++ object already deleted
-            pass
+    # ── what the base asks of this widget ────────────────────────────────
 
-    def closeEvent(self, event) -> None:
-        if self.is_acquiring:
-            self.microscope.imaging.stop()
-        # Every psygnal this widget subscribed to, without exception. They outlive the
-        # widget -- they belong to the microscope -- and they hold bound methods of Qt
-        # objects that `close` has already torn down on the C++ side, so the next emit
-        # writes into freed memory. Closing the tab and then moving the stage from
-        # anywhere else in the application was a hard segfault, not an exception.
-        subscriptions = [
-            (self.session.changed, self._on_session_signal),
+    def _status_line(self) -> QLabel:
+        return self.status
+
+    def _real_space_canvas(self):
+        return self.canvas.canvas
+
+    def _redraw_stage_context(self) -> None:
+        self._refresh_stage_metadata()
+
+    def _request_add_at(self, x: float, y: float, target: FibsemStagePosition) -> None:
+        self.position_add_requested.emit(target)
+
+    def _orientation_refusal(self) -> Optional[str]:
+        """A click is a stage move computed through a frame built from the current
+        pose, and from a pose the objective cannot image from nothing has checked where
+        it would send the stage (FIB-436)."""
+        if self.at_acquisition_orientation():
+            return None
+        return (
+            f"Cannot move the stage from {self._where_the_stage_is()} — the "
+            f"overview needs to be at {self._where_the_stage_needs_to_be()}."
+        )
+
+    def _marking_refusal(self) -> Optional[str]:
+        """A marked position becomes a lamella's *fluorescence* pose, so it must be one
+        the objective actually images from -- however right it looked on screen."""
+        if self.at_acquisition_orientation():
+            return None
+        return (
+            f"Move to the fluorescence position before marking on the overview "
+            f"(the stage is at {self.microscope.get_stage_orientation()})."
+        )
+
+    def _subscriptions(self) -> list:
+        return [
             (self.fm.acquisition_progress_signal, self._on_fm_progress),
             (self.fm.objective.position_changed, self._on_objective_moved),
-            # Subscribed since FIB-441 and never in this list, though the comment above
-            # has always claimed "without exception".
             (self.fm.acquiring_changed, self._on_fm_acquiring_signal),
             (self.fm.transform_changed, self._on_transform_changed),
+            (self.microscope.imaging.tiled_progress, self._on_tile_progress),
+            (self.microscope.imaging.overview_acquired, self._on_acquired),
         ]
-        if self.microscope.sample_handling is not None:
-            subscriptions.append(
-                (
-                    self.microscope.sample_handling.holder_changed,
-                    self._on_holder_changed,
-                )
-            )
-        subscriptions.append(
-            (self.microscope.imaging.tiled_progress, self._on_tile_progress)
-        )
-        subscriptions.append(
-            (self.microscope.imaging.overview_acquired, self._on_acquired)
-        )
-        if self.microscope.stage is not None:
-            subscriptions.append(
-                (self.microscope.stage.position.changed, self._on_stage_signal)
-            )
-        for signal, slot in subscriptions:
-            try:
-                signal.disconnect(slot)
-            except (TypeError, RuntimeError, ValueError, KeyError):
-                pass
-        super().closeEvent(event)
