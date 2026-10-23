@@ -143,10 +143,10 @@ def test_defect_state_set_defect_rework():
     assert d.state == DefectType.REWORK
 
 
-def test_quality_record_reads_the_defect_state_shape_and_the_bare_grid_name():
+def test_quality_record_reads_the_defect_state_shape():
     """Experiments written before QualityRecord: a lamella wrote the DefectState
-    keys, a grid wrote just the GridQuality name. Both still load, and the old
-    names map onto the new verdicts."""
+    keys, which still load, and the old names map onto the new verdicts. A
+    grid's bare name (development builds only) reads as unassessed."""
     from fibsem.workflows.quality import (
         QualityRecord,
         Verdict,
@@ -163,9 +163,8 @@ def test_quality_record_reads_the_defect_state_shape_and_the_bare_grid_name():
     assert q.reason == "torn"
     assert q.actor == ""
 
-    assert QualityRecord.from_dict("POOR").verdict is Verdict.FAILED
-    assert QualityRecord.from_dict("GOOD").verdict is Verdict.GOOD
-    assert QualityRecord.from_dict("SPLENDID").verdict is Verdict.UNASSESSED
+    assert QualityRecord.from_dict({"verdict": "POOR"}).verdict is Verdict.FAILED
+    assert QualityRecord.from_dict("GOOD").verdict is Verdict.UNASSESSED
     assert QualityRecord.from_dict(None).verdict is Verdict.UNASSESSED
 
 

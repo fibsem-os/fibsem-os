@@ -7,17 +7,17 @@ every kind of item.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
 from enum import Enum, auto
-from typing import Optional, Tuple, Union
+from typing import Any, Optional, Tuple
 
 from psygnal import evented
 
-from fibsem.acting import Actor
-from fibsem.util.timestamps import now, to_datetime, to_iso
+from fibsem.codec import NamedEnum, Timestamp, decode, encode
+from fibsem.codec.upgrades import records as upgrade
+from fibsem.util.timestamps import now, to_datetime
 
 
-class Verdict(Enum):
+class Verdict(NamedEnum, Enum):
     """A judgement about a lamella or a grid, made by a person (or a reviewer
     acting for one) and never by a task.
 
@@ -35,11 +35,6 @@ class Verdict(Enum):
     NONE = UNASSESSED
     FAILURE = FAILED
     POOR = FAILED
-
-
-def _actor_text(text: str) -> str:
-    """A stored actor in today's ``kind:name`` form; blank stays blank."""
-    return str(Actor.parse(text)) if text else ""
 
 
 @evented
@@ -61,7 +56,7 @@ class QualityRecord:
     at_task: str = ""  # the task the item was judged at
     # When the verdict was set: aware, written as ISO 8601 with its offset
     # (FIB-1197); older files hold a POSIX float, which reads as this machine's zone.
-    updated_at: Optional[datetime] = None
+    updated_at: Optional[Timestamp] = None
     decision_id: Optional[Tuple[str, str]] = None  # (item_id, task_name)
 
     def __post_init__(self) -> None:
@@ -94,46 +89,12 @@ class QualityRecord:
         self.at_task = value
 
     def to_dict(self) -> dict:
-        return {
-            "verdict": self.verdict.name,
-            "actor": self.actor,
-            "reason": self.reason,
-            "at_task": self.at_task,
-            "updated_at": to_iso(self.updated_at),
-            "decision_id": list(self.decision_id) if self.decision_id else None,
-        }
+        return encode(self)
 
     @classmethod
-    def from_dict(cls, data: Union[dict, str, None]) -> "QualityRecord":
-        """Read the current shape, the ``DefectState`` shape (``state`` /
-        ``description`` / ``last_completed_task``), the pre-``DefectState``
-        ``has_defect`` / ``requires_rework`` bools, and the bare name string
-        ``GridRecord`` used to write. Unknown names read as ``UNASSESSED``."""
-        if not data:
-            return cls()
-        if isinstance(data, str):
-            return cls(verdict=_verdict_by_name(data))
-        if "has_defect" in data:
-            if data.get("has_defect"):
-                verdict = (
-                    Verdict.REWORK if data.get("requires_rework") else Verdict.FAILED
-                )
-            else:
-                verdict = Verdict.UNASSESSED
-            return cls(
-                verdict=verdict,
-                reason=data.get("description", ""),
-                updated_at=to_datetime(data.get("updated_at")),
-            )
-        decision_id = data.get("decision_id")
-        return cls(
-            verdict=_verdict_by_name(data.get("verdict", data.get("state", ""))),
-            actor=_actor_text(data.get("actor", data.get("author", ""))),
-            reason=data.get("reason", data.get("description", "")),
-            at_task=data.get("at_task", data.get("last_completed_task", "")),
-            updated_at=to_datetime(data.get("updated_at")),
-            decision_id=tuple(decision_id) if decision_id else None,
-        )
+    def from_dict(cls, data: Any) -> "QualityRecord":
+        """Read a verdict saved by any version (`fibsem.codec.upgrades.records`)."""
+        return decode(cls, upgrade.quality(data))
 
     def clear(self):
         self.verdict = Verdict.UNASSESSED
@@ -180,10 +141,3 @@ def _quality_record_init_with_old_names(
 
 
 QualityRecord.__init__ = _quality_record_init_with_old_names  # type: ignore[method-assign]
-
-
-def _verdict_by_name(name: str) -> Verdict:
-    try:
-        return Verdict[name]
-    except KeyError:
-        return Verdict.UNASSESSED

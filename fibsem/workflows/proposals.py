@@ -10,7 +10,7 @@ corrected label instead of a self-reported one.
 The records, the kinds and the value registries are here, for any
 application's workflow. An application registers its own kinds
 (``register_proposal_kind``) and, for each value they carry, how it is stored
-(``register_value_codec``) and how confirming writes it to an item
+(``register_value_type``) and how confirming writes it to an item
 (``register_value_writer``).
 
 What a loop's pass says on the prompt bar: a mill's, a spot burn's.
@@ -25,7 +25,6 @@ what they do here, and the words come from the kind.
 from __future__ import annotations
 
 import contextlib
-import hashlib
 import logging
 import math
 import threading
@@ -34,16 +33,21 @@ from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import Enum, auto
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Annotated, Any, Callable, Dict, List, Optional, Tuple, Union
 
-from fibsem.acting import Actor, ActorKind
+from pydantic import Field, PlainSerializer, PlainValidator
+from typing_extensions import TypedDict
+
+from fibsem.acting import Actor, ActorKind, SavedActor
+from fibsem.codec import NamedEnum, Timestamp, decode, encode, saved
+from fibsem.codec.upgrades import records as upgrade
 from fibsem.structures import (
     FibsemRectangle,
     FibsemStagePosition,
     MicroscopeState,
     Point,
 )
-from fibsem.util.timestamps import now, to_datetime, to_iso
+from fibsem.util.timestamps import now
 
 # One process, one open experiment: a single lock serialises the writers that
 # can run on different threads at once -- the workflow thread saving after a
@@ -96,7 +100,7 @@ ACTION_ACCEPT = "accept"
 LOOP_ACTIONS = (ACTION_RUN, ACTION_EDIT, ACTION_SKIP, ACTION_ACCEPT)
 
 
-class DecisionOutcome(Enum):
+class DecisionOutcome(NamedEnum, Enum):
     """What was decided. ``Confirmed`` and ``Rejected`` are answers; a decider
     looked and said something. The other two are not, and only the record
     writes them. ``Withdrawn``: the question was taken back because the thing
@@ -228,76 +232,71 @@ register_proposal_kind(
 # contract, so codecs and writers are keyed by it rather than by kind.
 
 
-_VALUE_CODECS: Dict[str, Tuple[Callable[[Any], Any], Callable[[Any], Any]]] = {}
+# name -> the type a value of that name is saved as, or a function giving it
+# (one whose module imports this one).
+_VALUE_TYPES: Dict[str, Any] = {}
 
 
-def register_value_codec(
-    name: str, to_dict: Callable[[Any], Any], from_dict: Callable[[Any], Any]
-) -> None:
-    """How the value called ``name`` is stored: a value with no codec is stored
-    as it is."""
-    _VALUE_CODECS[name] = (to_dict, from_dict)
+def register_value_type(name: str, type_: Any) -> None:
+    """How the value called ``name`` is saved: as ``type_``, or as the type a
+    function of no arguments returns. A value with no type is saved as it is."""
+    _VALUE_TYPES[name] = type_
+
+
+def _value_type(name: str) -> Any:
+    type_ = _VALUE_TYPES.get(name)
+    if type_ is None or isinstance(type_, type) or hasattr(type_, "__origin__"):
+        return type_
+    return type_()
 
 
 def _encode_values(values: Dict[str, Any]) -> Dict[str, Any]:
-    return {
-        name: _VALUE_CODECS.get(name, (lambda v: v, lambda v: v))[0](value)
-        for name, value in values.items()
-    }
+    return {name: encode(value, _value_type(name)) for name, value in values.items()}
 
 
-def _decode_values(values: Dict[str, Any]) -> Dict[str, Any]:
-    return {
-        name: _VALUE_CODECS.get(name, (lambda v: v, lambda v: v))[1](value)
-        for name, value in (values or {}).items()
-    }
+def _decode_values(values: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    decoded = {}
+    for name, value in (values or {}).items():
+        type_ = _value_type(name)
+        decoded[name] = value if type_ is None else decode(type_, value)
+    return decoded
 
 
-def _point_to_dict(p: Any) -> Any:
-    return p.to_dict() if isinstance(p, Point) else p
+# Proposed and decided values, keyed by name, each saved as its registered type.
+Values = Annotated[
+    Dict[str, Any],
+    PlainValidator(_decode_values, json_schema_input_type=Dict[str, Any]),
+    PlainSerializer(_encode_values, when_used="json"),
+]
 
 
-def _point_from_dict(d: Any) -> Any:
-    return Point.from_dict(d) if isinstance(d, dict) and "x" in d else d
+class SavedFeature(TypedDict):
+    """A detected feature as it is saved: its name and the pixel it sits on.
+    The mask, the rgb and the image are megabytes and already on disk beside
+    the task's outputs, and a delta is computed from the points alone."""
+
+    name: str
+    px: Point
 
 
-def features_to_dict(value: Any) -> Any:
-    """A detected feature set as ``[{name, px}]``.
+def _milling_config() -> type:
+    from fibsem.milling.tasks import FibsemMillingTaskConfig
 
-    Only the name and the pixel it sits on: the mask, the rgb and the image
-    are megabytes and already on disk beside the task's outputs, and a delta
-    is computed from the points alone.
-    """
-    if not isinstance(value, (list, tuple)):
-        return value
-    return [
-        {"name": f["name"], "px": _point_to_dict(f["px"])} if isinstance(f, dict) else f
-        for f in value
-    ]
+    return FibsemMillingTaskConfig
 
 
-def _features_from_dict(value: Any) -> Any:
-    if not isinstance(value, (list, tuple)):
-        return value
-    return [
-        {"name": f.get("name", ""), "px": _point_from_dict(f.get("px"))}
-        if isinstance(f, dict)
-        else f
-        for f in value
-    ]
+def _spot_burn() -> type:
+    from fibsem.imaging.spot import SpotBurnSettings
+
+    return SpotBurnSettings
 
 
-register_value_codec("features", features_to_dict, _features_from_dict)
-register_value_codec(
-    "stage_position",
-    lambda p: p.to_dict() if isinstance(p, FibsemStagePosition) else p,
-    lambda d: FibsemStagePosition.from_dict(d) if isinstance(d, dict) else d,
-)
-register_value_codec(
-    "alignment_area",
-    lambda r: r.to_dict() if isinstance(r, FibsemRectangle) else r,
-    lambda d: FibsemRectangle.from_dict(d) if isinstance(d, dict) else d,
-)
+register_value_type("features", List[SavedFeature])
+register_value_type("stage_position", FibsemStagePosition)
+register_value_type("alignment_area", FibsemRectangle)
+register_value_type("poi", Point)
+register_value_type("milling_config", _milling_config)
+register_value_type("spot_burn", _spot_burn)
 
 
 @dataclass(frozen=True)
@@ -317,29 +316,6 @@ class ItemPoses:
 
     beam: MicroscopeState
     fluorescence: Optional[MicroscopeState] = None
-
-
-def _milling_config_from_dict(value: Any) -> Any:
-    from fibsem.milling.tasks import FibsemMillingTaskConfig
-
-    return (
-        FibsemMillingTaskConfig.from_dict(value) if isinstance(value, dict) else value
-    )
-
-
-def _spot_burn_from_dict(value: Any) -> Any:
-    from fibsem.imaging.spot import SpotBurnSettings
-
-    return SpotBurnSettings.from_dict(value) if isinstance(value, dict) else value
-
-
-def _to_dict(value: Any) -> Any:
-    return value.to_dict() if hasattr(value, "to_dict") else value
-
-
-register_value_codec("milling_config", _to_dict, _milling_config_from_dict)
-register_value_codec("spot_burn", _to_dict, _spot_burn_from_dict)
-register_value_codec("poi", _point_to_dict, _point_from_dict)
 
 
 class ValueRefused(ValueError):
@@ -680,18 +656,20 @@ def compute_delta(proposed: Any, confirmed: Any) -> Any:
 # ---------------------------------------------------------------------------
 
 
+# A record with no time has an unknown one, not the time it was read.
+@saved(absent={"timestamp": None})
 @dataclass
 class Decision:
     """One decider's answer. Appended, never edited: a reversal is a second
     decision beside the first, with its own actor and time."""
 
     outcome: DecisionOutcome
-    actor: Actor
-    values: Dict[str, Any] = field(default_factory=dict)  # confirmed values
+    actor: SavedActor
+    values: Values = field(default_factory=dict)  # confirmed values
     reason: str = ""  # required on Rejected
     # Aware, written as ISO 8601 with its offset (FIB-1197); older records hold a
     # POSIX float, which reads as this machine's zone. None when the record has none.
-    timestamp: Optional[datetime] = field(default_factory=now)
+    timestamp: Optional[Timestamp] = field(default_factory=now)
     # Where it was decided: "workflow" (in the window, or by the task itself),
     # "server" (an agent over the API), or "review" in records written before
     # the Review tab was removed. The actor says who; this says where.
@@ -708,7 +686,7 @@ class Decision:
     # callers that predate it, which are checked by the run as before.
     proposal_id: str = ""
     # What was decided, for a kind with actions (a loop's pass: run, edit,
-    # skip, accept). Empty for a yes/no kind, and not saved then.
+    # skip, accept). Empty for a yes/no kind.
     action: str = ""
     # The suggestion this decision approved; empty when it approved none.
     suggestion_id: str = ""
@@ -720,41 +698,15 @@ class Decision:
         self.actor = Actor.parse(self.actor)
 
     def to_dict(self) -> dict:
-        doc = {
-            "outcome": self.outcome.name,
-            "actor": str(self.actor),
-            "values": _encode_values(self.values),
-            "reason": self.reason,
-            "timestamp": to_iso(self.timestamp),
-            "via": self.via,
-            "task_id": self.task_id,
-            "proposal_id": self.proposal_id,
-        }
-        if self.action:
-            doc["action"] = self.action
-        if self.suggestion_id:
-            doc["suggestion_id"] = self.suggestion_id
-        if self.evidence:
-            doc["evidence"] = self.evidence
-        return doc
+        return encode(self)
 
     @classmethod
     def from_dict(cls, data: dict) -> "Decision":
-        return cls(
-            outcome=DecisionOutcome[data["outcome"]],
-            actor=Actor.parse(data.get("actor", data.get("author", ""))),
-            values=_decode_values(data.get("values", {})),
-            reason=data.get("reason", ""),
-            timestamp=to_datetime(data.get("timestamp")),
-            via=data.get("via", ""),
-            task_id=data.get("task_id", ""),
-            proposal_id=data.get("proposal_id", ""),
-            action=data.get("action", ""),
-            suggestion_id=data.get("suggestion_id", ""),
-            evidence=data.get("evidence", ""),
-        )
+        return decode(cls, upgrade.decision(data))
 
 
+# A record with no time has an unknown one, not the time it was read.
+@saved(absent={"timestamp": None})
 @dataclass
 class Suggestion:
     """What someone other than the decider (an agent, at Assist) puts forward
@@ -767,15 +719,15 @@ class Suggestion:
     (inside the experiment) its value is drawn on.
     """
 
-    actor: Actor
+    actor: SavedActor
     reason: str
     outcome: DecisionOutcome = DecisionOutcome.Confirmed
-    values: Dict[str, Any] = field(default_factory=dict)
+    values: Values = field(default_factory=dict)
     patch: Dict[str, Any] = field(default_factory=dict)
     action: str = ""
     image: str = ""
     evidence: str = ""
-    timestamp: Optional[datetime] = field(default_factory=now)
+    timestamp: Optional[Timestamp] = field(default_factory=now)
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
     declined: bool = False
     declined_reason: str = ""
@@ -793,42 +745,14 @@ class Suggestion:
         return dict(self.values)
 
     def to_dict(self) -> dict:
-        doc = {
-            "id": self.id,
-            "actor": str(self.actor),
-            "outcome": self.outcome.name,
-            "reason": self.reason,
-            "timestamp": to_iso(self.timestamp),
-        }
-        if self.values:
-            doc["values"] = _encode_values(self.values)
-        if self.patch:
-            doc["patch"] = dict(self.patch)
-        for name in ("action", "image", "evidence", "declined_reason"):
-            if getattr(self, name):
-                doc[name] = getattr(self, name)
-        if self.declined:
-            doc["declined"] = True
-        return doc
+        return encode(self)
 
     @classmethod
     def from_dict(cls, data: dict) -> "Suggestion":
-        return cls(
-            actor=Actor.parse(data.get("actor", "")),
-            reason=data.get("reason", ""),
-            outcome=DecisionOutcome[data.get("outcome", "Confirmed")],
-            values=_decode_values(data.get("values", {})),
-            patch=dict(data.get("patch", {})),
-            action=data.get("action", ""),
-            image=data.get("image", ""),
-            evidence=data.get("evidence", ""),
-            timestamp=to_datetime(data.get("timestamp")),
-            id=data.get("id") or uuid.uuid4().hex,
-            declined=bool(data.get("declined", False)),
-            declined_reason=data.get("declined_reason", ""),
-        )
+        return decode(cls, data)
 
 
+@saved(absent={"created_at": None})
 @dataclass
 class Proposal:
     """What a task proposed for its item, and every decision made about it.
@@ -840,23 +764,26 @@ class Proposal:
     """
 
     kind: str
-    values: Dict[str, Any] = field(default_factory=dict)
+    values: Values = field(default_factory=dict)
     provenance: Dict[str, Any] = field(default_factory=dict)
     decisions: List[Decision] = field(default_factory=list)
-    # As Decision.timestamp (FIB-1197). The id of a proposal saved before proposals
-    # had one is derived from the value as stored, before this reads it.
-    created_at: Optional[datetime] = field(default_factory=now)
+    # As Decision.timestamp (FIB-1197).
+    created_at: Optional[Timestamp] = field(default_factory=now)
     # Whether the task that made this is parked on it right now, waiting to be
     # told the answer -- an in-run question rather than a result left for
     # later (FIB-1025). It is the one thing that lets a decision land on a
     # running task, so it is deliberately **not persisted**: a question only
     # exists while something is waiting on it, and a flag that survived a
     # reload would claim a waiter that is gone.
-    asking: bool = field(default=False, compare=False, repr=False)
+    asking: Annotated[bool, Field(exclude=True)] = field(
+        default=False, compare=False, repr=False
+    )
     # Whether the asker fills in the values of an "as it stands" confirmation
     # once it lands (``BaseTask.ask`` with ``decided``). Not persisted: the
     # record holds the decision once, with its values (FIB-1491).
-    filling_in: bool = field(default=False, compare=False, repr=False)
+    filling_in: Annotated[bool, Field(exclude=True)] = field(
+        default=False, compare=False, repr=False
+    )
     # This proposal's own name, minted when it is made. What a decision names
     # (``Decision.proposal_id``), and what anything outside the record -- an
     # event, a responder waiting on an answer -- points at: ``(item, task)``
@@ -865,7 +792,7 @@ class Proposal:
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
     # Who asked: the task that made it, an agent or a model. None for one that
     # nothing asked yet; the item's record stamps it when it is recorded.
-    asked_by: Optional[Actor] = None
+    asked_by: Optional[SavedActor] = None
     # The latest suggestion on it, while pending; a new one replaces it.
     suggestion: Optional[Suggestion] = None
 
@@ -929,55 +856,12 @@ class Proposal:
         }
 
     def to_dict(self) -> dict:
-        return {
-            "kind": self.kind,
-            "values": _encode_values(self.values),
-            "provenance": dict(self.provenance),
-            "decisions": [d.to_dict() for d in self.decisions],
-            "created_at": to_iso(self.created_at),
-            "id": self.id,
-            "asked_by": str(self.asked_by) if self.asked_by is not None else None,
-            **(
-                {"suggestion": self.suggestion.to_dict()}
-                if self.suggestion is not None
-                else {}
-            ),
-        }
+        return encode(self)
 
     @classmethod
     def from_dict(cls, data: dict) -> "Proposal":
-        return cls(
-            kind=data["kind"],
-            values=_decode_values(data.get("values", {})),
-            provenance=dict(data.get("provenance", {})),
-            decisions=[Decision.from_dict(d) for d in data.get("decisions", [])],
-            created_at=to_datetime(data.get("created_at")),
-            id=data.get("id") or _id_for_a_record_without_one(data),
-            asked_by=Actor.parse(data["asked_by"]) if data.get("asked_by") else None,
-            suggestion=Suggestion.from_dict(data["suggestion"])
-            if data.get("suggestion")
-            else None,
-        )
-
-
-def _id_for_a_record_without_one(data: dict) -> str:
-    """An id for a proposal saved before proposals had one.
-
-    Derived from the record rather than minted, so it is the same every time
-    the file is read: two readers of one experiment -- the app and a monitor,
-    this session and the next -- must agree on what a proposal is called
-    without either of them having to save first.
-    """
-    provenance = data.get("provenance", {}) or {}
-    seed = "|".join(
-        str(part)
-        for part in (
-            data.get("kind", ""),
-            provenance.get("task_id", ""),
-            repr(data.get("created_at", 0.0)),
-        )
-    )
-    return hashlib.sha1(seed.encode("utf-8")).hexdigest()[:32]
+        """Read a proposal saved by any version (`fibsem.codec.upgrades.records`)."""
+        return decode(cls, upgrade.proposal(data))
 
 
 def record(proposals: List[Proposal], proposal: Proposal) -> Proposal:
@@ -1041,25 +925,15 @@ def current_proposals(proposals: Optional[List[Proposal]]) -> List[Proposal]:
 
 
 def proposals_to_dict(proposals: List[Proposal]) -> List[dict]:
-    return [p.to_dict() for p in proposals]
+    return encode(proposals, List[Proposal])
 
 
 def proposals_from_dict(
     data: Union[List[dict], Dict[str, list], None],
 ) -> List[Proposal]:
-    """An item's proposals as saved: a list, each saying who asked it. A file
-    saved before then keyed them by the task that asked, which is read as
-    that task's asking."""
-    if isinstance(data, dict):
-        out = []
-        for name, ps in data.items():
-            for p in ps:
-                proposal = Proposal.from_dict(p)
-                if proposal.asked_by is None:
-                    proposal.asked_by = Actor.task(name)
-                out.append(proposal)
-        return out
-    return [Proposal.from_dict(p) for p in data or []]
+    """An item's proposals as saved by any version
+    (`fibsem.codec.upgrades.records`)."""
+    return decode(List[Proposal], upgrade.proposals(data))
 
 
 @dataclass

@@ -28,7 +28,9 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable, Iterator, Optional, TypeVar, Union
+from typing import Annotated, Callable, Iterator, Optional, TypeVar, Union
+
+from pydantic import PlainSerializer, PlainValidator
 
 T = TypeVar("T")
 
@@ -105,6 +107,14 @@ class Actor:
         if self.kind is ActorKind.operator:
             return self.name or "someone"
         return f"{self.kind.value} · {self.name or 'unknown'}"
+
+
+# An Actor as a record saves it: its ``kind:name`` text.
+SavedActor = Annotated[
+    Actor,
+    PlainValidator(Actor.parse, json_schema_input_type=str),
+    PlainSerializer(str, return_type=str, when_used="json"),
+]
 
 
 _actor: "ContextVar[Optional[ActorKind]]" = ContextVar("fibsem_actor", default=None)

@@ -1084,9 +1084,10 @@ def _old_records():
                 "retired_key": 1,
             },
         ),
-        "old-proposal-no-id": (
+        "old-proposal-author": (
             Proposal,
             {
+                "id": "proposal-1",
                 "kind": "poi",
                 "values": {"poi": {"x": 0.0, "y": 1e-6}},
                 "provenance": {"task_id": "task-1"},

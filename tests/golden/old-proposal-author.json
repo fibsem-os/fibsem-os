@@ -3,10 +3,13 @@
   "created_at": "2025-10-09T08:53:20+00:00",
   "decisions": [
     {
+      "action": "",
       "actor": "operator:operator",
+      "evidence": "",
       "outcome": "Confirmed",
       "proposal_id": "",
       "reason": "",
+      "suggestion_id": "",
       "task_id": "",
       "timestamp": "2025-10-09T08:53:20+00:00",
       "values": {
@@ -19,11 +22,12 @@
       "via": ""
     }
   ],
-  "id": "75952fade4db762f629f01bd6b6ce9c9",
+  "id": "proposal-1",
   "kind": "poi",
   "provenance": {
     "task_id": "task-1"
   },
+  "suggestion": null,
   "values": {
     "poi": {
       "name": null,

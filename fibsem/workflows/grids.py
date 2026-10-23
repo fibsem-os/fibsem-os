@@ -10,17 +10,17 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from psygnal import evented
 
-from fibsem.util.timestamps import now, to_datetime, to_iso
-from fibsem.utils import _plain
+from fibsem.codec import Timestamp, decode, encode, saved
+from fibsem.codec.upgrades import records as upgrade
+from fibsem.util.timestamps import now
 from fibsem.workflows.actions import note_record
 from fibsem.workflows.item import ExperimentItem
-from fibsem.workflows.proposals import Proposal, proposals_from_dict, proposals_to_dict
+from fibsem.workflows.proposals import Proposal
 from fibsem.workflows.quality import QualityRecord
 from fibsem.workflows.status import TaskState, TaskStatus
 
@@ -64,51 +64,17 @@ class OverlayRecord:
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     # Aware, written as ISO 8601 with its offset (FIB-1197); older files hold a
     # POSIX float, which reads as this machine's zone.
-    created_at: Optional[datetime] = field(default_factory=now)
+    created_at: Optional[Timestamp] = field(default_factory=now)
 
     def to_dict(self) -> dict:
-        # Plain floats throughout: a numpy scalar that slipped in from a canvas
-        # cannot be represented by the YAML writer, and a save that raises half-way
-        # is worse than a wrong number.
-        return {
-            "kind": self.kind,
-            "dx": float(self.dx),
-            "dy": float(self.dy),
-            "rotation": float(self.rotation),
-            "scale": float(self.scale),
-            "mirrored": bool(self.mirrored),
-            "pitch": None if self.pitch is None else float(self.pitch),
-            "bar_width": None if self.bar_width is None else float(self.bar_width),
-            "source": self.source,
-            "reference": self.reference,
-            "view": self.view,
-            "fit": _plain(self.fit),
-            "display": _plain(self.display),
-            "id": self.id,
-            "created_at": to_iso(self.created_at),
-        }
+        return encode(self)
 
     @classmethod
     def from_dict(cls, data: dict) -> "OverlayRecord":
-        return cls(
-            kind=str(data.get("kind", "")),
-            dx=float(data.get("dx", 0.0) or 0.0),
-            dy=float(data.get("dy", 0.0) or 0.0),
-            rotation=float(data.get("rotation", 0.0) or 0.0),
-            scale=float(data.get("scale", 1.0) or 1.0),
-            mirrored=bool(data.get("mirrored", False)),
-            pitch=data.get("pitch"),
-            bar_width=data.get("bar_width"),
-            source=data.get("source"),
-            reference=data.get("reference"),
-            view=data.get("view"),
-            fit=dict(data.get("fit") or {}),
-            display=dict(data.get("display") or {}),
-            id=data.get("id") or str(uuid.uuid4()),
-            created_at=to_datetime(data.get("created_at", now())),
-        )
+        return decode(cls, data)
 
 
+@saved(keys={"id": "_id"})
 @dataclass
 class GridRecord(ExperimentItem):
     """A grid as the workflow knows it, distinct from the hardware's `SampleGrid`.
@@ -132,7 +98,7 @@ class GridRecord(ExperimentItem):
     task_history: List[TaskState] = field(default_factory=list)
     # Aware, written as ISO 8601 with its offset (FIB-1197); older files hold a
     # POSIX float, which reads as this machine's zone.
-    created_at: Optional[datetime] = field(default_factory=now)
+    created_at: Optional[Timestamp] = field(default_factory=now)
     proposals: List[Proposal] = field(default_factory=list)  # as on Lamella
     # What has been placed by hand over this grid's overviews; see `OverlayRecord`.
     overlays: List[OverlayRecord] = field(default_factory=list)
@@ -182,31 +148,12 @@ class GridRecord(ExperimentItem):
         return self.task_state.status is TaskStatus.Failed
 
     def to_dict(self) -> dict:
-        return {
-            "name": self.name,
-            "_id": self.id,
-            "description": self.description,
-            "quality": self.quality.to_dict(),
-            "task_state": self.task_state.to_dict(),
-            "task_history": [t.to_dict() for t in self.task_history],
-            "created_at": to_iso(self.created_at),
-            "proposals": proposals_to_dict(self.proposals),
-            "overlays": [o.to_dict() for o in self.overlays],
-        }
+        return encode(self)
 
     @classmethod
     def from_dict(cls, data: dict) -> "GridRecord":
-        return cls(
-            name=data["name"],
-            id=data.get("_id") or str(uuid.uuid4()),
-            description=data.get("description", ""),
-            quality=QualityRecord.from_dict(data.get("quality")),
-            task_state=TaskState.from_dict(data.get("task_state", {})),
-            task_history=[TaskState.from_dict(t) for t in data.get("task_history", [])],
-            created_at=to_datetime(data.get("created_at", now())),
-            proposals=proposals_from_dict(data.get("proposals")),
-            overlays=[OverlayRecord.from_dict(o) for o in data.get("overlays", [])],
-        )
+        """Read a grid saved by any version (`fibsem.codec.upgrades.records`)."""
+        return decode(cls, upgrade.item(data))
 
     def __repr__(self) -> str:
         return f"GridRecord(name={self.name!r}, quality={self.quality.verdict.name}, tasks={len(self.task_history)})"
