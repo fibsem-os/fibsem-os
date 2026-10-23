@@ -34,8 +34,6 @@ from fibsem.fm.progress import (
     FluorescenceAcquisitionStatus,
 )
 from fibsem.fm.structures import (
-    AutoFocusMode,
-    AutoFocusSettings,
     ChannelSettings,
     FluorescenceImage,
     FluorescenceImageMetadata,
@@ -55,7 +53,6 @@ from fibsem.imaging.tiling.progress import (
     TiledProgress,
     TiledStatus,
 )
-from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     DeviceImagingState,
     FibsemStagePosition,
@@ -72,11 +69,8 @@ from fibsem.ui.fm.widgets.fm_overview_settings_widget import FMOverviewSettingsW
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.tokens import (
     CURRENT_POSITION_COLOUR,
-    GRID_BOUNDARY_COLOUR,
     SAVED_POSITION_COLOUR,
     SELECTED_POSITION_COLOUR,
-    SLOT_COLOUR,
-    STAGE_LIMITS_COLOUR,
 )
 from fibsem.ui.widgets.canvas.fm_canvas import FMRealSpaceCanvasWidget
 from fibsem.ui.widgets.canvas.overlay_controls import (
@@ -85,9 +79,7 @@ from fibsem.ui.widgets.canvas.overlay_controls import (
 )
 from fibsem.ui.widgets.canvas.overlays import stage_context
 from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
-    GRID_BOUNDARY_RADIUS_M,
     MinimapShapesOverlay,
-    ShapeSpec,
 )
 from fibsem.ui.widgets.canvas.overlays.point_overlay import (
     FieldOfViewOverlay,
@@ -141,10 +133,6 @@ PREVIEW_KEY = "fm-preview"
 # is the only thing telling them apart, and the FIB/SEM overview draws the same three
 # things. A user reads both tabs, and the markers meaning different things on each is
 # worse than any one choice of colour.
-
-# Wide enough for millimetre-scale coordinates without the row re-laying out as the
-# cursor moves -- a readout that shoves the buttons sideways is worse than none.
-CURSOR_READOUT_WIDTH = 210
 
 # Icon buttons in a `TitledPanel` header. Not smaller than this: `TOOLBUTTON_ICON_STYLESHEET`
 # pads 6px each side, so a 22px button leaves 10px of width for a 16px icon and clips it --
@@ -1325,11 +1313,6 @@ class FMOverviewWidget(QWidget):
         )
         self._refresh_tile_grid()
 
-    @property
-    def saved_path(self) -> Optional[str]:
-        """Where the last acquired overview was written, if it was."""
-        return self._saved_path
-
     def set_interactive(self, enabled: bool, reason: str = "") -> None:
         """Allow or forbid starting work, without touching a run already in progress.
 
@@ -1764,15 +1747,6 @@ class FMOverviewWidget(QWidget):
             except Exception as e:
                 logging.debug(f"Could not place the planned grid: {e}")
         return (0.0, 0.0)
-
-    def _grid_anchor(self) -> Tuple[float, float]:
-        """Where on the canvas the planned grid is centred.
-
-        The same place :meth:`_grid_offset` names, in canvas pixels rather than metres
-        -- derived from it rather than projected again, so the drawn grid and the
-        declared working area cannot end up centred on different points.
-        """
-        return self.canvas.canvas.metres_to_canvas(*self._grid_offset())
 
     def _sync_position_fov(self) -> None:
         """Size the marked positions' boxes to one camera frame.

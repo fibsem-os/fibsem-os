@@ -31,7 +31,9 @@ from tests.autolamella._on_the_record import manager_for
 # only; the nightly and release runs take them everywhere (python-package.yml).
 pytestmark = pytest.mark.slow
 
-TFS_SHUTTLE_CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+TFS_SHUTTLE_CONFIG = os.path.join(
+    cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml"
+)
 MILLING_ANGLE = 15.0  # deg -> stage tilt 12 deg on the 35 deg shuttle
 NON_EUCENTRIC = 200e-6  # m
 

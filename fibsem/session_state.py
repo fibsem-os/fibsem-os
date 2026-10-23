@@ -14,6 +14,9 @@ One of five kinds of persisted state, and the one that changes constantly:
 Session state is scoped to one instrument configuration, so it lives in one file per
 configuration -- `config/session/<configuration file name>.yaml` -- and switching
 configurations can never restore one instrument's grids or positions onto another.
+What the application remembers for the person rather than an instrument -- recent
+experiments, the guided setup dismissed -- has one more file, `config/session/user.yaml`
+(`user_state`), since it has to work before any configuration exists.
 
 **What belongs here.** Session state holds last-used values only where no preference
 home exists. The acquire tab's imaging settings are not here, because
@@ -249,3 +252,16 @@ def session_state_for(microscope, writable: bool = False) -> SessionState:
     return SessionState(
         getattr(microscope, "configuration_path", None), writable=writable
     )
+
+
+# The per-account file: what the application remembers for the person rather than
+# for an instrument (recent experiments, the guided setup dismissed, the History
+# filter). Beside the per-configuration files; its sections never share a name
+# with theirs, so even a configuration called `user` would not collide.
+USER_STATE_NAME = "user"
+
+
+def user_state(writable: bool = False) -> SessionState:
+    """The session state that belongs to the person, not to a configuration: it
+    has to work before any configuration exists."""
+    return SessionState(f"{USER_STATE_NAME}.yaml", writable=writable)

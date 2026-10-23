@@ -127,7 +127,7 @@ def main(
     session.serve_microscope = (
         args.serve_microscope
         if args.serve_microscope is not None
-        else fibsem_cfg.load_user_preferences().app_server.microscope
+        else fibsem_cfg.load_user_preferences().install.app_server.microscope
     )
     return headless.serve_until_stopped(
         session, serve, "fibsem-autolamella-server", stop

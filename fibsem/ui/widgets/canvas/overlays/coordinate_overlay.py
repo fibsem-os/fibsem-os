@@ -572,20 +572,6 @@ class CoordinateOverlay(PointOverlay):
         self._store.move(coord, float(x), float(y))
         self.coordinate_moved.emit(coord)
 
-    def _refresh_chrome(self) -> None:
-        """Re-derive the labels and the legend after the coordinate set changes.
-
-        ``set_points`` redraws both via ``_draw_all``, but ``add_point`` and
-        ``remove_point`` only touch one artist -- and both can change which
-        PointTypes are on screen, which is exactly what the legend reports, and
-        whether a SURFACE point exists to hang the datum line off.
-        """
-        if self._anns:
-            self._refresh_ann_text()
-        self._apply_label_visibility()
-        self._draw_legend()
-        self._draw_surface_line()
-
 
 @dataclass
 class _ResultGroup:

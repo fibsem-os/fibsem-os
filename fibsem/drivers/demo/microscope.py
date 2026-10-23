@@ -63,10 +63,8 @@ from fibsem.structures import (
     BeamType,
     DeviceEntry,
     FibsemExperimentRef,
-    FibsemManipulatorPosition,
     FibsemRectangle,
     FibsemUser,
-    ImageSettings,
     Point,
     SystemSettings,
 )

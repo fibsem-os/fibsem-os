@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, List, Optional
 
+from fibsem import paths
 from fibsem.cancellation import raise_if_cancelled
 from fibsem.scripting import (  # noqa: F401 - re-exported for callers
     DiscoveredScript,
@@ -33,7 +34,7 @@ if TYPE_CHECKING:
 # not Documents (OneDrive-synced on most institutional machines). A leading dot does not
 # set the hidden attribute on Windows, so this is visible there too.
 SCRIPTS_DIR_ENV_VAR = "AUTOLAMELLA_SCRIPTS_DIR"
-DEFAULT_SCRIPTS_DIR = Path.home() / ".autolamella" / "scripts"
+DEFAULT_SCRIPTS_DIR = paths.state_root() / "autolamella" / "scripts"
 
 
 def get_scripts_directory() -> Path:

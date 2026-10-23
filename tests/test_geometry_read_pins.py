@@ -40,10 +40,10 @@ PINS_PATH = os.path.join(
 
 MOUNTS = {
     "default": None,
-    "iflm": os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml"),
-    "arctis": os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
+    "iflm": os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml"),
+    "arctis": os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"),
 }
-TESCAN_CONFIG = os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+TESCAN_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
 
 NAMES = ("SEM", "FIB", "MILLING", "FM", "NONE")
 # Off centre, so a rotation shows in x and y.
@@ -97,7 +97,8 @@ def _cases(prefix: str, microscope, start: Dict[str, float]) -> Dict[str, Any]:
             at = f"@{name}{np.degrees(dr):+.0f}r{np.degrees(dt):+.1f}t"
             position = FibsemStagePosition(r=pose.r + dr, t=pose.t + dt, **start)
             case(
-                f"current_device {at}", lambda: microscope.get_current_device(position)
+                f"current_device {at}",
+                lambda: microscope.stage_movement.current_device(position),
             )
             for device in devices:
                 case(

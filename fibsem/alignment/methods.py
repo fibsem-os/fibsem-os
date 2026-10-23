@@ -8,6 +8,7 @@ import numpy as np
 
 from fibsem import config as cfg
 from fibsem import utils
+from fibsem.constants import DATETIME_FILE_NANO
 from fibsem.imaging import masks
 from fibsem.imaging import utils as image_utils
 from fibsem.structures import FibsemImage, Point
@@ -371,7 +372,7 @@ def _save_alignment_data(
     import pandas as pd
     import tifffile as tff
 
-    ts = utils.current_timestamp_v2()
+    ts = utils.current_timestamp(DATETIME_FILE_NANO)
     fname = os.path.join(cfg.DATA_CC_PATH, str(ts))
 
     # save fibsem images

@@ -20,7 +20,7 @@ from fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence import
 )
 
 ACQUIRE = "Acquire Fluorescence Image"
-CONFIG = os.path.join(fconfig.CONFIG_PATH, "sim-arctis-configuration.yaml")
+CONFIG = os.path.join(fconfig.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
 
 
 @pytest.fixture

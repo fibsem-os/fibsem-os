@@ -1,6 +1,3 @@
-import numpy as np
-import pytest
-
 from fibsem import acquire, utils
 from fibsem.structures import (
     FibsemImage,

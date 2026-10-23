@@ -8,7 +8,7 @@ from PyQt5.QtCore import pyqtSignal
 from fibsem import config as cfg
 from fibsem import guided_setup, utils
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import ImageSettings, MicroscopeSettings, SystemSettings
+from fibsem.structures import ImageSettings, MicroscopeSettings
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
@@ -183,22 +183,15 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         frame.setVisible(False)
         return frame
 
-    def refresh_first_run_offer(self, preferences=None) -> None:
+    def refresh_first_run_offer(self) -> None:
         """Show the offer when nothing is configured yet and it has not been dismissed.
 
         Two separate conditions on purpose: inferring dismissal from the same file
         whose absence means "fresh install" would make recording a dismissal look
         like an undo of it.
-
-        Takes the whole preferences object rather than a bool, so AutoLamella's
-        `_apply_preferences` can pass the one it already holds. None reads them, for
-        the standalone widget that has no host.
         """
-        if preferences is None:
-            preferences = cfg.load_user_preferences()
         self._frame_first_run.setVisible(
-            not preferences.display.guided_setup_dismissed
-            and guided_setup.is_first_run()
+            not guided_setup.is_offer_dismissed() and guided_setup.is_first_run()
         )
 
     def _dismiss_first_run(self) -> None:
