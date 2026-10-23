@@ -4,7 +4,7 @@ import os
 from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
 
-from fibsem.ai.agent.catalog.spec import ToolSpec
+from fibsem.ai.agent.catalog.spec import MARKS_PARAM, ToolSpec
 from fibsem.server.parts import GRIDS, LAMELLAE, MILLING_STAGES
 from fibsem.util import wording
 
@@ -508,6 +508,40 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "grid_name": "draw only this grid's items",
         },
         optional=("grid_name",),
+    ),
+    ToolSpec(
+        name="experiment_draw_image",
+        returns="ImageDrawn",
+        description="Draw marks on any saved image in the experiment (a beam image, or a fluorescence stack's max projection) and look at them before you act or cite them: the same marks as evidence takes, drawn as the operator sees them, in your purple, each label in a box placed clear of the others. crosshair adds the centre crosshair; the scale bar and metadata bar are under it. Saved beside the image as drawn/<image>.png (replaced when drawn again): cite that path as evidence ({image: path}). Answers the path, the marks (measured lines with their length, each place with its stage position when the image says where it was taken) and a preview.",
+        method="POST",
+        path="/app/experiment/images/drawn",
+        level="watch",
+        router="app",
+        params={
+            "path": "an image file path inside the experiment folder",
+            "marks": MARKS_PARAM,
+            "crosshair": "optional: draw the centre crosshair (default false)",
+            "metadata_bar": "optional: the metadata bar under the image (default true)",
+            "channels": "optional: for a fluorescence stack, the channels to show, by name (default all)",
+        },
+        optional=("marks", "crosshair", "metadata_bar", "channels"),
+    ),
+    ToolSpec(
+        name="experiment_draw_pair",
+        returns="ImagePairDrawn",
+        description="Two saved images of the experiment side by side at one scale, each with its own scale bar and metadata bar: before and after a mill, before and after an alignment, SEM next to FIB of one site. marks (in before's pixels) are drawn on both, at the same place of each frame, so a shift or a missing feature shows. Saved beside before as drawn/<before>-<after>.png: cite that path as evidence. Answers the path, the marks and a preview.",
+        method="POST",
+        path="/app/experiment/images/pair",
+        level="watch",
+        router="app",
+        params={
+            "before": "an image file path inside the experiment folder, drawn on the left",
+            "after": "an image file path inside the experiment folder, drawn on the right",
+            "marks": MARKS_PARAM,
+            "metadata_bar": "optional: the metadata bar under each image (default true)",
+            "channels": "optional: for fluorescence stacks, the channels to show, by name (default all)",
+        },
+        optional=("marks", "metadata_bar", "channels"),
     ),
     ToolSpec(
         name="experiment_get_image_stage_position",

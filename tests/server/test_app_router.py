@@ -1049,6 +1049,83 @@ def test_render_markers_draws_the_items_on_any_beam_image(
     assert unknown.status_code == 404
 
 
+def test_draw_image_saves_the_marks_drawn_beside_the_image(
+    client, host, grid_with_overview
+):
+    """Marks drawn on a saved image, saved as drawn/<image>.png for the agent
+    to look at and cite: measured lines labelled with their length and each
+    place with its stage position, from the image's own metadata."""
+    import base64
+
+    overview = host.experiment.grid_path(grid_with_overview) / "overview_sem"
+    path = str(overview / "overview.tif")
+    url = "/app/experiment/images/drawn"
+    marks = {
+        "points": [{"x": 64, "y": 64, "shape": "target", "label": "site"}],
+        "circles": [{"x": 30, "y": 30, "radius": 10}],
+        "lines": [{"x1": 10, "y1": 100, "x2": 110, "y2": 100, "measure": True}],
+    }
+    resp = client.post(
+        url, headers=AUTH, json={"path": path, "marks": marks, "crosshair": True}
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["path"] == str(overview / "drawn" / "overview.png")
+    assert os.path.getsize(body["path"]) > 0
+    assert base64.b64decode(body["plot"]["image_b64_jpeg"])[:2] == b"\xff\xd8"
+    # 100 px of a 200 um field 128 px wide.
+    assert body["marks"]["lines"][0]["label"] == "156 \u00b5m"
+    assert set(body["marks"]["points"][0]["stage"]) == {"x", "y"}
+
+    # No marks: the image with its bars, as the export draws it.
+    plain = client.post(url, headers=AUTH, json={"path": path})
+    assert plain.status_code == 200 and plain.json()["marks"] is None
+
+    bad = client.post(
+        url, headers=AUTH, json={"path": path, "marks": {"arrows": []}}
+    )
+    assert bad.status_code == 422 and "circles" in bad.json()["detail"]["message"]
+    flag = client.post(url, headers=AUTH, json={"path": path, "crosshair": "yes"})
+    assert flag.status_code == 422
+    assert client.post(url, headers=AUTH, json={}).status_code == 422
+    assert (
+        client.post(url, headers=AUTH, json={"path": path + ".nope"}).status_code
+        == 404
+    )
+
+
+def test_draw_pair_puts_two_images_side_by_side_at_one_scale(
+    client, host, grid_with_overview, microscope
+):
+    from PIL import Image
+
+    from fibsem.structures import BeamType, ImageSettings
+
+    overview = host.experiment.grid_path(grid_with_overview) / "overview_sem"
+    # Half the field of the overview: drawn half as wide.
+    after = microscope.acquire_image(
+        ImageSettings(resolution=(128, 128), hfw=100e-6, beam_type=BeamType.ELECTRON)
+    )
+    after.save(str(overview / "after.tif"))
+    resp = client.post(
+        "/app/experiment/images/pair",
+        headers=AUTH,
+        json={
+            "before": str(overview / "overview.tif"),
+            "after": str(overview / "after.tif"),
+            "marks": {"areas": [{"x": 40, "y": 40, "width": 20, "height": 20}]},
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["path"] == str(overview / "drawn" / "overview-after.png")
+    with Image.open(body["path"]) as saved:
+        width = saved.size[0]
+    # Each at most its source's width: the overview 128 px, the after 128 px
+    # scaled to half the overview's 128 (one scale), plus the gap.
+    assert width == 128 + 8 + 64
+
+
 def test_fm_overview_previews_in_colour_and_places_markers(
     client, host, grid_with_overview
 ):

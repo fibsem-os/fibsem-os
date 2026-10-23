@@ -29,7 +29,12 @@ from fibsem.constants import MU_SYMBOL
 from fibsem.fm.composite import FMLayer, auto_clim, composite_fm_layers, tint_rgb
 from fibsem.fm.preview import is_fluorescence_image, projection_layers
 from fibsem.fm.structures import FluorescenceImage
-from fibsem.imaging.drawing import _get_font, draw_crosshair, draw_scalebar
+from fibsem.imaging.drawing import (
+    _get_font,
+    draw_crosshair,
+    draw_scalebar,
+    scalebar_plate,
+)
 from fibsem.structures import BeamType, FibsemImage
 from fibsem.theme import tokens
 from fibsem.util.timestamps import acquisition_datetime_of, format_time
@@ -605,8 +610,9 @@ def _draw_text(draw, x: int, cy: int, text: str, font, color: RGB) -> None:
     draw.text((x, cy), text, font=font, fill=color, anchor="lm")
 
 
-def _draw_legend(rgb: np.ndarray, channels: List[ExportChannel], sizes) -> np.ndarray:
-    """Channel swatches and names on a plate in the top-right corner."""
+def _legend_layout(channels: List[ExportChannel], sizes, width: int):
+    """``(plate, pad, swatch, row)``: where the channel legend's plate sits
+    on an image *width* wide, and its spacing."""
     font = _get_font(sizes["font"])
     pad = max(4, sizes["font"] // 2)
     swatch = max(6, round(sizes["font"] * 0.7))
@@ -614,16 +620,22 @@ def _draw_legend(rgb: np.ndarray, channels: List[ExportChannel], sizes) -> np.nd
     text_w = max(_text_width(font, c.name) for c in channels)
     plate_w = pad + swatch + pad + text_w + pad
     plate_h = pad + row * len(channels) + pad // 2
-
-    h, w = rgb.shape[:2]
-    x0 = w - sizes["margin"] - plate_w
+    x0 = width - sizes["margin"] - plate_w
     y0 = sizes["margin"]
+    return (x0, y0, x0 + plate_w, y0 + plate_h), pad, swatch, row
+
+
+def _draw_legend(rgb: np.ndarray, channels: List[ExportChannel], sizes) -> np.ndarray:
+    """Channel swatches and names on a plate in the top-right corner."""
+    font = _get_font(sizes["font"])
+    h, w = rgb.shape[:2]
+    (x0, y0, x1, y1), pad, swatch, row = _legend_layout(channels, sizes, w)
 
     base = Image.fromarray(rgb).convert("RGBA")
     overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
     # Square, like the scalebar's plate from fibsem.imaging.drawing.
-    plate = (x0, y0, x0 + plate_w, y0 + plate_h)
+    plate = (x0, y0, x1, y1)
     draw.rectangle(plate, fill=(*PLATE_COLOR, int(PLATE_ALPHA * 255)))
     for i, channel in enumerate(channels):
         cy = y0 + pad + row * i + row // 2
@@ -781,6 +793,32 @@ def render_export(image: ExportImage, options: ExportOptions) -> np.ndarray:
         return rgb
     bar = _draw_bar(image, options, rgb.shape[1], sizes)
     return np.concatenate([rgb, np.array(bar)], axis=0)
+
+
+def overlay_boxes(
+    image: ExportImage, options: ExportOptions, width: int, height: int
+) -> List[Tuple[int, int, int, int]]:
+    """The places ``(x0, y0, x1, y1)`` `render_export` covers on a *width* x
+    *height* rendering of *image* (scale 1): its channel legend and scale bar
+    plates, for what is drawn under them to keep clear of."""
+    sizes = _sizes(width)
+    boxes = []
+    visible = _visible_channels(image, options)
+    if options.legend and visible:
+        boxes.append(_legend_layout(visible, sizes, width)[0])
+    if options.scalebar and image.pixel_size:
+        plate = scalebar_plate(
+            width,
+            height,
+            image.pixel_size,
+            location=options.scalebar_location,
+            margin=sizes["margin"],
+            bar_height=sizes["bar_height"],
+            font_scale=sizes["font"] / 30,
+        )
+        if plate is not None:
+            boxes.append(plate)
+    return boxes
 
 
 def export_shape(image: ExportImage, options: ExportOptions) -> Tuple[int, int]:

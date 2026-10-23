@@ -243,6 +243,15 @@ def _with_stage(
     return marks
 
 
+def checked_marks(
+    marks: Any, image_path: str
+) -> Optional[Dict[str, List[Dict[str, Any]]]]:
+    """*marks* as `_marks` reads them (refused as it refuses them), each
+    measured line labelled with its length and each place given its stage
+    position, from the image at *image_path*."""
+    return _with_stage(_with_lengths(_marks(marks), image_path), image_path)
+
+
 def _found(path: str, root: str, item_name: Optional[str]) -> Optional[str]:
     """The file *path* names: as given when absolute; a relative one (as
     proposal_list gives a reference image) in the item's folder, then the
