@@ -16,6 +16,7 @@ from fibsem.cancellation import (
     OperationCancelledError,
     raise_if_cancelled,
 )
+from fibsem.constants import TIME_FILE
 from fibsem.devices.beam import scanned_resolution
 
 # Moved to the `tiling` package; re-exported so existing importers and the
@@ -69,7 +70,7 @@ from fibsem.structures import (
     Point,
     TileOrderStrategy,
 )
-from fibsem.utils import current_timestamp_v3
+from fibsem.utils import current_timestamp
 
 ##### TILE GRID
 
@@ -109,7 +110,7 @@ def stamped_overview_name(name: str) -> str:
     from another. Applied to whatever a caller asks for, not only to a default: a
     name someone typed is no less prone to being reused.
     """
-    return f"{name}-{current_timestamp_v3(timeonly=True)}"
+    return f"{name}-{current_timestamp(TIME_FILE)}"
 
 
 class TiledAcquisitionRunner:

@@ -6,6 +6,7 @@ from PyQt5.QtCore import QEvent, pyqtSignal
 from superqt import ensure_main_thread
 
 from fibsem import acquire, utils
+from fibsem.constants import TIME_FILE
 from fibsem.imaging.latest import LatestImages
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
@@ -714,7 +715,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         except Exception as e:
             logging.error(f"Error getting selected lamella for image saving: {e}")
 
-        ts = utils.current_timestamp_v3()
+        ts = utils.current_timestamp(TIME_FILE)
         self.image_settings.filename = f"{self.image_settings.filename}-{ts}"
 
         # The views' chips: a frame is on its way to each of these.

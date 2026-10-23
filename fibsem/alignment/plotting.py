@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, List, Optional
 import numpy as np
 
 from fibsem import utils
-from fibsem.constants import DATETIME_DISPLAY
+from fibsem.constants import DATETIME_DISPLAY, DATETIME_FILE_NANO
 from fibsem.structures import ImageSettings
 
 if TYPE_CHECKING:
@@ -49,7 +49,7 @@ def _alignment_save_path(ref_image: FibsemImage) -> tuple:
         if REFERENCE_FILENAME in ref_filename
         else ref_filename + "_"
     )
-    ts = utils.current_timestamp_v2()
+    ts = utils.current_timestamp(DATETIME_FILE_NANO)
     return ref_path, prefix, ts
 
 

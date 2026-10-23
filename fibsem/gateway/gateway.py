@@ -156,7 +156,8 @@ def configurations() -> List[Configuration]:
     from fibsem import config as cfg
 
     try:
-        saved = cfg.load_yaml(cfg.USER_CONFIGURATIONS_PATH)
+        with open(cfg.USER_CONFIGURATIONS_PATH) as f:
+            saved = yaml.safe_load(f)
     except (OSError, ValueError, yaml.YAMLError):
         saved = cfg.DEFAULT_USER_CONFIGURATION_YAML
     default = saved.get("default")

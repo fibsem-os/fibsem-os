@@ -21,6 +21,7 @@ from fibsem.cancellation import (
     ended_by,
     raise_if_cancelled,
 )
+from fibsem.constants import TIME_FILE
 from fibsem.devices.runs import Runs, current_run_id
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.base import FibsemMillingStage, MillingStrategyResult
@@ -41,7 +42,7 @@ from fibsem.structures import (
     param,
 )
 from fibsem.util.timestamps import now_iso
-from fibsem.utils import current_timestamp_v3
+from fibsem.utils import current_timestamp
 from fibsem.workflows.config_patch import PatchError, apply_patch
 
 
@@ -824,7 +825,7 @@ class FibsemMillingTask:
         filename = f"{self.name}_{fcfg.REFERENCE_FILENAME}"
         if tag:
             filename = f"{filename}_{tag}"
-        filename = f"{filename}_{current_timestamp_v3(timeonly=True)}".replace(" ", "-")
+        filename = f"{filename}_{current_timestamp(TIME_FILE)}".replace(" ", "-")
         image_settings = ImageSettings(
             hfw=self.config.field_of_view,
             dwell_time=self.config.alignment.imaging.dwell_time,
@@ -851,7 +852,7 @@ class FibsemMillingTask:
         """
         self.microscope.finish_milling()
 
-        acq_date = current_timestamp_v3(timeonly=True)
+        acq_date = current_timestamp(TIME_FILE)
         self.config.acquisition.imaging.filename = (
             f"{stage_name}_{tag}_{acq_date}".replace(" ", "-")
         )

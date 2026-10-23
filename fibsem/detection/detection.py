@@ -10,6 +10,7 @@ from skimage import measure
 
 from fibsem import config as cfg
 from fibsem import conversions
+from fibsem.constants import DATETIME_FILE_NANO
 from fibsem.imaging import tiled
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
@@ -474,7 +475,7 @@ def take_image_and_detect_features(
         )
         image_settings.reduced_area = None
 
-    image_settings.filename = f"ml-{utils.current_timestamp_v2()}"
+    image_settings.filename = f"ml-{utils.current_timestamp(DATETIME_FILE_NANO)}"
     image_settings.save = True
 
     # take new image

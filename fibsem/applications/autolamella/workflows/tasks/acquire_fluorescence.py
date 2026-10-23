@@ -14,6 +14,7 @@ import fibsem.utils as utils
 from fibsem import timing
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
+from fibsem.constants import TIME_FILE
 from fibsem.fm.acquisition import acquire_image
 from fibsem.fm.calibration import AutoFocusResult, run_coarse_fine_autofocus
 from fibsem.fm.structures import AutoFocusSettings, ChannelSettings, ZParameters
@@ -133,7 +134,7 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
                 )
 
         # Generate timestamp-based filename
-        timestamp = utils.current_timestamp_v3(timeonly=True)
+        timestamp = utils.current_timestamp(TIME_FILE)
         basename = f"{self.lamella.name}-zstack-{timestamp}.ome.tiff"
         filename = os.path.join(self.output_dir, basename)  # the run's
 
