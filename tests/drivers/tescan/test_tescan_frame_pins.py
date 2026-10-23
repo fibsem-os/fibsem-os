@@ -59,7 +59,7 @@ DX, DY = 20e-6, -15e-6
 
 def _system(pretilt: float):
     system = utils.load_microscope_configuration(
-        os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
     ).system
     system.stage.shuttle_pre_tilt = pretilt
     return system

@@ -14,6 +14,7 @@ import yaml
 from PIL import Image
 
 from fibsem import config as cfg
+from fibsem import state_move
 from fibsem.codec.upgrades.configuration import upgrade
 from fibsem.constants import DATETIME_LOG, MICRON_SYMBOL, MU_SYMBOL, TIME_FILE
 from fibsem.structures import (
@@ -278,7 +279,7 @@ def make_logging_directory(path: Optional[Path] = None, name="run"):
     """
 
     if path is None:
-        path = os.path.join(cfg.BASE_PATH, "log")
+        path = cfg.LOG_PATH
     directory = os.path.join(path, name)
     os.makedirs(directory, exist_ok=True)
     return directory
@@ -311,6 +312,7 @@ def configure_logging(
     logging.getLogger("PIL").setLevel(logging.WARNING)
     logging.getLogger("napari").setLevel(logging.WARNING)
 
+    state_move.log_pending()
     return logfile
 
 

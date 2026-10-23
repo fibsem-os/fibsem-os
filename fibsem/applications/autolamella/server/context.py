@@ -731,6 +731,11 @@ class AutoLamellaAppContext(AppContext):
 
         return experiment_setup.protocol_directory()
 
+    def _protocol_folders(self) -> List[str]:
+        from fibsem.applications.autolamella import experiment_setup
+
+        return experiment_setup.protocol_folders()
+
     def _default_protocol_path(self) -> Optional[str]:
         from fibsem.applications.autolamella import experiment_setup
 

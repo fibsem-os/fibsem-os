@@ -296,7 +296,7 @@ def test_applying_a_configuration_keeps_the_holder_selection():
     no longer knew about. Which holder is in the shuttle is a physical fact and
     pressing Apply did not change it.
     """
-    path = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+    path = os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
     microscope, _ = utils.setup_session(config_path=path, manufacturer="Demo")
 
     holder = _calibrated_holder()
@@ -314,7 +314,7 @@ def test_applying_a_configuration_keeps_the_holder_selection():
 
 def test_a_configuration_that_names_holders_wins_over_the_live_one():
     """The other half: a file that does name holders is a user choosing one."""
-    path = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+    path = os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
     microscope, _ = utils.setup_session(config_path=path, manufacturer="Demo")
 
     microscope.system.stage.holders = {"old": _calibrated_holder("old")}
@@ -504,7 +504,7 @@ def test_a_settings_record_does_not_keep_the_microscope_alive():
     import gc
     import weakref
 
-    path = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+    path = os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
     microscope, settings = utils.setup_session(config_path=path, manufacturer="Demo")
     assert settings.system.stage.holders, (
         "fixture no longer puts a holder on the record"
@@ -558,7 +558,7 @@ def test_the_compustage_holder_states_its_pre_tilt():
     """
     from fibsem.services.sample_handling import bind_sample_handling
 
-    path = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+    path = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
     microscope, _ = utils.setup_session(config_path=path, manufacturer="Demo")
     assert microscope._fm_is_a_pose(), "fixture no longer exercises the compustage"
 

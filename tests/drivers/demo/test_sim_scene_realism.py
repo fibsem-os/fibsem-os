@@ -24,7 +24,9 @@ from fibsem.drivers.demo.sim_scene import SampleScene
 from fibsem.geometry.projection import BeamStageProjection
 from fibsem.structures import BeamType, ImageSettings
 
-TFS_SHUTTLE_CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+TFS_SHUTTLE_CONFIG = os.path.join(
+    cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml"
+)
 MILLING_TILT = np.deg2rad(12.0)
 
 

@@ -23,8 +23,8 @@ from fibsem import utils
 from fibsem.applications.autolamella.poses import _to_fluorescence, _to_milling
 from fibsem.structures import FibsemStagePosition, InsertableDeviceState
 
-ARCTIS_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
-IFLM_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
+ARCTIS_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
+IFLM_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml")
 
 
 def _microscope(config_path: str):

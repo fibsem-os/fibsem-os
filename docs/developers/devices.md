@@ -348,7 +348,7 @@ import os
 from fibsem import config
 
 microscope, settings = utils.setup_session(
-    config_path=os.path.join(config.CONFIG_PATH, "sim-arctis-configuration.yaml")
+    config_path=os.path.join(config.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
 )
 fm = microscope.devices["fm"]
 assert fm.camera is microscope.devices["camera"]

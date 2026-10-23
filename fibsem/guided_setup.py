@@ -185,7 +185,7 @@ class MicroscopeModel:
 
     @property
     def path(self) -> str:
-        return os.path.join(cfg.CONFIG_PATH, self.filename)
+        return os.path.join(cfg.SHIPPED_CONFIG_PATH, self.filename)
 
     @property
     def manufacturer(self) -> Manufacturer:

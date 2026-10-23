@@ -61,7 +61,9 @@ def aquilos():
     """
     scope, _ = utils.setup_session(
         manufacturer="Demo",
-        config_path=os.path.join(cfg.CONFIG_PATH, "tfs-aquilos2-configuration.yaml"),
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "tfs-aquilos2-configuration.yaml"
+        ),
     )
     return scope
 

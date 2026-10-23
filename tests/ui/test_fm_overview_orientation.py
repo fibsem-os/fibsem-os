@@ -205,7 +205,7 @@ class TestOffsetMounts:
         import fibsem.config as cfg
         from fibsem import utils
 
-        config = os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
+        config = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml")
         microscope, _ = utils.setup_session(config_path=config)
         built = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
         built.fm.objective.insert()

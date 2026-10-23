@@ -28,7 +28,7 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.services.stage_movement import StageMovement
 from fibsem.structures import BeamType, FibsemStagePosition
 
-ODEMIS_CONFIG_PATH = os.path.join(cfg.CONFIG_PATH, "odemis-configuration.yaml")
+ODEMIS_CONFIG_PATH = os.path.join(cfg.SHIPPED_CONFIG_PATH, "odemis-configuration.yaml")
 
 
 class _UprightStage:

@@ -37,7 +37,7 @@ from fibsem.structures import (
 )
 from tests.fm import _odemis_stubs as stubs
 
-ODEMIS_CONFIG_PATH = os.path.join(cfg.CONFIG_PATH, "odemis-configuration.yaml")
+ODEMIS_CONFIG_PATH = os.path.join(cfg.SHIPPED_CONFIG_PATH, "odemis-configuration.yaml")
 
 FRAME_SHAPE = (1024, 1536)  # rows, columns
 

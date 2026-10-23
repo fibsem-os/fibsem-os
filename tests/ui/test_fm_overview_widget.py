@@ -1881,7 +1881,7 @@ def test_the_canvas_is_anchored_at_the_fm_device_not_at_the_stage(qapp):
     from fibsem import utils
 
     microscope, _ = utils.setup_session(
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
+        config_path=os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml")
     )
     microscope.move_to_orientation("SEM")
     assert microscope.get_current_device() == "FIBSEM"

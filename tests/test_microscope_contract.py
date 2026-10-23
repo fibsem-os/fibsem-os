@@ -990,7 +990,9 @@ def test_unknown_saved_manipulator_position_raises(manipulator_microscope):
 # Fluorescence (on a configuration with an FM)
 # ---------------------------------------------------------------------------
 
-FM_CONFIGURATION = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+FM_CONFIGURATION = os.path.join(
+    cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
+)
 
 
 @pytest.fixture
