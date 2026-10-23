@@ -188,14 +188,14 @@ class FmIntensityMonitor(MillingStreamMonitor[FmIntensityConfig]):
 
     def _plot(self) -> Optional[str]:
         try:
-            import matplotlib
-
-            matplotlib.use("Agg")
-            import matplotlib.pyplot as plt
+            from matplotlib.backends.backend_agg import FigureCanvasAgg
+            from matplotlib.figure import Figure
         except ImportError:
             return None
         t = [r["milled_time"] for r in self.rows]
-        fig, ax = plt.subplots(figsize=(8, 3.5))
+        fig = Figure(figsize=(8, 3.5))
+        FigureCanvasAgg(fig)
+        ax = fig.add_subplot()
         ax.plot(t, [r["value"] for r in self.rows], lw=0.8, alpha=0.5, label="mean")
         ax.plot(t, [r["rolling_mean"] for r in self.rows], lw=1.5, label="rolling mean")
         warm = [
@@ -217,7 +217,6 @@ class FmIntensityMonitor(MillingStreamMonitor[FmIntensityConfig]):
         except Exception:  # noqa: BLE001 - the figure must not cost the record
             logging.debug("could not save the intensity figure", exc_info=True)
             path = None
-        plt.close(fig)
         return path
 
     def result(self) -> MillingMonitorResult:

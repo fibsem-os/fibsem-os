@@ -99,8 +99,6 @@ def save_markers_picture(
     import io
     import os
 
-    import matplotlib.pyplot as plt
-
     height, width = image.data.shape[:2]
     fig = overview_figure(
         image,
@@ -115,10 +113,7 @@ def save_markers_picture(
     )
     saved = {"bbox_inches": "tight", "pad_inches": 0, "facecolor": "black"}
     buf = io.BytesIO()
-    try:
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        fig.savefig(path, dpi=200, **saved)
-        fig.savefig(buf, format="jpeg", dpi=96, pil_kwargs={"quality": 85}, **saved)
-    finally:
-        plt.close(fig)
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    fig.savefig(path, dpi=200, **saved)
+    fig.savefig(buf, format="jpeg", dpi=96, pil_kwargs={"quality": 85}, **saved)
     return buf.getvalue()
