@@ -3,7 +3,6 @@ route and tool that serve it."""
 
 import asyncio
 import json
-import os
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
@@ -148,18 +147,6 @@ TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 
-@pytest.fixture(scope="module")
-def microscope():
-    # The route tests need the [server] extra; the reader tests above do not.
-    pytest.importorskip("fastapi")
-    pytest.importorskip("httpx")
-    from fibsem import utils
-
-    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    return microscope
-
-
 @pytest.fixture
 def host(tmp_path):
     host = stub_session()
@@ -172,6 +159,9 @@ def host(tmp_path):
 
 @pytest.fixture
 def client(microscope, host):
+    # The route tests need the [server] extra; the reader tests above do not.
+    pytest.importorskip("fastapi")
+    pytest.importorskip("httpx")
     from fastapi.testclient import TestClient
 
     from fibsem.applications.autolamella.server import AutoLamellaAppContext

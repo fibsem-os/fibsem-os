@@ -14,13 +14,9 @@ from PyQt5.QtWidgets import QApplication
 
 import fibsem.config as fibsem_config
 from fibsem import utils
-from fibsem.fm.structures import (
-    FluorescenceChannelMetadata,
-    FluorescenceImage,
-    FluorescenceImageMetadata,
-)
 from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition, ImageSettings
 from fibsem.ui.widgets.stored_overview_canvas import VIEW_FM, StoredOverviewCanvas
+from tests.fixtures.fm_images import fm_image, gfp, noise
 
 _app = QApplication.instance() or QApplication([])
 
@@ -64,27 +60,12 @@ def _beam_image(
 
 
 def _fm_image(arctis, position, size=128, pixel_size=1e-7):
-    image = FluorescenceImage(
-        data=(np.random.default_rng(2).random((1, 1, size, size)) * 4000).astype(
-            np.uint16
-        ),
-        metadata=FluorescenceImageMetadata(
-            acquisition_datetime="2026-09-14T10:00:00",
-            pixel_size_x=pixel_size,
-            pixel_size_y=pixel_size,
-            stage_position=position,
-            channels=[
-                FluorescenceChannelMetadata(
-                    name="GFP",
-                    excitation_wavelength=488.0,
-                    power=0.5,
-                    exposure_time=0.1,
-                    gain=1.0,
-                    offset=0.0,
-                    color="cyan",
-                )
-            ],
-        ),
+    image = fm_image(
+        noise(size, seed=2),
+        [gfp(color="cyan")],
+        pixel_size=pixel_size,
+        acquired="2026-09-14T10:00:00",
+        stage_position=position,
     )
     image.metadata.geometry = arctis.fm_image_geometry()
     return image

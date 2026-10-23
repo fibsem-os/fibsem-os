@@ -32,18 +32,15 @@ from fibsem.workflows.event_recording import (
     EventRecorder,
     read_events,
 )
+from tests.fixtures.microscopes import demo_microscope
 
-
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    microscope.get_stage_position()  # a position read, as the app has on connect
-    return microscope
+microscope = demo_microscope(scope="function")
 
 
 @pytest.fixture
 def recorded(microscope, tmp_path):
     """The events recorded while the test body runs, read back from disk."""
+    microscope.get_stage_position()  # a position read, as the app has on connect
     recorder = EventRecorder(microscope, experiment_path=tmp_path)
 
     def read(kind):

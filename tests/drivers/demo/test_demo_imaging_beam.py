@@ -9,21 +9,18 @@ import threading
 
 import pytest
 
-from fibsem import config as cfg
-from fibsem import utils
 from fibsem.structures import BeamType, FibsemImage, FibsemRectangle, ImageSettings
+from tests.fixtures.microscopes import demo_microscope
 
 AREA = FibsemRectangle(0.25, 0.25, 0.5, 0.5)
 
 
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(
-        config_path=cfg.DEFAULT_CONFIGURATION_PATH,
-        manufacturer="Demo",
-        setup_logging=False,
-    )
-    yield microscope
+microscope = demo_microscope(scope="function")
+
+
+@pytest.fixture(autouse=True)
+def _stop_acquisition(microscope):
+    yield
     microscope.stop_acquisition()
 
 

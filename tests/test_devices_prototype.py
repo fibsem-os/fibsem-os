@@ -12,7 +12,6 @@ import pytest
 import yaml
 
 from fibsem import config as cfg
-from fibsem import utils
 from fibsem.devices import (
     Beam,
     Device,
@@ -26,6 +25,7 @@ from fibsem.devices import (
 from fibsem.devices.beam import DEFAULT_WORKING_DISTANCE_LIMITS, UNBOUNDED_SHIFT_LIMITS
 from fibsem.drivers.demo.simulator import SIMULATOR_BEAM_CURRENTS
 from fibsem.structures import BeamType, FibsemImage, RangeLimit
+from tests.fixtures.microscopes import demo_microscope, demo_session
 
 BEAMS = (BeamType.ELECTRON, BeamType.ION)
 
@@ -43,15 +43,10 @@ def _demo(plasma: bool = False):
         config_path = os.path.join(tempfile.mkdtemp(), "plasma-configuration.yaml")
         with open(config_path, "w") as f:
             yaml.safe_dump(configuration, f)
-    microscope, _ = utils.setup_session(
-        config_path=config_path, manufacturer="Demo", setup_logging=False
-    )
-    return microscope
+    return demo_session(config_path)
 
 
-@pytest.fixture
-def microscope():
-    return _demo()
+microscope = demo_microscope(scope="function")
 
 
 @pytest.fixture
