@@ -3,6 +3,7 @@ import { type ReactNode, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle, Facts } from "@/components/ui/card";
 import { api } from "@/lib/api";
+import * as fmt from "@/lib/format";
 import { Connections } from "@/shell/Settings";
 import { cn } from "@/lib/utils";
 
@@ -46,9 +47,6 @@ const MODES: { mode: Shown; name: string; what: string }[] = [
   { mode: "server", name: "Microscope server", what: "The microscope only, for an app on another computer." },
 ];
 
-const when = (seconds: number) =>
-  new Date(seconds * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
-
 const FIELD = "rounded border border-input bg-background px-2 py-1.5 text-[13px] text-foreground";
 
 function Status({ state }: { state: GatewayState }) {
@@ -57,7 +55,7 @@ function Status({ state }: { state: GatewayState }) {
   if (state.mode === "headless") {
     rows.push(["Experiment", state.experiment ?? "None open"], ["Configuration", state.configuration ?? "–"]);
   }
-  if (state.since) rows.push(["Started", `${when(state.since)} by ${state.who ?? "–"}, from the ${state.via ?? "–"}`]);
+  if (state.since) rows.push(["Started", `${fmt.when(state.since)} by ${state.who ?? "–"}, from the ${state.via ?? "–"}`]);
   return <Facts className="[&_dd]:text-left" rows={rows} />;
 }
 
@@ -230,7 +228,7 @@ function ModeSection({ state }: { state: GatewayState }) {
       {state.last_exit && (
         <p className="m-0 text-xs text-muted-foreground">
           Last ended: {state.last_exit.app ?? state.last_exit.mode},{" "}
-          {state.last_exit.killed ? "killed" : `exit ${state.last_exit.code ?? "–"}`}, {when(state.last_exit.at)}
+          {state.last_exit.killed ? "killed" : `exit ${state.last_exit.code ?? "–"}`}, {fmt.when(state.last_exit.at)}
           {state.last_exit.log && ` · log ${state.last_exit.log}`}
         </p>
       )}
@@ -251,7 +249,7 @@ function Recent() {
       {switches.length === 0 && <p className="m-0 text-[13px] text-muted-foreground">No switches yet.</p>}
       {switches.map((s, i) => (
         <div key={i} className="grid grid-cols-1 gap-0.5 border-t border-border py-2 text-[13px] sm:grid-cols-[150px_minmax(0,1fr)_auto] sm:gap-3">
-          <span className="text-muted-foreground tabular-nums">{when(s.at)}</span>
+          <span className="text-muted-foreground tabular-nums">{fmt.when(s.at)}</span>
           <span className="min-w-0 break-words">
             {s.from_mode} → {s.to_mode}
             {s.app && ` · ${s.app}`}

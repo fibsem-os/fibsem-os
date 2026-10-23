@@ -277,44 +277,41 @@ def _matches(token: Optional[str], expected: Optional[str]) -> bool:
     )
 
 
-def _unauthorized() -> HTTPException:
+def refusal_error(
+    status_code: int, error_type: str, message: str, **extra: Any
+) -> HTTPException:
+    """A refusal as every route answers it: ``{error_type, message}``, and
+    whatever else the client needs to act on it."""
     return HTTPException(
-        status_code=401,
-        detail={
-            "error_type": "unauthorized",
-            "message": "Missing or invalid bearer token.",
-        },
+        status_code=status_code,
+        detail={"error_type": error_type, "message": message, **extra},
     )
 
 
+def _unauthorized() -> HTTPException:
+    return refusal_error(401, "unauthorized", "Missing or invalid bearer token.")
+
+
 def _operator_only() -> HTTPException:
-    return HTTPException(
-        status_code=403,
-        detail={
-            "error_type": "operator_only",
-            "message": "Only the operator does this: the agent's token can't.",
-        },
+    return refusal_error(
+        403, "operator_only", "Only the operator does this: the agent's token can't."
     )
 
 
 def _connect_first(app_name: str) -> HTTPException:
-    return HTTPException(
-        status_code=403,
-        detail={
-            "error_type": "connect_first",
-            "message": "This token only asks to connect (POST /connect): the "
-            f"operator allows the agent in {app_name}.",
-        },
+    return refusal_error(
+        403,
+        "connect_first",
+        "This token only asks to connect (POST /connect): the "
+        f"operator allows the agent in {app_name}.",
     )
 
 
 def _dashboard_refused() -> HTTPException:
-    return HTTPException(
-        status_code=403,
-        detail={
-            "error_type": "dashboard_read_only",
-            "message": "The dashboard token reads the monitoring routes only.",
-        },
+    return refusal_error(
+        403,
+        "dashboard_read_only",
+        "The dashboard token reads the monitoring routes only.",
     )
 
 
@@ -396,14 +393,12 @@ def require_level(needed: AgentLevel):
         if not lent:
             auth.mark_seen(request.headers.get("User-Agent"), token)
         if auth.level is AgentLevel.OFF:
-            raise HTTPException(
-                status_code=403,
-                detail={
-                    "error_type": "agent_off",
-                    "level": AgentLevel.OFF.value,
-                    "message": "The agent is off: the operator has set the "
-                    f"agent level to Off in {_app_name(request)}.",
-                },
+            raise refusal_error(
+                403,
+                "agent_off",
+                "The agent is off: the operator has set the "
+                f"agent level to Off in {_app_name(request)}.",
+                level=AgentLevel.OFF.value,
             )
         if not (auth.reaches(needed) or lent):
             # What the agent may never do says so at every level, not "ask
@@ -415,10 +410,7 @@ def require_level(needed: AgentLevel):
                 else None
             )
             if why is not None:
-                raise HTTPException(
-                    status_code=403,
-                    detail={"error_type": "not_allowed", "message": why},
-                )
+                raise refusal_error(403, "not_allowed", why)
             raise HTTPException(
                 status_code=403,
                 detail=_level_detail(
@@ -571,13 +563,11 @@ def take_control(request: Request):
 
 def busy_refusal(busy: MicroscopeBusy) -> HTTPException:
     """The 409 a take refused with: who is in control, doing what."""
-    return HTTPException(
-        status_code=409,
-        detail={
-            "error_type": "microscope_busy",
-            "message": str(busy),
-            "in_control": {"by": busy.in_control.by, "action": busy.in_control.action},
-        },
+    return refusal_error(
+        409,
+        "microscope_busy",
+        str(busy),
+        in_control={"by": busy.in_control.by, "action": busy.in_control.action},
     )
 
 
@@ -585,13 +575,11 @@ def caller_lease(request: Request, lease_id: str):
     """The caller's live lease *lease_id*, or 409: given up, or another's."""
     lease = request.app.state.served.leases.get(lease_id)
     if lease is None or lease.entry.by != (current_actor() or AGENT):
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "error_type": "lease_gone",
-                "message": "This control lease was given up (released, or "
-                "idle too long); take control again.",
-            },
+        raise refusal_error(
+            409,
+            "lease_gone",
+            "This control lease was given up (released, or "
+            "idle too long); take control again.",
         )
     return lease
 
@@ -607,14 +595,12 @@ def adopt_control(request: Request) -> Optional[Callable[[], None]]:
         running = control.beside_of(request.state.control_entry)
         if running is not None:
             # Beside a long command, act once at a time; never start another.
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "error_type": "microscope_busy",
-                    "message": f"{running.action} is still running; a long "
-                    "command waits for it to end.",
-                    "in_control": {"by": running.by, "action": running.action},
-                },
+            raise refusal_error(
+                409,
+                "microscope_busy",
+                f"{running.action} is still running; a long "
+                "command waits for it to end.",
+                in_control={"by": running.by, "action": running.action},
             )
         request.state.control_adopted = True
         control.let_act_beside(request.state.control_entry)

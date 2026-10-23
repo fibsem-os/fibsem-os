@@ -110,8 +110,8 @@ def test_the_agent_s_requeue_is_refused_while_the_grid_is_off_the_stage(ui):
     before = len(manager.queue.items)
 
     refused = ctx.requeue_task("on-two", TASK_NAME)
-    assert refused["queued"] is False
-    assert "Grid-02" in refused["reason"]
+    assert refused.error_type == "invalid"
+    assert "Grid-02" in refused.message
     assert len(manager.queue.items) == before
 
     ui.microscope.sample_handling.ensure_loaded("Grid-02")

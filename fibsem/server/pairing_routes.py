@@ -7,9 +7,14 @@ from ipaddress import ip_address
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 
-from fibsem.server.auth import AuthConfig, client_from_user_agent, require_operator
+from fibsem.server.auth import (
+    AuthConfig,
+    client_from_user_agent,
+    refusal_error,
+    require_operator,
+)
 from fibsem.server.connections import ASK_WAIT_S
 from fibsem.server.pairing import SWITCH_MODES, Pairing, PairingRefused
 
@@ -19,13 +24,6 @@ __all__ = ["build_pairing_router"]
 GRANTS = (SWITCH_MODES,)
 
 
-def _refused(status_code: int, error_type: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code,
-        detail={"error_type": error_type, "message": message},
-    )
-
-
 def _same_origin(request: Request) -> None:
     """Refuse a page from another site: pairing answers a token, and a browser
     sends no CORS check for a simple POST."""
@@ -33,7 +31,9 @@ def _same_origin(request: Request) -> None:
     if origin is None:
         return
     if urlsplit(origin).netloc != request.headers.get("host"):
-        raise _refused(403, "browser_refused", "Pairing refuses another site's page.")
+        raise refusal_error(
+            403, "browser_refused", "Pairing refuses another site's page."
+        )
 
 
 def _loopback(request: Request) -> bool:
@@ -47,14 +47,14 @@ def _loopback(request: Request) -> bool:
 
 def _pairing(auth: AuthConfig) -> Pairing:
     if auth.pairing is None:
-        raise _refused(404, "pairing_off", "This server doesn't pair computers.")
+        raise refusal_error(404, "pairing_off", "This server doesn't pair computers.")
     return auth.pairing
 
 
 def _grants(body: Dict[str, Any]) -> Tuple[str, ...]:
     grants = body.get("grants", [])
     if not isinstance(grants, list) or not all(g in GRANTS for g in grants):
-        raise _refused(422, "bad_grants", f"Grants are from {list(GRANTS)}.")
+        raise refusal_error(422, "bad_grants", f"Grants are from {list(GRANTS)}.")
     return tuple(dict.fromkeys(grants))
 
 
@@ -82,7 +82,7 @@ def build_pairing_router(auth: AuthConfig) -> APIRouter:
                 str(body.get("browser", "")),
             )
         except PairingRefused as refusal:
-            raise _refused(403, refusal.error_type, str(refusal)) from None
+            raise refusal_error(403, refusal.error_type, str(refusal)) from None
         return {
             "token": token,
             "id": computer.id,
@@ -96,7 +96,7 @@ def build_pairing_router(auth: AuthConfig) -> APIRouter:
         """Unauthenticated: ask for a code, shown only where the server runs."""
         pairing = _pairing(auth)
         if pairing.announce is None:
-            raise _refused(
+            raise refusal_error(
                 404,
                 "pairing_off",
                 "Open pairing at the microscope PC: Tools → Host → Pair a computer.",
@@ -112,11 +112,11 @@ def build_pairing_router(auth: AuthConfig) -> APIRouter:
         again."""
         header = request.headers.get("Authorization", "")
         if not auth.is_connect(header.removeprefix("Bearer ")):
-            raise _refused(
+            raise refusal_error(
                 401, "unauthorized", "Ask with the token in the discovery file."
             )
         if auth.connections is None:
-            raise _refused(404, "connect_off", "This server doesn't take asks.")
+            raise refusal_error(404, "connect_off", "This server doesn't take asks.")
         body = body or {}
         try:
             wait_s = min(ASK_WAIT_S, max(0.0, float(body.get("wait_s", ASK_WAIT_S))))
@@ -156,7 +156,7 @@ def build_pairing_router(auth: AuthConfig) -> APIRouter:
         body = body or {}
         role = body.get("role", "operator")
         if role not in pairing.roles:
-            raise _refused(
+            raise refusal_error(
                 422, "bad_role", f"Pairing is for one of {list(pairing.roles)}."
             )
         pairing.open(role, _grants(body))
@@ -173,7 +173,7 @@ def build_pairing_router(auth: AuthConfig) -> APIRouter:
         """``{"on": true}``: allow an agent logged in to this PC that asks to
         connect without the operator's click; saved for the next launch."""
         if auth.connections is None:
-            raise _refused(404, "connect_off", "This server doesn't take asks.")
+            raise refusal_error(404, "connect_off", "This server doesn't take asks.")
         auth.connections.set_always_allow(bool(body.get("on")))
         return _listing(_pairing(auth))
 
@@ -182,7 +182,7 @@ def build_pairing_router(auth: AuthConfig) -> APIRouter:
         """Replace one paired computer's grants: ``{"grants": [...]}``."""
         pairing = _pairing(auth)
         if pairing.tokens.set_grants(computer_id, _grants(body)) is None:
-            raise _refused(404, "not_found", "No paired computer has that id.")
+            raise refusal_error(404, "not_found", "No paired computer has that id.")
         return _listing(pairing)
 
     @operator.delete("/computers/{computer_id}")
@@ -190,7 +190,7 @@ def build_pairing_router(auth: AuthConfig) -> APIRouter:
         """Unpair one computer: its token stops working at once."""
         pairing = _pairing(auth)
         if not pairing.tokens.remove(computer_id):
-            raise _refused(404, "not_found", "No paired computer has that id.")
+            raise refusal_error(404, "not_found", "No paired computer has that id.")
         return _listing(pairing)
 
     router.include_router(operator)

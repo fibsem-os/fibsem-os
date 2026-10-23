@@ -21,6 +21,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from psygnal import Signal
 
 from fibsem import config as cfg
+from fibsem import utils
 from fibsem.acting import AGENT, OPERATOR, ActorKind
 from fibsem.ai.agent.session import AgentSession
 from fibsem.devices.runs import Runs
@@ -220,8 +221,6 @@ class AppSession:
         ``ip_address``, ``debug``). Raises ValueError while a microscope is
         connected or another connect is under way, and whatever connecting
         raised."""
-        from fibsem import utils
-
         if not self._connect_lock.acquire(blocking=False):
             raise ValueError("A connect is already under way.")
         try:
@@ -284,8 +283,6 @@ class AppSession:
         """Whether a microscope is connected, with which configuration, what a
         connect is doing or why the last failed, and the configurations it can
         connect with."""
-        from fibsem import config
-
         microscope = self.microscope
         info = (
             getattr(getattr(self.settings, "system", None), "info", None)
@@ -296,7 +293,7 @@ class AppSession:
         name = next(
             (
                 known
-                for known, entry in config.USER_CONFIGURATIONS.items()
+                for known, entry in cfg.USER_CONFIGURATIONS.items()
                 if path and entry.get("path") == path
             ),
             None,
@@ -316,8 +313,8 @@ class AppSession:
                 "address": getattr(info, "ip_address", None),
             },
             "configurations": [
-                {"name": known, "default": known == config.DEFAULT_CONFIGURATION_NAME}
-                for known, entry in config.USER_CONFIGURATIONS.items()
+                {"name": known, "default": known == cfg.DEFAULT_CONFIGURATION_NAME}
+                for known, entry in cfg.USER_CONFIGURATIONS.items()
                 if entry.get("path")
             ],
             "run": run.to_dict() if run is not None else None,

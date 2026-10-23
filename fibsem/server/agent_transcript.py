@@ -18,7 +18,7 @@ from typing import Any, Callable, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from fibsem.ai.agent.levels import AgentLevel
-from fibsem.server.auth import require_level
+from fibsem.server.auth import refusal_error, require_level
 from fibsem.util.timestamps import iso_from_posix
 
 FOLDER = "agent"
@@ -31,14 +31,8 @@ READ_LIMIT = 500
 _SESSION = re.compile(r"^[A-Za-z0-9_-]{1,100}$")
 
 
-def _refused(status: int, error_type: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status, detail={"error_type": error_type, "message": message}
-    )
-
-
 def _invalid(message: str) -> HTTPException:
-    return _refused(422, "invalid", message)
+    return refusal_error(422, "invalid", message)
 
 
 def _entry(raw: Any, now: float) -> Dict[str, Any]:
@@ -111,7 +105,9 @@ def build_agent_transcript_router(
     def _experiment() -> str:
         path = experiment_path()
         if not path or not os.path.isdir(path):
-            raise _refused(409, "no_experiment", "No experiment is open to keep it in.")
+            raise refusal_error(
+                409, "no_experiment", "No experiment is open to keep it in."
+            )
         return path
 
     @router.post("/transcript")

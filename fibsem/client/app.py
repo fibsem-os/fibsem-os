@@ -75,14 +75,15 @@ class App:
 
     def call(self, tool: str, /, **arguments: Any) -> Any:
         """Call *tool* with its arguments: the answer as the class its route
-        declares, a refusal raised as the exception it names."""
+        declares, a refusal raised as the exception it names. A key the class
+        lacks is an error, not dropped: the route and its class have drifted."""
         spec = self.tools.get(tool)
         if spec is None:
             raise AttributeError(self._missing(tool))
         data = self.fetch(tool, **arguments)
         if not spec.returns:
             return data
-        return decode(answer_class(spec.answers, self._answer_types), data)
+        return decode(answer_class(spec.answers, self._answer_types), data, strict=True)
 
     def fetch(self, tool: str, /, **arguments: Any) -> Any:
         """*tool*'s answer as the server sent it (JSON data), a refusal raised."""

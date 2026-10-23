@@ -15,17 +15,17 @@ from PyQt5.QtCore import QRectF
 
 from fibsem import utils
 from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
+from fibsem.geometry.stage_places import HOLDER_PAD_M
 from fibsem.structures import FibsemStagePosition, SlotCalibration
 from fibsem.ui.widgets.canvas.chamber_view import MAP, SIDE
 from fibsem.ui.widgets.canvas.overlays.minimap_overlays import GRID_BOUNDARY_RADIUS_M
 from fibsem.ui.widgets.canvas.overlays.stage_context import holder_slots
 from fibsem.ui.widgets.canvas.quad_view import (
-    LamellaEditorView,
+    ItemEditorView,
     MicroscopeViewController,
 )
 from fibsem.ui.widgets.canvas.stage_frame import StageFrame
 from fibsem.ui.widgets.canvas.stage_map import (
-    _HOLDER_PAD_M,
     ZOOM_GRID,
     ZOOM_HOLDER,
     ZOOM_TRAVEL,
@@ -302,7 +302,7 @@ def test_both_views_draw_in_both_places(controller, microscope, main):
 
 
 def test_the_lamella_editor_has_no_map(qapp, microscope):
-    MicroscopeViewController(view=LamellaEditorView()).set_map_positions(
+    MicroscopeViewController(view=ItemEditorView()).set_map_positions(
         [microscope.get_stage_position()]
     )
 
@@ -386,7 +386,7 @@ def test_the_holder_box_is_a_square_round_every_slot_s_grid(controller, microsco
     frame, scale = _frame(stage_map, ZOOM_HOLDER)
     box = stage_map.holder_box(frame)
     assert box.width() == pytest.approx(box.height(), rel=1e-3)
-    assert box.width() == pytest.approx((10e-3 + 2 * _HOLDER_PAD_M) * scale, rel=1e-3)
+    assert box.width() == pytest.approx((10e-3 + 2 * HOLDER_PAD_M) * scale, rel=1e-3)
     grid = frame.length(GRID_BOUNDARY_RADIUS_M)
     for slot in stage_map._slot_points():
         x, y = slot[0] * scale, slot[1] * scale

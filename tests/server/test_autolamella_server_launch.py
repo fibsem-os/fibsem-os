@@ -107,7 +107,8 @@ def test_the_agent_creates_the_experiment_in_the_named_folder(discovery, places)
             agent_token = allowed_agent(found, operator_token)
             agent = {"Authorization": f"Bearer {agent_token}"}
             operator = {"Authorization": f"Bearer {operator_token}"}
-            assert client.get("/app/experiment", headers=agent).json()["items"] == []
+            # no experiment open yet
+            assert client.get("/app/experiment", headers=agent).status_code == 409
             drive = {"level": "drive"}
             raised = client.put("/app/agent/level", json=drive, headers=operator)
             assert raised.is_success, raised.text

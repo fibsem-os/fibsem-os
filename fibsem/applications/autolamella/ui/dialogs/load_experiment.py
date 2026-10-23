@@ -719,7 +719,7 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         # Trailing lamella-count pill (omitted for unavailable rows)
         if available:
             layout.addWidget(
-                self._make_lamella_pill(info.num_lamella),
+                self._make_lamella_pill(info.num_items),
                 alignment=QtCore.Qt.AlignVCenter,
             )
         return widget
