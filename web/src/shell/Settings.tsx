@@ -4,10 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Facts } from "@/components/ui/card";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { api, forgetToken } from "@/lib/api";
+import { setNoticePrefs, systemNotices, useNoticePrefs } from "@/lib/notify";
 import type { Capabilities, Pairing } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-const SECTIONS = { connections: "Connections", about: "About" } as const;
+const SECTIONS = { connections: "Connections", notifications: "Notifications", about: "About" } as const;
 type Section = keyof typeof SECTIONS;
 
 function thisComputer(): string | null {
@@ -143,6 +144,51 @@ function Connections() {
   );
 }
 
+/** How this browser tells the operator, beyond its toasts, that the agent needs an answer. */
+function Notifications() {
+  const prefs = useNoticePrefs();
+  const can = systemNotices();
+  const [permission, setPermission] = useState(() => (can ? Notification.permission : "denied"));
+  const state = !can
+    ? "Not available here: system notifications need localhost or the SSH tunnel."
+    : permission === "granted"
+      ? "Allowed in this browser. A system notification, while this tab is in the background."
+      : permission === "denied"
+        ? "Blocked in this browser: allow notifications for this site in its settings."
+        : "The browser asks for permission when you turn it on.";
+  return (
+    <div className="flex flex-col gap-3 text-[13px]">
+      <label className="flex items-start gap-2">
+        <input
+          type="checkbox"
+          className="mt-0.5 accent-primary"
+          disabled={!can}
+          checked={can && prefs.system && permission === "granted"}
+          onChange={async (e) => {
+            const on = e.target.checked;
+            const allowed = on && permission !== "granted" ? await Notification.requestPermission() : permission;
+            setPermission(allowed);
+            setNoticePrefs({ system: on && allowed === "granted" });
+          }}
+        />
+        <span className="flex flex-col gap-0.5">
+          Tell me outside the browser when the agent needs an answer
+          <span className="text-muted-foreground">{state}</span>
+        </span>
+      </label>
+      <label className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          className="accent-primary"
+          checked={prefs.sound}
+          onChange={(e) => setNoticePrefs({ sound: e.target.checked })}
+        />
+        Play a sound when the agent asks
+      </label>
+    </div>
+  );
+}
+
 function About() {
   const caps = useQuery({ queryKey: ["capabilities"], queryFn: () => api<Capabilities>("/capabilities") });
   return (
@@ -182,7 +228,9 @@ export function Settings({ open, onOpenChange }: { open: boolean; onOpenChange: 
               </button>
             ))}
           </nav>
-          <div className="min-w-0 flex-1 px-5 py-4">{section === "connections" ? <Connections /> : <About />}</div>
+          <div className="min-w-0 flex-1 px-5 py-4">
+            {section === "connections" ? <Connections /> : section === "notifications" ? <Notifications /> : <About />}
+          </div>
         </div>
       </DialogContent>
     </Dialog>
