@@ -34,14 +34,12 @@ from __future__ import annotations
 import sys
 
 import numpy as np
-from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QLabel,
     QMainWindow,
     QPushButton,
-    QSplitter,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -87,7 +85,7 @@ def _fm_image() -> FluorescenceImage:
             data[c, z] = np.clip(frame, 0, 65535).astype(np.uint16)
 
     metadata = FluorescenceImageMetadata(
-        acquisition_date="2026-08-10T00:00:00",
+        acquisition_datetime="2026-08-10T00:00:00",
         pixel_size_x=1e-7,
         pixel_size_y=1e-7,
         resolution=(_SIZE, _SIZE),
@@ -96,7 +94,6 @@ def _fm_image() -> FluorescenceImage:
                 name=name,
                 color=colour,
                 excitation_wavelength=488,
-                emission_wavelength=509,
                 power=1.0,
                 exposure_time=0.1,
                 gain=1.0,
