@@ -105,7 +105,7 @@ class TestTheWindowStillSaves:
             "the window no longer wires defect_changed -- a defect set on the "
             "Experiment tab is not persisted at all (FIB-564)"
         )
-        assert "experiment.save()" in handler, (
+        assert "experiment.save_verdict(" in handler, (
             "the window's defect handler no longer saves -- nothing else does now"
         )
 

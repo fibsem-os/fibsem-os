@@ -1,6 +1,6 @@
 """Pairing a computer with a short code shown at the serving PC.
 
-The operator opens pairing (the App Server dialog, the chat page, or the
+The operator opens pairing (the App Server dialog, the web app's Settings page, or the
 headless server's terminal), and the other computer sends the code with a name
 (``POST /pair``). It gets a token of its own, with the role pairing was opened
 for: the operator's (the operator's app on another computer, or a browser), or

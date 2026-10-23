@@ -20,7 +20,8 @@ def connection_parser() -> argparse.ArgumentParser:
     """The flags that name the microscope a headless command connects to, as a
     parent parser: ``--manufacturer``, ``--ip-address``, ``--config``,
     ``--debug``. A configuration file's manufacturer and address stand unless
-    a flag names another; with neither, the Demo microscope."""
+    a flag names another; with no file, the default configuration's, as the
+    app's own Connect uses (``--manufacturer Demo`` for the Demo microscope)."""
     from fibsem.drivers import registry
 
     p = argparse.ArgumentParser(add_help=False)
@@ -31,7 +32,7 @@ def connection_parser() -> argparse.ArgumentParser:
         # (--manufacturer Thermo) keep working while --help shows canonical
         type=registry.normalize_name,
         choices=registry.registered_manufacturers(),
-        help="Microscope manufacturer (default: the configuration's, or Demo)",
+        help="Microscope manufacturer (default: the configuration's)",
     )
     p.add_argument(
         "--ip-address",
@@ -45,7 +46,7 @@ def connection_parser() -> argparse.ArgumentParser:
         dest="config_path",
         type=Path,
         metavar="PATH",
-        help="Path to microscope config YAML",
+        help="Path to microscope config YAML (default: the default configuration)",
     )
     p.add_argument("--debug", action="store_true", help="Enable debug logging")
     return p
@@ -53,11 +54,8 @@ def connection_parser() -> argparse.ArgumentParser:
 
 def connect(args: argparse.Namespace) -> Any:
     """The microscope the connection flags name (`connection_parser`)."""
-    manufacturer = args.manufacturer
-    if manufacturer is None and args.config_path is None:
-        manufacturer = "Demo"
     microscope, _ = utils.setup_session(
-        manufacturer=manufacturer,
+        manufacturer=args.manufacturer,
         ip_address=args.ip_address,
         config_path=args.config_path,
         debug=args.debug,

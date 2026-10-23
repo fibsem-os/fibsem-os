@@ -66,16 +66,16 @@ header run inside the lease; anyone else is refused, naming it. `PUT
 /microscope/control` says who is in control. `RemoteMicroscope.control` does all
 of this: a remote run holds the microscope as a local run does.
 Or **pair** the computer, with no token to copy: Tools → App Server → *Pair a
-computer* (or the chat page's Computers panel) shows a 4-digit code for 5
+computer* (or the web app's Settings page) shows a 4-digit code for 5
 minutes, and `RemoteMicroscope.pair("1234")` sends it (to the tunnel's end,
 `http://localhost:8001`, unless given a url), keeps the token in
 `~/.fibsem/remote/` and connects; later `RemoteMicroscope.connect()` finds it. A
-browser pairs from the chat page the same way. Each paired computer has its own
+browser pairs from the web app the same way. Each paired computer has its own
 token, an operator token, kept hashed in `~/.fibsem/paired.json`; *Unpair* cuts off
 one. The routes: `POST /pair` `{"code", "name"}` answers `{"token"}` (no token
 needed; 5 wrong codes close pairing), and the operator's `GET`/`POST`/`DELETE
 /pairing` and `DELETE /pairing/computers/{id}`. The headless server prints a
-code only when the chat page asks for one (`POST /pair/request`). An agent pairs
+code only when the web app asks for one (`POST /pair/request`). An agent pairs
 the same way: *Pair an agent* (`POST /pairing` `{"role": "agent"}`) gives a code
 for `fibsem-mcp pair`, and that computer's token is an agent's, gated by the
 level, with its name on the agent's records.
@@ -123,9 +123,8 @@ The `/app` routes sort by what they act on:
   kept under `<experiment>/evidence/`; a call cites it by id in the
   `X-Agent-Evidence` header.
 - `/app/workflow`: the workflow. `status`, `queue`, `summary`, `start`,
-  `stop`, `schedule`, `options`, the proposals the run is stopped on:
-  `proposals`, `decide`, and the old prompt: `prompt`, `prompt/answer`,
-  `prompt/suggest`.
+  `stop`, `stop_task`, `schedule`, `options`, `grids`, and the proposals the
+  run is stopped on: `proposals` (with `suggest`) and `decide`.
 - `/app/agent`: the agent's own requests: `requests`.
 - `events` and `log` stay at `/app`: they cover the whole session.
 
