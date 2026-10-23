@@ -4,20 +4,21 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Any, ClassVar, Dict, List, Optional, Sequence, Tuple
 
 from psygnal import evented
 
+from fibsem.codec import Timestamp, decode, encode, saved
+from fibsem.codec.upgrades import records as upgrade
 from fibsem.structures import (
     DEFAULT_ALIGNMENT_AREA,
     FibsemRectangle,
     MicroscopeState,
     Point,
 )
-from fibsem.util.timestamps import now, to_datetime, to_iso
+from fibsem.util.timestamps import now
 from fibsem.workflows.item import MILLING_POSE, SiteItem
-from fibsem.workflows.proposals import Proposal, proposals_from_dict, proposals_to_dict
+from fibsem.workflows.proposals import Proposal
 from fibsem.workflows.status import TaskState, TaskStatus
 
 # The pose a position's face is imaged at: the milling pose when it has none
@@ -29,6 +30,7 @@ FIB_REFERENCE = "ref_alignment_ib.tif"
 SEM_REFERENCE = "ref_alignment_eb.tif"
 
 
+@saved(keys={"id": "_id"})
 @evented
 @dataclass
 class VolumePosition(SiteItem):
@@ -54,7 +56,7 @@ class VolumePosition(SiteItem):
     iterations: int = 10
     task_state: TaskState = field(default_factory=TaskState)
     task_history: List[TaskState] = field(default_factory=list)
-    created_at: Optional[datetime] = field(default_factory=now)
+    created_at: Optional[Timestamp] = field(default_factory=now)
     proposals: List[Proposal] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -83,40 +85,12 @@ class VolumePosition(SiteItem):
         return all(name in done for name in task_names)
 
     def to_dict(self) -> dict:
-        return {
-            "name": self.name,
-            "_id": self.id,
-            "description": self.description,
-            "poses": {k: v.to_dict() for k, v in self.poses.items()},
-            "poi": self.poi.to_dict(),
-            "alignment_area": self.alignment_area.to_dict(),
-            "iterations": self.iterations,
-            "task_state": self.task_state.to_dict(),
-            "task_history": [t.to_dict() for t in self.task_history],
-            "created_at": to_iso(self.created_at),
-            "proposals": proposals_to_dict(self.proposals),
-        }
+        return encode(self)
 
     @classmethod
     def from_dict(cls, data: dict) -> "VolumePosition":
-        return cls(
-            name=data["name"],
-            id=data.get("_id") or str(uuid.uuid4()),
-            description=data.get("description", ""),
-            poses={
-                k: MicroscopeState.from_dict(v)
-                for k, v in (data.get("poses") or {}).items()
-            },
-            poi=Point.from_dict(data.get("poi") or {}),
-            alignment_area=FibsemRectangle.from_dict(
-                data.get("alignment_area") or DEFAULT_ALIGNMENT_AREA
-            ),
-            iterations=int(data.get("iterations", 10)),
-            task_state=TaskState.from_dict(data.get("task_state", {})),
-            task_history=[TaskState.from_dict(t) for t in data.get("task_history", [])],
-            created_at=to_datetime(data.get("created_at", now())),
-            proposals=proposals_from_dict(data.get("proposals")),
-        )
+        """Read a position saved by any version (`fibsem.codec.upgrades.records`)."""
+        return decode(cls, upgrade.item(data))
 
     def __repr__(self) -> str:
         return f"VolumePosition(name={self.name}, iterations={self.iterations})"
