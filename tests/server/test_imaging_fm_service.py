@@ -276,3 +276,77 @@ def test_an_fm_image_is_refused_while_the_fm_is_in_use(microscope, tmp_path):
             microscope.imaging.fm_acquire_image(CHANNELS, str(tmp_path))
     finally:
         microscope.fm.set_acquiring(False)
+
+
+def _frame(microscope, color: str):
+    channel = ChannelSettings(name="GFP", exposure_time=0.01, color=color)
+    microscope.fm.set_channel(channel)
+    frame = microscope.fm.acquire_image(channel_settings=channel)
+    frame.metadata.channels[0].color = color
+    return frame
+
+
+def test_the_session_keeps_the_fm_s_latest_frame_until_unfollowed(microscope):
+    from fibsem.workflows.session import AppSession
+
+    session = AppSession()
+    session.microscope = microscope
+    frame = _frame(microscope, "green")
+    microscope.fm.acquisition_signal.emit(frame)
+    assert session.images.get_fm() is frame
+
+    session.microscope = None
+    microscope.fm.acquisition_signal.emit(_frame(microscope, "green"))
+    assert session.images.get_fm() is frame
+
+
+def test_the_display_images_answer_the_fm_frame_in_its_colour(microscope):
+    import base64
+    import io
+
+    import numpy as np
+    from PIL import Image
+
+    from fibsem.server.app_context import AppContext
+    from fibsem.workflows.session import AppSession
+
+    session = AppSession()
+    session.microscope = microscope
+    context = AppContext(session)
+    assert context.display_images().fm_available
+    assert context.display_images().fm is None
+
+    frame = _frame(microscope, "green")
+    microscope.fm.acquisition_signal.emit(frame)
+    fm = context.display_images().fm
+    assert fm.full_width == frame.data.shape[-1]
+    assert fm.pixelsize.x == frame.metadata.pixel_size_x
+    assert fm.hfw == pytest.approx(frame.metadata.pixel_size_x * fm.full_width)
+    assert fm.acquired_at is not None
+    assert fm.info["kind"] == "FM"
+    assert fm.info["scalebar"]["fraction"] > 0
+    jpeg = Image.open(io.BytesIO(base64.b64decode(fm.image_b64_jpeg)))
+    red, green, blue = np.asarray(jpeg.convert("RGB"), float).mean(axis=(0, 1))
+    assert green > 4 * max(red, blue)
+    session.microscope = None
+
+
+def test_fm_frames_reach_the_events_one_a_second_at_most(microscope):
+    from fibsem.workflows.event_recording import LIVE_KINDS
+    from fibsem.workflows.events import EventBuffer, attach_microscope_taps
+
+    buffer = EventBuffer()
+    disposers = attach_microscope_taps(buffer, microscope)
+    try:
+        frame = _frame(microscope, "green")
+        for _ in range(5):
+            microscope.fm.acquisition_signal.emit(frame)
+        frames = [
+            e for e in buffer.events_since(0)["events"] if e["kind"] == "fm_acquisition"
+        ]
+        assert len(frames) == 1
+        assert frames[0]["payload"]["channels"] == ["GFP"]
+        assert "fm_acquisition" in LIVE_KINDS
+    finally:
+        for dispose in disposers:
+            dispose()

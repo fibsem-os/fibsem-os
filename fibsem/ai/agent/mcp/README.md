@@ -29,7 +29,7 @@ sets what the agent may do with them.
   (url + a connect token) so local clients find it without copying anything,
   and refuses to start if another live server owns that file.
 - The connect token only asks to connect. The sidecar's first call (or
-  `fibsem-mcp --check`) puts **Agent wants to connect** on the agent card;
+  `fibsem-mcp --check`) puts **Agent wants to connect** on the web Agent page;
   once the operator clicks Allow it gets a token of its own, kept in
   `~/.fibsem/agent/`, and later launches don't ask. Until then a call answers
   `connect_waiting`.
@@ -42,12 +42,11 @@ sets what the agent may do with them.
 claude mcp add -s user fibsem -- fibsem-mcp
 ```
 
-`-s user` registers it for all your projects. In AutoLamella, *Copy for your
-agent* in the Agent chip's *Connect an agent…* gives the same setup with the
-absolute path filled in, for the agent to run itself. Same-machine setups need
-nothing more: the sidecar autodiscovers the running
-server. For a server on another machine, pair once: *Pair an agent* in
-*Connect an agent…* (or the chat page's Computers panel) shows a code, and
+`-s user` registers it for all your projects. *Connect an agent…* on the web
+Agent page gives the same setup with the absolute path filled in, for the agent
+to run itself. Same-machine setups need nothing more: the sidecar autodiscovers
+the running server. For a server on another machine, pair once: the web app's
+*Settings → Paired computers* shows a code, and
 
 ```bash
 fibsem-mcp pair 1234            # the SSH tunnel's end, http://localhost:8001
@@ -162,8 +161,8 @@ fibsem-agent
 - **What it says.** The agent's replies and tool calls go to the console and
   to `~/.fibsem/agent/fibsem-agent-<time>.log` (`--log` to choose). What the
   operator must read in the app, it sends as a message
-  (`experiment_message_operator`, a toast in the window), answering a message
-  from the Agent card with its `reply_to`; a judgment worth keeping is a note
+  (`experiment_message_operator`, a toast on the web Agent page), answering a
+  message from the Agent page with its `reply_to`; a judgment worth keeping is a note
   (`experiment_add_note`).
 - **Waking.** Lines are held while the level is Off, and come as one turn
   once it is back; started at Off, the agent's first turn waits for it too. A `GAP`, a restart or the level coming back tells the

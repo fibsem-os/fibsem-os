@@ -27,6 +27,11 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.applications.volume.poses import (
+    POSES,
+    pose_stage_position,
+    set_pose_now,
+)
 from fibsem.applications.volume.position import SEM_POSE, VolumePosition
 from fibsem.constants import RADIANS_TO_DEGREES
 from fibsem.ui import notification_service, stylesheets
@@ -40,7 +45,6 @@ if TYPE_CHECKING:
 
 __all__ = ["PositionsPanel"]
 
-POSES = (MILLING_POSE, SEM_POSE)
 STORED_NOTE = (
     "The point of interest, alignment area, name and slices are edited on the "
     "Positions tab."
@@ -271,9 +275,7 @@ class PositionsPanel(QWidget):
             return
         if self._not_busy(position.name, "set its pose"):
             self._said(
-                self.experiment.set_pose(
-                    position.name, pose_name, microscope.get_microscope_state()
-                )
+                set_pose_now(self.experiment, microscope, position.name, pose_name)
             )
         self.update_selected()
 
@@ -283,10 +285,9 @@ class PositionsPanel(QWidget):
         if position is None or movement is None:
             self._said("Connect to the microscope to move to a pose.")
             return
-        if MILLING_POSE not in position.poses:
-            self._said(f"{position.name} has no milling pose.")
+        stage_position, why = pose_stage_position(position, pose_name)
+        if not self._said(why):
             return
-        stage_position = position.pose(pose_name).stage_position
         reply = QMessageBox.question(
             self,
             "Move to Pose",
