@@ -7,11 +7,13 @@ from PyQt5 import QtWidgets
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QGridLayout, QLabel, QSizePolicy, QSpacerItem
 
+from fibsem import conversions
 from fibsem.detection.detection import DetectedFeatures
 from fibsem.structures import (
     BeamType,
     Point,
 )
+from fibsem.ui.widgets.canvas.canvas_state import MaskSpec, PointsSpec
 
 
 class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
@@ -73,8 +75,6 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
     def _update_features(self, beam):
         """Show the detection image + read-only mask + draggable feature points on the
         *beam* canvas via the reducer (quad-view equivalent of update_features_ui)."""
-        from fibsem.ui.widgets.canvas.canvas_state import MaskSpec, PointsSpec
-
         controller = self._view_controller()
         if controller is None:
             return
@@ -232,8 +232,6 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
             return
 
     def _get_detected_features(self):
-
-        from fibsem import conversions
 
         for feature in self.det.features:
             feature.feature_m = conversions.image_to_microscope_image_coordinates(

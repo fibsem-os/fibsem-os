@@ -513,13 +513,15 @@ def test_a_direct_call_reads_the_state_it_changes(client, auth, microscope):
 def test_a_run_start_that_started_nothing_is_recorded_as_failed(
     client, auth, microscope, monkeypatch
 ):
-    """Headless round 12 H2: a refused start answered 200 with started: false,
-    and /chat showed it "done"."""
+    """Headless round 12 H2: a refused start is recorded as failed, with why,
+    not "done"."""
+    from fibsem.server.responses import refused
+
     why = "Cannot run: 01 is on Grid-01, which is not on the stage."
     monkeypatch.setattr(
         AutoLamellaAppContext,
         "start_workflow",
-        lambda self, task_names, item_names=None: {"started": False, "reason": why},
+        lambda self, task_names, item_names=None: refused("invalid", why),
     )
     auth.set_level(AgentLevel.DRIVE)
     recorded = []
@@ -534,10 +536,6 @@ def test_a_run_start_that_started_nothing_is_recorded_as_failed(
         )
     finally:
         microscope.session.record_signal.disconnect(record)
-    assert answer.status_code == 200
+    assert answer.status_code == 422
     call = next(p for kind, p in recorded if kind == "action")
-    assert (call["ok"], call["error_type"], call["message"]) == (
-        False,
-        "not_started",
-        why,
-    )
+    assert (call["ok"], call["error_type"], call["message"]) == (False, "invalid", why)

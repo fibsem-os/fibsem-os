@@ -376,10 +376,11 @@ class PositionsTab(QWidget):
         and the selected position's stack."""
         experiment = self.session.experiment
         selected = self.selected
-        summary = self.context.experiment_summary()
+        # with no experiment the summary is refused, and there is nothing to draw
+        rows = [] if experiment is None else self.context.experiment_summary().items
         self.list.blockSignals(True)
         self.list.clear()
-        for row in summary.items:
+        for row in rows:
             position = experiment.get_position_by_name(row.item_name)
             card = PositionCard()
             card.show_position(position, row, self._latest(position))
@@ -388,7 +389,7 @@ class PositionsTab(QWidget):
             item.setSizeHint(QSize(0, CARD_HEIGHT))
             self.list.addItem(item)
             self.list.setItemWidget(item, card)
-        names = [row.item_name for row in summary.items]
+        names = [row.item_name for row in rows]
         if names:
             self.list.setCurrentRow(names.index(selected) if selected in names else 0)
         self.list.blockSignals(False)

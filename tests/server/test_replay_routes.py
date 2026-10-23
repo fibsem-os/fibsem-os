@@ -85,7 +85,7 @@ def _view(client, index, **params):
 
 def test_the_timeline_lists_every_recorded_action_in_time_order(client):
     timeline = _timeline(client)
-    assert timeline["available"] and timeline["source"] == "events.jsonl"
+    assert timeline["source"] == "events.jsonl"
     events = timeline["events"]
     assert [e["index"] for e in events] == list(range(len(events)))
     assert [e["time"] for e in events] == sorted(e["time"] for e in events)
@@ -134,8 +134,10 @@ def test_a_scene_past_the_end_is_not_found(client):
 
 def test_without_an_experiment_there_is_nothing_to_replay(client, session):
     session.experiment = None
-    assert _timeline(client)["available"] is False
-    assert _view(client, 0)["available"] is False
+    for path in ("/app/experiment/replay", "/app/experiment/replay/0"):
+        resp = client.get(path)
+        assert resp.status_code == 409, resp.text
+        assert resp.json()["detail"]["error_type"] == "no_experiment"
 
 
 @pytest.fixture
