@@ -170,10 +170,6 @@ class OdemisMilling(BeamMilling):
     def _clear(self) -> None:
         self._connection.clear_patterns()
 
-    def _restore(self) -> None:
-        # The patterning mode persists in xT, as on ThermoFisher.
-        self._set_patterning_mode("Serial")
-
 
 def bind_odemis_milling(
     microscope: OdemisThermoMicroscope,

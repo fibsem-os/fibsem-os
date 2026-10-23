@@ -92,7 +92,10 @@ class DemoMilling(BeamMilling):
         self.connection.set_channel(settings.milling_channel)
         system.default_beam_type = settings.milling_channel
         system.default_application_file = settings.application_file
-        system.patterning_mode = settings.patterning_mode
+        self._set_patterning_mode(settings.patterning_mode)
+
+    def _set_patterning_mode(self, mode: str) -> None:
+        self.connection.milling_system.patterning_mode = mode
 
     def _add(self, pattern: FibsemPatternSettings) -> None:
         logging.debug({"msg": "draw_pattern", "pattern_settings": pattern.to_dict()})

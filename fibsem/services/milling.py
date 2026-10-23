@@ -128,6 +128,9 @@ from fibsem.util.timestamps import now_iso
 # then the voltage before the current, as the instruments want.
 SAVED_BEAM_CONDITIONS = ("preset", "voltage", "current", "hfw")
 
+# The patterning modes a recipe mills in.
+PATTERNING_MODES = ("Serial", "Parallel")
+
 # What a stage update leaves out and the run's own reports said: which run, which
 # task config, which stage (FIB-1356). A backend's poll loop and a strategy's tick
 # know only the countdown.
@@ -740,7 +743,7 @@ class Milling(Service):
                 channels.append(BeamType.ELECTRON)
             return ParameterMetadata(choices=tuple(channels))
         if name == "patterning_mode":
-            return ParameterMetadata(choices=("Serial", "Parallel"))
+            return ParameterMetadata(choices=PATTERNING_MODES)
         return ParameterMetadata()
 
     # -- commands ----------------------------------------------------------------
@@ -1476,10 +1479,6 @@ class Milling(Service):
             time.sleep(seconds)
 
 
-# The patterning modes a beam driver mills in.
-PATTERNING_MODES = ("Serial", "Parallel")
-
-
 class BeamMilling(Milling):
     """Milling where the recipe sets the milling beam's own conditions (field of
     view, voltage, current) and the instrument patterns with an application file
@@ -1488,8 +1487,9 @@ class BeamMilling(Milling):
 
     The sequence and its state checks are here; a driver implements the vendor
     calls: ``_select`` (the milling view, the application file and the patterning
-    mode), ``_start_patterning``, ``_stop_patterning``, ``_pause_patterning`` and
-    ``_resume_patterning``, and ``_locked`` when its calls go under a lock."""
+    mode), ``_set_patterning_mode``, ``_start_patterning``, ``_stop_patterning``,
+    ``_pause_patterning`` and ``_resume_patterning``, and ``_locked`` when its calls
+    go under a lock."""
 
     setting_names = (
         "milling_channel",
@@ -1554,6 +1554,14 @@ class BeamMilling(Milling):
                 logging.info("Resuming milling...")
                 self._resume_patterning()
                 logging.info("Milling resumed.")
+
+    def _restore(self) -> None:
+        # The patterning mode persists on the instrument (xT), so a stage left in
+        # Parallel would carry over to the next one unless reset.
+        self._set_patterning_mode("Serial")
+
+    def _set_patterning_mode(self, mode: str) -> None:
+        raise NotImplementedError
 
     def _start_patterning(self) -> None:
         raise NotImplementedError

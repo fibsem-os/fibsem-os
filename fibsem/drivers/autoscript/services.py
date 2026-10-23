@@ -519,11 +519,6 @@ class AutoScriptMilling(BeamMilling):
         self._sdk.patterning.clear_patterns()
         self._patterns = []
 
-    def _restore(self) -> None:
-        # The patterning mode persists in xT, so a stage left in Parallel would carry
-        # over to the next one unless reset.
-        self._set_patterning_mode("Serial")
-
 
 def bind_autoscript_milling(
     microscope: ThermoMicroscope,

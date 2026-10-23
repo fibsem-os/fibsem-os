@@ -44,7 +44,6 @@ from contextlib import contextmanager
 from typing import Any, Dict, Optional, Tuple, Union
 
 from fibsem.devices.core import Device, resources_of
-from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.drivers.demo.devices import bind_demo_fm
 from fibsem.drivers.demo.services import (
     bind_demo_coating,
@@ -138,7 +137,7 @@ class DemoMicroscope(FibsemMicroscope):
     def __init__(self, system_settings: SystemSettings):
         self.system = system_settings
         self._connection = DemoSimulator(self)
-        self._build_devices(initial_demo_parts(self.system))
+        self._build_demo_devices(initial_demo_parts(self.system))
         self._setup_fluorescence()
 
         # user, experiment metadata
@@ -155,7 +154,7 @@ class DemoMicroscope(FibsemMicroscope):
             }
         )
 
-    def _build_devices(self, parts: DemoParts) -> None:
+    def _build_demo_devices(self, parts: DemoParts) -> None:
         """Build the devices the configuration asks for, from the starting parts.
 
         The Demo has every device in ``DEMO_DEVICES``; ``hardware.devices`` switches
@@ -165,19 +164,10 @@ class DemoMicroscope(FibsemMicroscope):
         defaults = DEMO_DEVICES
         if sim_is_compustage(self.system):
             defaults = (*defaults, DEMO_SAMPLE_LOADER)
-        resolved = [
-            item
-            for item in resolve_system_devices(
-                self.system, defaults, driver=self.driver_name
-            )
-            if item.type != "fm"
-        ]
         # The builders start from this microscope's parts (``fibsem.drivers.demo
         # .devices``), so the devices and the shared demo code begin the same.
         shared = {self.driver_name: (resources_of(self), parts)}
-        built = build_device_entries(resolved, self, shared=shared)
-        for name, device in built.items():
-            self._set_device(name, device)
+        self._build_devices(defaults, exclude_types=("fm",), shared=shared)
         # A simulated instrument with no manipulator keeps no manipulator device, so
         # `is_available("manipulator")` says so (`sim.has_manipulator`).
         self._keep_if_fitted("manipulator")
