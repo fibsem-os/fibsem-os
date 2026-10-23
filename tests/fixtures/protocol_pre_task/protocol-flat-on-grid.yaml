@@ -1,0 +1,71 @@
+# An on-grid protocol in the oldest shape: each stage's milling and pattern
+# settings flat in one block, rough and polishing milling together under
+# `lamella`, supervision under `options.supervise`.
+options:
+    name: autolamella-flat-on-grid
+    method: on-grid
+    lamella_tilt_angle: 20.0
+    num_polishing_stages: 1
+    use_fiducial: true
+    use_microexpansion: true
+    use_notch: true
+    supervise:
+        setup_lamella: false
+        mill_rough: true
+        mill_polishing: false
+milling:
+    fiducial:
+        height: 1.0e-05
+        width: 1.0e-06
+        depth: 1.0e-06
+        rotation: 45
+        milling_current: 2.0e-09
+        application_file: Si
+        hfw: 8.0e-05
+        type: Fiducial
+        point: {x: 2.5e-05, y: 0.0}
+    microexpansion:
+        width: 5.0e-07
+        height: 1.8e-05
+        depth: 1.0e-06
+        distance: 1.0e-05
+        milling_current: 2.0e-09
+        hfw: 8.0e-05
+        type: MicroExpansion
+    notch:
+        depth: 2.5e-06
+        distance: 2.0e-06
+        flip: 0
+        hheight: 2.0e-07
+        hwidth: 4.0e-06
+        vheight: 2.0e-06
+        vwidth: 2.0e-07
+        milling_current: 2.0e-09
+        hfw: 8.0e-05
+        type: WaffleNotch
+    lamella:
+        stages:
+        -   name: Rough Mill 01
+            application_file: Si-ccs
+            cross_section: CleaningCrossSection
+            depth: 6.5e-07
+            hfw: 5.0e-05
+            lamella_height: 6.0e-07
+            lamella_width: 1.0e-05
+            milling_current: 7.4e-10
+            offset: 2.0e-06
+            size_ratio: 1.0
+            trench_height: 3.5e-06
+            type: Trench
+        -   name: Polishing Mill 01
+            application_file: Si-ccs
+            cross_section: CleaningCrossSection
+            depth: 4.0e-07
+            hfw: 5.0e-05
+            lamella_height: 3.0e-07
+            lamella_width: 9.0e-06
+            milling_current: 6.0e-11
+            offset: 0.0
+            size_ratio: 2.0
+            trench_height: 7.0e-07
+            type: Trench
