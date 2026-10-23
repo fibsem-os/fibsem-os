@@ -9,31 +9,17 @@ exceptions to the emitter, so each test also pins that the signal is connected.
 
 import os
 
+from tests.fixtures.main_window import main_window_fixture
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
 from fibsem.workflows.status import Hold, HoldKind
-from tests.fixtures.main_window import close_window
 
-
-@pytest.fixture
-def ui(qapp):
-    """A real window, connected.
-
-    Connected because the handler needs ``image_widget`` and
-    ``milling_task_config_widget``, which ``update_microscope_ui()`` builds. The
-    shipped default configuration is Demo, so this touches no hardware.
-    """
-    widget = AutoLamellaWindow()
-    widget.system_widget.connect_to_microscope()
-    yield widget
-    if widget.microscope is not None:
-        widget.microscope.disconnect()
-    close_window(widget)
+ui = main_window_fixture(connect=True, name="ui")
 
 
 def _status_event(msg="", workflow_info=None):

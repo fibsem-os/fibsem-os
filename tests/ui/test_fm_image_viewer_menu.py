@@ -8,6 +8,8 @@ is a file viewer: the experiment only chooses which folder Load opens in.
 
 import os
 
+from tests.fixtures.main_window import main_window_fixture
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
@@ -15,27 +17,7 @@ import pytest
 pytest.importorskip("PyQt5")
 
 
-@pytest.fixture(scope="module")
-def qapp():
-    from PyQt5.QtWidgets import QApplication
-
-    return QApplication.instance() or QApplication([])
-
-
-@pytest.fixture(scope="module")
-def main_ui(qapp):
-    from fibsem.applications.autolamella.ui import window as module
-
-    window = module.AutoLamellaWindow()
-    yield window
-    # closeEvent ends in app.quit(); on the shared test QApplication that latches an
-    # interrupt every later QEventLoop.exec_() returns from. Stub it for the close.
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
-        window.close()
-    finally:
-        qapp.quit = original_quit
+main_ui = main_window_fixture(scope="module")
 
 
 def _menu_titles(window, title):
