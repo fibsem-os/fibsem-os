@@ -28,8 +28,8 @@ from fibsem.workflows.experiment import find_item
 from fibsem.workflows.item import item_pose_positions
 from fibsem.workflows.status import TaskStatus
 from fibsem.workflows.task_configs import (
+    agent_patch_task_config,
     config_version,
-    patch_config,
     plain_changes,
     save_edits,
     save_experiment,
@@ -74,8 +74,12 @@ def apply_agent_edit(
 ) -> Dict[str, Any]:
     """Apply the agent's edit at *level*, recorded as the agent's: what it
     changed, before and after, on *microscope*'s record. *level* is ``item``
-    or ``protocol`` (a task-config patch), ``item_fields``, ``reorder_stages``
-    or ``apply_protocol``."""
+    or ``protocol`` (a task-config patch, :func:`agent_patch_task_config`),
+    ``item_fields``, ``reorder_stages`` or ``apply_protocol``."""
+    if level in ("item", "protocol"):
+        return agent_patch_task_config(
+            experiment, microscope, level, item_name, task_name, patch, version
+        )
     edits = PendingEdits(microscope, via="agent patch")
     with acting(AGENT):
         touch_agent_patch(edits, experiment, level, item_name, task_name, patch)
@@ -96,12 +100,6 @@ def touch_agent_patch(
     """Touch what an agent's config edit at *level* can change
     (``config_edits.apply_agent_edit``)."""
     try:
-        if level == "protocol":
-            configs = experiment.task_protocol.task_config
-            edits.touch(
-                None, task_name, "protocol.task_config", lambda: configs.get(task_name)
-            )
-            return
         lamella = experiment.get_lamella_by_name(item_name)
         if lamella is None:
             return
@@ -135,39 +133,7 @@ def _apply(experiment, level, item_name, task_name, patch, version) -> dict:
         return reorder_milling_stages(experiment, item_name, task_name, patch, version)
     if level == "apply_protocol":
         return apply_protocol_to_item(experiment, item_name, patch.get("task_names"))
-    return patch_task_config(experiment, level, item_name, task_name, patch, version)
-
-
-def patch_task_config(
-    experiment, level: str, item_name: str, task_name: str, patch: dict, version: str
-) -> dict:
-    """Patch one task config: an item's (*level* ``item``) or the protocol's.
-    The version check sits beside the apply, so an edit landing in between is
-    refused as stale, never half-merged."""
-    _lamella, config, refusal = task_config_at(experiment, level, item_name, task_name)
-    if refusal:
-        return {"applied": False, **refusal}
-    patched = patch_config(config, patch, version)
-    if not patched["applied"]:
-        return patched
-    where = f"{item_name} / {task_name}" if level == "item" else task_name
-    logging.info(
-        f"agent config patch applied ({level}): {where}: "
-        + ", ".join(
-            f"{c['path']}: {c['old']!r} -> {c['new']!r}" for c in patched["changes"]
-        )
-    )
-    saved = save_edits(experiment, level, "agent config patch")
-    result = {
-        "applied": True,
-        "saved": saved,
-        "task_name": task_name,
-        "changes": patched["changes"],
-        "version": patched["version"],
-    }
-    if level == "item":
-        result["item_name"] = item_name
-    return result
+    raise ValueError(f"not an item edit: {level!r}")
 
 
 # The workflow fields a task-config patch may not set, and the verb that sets each.
@@ -328,19 +294,11 @@ def reorder_milling_stages(
     level = payload.get("level", "item")
     milling_key = payload.get("milling_key")
     order = payload.get("order") or []
-    if level == "protocol":
-        protocol = getattr(experiment, "task_protocol", None)
-        config_map = getattr(protocol, "task_config", None)
-        if config_map is None:
-            return {"applied": False, "error": "no protocol is loaded"}
-        config = dict(config_map).get(task_name)
-    else:
-        lamella, refusal = find_item(experiment, item_name)
-        if refusal:
-            return {"applied": False, **refusal}
-        config = dict(lamella.task_config).get(task_name)
-    if config is None:
-        return {"applied": False, "error": f"No task config named {task_name!r}."}
+    _, config, refusal = task_config_at(
+        experiment, "protocol" if level == "protocol" else "item", item_name, task_name
+    )
+    if refusal:
+        return {"applied": False, **refusal}
     milling = getattr(config, "milling", None) or {}
     if milling_key not in milling:
         return {
