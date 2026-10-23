@@ -1,9 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-import { Pause, Play } from "lucide-react";
+import { Check, ListFilter, Pause, Play } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ImageInfoBar, ScaleBar } from "@/components/image-info";
+import { ImageViewer } from "@/components/images";
 import { Stepper } from "@/components/stepper";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Popup } from "@/components/ui/popup";
 import { api } from "@/lib/api";
 import { useFileRead } from "@/lib/files";
 import * as fmt from "@/lib/format";
@@ -23,7 +26,7 @@ const KIND: Record<string, string> = {
   edit: "Edit",
   message: "Message",
 };
-const ACTOR: Record<string, string> = { operator: "Operator", agent: "Agent", task: "Task" };
+const ACTOR: Record<string, string> = { operator: "Operator", agent: "Agent", task: "Workflow" };
 const NOT_RECORDED = "-";
 const SPEEDS = [1, 10, 60, 600];
 // Playback waits the real gap between actions over the speed, within these.
@@ -36,12 +39,22 @@ const STAGE = "#4fc3f7";
 const STAGE_NOW = "#ffd54f";
 const SPOT = "#e05252";
 
-const time = (iso: string) =>
-  new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const clock = (iso: string) =>
+  new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+const words = (text: string) =>
+  text
+    .replace(/_/g, " ")
+    .toLowerCase()
+    .replace(/^./, (c) => c.toUpperCase());
 
-const select = "rounded border border-input bg-background px-2 py-1 text-[13px] text-foreground";
+interface Filter {
+  item: string | null;
+  actor: string | null;
+  kind: string | null;
+}
+const NO_FILTER: Filter = { item: null, actor: null, kind: null };
 
-/** A cross at (x, y), *r* pixels each way. */
+/** A cross at (x, y), *r* each way. */
 function Cross({ x, y, r, colour, w }: { x: number; y: number; r: number; colour: string; w: number }) {
   return (
     <g stroke={colour} strokeWidth={w}>
@@ -51,12 +64,8 @@ function Cross({ x, y, r, colour, w }: { x: number; y: number; r: number; colour
   );
 }
 
-/** One beam's image at this moment, with the milling, spots and a question's
- * values drawn where they were. */
-function SceneImage({ label, image }: { label: string; image: ReplayImage | null }) {
-  const read = useFileRead(image?.path ?? null, 1024);
-  const p = read.data?.preview;
-  const [w, h] = p ? [p.width, p.height] : [1, 1];
+/** The milling, spots and a question's values, where they were, over an image *w* by *h*. */
+function Overlay({ image, w, h }: { image: ReplayImage; w: number; h: number }) {
   const r = w / 60;
   const line = w / 400;
   const at = (pt: number[]) => [pt[0] * w, pt[1] * h] as const;
@@ -73,92 +82,226 @@ function SceneImage({ label, image }: { label: string; image: ReplayImage | null
     />
   );
   return (
-    <div className="flex min-w-0 flex-col gap-1.5">
-      <div className="flex items-baseline gap-2 text-[12px]">
-        <span className="font-semibold">{label}</span>
-        {image && <span className="text-muted-foreground tabular-nums">{time(image.time)}</span>}
+    <svg className="absolute inset-0 size-full" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
+      {image.milling.map((stage) =>
+        stage.outlines.map((ring, i) => (
+          <polygon
+            key={`${stage.name}-${i}`}
+            points={ring.map((pt) => at(pt).join(",")).join(" ")}
+            fill={stage.current ? STAGE_NOW : STAGE}
+            fillOpacity={0.15}
+            stroke={stage.current ? STAGE_NOW : STAGE}
+            strokeWidth={line}
+          />
+        )),
+      )}
+      {image.spots.map((pt, i) => (
+        <circle key={`spot-${i}`} cx={pt[0] * w} cy={pt[1] * h} r={r / 3} fill={SPOT} />
+      ))}
+      {image.areas_proposed.map((a, i) => rect(a, PROPOSED, `ap-${i}`))}
+      {image.areas_decided.map((a, i) => rect(a, DECIDED, `ad-${i}`))}
+      {image.proposed.map((pt, i) => (
+        <Cross key={`p-${i}`} x={at(pt)[0]} y={at(pt)[1]} r={r} colour={PROPOSED} w={line * 1.5} />
+      ))}
+      {image.decided.map((pt, i) => (
+        <Cross key={`d-${i}`} x={at(pt)[0]} y={at(pt)[1]} r={r} colour={DECIDED} w={line * 1.5} />
+      ))}
+    </svg>
+  );
+}
+
+/** One image at this moment, as the Microscope tab's Last acquired shows it: fitted
+ * in a 3:2 frame with its scalebar and the bar under it, and what was drawn on it. */
+function Tile({
+  label,
+  path,
+  image,
+  open,
+}: {
+  label: string;
+  path: string | null;
+  image?: ReplayImage | null;
+  open: (path: string) => void;
+}) {
+  const read = useFileRead(path, 1024);
+  const p = read.data?.preview;
+  if (!path)
+    return (
+      <div className="flex aspect-[3/2] w-full min-w-0 items-center justify-center rounded-sm bg-panel text-[13px] text-muted-foreground">
+        No {label} image yet
+      </div>
+    );
+  const ratio = p ? p.width / p.height : 3 / 2;
+  return (
+    <button
+      onClick={() => open(path)}
+      className="flex min-w-0 cursor-pointer flex-col overflow-hidden rounded-sm border-0 bg-transparent p-0 text-left text-foreground"
+    >
+      <div className="relative flex aspect-[3/2] w-full items-center justify-center bg-black [container-type:inline-size]">
+        {p ? (
+          <div
+            className="relative"
+            style={{ aspectRatio: `${ratio}`, width: `min(100%, calc((100cqw * 2 / 3) * ${ratio}))` }}
+          >
+            <img
+              src={`data:image/jpeg;base64,${p.image_b64_jpeg}`}
+              alt={`${label} image`}
+              className={cn("absolute inset-0 block h-full w-full", read.isPlaceholderData && "opacity-60")}
+            />
+            {image && !read.isPlaceholderData && <Overlay image={image} w={p.width} h={p.height} />}
+            <ScaleBar info={read.data?.info} />
+          </div>
+        ) : (
+          <span className="text-[12px] text-muted-foreground">{read.error ? read.error.message : "Reading…"}</span>
+        )}
         {!!image?.unsaved_since && (
-          <span className="text-muted-foreground">
-            {image.unsaved_since} newer {image.unsaved_since === 1 ? "image wasn't" : "images weren't"} saved
+          <span className="absolute top-1.5 left-1.5 bg-black/70 px-1.5 py-0.5 text-[11px] text-white">
+            {image.unsaved_since} newer not saved
           </span>
         )}
       </div>
-      <div className="relative w-full overflow-hidden rounded bg-black">
-        {p ? (
-          <>
-            <img
-              className={cn("block w-full", read.isPlaceholderData && "opacity-60")}
-              alt={image?.path}
-              src={`data:image/jpeg;base64,${p.image_b64_jpeg}`}
-            />
-            {image && !read.isPlaceholderData && (
-              <svg className="absolute inset-0 size-full" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="xMidYMid meet">
-                {image.milling.map((stage) =>
-                  stage.outlines.map((ring, i) => (
-                    <polygon
-                      key={`${stage.name}-${i}`}
-                      points={ring.map((pt) => at(pt).join(",")).join(" ")}
-                      fill={stage.current ? STAGE_NOW : STAGE}
-                      fillOpacity={0.15}
-                      stroke={stage.current ? STAGE_NOW : STAGE}
-                      strokeWidth={line}
-                    />
-                  )),
-                )}
-                {image.spots.map((pt, i) => (
-                  <circle key={`spot-${i}`} cx={pt[0] * w} cy={pt[1] * h} r={r / 3} fill={SPOT} />
-                ))}
-                {image.areas_proposed.map((a, i) => rect(a, PROPOSED, `ap-${i}`))}
-                {image.areas_decided.map((a, i) => rect(a, DECIDED, `ad-${i}`))}
-                {image.proposed.map((pt, i) => (
-                  <Cross key={`p-${i}`} x={at(pt)[0]} y={at(pt)[1]} r={r} colour={PROPOSED} w={line * 1.5} />
-                ))}
-                {image.decided.map((pt, i) => (
-                  <Cross key={`d-${i}`} x={at(pt)[0]} y={at(pt)[1]} r={r} colour={DECIDED} w={line * 1.5} />
-                ))}
-              </svg>
-            )}
-          </>
-        ) : (
-          <div className="flex aspect-[3/2] w-full items-center justify-center text-[12px] text-muted-foreground">
-            {!image ? "No image yet" : read.error ? read.error.message : "Loading…"}
-          </div>
-        )}
-      </div>
-    </div>
+      <ImageInfoBar info={read.data?.info} />
+    </button>
   );
 }
 
-function FmImage({ path }: { path: string }) {
-  const read = useFileRead(path, 512);
-  const p = read.data?.preview;
+/** The stage where it was, as the Microscope tab's Stage card reads it. */
+function Stage({ pos }: { pos: ReplayView["stage_position"] }) {
+  const n = (k: string) => (typeof pos?.[k] === "number" ? (pos[k] as number) : null);
+  const rows: [string, string][] = [
+    ["X", fmt.length(n("x"))],
+    ["Y", fmt.length(n("y"))],
+    ["Z", fmt.length(n("z"))],
+    ["Rotation", fmt.angle(n("r"))],
+    ["Tilt", fmt.angle(n("t"))],
+  ];
   return (
-    <div className="flex min-w-0 flex-col gap-1.5">
-      <span className="text-[12px] font-semibold">FM</span>
-      <div className="w-full max-w-[320px] overflow-hidden rounded bg-black">
-        {p ? (
-          <img className="block w-full" alt={path} src={`data:image/jpeg;base64,${p.image_b64_jpeg}`} />
-        ) : (
-          <div className="flex aspect-square w-full items-center justify-center text-[12px] text-muted-foreground">
-            Loading…
-          </div>
-        )}
-      </div>
-      <span className="truncate text-[12px] text-muted-foreground">{path.split("/").pop()}</span>
+    <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1.5 border-t border-border pt-2.5">
+      <span className="text-[12px] font-semibold">Stage</span>
+      {pos ? (
+        <dl className="m-0 flex flex-wrap gap-x-6 gap-y-1">
+          {rows.map(([label, value]) => (
+            <div key={label} className="flex items-baseline gap-1.5">
+              <dt className="text-[12px] text-muted-foreground">{label}</dt>
+              <dd className="m-0 text-[13px] tabular-nums">{value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <span className="text-[13px] text-muted-foreground">Not recorded yet</span>
+      )}
     </div>
   );
 }
 
-function stageLine(pos: ReplayView["stage_position"]) {
-  if (!pos) return null;
-  const n = (k: string) => (typeof pos[k] === "number" ? (pos[k] as number) : null);
-  return [
-    `x ${fmt.length(n("x"))}`,
-    `y ${fmt.length(n("y"))}`,
-    `z ${fmt.length(n("z"))}`,
-    `r ${fmt.angle(n("r"))}`,
-    `t ${fmt.angle(n("t"))}`,
-  ].join(" · ");
+function Section<K extends keyof Filter>({
+  title,
+  field,
+  choices,
+  value,
+  set,
+}: {
+  title: string;
+  field: K;
+  choices: [Filter[K], string][];
+  value: Filter;
+  set: (next: Filter) => void;
+}) {
+  return (
+    <div className="flex flex-col py-1">
+      <div className="px-2 py-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">{title}</div>
+      {choices.map(([choice, label]) => (
+        <button
+          key={String(choice)}
+          className="flex cursor-pointer items-center gap-2 rounded border-0 bg-transparent px-2 py-1 text-left text-[13px] text-foreground hover:bg-accent"
+          onClick={() => set({ ...value, [field]: choice })}
+        >
+          <Check size={13} className={cn(value[field] === choice ? "opacity-100" : "opacity-0")} />
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** The timeline's filters, behind one button as the History tab has them. */
+function FilterMenu({
+  value,
+  set,
+  items,
+  actors,
+  counts,
+}: {
+  value: Filter;
+  set: (f: Filter) => void;
+  items: string[];
+  actors: Set<string>;
+  counts: Record<string, number>;
+}) {
+  const n = [value.item, value.actor, value.kind].filter((v) => v != null).length;
+  return (
+    <Popup
+      label="Replay filter"
+      align="right"
+      side="below"
+      className="w-56"
+      trigger={(open, toggle) => (
+        <Button
+          variant="ghost"
+          onClick={toggle}
+          aria-expanded={open}
+          aria-label="Filter"
+          title="Filter"
+          className={cn(n > 0 && "text-link")}
+        >
+          <ListFilter size={14} />
+          {n > 0 && n}
+        </Button>
+      )}
+    >
+      {() => (
+        <div className="flex flex-col divide-y divide-border">
+          <Section
+            title="Item"
+            field="item"
+            value={value}
+            set={set}
+            choices={[[null, "All items"], ...items.map((i): [string, string] => [i, i])]}
+          />
+          <Section
+            title="Who acted"
+            field="actor"
+            value={value}
+            set={set}
+            choices={[
+              [null, "Anyone"],
+              ...Object.entries(ACTOR).filter(([a]) => actors.has(a)),
+              ...(actors.has(NOT_RECORDED) && actors.size > 1
+                ? [[NOT_RECORDED, "Not recorded"] as [string, string]]
+                : []),
+            ]}
+          />
+          <Section
+            title="Kind"
+            field="kind"
+            value={value}
+            set={set}
+            choices={[
+              [null, "Every kind"],
+              ...Object.entries(KIND)
+                .filter(([k]) => counts[k])
+                .map(([k, label]): [string, string] => [k, `${label} (${counts[k]})`]),
+            ]}
+          />
+          <div className="p-1">
+            <Button variant="ghost" className="w-full justify-start" onClick={() => set(NO_FILTER)} disabled={!n}>
+              Reset
+            </Button>
+          </div>
+        </div>
+      )}
+    </Popup>
+  );
 }
 
 /** The experiment's recorded actions, stepped through with the images, milling
@@ -169,22 +312,24 @@ export function Replay() {
     queryFn: () => api<ReplayTimeline>("/app/experiment/replay"),
     refetchInterval: 10_000,
   });
-  const events = timeline.data?.events ?? [];
-  const [item, setItem] = useState("");
-  const [actor, setActor] = useState("");
-  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const events = useMemo(() => timeline.data?.events ?? [], [timeline.data]);
+  const [filter, setFilter] = useState<Filter>(NO_FILTER);
   const [index, setIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(60);
+  const [viewing, setViewing] = useState<{ paths: string[]; at: number } | null>(null);
 
   const items = useMemo(() => [...new Set(events.map((e) => e.item).filter((i): i is string => !!i))], [events]);
   const actors = useMemo(() => new Set(events.map((e) => e.actor ?? NOT_RECORDED)), [events]);
   const shown = useMemo(
     () =>
       events.filter(
-        (e) => (!item || e.item === item) && (!actor || (e.actor ?? NOT_RECORDED) === actor) && !hidden.has(e.kind),
+        (e) =>
+          (filter.item == null || e.item === filter.item) &&
+          (filter.actor == null || (e.actor ?? NOT_RECORDED) === filter.actor) &&
+          (filter.kind == null || e.kind === filter.kind),
       ),
-    [events, item, actor, hidden],
+    [events, filter],
   );
   // Where *index* sits in what is shown: itself, or the last shown before it.
   const at = useMemo(() => {
@@ -195,6 +340,7 @@ export function Replay() {
     return found;
   }, [shown, index]);
   const event: ReplayRow | undefined = shown[at];
+  const item = filter.item;
 
   const scene = useQuery({
     queryKey: ["app/experiment/replay", event?.index, item],
@@ -236,83 +382,33 @@ export function Replay() {
     if (next) setIndex(next.index);
   };
   const view = scene.data?.available ? scene.data : null;
-  const counts = timeline.data.counts;
+  const paths = [view?.sem?.path, view?.fib?.path, view?.fm].filter((p): p is string => !!p);
+  const open = (path: string) => setViewing({ paths, at: paths.indexOf(path) });
   return (
-    <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+    <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
       <Card className="flex min-w-0 flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-2 text-[13px]">
-          <select aria-label="Item" className={select} value={item} onChange={(e) => setItem(e.target.value)}>
-            <option value="">All items</option>
-            {items.map((i) => (
-              <option key={i} value={i}>
-                {i}
-              </option>
-            ))}
-          </select>
-          <select aria-label="Who acted" className={select} value={actor} onChange={(e) => setActor(e.target.value)}>
-            <option value="">Anyone</option>
-            {Object.entries(ACTOR)
-              .filter(([a]) => actors.has(a))
-              .map(([a, label]) => (
-                <option key={a} value={a}>
-                  {label}
-                </option>
-              ))}
-            {actors.has(NOT_RECORDED) && actors.size > 1 && <option value={NOT_RECORDED}>Not recorded</option>}
-          </select>
-          <span className="ml-auto text-muted-foreground">
-            {shown.length === events.length ? `${events.length} actions` : `${shown.length} of ${events.length}`}
-          </span>
+        {event && (
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <div className="text-[14px] font-semibold">{event.summary}</div>
+            <div className="text-[12px] text-muted-foreground tabular-nums">
+              {[
+                clock(event.time),
+                event.item,
+                [event.task, event.step && words(event.step)].filter(Boolean).join(" · "),
+                event.actor ? (ACTOR[event.actor] ?? event.actor) : null,
+                event.duration != null ? fmt.seconds(event.duration) : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </div>
+          </div>
+        )}
+        {scene.error && <div className="text-[13px] text-destructive">{scene.error.message}</div>}
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
+          <Tile label="SEM" path={view?.sem?.path ?? null} image={view?.sem} open={open} />
+          <Tile label="FIB" path={view?.fib?.path ?? null} image={view?.fib} open={open} />
+          <Tile label="FM" path={view?.fm ?? null} open={open} />
         </div>
-        <div className="flex flex-wrap gap-x-3 gap-y-1 text-[12px]">
-          {Object.entries(KIND)
-            .filter(([k]) => counts[k])
-            .map(([k, label]) => (
-              <label key={k} className="flex cursor-pointer items-center gap-1.5">
-                <input
-                  type="checkbox"
-                  className="accent-[var(--primary)]"
-                  checked={!hidden.has(k)}
-                  onChange={() => {
-                    const next = new Set(hidden);
-                    if (next.has(k)) next.delete(k);
-                    else next.add(k);
-                    setHidden(next);
-                  }}
-                />
-                {label} <span className="text-muted-foreground">{counts[k]}</span>
-              </label>
-            ))}
-        </div>
-        <div ref={list} className="max-h-[62vh] overflow-y-auto" role="list" aria-label="Recorded actions">
-          {shown.map((e) => (
-            <button
-              key={e.index}
-              role="listitem"
-              aria-current={e === event || undefined}
-              onClick={() => {
-                setPlaying(false);
-                setIndex(e.index);
-              }}
-              className={cn(
-                "grid w-full cursor-pointer grid-cols-[auto_minmax(0,1fr)] gap-x-2 border-0 border-t border-border bg-transparent px-1 py-1.5 text-left text-[13px] text-foreground hover:bg-accent",
-                e === event && "bg-accent",
-              )}
-            >
-              <span className="whitespace-nowrap text-muted-foreground tabular-nums">{time(e.time)}</span>
-              <span className="truncate">{e.summary}</span>
-              <span />
-              <span className="truncate text-[12px] text-muted-foreground">
-                {[KIND[e.kind] ?? e.kind, e.item, e.actor && e.actor !== "task" ? ACTOR[e.actor] : null]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </span>
-            </button>
-          ))}
-          {!shown.length && <div className="py-3 text-[13px] text-muted-foreground">Nothing matches.</div>}
-        </div>
-      </Card>
-      <Card className="flex min-w-0 flex-col gap-3">
         <Stepper
           at={at}
           count={shown.length}
@@ -335,7 +431,7 @@ export function Replay() {
             <select
               aria-label="Speed"
               title="Playback speed, as a multiple of real time"
-              className={cn(select, "h-11")}
+              className="h-11 rounded border border-input bg-background px-2 text-[13px] text-foreground"
               value={speed}
               onChange={(e) => setSpeed(Number(e.target.value))}
             >
@@ -347,32 +443,42 @@ export function Replay() {
             </select>
           }
         />
-        {event && (
-          <div className="flex flex-col gap-0.5">
-            <div className="text-[13px] font-semibold">{event.summary}</div>
-            <div className="text-[12px] text-muted-foreground">
-              {[
-                fmt.when(event.time),
-                event.item,
-                [event.task, event.step].filter(Boolean).join(" / "),
-                event.actor ? `by ${ACTOR[event.actor]?.toLowerCase() ?? event.actor}` : null,
-                event.duration != null ? fmt.seconds(event.duration) : null,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-            </div>
-          </div>
-        )}
-        {scene.error && <div className="text-[13px] text-destructive">{scene.error.message}</div>}
-        <div className="grid gap-3 md:grid-cols-2">
-          <SceneImage label="SEM" image={view?.sem ?? null} />
-          <SceneImage label="FIB" image={view?.fib ?? null} />
-        </div>
-        {view?.fm && <FmImage path={view.fm} />}
-        {view?.stage_position && (
-          <div className="text-[12px] text-muted-foreground tabular-nums">Stage {stageLine(view.stage_position)}</div>
-        )}
+        <Stage pos={view?.stage_position ?? null} />
       </Card>
+      <Card className="flex min-w-0 flex-col gap-1.5 p-3">
+        <div className="flex items-center gap-2">
+          <span className="text-[12px] text-muted-foreground">
+            {shown.length === events.length ? `${events.length} actions` : `${shown.length} of ${events.length}`}
+          </span>
+          <span className="ml-auto" />
+          <FilterMenu value={filter} set={setFilter} items={items} actors={actors} counts={timeline.data.counts} />
+        </div>
+        <div ref={list} className="max-h-[75vh] overflow-y-auto" role="list" aria-label="Recorded actions">
+          {shown.map((e) => (
+            <button
+              key={e.index}
+              role="listitem"
+              aria-current={e === event || undefined}
+              onClick={() => {
+                setPlaying(false);
+                setIndex(e.index);
+              }}
+              className={cn(
+                "flex w-full cursor-pointer gap-2 border-0 border-t border-border bg-transparent px-1 py-0.5 text-left text-[12px] text-foreground hover:bg-accent",
+                e === event && "bg-accent",
+              )}
+              title={[KIND[e.kind] ?? e.kind, e.item, e.actor ? ACTOR[e.actor] : null].filter(Boolean).join(" · ")}
+            >
+              <span className="shrink-0 text-[11px] leading-[18px] text-muted-foreground tabular-nums">
+                {clock(e.time)}
+              </span>
+              <span className="min-w-0 truncate leading-[18px]">{e.summary}</span>
+            </button>
+          ))}
+          {!shown.length && <div className="py-3 text-[12px] text-muted-foreground">Nothing matches.</div>}
+        </div>
+      </Card>
+      <ImageViewer paths={viewing?.paths ?? []} at={viewing ? viewing.at : null} onClose={() => setViewing(null)} />
     </div>
   );
 }
