@@ -259,7 +259,25 @@ export type FileRead = FileEntry & {
   truncated?: boolean;
   preview?: ImagePayload;
   summary?: { fm?: StackFacts; [key: string]: unknown };
+  info?: ImageInfo | null;
 };
+
+/** One value on an image's bar: `HFW 80 µm`, its *title* said in full on hover. */
+export interface ImageField {
+  key: string;
+  label: string;
+  title: string;
+  value: string;
+}
+
+/** What the bar under an image says (fibsem.server.image_payloads.fields_info). */
+export interface ImageInfo {
+  kind: string;
+  header: ImageField[];
+  fields: ImageField[];
+  time: string | null;
+  scalebar: { length: number; label: string; fraction: number } | null;
+}
 
 /** GET /app/experiment: one row per item. */
 export interface ItemSummary {
