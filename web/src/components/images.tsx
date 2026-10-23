@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { ImageInfoBar, ScaleBar } from "@/components/image-info";
+import { MarkPanel, MarkToolbar, MarkingLayer, toolForKey, useMarkEditor } from "@/components/mark-for-agent";
 import { Stepper } from "@/components/stepper";
 import { type StackView, useFileRead } from "@/lib/files";
 import * as fmt from "@/lib/format";
@@ -189,17 +190,36 @@ export function ImageViewer({ paths, at, onClose }: { paths: string[]; at: numbe
   const index = Math.max(0, path ? paths.indexOf(path) : 0);
   const [view, setView] = useState<StackView>(WHOLE);
   const [viewOf, setViewOf] = useState(path);
-  if (path !== viewOf) {
-    setViewOf(path);
-    setView(WHOLE);
-  }
+  const [marking, setMarking] = useState(false);
+  const [sent, setSent] = useState(false);
   const read = useFileRead(path, 1600, view);
   const p = read.data?.preview;
   // The last image stays up, dimmed, while the next is read, so the box keeps its size.
   if (p) last.current = p;
   const shown = p ?? (read.error ? undefined : last.current);
+  const fullWidth = shown?.full_width ?? shown?.width ?? 1;
+  const fullHeight = shown?.full_height ?? shown?.height ?? 1;
+  const editor = useMarkEditor(fullWidth, fullHeight);
+  if (path !== viewOf) {
+    setViewOf(path);
+    setView(WHOLE);
+    setMarking(false);
+    setSent(false);
+    editor.clear();
+  }
   const fm = read.data?.summary?.fm;
   const stack = fm && fm.z_planes > 1 ? fm : undefined;
+  const pixelSize = read.data?.summary?.pixel_size as number | null | undefined;
+  // a beam image, or an FM stack's max projection: single planes can't be marked yet
+  const markable = !!p && (!!fm || imageKind(path ?? "", read.data?.summary?.beam_type) !== "Image");
+  const keys = useRef<HTMLDivElement>(null);
+  const mark = (on: boolean) => {
+    setMarking(on);
+    setSent(false);
+    if (on && view.z != null) setView({ ...view, z: null });
+    // the tools' keys go to the viewer, not the button
+    if (on) keys.current?.focus();
+  };
   const step = (by: number) => setPath(paths[(index + by + paths.length) % paths.length]);
   const plane = (by: number) => {
     if (!stack) return;
@@ -213,12 +233,30 @@ export function ImageViewer({ paths, at, onClose }: { paths: string[]; at: numbe
   const size = shape ? `${shape[1]} × ${shape[0]} px${bytes ? ` · ${fmt.bytes(bytes)}` : ""}` : "";
   return (
     <Dialog open={at != null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent title={name} className="w-[min(1280px,calc(100vw-32px))]">
+      <DialogContent
+        title={name}
+        className="w-[min(1280px,calc(100vw-32px))]"
+        onEscapeKeyDown={(e) => {
+          if (!marking) return;
+          e.preventDefault();
+          mark(false);
+        }}
+      >
         <div
-          className="grid gap-4 md:grid-cols-[minmax(0,1fr)_240px]"
+          ref={keys}
+          tabIndex={-1}
+          className={cn(
+            "grid min-h-0 gap-4 outline-none",
+            marking ? "md:grid-cols-[minmax(0,1fr)_320px]" : "md:grid-cols-[minmax(0,1fr)_240px]",
+          )}
           onKeyDown={(e) => {
-            if (e.target instanceof HTMLInputElement) return;
-            if (e.key === "ArrowLeft") step(-1);
+            if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+            const key = e.key.toLowerCase();
+            const picked = marking && toolForKey(key);
+            if (picked) editor.setTool(picked);
+            else if (marking && (e.key === "Delete" || e.key === "Backspace") && editor.selected != null)
+              editor.remove(editor.selected);
+            else if (e.key === "ArrowLeft") step(-1);
             else if (e.key === "ArrowRight") step(1);
             else if (e.key === "ArrowUp" && stack) plane(1);
             else if (e.key === "ArrowDown" && stack) plane(-1);
@@ -227,6 +265,7 @@ export function ImageViewer({ paths, at, onClose }: { paths: string[]; at: numbe
           }}
         >
           <div className="flex min-w-0 flex-col self-start">
+            {markable && <MarkToolbar editor={editor} marking={marking} mark={mark} />}
             <div className="relative flex min-h-[240px] items-center justify-center bg-black p-2">
               {shown && (!p || read.isPlaceholderData) && (
                 <span className="absolute top-3 left-3 z-10 bg-black/70 px-2 py-0.5 text-[12px] text-white">
@@ -235,10 +274,11 @@ export function ImageViewer({ paths, at, onClose }: { paths: string[]; at: numbe
               )}
               {shown ? (
                 <div
-                  className="relative"
+                  className={cn("relative", marking && "outline outline-1 outline-[#50a6ff]")}
                   style={{
-                    aspectRatio: `${shown.width} / ${shown.height}`,
-                    width: `min(100%, calc(70vh * ${shown.width / shown.height}))`,
+                    aspectRatio: `${fullWidth} / ${fullHeight}`,
+                    // the dialog's height less its header, the toolbar and the bar
+                    width: `min(100%, calc((84vh - 150px) * ${fullWidth / fullHeight}))`,
                   }}
                 >
                   <img
@@ -250,6 +290,7 @@ export function ImageViewer({ paths, at, onClose }: { paths: string[]; at: numbe
                     src={`data:image/jpeg;base64,${shown.image_b64_jpeg}`}
                   />
                   <ScaleBar info={read.data?.info} />
+                  {marking && <MarkingLayer editor={editor} pixelSize={pixelSize} />}
                 </div>
               ) : (
                 <span className="text-[13px] text-muted-foreground">
@@ -259,9 +300,24 @@ export function ImageViewer({ paths, at, onClose }: { paths: string[]; at: numbe
             </div>
             <ImageInfoBar info={read.data?.info} />
           </div>
-          <div className="flex flex-col gap-3 px-4 pb-4 md:pt-2 md:pl-0">
+          <div className="flex min-h-0 flex-col gap-3 overflow-y-auto px-4 pb-4 md:max-h-[calc(84vh-60px)] md:pt-2 md:pl-0">
             {fm && <Legend fm={fm} view={view} setView={setView} />}
-            {stack && <Planes fm={stack} view={view} setView={setView} />}
+            {stack && !marking && <Planes fm={stack} view={view} setView={setView} />}
+            {marking && path && (
+              <MarkPanel
+                editor={editor}
+                image={path}
+                pixelSize={pixelSize}
+                channels={fm ? (view.channels ?? fm.channels.map((c) => c.name)) : null}
+                onSent={() => {
+                  setMarking(false);
+                  setSent(true);
+                }}
+              />
+            )}
+            {sent && (
+              <div className="text-[12px] text-muted-foreground">Sent · the agent reads it on its next turn</div>
+            )}
             <div className="flex flex-col gap-0.5 text-[12px] text-muted-foreground">
               <span className="break-all">{path}</span>
               {size && <span className="tabular-nums">{size}</span>}
