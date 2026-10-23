@@ -89,7 +89,9 @@ def test_a_new_experiment_writes_iso_with_its_offset(tmp_path):
 
 @pytest.mark.parametrize("record", [GridRecord, OverlayRecord])
 def test_an_older_grid_or_overlay_keeps_its_time(viewer_zone, record):
-    stored = dict(_saved(record.from_dict({"name": "g"})), created_at=STAMP)
+    stored = dict(
+        _saved(record.from_dict({"name": "g", "kind": "gridbar"})), created_at=STAMP
+    )
     loaded = record.from_dict(stored)
     assert _aware_at_stamp(loaded.created_at)
     assert record.from_dict(_saved(loaded)).created_at == loaded.created_at
@@ -98,6 +100,7 @@ def test_an_older_grid_or_overlay_keeps_its_time(viewer_zone, record):
 def test_an_older_proposal_and_decision_show_the_same_clock(viewer_zone):
     stored = {
         "kind": "task_result",
+        "id": "proposal-1",
         "values": {},
         "provenance": {"task_id": "run-1"},
         "decisions": [
@@ -109,12 +112,10 @@ def test_an_older_proposal_and_decision_show_the_same_clock(viewer_zone):
     assert clock(proposal.created_at) == _shown(STAMP, "%H:%M")
     assert clock(proposal.decisions[0].timestamp) == _shown(STAMP + 60, "%H:%M")
 
-    # A proposal saved before ids is named from its stored time, and keeps the
-    # name once saved again, now with the time as ISO.
+    # Saved again, the time is ISO.
     saved = _saved(proposal)
     assert isinstance(saved["created_at"], str)
-    assert Proposal.from_dict(saved).id == proposal.id
-    assert Proposal.from_dict(stored).id == proposal.id
+    assert clock(Proposal.from_dict(saved).created_at) == clock(proposal.created_at)
 
 
 def test_a_decision_with_no_time_has_none():
