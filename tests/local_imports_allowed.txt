@@ -20,6 +20,7 @@ fibsem/applications/autolamella/config_edits.py 5
 fibsem/applications/autolamella/protocol/legacy.py 1
 fibsem/applications/autolamella/protocol/validation.py 1
 fibsem/applications/autolamella/server/context.py 41
+# Deliberate: the experiment decodes task configs through the task registry, whose tasks import it.
 fibsem/applications/autolamella/structures.py 9
 fibsem/applications/autolamella/task_outputs.py 6
 fibsem/applications/autolamella/tools/data.py 2
@@ -93,8 +94,10 @@ fibsem/guided_setup.py 6
 fibsem/imaging/thickness.py 4
 fibsem/imaging/transforms.py 2
 fibsem/microscope.py 13
+# Deliberate: a stage decodes and defaults its strategy through the strategy registry, whose strategies import it.
 fibsem/milling/base.py 6
 fibsem/milling/core.py 2
+# Deliberate: a monitor config decodes through the monitor registry, whose monitors import it.
 fibsem/milling/monitor_config.py 3
 fibsem/milling/patterning/base.py 3
 fibsem/milling/patterning/patterns/circle.py 1
