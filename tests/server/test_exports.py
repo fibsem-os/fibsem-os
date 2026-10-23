@@ -162,6 +162,61 @@ def test_an_export_refuses_as_the_files_routes_do(client, experiment):
     assert watched.status_code == 403
 
 
+def test_an_image_exports_with_the_web_viewer_s_looks(client, experiment):
+    path = _image_path(experiment)
+    looks = [{"clim": [10, 200], "gamma": 1.5, "color": "green"}]
+    response = client.post(
+        "/app/experiment/export/image",
+        json={
+            "path": path,
+            "options": {"looks": looks, "fields": [], "scalebar": False},
+        },
+        headers=AUTH,
+    )
+    assert response.status_code == 200, response.text
+    with Image.open(io.BytesIO(response.content)) as png:
+        (_, red), (_, green), (_, blue) = png.convert("RGB").getextrema()
+    assert (red, blue) == (0, 0) and green == 255
+    for bad in (
+        [{"clim": [200, 10]}],
+        [{"gamma": 0}],
+        [{"opacity": 2}],
+    ):
+        refused = client.post(
+            "/app/experiment/export/image",
+            json={"path": path, "options": {"looks": bad}},
+            headers=AUTH,
+        )
+        assert refused.status_code == 422, bad
+
+
+def test_a_stack_exports_the_plane_on_screen(client, experiment):
+    from tests.server.test_planes import _stack
+
+    lamella = experiment.positions[0]
+    _stack(os.path.join(lamella.path, "stack.ome.tiff"), planes_=3, size=32)
+    path = os.path.relpath(
+        os.path.join(lamella.path, "stack.ome.tiff"), experiment.path
+    )
+    path = path.replace(os.sep, "/")
+    shown = client.post(
+        "/app/experiment/export/image",
+        json={
+            "path": path,
+            "options": {"plane": 1, "scalebar": False, "legend": False},
+        },
+        headers=AUTH,
+    )
+    assert shown.status_code == 200, shown.text
+    outside = client.post(
+        "/app/experiment/export/image",
+        json={"path": path, "options": {"plane": 3}},
+        headers=AUTH,
+    )
+    assert outside.status_code == 422
+    assert "outside the stack" in outside.json()["detail"]["message"]
+
+
 def test_a_lamella_s_two_tasks_animate_as_two_frames(client, experiment):
     name = experiment.positions[0].name
     frames = client.get(
