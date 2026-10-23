@@ -95,9 +95,7 @@ class LamellaCardWidget(RecordCard):
 
         self._btn_actions = QToolButton()
         self._btn_actions.setFixedSize(BTN_SIZE, BTN_SIZE)
-        self._btn_actions.setStyleSheet(
-            CARD_BUTTON_STYLE
-        )
+        self._btn_actions.setStyleSheet(CARD_BUTTON_STYLE)
         self._btn_actions.setIcon(
             fibsem_icon("mdi:dots-horizontal", color=tokens.GRAY_ICON_COLOR)
         )
@@ -131,9 +129,7 @@ class LamellaCardWidget(RecordCard):
 
         self._btn_defect = QToolButton()
         self._btn_defect.setFixedSize(BTN_SIZE, BTN_SIZE)
-        self._btn_defect.setStyleSheet(
-            CARD_BUTTON_STYLE
-        )
+        self._btn_defect.setStyleSheet(CARD_BUTTON_STYLE)
         self._defect_icon_menu = QMenu(self)
         add_defect_menu(self._defect_icon_menu, lamella, self._on_defect_written)
         self._btn_defect.clicked.connect(

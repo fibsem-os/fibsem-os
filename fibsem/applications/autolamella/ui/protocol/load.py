@@ -208,12 +208,14 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
             self.protocol_path = self._initial_protocol_path
         self.btn_ok.setEnabled(True)  # Enable OK button when new protocol is loaded
         self._update_protocol_display()
+
     def _update_protocol_display(self):
         """Update the protocol information display."""
         self.protocol_summary.show_protocol(
             self.protocol, self.protocol_path or "(Current protocol)"
         )
         self._update_warning_visibility()
+
     def _on_ok_clicked(self):
         """Accept the chosen protocol. The window adopts and saves it; the
         dialog saves nothing itself."""

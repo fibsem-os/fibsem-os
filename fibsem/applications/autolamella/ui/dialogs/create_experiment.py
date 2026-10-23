@@ -393,9 +393,11 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
             return
         self.protocol_path, self.protocol = picked
         self._update_protocol_display()
+
     def _update_protocol_display(self):
         """Update the protocol information display."""
         self.protocol_summary.show_protocol(self.protocol, self.protocol_path or "")
+
     def _on_ok_clicked(self):
         """Handle OK button click - validate and create experiment."""
         # Validate experiment name

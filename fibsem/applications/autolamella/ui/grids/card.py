@@ -78,7 +78,6 @@ _THUMBNAIL_ROLES = (
 )
 
 
-
 def grid_headline(grid: GridRecord) -> Tuple[str, str]:
     """One line on how the grid's last run went, and its colour.
 

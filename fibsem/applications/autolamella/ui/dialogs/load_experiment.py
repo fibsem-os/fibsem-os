@@ -522,6 +522,7 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         """Update the protocol information display."""
         protocol = self.experiment.task_protocol if self.experiment else None
         self.protocol_summary.show_protocol(protocol, self.protocol_path or "")
+
     def _clear_display(self):
         """Clear all display fields and disable OK button."""
         self.experiment = None
@@ -714,6 +715,7 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         self._update_protocol_display()
         self.btn_ok.setEnabled(True)
         self._set_protocol_buttons_visible(False)
+
     def _set_protocol_buttons_visible(self, visible: bool) -> None:
         """Show or hide the protocol selection button."""
         self.btn_select_protocol.setVisible(visible)
