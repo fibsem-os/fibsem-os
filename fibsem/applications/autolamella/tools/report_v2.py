@@ -1,8 +1,7 @@
 """Report v2: an experiment's record as one self-contained HTML page (FIB-1036).
 
-Built from ``events.jsonl`` alone, through the tables in ``event_tables``, beside
-the log-based report rather than replacing it. The page answers what a session
-got, where its time went, and what needs a look:
+Built from ``events.jsonl`` alone, through the tables in ``event_tables``. The
+page answers what a session got, where its time went, and what needs a look:
 
 * headline numbers: lamellae finished, throughput, and the time budget --
   machine, waiting for an answer, and idle (nothing running)
@@ -104,7 +103,7 @@ def write_report(experiment: Any, path: Union[str, Path, None] = None) -> Path:
     folder unless ``path`` says where -- and return where it went.
 
     Raises FileNotFoundError for an experiment with no ``events.jsonl``: one
-    recorded before the event stream, whose report is the log-based one.
+    recorded before the event stream, which has no report.
     """
     folder = Path(experiment.path)
     events = folder / EVENTS_FILENAME
@@ -137,7 +136,7 @@ def no_record(experiment: Any) -> Optional[str]:
         return None
     return (
         f"{experiment.name} has no {EVENTS_FILENAME}: it was recorded before the "
-        "event stream, so its report is the log-based one."
+        "event stream, so it has no report."
     )
 
 
