@@ -1,3 +1,4 @@
+import copy
 import dataclasses
 import logging
 import os
@@ -480,24 +481,48 @@ def _sub_from_dict(cls, d: dict):
     return cls(**{k: v for k, v in d.items() if k in known})
 
 
+# The last file read, keyed by its modification time and size, so a call does not
+# re-parse an unchanged file; an edit from outside is still seen on the next call.
+_preferences_cache: Optional[tuple] = None
+
+
+def _file_key(path: str) -> Optional[tuple]:
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return None
+    return (stat.st_mtime_ns, stat.st_size)
+
+
 def load_user_preferences() -> UserPreferences:
-    """Load persisted user preferences, returning a UserPreferences dataclass."""
-    if not os.path.exists(USER_PREFERENCES_PATH):
+    """Load persisted user preferences, returning a UserPreferences dataclass.
+
+    Each call returns its own copy, which the caller may change."""
+    global _preferences_cache
+    key = _file_key(USER_PREFERENCES_PATH)
+    if key is None:
         return UserPreferences()
+    cached = _preferences_cache
+    if cached is not None and cached[0] == (USER_PREFERENCES_PATH, key):
+        return copy.deepcopy(cached[1])
 
     try:
         with open(USER_PREFERENCES_PATH) as f:
             loaded = yaml.safe_load(f) or {}
-        return UserPreferences.from_dict(loaded)
+        preferences = UserPreferences.from_dict(loaded)
     except Exception as e:
         logging.warning(
             f"Failed to load user preferences from {USER_PREFERENCES_PATH}: {e}"
         )
         return UserPreferences()
+    _preferences_cache = ((USER_PREFERENCES_PATH, key), preferences)
+    return copy.deepcopy(preferences)
 
 
 def save_user_preferences(preferences) -> None:
     """Persist user preferences to disk. Accepts UserPreferences or dict."""
+    global _preferences_cache
+    _preferences_cache = None
     try:
         os.makedirs(CONFIG_PATH, exist_ok=True)
         if isinstance(preferences, UserPreferences):

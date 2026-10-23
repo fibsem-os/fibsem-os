@@ -78,6 +78,21 @@ class ServerError(RuntimeError):
         return self.detail.get("error_type") if isinstance(self.detail, dict) else None
 
 
+# The App Server a process is pointed at, set by whoever launches it.
+SERVER_URL_ENV = "FIBSEM_SERVER_URL"
+SERVER_TOKEN_ENV = "FIBSEM_SERVER_TOKEN"
+OPERATOR_TOKEN_ENV = "FIBSEM_OPERATOR_TOKEN"
+
+
+def server_env() -> Tuple[Optional[str], Optional[str]]:
+    """The server url and agent token this process's environment names, each
+    None when unset. Read on each call: launchers and tests set them per process."""
+    return (
+        os.environ.get(SERVER_URL_ENV) or None,
+        os.environ.get(SERVER_TOKEN_ENV) or None,
+    )
+
+
 def resolve(
     url: Optional[str] = None, token: Optional[str] = None
 ) -> Optional[Tuple[str, str]]:
@@ -87,8 +102,9 @@ def resolve(
     agent token this agent was allowed, else the file's connect token, which
     asks to be allowed), else the agent token paired at the SSH tunnel's end.
     None when none is known (yet). Never an operator's paired token."""
-    url = url or os.environ.get("FIBSEM_SERVER_URL")
-    token = token or os.environ.get("FIBSEM_SERVER_TOKEN")
+    env_url, env_token = server_env()
+    url = url or env_url
+    token = token or env_token
     if url and not token:
         token = agent_token(url)
     if url and token:
@@ -130,11 +146,11 @@ def resolve_operator(
     operator: url as given, else ``FIBSEM_SERVER_URL``, else the discovery file;
     token as given, else ``FIBSEM_OPERATOR_TOKEN``, else this install's operator
     token file. Never the agent's token. None when either is unknown."""
-    url = url or os.environ.get("FIBSEM_SERVER_URL")
+    url = url or server_env()[0]
     if not url:
         found = read_discovery_file()
         url = found["url"] if found is not None else None
-    token = token or os.environ.get("FIBSEM_OPERATOR_TOKEN") or read_operator_token()
+    token = token or os.environ.get(OPERATOR_TOKEN_ENV) or read_operator_token()
     return (url, token) if url and token else None
 
 

@@ -11,7 +11,6 @@ it is given (``start``, a ``DemoParts``), and never touches the microscope's aga
 from __future__ import annotations
 
 import logging
-import os
 import threading
 from contextlib import contextmanager
 from copy import deepcopy
@@ -30,7 +29,7 @@ from typing import (
 
 import numpy as np
 
-from fibsem._timing import sim_sleep
+from fibsem._timing import sim_delays_off, sim_sleep
 from fibsem.devices.beam import UNBOUNDED_SHIFT_LIMITS, Beam
 from fibsem.devices.chamber import Chamber
 from fibsem.devices.chamber_camera import ChamberCamera
@@ -1000,7 +999,7 @@ class DemoScanGenerator(Scanner):
     def _acquire(self, resolution: Tuple[int, int], dwell_time: float) -> np.ndarray:
         self._stop_event.clear()
         duration = dwell_time * resolution[0] * resolution[1]
-        if os.environ.get("FIBSEM_SIM_NO_DELAY") != "1":
+        if not sim_delays_off():
             self._stop_event.wait(duration)
         shape = (resolution[1], resolution[0])
         if resolution not in self._frames:
