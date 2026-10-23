@@ -25,7 +25,7 @@ from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import BeamType, FibsemImage
 from fibsem.ui.stylesheets import NAPARI_STYLE
 from fibsem.ui.widgets.canvas.quad_view import (
-    LamellaEditorView,
+    ItemEditorView,
     MicroscopeViewController,
 )
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
@@ -63,7 +63,7 @@ def main() -> None:
     # ── canvas ───────────────────────────────────────────────────────────
     # Patterns render through the reducer onto the FIB canvas, so the harness needs a
     # controller — this is the same view the Lamella Editor drives (FIB-407).
-    view = LamellaEditorView()
+    view = ItemEditorView()
     controller = MicroscopeViewController(view=view)
     view.show_beams()
 

@@ -71,7 +71,7 @@ from fibsem.ui.widgets.canvas.overlay_controls import (
     CanvasPopover,
 )
 from fibsem.ui.widgets.canvas.quad_view import (
-    LamellaEditorView,
+    ItemEditorView,
     MicroscopeViewController,
 )
 from fibsem.ui.widgets.custom_widgets import (
@@ -225,7 +225,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         # Canvas display: own a controller driving a task-driven stacked view (FIB +
         # SEM beside it + FM page). Created eagerly (no microscope needed) so the host
         # tab can embed ``view_controller.widget`` before the microscope connects.
-        self.view_controller = MicroscopeViewController(view=LamellaEditorView())
+        self.view_controller = MicroscopeViewController(view=ItemEditorView())
 
         self.image: FibsemImage
         self.fm_image: Optional[FluorescenceImage] = None

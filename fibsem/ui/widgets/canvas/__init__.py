@@ -9,7 +9,7 @@ This package groups the (napari-free) canvas widgets and their supporting state:
   many images drawn at the positions they were acquired.
 - :mod:`~fibsem.ui.widgets.canvas.fm_canvas` — fluorescence-microscopy canvas.
 - :mod:`~fibsem.ui.widgets.canvas.fm_composite` — FM layer compositing helpers.
-- :mod:`~fibsem.ui.widgets.canvas.quad_view` — quad-view widget, lamella editor, and
+- :mod:`~fibsem.ui.widgets.canvas.quad_view` — quad-view widget, item editor, and
   :class:`MicroscopeViewController`.
 - :mod:`~fibsem.ui.widgets.canvas.canvas_state` — declarative scene/overlay specs.
 - :mod:`~fibsem.ui.widgets.canvas.overlays` — the overlay classes drawn on the canvases.
@@ -37,7 +37,7 @@ from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
 from fibsem.ui.widgets.canvas.fm_composite import FMLayer, composite_fm_layers
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 from fibsem.ui.widgets.canvas.quad_view import (
-    LamellaEditorView,
+    ItemEditorView,
     MicroscopeViewController,
     QuadViewWidget,
 )
@@ -58,7 +58,7 @@ __all__ = [
     "composite_fm_layers",
     # quad_view
     "QuadViewWidget",
-    "LamellaEditorView",
+    "ItemEditorView",
     "MicroscopeViewController",
     # canvas_state
     "SceneModel",

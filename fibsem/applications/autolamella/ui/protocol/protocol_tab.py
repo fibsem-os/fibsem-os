@@ -48,7 +48,7 @@ from fibsem.ui.tokens import (
     TEXT_MUTED_COLOR,
 )
 from fibsem.ui.widgets.canvas.quad_view import (
-    LamellaEditorView,
+    ItemEditorView,
     MicroscopeViewController,
 )
 from fibsem.ui.widgets.custom_widgets import TaskNameListWidget
@@ -524,8 +524,8 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         )
 
         # Kept on the dialog: the controller must outlive the coordinate widget, and
-        # LamellaEditorView must outlive the controller (it is the controller's widget).
-        dialog._view = LamellaEditorView()
+        # ItemEditorView must outlive the controller (it is the controller's widget).
+        dialog._view = ItemEditorView()
         dialog._controller = MicroscopeViewController(view=dialog._view)
         dialog._controller.set_image(BeamType.ION, image)
 
