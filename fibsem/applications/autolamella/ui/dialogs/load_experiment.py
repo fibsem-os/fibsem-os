@@ -26,7 +26,7 @@ from fibsem.ui import utils as fui
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.stylesheets import PRIMARY_BUTTON_STYLESHEET, SECONDARY_BUTTON_STYLESHEET
-from fibsem.ui.widgets.custom_widgets import TitledPanel
+from fibsem.ui.widgets.custom_widgets import ElidedLabel, TitledPanel
 from fibsem.util.system import directory_size
 from fibsem.util.timestamps import format_time
 from fibsem.utils import format_bytes
@@ -85,40 +85,6 @@ RECENT_NAME_COLOR = TEXT_COLOR
 # same disabled grey the control sheets use, so an unreadable row reads as
 # disabled rather than as its own shade.
 RECENT_UNAVAILABLE_COLOR = DISABLED_TEXT_COLOR
-
-
-class _ElidedLabel(QtWidgets.QLabel):
-    """A QLabel that elides (…) its text on the right when too narrow.
-
-    Reports a zero minimum width so it can shrink inside a layout instead of
-    forcing the row wider than the list viewport.
-    """
-
-    def __init__(self, text: str, color: str, parent=None):
-        super().__init__(text, parent)
-        self._full_text = text
-        self._color = QtGui.QColor(color)
-        self.setSizePolicy(
-            QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred
-        )
-
-    def minimumSizeHint(self) -> QtCore.QSize:
-        return QtCore.QSize(0, QtGui.QFontMetrics(self.font()).height())
-
-    def sizeHint(self) -> QtCore.QSize:
-        return QtCore.QSize(0, QtGui.QFontMetrics(self.font()).height())
-
-    def paintEvent(self, event):
-        painter = QtGui.QPainter(self)
-        painter.setPen(self._color)
-        painter.setFont(self.font())
-        metrics = QtGui.QFontMetrics(self.font())
-        elided = metrics.elidedText(
-            self._full_text, QtCore.Qt.ElideMiddle, self.width()
-        )
-        painter.drawText(
-            self.rect(), QtCore.Qt.AlignVCenter | QtCore.Qt.AlignLeft, elided
-        )
 
 
 RECENT_LIST_STYLESHEET = f"""
@@ -692,7 +658,8 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         text_layout.setContentsMargins(0, 0, 0, 0)
         text_layout.setSpacing(5)
 
-        name_label = _ElidedLabel(info.name, name_color)
+        name_label = ElidedLabel(info.name, mode=QtCore.Qt.ElideMiddle)
+        name_label.setStyleSheet(f"color: {name_color}; background: transparent;")
         name_font = name_label.font()
         name_font.setPixelSize(13)
         name_font.setWeight(QtGui.QFont.DemiBold)
