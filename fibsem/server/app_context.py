@@ -1525,28 +1525,27 @@ class AppContext:
         timeout: float = 10.0,
     ) -> Dict[str, Any]:
         """Patch a task's protocol-level settings, what each run of it reads,
-        when *version* names the state the patch was written against."""
-        from fibsem.workflows.task_configs import patch_config
+        when *version* names the state the patch was written against. Recorded
+        as the agent's. A running task holds its item's copy, so the edit
+        reaches items created (or re-copied) after it lands."""
+        from fibsem.workflows.task_configs import agent_patch_task_config
 
         session = self._session
 
         def edit():
-            experiment = session.experiment
-            protocol = getattr(experiment, "task_protocol", None)
-            config_map = getattr(protocol, "task_config", None)
-            if config_map is None:
-                return no_experiment()
-            config = dict(config_map).get(task_name)
-            if config is None:
-                return refused(
-                    "not_found",
-                    f"No task named {task_name!r} in the protocol.",
-                    task_names=list(config_map.keys()),
-                )
-            result = patch_config(config, dict(patch), str(version))
+            result = agent_patch_task_config(
+                session.experiment,
+                lambda: session.microscope,
+                "protocol",
+                "",
+                task_name,
+                dict(patch),
+                str(version),
+            )
+            result = refusal_of(result)
+            if isinstance(result, Refusal):
+                return result
             if result["applied"]:
-                result["saved"] = self._save_protocol(experiment)
-                result["task_name"] = task_name
                 session.changed.emit(
                     CONFIG,
                     {

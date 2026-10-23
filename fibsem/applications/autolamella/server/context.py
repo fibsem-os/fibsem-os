@@ -1603,43 +1603,6 @@ class AutoLamellaAppContext(AppContext):
             "apply_protocol", item_name, "", {"task_names": task_names}, "", timeout
         )
 
-    def apply_protocol_task_config_patch(
-        self,
-        task_name: str,
-        patch: Dict[str, Any],
-        version: str,
-        timeout: float = 10.0,
-    ) -> Dict[str, Any]:
-        """Patch a task's protocol-level defaults — what new items copy.
-
-        Same version-guarded apply as the per-item patch. No
-        running-task guard: a running task holds its item's copy, so a
-        protocol edit can never touch it — the edit reaches items created
-        (or re-copied) after it lands.
-        """
-        return self._config_edit(
-            "protocol", "", task_name, dict(patch), str(version), timeout
-        )
-
-    @staticmethod
-    def _config_document(task_name: str, config, level: str) -> Dict[str, Any]:
-        """One config as a wire document with its version token.
-
-        The full ``to_dict``, not a curated snapshot — the document is the
-        contract for editing (you cannot patch what you cannot read). The
-        ``version`` hashes the serialized settings, so a write names
-        exactly the state it read: the config's version, refused as stale on
-        mismatch.
-        """
-        from fibsem.workflows.events import to_plain
-
-        return {
-            "task_name": task_name,
-            "level": level,
-            "version": config_version(config),
-            "config": to_plain(config.to_dict()),
-        }
-
     def apply_item_task_config_patch(
         self,
         item_name: str,

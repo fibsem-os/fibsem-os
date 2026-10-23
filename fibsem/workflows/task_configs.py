@@ -5,8 +5,9 @@ save after it, are here too."""
 
 import copy
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from fibsem.acting import AGENT, acting
 from fibsem.util.records import content_hash
 from fibsem.workflows.config_patch import PatchError, apply_patch
 from fibsem.workflows.edit_recording import PendingEdits, serialise
@@ -16,8 +17,10 @@ from fibsem.workflows.task_config import WORKFLOW_FIELDS
 
 __all__ = [
     "WORKFLOW_FIELD_VERBS",
+    "agent_patch_task_config",
     "config_version",
     "patch_config",
+    "patch_task_config",
     "plain_changes",
     "save_edits",
     "save_experiment",
@@ -140,6 +143,75 @@ def task_config_at(experiment, level: str, item_name: str, task_name: str):
     return lamella, config, None
 
 
+def patch_task_config(
+    experiment, level: str, item_name: str, task_name: str, patch: dict, version: str
+) -> dict:
+    """Patch one task config: an item's (*level* ``item``) or the protocol's.
+    The version check sits beside the apply, so an edit landing in between is
+    refused as stale, never half-merged."""
+    _lamella, config, refusal = task_config_at(experiment, level, item_name, task_name)
+    if refusal:
+        return {"applied": False, "error_type": "not_found", **refusal}
+    patched = patch_config(config, patch, version)
+    if not patched["applied"]:
+        return patched
+    where = f"{item_name} / {task_name}" if level == "item" else task_name
+    logging.info(
+        f"agent config patch applied ({level}): {where}: "
+        + ", ".join(
+            f"{c['path']}: {c['old']!r} -> {c['new']!r}" for c in patched["changes"]
+        )
+    )
+    saved = save_edits(experiment, level, "agent config patch")
+    result = {
+        "applied": True,
+        "saved": saved,
+        "task_name": task_name,
+        "changes": patched["changes"],
+        "version": patched["version"],
+    }
+    if level == "item":
+        result["item_name"] = item_name
+    return result
+
+
+def agent_patch_task_config(
+    experiment,
+    microscope: Callable[[], Any],
+    level: str,
+    item_name: str,
+    task_name: str,
+    patch: dict,
+    version: str,
+) -> dict:
+    """The agent's :func:`patch_task_config`, recorded as the agent's: what it
+    changed, before and after, on *microscope*'s record."""
+    edits = PendingEdits(microscope, via="agent patch")
+    with acting(AGENT):
+        try:
+            lamella, _, refusal = task_config_at(
+                experiment, level, item_name, task_name
+            )
+            if refusal is None and level == "protocol":
+                configs = experiment.task_protocol.task_config
+                edits.touch(
+                    None,
+                    task_name,
+                    "protocol.task_config",
+                    lambda: configs.get(task_name),
+                )
+            elif refusal is None:
+                edits.touch_task_configs([lamella], [task_name])
+        except Exception:  # noqa: BLE001 - recording must not matter
+            logging.debug("could not note what an agent patch changes", exc_info=True)
+        try:
+            return patch_task_config(
+                experiment, level, item_name, task_name, patch, version
+            )
+        finally:
+            edits.flush()
+
+
 def save_edits(experiment, level: str, what: str = "config edit") -> bool:
     """Write the experiment after an edit at *level*, with the protocol file
     for the protocol's: an agent's edit at once, an editor's once its edits
@@ -166,7 +238,7 @@ def set_task_config_values(
     settle."""
     lamella, config, refusal = task_config_at(experiment, level, item_name, task_name)
     if refusal:
-        return {"applied": False, **refusal}
+        return {"applied": False, "error_type": "not_found", **refusal}
     changes = []
     for path, value in values.items():
         *parents, leaf = path.split(".")
