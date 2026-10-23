@@ -21,6 +21,8 @@ fresh window (an AttributeError in a queued slot is a process abort, FIB-329).
 
 import os
 
+from tests.fixtures.main_window import main_window_fixture
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
@@ -35,29 +37,7 @@ from fibsem.workflows.status import (
     WorkflowStatusUpdate,
 )
 
-
-@pytest.fixture(scope="module")
-def main_ui(qapp):
-    from fibsem.applications.autolamella.ui import window as module
-
-    window = module.AutoLamellaWindow()
-    # First connect builds the protocol editor's full UI (its lock path runs on
-    # every lifecycle report); Demo, so no hardware.
-    window.system_widget.connect_to_microscope()
-    yield window
-    if window.microscope is not None:
-        window.microscope.disconnect()
-    # closeEvent ends in app.quit() — the shipped quit-freeze workaround. On the
-    # shared test QApplication that latches an interrupt (no event loop is running
-    # to consume it), and every later QEventLoop.exec_() in the pytest process
-    # then returns immediately — which silently broke every worker test that ran
-    # after this module. Run the real close cleanup with quit stubbed out.
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
-        window.close()
-    finally:
-        qapp.quit = original_quit
+main_ui = main_window_fixture(connect=True, scope="module")
 
 
 def test_a_status_event_report_shows_the_run_on_the_status_bar(main_ui):

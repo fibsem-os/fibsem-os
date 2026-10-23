@@ -17,7 +17,6 @@ __init__, and the stage is a recorded in-memory position.
 
 import inspect
 import os
-import sys
 
 import numpy as np
 import pytest
@@ -28,26 +27,8 @@ from fibsem.drivers.autoscript.microscope import ThermoMicroscope
 from fibsem.microscope import FibsemMicroscope
 from fibsem.services.stage_movement import StageMovement
 from fibsem.structures import BeamType, FibsemStagePosition
-from tests.fm import _odemis_stubs as stubs
 
 ODEMIS_CONFIG_PATH = os.path.join(cfg.CONFIG_PATH, "odemis-configuration.yaml")
-
-
-@pytest.fixture(scope="module")
-def odemis_microscope_cls():
-    """Import OdemisThermoMicroscope against stub odemis modules."""
-    saved = {}
-    for name in stubs.ODEMIS_MODULE_NAMES + stubs.FIBSEM_ODEMIS_MODULE_NAMES:
-        if name in sys.modules:
-            saved[name] = sys.modules.pop(name)
-
-    stubs.install_odemis_stubs()
-    from fibsem.drivers.odemis.microscope import OdemisThermoMicroscope
-
-    yield OdemisThermoMicroscope
-
-    stubs.remove_odemis_stubs()
-    sys.modules.update(saved)
 
 
 class _UprightStage:

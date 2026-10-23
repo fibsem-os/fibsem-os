@@ -12,10 +12,7 @@ import threading
 import time
 from pathlib import Path
 
-import pytest
-
 import fibsem
-from fibsem import utils
 from fibsem.milling import FibsemMillingStage
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.milling.strategy.coincidence import (
@@ -24,12 +21,9 @@ from fibsem.milling.strategy.coincidence import (
 )
 from fibsem.milling.strategy.standard import StandardMillingStrategy
 from fibsem.structures import MillingState
+from tests.fixtures.microscopes import demo_microscope
 
-
-@pytest.fixture
-def microscope():
-    scope, _ = utils.setup_session(manufacturer="Demo")
-    return scope
+microscope = demo_microscope(scope="function")
 
 
 def _collect(scope):

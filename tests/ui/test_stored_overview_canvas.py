@@ -26,13 +26,6 @@ _app = QApplication.instance() or QApplication([])
 
 
 @pytest.fixture(scope="module")
-def microscope():
-    scope, _ = utils.setup_session(manufacturer="Demo")
-    yield scope
-    scope.disconnect()
-
-
-@pytest.fixture(scope="module")
 def arctis():
     path = os.path.join(
         os.path.dirname(fibsem_config.__file__),

@@ -60,13 +60,12 @@ ml = [
     "kaleido==0.2.0",
     "transformers>=4.36.2",
 ]
-# The application UI. napari is NOT here any more: since #778 the main window
-# imports none of it, and it costs ~100 packages and 116 MB. It lives in
-# [labelling] below, for the two widgets that still draw with it.
+# The application UI. napari is not here: the main window imports none of it, and it
+# costs ~100 packages and 116 MB. It lives in [labelling] below, for the two widgets
+# that draw with it.
 ui = [
     "pyqt5>=5.15.9",
-    # `ensure_main_thread`, used across the widgets. It arrived as one of napari's
-    # requirements and was never declared; with napari gone it has to be.
+    # `ensure_main_thread`, used across the widgets.
     "superqt>=0.6.0",
     "pyqt5-qt5 == 5.15.2 ; platform_system == 'Windows'",
     "qtawesome>=1.4.0", # bundled Material Design Icons font (offline icon rendering); >=1.4.0 guards Spin.start/stop before first paint
@@ -75,8 +74,8 @@ odemis = ["pylibtiff", "shapely"]
 
 # Image labelling and model-assisted segmentation (`fibsem_label`,
 # FibsemLabellingUI, FibsemSegmentationModelWidget) -- the one part of the tree
-# that still draws in napari (FIB-407). Pulls in [ui] for Qt and [ml] for the
-# models, since the labelling UI imports torch at module level.
+# that draws in napari. Pulls in [ui] for Qt and [ml] for the models, since the
+# labelling UI imports torch at module level.
 labelling = [
     "fibsem[ui,ml]",
     "napari>=0.5.1,<=0.5.6", # NumPy 2 well supported from 0.5.1
@@ -129,11 +128,7 @@ fibsem-agent = "fibsem.ai.agent.runner:main"
 fibsem-gateway = "fibsem.gateway.main:main"
 
 # Recursive by design. A bare `packages = ["fibsem"]` is NOT recursive: it ships
-# only the top-level fibsem/*.py and none of fibsem/ui, fibsem/milling, etc. That
-# it worked at all was an accident of setuptools_scm (in build-requires above)
-# registering a file finder that swept in every git-tracked file — so package
-# discovery silently depended on a build tool with no config section of its own.
-# See FIB-373.
+# only the top-level fibsem/*.py and none of fibsem/ui, fibsem/milling, etc.
 [tool.setuptools.packages.find]
 include = ["fibsem*"]
 # Stated explicitly because it is load-bearing, not a preference: a dozen
@@ -145,7 +140,7 @@ namespaces = true
 
 [tool.setuptools.package-data]
 "*" = ["*.yaml"]
-"fibsem.server" = ["dashboard_log.html", "ui/*.html", "ui/assets/*"]
+"fibsem.server" = ["ui/*.html", "ui/assets/*"]
 "fibsem.correlation" = ["data/zeta_lut.npz"]
 
 [tool.pytest.ini_options]
@@ -200,16 +195,12 @@ exclude = ["**/*.md"]
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I", "UP"]
 # E501 (line-length) is deliberately absent. A formatter is what wraps code, and
-# most of the ~5.6k current hits are long strings and comments nothing can wrap.
+# most hits are long strings and comments nothing can wrap.
 #
-# RUF100 (unused-noqa) is absent for a sharper reason: it is relative to `select`,
-# so with a narrow rule set it deletes the suppressions for every rule that is
-# not enabled *yet*. Enabling it here would have stripped 133 `# noqa` comments,
-# 95 of them `E402` -- a rule ignored two lines below, so each one would have to
-# be typed back in when E402 is burned down -- plus 8 `N802` Qt-override
-# suppressions for a rule this repo has never run, and the rationale comments
-# attached to them ("kept alive for app lifetime"). It belongs at the end of the
-# ratchet, once `select` has stopped moving.
+# RUF100 (unused-noqa) is absent because it is relative to `select`: with a narrow
+# rule set it deletes the suppressions for every rule that is not enabled *yet*
+# (E402, ignored below, and N802 Qt overrides among them). It belongs at the end of
+# the ratchet, once `select` has stopped moving.
 
 # Rules that are switched off because the codebase does not satisfy them yet --
 # not because they are wrong. Each is a real violation with a real fix. Burn one

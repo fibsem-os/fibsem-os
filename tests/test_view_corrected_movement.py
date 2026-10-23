@@ -48,6 +48,7 @@ from fibsem.fm.structures import (
 from fibsem.geometry import angles
 from fibsem.geometry.movement import beam_view_tilt
 from fibsem.structures import BeamType, FibsemHardwareGeometry, FibsemStagePosition
+from tests.fixtures.microscopes import demo_microscope
 
 # sweep: stage tilt x pretilt x rotation x beam x compustage
 #
@@ -192,10 +193,7 @@ def _reference_inverse_y_corrected(
     return expected_y
 
 
-@pytest.fixture()
-def microscope():
-    scope, _ = utils.setup_session(manufacturer="Demo")
-    return scope
+microscope = demo_microscope(scope="function")
 
 
 def _configure(microscope, *, pretilt_deg, rotation_deg, tilt_deg, compustage):

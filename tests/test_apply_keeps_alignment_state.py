@@ -13,17 +13,12 @@ from fibsem.structures import (
     NOT_IMAGING_DEFAULTS,
     MicroscopeSettings,
 )
+from tests.fixtures.microscopes import demo_microscope
 
 SHIPPED = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
 
 
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(
-        config_path=SHIPPED, manufacturer="Demo", setup_logging=False
-    )
-    yield microscope
-    microscope.disconnect()
+microscope = demo_microscope("microscope-configuration.yaml", scope="function")
 
 
 def test_a_saved_configuration_does_not_record_alignment_or_session_state():

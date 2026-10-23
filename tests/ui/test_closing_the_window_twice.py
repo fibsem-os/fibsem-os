@@ -14,18 +14,6 @@ import pytest
 pytest.importorskip("PyQt5")
 
 
-@pytest.fixture
-def no_quit(qapp):
-    # AutoLamella's closeEvent ends in app.quit(), which latches on the shared
-    # test QApplication (see test_mainui_workflow_status.py).
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
-        yield
-    finally:
-        qapp.quit = original_quit
-
-
 def test_closing_the_window_twice(no_quit, qapp):
     from fibsem.applications.autolamella.ui import window as module
 

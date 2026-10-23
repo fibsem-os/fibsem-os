@@ -7,6 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests.fixtures.microscopes import demo_microscope
+
 pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
 
 from PyQt5.QtCore import QRectF
@@ -44,10 +46,7 @@ def _config(name: str) -> str:
     )
 
 
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    return microscope
+microscope = demo_microscope(scope="function")
 
 
 def _calibrate(microscope, xs=(-2.5e-3, 2.5e-3)):

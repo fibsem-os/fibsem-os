@@ -6,13 +6,14 @@ matching tests/fm/test_autofocus_widget.py.
 
 import os
 
+from tests.fixtures.correlation import press_release
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
 pytest.importorskip("PyQt5")
 
-from PyQt5.QtWidgets import QApplication
 
 from fibsem.correlation.structures import (
     Coordinate,
@@ -1217,22 +1218,6 @@ def test_run_continue_emphasis_follows_result(qapp):
     w._on_point_edited()  # what any move, typed value or reorder reaches
     assert w._btn_run.styleSheet() == stylesheets.PRIMARY_BUTTON_STYLESHEET
     assert w._btn_continue.styleSheet() == stylesheets.SECONDARY_BUTTON_STYLESHEET
-
-
-def _press_release(canvas, coord, *, drag_to=None):
-    """Drive a real press → (optional motion) → release cycle on the canvas."""
-    from types import SimpleNamespace
-
-    def _ev(x, y):
-        sx, sy = canvas._ax.transData.transform((x, y))
-        return SimpleNamespace(
-            inaxes=canvas._ax, button=1, x=sx, y=sy, xdata=x, ydata=y
-        )
-
-    canvas._on_press(_ev(coord.point.x, coord.point.y))
-    if drag_to is not None:
-        canvas._on_motion(_ev(*drag_to))
-    canvas._on_release(_ev(coord.point.x, coord.point.y))
 
 
 def _fit_combos(w):
@@ -2702,27 +2687,9 @@ def test_selecting_a_fitted_point_keeps_its_fitted_flag(qapp):
     moved = []
     w._fib_canvas.point_moved.connect(moved.append)
 
-    _press_release(w._fib_canvas.points, 50.0, 50.0)  # click to select, no drag
+    press_release(w._fib_canvas.points, 50.0, 50.0)  # click to select, no drag
     assert moved == []
     assert coord.fitted is True  # selection is not an edit
 
-    _press_release(w._fib_canvas.points, 50.0, 50.0, drag_to=(60.0, 70.0))
+    press_release(w._fib_canvas.points, 50.0, 50.0, drag_to=(60.0, 70.0))
     assert moved == [coord]
-
-
-def _press_release(overlay, x, y, *, drag_to=None):
-    """Drive press → (optional motion) → release on the point overlay."""
-    from types import SimpleNamespace
-
-    ax = overlay._ax
-
-    def _ev(px, py):
-        sx, sy = ax.transData.transform((px, py))
-        return SimpleNamespace(
-            inaxes=ax, button=1, x=sx, y=sy, xdata=px, ydata=py, dblclick=False
-        )
-
-    overlay._on_press(_ev(x, y))
-    if drag_to is not None:
-        overlay._on_motion(_ev(*drag_to))
-    overlay._on_release(_ev(*(drag_to or (x, y))))

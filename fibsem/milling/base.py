@@ -75,7 +75,7 @@ class MillingStrategyConfig(Tagged, Configurable, ABC):
 
     # A stage saves its strategy as `{name, config}`, these fields under `config`.
     # A patch walks the saved shape (`stages.0.strategy.config.supervised`), so
-    # `fibsem.server.config_patch` reads this segment as the config itself.
+    # `fibsem.workflows.config_patch` reads this segment as the config itself.
     TYPE_KEY: ClassVar[str] = "name"
     SAVED_UNDER: ClassVar[str] = "config"
 

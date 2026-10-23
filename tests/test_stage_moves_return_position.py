@@ -12,7 +12,6 @@ conversions and its position read are the ones under test.
 """
 
 import os
-import sys
 import threading
 from types import SimpleNamespace
 
@@ -26,7 +25,6 @@ from fibsem.drivers.tescan.connection import TescanConnection
 from fibsem.drivers.tescan.devices import build_tescan_stage
 from fibsem.drivers.tescan.microscope import TescanMicroscope
 from fibsem.structures import DeviceEntry, FibsemStagePosition
-from tests.fm import _odemis_stubs as stubs
 
 STAGE_ENTRY = DeviceEntry(name="stage", type="stage")
 
@@ -118,23 +116,6 @@ def test_a_tescan_safe_move_records_where_it_ended():
 
 
 # ── Odemis ────────────────────────────────────────────────────────────────────
-
-
-@pytest.fixture(scope="module")
-def odemis_microscope_cls():
-    """Import OdemisThermoMicroscope against stub odemis modules."""
-    saved = {}
-    for name in stubs.ODEMIS_MODULE_NAMES + stubs.FIBSEM_ODEMIS_MODULE_NAMES:
-        if name in sys.modules:
-            saved[name] = sys.modules.pop(name)
-
-    stubs.install_odemis_stubs()
-    from fibsem.drivers.odemis.microscope import OdemisThermoMicroscope
-
-    yield OdemisThermoMicroscope
-
-    stubs.remove_odemis_stubs()
-    sys.modules.update(saved)
 
 
 class _OdemisStage:

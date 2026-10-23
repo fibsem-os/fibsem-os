@@ -10,7 +10,6 @@ from typing import List
 
 import pytest
 
-from fibsem import utils
 from fibsem.cancellation import OperationCancelledError
 from fibsem.drivers.demo.services import DemoMilling
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
@@ -22,6 +21,7 @@ from fibsem.structures import (
     FibsemRectangleSettings,
     MillingState,
 )
+from tests.fixtures.microscopes import demo_microscope
 
 RUNNING, PAUSED, IDLE = MillingState.RUNNING, MillingState.PAUSED, MillingState.IDLE
 
@@ -41,11 +41,7 @@ def _ticks(reports: List[MillingProgress]) -> List[MillingProgress]:
     ]
 
 
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(manufacturer="Demo", setup_logging=False)
-    yield microscope
-    microscope.disconnect()
+microscope = demo_microscope(scope="function")
 
 
 def _draw(microscope, n=2):

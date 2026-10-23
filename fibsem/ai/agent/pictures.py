@@ -112,7 +112,7 @@ def config_edit_stages(
     the edit is applied to a copy, by the same rules as the route."""
     from copy import deepcopy
 
-    from fibsem.server.config_patch import apply_patch
+    from fibsem.workflows.config_patch import apply_patch
 
     before, after = [], []
     for action in request.get("actions", []):
