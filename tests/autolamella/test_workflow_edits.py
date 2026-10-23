@@ -10,6 +10,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
+from fibsem.server.responses import Refusal
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.session import AppSession
 from fibsem.workflows.task_config import SCHEDULE_DAYS_AHEAD
@@ -89,11 +90,12 @@ def test_the_agent_and_the_status_bar_chip_set_supervision_alike(
     import fibsem
 
     calls = []
+    import fibsem.server.app_context as app_context
     import fibsem.workflows.workflow_edits as edits
 
     real = edits.set_supervision
     monkeypatch.setattr(
-        edits, "set_supervision", lambda *a: calls.append(a[1:3]) or real(*a)
+        app_context, "set_supervision", lambda *a: calls.append(a[1:3]) or real(*a)
     )
     session = AppSession()
     session.experiment = experiment
@@ -114,6 +116,6 @@ def test_the_agent_schedule_is_refused_past_the_window(experiment):
 
     refused = AutoLamellaAppContext(session).set_task_schedule("Polish", late)
 
-    assert refused["applied"] is False
-    assert "days from now" in refused["error"]
+    assert isinstance(refused, Refusal) and refused.status == 422
+    assert "days from now" in refused.message
     assert experiment.task_protocol.workflow_config.get_scheduled_at("Polish") is None

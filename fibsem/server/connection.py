@@ -15,6 +15,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from fibsem import config
 from fibsem.devices.runs import RUNNING
 from fibsem.server.auth import require_operator
 from fibsem.server.leases import Leases
@@ -113,8 +114,6 @@ def _refused(status_code: int, error_type: str, message: str) -> HTTPException:
 def build_connection_router(session: Any) -> APIRouter:
     """``/microscope/connection``, ``/microscope/connect`` and
     ``/microscope/disconnect``, behind the operator token."""
-    from fibsem import config
-
     router = APIRouter(prefix="/microscope", dependencies=[Depends(require_operator())])
     starting = threading.Lock()
 

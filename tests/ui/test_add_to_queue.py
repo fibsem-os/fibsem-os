@@ -276,7 +276,7 @@ def test_work_the_rules_refuse_is_not_queued(queue, experiment):
         RunRequest(kind=ITEMS, task_names=("No Such Task",), names=("L1",))
     )
 
-    assert not edit.applied and edit.error_type == "refused"
+    assert not edit.applied and edit.error_type == "not_found"
     assert edit.details["task_names"] == TASKS
     assert len(queue.items) == before
 

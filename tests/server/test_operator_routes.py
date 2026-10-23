@@ -267,6 +267,7 @@ def test_the_operator_sets_the_level_and_stops_the_agent(server):
     assert server.config.level is AgentLevel.DRIVE
     state = server.get("/app/agent", headers=server.operator).json()
     assert state["level"] == "drive" and not state["stopped"]
+    assert state["chip"] == "Agent: Driving"
 
     answer = server.post("/app/agent/stop", headers=server.operator)
     assert answer.status_code == 200, answer.text
@@ -305,8 +306,9 @@ def test_the_agent_cannot_approve_its_own_request(server):
         f"/app/agent/requests/{request_id}/approve", headers=server.agent
     )
     assert answer.status_code == 403
-    waiting = server.get("/app/agent", headers=server.operator).json()["request"]
-    assert waiting["request_id"] == request_id
+    state = server.get("/app/agent", headers=server.operator).json()
+    assert state["request"]["request_id"] == request_id
+    assert state["chip"] == "Agent asks"
 
 
 def test_the_operator_approves_a_request(server):
@@ -619,3 +621,62 @@ def test_a_decision_is_recorded_as_whoever_decided(server, who):
         else Actor.agent("claude")
     )
     assert proposal.current.actor == expected
+
+
+def _signer(server, who):
+    from fibsem.acting import Actor
+
+    if who == "operator":
+        return str(server.session.experiment.actor())
+    return str(Actor.agent("remote"))
+
+
+@pytest.mark.parametrize("who", ["operator", "agent"])
+def test_a_grid_verdict_is_signed_by_whoever_judged(server, who):
+    from fibsem.workflows.grids import GridRecord
+
+    grid = server.session.experiment.add_grid(GridRecord(name="grid-aspen"))
+    server.config.level = AgentLevel.DRIVE
+    answer = server.post(
+        "/app/experiment/grids/grid-aspen/quality",
+        headers=getattr(server, who),
+        json={"verdict": "FAILED", "reason": "cracked"},
+    )
+    assert answer.status_code == 200, answer.text
+    assert grid.quality.actor == _signer(server, who)
+
+
+@pytest.mark.parametrize("who", ["operator", "agent"])
+def test_a_lamella_verdict_is_signed_by_whoever_patched_it(server, who):
+    lamella = server.session.experiment.positions[0]
+    server.config.level = AgentLevel.DRIVE
+    read = server.get(
+        f"/app/experiment/items/{lamella.name}", headers=getattr(server, who)
+    ).json()
+    answer = server.post(
+        f"/app/experiment/items/{lamella.name}",
+        headers=getattr(server, who),
+        json={
+            # an actor in the patch is not taken at its word
+            "patch": {"defect.verdict": "FAILED", "defect.actor": "operator:someone"},
+            "version": read["version"],
+        },
+    )
+    assert answer.status_code == 200, answer.text
+    assert lamella.defect.actor == _signer(server, who)
+
+
+def test_a_cleared_lamella_verdict_names_nobody(server):
+    lamella = server.session.experiment.positions[0]
+    server.config.level = AgentLevel.DRIVE
+    for verdict in ("FAILED", "UNASSESSED"):
+        read = server.get(
+            f"/app/experiment/items/{lamella.name}", headers=server.operator
+        ).json()
+        answer = server.post(
+            f"/app/experiment/items/{lamella.name}",
+            headers=server.operator,
+            json={"patch": {"defect.verdict": verdict}, "version": read["version"]},
+        )
+        assert answer.status_code == 200, answer.text
+    assert lamella.defect.actor == ""

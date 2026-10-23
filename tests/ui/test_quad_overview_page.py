@@ -13,6 +13,7 @@ pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is delibe
 from PyQt5.QtWidgets import QApplication, QPushButton
 
 from fibsem import utils
+from fibsem.applications.autolamella.config import TASK_PROTOCOL_PATH
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
@@ -23,7 +24,6 @@ from fibsem.applications.autolamella.ui.grids.overview import (
     QuadOverviewPage,
 )
 from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
-from fibsem.config import AUTOLAMELLA_TASK_PROTOCOL_PATH
 from fibsem.structures import (
     BeamType,
     FibsemStagePosition,
@@ -73,9 +73,7 @@ def world(qapp, tmp_path):
     microscope, _ = utils.setup_session(manufacturer="Demo")
     _calibrate(microscope)
     experiment = Experiment.create(path=tmp_path, name="quad-overview")
-    experiment.task_protocol = AutoLamellaTaskProtocol.load(
-        AUTOLAMELLA_TASK_PROTOCOL_PATH
-    )
+    experiment.task_protocol = AutoLamellaTaskProtocol.load(TASK_PROTOCOL_PATH)
     grids = {
         name: experiment.add_grid(GridRecord(name=name))
         for name in ("Grid-A", "Grid-B", "Grid-C")
