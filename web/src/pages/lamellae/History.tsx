@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Popup } from "@/components/ui/popup";
 import { api } from "@/lib/api";
 import { useFileRead } from "@/lib/files";
+import * as fmt from "@/lib/format";
 import type { HistoryFilter, HistoryOperation, HistoryRun, ItemHistory } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -27,10 +28,6 @@ const OP_ICON: Record<string, [typeof Check, string]> = {
   skipped: [Circle, "text-muted-foreground"],
 };
 const SEVERITY: Record<string, number> = { failed: 0, cancelled: 1, skipped: 2 };
-
-export function clock(seconds: number | null) {
-  return seconds == null ? "" : new Date(seconds * 1000).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-}
 
 function duration(seconds: number | null) {
   if (seconds == null) return "";
@@ -178,7 +175,7 @@ function Run({
       <div className="flex items-center gap-2 text-[13px]">
         <span className="font-semibold">{run.task_name}</span>
         <span className="text-[12px] text-muted-foreground">
-          {[clock(run.started_at), duration(run.duration)].filter(Boolean).join(" · ")}
+          {[fmt.clock(run.started_at), duration(run.duration)].filter(Boolean).join(" · ")}
         </span>
         {!run.outside_task && (
           <span className={cn("ml-auto flex items-center gap-1 text-[12px]", colour)}>
@@ -200,7 +197,7 @@ function Run({
           </div>
         ) : run.outside_task ? null : (
           <div className="text-[12px] text-muted-foreground">
-            {run.images_replaced_by ? `Images replaced by the ${later ? `${clock(later.started_at)} ` : "later "}run.` : "No images recorded."}
+            {run.images_replaced_by ? `Images replaced by the ${later ? `${fmt.clock(later.started_at)} ` : "later "}run.` : "No images recorded."}
           </div>
         ))}
     </div>

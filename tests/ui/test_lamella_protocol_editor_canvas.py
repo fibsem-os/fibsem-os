@@ -1,7 +1,7 @@
 """Headless tests for the Lamella Editor's cutover from napari to the canvas (FIB-404).
 
 Phase 2 of the napari deprecation. The editor now owns a
-``MicroscopeViewController(view=LamellaEditorView())`` instead of a napari ``Viewer``,
+``MicroscopeViewController(view=ItemEditorView())`` instead of a napari ``Viewer``,
 which is what makes this tab verifiable without a microscope at all.
 
 Covers the reducer-backed replacements for the old layer manipulation — FIB/SEM images,
@@ -53,7 +53,7 @@ from fibsem.structures import (
     Point,
 )
 from fibsem.ui.widgets.canvas.quad_view import (
-    LamellaEditorView,
+    ItemEditorView,
     MicroscopeViewController,
 )
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
@@ -110,7 +110,7 @@ def test_editor_builds_without_a_microscope():
     into the splitter before anything connects. This is why phase 2 is the safe one."""
     editor, _ = _editor(with_microscope=False)
     assert isinstance(editor.view_controller, MicroscopeViewController)
-    assert isinstance(editor.view_controller.widget, LamellaEditorView)
+    assert isinstance(editor.view_controller.widget, ItemEditorView)
     assert editor.view_controller.get_canvas(BeamType.ION) is not None
 
 
@@ -340,7 +340,7 @@ def test_milling_widget_has_no_display_without_a_controller():
 
 def test_milling_widget_switches_to_the_canvas_when_given_a_controller():
     microscope, _ = _session()
-    controller = MicroscopeViewController(view=LamellaEditorView())
+    controller = MicroscopeViewController(view=ItemEditorView())
     w = MillingTaskViewerWidget(microscope=microscope, milling_enabled=False)
     w.set_controller(controller)
     assert w._controller is controller
@@ -409,7 +409,7 @@ def test_a_new_frame_refreshes_the_image_and_reschedules_the_patterns():
 
 def test_eye_toggle_routes_through_the_reducer_when_wired():
     microscope, _ = _session()
-    controller = MicroscopeViewController(view=LamellaEditorView())
+    controller = MicroscopeViewController(view=ItemEditorView())
     w = MillingTaskViewerWidget(microscope=microscope, milling_enabled=False)
     w.set_controller(controller)
     w._on_eye_toggled(False)

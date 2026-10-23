@@ -6,7 +6,7 @@ installed.
 """
 
 from enum import Enum
-from typing import Optional
+from typing import Any, Dict, Optional
 
 
 class AgentLevel(str, Enum):
@@ -84,3 +84,39 @@ LEVEL_SKILLS = {
     AgentLevel.ASSIST: "assist-autolamella",
     AgentLevel.DRIVE: "supervise-autolamella",
 }
+
+
+def _doing(tool: Any) -> str:
+    """What a request's step is doing, in a word: "applying" read as writing a
+    config whatever the step was."""
+    tool = str(tool or "")
+    if tool.startswith(("milling_", "spot_burn")):
+        return "milling"
+    if tool.startswith(("stage_", "item_move_", "grid_load", "grid_unload")):
+        return "moving"
+    if "acquire" in tool or tool.startswith(("fm_auto_focus", "beam_auto_")):
+        return "imaging"
+    return "running"
+
+
+def chip_request_text(request: Dict[str, Any]) -> str:
+    """The chip's word while a request waits or is being applied."""
+    if request.get("status") == "applying":
+        actions = request.get("actions", [])
+        total = len(actions)
+        step = min(len(request.get("results", [])) + 1, total)
+        doing = _doing(actions[step - 1].get("tool")) if actions else "running"
+        return f"Agent: {doing} {step}/{total}"
+    return "Agent asks"
+
+
+def chip_text(
+    level: Optional[AgentLevel], request: Optional[Dict[str, Any]], suggests: bool
+) -> str:
+    """The chip's word: what the agent asks for or is applying, that it suggests a
+    decision, or else its level."""
+    if request is not None:
+        return chip_request_text(request)
+    if suggests:
+        return "Agent suggests"
+    return LEVEL_WORDS[level] if level is not None else ""

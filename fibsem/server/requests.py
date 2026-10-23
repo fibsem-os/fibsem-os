@@ -45,7 +45,7 @@ from fibsem.ai.agent.catalog.describe import (
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.codec import encode
 from fibsem.devices.wire import command_body
-from fibsem.server.auth import AuthConfig, lending_drive, require_level
+from fibsem.server.auth import AuthConfig, lending_drive, refusal_error, require_level
 from fibsem.server.responses import (
     ActionView,
     AgentRequestView,
@@ -262,9 +262,9 @@ def _cut_short(answer: Any) -> bool:
 
 
 # The flags a route answers 2xx with to say whether it did what it was asked:
-# workflow_start answers ``started: false`` and a reason when it is turned away,
-# a context edit ``applied: false``, a stop with nothing to stop ``stopped: false``.
-_OUTCOME_FLAGS = ("ok", "started", "applied", "stopped")
+# an edit that changed nothing ``applied: false``, a stop with nothing to stop
+# ``stopped: false``. A refusal is an HTTP error.
+_OUTCOME_FLAGS = ("ok", "applied", "stopped")
 
 
 def turned_away(answer: Any) -> Optional[Dict[str, Any]]:
@@ -958,18 +958,16 @@ def build_request_router(store: RequestStore) -> APIRouter:
     def create_request(request: Request, body: Dict[str, Any]):
         auth: AuthConfig = request.app.state.auth
         if auth.level is not AgentLevel.ASSIST:
-            raise HTTPException(
-                status_code=403,
-                detail={
-                    "error_type": "level",
-                    "level": auth.level.value,
-                    "message": "Requests are how the agent acts at Assist. "
-                    + (
-                        "At Drive, make the call itself."
-                        if auth.level is AgentLevel.DRIVE
-                        else "The operator sets the level from the Agent chip."
-                    ),
-                },
+            raise refusal_error(
+                403,
+                "level",
+                "Requests are how the agent acts at Assist. "
+                + (
+                    "At Drive, make the call itself."
+                    if auth.level is AgentLevel.DRIVE
+                    else "The operator sets the level from the Agent chip."
+                ),
+                level=auth.level.value,
             )
         try:
             call = current_call()
@@ -998,13 +996,7 @@ def build_request_router(store: RequestStore) -> APIRouter:
     def get_request(request_id: str):
         found = store.get(request_id)
         if found is None:
-            raise HTTPException(
-                status_code=404,
-                detail={
-                    "error_type": "not_found",
-                    "message": f"No request {request_id!r}.",
-                },
-            )
+            raise refusal_error(404, "not_found", f"No request {request_id!r}.")
         return answer(found.view())
 
     return router

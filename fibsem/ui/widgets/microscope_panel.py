@@ -17,23 +17,24 @@ from superqt import ensure_main_thread
 
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import FibsemStagePosition, MicroscopeSettings
-from fibsem.ui import (
-    DETECTION_AVAILABLE,
-    FibsemImageSettingsWidget,
-    FibsemMovementWidget,
-    FibsemSpotBurnWidget,
-    MillingTaskViewerWidget,
-)
+from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
+from fibsem.ui.FibsemMovementWidget import FibsemMovementWidget
 from fibsem.ui.FibsemSampleWidget import FibsemSampleWidget
+from fibsem.ui.FibsemSpotBurnWidget import FibsemSpotBurnWidget
 from fibsem.ui.widgets.custom_widgets import scrollable
 from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
+from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 from fibsem.ui.widgets.workflow.prompt_bar import PromptBar
 from fibsem.workflows.session import EXPERIMENT, MICROSCOPE
 
-if DETECTION_AVAILABLE:  # ml dependencies are optional
+try:  # ml dependencies are optional
     from fibsem.ui.FibsemEmbeddedDetectionWidget import (
         FibsemEmbeddedDetectionUI as FibsemEmbeddedDetectionWidget,
     )
+
+    DETECTION_AVAILABLE = True
+except ImportError:
+    DETECTION_AVAILABLE = False
 
 if TYPE_CHECKING:
     from fibsem.workflows.session import AppSession

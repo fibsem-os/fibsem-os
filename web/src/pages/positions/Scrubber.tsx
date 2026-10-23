@@ -1,12 +1,13 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pause, Play } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { ImageViewer } from "@/components/images";
 import { Stepper } from "@/components/stepper";
 import { Button } from "@/components/ui/button";
 import { api, imageUrl } from "@/lib/api";
+import * as fmt from "@/lib/format";
 import type { ItemStack, StackSlice } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { clock } from "../lamellae/History";
 
 // A slice loads small while it is scrubbed past, and full width once it rests.
 const SMALL = 320;
@@ -56,7 +57,7 @@ function indexOf(stack: StackSlice[], iteration: number | null) {
 function readout(slice: StackSlice, planned: number | undefined) {
   const parts = [`Slice ${slice.iteration + 1}${planned ? ` of ${planned}` : ""}`];
   if (slice.z != null) parts.push(`z ${(slice.z * 1e6).toFixed(1)} µm`);
-  if (slice.acquired_at) parts.push(clock(Date.parse(slice.acquired_at) / 1000));
+  if (slice.acquired_at) parts.push(fmt.clock(slice.acquired_at));
   return parts.join(" · ");
 }
 
@@ -91,6 +92,7 @@ export function Scrubber({ name, planned, running }: { name: string; planned?: n
   const [iteration, setIteration] = useState<number | null>(null);
   const [playing, setPlaying] = useState(false);
   const [resting, setResting] = useState(true);
+  const [viewing, setViewing] = useState<number | null>(null);
   const at = indexOf(stack, iteration);
   const slice = stack[at];
   const src = useSliceSrc(name, slice, resting && !playing);
@@ -159,7 +161,8 @@ export function Scrubber({ name, planned, running }: { name: string; planned?: n
       tabIndex={0}
       aria-label="Slices"
       onKeyDown={(e) => {
-        if (e.target instanceof HTMLInputElement) return;
+        // the open viewer's keys bubble here through its portal
+        if (e.target instanceof HTMLInputElement || viewing != null) return;
         if (e.key === "ArrowLeft" || e.key === "ArrowUp") user(at - 1);
         else if (e.key === "ArrowRight" || e.key === "ArrowDown") user(at + 1);
         else return;
@@ -196,7 +199,16 @@ export function Scrubber({ name, planned, running }: { name: string; planned?: n
       </div>
       <div ref={image} className="w-full overflow-hidden rounded bg-black">
         {src ? (
-          <img className="block max-h-[58vh] w-full object-contain" alt={slice.filename} src={src} />
+          <img
+            className={cn("block max-h-[58vh] w-full object-contain", slice.path && "cursor-zoom-in")}
+            alt={slice.filename}
+            src={src}
+            onClick={() => {
+              if (!slice.path) return;
+              setPlaying(false);
+              setViewing(at);
+            }}
+          />
         ) : (
           <div className="flex aspect-[3/2] w-full items-center justify-center text-[12px] text-muted-foreground">
             Loading slice…
@@ -238,6 +250,7 @@ export function Scrubber({ name, planned, running }: { name: string; planned?: n
           <Thumb key={s.filename} name={name} slice={s} on={s === slice} pick={() => user(stack.indexOf(s))} />
         ))}
       </div>
+      <ImageViewer paths={stack.map((s) => s.path ?? "")} at={viewing} onClose={() => setViewing(null)} />
     </div>
   );
 }

@@ -526,7 +526,7 @@ class ExperimentSummary:
     name: str
     app: Optional[str] = None  # the application that wrote it; None if unread
     created_at: Optional[datetime] = None  # None when the file does not say
-    num_lamella: int = 0
+    num_items: int = 0
     exists: bool = True
     available: bool = True  # False if the file is missing or could not be read
     instrument_serial: Optional[str] = None
@@ -569,7 +569,7 @@ def peek_experiment(experiment_yaml_path: str) -> ExperimentSummary:
             name=ddict.get("name") or fallback_name,
             app=saved_app(ddict),
             created_at=to_datetime(ddict.get("created_at")),
-            num_lamella=len(ddict.get("positions") or []),
+            num_items=len(ddict.get("positions") or []),
             exists=True,
             available=True,
             instrument_serial=system.get("serial_number"),
@@ -642,25 +642,3 @@ def get_last_experiment_file() -> Optional[str]:
         if os.path.exists(path):
             return path
     return None
-
-
-### AUTOLAMELLA APPLICATION PATHS
-AUTOLAMELLA_BASE_PATH: Path = os.path.join(
-    os.path.dirname(__file__), "applications", "autolamella"
-)
-# Where a new experiment goes when the preferences name no folder.
-AUTOLAMELLA_LOG_PATH: Path = EXPERIMENTS_PATH
-# The operator's own protocols; the shipped ones stay beside the package code.
-AUTOLAMELLA_USER_PROTOCOL_PATH: Path = os.path.join(
-    STATE_PATH, "autolamella", "protocols"
-)
-AUTOLAMELLA_CONFIG_PATH: Path = os.path.join(AUTOLAMELLA_BASE_PATH)
-AUTOLAMELLA_PROTOCOL_PATH: Path = os.path.join(
-    AUTOLAMELLA_BASE_PATH, "protocol", "legacy", "protocol-on-grid.yaml"
-)
-AUTOLAMELLA_TASK_PROTOCOL_PATH: Path = os.path.join(
-    AUTOLAMELLA_BASE_PATH, "protocol", "task-protocol.yaml"
-)
-AUTOLAMELLA_EXPERIMENT_NAME = "AutoLamella"
-
-os.makedirs(AUTOLAMELLA_USER_PROTOCOL_PATH, exist_ok=True)

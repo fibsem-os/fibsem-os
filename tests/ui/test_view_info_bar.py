@@ -42,7 +42,7 @@ from fibsem.structures import (
 )
 from fibsem.ui.widgets.canvas import view_info_bar
 from fibsem.ui.widgets.canvas.quad_view import (
-    LamellaEditorView,
+    ItemEditorView,
     MicroscopeViewController,
     QuadViewWidget,
 )
@@ -304,7 +304,7 @@ def test_clear_empties_every_bar(controller):
 
 
 def test_the_lamella_editor_gets_the_same_bars():
-    controller = MicroscopeViewController(view=LamellaEditorView())
+    controller = MicroscopeViewController(view=ItemEditorView())
     controller.set_image(BeamType.ION, _beam_image(BeamType.ION, voltage=30e3))
     bar = controller.widget.fib_bar
     bar.resize(2000, 26)
@@ -466,7 +466,7 @@ def test_the_stage_bar_has_no_field_button_whatever_is_selected(controller):
 
 
 def test_a_view_without_a_stage_bar_keeps_the_stage_in_the_canvas_text():
-    controller = MicroscopeViewController(view=LamellaEditorView())
+    controller = MicroscopeViewController(view=ItemEditorView())
     controller.update_info(_Microscope())
     fib = dict(controller._states[controller.widget.fib_canvas].info)
     assert fib["stage"].startswith("STAGE: ")
@@ -491,7 +491,7 @@ def test_only_the_selected_view_shows_its_field_button(controller):
 
 def test_the_lamella_editor_s_bars_keep_their_button():
     """It has no selection, so every bar keeps its button."""
-    view = LamellaEditorView()
+    view = ItemEditorView()
     for bar in (view.sem_bar, view.fib_bar, view.fm_bar):
         assert not bar.fields_button.isHidden()
 
@@ -535,7 +535,7 @@ def test_ticking_a_field_shows_it_and_remembers_it(controller):
 
 def test_every_open_bar_of_the_kind_follows_at_once(controller):
     """The quad view and the lamella editor each have an SEM bar."""
-    editor = MicroscopeViewController(view=LamellaEditorView())
+    editor = MicroscopeViewController(view=ItemEditorView())
     picker = controller.widget.sem_bar.open_picker()
     picker.checkboxes["dwell_time"].setChecked(True)
     assert "dwell_time" in editor.widget.sem_bar.field_keys()
@@ -676,7 +676,7 @@ def test_scrubbing_the_planes_is_not_news(controller):
 
 def test_a_chosen_image_does_not_light_up():
     """The lamella editor shows saved images: picking another lamella is not news."""
-    editor = MicroscopeViewController(view=LamellaEditorView())
+    editor = MicroscopeViewController(view=ItemEditorView())
     editor.set_image(BeamType.ION, _with_wd(16.50e-3, BeamType.ION))
     editor.set_image(BeamType.ION, _with_wd(16.60e-3, BeamType.ION))
     assert highlighted_fields(editor.widget.fib_bar) == []
