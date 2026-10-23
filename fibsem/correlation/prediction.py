@@ -1,4 +1,4 @@
-"""Predicted FM fiducials: FIB fiducials through the nominal transform (FIB-956).
+"""Predicted FM fiducials: FIB fiducials through the nominal transform.
 
 Finding a milled fiducial in an FM stack is the slow part of a correlation: a
 spot burn is a few pixels in a 1024-pixel image, and there is nothing to say

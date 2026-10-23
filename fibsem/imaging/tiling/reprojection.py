@@ -40,7 +40,7 @@ def calculate_reprojected_stage_position(
 
     # projection of the positions onto the image
     dx = delta.x
-    dy = np.sqrt(delta.y**2 + delta.z**2)  # TODO: correct for perspective here
+    dy = np.sqrt(delta.y**2 + delta.z**2)
     dy = dy if (delta.y < 0) else -dy
 
     pt_delta = Point(dx, dy)
@@ -316,12 +316,8 @@ def _inverse_y_corrected_stage_movement(
     geometry lived in three places and only stayed consistent by everyone editing all
     three.
 
-    That is also what closes FIB-500. The copy that lived here decided the compustage
-    FIB orientation from tilt alone, where the live path and `fm/reprojection.py` both
-    also require the rotation to match the reference. Sharing one implementation makes
-    all three agree by construction rather than by three edits. The six combinations
-    that change are tilt -128 with a non-zero rotation, where the sign inverts -- and a
-    compustage has no rotation axis, so no acquisition can produce them.
+    The compustage FIB orientation needs the rotation to match the reference as well as
+    the tilt.
 
     Args:
         image: the image whose geometry and pose the projection is taken from.

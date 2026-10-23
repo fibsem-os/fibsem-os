@@ -161,7 +161,7 @@ def _line_pattern_to_image_pixels(
     # That asymmetry is inherited, not chosen: this function used `/ 2` for the
     # centre where the others used `// 2`, which differs by half a pixel on an
     # odd image dimension. Preserved exactly rather than quietly unified,
-    # because picking one changes where a milling pattern is drawn (FIB-644).
+    # because picking one changes where a milling pattern is drawn.
     start = microscope_image_to_image_coordinates(
         Point(x=start_x, y=start_y), image_shape, pixel_size, subpixel_precision=True
     )
@@ -788,8 +788,8 @@ def draw_milling_patterns(
     # draw scalebar
     if scalebar:
         try:
-            # A core dependency since FIB-562; the guard below is now only for a
-            # ScaleBar that cannot be constructed, not for a missing package.
+            # A core dependency; the guard below is for a ScaleBar that cannot be
+            # constructed, not for a missing package.
             from matplotlib_scalebar.scalebar import ScaleBar
 
             ax.add_artist(

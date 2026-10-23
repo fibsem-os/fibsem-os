@@ -7,9 +7,9 @@ or reject and which anything else fitting points (a service, a script) gets
 back the same way.
 
 The fitters (:mod:`fibsem.imaging.localise`) return a :class:`PointFitDiagnostic`,
-the *data* needed to draw the diagnostic figure, without touching matplotlib
-(FIB-281). :func:`plot_fit_diagnostic` renders it on demand, in a light palette by
-default or the napari-dark palette (``dark=True``) the confirm dialog uses, so the
+the *data* needed to draw the diagnostic figure, without touching matplotlib.
+:func:`plot_fit_diagnostic` renders it on demand, in a light palette by
+default or the dark palette (``dark=True``) the confirm dialog uses, so the
 compute path stays matplotlib-free and a figure is built only when one is shown.
 """
 
@@ -124,14 +124,14 @@ def humanize_fit_error(exc: Exception) -> str:
         )
     if isinstance(exc, IndexError) or "out of bounds" in msg or "too close" in msg:
         return "The point is too close to the image edge to fit a region around it."
-    # the fit's answer left its window (FIB-1219), or found no burn (FIB-1216)
+    # the fit's answer left its window, or found no burn
     if "fell outside the" in msg or "no burn-shaped" in msg:
         return (
             "No clear burn here: the fit's answer fell outside the region it "
             "searched, so the point stays where you placed it. Check the "
             "channel, or place it on the burn by hand."
         )
-    if "plane(s) around z" in msg:  # the reflection fit's own refusal (FIB-980)
+    if "plane(s) around z" in msg:  # the reflection fit's own refusal
         return (
             "Too few planes around this z to fit a hole through. Pick a slice "
             "further from the ends of the stack, or acquire a deeper stack."
@@ -178,7 +178,7 @@ def refine_point(
             if method == "Hole" and fib_image is not None:
                 attempted = True
                 # pass the sub-pixel click (not int) so the diagnostic's
-                # input marker lands where the user clicked — FIB-282.
+                # input marker lands where the user clicked.
                 xr, yr, diag = localise.hole_fitting_FIB(fib_image.filtered_data, x, y)
                 fitted = PointXYZ(float(xr), float(yr), z)
         elif (
@@ -194,7 +194,7 @@ def refine_point(
                     img,
                     x,
                     y,
-                    z=int(z),  # sub-pixel x/y (FIB-282)
+                    z=int(z),  # sub-pixel x/y
                     cutout=settings.reflection_cutout,
                 )
                 fitted = PointXYZ(float(xr), float(yr), float(zr))
@@ -204,7 +204,7 @@ def refine_point(
                     img,
                     x,
                     y,
-                    int(z),  # sub-pixel x/y (FIB-282)
+                    int(z),  # sub-pixel x/y
                     cutout=settings.fluorescence_cutout,
                 )
                 fitted = PointXYZ(float(xr), float(yr), float(zr))
@@ -245,7 +245,7 @@ def plot_fit_diagnostic(d: PointFitDiagnostic, *, dark: bool = False):
 
     Uses the object-oriented ``Figure`` API (no pyplot), so the figure isn't
     held in pyplot's global registry — it's freed with its canvas and needs no
-    ``plt.close``. Pass ``dark=True`` for the napari-dark confirm-dialog palette.
+    ``plt.close``. Pass ``dark=True`` for the dark confirm-dialog palette.
     """
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     from matplotlib.figure import Figure
@@ -325,16 +325,14 @@ def _draw_xy_panel(ax, d: PointFitDiagnostic) -> None:
 
 
 # --- dark theme -----------------------------------------------------------
-# The napari-dark palette for the confirm dialog. This is the exact re-theming
-# that shipped in #144 (formerly _apply_dark_theme in fit_confirmation_dialog);
-# it now lives here so the dialog just passes dark=True. Only theme-agnostic
+# The dark palette for the confirm dialog, which passes dark=True. Only theme-agnostic
 # chrome is touched — the saturated input/fitted markers and the grayscale image
 # are left as authored (they read correctly on dark).
 _FIG_BG = CANVAS_BG  # == the dialog background: figure margins blend in
 _AXES_BG = SURFACE_COLOR  # a subtle lift so the z line-plot reads as a panel
 _FG = NEUTRAL_300  # labels, ticks, legend text
 _FG_TITLE = NEUTRAL_200  # titles / suptitle, a touch brighter
-_SPINE = "#4a4d53"  # no token; the shared plot theme (FIB-1285) replaces it
+_SPINE = "#4a4d53"  # no token; the shared plot theme replaces it
 # A line darker than this is invisible on the dark panel; the only such artist
 # is the gaussian-fit overlay (drawn at 0.15 grey). Lift it to a light grey.
 _DARK_LINE_LUM = 0.25

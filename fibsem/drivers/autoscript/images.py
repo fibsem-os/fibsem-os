@@ -104,9 +104,9 @@ def fibsem_image_from_adorned_image(
 
     # AutoScript's acquisition_datetime is the instrument PC's clock time with no zone
     # (`07/16/2026 11:07:27` in a saved file). Read as this machine's local time --
-    # the instrument PC's, or one in the same building -- and recorded with its offset
-    # (FIB-1190). A state passed in keeps its own timestamp, when it was read:
-    # overwriting it with this string is what put a string in a float field (FIB-487).
+    # the instrument PC's, or one in the same building -- and recorded with its offset.
+    # A state passed in keeps its own timestamp, when it was read:
+    # overwriting it with this string is what put a string in a float field.
     acquired = to_datetime(adorned.metadata.acquisition.acquisition_datetime)
     if acquired is not None:
         acquired = acquired.astimezone()

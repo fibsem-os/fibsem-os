@@ -831,7 +831,7 @@ def build_app_router(context: Any) -> APIRouter:
     def add_note(body: Dict[str, Any]):
         # Observations for the record — event stream + experiment log. On the
         # read router, a POST the dashboard token is refused: a watching agent
-        # notes what it sees (FIB-1035), and a note changes nothing.
+        # notes what it sees, and a note changes nothing.
         text, item_name = _note_body(body)
         cited = cited_evidence(context)
         result = context.add_note(
@@ -919,7 +919,7 @@ def build_app_control_router(context: Any) -> APIRouter:
     """Routes that act on the session rather than observe it.
 
     Mounted (by build_server) at Drive: the operator raises the level from the
-    Agent chip (FIB-1035).
+    Agent chip.
     """
     router = _router()
 
@@ -1149,7 +1149,7 @@ def _stop_reason(body: Optional[Dict[str, Any]]) -> str:
 def build_app_stop_router(context: Any) -> APIRouter:
     """Stopping the run. Mounted (by build_server) at Drive, with a reason: the
     workflow is never the agent's own, so at Assist the stop goes in a request
-    the operator approves (FIB-1283); a watching agent stops nothing (FIB-1035)."""
+    the operator approves; a watching agent stops nothing."""
     router = _router()
 
     @router.post("/workflow/stop", response_model=Stopped)
@@ -1171,7 +1171,7 @@ def build_app_stop_router(context: Any) -> APIRouter:
 
 def build_app_config_router(context: Any) -> APIRouter:
     """Routes that edit configuration (protocols, item configs, schedules,
-    run options). Mounted at Drive, like the control router (FIB-864)."""
+    run options). Mounted at Drive, like the control router."""
     router = _router()
     item_edit = ItemEdit[_app_type(context, ItemDetail)]
 

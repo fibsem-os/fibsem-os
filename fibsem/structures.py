@@ -641,7 +641,7 @@ def _plain_number(value: Any) -> Any:
     a Python number, an array) as is.
 
     Geometry built from numpy maths carries numpy scalars, which the YAML
-    writers refuse; one in a saved experiment made it unsaveable (FIB-1326).
+    writers refuse; one in a saved experiment made it unsaveable.
     """
     if isinstance(value, np.floating):
         return float(value)
@@ -826,15 +826,10 @@ class ScanMode(Enum):
 class AutoFocusMode(NamedEnum, Enum):
     """When to run autofocus during a tiled acquisition.
 
-    One vocabulary for both tilers. There used to be two enums of this name --
-    this one, and an identical set of concepts in `fibsem.fm.structures` -- which
-    meant `AutoFocusMode.NONE is AutoFocusMode.NONE` was False across the two
-    import paths, with no type error to catch it. `fibsem.fm.structures` now
-    re-exports this one.
+    One vocabulary for both tilers; `fibsem.fm.structures` re-exports it.
 
-    Every spelling either enum was ever written in still resolves: the `EVERY_*`
-    aliases below (this side persisted by name), the lowercase values (the FM side
-    persisted by value), and the integers 0-3 that used to be this enum's values.
+    Every stored spelling resolves: the `EVERY_*` aliases below (saved by name), the
+    lowercase values (saved by value), and the integers 0-3 of older files.
     """
 
     NONE = "none"
@@ -855,7 +850,7 @@ class AutoFocusMode(NamedEnum, Enum):
             # Member names ("EVERY_ROW", "NONE"). Values are lowercase and names are
             # uppercase, so this cannot collide with a real value.
             return cls.__members__.get(value.upper())
-        # The integers this enum used to be, in declaration order. bool is excluded
+        # Older files' integers, in declaration order. bool is excluded
         # deliberately: True == 1 would otherwise silently resolve to ONCE.
         if isinstance(value, int) and not isinstance(value, bool):
             order = (cls.NONE, cls.ONCE, cls.EACH_ROW, cls.EACH_TILE)
@@ -889,7 +884,7 @@ _DISTANCE_METRICS = ("euclidean", "manhattan", "max")
 
 @dataclass
 class FibsemAxesPosition(Configurable):
-    """The maths shared by stage and manipulator positions (FIB-1247).
+    """The maths shared by stage and manipulator positions.
 
     A subclass declares its axes as dataclass fields and lists them in ``AXES``; the
     ones in ``ANGULAR_AXES`` are angles in radians, the rest lengths in metres. An axis
@@ -1358,12 +1353,8 @@ class ImageSettings(Configurable):
             Converts the ImageSettings object to a dictionary of image settings.
     """
 
-    # There was an `autogamma` flag here, which applied gamma correction to the pixels
-    # after acquisition. It was removed (FIB-505): unlike `autocontrast`, which
-    # configures the detector *before* the image exists, gamma is a display correction
-    # applied to the array afterwards -- and baking it into the stored data is
-    # destructive and unrecoverable. The canvas's ContrastGammaControl does it at
-    # display time instead, where it is adjustable and reversible.
+    # No gamma here: gamma is a display correction (the canvas's ContrastGammaControl),
+    # and baking it into stored pixels cannot be undone.
     # The beam-bound fields take their unit, limits, choices, scale, step and decimals
     # from the beam's parameter, and an instrument's limits win over these.
     resolution: Tuple[int, int] = param(
@@ -1548,8 +1539,8 @@ def _default_autofocus_settings() -> "AutoFocusSettings":
 
     Deliberately not a pinned copy of the values. `AutoFocusSettings()` is two passes --
     50 um at 5 um, then 10 um at 1 um -- and an overview wanting exactly that means it
-    should *inherit* it, so a later improvement to the default reaches overviews too
-    (FIB-646).
+    should *inherit* it, so a later improvement to the default reaches overviews too.
+
 
     Imported here rather than at module scope because `autofunctions.autofocus` imports
     this module for `BeamType`, so the arrow only points one way. `structures` already
@@ -1615,13 +1606,6 @@ class OverviewAcquisitionSettings(Configurable):
             EACH_TILE). The runner drives `image_settings.autocontrast` from it, so
             the per-image flag is not the switch here.
         autofocus_settings: *How* to focus -- sweep passes, method and probe frame.
-            Two separate questions, and they used to be conflated: this field held a
-            `fibsem.structures.AutoFocusSettings` whose only member was the mode, a
-            second class sharing a name with the real sweep config in
-            `autofunctions.autofocus`. `AutoFocusMode` had already been through exactly
-            that (two identical enums, so `NONE is NONE` was False across the two import
-            paths, with no type error to catch it), so the duplicate name is gone rather
-            than left to bite twice.
     """
 
     image_settings: ImageSettings = param(
@@ -1893,7 +1877,7 @@ class MicroscopeState:
 
     # When the state was read, as POSIX: not when a frame was taken, which is the
     # image's acquisition_datetime. default_factory, not a plain default, which is
-    # evaluated once when this module is imported (FIB-487).
+    # evaluated once when this module is imported.
     # A string only in a ThermoFisher image from before v11, which wrote the PC's
     # clock time as month/day/year; `acquisition_datetime_of` reads either.
     timestamp: Union[float, str] = field(
@@ -2303,7 +2287,7 @@ class DeviceImagingState(Enum):
     The answer to `FibsemMicroscope.get_device_imaging_state`, and a state rather than
     a bool because the *reason* is the useful part: each failing value names the remedy
     a caller should offer, and on either mounting the geometry makes the right one fall
-    out of the same two questions (FIB-839).
+    out of the same two questions.
 
     Callers act on it by policy, not uniformly. Acquisition gates refuse `NO_DEVICE`
     and the travel states but permit `NEEDS_REPOSE` -- acquiring from a "wrong" pose is
@@ -2326,7 +2310,7 @@ class DeviceImagingState(Enum):
 
     # Right place, wrong pose: re-pose. On an offset mount the route is longer --
     # back to the beams, re-pose there, travel out again -- because rotating while
-    # parked at the device is refused (FIB-841).
+    # parked at the device is refused.
     NEEDS_REPOSE = "needs_repose"
 
     # Wrong on both axes. Re-pose first, then travel: the bracketing order, so the
@@ -2386,7 +2370,7 @@ class StageDeviceSettings:
     A device is therefore described along **both** axes: `origin` says where the stage
     goes, `available_orientations` says which poses the instrument can see the sample
     in once it is there. Neither answers on its own -- see `FibsemMicroscope` and
-    FIB-839 -- and which of the two does the discriminating is a fact about the
+    and which of the two does the discriminating is a fact about the
     mounting rather than about the code:
 
     | | origin | available_orientations |
@@ -2402,11 +2386,10 @@ class StageDeviceSettings:
 
     # Named orientations, not poses. The poses themselves stay derived in code from
     # physical parameters -- pre-tilt, column tilt, milling angle -- so a site cannot
-    # write one that contradicts its own geometry (Patrick, 2026-08-31: "just ship with
-    # code only orientations"). Which *named* orientations an instrument can image
-    # from is a different kind of fact: it is how the device is bolted on, nothing
-    # derives it, and a list of names can only reference the derived poses, never
-    # disagree with them.
+    # write one that contradicts its own geometry. Which *named* orientations an
+    # instrument can image from is a different kind of fact: it is how the device is
+    # bolted on, nothing derives it, and a list of names can only reference the derived
+    # poses, never disagree with them.
     #
     # Always stated, never empty: an empty list is refused where configuration enters
     # (`from_dict`), because "this device can image from nowhere" would turn a
@@ -2426,7 +2409,7 @@ class StageDeviceSettings:
     def contains(self, stage_position: FibsemStagePosition) -> bool:
         """Is `stage_position` within this device's `range` of its origin?
 
-        Each device has its own range, so a traverse is no longer invertible by
+        Each device has its own range, so a traverse is not invertible by
         construction: the stage travels by the *difference* between two origins and
         keeps its offset, so a grid position 15 mm along at the beams arrives 15 mm
         along at the FM, which may not count that as arrived. So a traverse checks
@@ -2435,7 +2418,7 @@ class StageDeviceSettings:
 
         Not the same question as whether the device usefully *covers* the sample
         here -- an objective's field, a knife's approach -- which genuinely does vary
-        per device. Nothing needs that yet; see FIB-839.
+        per device. Nothing needs that yet.
 
         Devices may overlap, and on a compustage they fully do: the objective is under
         the grid, so the beams and the FM are the same place reached by flipping. The
@@ -2558,19 +2541,10 @@ CONFIGURATION_VERSION: int = 2
 # is told apart by the pose the sample is held in. A site whose objective is offset --
 # piescope, METEOR, iFLM, all in the TFS SDB chamber -- declares the traverse instead,
 # as `sim-iflm-configuration.yaml` does.
+# A compustage FM's origin is travelled by after the flip: the offset of the objective
+# from the beams' coincidence point, at the FM pose. One question is asked of both
+# mountings instead of each caller branching on the stage type.
 #
-# The default used to be the other way round, with the FM 48.8 mm along x, because
-# these entries were lifted from `move_to_microscope`'s inlined `TRANSLATION_DX` and
-# that function only ever ran on an offset mount. Nothing declares a `devices:` block
-# except the offset simulator, so every other configuration -- Aquilos, Hydra, Arctis,
-# Tescan, Odemis, several with no fluorescence microscope at all -- inherited a phantom
-# FM 48.8 mm away, somewhere their stage never goes. It was invisible because
-# `_device_translation` used to short-circuit on a compustage; `contains` did not, and
-# read these origins literally. A compustage FM's origin is now travelled by after the
-# flip: the offset of the objective from the beams' coincidence point, at the FM pose.
-#
-# Getting this the right way round is what lets one question be asked of both mountings
-# instead of each caller branching on the stage type (FIB-839).
 # The beams' origin: the stage's zero on x and y. z is left free -- the stage sits at
 # its working distance there, not at zero -- so a device origin's z is checked but
 # never travelled along until the beams' working z is configured too. An axis a
@@ -2613,8 +2587,8 @@ def stage_device_entry_name(key: str) -> str:
 
 # Where a half turn of the stage is centred, in raw stage coordinates (x, y), metres:
 # a position p recorded on one side of the stage is at 2c - p on the other. The centre
-# reprojection used before drivers reported one, calibrated on one instrument
-# (FIB-655). Only for reading images saved before the centre was recorded, all of
+# reprojection used before drivers reported one, calibrated on one instrument.
+# Only for reading images saved before the centre was recorded, all of
 # which were drawn with it; a driver that reports no centre records None. A driver
 # now reports its instrument's own centre plus `rotation_centre_correction`.
 LEGACY_ROTATION_CENTRE: Tuple[float, float] = (
@@ -2623,7 +2597,7 @@ LEGACY_ROTATION_CENTRE: Tuple[float, float] = (
 )
 
 
-# The frame a stage's positions are in (FIB-1114): fibsem's, which every stage device
+# The frame a stage's positions are in: fibsem's, which every stage device
 # reports. A driver that records positions in its instrument's own frame names that
 # frame itself, in its own module; the core keeps such a name as an opaque string.
 STAGE_FRAME_FIBSEM = "fibsem"
@@ -2706,7 +2680,7 @@ class StageSystemSettings(Configurable):
     holders: Dict[str, "SampleHolder"] = field(default_factory=dict)
     active_holder: str = ""
     # How far the true centre of a half turn sits from where the instrument's own
-    # compucentric rotation puts it, in raw stage coordinates (x, y), metres (FIB-655).
+    # compucentric rotation puts it, in raw stage coordinates (x, y), metres.
     # Zero means the instrument's rotation is taken as perfect. Measured per
     # instrument: centre a feature, rotate, centre it again, and the midpoint of the
     # two positions less the instrument's centre is this value. Stage moves and image
@@ -2717,19 +2691,11 @@ class StageSystemSettings(Configurable):
     def rotation_180(self) -> float:
         """Where the stage sits to face the ion beam, in degrees.
 
-        Derived, not configured. It used to be a field, and every shipped file gave it
-        `(rotation_reference + 180) % 360` -- Tescan included, whose reference of 180
-        is what makes the modulo load-bearing rather than decorative. The two
-        exceptions were the compustages, which set it *equal* to the reference to say
-        "this stage does not turn round". That is a boolean's job, and `rotation` is
-        the boolean -- already on this class, and already `false` on the real Arctis
-        (FIB-834).
+        Derived, not configured: `(rotation_reference + 180) % 360` (Tescan's reference
+        of 180 is why the modulo matters). A stage that does not turn round says so
+        with `rotation`, which is `false` on the Arctis.
 
-        So a value that was never chosen is now computed, and the one case it could not
-        express without a coincidence -- a stage with no rotation axis -- is asked of
-        the field named for it.
-
-        Readers move to the whole FIB pose (FIB-1101): a rotation alone does not say
+        Readers move to the whole FIB pose: a rotation alone does not say
         where a stage faces the ion beam, which a stage can reach by tilting instead.
         ``microscope.get_orientation("FIB")``, or an image's
         ``hardware_geometry.declared_poses()["FIB"]``.
@@ -2891,10 +2857,7 @@ class BeamSystemSettings:
     detector: FibsemDetectorSettings
     eucentric_height: float
     column_tilt: float
-    # The plasma source's gas, or None for a column with no plasma source. One value
-    # for one fact: there used to be a `plasma: bool` beside this, and the pair could
-    # disagree -- `plasma: true` with no gas, or a gas with `plasma: false` -- and
-    # every shipped file spelt "no gas" as the YAML *string* "None".
+    # The plasma source's gas, or None for a column with no plasma source.
     plasma_gas: Optional[str] = None
 
     @property
@@ -2953,13 +2916,13 @@ class ManipulatorSystemSettings:
 class SystemInfo:
     """Which instrument, and what software is running on it. Provenance.
 
-    Owns both facts, and is the only place either belongs (FIB-445 D1).
+    Owns both facts, and is the only place either belongs.
     ``serial_number`` is the instrument identity -- the key any per-instrument
     aggregation joins on, and the only field that distinguishes two of the same
     model in one facility.
 
     The version fields were duplicated on ``FibsemExperimentRef`` until v5, which
-    removed them from there (FIB-448). What software is running is a property of
+    removed them from there. What software is running is a property of
     the running system, not of an experiment.
 
     An experiment spanning a software upgrade will therefore disagree with its own
@@ -3040,17 +3003,17 @@ class FluorescenceSystemSettings:
 
     enabled: Optional[bool] = None
 
-    # Which driver the FM comes from. `None` follows the microscope's own driver --
-    # the iFLM and the Arctis FM are on the AutoScript connection, the Odemis stack
-    # drives its own -- which is every site today. `FM_DRIVER_REMOTE` is an FM on its
-    # own PC, reached at `address`:`port` (a METEOR beside natively driven beams,
-    # FIB-835). The address belongs to the driver, so it is read only with one.
+    # Which driver the FM comes from. `None` follows the microscope's own driver -- the
+    # iFLM and the Arctis FM are on the AutoScript connection, the Odemis stack drives
+    # its own -- which is every site today. `FM_DRIVER_REMOTE` is an FM on its own PC,
+    # reached at `address`:`port` (a METEOR beside natively driven beams). The address
+    # belongs to the driver, so it is read only with one.
     driver: Optional[str] = None
     address: Optional[str] = None
     port: Optional[int] = None
 
     # A remote FM whose server isn't answering at connect is built offline and comes
-    # online by itself (FIB-1086), so the beams are never held up by the FM's PC.
+    # online by itself, so the beams are never held up by the FM's PC.
     # `required: true` makes the connect fail instead, for a site where an FM that is
     # quietly missing would be worse than no session.
     required: Optional[bool] = None
@@ -3072,7 +3035,7 @@ class FluorescenceSystemSettings:
     mount_transform: "CameraImageTransform" = None  # type: ignore[assignment]
 
     # Tilt of the camera's optical axis from the SEM column, in degrees: what the
-    # stage moves project a displacement in the FM image through (FIB-335). Absent,
+    # stage moves project a displacement in the FM image through. Absent,
     # it follows from the mount: 180 where the stage turns the grid over to the FM (a
     # compustage), the ion column's tilt for an FM beside the FIB column.
     camera_tilt: Optional[float] = None
@@ -3618,7 +3581,7 @@ class FibsemHardwareGeometry:
     nothing to catch it. ``camera_tilt`` and ``transform`` describe the fluorescence
     camera and stay at their defaults on a beam image; that is two dormant fields on a
     SEM picture, accepted deliberately so there is exactly one definition of how this
-    instrument is arranged rather than two that merely agree today (FIB-481).
+    instrument is arranged rather than two that merely agree today.
 
     Angles are in degrees, matching ``SystemSettings``. Both reprojection paths convert
     at the point of use.
@@ -3650,14 +3613,14 @@ class FibsemHardwareGeometry:
     # Where a half turn of the stage is centred, raw (x, y) in metres; used to draw a
     # position recorded on the other side of the stage. None when the driver reported
     # none: reprojection then turns about the stage origin. An image saved before this
-    # field existed reads LEGACY_ROTATION_CENTRE, so it draws exactly as it did
-    # (FIB-1081).
+    # field existed reads LEGACY_ROTATION_CENTRE, so it draws exactly as it did.
+    #
     rotation_centre: Optional[Tuple[float, float]] = None
     # The pose the stage declared for each orientation name (SEM, FIB, and FM where
-    # the FM is a pose), as (r, t) in degrees (FIB-1101). Empty on an image written before
+    # the FM is a pose), as (r, t) in degrees. Empty on an image written before
     # the stage declared its poses; `declared_poses` rebuilds them for those.
     poses: Dict[str, Tuple[float, float]] = field(default_factory=dict)
-    # The frame the image's stage position is in (FIB-1114): STAGE_FRAME_FIBSEM, or a
+    # The frame the image's stage position is in: STAGE_FRAME_FIBSEM, or a
     # driver's name for its instrument's own frame, kept as an opaque string. None on
     # an image written before this was stamped, whose position is in whatever frame its
     # driver reported then. Nothing converts between frames on read.
@@ -3812,7 +3775,7 @@ class FibsemExperimentRef:
     the two types are otherwise a single import apart and easily confused.
 
     **Defers to the record.** Authoritative only in the absence of the experiment
-    record, which wins on conflict (FIB-445 D2). That rule needs a stable key: with
+    record, which wins on conflict. That rule needs a stable key: with
     only a name, a renamed experiment is indistinguishable from a different one, so
     there is no conflict to detect, just two strings that disagree.
 
@@ -3821,28 +3784,27 @@ class FibsemExperimentRef:
 
     **Identity only.** Which experiment, which item, which task, and when. What
     software was running is a property of the running system, not of an experiment,
-    so it lives on ``SystemInfo`` and only there (FIB-445 D1, FIB-448). This carried
+    so it lives on ``SystemInfo`` and only there. This carried
     duplicates of it until v5.
 
     **Two write rates, one record.** The experiment is set once at registration; the
     item and task change as a run progresses and are written and cleared around each
-    one (FIB-466). They are kept together because they are one answer to one question
+    one. They are kept together because they are one answer to one question
     -- *what produced this image* -- and a reader wants "experiment X, lamella Y, task
     Z" in one place rather than assembled from two.
 
     That only works because every image gets its **own copy**: `Session.stamp`
-    deepcopies this. It used to be shared by reference, which was harmless while
-    nothing mutated it, and would have silently rewritten the item on every
-    already-acquired image the moment one did.
+    deepcopies this, so changing one never rewrites the item on images already
+    acquired.
     """
 
     # Experiment.id, a UUID -- stable, the join key. Held the experiment *name* up to
     # and including v0.5.2; a file whose `name` is absent is from that era and its `id`
-    # is a name. See FIB-446.
+    # is a name.
     id: Optional[str] = None
     name: Optional[str] = None
     # When the reference was made, which is when a session adopted the experiment.
-    # Aware, written as ISO 8601 with its offset (FIB-1197); older images hold a
+    # Aware, written as ISO 8601 with its offset; older images hold a
     # POSIX float, which reads as this machine's zone. default_factory, not a plain
     # default: a plain default is evaluated once at class definition, so every
     # experiment recorded the interpreter's import time rather than its own.
@@ -3855,8 +3817,7 @@ class FibsemExperimentRef:
     # application works through one at a time, and ``HookContext`` settled on the same
     # word for the same reason. IDs *and* names because they answer different
     # questions -- the name is what a person reads, the id is what a reader joins on
-    # and it survives a rename. Recording only names is the mistake FIB-446 fixed for
-    # the experiment itself.
+    # and it survives a rename.
     item_id: Optional[str] = None
     item_name: Optional[str] = None
     task_id: Optional[str] = None
@@ -3909,7 +3870,7 @@ class FibsemUser:
 
     Unlike ``FibsemExperimentRef``, this is not a reference to anything: there is
     no richer user record for it to defer to, so the "the record wins on conflict"
-    rule (FIB-445 D2) does not apply -- this *is* the record, and it happens to be
+    rule does not apply -- this *is* the record, and it happens to be
     stored embedded in every image.
 
     That would change if a user table ever lands (the DB work models one), at which
@@ -3926,7 +3887,6 @@ class FibsemUser:
     # Which machine, not which person -- host identity sitting on the user record.
     # Left here rather than moved, because moving it changes the serialised shape.
     hostname: Optional[str] = None
-    # TODO: add host_ip_address
 
     def to_dict(self) -> dict:
         return encode(self)
@@ -3941,10 +3901,8 @@ class FibsemUser:
         import platform
         import socket
 
-        # getpass covers every platform: USERNAME is Windows-only, so reading it
-        # directly meant Linux and macOS fell through to the literal string
-        # "username" -- wrong rather than absent, and silently so. That affects
-        # Odemis/METEOR sites, which run on Linux. See FIB-447.
+        # getpass covers every platform; USERNAME is Windows-only, and Odemis/METEOR
+        # sites run on Linux.
         try:
             username = getpass.getuser()
         except Exception:
@@ -3979,7 +3937,7 @@ class SessionInfo:
     An experiment directory otherwise says what it contains and nothing about what
     made it, so "was this before or after the upgrade", "which machine was this on"
     and "which build of my plugin ran" are all unanswerable from the record. Every
-    part of this was already collected per-image; this promotes it (FIB-451).
+    part of this was already collected per-image; this promotes it.
 
     **The latest session, not the one that created the experiment.**
     ``Experiment.create()`` has no microscope -- the dialog that calls it never
@@ -3990,12 +3948,11 @@ class SessionInfo:
     Overwriting loses less than it looks like. Every image already carries its own
     ``SystemInfo``, so an experiment spanning an upgrade shows v0.5.1 on day-one
     images and v0.5.2 here -- two true facts, which is the same reasoning that put
-    the version fields on ``SystemInfo`` in the first place (FIB-445 D1). Keeping
-    every session rather than the latest is FIB-452's shape, not this record's.
+    the version fields on ``SystemInfo`` in the first place.
 
-    **The instrument's zone** (FIB-1196): ``utc_offset`` and ``zone_name``, so a time
+    **The instrument's zone**: ``utc_offset`` and ``zone_name``, so a time
     that carries no offset of its own -- a POSIX float, which every task time and
-    most beam images before FIB-1190 are -- can be read on the instrument's clock
+    older beam images are -- can be read on the instrument's clock
     on any machine (``wall_time_of(value, session.zone)``). New times carry their own
     offset and do not need it. Three limits:
 
@@ -4007,7 +3964,7 @@ class SessionInfo:
       opening an experiment on another machine does not replace the instrument's.
     """
 
-    # Aware, written as ISO 8601 with its offset (FIB-1197); older experiments hold
+    # Aware, written as ISO 8601 with its offset; older experiments hold
     # a POSIX float, which reads as this machine's zone.
     recorded_at: Optional[Timestamp] = field(default_factory=now)
     system: Optional[SystemInfo] = None
@@ -4078,28 +4035,25 @@ class SessionInfo:
 class FibsemImageMetadata:
     """Metadata for a FibsemImage.
 
-    Three kinds of claim live here, and they are easy to mistake for each other
-    (FIB-445 D1). Anything added should be placed deliberately in one of them:
+    Three kinds of claim live here, and they are easy to mistake for each other.
+    Anything added should be placed deliberately in one of them:
 
     **Provenance** -- what produced this image. ``system_info`` (which instrument),
     ``user`` (who), ``experiment`` (which run). Constant for a run. The same
     question at a finer grain -- which item (a lamella, or a grid), which task --
-    is answered by ``experiment.item_name`` and ``experiment.task_name`` (FIB-466).
+    is answered by ``experiment.item_name`` and ``experiment.task_name``.
     That varies *within* a run, which changes the mechanism that writes it, but not
     the kind of fact it is.
 
     **Configuration** -- what the instrument *is*. ``hardware_geometry``: the fixed
-    physical arrangement a projection needs. Up to v5 this was the entire
-    ``SystemSettings``, 1683 bytes of it, to deliver six numbers -- and it carried
-    the manipulator configuration and the simulator flags into every picture. See
-    FIB-481.
+    physical arrangement a projection needs.
 
     **Observation** -- what the instrument was doing. ``microscope_state``,
     ``pixel_size``. Measured at acquisition.
 
     **Request** -- what was asked for. ``image_settings``. Note this is *intent*,
     not outcome: if autocontrast ran, or the requested hfw was clamped, nothing
-    here records that the request was not honoured. See FIB-482.
+    here records that the request was not honoured.
 
     The rule for provenance is one writer per fact, denormalised deliberately at
     this boundary: an image is embedded in a file that may be copied, emailed or
@@ -4112,7 +4066,7 @@ class FibsemImageMetadata:
     image_settings: ImageSettings
     pixel_size: Point
     microscope_state: MicroscopeState
-    # Both replaced `system: Optional[SystemSettings]` in v6 (FIB-481). Optional
+    # Both replaced `system: Optional[SystemSettings]` in v6. Optional
     # because a file written before v6 may carry neither in a recoverable form, and
     # because a FibsemImage can be constructed without a microscope at all.
     system_info: Optional[SystemInfo] = None
@@ -4123,7 +4077,7 @@ class FibsemImageMetadata:
         default_factory=lambda: FibsemExperimentRef()
     )
     # When the image was acquired: an aware datetime, written as ISO 8601 with its
-    # UTC offset, `2026-09-13T21:19:40.974286-06:00` (FIB-1190). An observation, like
+    # UTC offset, `2026-09-13T21:19:40.974286-06:00`. An observation, like
     # microscope_state, but a separate field: the state's timestamp says when the
     # state was read, which is not the same moment. `Beam.acquire` stamps it just
     # before the driver runs; a driver with a vendor time sets its own. None on
@@ -4843,9 +4797,9 @@ class SlotCalibration:
     orientation: str
     pre_tilt: float
     rotation_reference: float
-    # When the wizard captured it: aware, written as ISO 8601 with its offset
-    # (FIB-1190, FIB-1197). Records before FIB-1190 hold a naive string, which stays
-    # naive. None for a position nobody captured.
+    # When the wizard captured it: aware, written as ISO 8601 with its offset. Older
+    # records hold a naive string, which stays naive. None for a position nobody
+    # captured.
     captured_at: Annotated[Optional[Timestamp], BeforeValidator(_blank_is_none)] = None
     fibsem_version: str = ""
 
@@ -4860,7 +4814,7 @@ class SlotCalibration:
         The autoloader puts every grid at the same place, nominally the stage
         origin, so the slot starts there with this record. A real instrument puts
         it a fixed distance off, so a position captured with the calibration wizard
-        replaces it once there is one (FIB-1144).
+        replaces it once there is one.
         """
         return cls(
             orientation="SEM",
@@ -4933,17 +4887,12 @@ class SampleHolder(Configurable):
     # made from it, with nothing to report; a `None` sentinel spreads its own handling
     # into every reader, and one reader that formats it instead becomes a hard abort
     # (PyQt5 turns an exception in a slot into `qFatal`). Ordered first because a
-    # dataclass cannot put a non-default field after defaulted ones, and
-    # `@dataclass(kw_only=True)` is 3.10+ while this package supports 3.8.
+    # dataclass cannot put a non-default field after defaulted ones.
     #
     # Absence in a *file* is a different question and is not this field's to answer:
     # `from_dict` supplies the configured value, and `_resolve_configured_holder`
     # seeds it at connect.
-    #
-    # This used to be a property reading *back* from
-    # `_parent.system.stage.shuttle_pre_tilt`. That direction is now reversed, and
-    # both cannot exist: the stage reads the holder, so a holder that read the stage
-    # would recurse until the interpreter gave up.
+    # The stage reads the holder, so the holder never reads the stage.
     pre_tilt: float = param(
         unit="°",
         limits=RangeLimit(-90.0, 90.0),
@@ -4960,7 +4909,7 @@ class SampleHolder(Configurable):
     def __post_init__(self) -> None:
         self._parent_ref: Optional["weakref.ReferenceType"] = None
 
-    # The microscope this holder is mounted on, held WEAKLY. A holder now lives in
+    # The microscope this holder is mounted on, held WEAKLY. A holder lives in
     # `system.stage.holders`, a plain settings record, and whoever keeps that record
     # -- `microscope, settings = setup_session(...)` keeps it for as long as the
     # caller's frame lives -- would otherwise keep the whole microscope alive through
@@ -5001,8 +4950,8 @@ class SampleHolder(Configurable):
     ) -> List[str]:
         """Drop every slot position that was not calibrated against this geometry.
 
-        A position with no calibration record was captured by the old per-slot
-        button at an unknown orientation; one whose record disagrees with the current
+        A position with no calibration record was captured at an unknown
+        orientation; one whose record disagrees with the current
         pre-tilt or reference rotation was captured against a stage that has since
         been reconfigured. Neither can be trusted, so both become "not calibrated"
         in memory. The file is left alone: the wizard rewrites it when someone
@@ -5112,19 +5061,6 @@ class SampleHolder(Configurable):
             )
 
 
-# The holder a system starts with when nothing else describes one: no `stage.holders`
-# in the configuration, and no `sample-holder.yaml` beside it.
-#
-# This used to be `default-sample-holder.yaml`, a shipped file. Once the holder moved
-# into the microscope configuration the file was down to four fields and two empty
-# slot stubs -- everything else in it was null -- and its name, "Pre-Tilted 35deg
-# Shuttle", had become a claim the object could contradict: a flat system loaded a
-# holder called that carrying a pre-tilt of 0, and the widget printed both. A default
-# with no calibration in it is a code default, next to `DEFAULT_STAGE_DEVICES` and
-# `DEFAULT_DEVICE_RANGE`, which are already here.
-#
-# A function rather than a module constant because a holder is mutable and gets a
-# `_parent` bound to it; one shared instance would be handed to every microscope.
 class GridSlotState(str, Enum):
     """Where a grid is, as one word: the state of an inventory slot.
 
@@ -5167,6 +5103,10 @@ class GridInventoryEntry:
         return self.state is GridSlotState.LOADED
 
 
+# The holder a system starts with when nothing else describes one: no `stage.holders`
+# in the configuration, and no `sample-holder.yaml` beside it. A function rather than a
+# module constant because a holder is mutable and gets a `_parent` bound to it; one
+# shared instance would be handed to every microscope.
 def default_sample_holder(pre_tilt: float) -> "SampleHolder":
     """A two-slot shuttle with nothing calibrated on it.
 

@@ -30,7 +30,7 @@ from fibsem.workflows.status import TaskState, TaskStatus
 class OverlayRecord:
     """Something placed by hand over a grid's overview, and where it was put.
 
-    The grid bars today; a fluorescence overview next (FIB-1030). What is stored is a
+    The grid bars today; a fluorescence overview next. What is stored is a
     placement on the *sample*: an offset in metres along its surface and a turn in
     degrees, relative to `reference` -- the grid centre when there is none -- so the
     same record draws in every view, squashed by whatever that view's foreshortening
@@ -62,7 +62,7 @@ class OverlayRecord:
     # visibility, opacity, gamma and contrast. Empty means as loaded.
     display: Dict[str, Any] = field(default_factory=dict)
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    # Aware, written as ISO 8601 with its offset (FIB-1197); older files hold a
+    # Aware, written as ISO 8601 with its offset; older files hold a
     # POSIX float, which reads as this machine's zone.
     created_at: Optional[datetime] = field(default_factory=now)
 
@@ -130,7 +130,7 @@ class GridRecord(ExperimentItem):
     quality: QualityRecord = field(default_factory=QualityRecord)
     task_state: TaskState = field(default_factory=TaskState)
     task_history: List[TaskState] = field(default_factory=list)
-    # Aware, written as ISO 8601 with its offset (FIB-1197); older files hold a
+    # Aware, written as ISO 8601 with its offset; older files hold a
     # POSIX float, which reads as this machine's zone.
     created_at: Optional[datetime] = field(default_factory=now)
     proposals: List[Proposal] = field(default_factory=list)  # as on Lamella
