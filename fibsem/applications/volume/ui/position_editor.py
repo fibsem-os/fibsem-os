@@ -1,7 +1,8 @@
 """The Positions tab's Position view: what is stored on one position, edited
 over a saved FIB image of it. Right-click on the image places the point of
 interest; "Edit on the image" drags the alignment area. Its slices and
-description sit beside it, under its name, which is fixed.
+description sit beside it, under its name, which is fixed. The protocol's
+milling is drawn where it mills on this position, to see, not to edit.
 
 Every edit is the experiment's own method, the one the App Server's position
 patch calls, with its refusal said on a toast. Nothing here drives the
@@ -29,10 +30,19 @@ from PyQt5.QtWidgets import (
 
 from fibsem import conversions
 from fibsem.applications.volume.position import FIB_REFERENCE, VolumePosition
+from fibsem.applications.volume.position_milling import (
+    position_millings,
+    slice_depth_text,
+)
+from fibsem.milling.patterning.shapes import COLOURS
 from fibsem.structures import BeamType, FibsemImage, FibsemRectangle, Point
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.widgets.canvas import LamellaEditorView, MicroscopeViewController
-from fibsem.ui.widgets.canvas.canvas_state import AlignmentSpec, PointsSpec
+from fibsem.ui.widgets.canvas.canvas_state import (
+    AlignmentSpec,
+    MillingSpec,
+    PointsSpec,
+)
 from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig
 from fibsem.util.timestamps import format_time
 from fibsem.workflows.image_positions import latest_image_at, read_image_position
@@ -47,8 +57,11 @@ __all__ = ["PositionEditor", "image_label", "position_images"]
 
 POI_OVERLAY_ID = "position_poi"
 ALIGNMENT_OVERLAY_ID = "position_alignment"
+MILLING_OVERLAY_ID = "position_milling"
+# the first stage colour: a slice milling's, drawn in one
+PROGRESS_COLOUR = COLOURS[0]
 FIB_SUFFIX = "_ib.tif"
-FORM_WIDTH = 320
+FORM_WIDTH = 400
 
 
 def position_images(
@@ -93,6 +106,7 @@ class PositionEditor(QWidget):
         super().__init__(parent)
         self.session = session
         self._name: Optional[str] = None
+        self._millings: dict = {}
         self.image: Optional[FibsemImage] = None
         self._image_path: Optional[str] = None
 
@@ -124,12 +138,28 @@ class PositionEditor(QWidget):
         self.slices_spin.setRange(1, 100000)
         self.poi_label = QLabel()
         self.area_check = QCheckBox("Edit on the image")
+        self.milling_combo = QComboBox()
+        milling_note = QLabel(
+            "Shown where it mills on this position. Slice milling: filled is cut, "
+            "the solid outline is the next slice, dashed is still to cut. Set on "
+            "the Protocol tab."
+        )
+        milling_note.setWordWrap(True)
+        milling_note.setStyleSheet(stylesheets.LABEL_INSTRUCTIONS_STYLE)
+        milling = QVBoxLayout()
+        milling.setContentsMargins(0, 0, 0, 0)
+        milling.addWidget(self.milling_combo)
+        milling.addWidget(milling_note)
+        self.depth_label = QLabel()
+        self.depth_label.setWordWrap(True)
         self.description_edit = QLineEdit()
         self.description_edit.setPlaceholderText("Notes on this position")
         form.addRow("Name", self.name_label)
         form.addRow("Slices", self.slices_spin)
         form.addRow("Point of interest", self.poi_label)
         form.addRow("Alignment area", self.area_check)
+        form.addRow("Milling", milling)
+        form.addRow("Depth into the face", self.depth_label)
         form.addRow("Description", self.description_edit)
 
         body = QHBoxLayout()
@@ -141,6 +171,7 @@ class PositionEditor(QWidget):
         layout.addLayout(body, 1)
 
         self.image_combo.currentIndexChanged.connect(lambda _: self._show_image())
+        self.milling_combo.currentIndexChanged.connect(lambda _: self._draw())
         self.fib_canvas.canvas_right_clicked.connect(self._on_right_click)
         self.view_controller.overlay_edited.connect(self._on_overlay_edited)
         self.slices_spin.editingFinished.connect(self._on_slices)
@@ -168,6 +199,7 @@ class PositionEditor(QWidget):
         position = self.position
         self.setEnabled(position is not None)
         self._fill_fields(position)
+        self._fill_millings(position, keep=same)
         self._fill_images(position, keep=same)
 
     def _fill_fields(self, position: Optional[VolumePosition]) -> None:
@@ -185,6 +217,20 @@ class PositionEditor(QWidget):
             self.poi_label.setText(f"x {poi.x * 1e6:.2f} µm · y {poi.y * 1e6:.2f} µm")
         for widget in (self.slices_spin, self.description_edit):
             widget.blockSignals(False)
+
+    def _fill_millings(self, position: Optional[VolumePosition], keep: bool) -> None:
+        shown = self.milling_combo.currentText() if keep else None
+        millings = position_millings(self.experiment, position) if position else []
+        self._millings = {m.label: m for m in millings}
+        self.milling_combo.blockSignals(True)
+        self.milling_combo.clear()
+        self.milling_combo.addItems(list(self._millings))
+        if shown in self._millings:
+            self.milling_combo.setCurrentText(shown)
+        self.milling_combo.blockSignals(False)
+        self.milling_combo.setEnabled(bool(millings))
+        depth = slice_depth_text(self.experiment, position) if position else None
+        self.depth_label.setText(depth or "")
 
     def _fill_images(self, position: Optional[VolumePosition], keep: bool) -> None:
         shown = self.image_combo.currentData() if keep else None
@@ -261,6 +307,20 @@ class PositionEditor(QWidget):
                 removable=False,
                 modal=True,
                 legend_label="Point of Interest",
+            ),
+        )
+        placed = self._millings.get(self.milling_combo.currentText())
+        self.view_controller.set_overlay(
+            BeamType.ION,
+            MillingSpec(
+                id=MILLING_OVERLAY_ID,
+                stages=placed.milling.stages if placed is not None else (),
+                visible=placed is not None,
+                # one colour where the line and fill say how far along a stage is
+                colour=PROGRESS_COLOUR
+                if placed is not None and placed.styles
+                else None,
+                stage_styles=placed.styles if placed is not None else (),
             ),
         )
         self.view_controller.set_overlay(
