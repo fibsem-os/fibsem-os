@@ -95,12 +95,14 @@ fibsem-mcp watch
 It finds the server as the sidecar does (`--url`/`--token`, the environment
 variables, the discovery file) and follows a restarted app the same way;
 `--since N` resumes after event N. It
-prints `PROMPT`, `ANSWERED`, `PROMPT WITHDRAWN`, `PROPOSAL`,
-`PROPOSAL RELEASED`, `REQUEST` (the agent's request decided, finished or
-cancelled), `COMMAND ENDED` (a long command's end), task `EVENT` lines,
-`WORKFLOW STARTED`, `WORKFLOW ENDED` and `GAP` (events were lost; re-read the
-prompt and status). A workflow ends completed, cancelled, stalled or failed;
-one that stops without recording an end is reported as
+prints `PROPOSAL`, `PROPOSAL RELEASED`, `SUGGESTION APPROVED`/`DECLINED`,
+`REQUEST` (the agent's request decided, finished or cancelled), `COMMAND ENDED`
+(a long command's end), `MILL STAGE STARTED`, `MILL ENDED` and `MILL READING`,
+`AUTOFOCUS` and `ALIGNMENT` (with their check), task `EVENT` lines,
+`WORKFLOW STARTED`, `WORKFLOW ENDED`, `MESSAGE` (the operator wrote to the
+agent), `NOTE` (the operator kept a note on a grid), `LEVEL`, `RESTARTED` and
+`GAP` (events were lost; re-read the proposals and status). A workflow ends completed, cancelled,
+stalled or failed; one that stops without recording an end is reported as
 `WORKFLOW ENDED (stopped without an end event)`. A workflow's end does not end
 the watch: the agent may start the next one. While the operator has the agent
 level at Off it prints `AGENT OFF` and waits, then `AGENT BACK`. A running workflow

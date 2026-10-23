@@ -1346,8 +1346,9 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         """
         if self.experiment is not None:
             if lamella is not None:
-                self.experiment.sign_verdict(lamella)
-            self.experiment.save()
+                self.experiment.save_verdict(lamella)
+            else:
+                self.experiment.save()
 
     def _on_move_to_lamella(self, lamella: Optional["Lamella"]):
         if lamella is None or self.microscope is None:

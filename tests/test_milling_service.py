@@ -325,3 +325,17 @@ def test_the_demo_can_mill_in_proportion_to_the_estimate(microscope, monkeypatch
     assert milling.estimate_time()["seconds"] == pytest.approx(
         0.5 * estimate_volume_time(_rectangle().volume, current)
     )
+
+
+def test_the_settings_it_lists_are_the_ones_it_mills_with(microscope):
+    settings = microscope.milling.list_options()["settings"]
+    properties = settings["ION"]["properties"]
+    assert set(properties) == set(microscope.milling.supported_settings())
+    # a number the beam lists values for takes any value; the listed ones are examples
+    current = properties["milling_current"]
+    assert "enum" not in current
+    assert current["examples"] == list(microscope.beams[BeamType.ION].current.choices)
+    # a string the beam lists is one of them
+    files = microscope.milling.supported_settings()["application_file"].choices
+    assert properties["application_file"]["enum"] == list(files)
+    assert properties["patterning_mode"]["enum"] == ["Serial", "Parallel"]

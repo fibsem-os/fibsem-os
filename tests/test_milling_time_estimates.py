@@ -24,6 +24,7 @@ import pytest
 from fibsem.drivers.tescan.connection import TescanConnection
 from fibsem.drivers.tescan.microscope import TescanMicroscope, parse_current_from_preset
 from fibsem.drivers.tescan.services import TescanMilling
+from fibsem.drivers.tescan.settings import TescanMillingSettings
 from fibsem.milling import base
 from fibsem.milling.base import (
     FibsemMillingStage,
@@ -64,7 +65,8 @@ def make_stage(
     pattern.time = pattern_time
     return FibsemMillingStage(
         milling=FibsemMillingSettings(
-            preset=preset, rate=rate, milling_current=milling_current
+            milling_current=milling_current,
+            driver={"Tescan": TescanMillingSettings(preset=preset, rate=rate)},
         ),
         pattern=pattern,
     )

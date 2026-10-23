@@ -44,6 +44,7 @@ from fibsem.correlation.structures import (
     PointXYZ,
 )
 from fibsem.fm.structures import (
+    EmissionFilter,
     FluorescenceChannelMetadata,
     FluorescenceImage,
     FluorescenceImageMetadata,
@@ -98,7 +99,7 @@ def _fm_image(nz: int = 11) -> FluorescenceImage:
     channel = FluorescenceChannelMetadata(
         name="GFP",
         excitation_wavelength=488.0,
-        emission_wavelength=520.0,
+        emission_filter=EmissionFilter.band("520", 520.0),
         power=0.3,
         exposure_time=0.05,
         gain=1.5,
@@ -107,7 +108,7 @@ def _fm_image(nz: int = 11) -> FluorescenceImage:
     return FluorescenceImage(
         data=data,
         metadata=FluorescenceImageMetadata(
-            acquisition_date=datetime(2026, 7, 24).isoformat(),
+            acquisition_datetime=datetime(2026, 7, 24),
             pixel_size_x=40e-9,
             pixel_size_y=40e-9,
             pixel_size_z=200e-9,

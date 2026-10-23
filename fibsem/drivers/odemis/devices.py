@@ -55,6 +55,7 @@ import numpy as np
 from fibsem.devices.beam import UNBOUNDED_SHIFT_LIMITS, Beam
 from fibsem.devices.chamber import Chamber
 from fibsem.devices.core import Device, ParameterMetadata, Resources, resources_of
+from fibsem.devices.entries import beam_type_of
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
 from fibsem.devices.stage import Stage, axis_limits_from_degrees
 from fibsem.devices.wire import Frame, to_wire
@@ -539,9 +540,7 @@ class OdemisChamber(Chamber):
 
 def build_odemis_beam(entry: DeviceEntry, context: BuildContext) -> OdemisBeam:
     """The column an ``electron`` or ``ion`` entry names."""
-    if entry.name not in ("electron", "ion"):
-        raise ValueError("an Odemis beam is named 'electron' or 'ion'")
-    beam_type = BeamType.ELECTRON if entry.name == "electron" else BeamType.ION
+    beam_type = beam_type_of(entry)
     microscope = context.microscope
     return OdemisBeam(beam_type, microscope, microscope._connection).connect()
 

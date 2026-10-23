@@ -67,13 +67,6 @@ ERROR_INVALID_PROTOCOL_MSG = (
     "Please select a valid protocol file (*.yaml)."
 )
 
-ERROR_INVALID_LEGACY_PROTOCOL_TITLE = "Invalid Legacy Protocol"
-ERROR_INVALID_LEGACY_PROTOCOL_MSG = (
-    "The selected legacy protocol file could not be converted. It may be corrupted, incorrectly formatted, or missing required fields.\n\n"
-    "Error: {error}\n\n"
-    "Please select a valid legacy protocol file (*.yaml)."
-)
-
 # Width of the recent-experiments quick-select column
 RECENT_COLUMN_WIDTH = 260
 
@@ -274,12 +267,6 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         self.protocol_button_layout = QtWidgets.QHBoxLayout()
         self.protocol_button_layout.addStretch()
 
-        self.btn_select_legacy_protocol = QtWidgets.QPushButton(
-            "Select Legacy Protocol"
-        )
-        self.btn_select_legacy_protocol.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
-        self.protocol_button_layout.addWidget(self.btn_select_legacy_protocol)
-
         self.btn_select_protocol = QtWidgets.QPushButton("Select Protocol")
         self.btn_select_protocol.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
         self.protocol_button_layout.addWidget(self.btn_select_protocol)
@@ -388,7 +375,6 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         self.btn_ok.clicked.connect(self._on_ok_clicked)
         self.btn_cancel.clicked.connect(self.reject)
         self.btn_select_protocol.clicked.connect(self._select_protocol)
-        self.btn_select_legacy_protocol.clicked.connect(self._select_legacy_protocol)
         self.list_recent_experiments.itemClicked.connect(
             self._on_recent_experiment_clicked
         )
@@ -832,44 +818,10 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         self._set_protocol_buttons_visible(False)
         logging.info(f"Protocol loaded manually from {protocol_path}")
 
-    def _select_legacy_protocol(self):
-        """Let the user pick and convert a legacy protocol file."""
-
-        protocol_path = fui.open_existing_file_dialog(
-            msg="Select a legacy protocol file (*.yaml)",
-            path=str(cfg.PROTOCOL_PATH),
-            parent=self,
-        )
-
-        if not protocol_path:
-            return
-
-        try:
-            protocol = AutoLamellaTaskProtocol.load_from_old_protocol(
-                Path(protocol_path)
-            )
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(
-                self,
-                ERROR_INVALID_LEGACY_PROTOCOL_TITLE,
-                ERROR_INVALID_LEGACY_PROTOCOL_MSG.format(error=e),
-            )
-            return
-
-        self.protocol_path = protocol_path
-        if self.experiment is not None:
-            self.experiment.task_protocol = protocol
-        self._update_protocol_display()
-        self.btn_ok.setEnabled(True)
-        self._set_protocol_buttons_visible(False)
-        logging.info(f"Legacy protocol converted from {protocol_path}")
-
     def _set_protocol_buttons_visible(self, visible: bool) -> None:
-        """Show or hide protocol selection buttons."""
+        """Show or hide the protocol selection button."""
         self.btn_select_protocol.setVisible(visible)
         self.btn_select_protocol.setEnabled(visible)
-        self.btn_select_legacy_protocol.setVisible(visible)
-        self.btn_select_legacy_protocol.setEnabled(visible)
 
 
 def load_experiment_dialog(
