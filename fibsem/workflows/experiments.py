@@ -55,7 +55,7 @@ def default_experiment_directory() -> str:
         logging.warning(
             f"Preference default_experiment_directory '{preferred}' does not exist; using default."
         )
-    return str(fibsem_cfg.AUTOLAMELLA_LOG_PATH)
+    return str(fibsem_cfg.EXPERIMENTS_PATH)
 
 
 def discover_experiments(

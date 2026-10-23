@@ -454,8 +454,8 @@ class QuadViewWidget(QWidget):
         self._fullscreen = None
 
 
-class LamellaEditorView(QWidget):
-    """Task-driven stacked view backing the lamella protocol editor.
+class ItemEditorView(QWidget):
+    """Task-driven stacked view backing an app's item editor (a lamella's, a position's).
 
     Unlike :class:`QuadViewWidget` (a static 2x2 grid), this shows *one* page at a
     time, chosen by the selected task type:
@@ -555,7 +555,7 @@ class MicroscopeViewController(QObject):
     ) -> None:
         super().__init__(parent)
         # The view widget must expose sem_canvas / fib_canvas / fm_widget / fm_canvas.
-        # Defaults to the 2x2 quad; the lamella editor passes a LamellaEditorView.
+        # Defaults to the 2x2 quad; the lamella editor passes a ItemEditorView.
         self._widget = view if view is not None else QuadViewWidget()
         # Forward the view's selection signal when it supports selection (quad view does;
         # the lamella editor view does not).
@@ -623,7 +623,7 @@ class MicroscopeViewController(QObject):
 
     @property
     def widget(self) -> QWidget:
-        """The view widget (``QuadViewWidget`` or a ``LamellaEditorView``)."""
+        """The view widget (``QuadViewWidget`` or a ``ItemEditorView``)."""
         return self._widget
 
     @property

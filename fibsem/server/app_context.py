@@ -794,7 +794,7 @@ class AppContext:
             "relative_path": relative,
             "app": summary.app,
             "created_at": to_iso(summary.created_at),
-            "num_items": summary.num_lamella,
+            "num_items": summary.num_items,
             "available": summary.available,
             "instrument_model": summary.instrument_model,
             "instrument_serial": summary.instrument_serial,

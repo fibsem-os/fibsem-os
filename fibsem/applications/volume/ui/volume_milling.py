@@ -35,7 +35,7 @@ from fibsem.structures import BeamType, FibsemImage, FibsemMillingSettings
 from fibsem.ui import stylesheets
 from fibsem.ui.tokens import SEMANTIC_WARNING_COLOR
 from fibsem.ui.utils import beam_choices
-from fibsem.ui.widgets.canvas import LamellaEditorView, MicroscopeViewController
+from fibsem.ui.widgets.canvas import ItemEditorView, MicroscopeViewController
 from fibsem.ui.widgets.canvas.canvas_state import MillingSpec
 from fibsem.ui.widgets.custom_widgets import TitledPanel
 from fibsem.ui.widgets.form_builder import Control, build_control
@@ -283,7 +283,7 @@ class VolumePreview(QWidget):
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.view_controller = MicroscopeViewController(
-            parent=self, view=LamellaEditorView()
+            parent=self, view=ItemEditorView()
         )
         self.view_controller.widget.show_beams()
         self.caption = QLabel()
