@@ -66,9 +66,10 @@ class _Report(QObject):
 
 
 class GatewayTray(QSystemTrayIcon):
-    def __init__(self, gateway: Gateway, auth, port: int):
+    def __init__(self, gateway: Gateway, auth, port: int, agent=None):
         super().__init__()
         self._gateway = gateway
+        self._agent = agent
         self._auth = auth
         self._port = port
         self._shown: Optional[tuple] = None
@@ -127,6 +128,8 @@ class GatewayTray(QSystemTrayIcon):
         )
         if state.mode == WINDOW:
             stop.setText("Stop (close the window)")
+        if self._agent is not None and self._agent.state().running is not None:
+            self._add(menu, "End agent", True, self._end_agent)
         menu.addSeparator()
         pair = menu.addMenu("Pair a computer")
         self._add(pair, "A browser (operator)", True, lambda: self._pair(OPERATOR, ()))
@@ -210,6 +213,9 @@ class GatewayTray(QSystemTrayIcon):
 
         self._in_background("Stop", act)
 
+    def _end_agent(self) -> None:
+        self._in_background("End agent", lambda: self._agent.end("operator", VIA))
+
     def _pair(self, role: str, grants: tuple) -> None:
         code = self._auth.pairing.open(role, grants)
         what = {OPERATOR: "a browser"}.get(role, "a hub")
@@ -231,13 +237,13 @@ class GatewayTray(QSystemTrayIcon):
         QApplication.instance().quit()
 
 
-def run_tray(gateway: Gateway, auth, port: int) -> bool:
+def run_tray(gateway: Gateway, auth, port: int, agent=None) -> bool:
     """The tray until Quit; False when this desktop has no tray."""
     app = QApplication.instance() or QApplication(sys.argv)
     if not QSystemTrayIcon.isSystemTrayAvailable():
         return False
     app.setQuitOnLastWindowClosed(False)
-    tray = GatewayTray(gateway, auth, port)
+    tray = GatewayTray(gateway, auth, port, agent)
     tray.show()
     app.exec_()
     return True

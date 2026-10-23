@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import * as fmt from "@/lib/format";
 import { Connections } from "@/shell/Settings";
 import { cn } from "@/lib/utils";
+import { AgentCard, AgentSessions } from "@/pages/gateway/AgentCard";
 
 type Mode = "off" | "window" | "headless";
 
@@ -288,10 +289,12 @@ export function GatewayPage() {
         </div>
         {gateway.error && <p className="m-0 text-[13px] text-destructive">{(gateway.error as Error).message}</p>}
         {state && <ModeSection state={state} />}
+        {state && <AgentCard appRunning={state.mode !== "off"} />}
         <Card>
           <Connections roles={["operator", "hub"]} />
         </Card>
         <Recent />
+        <AgentSessions />
       </div>
     </div>
   );
