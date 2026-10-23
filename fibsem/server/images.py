@@ -13,7 +13,7 @@ clearly if absent.
 import base64
 import io
 import math
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -64,17 +64,20 @@ def array_preview_payload(
     metadata=None,
     max_width: int = 768,
     pixel_size: Optional[float] = None,
+    full_shape: Optional[Sequence[int]] = None,
 ) -> dict:
     """:func:`preview_payload` for *data* (2-D, or RGB) and the beam image
     *metadata* it came with, if any: a region of an image, or one that is not a
-    beam image (*pixel_size* in metres then gives its scale)."""
+    beam image (*pixel_size* in metres then gives its scale). *full_shape* is the
+    source image's when *data* is a smaller copy of it."""
     jpeg, width, height = preview_jpeg_bytes(data, max_width=max_width)
+    full_shape = data.shape if full_shape is None else full_shape
     payload = {
         "image_b64_jpeg": base64.b64encode(jpeg).decode(),
         "width": width,
         "height": height,
-        "full_width": int(data.shape[1]),
-        "full_height": int(data.shape[0]),
+        "full_width": int(full_shape[1]),
+        "full_height": int(full_shape[0]),
         "beam_type": None,
         "hfw": None,
         # metres per SOURCE pixel (full_width, not the downscaled preview):
@@ -106,7 +109,9 @@ def _degrees(radians) -> Optional[float]:
     return round(math.degrees(float(radians)), 4) if radians is not None else None
 
 
-def image_metadata(image, path: Optional[str] = None) -> Dict[str, Any]:
+def image_metadata(
+    image, path: Optional[str] = None, shape: Optional[Sequence[int]] = None
+) -> Dict[str, Any]:
     """What an agent needs to know about a beam image, in about 500 bytes: the
     same block on every image answer, saved outputs included.
 
@@ -115,12 +120,13 @@ def image_metadata(image, path: Optional[str] = None) -> Dict[str, Any]:
     ``pixel_size`` is measured, so it is the one to trust; ``hfw`` is what was
     asked for (FIB-482). Angles are in degrees, named so in the keys; lengths
     in metres. The rest of the file's metadata is ``experiment_get_image_metadata``'s.
+    *shape* is the image's when ``image.data`` is a smaller copy of it.
     """
     data = image.data
     block: Dict[str, Any] = {
         "beam_type": None,
         "acquired_at": None,
-        "shape": list(data.shape),
+        "shape": list(data.shape if shape is None else shape),
         "dtype": str(data.dtype),
         "hfw": None,
         "pixel_size": None,

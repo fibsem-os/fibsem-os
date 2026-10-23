@@ -1,5 +1,6 @@
 """The imaging tools: SEM/FIB images, overviews and focus, and the FM's."""
 
+import math
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from fibsem.ai.agent.catalog.spec import (
@@ -405,7 +406,12 @@ def _beam_turn_off(a: Dict[str, Any], ctx: wording.ActionContext) -> Dict[str, A
 def _fm_insert_objective(
     a: Dict[str, Any], ctx: wording.ActionContext
 ) -> Dict[str, Any]:
-    return {"what": "Fluorescence", "change": "Insert the objective"}
+    change = "Insert the objective"
+    try:
+        change += f", at {math.degrees(float(a['tilt'])):.0f}° tilt"
+    except (KeyError, TypeError, ValueError):
+        pass
+    return {"what": "Fluorescence", "change": change}
 
 
 def _fm_save_focus_position(
@@ -691,18 +697,24 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="fm_insert_objective",
         description=(
-            "Insert the FM objective over the sample, for FM imaging. It moves "
-            "only the objective: the FM tab first tilts the stage flat (0° or "
-            "-180°), so read the tilt and, where it isn't one of those, tilt there "
-            "with stage_move_absolute first. Then go to focus "
-            "(item_move_to_objective_position or fm_auto_focus)."
+            "Insert the FM objective over the sample, for FM imaging, as the FM "
+            "tab's Insert does. tilt (radians) tilts the stage there first with "
+            "the objective out, unless it is within half a degree already: the "
+            "tab offers 0 and -pi (-180°). Left out, it inserts where the stage "
+            "stands. A tilt is refused when the stage is not at the FM. Then go "
+            "to focus (item_move_to_objective_position or fm_auto_focus)."
         ),
         method="POST",
-        path="/microscope/devices/objective/commands/insert",
+        path="/microscope/services/stage_movement/commands/insert_objective",
         level="drive",
         hardware=True,
+        params={"tilt": "optional stage tilt to insert at, radians (0 or -pi)"},
+        optional=("tilt",),
         line=_fm_insert_objective,
-        call=lambda a: ({}, kwargs_body()),
+        call=lambda a: (
+            {},
+            kwargs_body(tilt=None if a.get("tilt") is None else float(a["tilt"])),
+        ),
     ),
     ToolSpec(
         name="fm_save_focus_position",
@@ -729,7 +741,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "inserted again."
         ),
         method="POST",
-        path="/microscope/devices/objective/commands/retract",
+        path="/microscope/services/stage_movement/commands/retract_objective",
         level="drive",
         hardware=True,
         line=_fm_retract_objective,

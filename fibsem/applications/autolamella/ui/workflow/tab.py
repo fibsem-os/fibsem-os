@@ -43,6 +43,7 @@ from fibsem.applications.autolamella.workflows.estimate import (
     run_step_seconds,
     task_schedule,
 )
+from fibsem.applications.autolamella.workflows.plan import plan_lamella_run
 from fibsem.structures import BeamType
 from fibsem.ui import notification_service
 from fibsem.ui.run.run_refusal import refused_during_run
@@ -213,14 +214,14 @@ class WorkflowTab(QWidget):
             kind=ITEMS, task_names=tuple(task_names), names=tuple(lamella_names)
         )
 
-        # Before the estimate and the confirmation: a linked lamella whose grid
-        # is in the magazine cannot be run at all, and there is no override.
-        checked = ui.runner.check(ui.experiment, request)
-        if not checked.started:
-            QMessageBox.warning(self, "Cannot run", checked.reason)
+        # Checked before the confirmation: a linked lamella whose grid is in
+        # the magazine cannot be run at all, and there is no override.
+        plan = plan_lamella_run(ui.runner, ui.experiment, request)
+        if not plan.valid:
+            QMessageBox.warning(self, "Cannot run", plan.reason)
             return
 
-        if not confirm_run_workflow_dialog(ui.experiment, request, parent=self):
+        if not confirm_run_workflow_dialog(ui.experiment, plan, parent=self):
             return
 
         started = ui.runner.start(ui.experiment, request)
@@ -607,19 +608,19 @@ class WorkflowTab(QWidget):
         request = RunRequest(
             kind=ITEMS, task_names=tuple(task_names), names=tuple(lamella_names)
         )
-        plan = runner.plan_addition(request, run_next)
-        if isinstance(plan, QueueEdit):
+        plan = plan_lamella_run(
+            runner, self._session.experiment, request, run_next, add=True
+        )
+        if not plan.valid:
             QMessageBox.warning(self, "Cannot add to the queue", plan.reason)
             return
 
-        pending = {(i.item_name, i.task_name) for i in manager.queue.pending}
-        already = [f"{t} for {ln}" for ln, t in plan.pairs if (ln, t) in pending]
         if not confirm_add_to_queue_dialog(
             lamella_names,
             task_names,
             run_next,
-            already,
-            estimate=self._estimate_addition(manager, list(plan.pairs), run_next),
+            plan.already_queued,
+            estimate=plan.addition,
             parent=self,
         ):
             return
