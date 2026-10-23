@@ -25,6 +25,12 @@ import numpy as np
 
 from fibsem.geometry.frames import StageModel
 from fibsem.geometry.projection import BeamStageProjection, lifted
+from fibsem.geometry.stage_places import (
+    BEAMS_DEVICE,
+    holder_is_calibrated,
+    holder_slots,
+    slot_landmark,
+)
 from fibsem.structures import FibsemStagePosition
 from fibsem.theme.tokens import (
     GRID_BOUNDARY_COLOUR,
@@ -43,8 +49,6 @@ logger = logging.getLogger(__name__)
 # the shape it gates cannot drift apart under a rename, and both tabs offer the same
 # three. What each tab draws *besides* these -- saved positions, grid bars -- is its own
 # and keeps its keys there.
-# The device holder places are written against; see `at_frame_device`.
-BEAMS_DEVICE = "FIBSEM"
 
 OVERLAY_LIMITS = "limits"
 OVERLAY_BOUNDARIES = "boundaries"
@@ -67,14 +71,6 @@ CONTEXT_OVERLAY_ENTRIES = (
     (OVERLAY_BOUNDARIES, "Grid boundaries", False),
     (OVERLAY_SLOTS, "Holder slots", False),
 )
-
-
-def holder_is_calibrated(microscope) -> bool:
-    """Whether the holder has a slot with a trusted position: the one case in
-    which the grid boundary and the slot marker describe something real."""
-    return any(
-        getattr(slot, "is_calibrated", False) for slot in holder_slots(microscope)
-    )
 
 
 def context_overlay_entries(microscope):
@@ -224,57 +220,6 @@ def canvas_span(frame: StageFrame, length: float) -> Tuple[float, float]:
     along_x, _ = frame.to_canvas(landmark(frame, length, 0.0))
     span_x = abs(along_x - ox)
     return span_x, span_x * frame.surface_foreshortening()
-
-
-def holder_slots(microscope) -> List[object]:
-    """The sample holder's slots, or nothing if the stage does not describe one."""
-    try:
-        return list(microscope.sample_handling.holder.slots.values())
-    except Exception:
-        return []
-
-
-def slot_landmark(microscope, slot: object) -> Optional[FibsemStagePosition]:
-    """Where a holder slot sits, as a position that can be drawn in any view.
-
-    A slot position may carry x/y/z and **nothing else**: a holder file states three
-    numbers per slot and `SampleHolder.load` leaves `r` and `t` as None. Handed to
-    `frame.to_canvas` that raises -- and the fluorescence tab did exactly that, so a
-    two-slot shuttle would have drawn no slot markers at all. The simulator's holder
-    hides it: `_ensure_slots` invents its slot with r=0.
-
-    The missing rotation is the **SEM orientation**, which is the frame the holder file
-    is written in. Stamped here rather than assumed away, because it is what makes a slot
-    re-expressible: a shuttle's grids sit at x = -5 mm and +5 mm, and after a 180-degree
-    rotation the raw coordinate that reaches a given grid is the *other* one. Carrying
-    the pose lets `BeamStageProjection` see the difference and apply the compucentric
-    flip, exactly as it does for a position recorded at one orientation and drawn at
-    another.
-
-    So **not** `landmark`, which takes the frame's own rotation precisely to stop that
-    flip firing. A travel-envelope corner is a place in the frame being drawn; a slot is
-    a place on the holder, and the holder turns over with the stage.
-
-    No hardware: `get_orientation` is a lookup over the configured orientations. On a
-    compustage every orientation shares one rotation, so this is the identity and the
-    slots draw where they always did.
-    """
-    position = getattr(slot, "position", None)
-    if position is None:
-        return None
-    try:
-        pose = microscope.get_orientation("SEM")
-    except Exception as e:
-        logger.debug(f"Could not resolve the holder's reference orientation: {e}")
-        return None
-    return FibsemStagePosition(
-        name=position.name or "",
-        x=position.x,
-        y=position.y,
-        z=position.z or 0.0,
-        r=pose.r,
-        t=pose.t,
-    )
 
 
 def nearest_slot_landmark(

@@ -26,9 +26,12 @@ edit runs where the session edits the experiment, and a window redraws on the
 experiment's events and ``session.changed``.
 """
 
+import dataclasses
+import functools
 import logging
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fibsem.acting import Actor
@@ -49,6 +52,8 @@ from fibsem.server.responses import (
     ItemDetail,
     ItemMillingDrawn,
     ProtocolView,
+    ReplayTimeline,
+    ReplayView,
     SummaryRow,
     TaskOutputs,
 )
@@ -379,6 +384,34 @@ class AutoLamellaAppContext(AppContext):
             **result.to_dict(),
             "plot": {"image_b64_jpeg": base64.b64encode(result.plot_jpeg()).decode()},
         }
+
+    # --- replay: the recorded actions, stepped through on the web page ---------
+
+    @functools.cached_property
+    def _replay_reader(self):
+        from fibsem.applications.autolamella.server.replay import ReplayReader
+
+        return ReplayReader()
+
+    def replay(self) -> ReplayTimeline:
+        experiment = self._experiment
+        if experiment is None:
+            return ReplayTimeline(available=False, error="No experiment is open.")
+        return self._replay_reader.timeline(Path(experiment.path))
+
+    def replay_scene(self, index: int, item: Optional[str] = None):
+        experiment = self._experiment
+        if experiment is None:
+            return ReplayView(available=False, error="No experiment is open.")
+        # Named for the lamella: a saved position's own name is often empty.
+        positions = [
+            dataclasses.replace(lamella.stage_position, name=lamella.name)
+            for lamella in experiment.positions
+            if lamella.stage_position is not None
+        ]
+        return self._replay_reader.view(
+            Path(experiment.path), index, item, self._microscope, positions
+        )
 
     # --- grids: the screening read model ----------------------------
 

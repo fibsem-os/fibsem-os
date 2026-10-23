@@ -13,6 +13,7 @@ tagged with it and served only when the context implements that part.
 """
 
 import functools
+import gzip
 import json
 import os
 from typing import Any, Dict, List, Optional, Tuple
@@ -24,7 +25,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.routing import APIRoute
 
 from fibsem.ai.agent.calls import current_call
-from fibsem.server import exports, files
+from fibsem.server import exports, files, planes
 from fibsem.server.auth import refuse_dashboard, take_control
 from fibsem.server.parts import (
     GRIDS,
@@ -32,6 +33,7 @@ from fibsem.server.parts import (
     LAMELLAE,
     MILLING_STAGES,
     POSES,
+    REPLAY,
     served_parts,
 )
 from fibsem.server.responses import (
@@ -74,6 +76,8 @@ from fibsem.server.responses import (
     QueueEdited,
     RecentExperiments,
     Recorded,
+    ReplayTimeline,
+    ReplayView,
     Requeued,
     RunPlan,
     RunStarted,
@@ -334,6 +338,13 @@ def _app_type(context: Any, base: type) -> type:
 _JPEG = {200: {"content": {"image/jpeg": {}}, "description": "A JPEG image."}}
 # A file read raw (``raw=true``) answers the file as it is.
 _RAW_FILE = {200: {"content": {"application/octet-stream": {}}}}
+_PLANES = {
+    200: {
+        "content": {"application/octet-stream": {}},
+        "description": "The planes' values; the X-Planes header says their shape.",
+    }
+}
+
 # An export answers the file it makes, to download.
 _EXPORT = {
     200: {
@@ -434,6 +445,14 @@ def build_app_router(context: Any) -> APIRouter:
     )
     def item_stack(item_name: str, role: str):
         return _typed(context.item_stack(item_name, role))
+
+    @router.get("/experiment/replay", tags=[REPLAY], response_model=ReplayTimeline)
+    def replay():
+        return _typed(context.replay())
+
+    @router.get("/experiment/replay/{index}", tags=[REPLAY], response_model=ReplayView)
+    def replay_scene(index: int, item: Optional[str] = None):
+        return _typed(context.replay_scene(index, item))
 
     @router.get(
         "/experiment/items/{item_name}",
@@ -833,6 +852,42 @@ def build_app_router(context: Any) -> APIRouter:
         )
         _record_read(experiment, path, False)
         return JSONResponse(jsonable_encoder(answer), headers=cache)
+
+    @router.get("/experiment/planes/{path:path}", responses=_PLANES)
+    def read_planes(
+        request: Request,
+        path: str,
+        factor: int = 1,
+        z: Optional[str] = None,
+        first: Optional[int] = None,
+        last: Optional[int] = None,
+        channels: Optional[str] = None,
+        experiment: Optional[str] = None,
+    ):
+        # An image's raw planes for the web viewer, which draws them itself: the
+        # values as stored, gzipped, C-order, little-endian; X-Planes says their
+        # (C, Z, Y, X) shape, dtype and channels. factor 1, 4 or 8; z a plane
+        # (0 the first), "all", or max/mean/min over first..last.
+        picked = [c for c in (channels or "").split(",") if c] or None
+        plane = int(z) if z is not None and z.lstrip("-").isdigit() else z
+        query = ("planes", factor, z, first, last, channels)
+        tag = _files_answer(experiment, files.read_etag, path, *query)
+        cache = {"ETag": tag, "Cache-Control": "no-cache"} if tag else {}
+        if tag is not None and request.headers.get("if-none-match") == tag:
+            return Response(status_code=304, headers=cache)
+        header, data = _files_answer(
+            experiment, planes.read, path, factor, plane, first, last, picked
+        )
+        _record_read(experiment, path, False)
+        return Response(
+            gzip.compress(data.tobytes(), compresslevel=1),
+            media_type="application/octet-stream",
+            headers={
+                **cache,
+                "Content-Encoding": "gzip",
+                "X-Planes": json.dumps(header),
+            },
+        )
 
     # -- exports: the Qt export dialogs' files, for a person to download ---------
     # Each renders, so a POST computes and changes nothing; FastAPI runs these
