@@ -1,8 +1,8 @@
 """An image as an agent-sized preview payload, for a proposal's reference image,
 and what the bar under an image says of it.
 
-Accepts a FibsemImage or a bare array (a fluorescence composite). Everything
-returned is plain data.
+Accepts a FibsemImage, a FluorescenceImage or a bare array (a fluorescence
+composite). Everything returned is plain data.
 """
 
 import base64
@@ -38,7 +38,7 @@ def _acquired_at(image) -> Optional[str]:
 def image_payload(image) -> Optional[Dict[str, Any]]:
     """A preview plus the scale facts needed to map coordinates onto it.
 
-    Accepts a FibsemImage or a bare ndarray. For a FibsemImage this is the
+    Accepts a FibsemImage, a FluorescenceImage or a bare ndarray. For a FibsemImage this is the
     acquisition endpoints' own payload (``width``/``height`` of the downscaled
     rendition, ``full_width``/``full_height`` of the source, ``hfw``,
     ``beam_type``, ``pixelsize`` in metres per *source* pixel). Bare arrays
@@ -49,6 +49,10 @@ def image_payload(image) -> Optional[Dict[str, Any]]:
     """
     if image is None:
         return None
+    from fibsem.fm.structures import FluorescenceImage
+
+    if isinstance(image, FluorescenceImage):
+        return _fluorescence_payload(image)
     if hasattr(image, "metadata"):
         try:
             from fibsem.server.images import preview_payload
@@ -143,3 +147,23 @@ def fields_info(
         "time": time,
         "scalebar": scalebar,
     }
+
+
+def _fluorescence_payload(image) -> Optional[Dict[str, Any]]:
+    """A fluorescence image as the FM canvas draws it: each channel's max
+    projection in its colour, with its pixel size and when it was taken."""
+    try:
+        from fibsem.fm.preview import composite_projection
+        from fibsem.server.images import array_preview_payload
+
+        md = image.metadata
+        payload = array_preview_payload(
+            composite_projection(image), pixel_size=md.pixel_size_x
+        )
+    except Exception:
+        return None
+    if md.pixel_size_x is not None:
+        payload["hfw"] = float(md.pixel_size_x) * payload["full_width"]
+    acquired = md.acquisition_datetime
+    payload["acquired_at"] = acquired.isoformat() if acquired is not None else None
+    return payload

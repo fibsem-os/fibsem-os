@@ -577,7 +577,8 @@ class AppContext:
     # --- instrument-adjacent (cached only, never a hardware call) --------------
 
     def display_images(self) -> DisplayImages:
-        """The SEM/FIB images the GUI is displaying right now, as previews.
+        """The SEM/FIB images the GUI is displaying right now, and the FM's
+        latest frame, as previews.
 
         This is the display cache, not an acquisition: nothing touches
         hardware, and the workflow's post-mill images appear here the moment
@@ -588,20 +589,24 @@ class AppContext:
         whole on acquisition, never mutated in place) and encodes previews on
         the server thread; the GUI thread is neither entered nor blocked.
         """
-        from fibsem.server.image_payloads import image_payload
+        from fibsem.server.image_payloads import image_info, image_payload
 
         images = self._latest_images
         if images is None:
             return DisplayImages(available=False)
 
-        def preview(beam_type):
-            payload = image_payload(images.get(beam_type))
-            return decode(ImagePayload, payload) if payload is not None else None
+        def preview(image):
+            payload = image_payload(image)
+            if payload is None:
+                return None
+            return decode(ImagePayload, {**payload, "info": image_info(image)})
 
         return DisplayImages(
             available=True,
-            sem=preview(BeamType.ELECTRON),
-            fib=preview(BeamType.ION),
+            sem=preview(images.get(BeamType.ELECTRON)),
+            fib=preview(images.get(BeamType.ION)),
+            fm=preview(images.get_fm()),
+            fm_available=getattr(self._microscope, "fm", None) is not None,
         )
 
     @property

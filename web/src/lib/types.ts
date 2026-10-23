@@ -74,12 +74,15 @@ export interface ImagePayload {
   hfw?: number;
   beam_type?: string;
   acquired_at?: string | null;
+  info?: ImageInfo | null;
 }
 
 export interface DisplayImages {
   available: boolean;
   sem: ImagePayload | null;
   fib: ImagePayload | null;
+  fm?: ImagePayload | null;
+  fm_available?: boolean;
 }
 
 export interface PairedComputer {

@@ -54,11 +54,7 @@ Homepage = "https://github.com/fibsem-os/fibsem-os"
 
 [project.optional-dependencies]
 ml = [
-    "tqdm>=4.65.0",
-    "zarr>=2.13.6",
-    "dask>=2023.3.0",
     "torch>=2.0.0,<=2.3.0",
-    "torchvision>=0.15.1",
     "segmentation-models-pytorch>=0.3.2",
     "plotly>=5.14.1",
     "kaleido==0.2.0",
