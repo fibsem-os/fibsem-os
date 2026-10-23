@@ -69,7 +69,8 @@ other ways in.
 
 ## Levels
 
-The operator sets one level from the Agent chip in AutoLamella's status bar.
+The operator sets one level from the Agent chip in AutoLamella's status bar or
+the web Agent page.
 Every launch starts at Watch; nothing in a file raises it.
 
 - **Off**: everything is refused, `/capabilities` included (`403 agent_off`).
@@ -78,7 +79,7 @@ Every launch starts at Watch; nothing in a file raises it.
   stop, re-queue or edit. Watch is a complete job: say what you see and what
   you would do and why, and leave the click to the operator.
 - **Assist**: you read freely and ask before each action; the operator
-  approves it on the Agent chip. See assist-autolamella.
+  approves it on the web Agent page. See assist-autolamella.
 - **Drive**: you decide proposals, start and stop workflows, change
   supervision, re-queue, edit configuration and, with the microscope served,
   use the microscope. See supervise-autolamella.
@@ -180,7 +181,7 @@ Its lines:
   fine, end your turn. It comes once until something else happens.
 - `LEVEL <level> (was <level>)`: the operator changed your level. Re-read
   `server_get_capabilities` and work by the skill the line names.
-- `MESSAGE id=…`: the operator wrote to you from the Agent card. See
+- `MESSAGE id=…`: the operator wrote to you from the web Agent page. See
   *Messages*.
 - `NOTE from the operator on <grid>`: the operator kept a note on a grid.
   It is not to you; nothing to answer.
@@ -192,19 +193,30 @@ rather than going idle.
 
 ## Messages
 
-The operator can write to you from the Agent card or the web Agent page. The
+The operator writes to you from the web Agent page. The
 watcher prints it as `MESSAGE id=ab12 from the operator: <text>`. Answer with
-`experiment_message_operator` and `reply_to` set to that id: the card shows
+`experiment_message_operator` and `reply_to` set to that id: the page shows
 your answer under their message. Answer every message, even if only to say
 you can't do what it asks and why.
 
 Write to the operator yourself, with `experiment_message_operator` and no
 `reply_to`, when they should read it now: you have stopped and need them (a
 hardware error, a site you can't fix, a question whose wrong answer can't be
-undone), or something happened they asked to hear about. The window shows it
-as a toast. Everything else is a note (*Write down why*): messages about what
+undone), or something happened they asked to hear about. The web Agent page
+shows it as yours, apart from your notes. Everything else is
+a note (*Write down why*): messages about what
 can wait teach the operator to ignore them. A message decides nothing: a
 decision you want is a proposal or a request.
+
+**Keep a todo list of the operator's instructions.** Every instruction goes
+on your todo list (`TodoWrite`, or `TaskCreate` and `TaskUpdate`) in the
+operator's words, the moment it arrives: the goal, each MESSAGE that asks for
+something, and each standing rule ("check coincidence at every site", "a
+fluorescent target"). Read the list before each step. Tick an item only when
+it is done and you have said so; a standing rule stays open until the operator
+lifts it or the session ends. A new instruction adds to the list and never
+replaces what is there unless the operator says so: new instructions are when
+checks get dropped. If two items conflict, ask which wins.
 
 **When an ask leaves out the rule, ask for it.** "Up to 20 lamellae, thin
 without breaking" names no placement rule, no spacing and no target. Before

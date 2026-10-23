@@ -55,7 +55,6 @@ from fibsem.detection.detection import (
     LamellaBottomEdge,
     LamellaCentre,
     LamellaTopEdge,
-    VolumeBlockCentre,
 )
 from fibsem.fm.structures import ChannelSettings
 from fibsem.microscope import FibsemMicroscope

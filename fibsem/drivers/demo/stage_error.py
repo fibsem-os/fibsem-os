@@ -6,7 +6,8 @@ Off unless the configuration asks for it::
         stage_error:
             enabled: true
             scale: [1.06, 1.09]   # x, y: how far the stage really goes per metre it reports
-            jitter: 0.01          # each move lands off by up to about this fraction of it
+            jitter: 0.01          # each move lands off by about this fraction of it (sigma)
+            jitter_max: 2.0e-6    # m: no more than this sigma, however long the move
             seed: null            # an int repeats the same jitter run to run
 
 The stage still reads back the position it was sent to, as a real stage's encoders
@@ -17,8 +18,8 @@ right, which is what the Arctis overviews showed and what the tile layout check 
 
 The scale is about where the stage was when the simulator started, so a position
 reached twice is the same place, give or take the jitter. The jitter is drawn fresh
-on every move, in proportion to that move's length on each axis, and does not add up
-from one move to the next.
+on every move, in proportion to that move's length on each axis up to `jitter_max`, and
+does not add up from one move to the next.
 """
 
 from __future__ import annotations
@@ -38,10 +39,12 @@ class StageMoveError:
         self,
         scale: Tuple[float, float] = (1.0, 1.0),
         jitter: float = 0.0,
+        jitter_max: float = 2e-6,
         seed: Optional[int] = None,
     ):
         self.scale = (float(scale[0]), float(scale[1]))
         self.jitter = float(jitter)
+        self.jitter_max = float(jitter_max)
         self._rng = np.random.default_rng(seed)
         self.origin: Tuple[float, float] = (0.0, 0.0)
         # This move's jitter (m, x and y), drawn by `moved`.
@@ -62,6 +65,7 @@ class StageMoveError:
         return cls(
             scale=tuple(scale),
             jitter=config.get("jitter", 0.0),
+            jitter_max=config.get("jitter_max", 2e-6),
             seed=config.get("seed"),
         )
 
@@ -78,10 +82,11 @@ class StageMoveError:
         dy = abs((after.y or 0.0) - (before.y or 0.0))
         # An axis that did not move stays where its last move left it.
         rx, ry = self.residual
-        self.residual = (
-            float(self._rng.normal(0.0, self.jitter * dx)) if dx else rx,
-            float(self._rng.normal(0.0, self.jitter * dy)) if dy else ry,
-        )
+        self.residual = (self._draw(dx) if dx else rx, self._draw(dy) if dy else ry)
+
+    def _draw(self, distance: float) -> float:
+        sigma = min(self.jitter * distance, self.jitter_max)
+        return float(self._rng.normal(0.0, sigma))
 
     def calibrated(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """Where a move to `position` lands, leaving out the jitter: where a

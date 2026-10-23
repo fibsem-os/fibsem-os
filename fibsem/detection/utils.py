@@ -11,7 +11,7 @@ from PIL import Image
 from fibsem import config as cfg
 from fibsem import utils
 from fibsem.detection.detection import DetectedFeatures, Feature
-from fibsem.structures import FibsemImage, FibsemImageMetadata, Point
+from fibsem.structures import FibsemImageMetadata
 
 
 def decode_segmap(image, nc=3):
@@ -35,32 +35,6 @@ def decode_segmap(image, nc=3):
     # stack rgb channels to form an image
     rgb_mask = np.stack([r, g, b], axis=2)
     return rgb_mask
-
-
-def scale_pixel_coordinates(
-    px: Point, from_image: FibsemImage, to_image: FibsemImage
-) -> Point:
-    """Scale the pixel coordinate from one image to another"""
-
-    invariant_pt = get_scale_invariant_coordinates(px, from_image.data.shape)
-
-    scaled_px = scale_coordinate_to_image(invariant_pt, to_image.data.shape)
-
-    return scaled_px
-
-
-def get_scale_invariant_coordinates(point: Point, shape: tuple) -> Point:
-    """Convert the point coordinates from image coordinates to scale invariant coordinates"""
-    scaled_pt = Point(x=point.x / shape[1], y=point.y / shape[0])
-
-    return scaled_pt
-
-
-def scale_coordinate_to_image(point: Point, shape: tuple) -> Point:
-    """Scale invariant coordinates to image shape"""
-    scaled_pt = Point(x=int(point.x * shape[1]), y=int(point.y * shape[0]))
-
-    return scaled_pt
 
 
 # TODO: add experiment, method
