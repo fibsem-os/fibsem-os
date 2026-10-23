@@ -3,7 +3,7 @@ import { useState, type ReactNode } from "react";
 import { MarkLayer } from "@/components/marks";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { api } from "@/lib/api";
-import { AGENT_MARK, listMarks } from "@/lib/marks";
+import { AGENT_MARK, OPERATOR_MARK, listMarks } from "@/lib/marks";
 import type { EvidenceAnswer } from "@/lib/types";
 
 /** Click to see it large. */
@@ -47,7 +47,12 @@ export function EvidenceImage({ id }: { id: string }) {
             alt="The image the agent judged from"
             src={`data:image/jpeg;base64,${p.image_b64_jpeg}`}
           />
-          <MarkLayer marks={listMarks(answer.data?.marks)} width={w} height={h} color={AGENT_MARK} />
+          <MarkLayer
+            marks={listMarks(answer.data?.marks)}
+            width={w}
+            height={h}
+            color={answer.data?.by === "operator" ? OPERATOR_MARK : AGENT_MARK}
+          />
         </div>
       )}
     </Enlargeable>

@@ -207,6 +207,8 @@ export interface EvidenceAnswer {
   preview: ImagePayload | null;
   marks: Marks | null;
   path: string;
+  by?: "operator" | "agent";
+  channels?: string[] | null;
 }
 
 /** One experiment in /app/experiment/recent. */
