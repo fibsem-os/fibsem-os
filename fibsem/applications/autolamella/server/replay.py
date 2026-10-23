@@ -5,7 +5,7 @@ actions, and the images and overlays at any one of them
 import logging
 import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 from fibsem.applications.autolamella.tools.replay import (
     LOGFILE_NAME,
