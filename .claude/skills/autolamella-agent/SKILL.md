@@ -69,7 +69,8 @@ other ways in.
 
 ## Levels
 
-The operator sets one level from the Agent chip in AutoLamella's status bar.
+The operator sets one level from the Agent chip in AutoLamella's status bar or
+the web Agent page.
 Every launch starts at Watch; nothing in a file raises it.
 
 - **Off**: everything is refused, `/capabilities` included (`403 agent_off`).
@@ -78,7 +79,7 @@ Every launch starts at Watch; nothing in a file raises it.
   stop, re-queue or edit. Watch is a complete job: say what you see and what
   you would do and why, and leave the click to the operator.
 - **Assist**: you read freely and ask before each action; the operator
-  approves it on the Agent chip. See assist-autolamella.
+  approves it on the web Agent page. See assist-autolamella.
 - **Drive**: you decide proposals, start and stop workflows, change
   supervision, re-queue, edit configuration and, with the microscope served,
   use the microscope. See supervise-autolamella.
@@ -180,7 +181,7 @@ Its lines:
   fine, end your turn. It comes once until something else happens.
 - `LEVEL <level> (was <level>)`: the operator changed your level. Re-read
   `server_get_capabilities` and work by the skill the line names.
-- `MESSAGE id=…`: the operator wrote to you from the Agent card. See
+- `MESSAGE id=…`: the operator wrote to you from the web Agent page. See
   *Messages*.
 - `NOTE from the operator on <grid>`: the operator kept a note on a grid.
   It is not to you; nothing to answer.
@@ -192,17 +193,18 @@ rather than going idle.
 
 ## Messages
 
-The operator can write to you from the Agent card or the web Agent page. The
+The operator writes to you from the web Agent page. The
 watcher prints it as `MESSAGE id=ab12 from the operator: <text>`. Answer with
-`experiment_message_operator` and `reply_to` set to that id: the card shows
+`experiment_message_operator` and `reply_to` set to that id: the page shows
 your answer under their message. Answer every message, even if only to say
 you can't do what it asks and why.
 
 Write to the operator yourself, with `experiment_message_operator` and no
 `reply_to`, when they should read it now: you have stopped and need them (a
 hardware error, a site you can't fix, a question whose wrong answer can't be
-undone), or something happened they asked to hear about. The window shows it
-as a toast. Everything else is a note (*Write down why*): messages about what
+undone), or something happened they asked to hear about. The web Agent page
+shows it as yours, apart from your notes. Everything else is
+a note (*Write down why*): messages about what
 can wait teach the operator to ignore them. A message decides nothing: a
 decision you want is a proposal or a request.
 
@@ -673,7 +675,10 @@ ends either one. `fm_acquire_overview` is the fluorescence one, from the FM
 pose with the objective in and near its focus: inserted is not enough. Go to
 the item's stored objective position (`item_move_to_objective_position`) or
 run `fm_auto_focus` first, for any FM image. Focus in reflection, not in a
-fluorescence channel. Its `settings` set the sweep
+fluorescence channel. Once it is in focus, `fm_save_focus_position` saves
+that objective position: an overview with `objective_start` `focus` starts
+there (and is refused while none is saved). `fm_auto_focus`'s `settings` set
+the sweep
 (`passes` of `search_range` and `step_size`, in metres of objective travel),
 and `fm_acquire_overview` takes the same as `autofocus_settings` for its
 `autofocus_mode`. `fm_estimate_overview` gives its whole run time,

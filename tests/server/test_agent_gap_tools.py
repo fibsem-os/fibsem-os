@@ -476,6 +476,19 @@ def test_the_microscope_state_goes_back_to_a_saved_one(driving, arctis):  # noqa
     assert now.x == pytest.approx(saved["stage_position"]["x"], abs=1e-9)
 
 
+def test_the_agent_saves_the_objective_focus_position(driving, arctis):  # noqa: F811
+    """As the FM tab's Set Focus Position does; the limit stays the operator's."""
+    _ok(_call(driving, "fm_save_focus_position"))
+    position = arctis.fm.objective.position
+    read = _ok(driving.get("/microscope/devices/objective/focus_position"))
+    assert read["value"] == pytest.approx(position)
+    assert arctis.fm.objective.focus_position == pytest.approx(position)
+    limit = driving.put(
+        "/microscope/devices/objective/limit_position", json={"value": 1e-3}
+    )
+    assert limit.json()["detail"]["error_type"] == "not_allowed"
+
+
 def test_a_device_query_answers(driving):
     answer = _ok(
         _call(
@@ -565,6 +578,7 @@ def test_alignment_methods_are_compared_on_saved_images(driving, arctis):  # noq
             ", then unload the last grid",
         ),
         ("microscope_set_state", {"microscope_state": {}}, "the stage moves"),
+        ("fm_save_focus_position", {}, "as the focus position"),
         ("beam_turn_on", {"beam_type": "ION"}, "Turn it on"),
         ("beam_turn_off", {"beam_type": "ION"}, "Turn it off"),
     ],

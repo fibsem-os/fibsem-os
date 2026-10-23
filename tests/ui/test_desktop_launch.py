@@ -12,7 +12,7 @@ pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is delibe
 from PyQt5.QtGui import QColor
 
 import fibsem
-from fibsem.tools import launcher
+from fibsem.tools import desktop_launch as launcher
 from fibsem.tools.apps import ICONS_DIR
 
 
@@ -24,7 +24,7 @@ def test_importing_the_launcher_does_not_load_fibsem_ui():
         [
             sys.executable,
             "-c",
-            "import sys, fibsem.tools.launcher; "
+            "import sys, fibsem.tools.desktop_launch; "
             "print(sorted(m for m in sys.modules if m.startswith('fibsem.ui')))",
         ],
         capture_output=True,

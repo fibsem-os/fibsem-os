@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import QApplication
 from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
 from fibsem.tools.app_identity import set_app_identity
 from fibsem.tools.apps import AUTOLAMELLA
-from fibsem.tools.launcher import Splash
+from fibsem.tools.desktop_launch import Splash
 from fibsem.ui.icon import autolamella_icon
 from fibsem.ui.qt.gc import install_main_thread_gc
 
@@ -71,7 +71,7 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
 def run_ui(argv: Optional[List[str]] = None, splash: Optional[Splash] = None):
     """Run the AutoLamella UI.
 
-    ``splash`` is the launcher's splash screen (fibsem.tools.launcher), closed once the
+    ``splash`` is the launcher's splash screen (fibsem.tools.desktop_launch), closed once the
     main window is up.
     """
     import faulthandler

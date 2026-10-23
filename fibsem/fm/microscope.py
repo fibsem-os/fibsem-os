@@ -120,13 +120,17 @@ class ObjectiveLens:
     # if the slot touches widgets, and disconnect on teardown: this is psygnal, so
     # nothing is severed for you when the C++ object goes (FIB-550).
     position_changed = Signal(float, InsertableDeviceState)
+    # The saved focus position, whoever saved it (the FM tab, the agent): the
+    # device parameter's changes, or None when cleared. Same threading as above.
+    focus_position_changed = Signal(object)
 
     """The FM API's objective lens: what the FM UI and workflows call.
 
     Its position, magnification and numerical aperture, and moving it, inserting it and
     retracting it; each implementation answers them from its own hardware (the FM
     devices, ``fibsem.fm.microscope``).
-    The saved focus position is the session's, not the hardware's, so it is kept here.
+    The saved focus position is the objective device's ``focus_position``, so the App
+    Server serves it too.
 
     Attributes:
         parent: Reference to the parent fluorescence microscope
@@ -151,7 +155,14 @@ class ObjectiveLens:
         """
         self.parent = parent
         self._device = device
-        self._focus_position: Optional[float] = None  # a session setting, kept here
+        # Only for a subclass with no device (the legacy simulator).
+        self._focus_position: Optional[float] = None
+        if device is not None:
+            device.changed.connect(self._device_changed)
+
+    def _device_changed(self, name: str, value: Any) -> None:
+        if name == "focus_position":
+            self.focus_position_changed.emit(value)
 
     def _notify_moved(self) -> None:
         """Announce where the objective ended up, for displays to refresh on (FIB-534).
@@ -211,31 +222,27 @@ class ObjectiveLens:
 
     @property
     def focus_position(self) -> Optional[float]:
-        """Get the focus position of the objective lens.
-
-        Returns:
-            The focus position in meters, or None if not set
-        """
-        return self._focus_position
+        """The saved focus position, in metres, or None if none is saved."""
+        if self._device is None:
+            return self._focus_position
+        return _param(self._device, "focus_position").get_value()
 
     @focus_position.setter
     def focus_position(self, position: Optional[float]):
-        """Set the focus position of the objective lens, or None to clear it.
-
-        The getter has always been `Optional[float]` -- an objective has no saved focus
-        until someone saves one -- but the setter took a bare float and formatted it
-        into its own log line, so clearing raised a TypeError from inside logging.
-
-        Args:
-            position: The focus position in metres, or None to forget it.
-        """
-        self._focus_position = position
-        if position is None:
-            logging.info("Objective focus position cleared.")
+        """Save a focus position, in metres, or None to forget it."""
+        if self._device is None:
+            self._focus_position = position
+            self.focus_position_changed.emit(position)
             return
-        logging.info(
-            f"Objective focus position set to: {self._focus_position * 1e3:.3f} mm"
-        )
+        _param(self._device, "focus_position").write_through(position)
+
+    def save_focus_position(self) -> float:
+        """Save where the objective is now as its focus position: the device's
+        ``save_focus_position`` command, as the agent's tool calls it."""
+        if self._device is None:
+            self.focus_position = self.position
+            return self.position
+        return self._device.save_focus_position()
 
     @property
     def limit_position(self) -> float:

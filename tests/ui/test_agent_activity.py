@@ -1,5 +1,5 @@
 """The window says what the agent is doing on the microscope (FIB-1375): the status
-bar's line while the agent is in control, and a toast for an action that runs on."""
+bar's line while the agent is in control, and no toast."""
 
 import os
 
@@ -14,10 +14,8 @@ pytest.importorskip("PyQt5")
 
 from fibsem.acting import AGENT, OPERATOR, WORKFLOW  # noqa: E402
 from fibsem.control import Control  # noqa: E402
-from fibsem.ui.agent import activity as agent_activity  # noqa: E402
-from fibsem.ui.agent.activity import (  # noqa: E402
-    AgentActivity,
-)
+from fibsem.ui import notification_service  # noqa: E402
+from fibsem.ui.agent.activity import OVERLAY_ID, AgentActivity  # noqa: E402
 from fibsem.ui.widgets.status_bar import FibsemStatusBar  # noqa: E402
 
 
@@ -32,11 +30,12 @@ def _wait(ms: int) -> None:
 @pytest.fixture
 def toasts(monkeypatch):
     shown = []
-    monkeypatch.setattr(
-        agent_activity.notification_service,
-        "show_toast",
-        lambda message, kind="info": shown.append(message),
-    )
+    for name in ("show", "show_toast"):
+        monkeypatch.setattr(
+            notification_service,
+            name,
+            lambda message, *args, **kwargs: shown.append(message),
+        )
     return shown
 
 
@@ -59,7 +58,15 @@ def test_the_line_follows_the_agent_in_control(window, toasts):
         assert bar.text.startswith("Agent focus sweep")
     assert activity.action is None
     assert bar.showing != "agent"
-    assert toasts == []  # over at once: no toast
+    assert toasts == []
+
+
+def test_an_action_that_runs_on_is_no_toast(window, toasts):
+    _bar, activity, control = window
+    with control.take(AGENT, "focus sweep"):
+        _wait(60)
+        assert activity.now is not None
+    assert toasts == []
 
 
 def test_a_run_or_the_operator_in_control_is_not_the_agent(window):
@@ -97,18 +104,6 @@ def test_a_take_on_a_server_thread_reaches_the_line(window):
     thread.join(5)
     _wait(50)
     assert activity.action is None
-
-
-def test_an_action_that_runs_on_is_announced_and_its_end_too(
-    window, toasts, monkeypatch
-):
-    monkeypatch.setattr(agent_activity, "ANNOUNCE_MS", 10)
-    _bar, _activity, control = window
-    with control.take(AGENT, "focus sweep"):
-        _wait(60)
-        assert toasts == ["Agent: focus sweep"]
-    assert len(toasts) == 2
-    assert toasts[1].startswith("Agent: focus sweep ended after ")
 
 
 class _Views:
@@ -166,7 +161,7 @@ def test_the_agents_patterns_are_drawn_on_the_fib_view_until_the_run_ends(demo):
     microscope, activity, views = demo
     with microscope.control.take(AGENT, "prepare"):
         microscope.milling.prepare(_recipe(), [_rectangle(), _rectangle()])
-    spec = views.overlays[(BeamType.ION, agent_activity.OVERLAY_ID)]
+    spec = views.overlays[(BeamType.ION, OVERLAY_ID)]
     (stage,) = spec.stages
     assert stage.name == "Agent"
     assert len(stage.define_patterns()) == 2
@@ -251,33 +246,3 @@ def test_the_now_line_says_which_mill_how_far_and_how_long_is_left(qapp):
     assert activity.now is None
     activity.set_microscope(None)
     bar.deleteLater()
-
-
-def test_the_agent_s_message_is_a_toast_and_its_note_is_not(window, monkeypatch):
-    from fibsem.workflows.events import EventBuffer
-
-    _, activity, _ = window
-    shown = []
-    monkeypatch.setattr(
-        agent_activity.notification_service,
-        "show",
-        lambda message, kind="info", **kw: shown.append((message, kw.get("always"))),
-    )
-    buffer = EventBuffer()
-    activity.follow_events(buffer)
-    buffer.append("note", {"text": "02 looks fine"}, actor=AGENT)
-    buffer.append(
-        "note",
-        {
-            "text": "Spot burn failed:\nModule is Unavailable",
-            "to": "operator",
-            "id": "c3",
-        },
-        actor=AGENT,
-    )
-    buffer.append(
-        "note", {"text": "skip 03", "to": "agent", "id": "ab12"}, actor=OPERATOR
-    )
-    _wait(50)
-    assert shown == [("Agent: Spot burn failed: Module is Unavailable", True)]
-    activity.follow_events(None)

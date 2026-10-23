@@ -256,6 +256,8 @@ class ObjectiveControlWidget(QWidget):
         # signal outlives the widget, and an emit into one Qt has torn down on the C++
         # side is a segfault rather than an exception (FIB-550).
         self.fm.objective.position_changed.connect(self._on_objective_moved)
+        # A focus position saved elsewhere (the agent) shows here too.
+        self.fm.objective.focus_position_changed.connect(self._on_focus_position_saved)
 
         # set stylesheets
         self.pushButton_insert_objective.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
@@ -556,11 +558,24 @@ class ObjectiveControlWidget(QWidget):
         method of an object whose C++ half `close` has already destroyed -- so the next
         emit writes into freed memory. A segfault, not an exception (FIB-550).
         """
-        try:
-            self.fm.objective.position_changed.disconnect(self._on_objective_moved)
-        except (TypeError, RuntimeError, ValueError, KeyError):
-            pass
+        for signal, slot in (
+            (self.fm.objective.position_changed, self._on_objective_moved),
+            (self.fm.objective.focus_position_changed, self._on_focus_position_saved),
+        ):
+            try:
+                signal.disconnect(slot)
+            except (TypeError, RuntimeError, ValueError, KeyError):
+                pass
         super().closeEvent(event)
+
+    @ensure_main_thread
+    def _on_focus_position_saved(self, position: Optional[float]) -> None:
+        """Show the saved focus position, without writing it back."""
+        self.doubleSpinBox_focus_position.blockSignals(True)
+        self.doubleSpinBox_focus_position.setValue(
+            0.0 if position is None else position * METRE_TO_MICRON
+        )
+        self.doubleSpinBox_focus_position.blockSignals(False)
 
     @pyqtSlot(float)
     def on_objective_position_changed(self, position: float):
@@ -706,8 +721,7 @@ class ObjectiveControlWidget(QWidget):
 
         # set microscope objective focus position
         logging.info(f"Setting focus position to {current_position_um:.1f} µm")
-        self.doubleSpinBox_focus_position.setValue(current_position_um)
-        self.fm.objective.focus_position = self.fm.objective.position
+        self.fm.objective.save_focus_position()
 
     def save_calibration(self) -> None:
         """Write the objective's focus position and insertion limit to the configuration.
