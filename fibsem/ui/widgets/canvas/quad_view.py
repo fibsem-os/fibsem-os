@@ -506,10 +506,6 @@ class LamellaEditorView(QWidget):
         """Show/hide the SEM canvas beside FIB on the beams page."""
         self._sem_panel.setVisible(visible)
 
-    def set_fib_visible(self, visible: bool) -> None:
-        """Show/hide the FIB canvas: hidden when there is only an SEM image."""
-        self._fib_panel.setVisible(visible)
-
 
 class MicroscopeViewController(QObject):
     """The display the main microscope tab's control widgets are handed.
@@ -820,13 +816,6 @@ class MicroscopeViewController(QObject):
         if isinstance(spec, PointsSpec):
             spec.points = list(points)
             self._mark_dirty(canvas)
-
-    def set_selected_point(
-        self, beam: BeamType, overlay_id: str, index: Optional[int]
-    ) -> None:
-        """Select one point on a ``PointsSpec`` overlay, or none. See
-        :meth:`set_selected_points`."""
-        self.set_selected_points(beam, overlay_id, [] if index is None else [index])
 
     def set_selected_points(self, beam: BeamType, overlay_id: str, indices) -> None:
         """Select points on a ``PointsSpec`` overlay (e.g. mirroring table rows).

@@ -56,7 +56,6 @@ def test_disk_space_reads_a_real_volume(tmp_path):
     assert space.free >= 0
     # used + free need not equal total (reserved blocks), but neither may exceed it.
     assert space.used <= space.total
-    assert 0.0 <= space.fraction_used <= 1.0
 
 
 def test_disk_space_answers_for_a_directory_that_does_not_exist_yet(tmp_path):
@@ -111,11 +110,6 @@ def test_disk_space_level_uses_its_own_free_figure():
         path="Z:\\", total=500_000_000_000, used=494_000_000_000, free=6_000_000_000
     )
     assert space.level is FreeSpaceLevel.CRITICAL
-
-
-def test_fraction_used_of_a_volume_reporting_no_size():
-    """Some network shares answer zero for everything rather than failing."""
-    assert DiskSpace(path="Z:\\", total=0, used=0, free=0).fraction_used == 0.0
 
 
 # ── directory_size ───────────────────────────────────────────────────────

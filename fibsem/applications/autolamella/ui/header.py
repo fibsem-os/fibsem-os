@@ -22,7 +22,6 @@ from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.stylesheets import (
     ACCENT_CHIP_BUTTON_STYLESHEET,
     MENU_BUTTON_STYLESHEET,
-    MUTED_GHOST_BUTTON_STYLESHEET,
     PRIMARY_BUTTON_STYLESHEET,
 )
 from fibsem.ui.tokens import ACCENT_COLOR, ERROR_COLOR, TEXT_MUTED_COLOR
@@ -33,8 +32,6 @@ from fibsem.util.timestamps import format_time
 # enough that a default name -- "AutoLamella-" plus a date stamp -- is never elided;
 # the point of the button is to say which experiment is open.
 EXPERIMENT_MENU_MAX_WIDTH = 360
-# The connection chip: a manufacturer and an address, and no more room than that.
-CONNECTION_CHIP_MAX_WIDTH = 220
 # Icons sat on a button, rather than in a menu, are drawn at this size.
 BUTTON_ICON_SIZE = 16
 
@@ -118,19 +115,16 @@ class ExperimentHeader(QWidget):
     def __init__(
         self,
         *,
-        chip_enabled: bool,
         new_experiment: QAction,
         load_experiment: QAction,
         open_experiment_directory: QAction,
         on_new_experiment: Callable[[], None],
         on_load_experiment: Callable[[], None],
-        on_connect: Callable[[], None],
         on_about: Callable[[], None],
         toast_manager: ToastManager,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self._chip_enabled = chip_enabled
         layout = QHBoxLayout(self)
         layout.setContentsMargins(5, 0, 5, 0)
         layout.setSpacing(5)
@@ -147,15 +141,6 @@ class ExperimentHeader(QWidget):
         self.btn_load_experiment.setEnabled(False)
         self.btn_load_experiment.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
         self.btn_load_experiment.clicked.connect(on_load_experiment)
-
-        # Which instrument this session is attached to, and the way back to the
-        # connection dialog -- see update_connection_chip. Behind a flag while the
-        # Connection tab is still how people connect; the dialog itself is
-        # not gated, so File -> Connect to Microscope reaches it either way.
-        self.btn_connection = QPushButton()
-        self.btn_connection.setMaximumWidth(CONNECTION_CHIP_MAX_WIDTH)
-        self.btn_connection.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
-        self.btn_connection.clicked.connect(on_connect)
 
         # The experiment name, once there is one, is itself the control that reaches
         # the create/load actions -- see update_experiment_header.
@@ -195,66 +180,16 @@ class ExperimentHeader(QWidget):
         self.notification_bell = NotificationBell(self)
         toast_manager.set_notification_bell(self.notification_bell)
 
-        # Add widgets to layout. The update chip leads, so it never sits between the
-        # instrument and the experiment it is working on.
+        # Add widgets to layout. The update chip leads, so it never sits beside the
+        # experiment it says nothing about.
         layout.addWidget(self.btn_update_available)
-        if self._chip_enabled:
-            layout.addWidget(self.btn_connection)
         layout.addWidget(self.btn_experiment_menu)
         layout.addWidget(self.btn_create_experiment)
         layout.addWidget(self.btn_load_experiment)
         layout.addWidget(self.notification_bell)
 
-        # The chip has a state before anything connects, and only the connect
-        # handler would otherwise ever set one.
-        self.update_connection_chip(None)
-
     def refresh(self, experiment, microscope) -> None:
-        self.update_connection_chip(microscope)
         self.update_experiment_header(experiment, microscope)
-
-    def update_connection_chip(self, microscope) -> None:
-        """Name the instrument this session attached to, or offer to attach one.
-
-        Identity, not liveness. Nothing watches the link -- `connected_signal` is
-        emitted off `bool(self.microscope)`, a Python reference -- so a
-        chip claiming "Connected" would keep claiming it through a pulled cable.
-        What it connected to is a fact established once, and it does not decay.
-        """
-        if not self._chip_enabled:
-            return
-
-        if microscope is None:
-            # The same words as the Connection tab's button and the File menu
-            # entry: three doors to one action should not each name it differently.
-            self.btn_connection.setText("Connect to Microscope")
-            self.btn_connection.setIcon(QIcon())
-            self.btn_connection.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
-            self.btn_connection.setToolTip("Choose a configuration and connect")
-            return
-
-        # `system.info` is a stored record, not a question put to the instrument.
-        info = microscope.system.info
-        # Flat and muted, like the experiment name beside it: once connected this
-        # says where you are, and only the unconnected state asks for a click.
-        set_button_icon(self.btn_connection, "mdi:connection")
-        self.btn_connection.setStyleSheet(MUTED_GHOST_BUTTON_STYLESHEET)
-        self.btn_connection.setToolTip(
-            f"{info.manufacturer} {info.model} at {info.ip_address}\n"
-            f"Serial number: {info.serial_number}\n"
-            "Click to change the connection."
-        )
-
-        label = f"{info.manufacturer}  {info.ip_address}"
-        self.btn_connection.setText(label)
-        overflow = self.btn_connection.sizeHint().width() - CONNECTION_CHIP_MAX_WIDTH
-        if overflow > 0:
-            metrics = self.btn_connection.fontMetrics()
-            self.btn_connection.setText(
-                metrics.elidedText(
-                    label, Qt.ElideRight, metrics.horizontalAdvance(label) - overflow
-                )
-            )
 
     def update_experiment_header(self, experiment, microscope) -> None:
         """Show either the create/load buttons or the experiment menu, never both.
@@ -266,12 +201,9 @@ class ExperimentHeader(QWidget):
         """
         is_connected = microscope is not None
 
-        # With the chip, neither button is on screen before there is a microscope:
-        # a greyed-out pair beside a Connect chip is the same spent chrome the
-        # loaded state used to carry. Without it there is nothing else in the header
-        # to connect from, so they stay visible-but-disabled as they were. Both
-        # branches go when the flag does.
-        show = experiment is None and (is_connected or not self._chip_enabled)
+        # Before a microscope connects they stay visible but disabled: the Connection
+        # tab is where connecting happens.
+        show = experiment is None
         for button in (self.btn_create_experiment, self.btn_load_experiment):
             button.setVisible(show)
             button.setEnabled(experiment is None and is_connected)

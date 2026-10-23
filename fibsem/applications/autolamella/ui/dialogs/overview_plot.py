@@ -4,7 +4,6 @@ import logging
 import os
 from typing import Optional
 
-import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from PyQt5.QtCore import Qt
@@ -12,7 +11,6 @@ from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QCheckBox,
     QColorDialog,
-    QComboBox,
     QDialog,
     QFileDialog,
     QFormLayout,
@@ -20,7 +18,6 @@ from PyQt5.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
-    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -65,28 +62,6 @@ SPINBOX_STYLESHEET = f"""
     }}
     QSpinBox:hover {{
         background-color: {NEUTRAL_750};
-    }}
-"""
-
-COMBOBOX_STYLESHEET = f"""
-    QComboBox {{
-        background-color: {NEUTRAL_800};
-        color: white;
-        border: 1px solid #555;
-        padding: 4px 8px;
-        font-size: 10px;
-        min-width: 150px;
-    }}
-    QComboBox:hover {{
-        background-color: {NEUTRAL_750};
-    }}
-    QComboBox::drop-down {{
-        border: none;
-    }}
-    QComboBox QAbstractItemView {{
-        background-color: {NEUTRAL_800};
-        color: white;
-        selection-background-color: {NEUTRAL_750};
     }}
 """
 
@@ -336,10 +311,6 @@ class OverviewImageWidget(QWidget):
             self._disconnect_canvas_events()
             self.canvas_layout.removeWidget(self.canvas)
             self.canvas.deleteLater()
-
-        # Store the new figure
-        if self.figure is not None and self.figure != new_figure:
-            plt.close(self.figure)
 
         self.figure = new_figure
 
@@ -660,7 +631,6 @@ class OverviewImageWidget(QWidget):
             # User cancelled
             return
 
-        export_figure = None
         try:
             # Rendered fresh rather than saved from the preview. The preview's figure
             # has been resized to the canvas widget, so its shape is the dialog's, not
@@ -686,9 +656,6 @@ class OverviewImageWidget(QWidget):
 
             traceback.print_exc()
             self.info_label.setText(f"Error saving: {str(e)}")
-        finally:
-            if export_figure is not None:
-                plt.close(export_figure)
 
     @staticmethod
     def _match_view_limits(source: Optional[Figure], target: Figure) -> None:

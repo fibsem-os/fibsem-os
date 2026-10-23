@@ -447,11 +447,6 @@ class _Layer:
         # FILL, OUTLINE, AREA or a mark's.
         self.keys: List[Tuple[str, str]] = []
 
-    @property
-    def pattern_shape(self) -> str:
-        """How the legend shows this layer's patterns."""
-        return FILL if self.fill else DASHED if self.dashed else OUTLINE
-
     def add_stages(self, stages, name: str = "") -> None:
         """*stages*' patterns, each named for its stage; or, *name* given,
         bare patterns under that name."""

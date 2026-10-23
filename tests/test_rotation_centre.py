@@ -14,6 +14,7 @@ import pytest
 
 from fibsem import utils
 from fibsem.drivers.autoscript.connection import AutoScriptConnection
+from fibsem.geometry.orientations import compucentric_rotation
 from fibsem.geometry.projection import BeamStageProjection
 from fibsem.imaging.tiling.reprojection import (
     _transform_position,
@@ -113,7 +114,7 @@ class TestGeometry:
 
 
 class TestStageMoves:
-    """`get_target_position` reflects a half turn through -_get_compucentric_rotation_offset."""
+    """A half turn reflects through -_get_compucentric_rotation_offset."""
 
     def test_without_one_it_reflects_through_the_origin_as_before(self):
         microscope, _ = utils.setup_session(manufacturer="Demo")
@@ -121,7 +122,7 @@ class TestStageMoves:
             None  # the Demo names one; this is a driver that does not
         )
         pos = FibsemStagePosition(x=1e-3, y=2e-3, z=0.0, r=0.0, t=0.0)
-        target = microscope._get_compucentric_rotation_position(pos)
+        target = compucentric_rotation(pos, microscope._compucentric_centre())
 
         assert (target.x, target.y) == pytest.approx((-pos.x, -pos.y))
 
@@ -129,7 +130,7 @@ class TestStageMoves:
         microscope, _ = utils.setup_session(manufacturer="Demo")
         microscope.rotation_centre = CENTRE
         pos = FibsemStagePosition(x=1e-3, y=2e-3, z=0.0, r=0.0, t=0.0)
-        target = microscope._get_compucentric_rotation_position(pos)
+        target = compucentric_rotation(pos, microscope._compucentric_centre())
 
         assert (target.x, target.y) == pytest.approx(
             (2 * CENTRE[0] - pos.x, 2 * CENTRE[1] - pos.y)
@@ -142,7 +143,7 @@ class TestStageMoves:
         microscope.rotation_centre = CENTRE
         pos = FibsemStagePosition(x=1e-3, y=2e-3, z=0.0, r=0.0, t=0.0)
 
-        moved = microscope._get_compucentric_rotation_position(pos)
+        moved = compucentric_rotation(pos, microscope._compucentric_centre())
         drawn = _transform_position(pos, microscope.hardware_geometry().rotation_centre)
 
         assert (moved.x, moved.y) == pytest.approx((drawn.x, drawn.y))
@@ -155,7 +156,7 @@ class TestTheDemo:
     def test_it_turns_about_its_origin(self):
         microscope, _ = utils.setup_session(manufacturer="Demo")
         pos = FibsemStagePosition(x=1e-3, y=2e-3, z=0.0, r=0.0, t=0.0)
-        target = microscope._get_compucentric_rotation_position(pos)
+        target = compucentric_rotation(pos, microscope._compucentric_centre())
 
         assert microscope.rotation_centre == (0.0, 0.0)
         assert (target.x, target.y) == pytest.approx((-pos.x, -pos.y))
@@ -317,7 +318,7 @@ class TestThermoFisher:
         microscope = _thermo((19e-6, 11e-6), monkeypatch=monkeypatch)
         microscope.system.stage.rotation = True
         pos = FibsemStagePosition(x=1e-3, y=2e-3, z=0.0, r=0.0, t=0.0)
-        target = microscope._get_compucentric_rotation_position(pos)
+        target = compucentric_rotation(pos, microscope._compucentric_centre())
 
         assert (target.x, target.y) == pytest.approx(
             (2 * 532e-6 - pos.x, 2 * -783e-6 - pos.y)

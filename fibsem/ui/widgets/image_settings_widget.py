@@ -22,7 +22,6 @@ from fibsem.structures import (
     ImageSettings,
     Parameter,
     Resolution,
-    field_specs,
 )
 from fibsem.ui import stylesheets
 from fibsem.ui.tokens import (
@@ -303,11 +302,6 @@ class ImageSettingsWidget(QWidget):
     def set_show_advanced_button(self, show: bool):
         """Show or hide the advanced settings toggle button."""
         self.btn_advanced.setVisible(show)
-
-    def set_show_save(self, show: bool):
-        """Show or hide the save controls (save image, path, filename)."""
-        self._show_save = show
-        self._update_save_controls_visibility()
 
     def _on_advanced_toggled(self, checked: bool):
         self.set_show_advanced(checked)

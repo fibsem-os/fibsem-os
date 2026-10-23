@@ -7,7 +7,6 @@ unnamed third grid.
 """
 
 import inspect
-import os
 import time
 
 import pytest

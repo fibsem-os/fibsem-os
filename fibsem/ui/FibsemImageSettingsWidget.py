@@ -6,6 +6,7 @@ from PyQt5.QtCore import QEvent, pyqtSignal
 from superqt import ensure_main_thread
 
 from fibsem import acquire, utils
+from fibsem.constants import TIME_FILE
 from fibsem.imaging.latest import LatestImages
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
@@ -565,27 +566,6 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         """Set the image settings to the UI components."""
         self.image_settings_widget.update_from_settings(image_settings)
 
-    def _set_beam_settings_to_ui(self, beam_settings: BeamSettings) -> None:
-        """Set the beam settings to the ui components"""
-        beam_widget = (
-            self.dual_beam_widget.sem_widget
-            if beam_settings.beam_type is BeamType.ELECTRON
-            else self.dual_beam_widget.fib_widget
-        )
-        beam_widget.beam_settings_widget.update_from_settings(beam_settings)
-
-    def _set_detector_settings_to_ui(
-        self, detector_settings: FibsemDetectorSettings
-    ) -> None:
-        """Set the detector settings to the UI components."""
-        beam_type = self.dual_beam_widget.beam_type
-        beam_widget = (
-            self.dual_beam_widget.sem_widget
-            if beam_type is BeamType.ELECTRON
-            else self.dual_beam_widget.fib_widget
-        )
-        beam_widget.detector_settings_widget.update_from_settings(detector_settings)
-
     def update_ui_saving_settings(self) -> None:
         """Toggle the visibility / state of the image saving settings"""
         # If save_with_selected_lamella is checked, ensure save_image is also checked
@@ -714,7 +694,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         except Exception as e:
             logging.error(f"Error getting selected lamella for image saving: {e}")
 
-        ts = utils.current_timestamp_v3()
+        ts = utils.current_timestamp(TIME_FILE)
         self.image_settings.filename = f"{self.image_settings.filename}-{ts}"
 
         # The views' chips: a frame is on its way to each of these.

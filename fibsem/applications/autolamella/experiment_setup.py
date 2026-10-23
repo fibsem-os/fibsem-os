@@ -26,7 +26,7 @@ from fibsem.workflows import protocol_files
 def default_protocol_path() -> str:
     """The protocol a new experiment starts with: the preference when the file
     exists, else the shipped task protocol."""
-    preferred = load_user_preferences().experiment.default_protocol_path
+    preferred = load_user_preferences().shared.default_protocol_path
     if preferred and os.path.isfile(preferred):
         return str(preferred)
     if preferred:
@@ -37,20 +37,25 @@ def default_protocol_path() -> str:
 
 
 def protocol_directory() -> str:
-    """The folder the protocol dialogs open at."""
-    return os.path.dirname(str(cfg.TASK_PROTOCOL_PATH))
+    """The folder the protocol dialogs open at and protocols are saved to."""
+    return str(cfg.USER_PROTOCOL_PATH)
+
+
+def protocol_folders() -> List[str]:
+    """Where protocols are listed from: the operator's, then the shipped ones."""
+    return [protocol_directory(), os.path.dirname(str(cfg.TASK_PROTOCOL_PATH))]
 
 
 def list_protocols() -> List[Dict[str, Any]]:
-    """The protocol files an agent may choose: those in the protocol folder,
+    """The protocol files an agent may choose: those in the protocol folders,
     plus the default when it lives elsewhere. By file name, sorted."""
-    return protocol_files.list_protocols(protocol_directory(), default_protocol_path())
+    return protocol_files.list_protocols(protocol_folders(), default_protocol_path())
 
 
 def protocol_by_name(name: str) -> Optional[str]:
     """The path of the listed protocol file called *name*, or None."""
     return protocol_files.protocol_by_name(
-        protocol_directory(), default_protocol_path(), name
+        protocol_folders(), default_protocol_path(), name
     )
 
 

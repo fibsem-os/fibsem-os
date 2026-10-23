@@ -268,7 +268,7 @@ def test_every_listed_output_is_served_and_only_completed_runs_count(client, hos
 
 
 def test_task_history_is_in_time_order(client, host):
-    from datetime import datetime, timedelta
+    from datetime import datetime
 
     from fibsem.workflows.status import TaskState
 

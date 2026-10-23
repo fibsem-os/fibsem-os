@@ -13,13 +13,10 @@ from typing import List
 
 import pytest
 
-from fibsem.applications.autolamella.structures import (
-    DefectType,
-    Experiment,
-    Lamella,
-)
+from fibsem.applications.autolamella.structures import Experiment, Lamella
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.hooks import FunctionHook, HookContext, HookEvent, HookManager
+from fibsem.workflows.quality import Verdict
 from fibsem.workflows.status import TaskState, TaskStatus
 from tests.protocols import planned, task_protocol
 
@@ -201,7 +198,7 @@ def test_an_abandoned_lamella_does_not_hold_the_experiment_open(experiment, reco
     manager._maybe_fire_experiment_completed()
     assert _events(fired) == []  # lam-2 is still expected to finish
 
-    abandoned.defect.state = DefectType.FAILURE
+    abandoned.defect.verdict = Verdict.FAILED
     manager._maybe_fire_experiment_completed()
 
     assert _events(fired) == ["experiment_completed"]
@@ -212,7 +209,7 @@ def test_a_lamella_sent_for_rework_still_holds_it_open(experiment, recorder):
     hook_manager, fired = recorder
     _add_lamella(experiment, "lam-1", completed=REQUIRED_TASKS)
     rework = _add_lamella(experiment, "lam-2", completed=["MillTrench"])
-    rework.defect.state = DefectType.REWORK
+    rework.defect.verdict = Verdict.REWORK
     manager = _manager(experiment, hook_manager)
     manager._snapshot_completion()
 
@@ -228,7 +225,7 @@ def test_an_experiment_where_everything_was_abandoned_is_not_complete(
     as a workflow claiming completion when every task was skipped."""
     hook_manager, fired = recorder
     for name in ("lam-1", "lam-2"):
-        _add_lamella(experiment, name, completed=[]).defect.state = DefectType.FAILURE
+        _add_lamella(experiment, name, completed=[]).defect.verdict = Verdict.FAILED
     manager = _manager(experiment, hook_manager)
     manager._snapshot_completion()
 

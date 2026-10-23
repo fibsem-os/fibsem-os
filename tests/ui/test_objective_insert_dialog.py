@@ -36,7 +36,9 @@ class _Picked:
 @pytest.fixture
 def widget(monkeypatch):
     microscope, _ = utils.setup_session(
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
+        )
     )
     microscope.fm.objective.retract()
     calls = []

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, List, Optional
@@ -25,7 +25,6 @@ from fibsem.structures import (
     Configurable,
     Display,
     FibsemRectangle,
-    Parameter,
     param,
 )
 

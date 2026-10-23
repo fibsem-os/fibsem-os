@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass
-from enum import Enum
 from typing import TYPE_CHECKING, List, Optional
 
 from fibsem.codec import decode, encode
+from fibsem.progress import ProgressStatus, ends
 from fibsem.structures import (
     BeamType,
     Configurable,
@@ -60,7 +60,7 @@ class SpotBurnSettings(Configurable):
         return decode(cls, ddict)
 
 
-class SpotBurnStatus(str, Enum):
+class SpotBurnStatus(ProgressStatus):
     """What a spot burn is doing, or how it ended.
 
     A `str` mixin so a report reads as itself in a log line, matching `TiledStatus`
@@ -72,16 +72,8 @@ class SpotBurnStatus(str, Enum):
     CANCELLED = "cancelled"
     FAILED = "failed"
 
-    @property
-    def is_terminal(self) -> bool:
-        """Whether the run is over, however it ended.
 
-        Asked by both consumers. Answered once here rather than restated as a
-        membership tuple at each of them: the next status added is the one somebody
-        forgets to add to one of the two, and the symptom is a progress bar that
-        never clears.
-        """
-        return self is not SpotBurnStatus.BURNING
+ends(SpotBurnStatus.FINISHED, SpotBurnStatus.CANCELLED, SpotBurnStatus.FAILED)
 
 
 @dataclass(frozen=True)

@@ -11,10 +11,6 @@ requires-python = ">=3.8"
 # The point of the fixture. These three group names are the plugin contract;
 # nothing in fibsem scans for near-misses, so a typo here would produce a
 # plugin that loads nowhere and reports nothing.
-#
-# One module per group, not one shared module: the three registries are built
-# at different points in fibsem's own import sequence, and a pattern module in
-# particular cannot reach fibsem.milling.base. See patterns.py.
 [project.entry-points."fibsem.milling.patterns"]
 fixture_pattern = "fibsem_test_plugin.patterns:FixturePattern"
 # Claims a built-in's name on purpose; built-ins must still win.
