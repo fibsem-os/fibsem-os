@@ -33,7 +33,9 @@
   },
   "id": "pinned-protocol-id",
   "lamella_defaults": {
+    "alignment_area": null,
     "name_prefix": "",
+    "poi": null,
     "use_petname": true
   },
   "name": "autolamella-waffle-scan-rotation-0deg",
@@ -910,8 +912,8 @@
         }
       },
       "milling_angles": [
-        25,
-        20
+        25.0,
+        20.0
       ],
       "orientation": "SEM",
       "reference_imaging": {
