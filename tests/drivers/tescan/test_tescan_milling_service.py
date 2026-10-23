@@ -250,6 +250,19 @@ def test_tescan_mills_with_the_settings_it_says(connect):
     assert "Flyback" in directions.choices  # the fallback a pattern draws with
 
 
+def test_the_settings_it_lists_are_the_ones_it_mills_with(connect):
+    microscope, _ = connect()
+    settings = microscope.milling.list_options()["settings"]
+    # Tescan mills on the ion beam only
+    assert list(settings) == ["ION"]
+    properties = settings["ION"]["properties"]
+    assert set(properties) == set(microscope.milling.supported_settings())
+    preset = properties["driver.Tescan.preset"]
+    assert MILL_PRESET in preset["enum"]
+    assert properties["driver.Tescan.spacing"]["maximum"] == 100.0
+    assert "milling_current" not in properties
+
+
 def test_fields_tescan_ignores_are_warned_of(connect, caplog):
     microscope, _ = connect()
     recipe = _recipe(hfw=80e-6, milling_current=7.6e-9, application_file="Si-ccs")
