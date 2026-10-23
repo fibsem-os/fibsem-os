@@ -36,7 +36,7 @@ def _parked_at_the_fm():
     microscope = _microscope()
     microscope.move_to_orientation("FIB")
     microscope.move_to_device("FM")
-    assert microscope.get_current_device() == "FM"
+    assert microscope.stage_movement.current_device() == "FM"
     return microscope
 
 
@@ -88,7 +88,7 @@ def test_the_way_out_actually_works():
     microscope.move_to_device("FIBSEM")
     microscope.move_to_orientation("MILLING")
 
-    assert microscope.get_current_device() == "FIBSEM"
+    assert microscope.stage_movement.current_device() == "FIBSEM"
     assert microscope.get_stage_orientation() == "MILLING"
 
 
@@ -114,7 +114,7 @@ def test_the_pose_it_is_already_in_is_not_a_rotation():
 
     microscope.move_to_orientation("FIB")  # where it already is
 
-    assert microscope.get_current_device() == "FM"
+    assert microscope.stage_movement.current_device() == "FM"
 
 
 def test_a_tilt_alone_is_not_refused():
@@ -130,7 +130,7 @@ def test_a_tilt_alone_is_not_refused():
 
     microscope.safe_absolute_stage_movement(position)
 
-    assert microscope.get_current_device() == "FM"
+    assert microscope.stage_movement.current_device() == "FM"
 
 
 def test_re_posing_at_the_beams_is_untouched():
@@ -141,7 +141,7 @@ def test_re_posing_at_the_beams_is_untouched():
         microscope.move_to_orientation(orientation)
         assert microscope.get_stage_orientation() == orientation
 
-    assert microscope.get_current_device() == "FIBSEM"
+    assert microscope.stage_movement.current_device() == "FIBSEM"
 
 
 def test_a_compustage_is_not_affected():
@@ -175,7 +175,7 @@ def test_a_system_with_no_fluorescence_microscope_is_not_affected():
     microscope.move_stage_relative(
         FibsemStagePosition(x=48.8e-3, y=0.0, z=0.0, r=0.0, t=0.0)
     )
-    assert microscope.get_current_device() == "FIBSEM"
+    assert microscope.stage_movement.current_device() == "FIBSEM"
 
     microscope.move_to_orientation("MILLING")
 

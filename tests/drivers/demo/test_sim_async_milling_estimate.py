@@ -29,7 +29,7 @@ def test_stopping_drops_the_extra_time(microscope):
     idle = _pattern_estimate(microscope)
     microscope.start_milling()
     microscope.stop_milling()
-    assert microscope.get_milling_state() is MillingState.IDLE
+    assert microscope.milling.state.get_value() is MillingState.IDLE
     assert microscope.estimate_milling_time() == idle
 
 

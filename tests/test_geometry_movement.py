@@ -24,6 +24,7 @@ from fibsem.drivers.autoscript.microscope import ThermoMicroscope
 from fibsem.drivers.demo.simulator import DemoMicroscope
 from fibsem.geometry.movement import (
     apply_delta,
+    beam_view_tilt,
     fib_offset_after_sem_move,
     image_to_stage_delta,
     undo_scan_rotation,
@@ -47,8 +48,6 @@ SHARED_MOVES = (
     "stable_move",
     "vertical_move",
     "project_stable_move",
-    "_y_corrected_stage_movement",
-    "_inverse_y_corrected_stage_movement",
     "safe_absolute_stage_movement",
 )
 
@@ -57,7 +56,7 @@ SHARED_MOVES = (
 def microscope(request):
     scope, _ = utils.setup_session(manufacturer="Demo")
     scope.stage_device.compustage = request.param
-    scope._update_orientations()
+    scope.stage_movement.update_orientations()
     # These pin the maths at poses a Demo stage can't reach, so lift its limits.
     scope.stage_device._axis_limits = {
         axis: RangeLimit(min=-np.inf, max=np.inf) for axis in "xyzrt"
@@ -99,7 +98,7 @@ def test_stable_move_sends_the_pure_delta(
     expected = image_to_stage_delta(
         dx,
         dy,
-        view_tilt=microscope._beam_view_tilt(beam_type),
+        view_tilt=beam_view_tilt(beam_type, microscope.hardware_geometry()),
         geometry=microscope.hardware_geometry(),
         stage_rotation=pose.r,
         stage_tilt=pose.t,
@@ -136,7 +135,7 @@ def test_vertical_move_from_fib_sends_the_pure_delta(
         scan_rotation=scan_rotation,
         column_tilt=np.deg2rad(microscope.system.ion.column_tilt),
         stage_tilt=pose.t,
-        turned_over=microscope._stage_turned_over(pose.t),
+        turned_over=microscope.stage_movement.turned_over(pose.t),
         relaxation=relaxation,
     )
 
@@ -170,7 +169,7 @@ def test_vertical_move_from_sem_is_a_stable_move_then_a_fib_correction(
         scan_rotation=scan_rotation,
         column_tilt=np.deg2rad(microscope.system.ion.column_tilt),
         stage_tilt=pose.t,
-        turned_over=microscope._stage_turned_over(pose.t),
+        turned_over=microscope.stage_movement.turned_over(pose.t),
     )
     # approx: the move reads its dy back off the stage, as position minus position
     assert (vertical.x, vertical.y, vertical.z) == pytest.approx(
@@ -216,7 +215,7 @@ class TestTheBackViewMirror:
             raise AssertionError("the live move asked the orientation table")
 
         monkeypatch.setattr(microscope, "get_stage_orientation", unread)
-        microscope._view_stage_delta(0.0, 10e-6, view_tilt=0.0)
+        microscope.stage_movement._view_stage_delta(0.0, 10e-6, view_tilt=0.0)
 
 
 def test_a_stage_turns_the_sample_over_past_minus_90_by_default(microscope):
@@ -318,7 +317,8 @@ class TestStableMoveRestoresTheWorkingDistanceOfALinkedStage:
 
         microscope.stable_move(10e-6, 5e-6, BeamType.ELECTRON)
 
-        assert microscope._stage_value("linked") is not compustage
+        linked = microscope.stage.parameters.get("linked")
+        assert (linked.get_value() if linked else None) is not compustage
         assert len(restored) == (0 if compustage else 1)
 
     def test_an_unlinked_offset_stage_is_left_alone(self):

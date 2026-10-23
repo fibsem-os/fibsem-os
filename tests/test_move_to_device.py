@@ -39,7 +39,7 @@ def test_to_the_fm_from_sem_re_poses_then_travels():
 
     microscope.move_to_device("FM")
 
-    assert microscope.get_current_device() == "FM"
+    assert microscope.stage_movement.current_device() == "FM"
     assert microscope.get_stage_orientation() == "FIB"
     assert microscope.fm.objective.state is InsertableDeviceState.INSERTED
 
@@ -57,7 +57,7 @@ def test_the_re_pose_happens_at_the_beams_not_at_the_fm():
 
     microscope.move_to_device("FIBSEM", orientation="MILLING")
 
-    assert microscope.get_current_device() == "FIBSEM"
+    assert microscope.stage_movement.current_device() == "FIBSEM"
     assert microscope.get_stage_orientation() == "MILLING"
 
 
@@ -70,7 +70,7 @@ def test_the_round_trip_is_one_call_each_way():
     microscope.move_to_device("FIBSEM", orientation="MILLING")
     microscope.move_to_device("FM")
 
-    assert microscope.get_current_device() == "FM"
+    assert microscope.stage_movement.current_device() == "FM"
     assert microscope.get_stage_orientation() == "FIB"
 
 
@@ -334,10 +334,10 @@ def test_a_compustage_is_at_the_fm_in_the_fm_pose_wherever_it_is():
     at_fm = _off_centre(microscope, "FM")
     at_fm.x = 5.0e-3
 
-    assert microscope.get_current_device(at_fm) == "FM"
+    assert microscope.stage_movement.current_device(at_fm) == "FM"
     for orientation in ("SEM", "FIB", "MILLING"):
         position = _off_centre(microscope, orientation)
-        assert microscope.get_current_device(position) == "FIBSEM"
+        assert microscope.stage_movement.current_device(position) == "FIBSEM"
 
 
 def test_an_offset_mount_is_still_decided_by_where_the_stage_is():
@@ -346,8 +346,11 @@ def test_an_offset_mount_is_still_decided_by_where_the_stage_is():
 
     at_fm = _off_centre(microscope, "FIB")
     at_fm.x += 48.8e-3
-    assert microscope.get_current_device(at_fm) == "FM"
-    assert microscope.get_current_device(_off_centre(microscope, "FIB")) == "FIBSEM"
+    assert microscope.stage_movement.current_device(at_fm) == "FM"
+    assert (
+        microscope.stage_movement.current_device(_off_centre(microscope, "FIB"))
+        == "FIBSEM"
+    )
 
 
 def test_the_thermo_compustage_says_the_same_as_the_demo_one():

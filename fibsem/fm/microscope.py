@@ -62,7 +62,7 @@ from fibsem.fm.structures import (
     matching_emission_filter,
 )
 from fibsem.structures import InsertableDeviceState
-from fibsem.util.timestamps import now, now_iso
+from fibsem.util.timestamps import now_iso
 
 if TYPE_CHECKING:
     from fibsem.devices.core import BoundParameter, Device
@@ -835,13 +835,6 @@ class FluorescenceMicroscope:
             raise ValueError("Light source is not set.")
         self.light_source.power = power
 
-    def set_rate_limit(self, limit: float):
-        """Set the rate limit for image acquisition.
-        Args:
-            limit: The rate limit in seconds
-        """
-        self._rate_limit = limit
-
     def set_gain(self, gain: float):
         """Set the camera gain.
 
@@ -996,7 +989,7 @@ class FluorescenceMicroscope:
             data: The raw image data.
             frame_metadata: Optional per-frame metadata captured at exposure
                 time by the driver; where present these values override the
-                state snapshot from get_metadata(). Supported keys:
+                microscope's own state. Supported keys:
                 'pixel_size' ((x, y) in metres), 'acquisition_date'
                 (ISO string), 'exposure_time' (seconds).
         """
@@ -1060,7 +1053,7 @@ class FluorescenceMicroscope:
         # that may have none, and then it is the acquiring machine's clock time alone.
         acquired = reported("acquisition_date", now_iso)
         parent = self.parent
-        # The coordinator's own state, as `get_metadata` stamps it.
+        # The coordinator's own state.
         return FluorescenceImageMetadata(
             acquisition_datetime=acquired,
             pixel_size_x=pixel_size[0],
@@ -1070,58 +1063,6 @@ class FluorescenceMicroscope:
             geometry=parent.fm_image_geometry() if parent else None,
             experiment=deepcopy(parent.experiment) if parent else None,
             channels=[channel],
-        )
-
-    def get_metadata(self) -> FluorescenceImageMetadata:
-        """Generate comprehensive metadata for the current microscope state.
-
-        Collects settings from all microscope components and stage position
-        to create complete acquisition metadata.
-
-        Returns:
-            Structured metadata including all relevant acquisition parameters
-        """
-        stage_position = self.parent.get_stage_position() if self.parent else None
-
-        # Create channel metadata from current microscope state
-        channel_metadata = FluorescenceChannelMetadata(
-            name=self.channel_name,
-            color=self.channel_color,
-            excitation_wavelength=self.filter_set.excitation_wavelength,
-            emission_filter=self.filter_set.emission_filter,
-            power=self.light_source.power,
-            exposure_time=self.camera.exposure_time,
-            gain=self.camera.gain,
-            offset=self.camera.offset,
-            binning=self.camera.binning,
-            objective_position=self.objective.position,
-            objective_magnification=self.objective.magnification,
-            objective_numerical_aperture=self.objective.numerical_aperture,
-        )
-
-        # Stamp the geometry the image is being captured under, so a stage position can
-        # be projected onto it later without assuming the microscope still matches --
-        # by then the stage has usually moved, and the display transform may have been
-        # flipped. Needs the parent for the stage and system settings, so an FM with no
-        # parent records nothing rather than recording a default that looks valid.
-        geometry = self.parent.fm_image_geometry() if self.parent else None
-
-        # Which experiment, item and task, from the same place the beam path reads it.
-        # Copied rather than referenced: the workflow half is rewritten as the run
-        # moves on, and an image should keep saying where it was taken.
-        experiment = deepcopy(self.parent.experiment) if self.parent else None
-
-        # Create complete image metadata
-        acquired = now()
-        return FluorescenceImageMetadata(
-            acquisition_datetime=acquired,
-            pixel_size_x=self.camera.pixel_size[0],
-            pixel_size_y=self.camera.pixel_size[1],
-            resolution=(self.camera.resolution[0], self.camera.resolution[1]),
-            stage_position=stage_position,
-            geometry=geometry,
-            experiment=experiment,
-            channels=[channel_metadata],
         )
 
     def start_acquisition(

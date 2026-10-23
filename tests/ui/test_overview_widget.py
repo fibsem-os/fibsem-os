@@ -48,6 +48,7 @@ from fibsem.structures import (  # noqa: E402
     ImageSettings,
 )
 from fibsem.ui.widgets import overview_confirmation_dialog  # noqa: E402
+from fibsem.ui.widgets.canvas.overlays import stage_context  # noqa: E402
 from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (  # noqa: E402
     GRID_BOUNDARY_RADIUS_M,
 )
@@ -1690,8 +1691,9 @@ class TestTheHolderIsDrawnOnEveryStage:
         widget._refresh_gridbars()
 
         frame = widget._frame()
-        slot = widget._slot_landmark(
-            widget.microscope.sample_handling.holder.slots["Slot-02"]
+        slot = stage_context.slot_landmark(
+            widget.microscope,
+            widget.microscope.sample_handling.holder.slots["Slot-02"],
         )
         assert widget.gridbar_overlay._centre == pytest.approx(
             frame.to_canvas(slot), abs=1e-6
@@ -1728,8 +1730,9 @@ class TestTheHolderIsDrawnOnEveryStage:
         self._two_slots(widget, monkeypatch)
         sem = widget.microscope.get_orientation("SEM")
 
-        place = widget._slot_landmark(
-            list(widget.microscope.sample_handling.holder.slots.values())[0]
+        place = stage_context.slot_landmark(
+            widget.microscope,
+            list(widget.microscope.sample_handling.holder.slots.values())[0],
         )
 
         assert place.r == pytest.approx(sem.r)

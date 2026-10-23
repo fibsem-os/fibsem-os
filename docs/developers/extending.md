@@ -131,24 +131,17 @@ Each group contributes one kind of object:
 When a built-in, a runtime registration and a plugin claim the same name, the
 built-in is used, then the runtime registration, then the plugin.
 
-Three constraints on loading. Each produces no error when violated, so the
+Two constraints on loading. Neither produces an error when violated, so the
 example's tests check them:
 
-1. **Pattern modules are imported while `fibsem.milling.base` is only
-   partly initialised.** Import `BasePattern` from
-   `fibsem.milling.patterning.base`, not from the `fibsem.milling.patterning`
-   package (the older `patterns2` path still works), and import nothing that depends on
-   `fibsem.milling.base`, which includes everything under
-   `fibsem.applications`. A pattern and a task defined in the same module
-   breaks the pattern. Strategies and tasks have no such restriction.
-2. **A plugin that fails to import is absent.** The application starts
+1. **A plugin that fails to import is absent.** The application starts
    without it and the class does not appear in the list. The reason is
    recorded in the log and in the Plugins panel (**Tools → Plugins…**, or
    `fibsem-cli plugins`), which lists every declared entry point and its
    outcome, including entry points shadowed by a built-in of the same name.
    `fibsem/plugins/loader.py` is the loader and documents the records it
    keeps.
-3. **Changes to `pyproject.toml` take effect only after reinstalling.**
+2. **Changes to `pyproject.toml` take effect only after reinstalling.**
    Entry points are read from the installed metadata, so run
    `pip install -e .` again after editing them. Changes to Python files need
    no reinstall.
@@ -169,8 +162,8 @@ patterns do; the example's tests check this as well.
 
 A task is one step applied to one lamella. Subclass `AutoLamellaTask`
 (`fibsem/applications/autolamella/workflows/tasks/base.py`) with a matching
-`AutoLamellaTaskConfig`, and register both with `register_task()` in the
-repository or through the `fibsem.autolamella.tasks` entry point from a plugin.
+`AutoLamellaTaskConfig`, and add it to `BUILTIN_TASKS` in the repository or
+declare it as a `fibsem.autolamella.tasks` entry point from a plugin.
 `fiducial.py` is a representative task module of moderate complexity.
 
 `AutoLamellaTask` is a `SiteTask` (`fibsem/workflows/site_task.py`): a task

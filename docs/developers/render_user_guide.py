@@ -1331,7 +1331,6 @@ def render_fluorescence(h: Harness) -> None:
     for panel in (
         fmc.cameraPanel,
         fmc.acquisitionSettingsWidget.autofocus_panel,
-        fmc.histogramPanel,
     ):
         panel._btn_collapse.setChecked(False)
     fmc.acquisitionSettingsWidget.z_parameters_panel._btn_collapse.setChecked(True)

@@ -483,7 +483,7 @@ def test_milled_patterns_persist_in_the_world(microscope):
 
     # a trench 30 x 6 um, 20 um above and 10 um right of the FIB centre
     # (microscope image coordinates: metres from the centre, y up)
-    microscope.draw_rectangle(
+    microscope.draw_pattern(
         FibsemRectangleSettings(
             width=30e-6, height=6e-6, depth=1e-6, centre_x=10e-6, centre_y=20e-6
         )
@@ -553,7 +553,7 @@ def test_a_rotated_pattern_mills_the_footprint_it_was_drawn_with(microscope):
         fiducial=False,
     )
     settings = _settings(BeamType.ION)
-    microscope.draw_rectangle(
+    microscope.draw_pattern(
         FibsemRectangleSettings(
             width=24e-6,
             height=3e-6,
@@ -601,7 +601,7 @@ def test_holes_and_trenches_are_dark_in_both_beams(microscope):
         fiducial=False,
         film="holey",
     )
-    microscope.draw_rectangle(
+    microscope.draw_pattern(
         FibsemRectangleSettings(
             width=20e-6, height=5e-6, depth=1e-6, centre_x=0.0, centre_y=-25e-6
         )

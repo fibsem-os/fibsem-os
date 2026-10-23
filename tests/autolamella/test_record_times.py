@@ -167,7 +167,7 @@ def test_an_older_verdict_keeps_when_it_was_set(viewer_zone):
     assert _aware_at_stamp(verdict.updated_at)
     again = QualityRecord.from_dict(_saved(verdict))
     assert again.updated_at == verdict.updated_at
-    # the pre-DefectState shape too
+    # the pre-QualityRecord shape too
     old = QualityRecord.from_dict({"has_defect": True, "updated_at": STAMP})
     assert _aware_at_stamp(old.updated_at)
 

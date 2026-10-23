@@ -30,12 +30,6 @@ class Verdict(Enum):
     REWORK = auto()
     FAILED = auto()
 
-    # Aliases for the names the old enums used. ``Verdict["NONE"]`` resolves,
-    # ``Verdict.NONE is Verdict.UNASSESSED``, and iteration skips them.
-    NONE = UNASSESSED
-    FAILURE = FAILED
-    POOR = FAILED
-
 
 def _actor_text(text: str) -> str:
     """A stored actor in today's ``kind:name`` form; blank stays blank."""
@@ -47,9 +41,7 @@ def _actor_text(text: str) -> str:
 class QualityRecord:
     """The current human verdict on an item, attributed.
 
-    One type for lamellae and grids, replacing ``DefectState`` (lamella) and the
-    bare ``GridQuality`` enum (grid), which were the same idea under two names
-    with neither recording who set it. Holds the *current* verdict only; the
+    One type for lamellae and grids. Holds the *current* verdict only; the
     full trail of what was proposed and decided lives on the item's proposals,
     and ``decision_id`` points at the decision that set this verdict when a
     review did.
@@ -68,31 +60,6 @@ class QualityRecord:
         # a caller that still passes a POSIX float gets it read as one
         self.updated_at = to_datetime(self.updated_at)
 
-    # -- names the old DefectState API used; kept so callers migrate one at a time
-    @property
-    def state(self) -> Verdict:
-        return self.verdict
-
-    @state.setter
-    def state(self, value: Verdict) -> None:
-        self.verdict = value
-
-    @property
-    def description(self) -> str:
-        return self.reason
-
-    @description.setter
-    def description(self, value: str) -> None:
-        self.reason = value
-
-    @property
-    def last_completed_task(self) -> str:
-        return self.at_task
-
-    @last_completed_task.setter
-    def last_completed_task(self, value: str) -> None:
-        self.at_task = value
-
     def to_dict(self) -> dict:
         return {
             "verdict": self.verdict.name,
@@ -105,10 +72,10 @@ class QualityRecord:
 
     @classmethod
     def from_dict(cls, data: Union[dict, str, None]) -> "QualityRecord":
-        """Read the current shape, the ``DefectState`` shape (``state`` /
-        ``description`` / ``last_completed_task``), the pre-``DefectState``
-        ``has_defect`` / ``requires_rework`` bools, and the bare name string
-        ``GridRecord`` used to write. Unknown names read as ``UNASSESSED``."""
+        """Read the current shape, the older ``state`` / ``description`` /
+        ``last_completed_task`` shape, the older still ``has_defect`` /
+        ``requires_rework`` bools, and the bare name string ``GridRecord`` used to
+        write. Unknown names read as ``UNASSESSED``."""
         if not data:
             return cls()
         if isinstance(data, str):
@@ -155,35 +122,16 @@ class QualityRecord:
         self.updated_at = now()
 
 
-_quality_record_init = QualityRecord.__init__
-
-
-def _quality_record_init_with_old_names(
-    self,
-    *args,
-    state: Optional[Verdict] = None,
-    description: Optional[str] = None,
-    last_completed_task: Optional[str] = None,
-    **kwargs,
-):
-    """``DefectState(state=..., description=..., last_completed_task=...)`` keeps
-    constructing. The dataclass ``__init__`` only knows the new field names, so
-    the old keywords are mapped here; a caller passing both forms gets the new
-    one."""
-    if state is not None:
-        kwargs.setdefault("verdict", state)
-    if description is not None:
-        kwargs.setdefault("reason", description)
-    if last_completed_task is not None:
-        kwargs.setdefault("at_task", last_completed_task)
-    _quality_record_init(self, *args, **kwargs)
-
-
-QualityRecord.__init__ = _quality_record_init_with_old_names  # type: ignore[method-assign]
+# The names older files wrote for a verdict.
+_OLD_VERDICT_NAMES = {
+    "NONE": Verdict.UNASSESSED,
+    "FAILURE": Verdict.FAILED,
+    "POOR": Verdict.FAILED,
+}
 
 
 def _verdict_by_name(name: str) -> Verdict:
     try:
         return Verdict[name]
     except KeyError:
-        return Verdict.UNASSESSED
+        return _OLD_VERDICT_NAMES.get(name, Verdict.UNASSESSED)

@@ -71,7 +71,7 @@ def _microscope(stage_type: str):
             config_path=os.path.join(cfg.SHIPPED_CONFIG_PATH, filename),
             manufacturer="Demo",
         )
-    microscope._update_orientations()
+    microscope.stage_movement.update_orientations()
     return microscope
 
 

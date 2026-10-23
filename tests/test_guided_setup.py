@@ -616,9 +616,9 @@ def test_finishing_the_wizard_ends_the_first_run(isolated_registry):
 
 def test_dismissal_is_recorded_without_faking_a_configuration(isolated_registry):
     """Someone who waves the offer away has still configured nothing."""
-    assert not wizard.is_offer_dismissed()
+    assert not cfg.load_user_preferences().display.guided_setup_dismissed
     wizard.dismiss_first_run()
-    assert wizard.is_offer_dismissed()
+    assert cfg.load_user_preferences().display.guided_setup_dismissed
     # Still a fresh install -- the dismissal says "do not ask", not "it is done".
     assert wizard.is_first_run()
 

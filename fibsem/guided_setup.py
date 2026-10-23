@@ -724,20 +724,6 @@ def is_first_run() -> bool:
     return not os.path.exists(cfg.USER_CONFIGURATIONS_PATH)
 
 
-def is_offer_dismissed() -> bool:
-    """Whether the offer was waved away.
-
-    Separate from :func:`is_first_run` because they answer different questions --
-    "has anything been configured" and "does this person want to be asked" -- and
-    conflating them is what broke the first attempt.
-    """
-    try:
-        return bool(cfg.load_user_preferences().display.guided_setup_dismissed)
-    except Exception as e:  # pragma: no cover - defensive
-        logger.warning(f"Could not read the guided setup dismissal: {e}")
-        return False
-
-
 def dismiss_first_run() -> None:
     """Record that the offer was seen and declined."""
     try:

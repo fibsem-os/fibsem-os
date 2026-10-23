@@ -87,7 +87,6 @@ def test_every_built_in_driver_has_a_fake():
 # backend without them does not implement them, and the base class raises
 # NotImplementedError.
 OPTIONAL_METHODS = {
-    "acquire_chamber_image",
     "insert_manipulator",
     "retract_manipulator",
     "move_manipulator_relative",
@@ -95,8 +94,6 @@ OPTIONAL_METHODS = {
     "move_manipulator_corrected",
     "move_manipulator_to_position_offset",
     "_get_saved_manipulator_position",
-    "draw_bitmap_pattern",
-    "draw_polygon",
 }
 
 
@@ -120,7 +117,7 @@ def test_a_backend_without_an_optional_part_says_so():
         minimal.insert_manipulator("PARK")
     # milling goes to the milling service, and there is none
     with pytest.raises(ValueError, match="There is no milling"):
-        minimal.draw_polygon(None)
+        minimal.draw_pattern(None)
     # the raw moves go through the devices, so a backend with none says so too
     minimal.stage_device = minimal.manipulator_device = None
     with pytest.raises(NotImplementedError, match="move_stage_absolute"):
@@ -176,6 +173,13 @@ def _require(microscope, name: str, beam_type, settable: bool = False) -> None:
         pytest.skip(f"the {beam_type.name} beam's {name} is not settable")
 
 
+def _inserted(microscope) -> bool:
+    return (
+        microscope.manipulator_device.state.get_value()
+        is InsertableDeviceState.INSERTED
+    )
+
+
 def _chamber_state(microscope) -> str:
     from fibsem.microscope import _chamber_state_name
 
@@ -184,9 +188,9 @@ def _chamber_state(microscope) -> str:
 
 def test_demo_reads_the_manipulator_and_chamber_from_their_devices():
     microscope = _connect("Demo")
-    assert microscope.get_manipulator_state() is False
+    assert not _inserted(microscope)
     microscope.insert_manipulator("PARK")
-    assert microscope.get_manipulator_state() is True
+    assert _inserted(microscope)
     assert (
         microscope.get_manipulator_position()
         == microscope.manipulator_device.position.cached
@@ -279,7 +283,7 @@ def test_demo_stage_keeps_its_own_state():
     stage = microscope.stage_device
     stage.sim_homed = False
     microscope.stage.home()
-    microscope.link_stage()
+    microscope.stage.link()
     microscope.move_stage_absolute(FibsemStagePosition(x=1e-3, t=0.1))
     assert stage.homed.get_value() is True
     assert stage.linked.get_value() is True
@@ -303,10 +307,10 @@ def test_demo_manipulator_keeps_its_own_state():
     """The manipulator device owns its state: its moves read and drive it."""
     microscope = _connect("Demo")
     manipulator = microscope.manipulator_device
-    assert microscope.get_manipulator_state() is False
+    assert not _inserted(microscope)
     microscope.insert_manipulator("PARK")
     microscope.move_manipulator_relative(FibsemManipulatorPosition(x=1e-6))
-    assert microscope.get_manipulator_state() is True
+    assert _inserted(microscope)
     position = manipulator.position.get_value()
     assert _xyzrt(position) == _xyzrt(manipulator.sim_position)
     assert position.x == pytest.approx(1e-6)
@@ -319,7 +323,7 @@ def test_demo_beams_keep_their_own_state():
         microscope.set_field_of_view(80e-6, beam_type)
         microscope.set_detector_contrast(0.9, beam_type)
         microscope.beam_shift(1e-6, 1e-6, beam_type)
-        microscope.set_spot_scanning_mode(Point(0.5, 0.5), beam_type)
+        microscope.beams[beam_type].spot(Point(0.5, 0.5))
         microscope.blank(beam_type)
         microscope.set_full_frame_scanning_mode(beam_type)
         assert microscope.get_field_of_view(beam_type) == 80e-6
@@ -366,7 +370,7 @@ def test_demo_scans_through_its_beam_commands(beam_type):
     for name in ("_spot", "_reduced_area", "_full_frame"):
         setattr(beam, name, counted(name))
     point, area = Point(0.5, 0.5), FibsemRectangle(0.25, 0.25, 0.5, 0.5)
-    microscope.set_spot_scanning_mode(point, beam_type)
+    microscope.beams[beam_type].spot(point)
     assert beam.scanning_mode.cached is ScanMode.SPOT
     microscope.set_reduced_area_scanning_mode(area, beam_type)
     assert beam.scanning_mode.cached is ScanMode.REDUCED_AREA
@@ -425,8 +429,8 @@ GLOBAL_READS: Dict[
     ),
     "manipulator_state": (
         _has_manipulator,
-        lambda m: m.get_manipulator_state(),
-        lambda v: isinstance(v, bool),
+        lambda m: m.manipulator_device.state.get_value(),
+        lambda v: isinstance(v, InsertableDeviceState),
     ),
 }
 
@@ -546,16 +550,14 @@ def test_beam_key_round_trips(microscope, key, beam_type):
     [(BeamType.ELECTRON, "electron_beam"), (BeamType.ION, "ion_beam")],
 )
 def test_each_beam_can_be_disabled_on_its_own(microscope, beam_type, system):
-    """The beam devices are what `is_available` and `get_available_beams` answer
-    from: a column with no device (``enabled: false`` at connect) is not there."""
+    """The beam devices are what `is_available` answers from: a column with no
+    device (``enabled: false`` at connect) is not there."""
     other = BeamType.ION if beam_type is BeamType.ELECTRON else BeamType.ELECTRON
     beams = dict(microscope.beams)
     microscope.beams = {other: beams[other]}
     assert not microscope.is_available(system)
-    assert microscope.get_available_beams() == [other]
     microscope.beams = beams
     assert microscope.is_available(system)
-    assert microscope.get_available_beams() == BEAMS
 
 
 @pytest.mark.parametrize("key", sorted(set(BEAM_KEYS) - BEAM_READ_ONLY_KEYS))
@@ -789,7 +791,7 @@ def test_on_off_and_blanking(microscope, beam_type):
 @pytest.mark.parametrize("beam_type", BEAMS)
 def test_scanning_modes(microscope, beam_type):
     _require(microscope, "scanning_mode", beam_type)
-    microscope.set_spot_scanning_mode(Point(0.5, 0.5), beam_type)
+    microscope.beams[beam_type].spot(Point(0.5, 0.5))
     assert _read(microscope, "scanning_mode", beam_type) == "spot"
     microscope.set_reduced_area_scanning_mode(
         FibsemRectangle(0.25, 0.25, 0.5, 0.5), beam_type
@@ -814,7 +816,7 @@ def test_demo_spot_burn_reads_where_the_beam_is_parked(beam_type):
     microscope = _connect("Demo")
     point = Point(0.25, 0.75)
     microscope.set_field_of_view(100e-6, beam_type)
-    microscope.set_spot_scanning_mode(point, beam_type)
+    microscope.beams[beam_type].spot(point)
     spot, beam = microscope._spot_and_beam(beam_type)
     assert spot == point
     assert beam.hfw == microscope.get_field_of_view(beam_type)
@@ -842,35 +844,6 @@ def test_home_homes_and_says_so(microscope):
         return
     assert microscope.stage.home() is True
     assert microscope.stage.homed.get_value() is True
-
-
-def test_link_stage(microscope):
-    """`link_stage` returns whether the stage is linked afterwards: the Demo's
-    links; a Tescan's z is never linked to the working distance, so it stays False."""
-    if not _stage_has("linked")(microscope):
-        assert microscope.link_stage() is None
-        return
-    assert microscope.link_stage() is microscope.stage.linked.get_value()
-
-
-@pytest.mark.parametrize("beam_type", BEAMS)
-def test_beam_system_settings_match_the_configuration(microscope, beam_type):
-    settings = microscope.get_beam_system_settings(beam_type)
-    config = (
-        microscope.system.electron
-        if beam_type is BeamType.ELECTRON
-        else microscope.system.ion
-    )
-    assert settings.beam_type is beam_type
-    assert settings.enabled == config.enabled
-    assert settings.eucentric_height == config.eucentric_height
-    assert settings.column_tilt == config.column_tilt
-    assert settings.plasma_gas == _read(microscope, "plasma_gas", beam_type)
-
-
-# ---------------------------------------------------------------------------
-# Stage
-# ---------------------------------------------------------------------------
 
 
 def _xyzrt(position: FibsemStagePosition) -> List[float]:
@@ -943,11 +916,11 @@ def test_manipulator_inserts_and_retracts(manipulator_microscope):
     inserted = microscope.insert_manipulator("PARK")
     assert isinstance(inserted, FibsemManipulatorPosition)
     assert _xyzrt(inserted) == _xyzrt(microscope.get_manipulator_position())
-    assert microscope.get_manipulator_state() is True
+    assert _inserted(microscope)
     retracted = microscope.retract_manipulator()
     assert isinstance(retracted, FibsemManipulatorPosition)
     assert _xyzrt(retracted) == _xyzrt(microscope.get_manipulator_position())
-    assert microscope.get_manipulator_state() is False
+    assert not _inserted(microscope)
 
 
 def test_manipulator_moves_absolute_and_relative(manipulator_microscope):
@@ -1002,12 +975,11 @@ def fm_microscope():
 
 def test_a_compustage_is_never_linked_and_cannot_link(fm_microscope, caplog):
     """The Arctis simulator is a compustage: its stage has no link, so linking is
-    unavailable and leaves it alone, and whether it is linked is unsupported (None),
-    without a warning."""
+    unavailable and whether it is linked is unsupported, without a warning."""
     assert fm_microscope._fm_is_a_pose()
     with caplog.at_level(logging.WARNING):
-        assert fm_microscope.link_stage() is None
-        assert fm_microscope._stage_value("linked") is None
+        assert not fm_microscope.stage.commands["link"].available
+        assert fm_microscope.stage.parameters.get("linked") is None
     assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
 
@@ -1106,22 +1078,6 @@ def test_demo_fm_names_a_banded_emission_as_its_multi_band_filter():
     )
     microscope.fm.filter_set.emission_filter = REFLECTION
     assert microscope.fm.filter_set.emission_filter == REFLECTION
-
-
-def test_fm_image_metadata_is_the_state_it_was_taken_in(fm_microscope):
-    """The devices report their state with the frame, and the image carries it."""
-    from fibsem.fm.structures import ChannelSettings
-
-    fm = fm_microscope.fm
-    channel = ChannelSettings(
-        name="GFP", excitation_wavelength=450, power=0.3, exposure_time=0.02
-    )
-    md = fm.acquire_image(channel).metadata
-    now = fm.get_metadata()
-    assert md.channels == now.channels
-    assert (md.pixel_size_x, md.pixel_size_y) == (now.pixel_size_x, now.pixel_size_y)
-    assert md.resolution == now.resolution
-    assert md.stage_position == now.stage_position
 
 
 def test_demo_fm_objective_clips_to_its_limit():

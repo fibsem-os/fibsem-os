@@ -150,27 +150,6 @@ def test_the_demo_needle_reports_the_sim_block(microscope):
 # ---------------------------------------------------------------------------
 
 
-def test_applying_a_configuration_keeps_what_the_instrument_said():
-    """`apply_configuration` used to replace `system.manipulator` from the incoming
-    settings. That now carries only defaults, so replacing would restore the default
-    over what the instrument said at connect. The answer is the device map, which
-    Apply does not touch."""
-    path = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
-    microscope, _ = utils.setup_session(config_path=path, manufacturer="Demo")
-    try:
-        assert microscope.is_available("manipulator") is False
-
-        incoming = SystemSettings.from_dict({})
-        assert incoming.manipulator.enabled is True, (
-            "fixture no longer exercises the trap"
-        )
-        microscope.apply_configuration(incoming)
-
-        assert microscope.is_available("manipulator") is False
-    finally:
-        microscope.disconnect()
-
-
 def test_a_configuration_that_says_nothing_still_loads_and_images(microscope):
     image = microscope.acquire_image(beam_type=BeamType.ELECTRON)
     assert image is not None
@@ -348,7 +327,6 @@ def test_availability_is_the_device_map(microscope):
 
     microscope.beams = {BeamType.ELECTRON: microscope.beams[BeamType.ELECTRON]}
     assert microscope.is_available("ion_beam") is False
-    assert microscope.get_available_beams() == [BeamType.ELECTRON]
 
 
 def test_a_disabled_column_is_not_available(tmp_path):

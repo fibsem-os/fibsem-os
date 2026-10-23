@@ -26,7 +26,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.drivers.tescan.devices import TescanBeam, bind_tescan_beams
+from fibsem.drivers.tescan.devices import TescanBeam
 from fibsem.structures import BeamType, Point
 from tests.fixtures.demoted_messages import as_logged_now
 from tests.fixtures.tescan_sdk import connect
@@ -304,6 +304,7 @@ def test_a_disabled_column_is_never_built_or_touched(monkeypatch):
     microscope, fake = connect(monkeypatch, _system(ion=False))
     assert set(microscope.beams) == {E}
     fake.log.clear()
-    beams = bind_tescan_beams(microscope)
+    microscope._build_beams()
+    beams = microscope.beams
     assert set(beams) == {E}
     assert not [path for path, _, _ in fake.log if path.startswith("FIB.")]

@@ -301,7 +301,7 @@ def _beam_cases():
         )
         yield (
             f"spot {name}",
-            lambda m, b=beam_type: m.set_spot_scanning_mode(Point(0.5, 0.5), b),
+            lambda m, b=beam_type: m.beams[b].spot(Point(0.5, 0.5)),
         )
         yield (
             f"reduced area {name}",
@@ -370,9 +370,9 @@ def _imaging_cases():
 IMAGING_CASES = tuple(_imaging_cases())
 
 STAGE_CASES = (
-    ("get stage_position", lambda m: m._stage_value("position")),
-    ("get stage_homed", lambda m: m._stage_value("homed")),
-    ("get stage_linked", lambda m: m._stage_value("linked")),
+    ("get stage_position", lambda m: m.stage.parameters["position"].get_value()),
+    ("get stage_homed", lambda m: m.stage.parameters["homed"].get_value()),
+    ("get stage_linked", lambda m: m.stage.parameters["linked"].get_value()),
     ("stage position", lambda m: m.get_stage_position()),
     (
         "move absolute",
@@ -383,7 +383,7 @@ STAGE_CASES = (
         lambda m: m.move_stage_relative(FibsemStagePosition(x=1e-5, z=-1e-5)),
     ),
     ("home", lambda m: m.stage.home()),
-    ("link", lambda m: m.link_stage()),
+    ("link", lambda m: m.stage.link()),
 )
 
 
@@ -563,7 +563,7 @@ def test_the_calls_go_through_the_devices(odemis_cls):
     microscope.vent()
     assert used == ["_move_absolute", "_move_relative", "_home", "_pump", "_vent"]
     used.clear()
-    microscope.set_spot_scanning_mode(Point(0.5, 0.5), BeamType.ION)
+    microscope.beams[BeamType.ION].spot(Point(0.5, 0.5))
     microscope.set_reduced_area_scanning_mode(AREA, BeamType.ION)
     microscope.set_full_frame_scanning_mode(BeamType.ION)
     assert used == ["_spot", "_reduced_area", "_full_frame"]

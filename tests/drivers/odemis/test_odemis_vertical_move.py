@@ -132,8 +132,6 @@ def test_odemis_takes_every_parameter_the_base_declares(odemis_microscope_cls):
         "stable_move",
         "vertical_move",
         "project_stable_move",
-        "_y_corrected_stage_movement",
-        "_inverse_y_corrected_stage_movement",
         "safe_absolute_stage_movement",
     ],
 )

@@ -282,7 +282,7 @@ class Stage(Device):
         """The device this stage is at whenever it holds a pose, or None.
 
         None by default: the stage travels between devices, so where it is decides
-        which one it is at (the nearest origin, `FibsemMicroscope.get_current_device`).
+        which one it is at (the nearest origin, `StageMovement.current_device`).
         A stage that reaches a device by re-posing instead of travelling (a compustage
         and its FM) overrides this, so the pose decides wherever x and y are.
         """

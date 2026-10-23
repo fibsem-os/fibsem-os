@@ -222,7 +222,7 @@ def run_case(monkeypatch, case_id: str) -> Any:
     pretilt = float(parts[0][len("pretilt") :])
     pose = parts[1]
     microscope, fake = connect(monkeypatch, _system(pretilt))
-    microscope._update_orientations()
+    microscope.stage_movement.update_orientations()
     try:
         if len(parts) == 3:
             return POSE_CASES[parts[2]](microscope, fake, pose)

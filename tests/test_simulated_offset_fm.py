@@ -167,7 +167,7 @@ def test_the_traverse_re_poses_instead_of_refusing():
     microscope.move_to_orientation("SEM")
     microscope.move_to_device("FM")
 
-    assert microscope.get_current_device() == "FM"
+    assert microscope.stage_movement.current_device() == "FM"
     assert microscope.get_stage_orientation() == "FIB"
     assert microscope.fm.objective.state is InsertableDeviceState.INSERTED
 
@@ -182,7 +182,9 @@ def _objective_at_moves(microscope) -> list:
     real = stage._move_stage
 
     def record(position, *args, **kwargs):
-        seen.append((microscope.fm.objective.state, microscope.get_current_device()))
+        seen.append(
+            (microscope.fm.objective.state, microscope.stage_movement.current_device())
+        )
         return real(position, *args, **kwargs)
 
     stage._move_stage = record
@@ -201,7 +203,7 @@ def test_a_fluorescence_pose_is_reached_with_the_objective_out_for_the_traverse(
 
     microscope.safe_absolute_stage_movement(fluorescence)
 
-    assert microscope.get_current_device() == "FM"
+    assert microscope.stage_movement.current_device() == "FM"
     assert microscope.get_stage_orientation() == "FIB"
     assert microscope.fm.objective.state is InsertableDeviceState.INSERTED
     # Every leg driven from the beams, the re-pose and the traverse, with it out.
@@ -224,7 +226,7 @@ def test_a_milling_pose_is_reached_from_the_fm_with_the_objective_out():
 
     microscope.safe_absolute_stage_movement(milling)
 
-    assert microscope.get_current_device() == "FIBSEM"
+    assert microscope.stage_movement.current_device() == "FIBSEM"
     assert microscope.get_stage_orientation() == "MILLING"
     assert seen
     assert all(state is not InsertableDeviceState.INSERTED for state, _ in seen)
@@ -242,6 +244,6 @@ def test_a_holder_slot_is_reached_from_the_fm_with_the_objective_out():
 
     microscope.sample_handling.move_to_slot("Slot-01")
 
-    assert microscope.get_current_device() == "FIBSEM"
+    assert microscope.stage_movement.current_device() == "FIBSEM"
     assert seen
     assert all(state is not InsertableDeviceState.INSERTED for state, _ in seen)

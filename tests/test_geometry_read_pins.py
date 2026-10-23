@@ -97,7 +97,8 @@ def _cases(prefix: str, microscope, start: Dict[str, float]) -> Dict[str, Any]:
             at = f"@{name}{np.degrees(dr):+.0f}r{np.degrees(dt):+.1f}t"
             position = FibsemStagePosition(r=pose.r + dr, t=pose.t + dt, **start)
             case(
-                f"current_device {at}", lambda: microscope.get_current_device(position)
+                f"current_device {at}",
+                lambda: microscope.stage_movement.current_device(position),
             )
             for device in devices:
                 case(

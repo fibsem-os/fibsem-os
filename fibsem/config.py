@@ -28,12 +28,9 @@ METADATA_VERSION = "v12"
 UNVERSIONED_METADATA = "v0"
 
 
-REFERENCE_HFW_WIDE = 2750e-6
-REFERENCE_HFW_LOW = 900e-6
 REFERENCE_HFW_MEDIUM = 400e-6
 REFERENCE_HFW_HIGH = 150e-6
 REFERENCE_HFW_SUPER = 80e-6
-REFERENCE_HFW_ULTRA = 50e-6
 
 # The resolution the overview widgets default to; the driver snaps it to one its beam
 # lists. A beam's own resolutions are its `resolution` choices
@@ -191,17 +188,6 @@ def register_configuration(path: str, configuration_name: Optional[str] = None) 
 
     add_configuration(configuration_name=name, path=path)
     return name
-
-
-def remove_configuration(configuration_name: str):
-    """Remove a configuration from the user configurations file."""
-    if configuration_name not in USER_CONFIGURATIONS:
-        raise ValueError(f"Configuration name '{configuration_name}' does not exist.")
-
-    del USER_CONFIGURATIONS[configuration_name]
-    USER_CONFIGURATIONS_YAML["configurations"] = USER_CONFIGURATIONS
-    with open(USER_CONFIGURATIONS_PATH, "w") as f:
-        yaml.dump(USER_CONFIGURATIONS_YAML, f)
 
 
 def set_default_configuration(configuration_name: str):
