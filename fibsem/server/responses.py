@@ -790,6 +790,19 @@ class ImagePairDrawn:
 
 
 @dataclass
+class ItemMillingDrawn:
+    item_name: str
+    task_names: List[str]
+    # The ion image drawn on, and the picture saved beside it.
+    image: str
+    path: str
+    # The stages drawn in colour, and those drawn behind them.
+    stages: List[str]
+    background: List[str]
+    plot: Dict[str, str]
+
+
+@dataclass
 class PlanStep:
     grid: str
     step: str

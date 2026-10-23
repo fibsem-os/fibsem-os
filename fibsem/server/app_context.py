@@ -241,7 +241,12 @@ class AppContext:
         on it, as evidence draws them, the centre *crosshair*, the scale bar
         and the metadata bar. Saved as ``drawn/<image>.png`` beside the image
         (replaced when drawn again), a path to cite as evidence."""
-        from fibsem.imaging.marks import drawn_picture
+        from fibsem.imaging.marks import (
+            drawn_path,
+            drawn_picture,
+            image_stem,
+            save_drawn,
+        )
 
         target, refusal = self._experiment_image(path)
         if refusal:
@@ -259,8 +264,8 @@ class AppContext:
             )
         except ValueError as exc:
             return {"error_type": "invalid", "message": str(exc)}
-        saved = _drawn_path(target, _stem(target))
-        return ImageDrawn(path, saved, checked, _save_drawn(rgb, saved))
+        saved = drawn_path(target, image_stem(target))
+        return ImageDrawn(path, saved, checked, save_drawn(rgb, saved))
 
     def draw_pair(
         self,
@@ -274,7 +279,7 @@ class AppContext:
         with its own bars, *marks* (in *before*'s pixels) drawn on both: pre and
         post mill, before and after an alignment, SEM next to FIB. Saved as
         ``drawn/<before>-<after>.png`` beside *before*."""
-        from fibsem.imaging.marks import drawn_pair
+        from fibsem.imaging.marks import drawn_pair, drawn_path, image_stem, save_drawn
 
         first, refusal = self._experiment_image(before)
         if refusal:
@@ -295,8 +300,8 @@ class AppContext:
             )
         except ValueError as exc:
             return {"error_type": "invalid", "message": str(exc)}
-        saved = _drawn_path(first, f"{_stem(first)}-{_stem(second)}")
-        return ImagePairDrawn(before, after, saved, checked, _save_drawn(rgb, saved))
+        saved = drawn_path(first, f"{image_stem(first)}-{image_stem(second)}")
+        return ImagePairDrawn(before, after, saved, checked, save_drawn(rgb, saved))
 
     @property
     def _runner(self):
@@ -1819,19 +1824,6 @@ class AppContext:
         return result
 
 
-def _stem(path: str) -> str:
-    """A file's name without its extensions (``.ome.tiff`` whole)."""
-    name = os.path.basename(path)
-    for suffix in (".ome.tiff", ".ome.tif"):
-        if name.lower().endswith(suffix):
-            return name[: -len(suffix)]
-    return os.path.splitext(name)[0]
-
-
-def _drawn_path(beside: str, name: str) -> str:
-    return os.path.join(os.path.dirname(beside), "drawn", f"{name}.png")
-
-
 def _checked_marks(marks: Any, image_path: str):
     """``(marks, None)`` checked and placed on the stage, or ``(None, refusal)``."""
     from fibsem.workflows.evidence import EvidenceRefused, checked_marks
@@ -1840,15 +1832,3 @@ def _checked_marks(marks: Any, image_path: str):
         return checked_marks(marks, image_path), None
     except EvidenceRefused as refusal:
         return None, {"error_type": refusal.error_type, "message": refusal.message}
-
-
-def _save_drawn(rgb, path: str) -> Dict[str, str]:
-    """Save the drawn picture *rgb* as the PNG *path*; its preview."""
-    import base64
-
-    from fibsem.imaging.marks import jpeg_bytes, png_bytes
-
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "wb") as f:
-        f.write(png_bytes(rgb))
-    return {"image_b64_jpeg": base64.b64encode(jpeg_bytes(rgb, 1536)).decode()}

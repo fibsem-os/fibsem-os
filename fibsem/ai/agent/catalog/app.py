@@ -497,7 +497,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="experiment_render_markers",
         returns="MarkersDrawn",
-        description="Any saved SEM or FIB image in the experiment (an overview, yours or a grid task's, or a single image) with the experiment's items drawn on it, as the overview plot dialog draws them: each item's number, green, red for a failed one, and a scale bar. grid_name draws only that grid's items; without it, every item with a pose. Saved beside the image as markers/<image>.png (replaced when drawn again): cite that path as evidence ({image: path}) when you report on the items, so the operator sees it in your note. Answers the path, the items drawn and a preview. Fluorescence images are refused.",
+        description="Any saved SEM or FIB image in the experiment (an overview, yours or a grid task's, or a single image) with the experiment's items drawn on it: each item's number, green, red for a failed one, placed clear of the others, with the scale bar and metadata bar. fov draws each item's field of view box, as the Overview canvas does; current, where the stage is now. grid_name draws only that grid's items; without it, every item with a pose. Saved beside the image as markers/<image>.png (replaced when drawn again): cite that path as evidence ({image: path}) when you report on the items, so the operator sees it in your note. Answers the path, the items drawn and a preview. Fluorescence images are refused.",
         method="POST",
         path="/app/experiment/images/markers",
         level="watch",
@@ -506,8 +506,10 @@ TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "path": "a beam image file path inside the experiment folder",
             "grid_name": "draw only this grid's items",
+            "fov": "optional: each item's field of view box (default false)",
+            "current": "optional: where the stage is now, a yellow target (default false)",
         },
-        optional=("grid_name",),
+        optional=("grid_name", "fov", "current"),
     ),
     ToolSpec(
         name="experiment_draw_image",
@@ -542,6 +544,32 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "channels": "optional: for fluorescence stacks, the channels to show, by name (default all)",
         },
         optional=("marks", "metadata_bar", "channels"),
+    ),
+    ToolSpec(
+        name="item_draw_milling",
+        returns="ItemMillingDrawn",
+        description="An item's milling as its own task configs have it, drawn on an ion image as the lamella editor shows it: the first task's enabled stages in the milling view's colours with a legend, the other tasks you name behind them in black, plus the tasks related to the first (background related, the default: fiducial, rough and polishing beside each other), and the item's point of interest. scan_direction draws each rectangle's scan direction; alignment_area the item's alignment area. Drawn on the item's latest FIB image unless you give image_path. Saved beside the image as drawn/<image>-<task>.png: cite that path as evidence. Answers the path, the stages drawn and a preview. Nothing moves.",
+        method="POST",
+        path="/app/experiment/items/{item_name}/milling/drawn",
+        level="watch",
+        router="app",
+        part=LAMELLAE,
+        params={
+            "item_name": "the item's name",
+            "task_names": "the milling tasks to draw, e.g. [mill_rough, mill_polishing]: the first in colour, the rest behind it",
+            "image_path": "optional: an ion image inside the experiment to draw on (default the item's latest FIB image)",
+            "background": "optional: related (default) also draws the first task's related tasks behind it; none draws only the tasks named",
+            "scan_direction": "optional: an arrow for each rectangle's scan direction (default false)",
+            "alignment_area": "optional: the item's alignment area (default false)",
+            "metadata_bar": "optional: the metadata bar under the image (default true)",
+        },
+        optional=(
+            "image_path",
+            "background",
+            "scan_direction",
+            "alignment_area",
+            "metadata_bar",
+        ),
     ),
     ToolSpec(
         name="experiment_get_image_stage_position",

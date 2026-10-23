@@ -56,6 +56,7 @@ from fibsem.server.responses import (
     ItemDetail,
     ItemEdit,
     ItemHistory,
+    ItemMillingDrawn,
     ItemStack,
     LamellaDefaultsSet,
     LogRead,
@@ -602,6 +603,22 @@ def build_app_router(context: Any) -> APIRouter:
         fraction = None if fx is None or fy is None else [fx, fy]
         return _typed(context.image_stage_position(path, px, fraction))
 
+    def _flags(body: Dict[str, Any], *keys: str) -> Dict[str, bool]:
+        """*body*'s true-or-false *keys* that are given, or the 422."""
+        flags = {}
+        for key in keys:
+            if key in body:
+                if not isinstance(body[key], bool):
+                    raise HTTPException(
+                        status_code=422,
+                        detail={
+                            "error_type": "invalid",
+                            "message": f"{key} is true or false",
+                        },
+                    )
+                flags[key] = body[key]
+        return flags
+
     @router.post(
         "/experiment/images/markers", response_model=MarkersDrawn, tags=[LAMELLAE]
     )
@@ -619,21 +636,12 @@ def build_app_router(context: Any) -> APIRouter:
                 status_code=422,
                 detail={"error_type": "invalid", "message": "grid_name is a string"},
             )
-        return _answer_or_refusal(context.render_markers(path, grid_name))
+        return _answer_or_refusal(
+            context.render_markers(path, grid_name, **_flags(body, "fov", "current"))
+        )
 
     def _draw_options(body: Dict[str, Any]) -> Dict[str, Any]:
-        options = {}
-        for key in ("crosshair", "metadata_bar"):
-            if key in body:
-                if not isinstance(body[key], bool):
-                    raise HTTPException(
-                        status_code=422,
-                        detail={
-                            "error_type": "invalid",
-                            "message": f"{key} is true or false",
-                        },
-                    )
-                options[key] = body[key]
+        options: Dict[str, Any] = _flags(body, "crosshair", "metadata_bar")
         channels = body.get("channels")
         if channels is not None:
             options["channels"] = _names(
@@ -656,6 +664,40 @@ def build_app_router(context: Any) -> APIRouter:
         options = _draw_options(body)
         options.pop("crosshair", None)
         return _typed(context.draw_pair(before, after, body.get("marks"), **options))
+
+    @router.post(
+        "/experiment/items/{item_name}/milling/drawn",
+        response_model=ItemMillingDrawn,
+        tags=[LAMELLAE],
+    )
+    def draw_item_milling(item_name: str, body: Dict[str, Any]):
+        # A POST because the picture is saved beside the image, as markers are.
+        tasks = body.get("task_names")
+        if isinstance(tasks, str):
+            tasks = [tasks]
+        if not isinstance(tasks, list) or not tasks:
+            raise _missing_field(
+                "Pass task_names: the milling tasks to draw, the first in colour."
+            )
+        task_names = _names({"task_names": tasks}, "task_names", "task names")
+        background = body.get("background", "related")
+        if background not in ("related", "none"):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "invalid",
+                    "message": "background is related or none",
+                },
+            )
+        options = _flags(body, "scan_direction", "alignment_area", "metadata_bar")
+        image_path = body.get("image_path")
+        if image_path is not None and not isinstance(image_path, str):
+            raise _missing_field("image_path, when given, is a saved ion image.")
+        return _typed(
+            context.draw_item_milling(
+                item_name, task_names, image_path, background, **options
+            )
+        )
 
     @router.post("/experiment/images/pixels", response_model=SavedImagePixels)
     def image_pixels(body: Dict[str, Any]):
