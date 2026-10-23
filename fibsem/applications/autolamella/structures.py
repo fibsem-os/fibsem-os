@@ -1016,6 +1016,12 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
             return
         record.actor = str(self.actor())
 
+    def save_verdict(self, item: Union["Lamella", GridRecord]) -> None:
+        """Save *item*'s new verdict, signed (`sign_verdict`): what every
+        window that judges a lamella or a grid, and the App Server, call."""
+        self.sign_verdict(item)
+        self.save()
+
     def get_lamella_by_name(self, name: str) -> Optional["Lamella"]:
         """Return the Lamella with the given name, or None if not found."""
         return next((p for p in self.positions if p.name == name), None)

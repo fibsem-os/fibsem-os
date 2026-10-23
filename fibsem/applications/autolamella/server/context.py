@@ -56,6 +56,7 @@ from fibsem.server.task_configs import config_version, workflow_field_refusal
 from fibsem.structures import BeamType
 from fibsem.workflows.actions import NOTE
 from fibsem.workflows.attention import Attention
+from fibsem.workflows.grid.edits import keep_grid_note, remove_grid_record
 from fibsem.workflows.outputs import (
     all_item_outputs,
     files_by_run,
@@ -939,7 +940,7 @@ class AutoLamellaAppContext(AppContext):
             grid.quality.set_defect(
                 description=reason or "", state=state, actor=Actor.agent("remote")
             )
-            experiment.save()
+            experiment.save_verdict(grid)
             self._grids_changed()
 
         self._agent_call(judge)
@@ -961,8 +962,7 @@ class AutoLamellaAppContext(AppContext):
             return refusal
 
         def keep():
-            record = grid.set_note(note, evidence=evidence)
-            experiment.save()
+            record = keep_grid_note(experiment, grid, note, evidence)
             self._grids_changed()
             return record
 
@@ -987,9 +987,7 @@ class AutoLamellaAppContext(AppContext):
             return refusal
 
         def remove():
-            orphaned = [p.name for p in experiment.get_lamellae_for_grid(grid)]
-            experiment.remove_grid(grid_name)
-            experiment.save()
+            orphaned = remove_grid_record(experiment, grid)
             self._grids_changed()
             return orphaned
 
