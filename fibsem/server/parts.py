@@ -191,7 +191,7 @@ class MillingStages(Protocol):
 @runtime_checkable
 class Lamellae(Protocol):
     """Lamella-only routes: thickness, correlation results, lamella
-    defaults."""
+    defaults, the lamella run's plan."""
 
     def measure_thickness(
         self,
@@ -209,6 +209,14 @@ class Lamellae(Protocol):
 
     def render_markers(
         self, path: str, grid_name: Optional[str] = None
+    ) -> Dict[str, Any]: ...
+
+    def lamella_run_plan(
+        self,
+        task_names: List[str],
+        item_names: Optional[List[str]] = None,
+        run_next: bool = False,
+        add: bool = False,
     ) -> Dict[str, Any]: ...
 
 

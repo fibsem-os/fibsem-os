@@ -30,7 +30,7 @@ from typing import (
 
 from fibsem.devices.core import Device
 from fibsem.drivers.registry import REMOTE_DRIVER, normalize_name
-from fibsem.structures import DeviceEntry, read_device_entries
+from fibsem.structures import BeamType, DeviceEntry, read_device_entries
 
 if TYPE_CHECKING:
     from fibsem.drivers.registry import DeviceBuilder
@@ -221,6 +221,20 @@ def build_device_entries(
         if context.cleanups and cleanups is not None:
             cleanups.extend(context.cleanups)
     return built
+
+
+def beam_type_of(entry: DeviceEntry) -> BeamType:
+    """The column a beam entry names: ``electron`` or ``ion``, the names a beam's
+    entry has (`FibsemMicroscope.beams`)."""
+    if entry.name not in ("electron", "ion"):
+        raise ValueError(f"a beam is named 'electron' or 'ion', not {entry.name!r}")
+    return BeamType.ELECTRON if entry.name == "electron" else BeamType.ION
+
+
+def named(device: Device, entry: DeviceEntry) -> Device:
+    """*device* named after its entry, and connected: what a builder hands back."""
+    device.name = entry.name
+    return device.connect()
 
 
 def disconnect_devices(

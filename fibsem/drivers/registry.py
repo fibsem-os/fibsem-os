@@ -114,6 +114,14 @@ class DriverEntry:
     instead: the devices the wizard offers (:func:`device_setups`), whose keys are
     also what building such an entry checks (:func:`device_setup`)."""
 
+    milling_settings: Optional[str] = None
+    """The driver's own milling settings class, as ``"module:Class"`` naming a
+    ``fibsem.structures.DriverMillingSettings``: the settings no other driver means
+    the same by (Tescan's preset and rate). A milling recipe keeps them in its
+    ``driver`` block under this driver's name, so the module must import nothing
+    heavier than ``fibsem.structures``: every PC reads the block. ``None`` for a
+    driver that mills with the shared fields only."""
+
     @property
     def builds_microscope(self) -> bool:
         """Whether the driver connects a microscope, not only devices."""
@@ -318,6 +326,34 @@ def device_builder(driver: Optional[str], type: str) -> Optional[DeviceBuilder]:
     if name in _DEVICE_DRIVERS:
         return _import(_DEVICE_DRIVERS[name]).get(type)
     return get_driver(name).devices.get(type)
+
+
+def milling_settings_classes() -> Dict[str, type]:
+    """Each driver's own milling settings class, by the driver's name: the
+    built-ins, then those registered at runtime, then the plugins'. Imports each
+    driver's record and its settings module, none of its other modules."""
+    found: Dict[str, type] = {}
+    for name in _BUILT_IN:
+        entry = DRIVER_PLUGINS.builtins[name]
+        if entry.milling_settings is not None:
+            found[name] = _import(entry.milling_settings)
+    for name, entry in _all_drivers():
+        if name not in found and entry.milling_settings is not None:
+            try:
+                found[name] = _import(entry.milling_settings)
+            except Exception as e:
+                logging.warning(f"Driver {name}'s milling settings: {e}")
+    return found
+
+
+def milling_settings_name(settings_class: type) -> Optional[str]:
+    """The name of the driver whose own milling settings class is
+    *settings_class*: the block a recipe keeps them under. None for a class no
+    driver names."""
+    for name, cls in milling_settings_classes().items():
+        if cls is settings_class:
+            return name
+    return None
 
 
 def connect_microscope(system: "SystemSettings") -> "FibsemMicroscope":

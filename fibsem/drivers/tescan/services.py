@@ -34,6 +34,7 @@ from fibsem.drivers.tescan.microscope import (
     SPOT_BURN_PRESET,
     TESCAN_SCAN_DIRECTIONS,
 )
+from fibsem.drivers.tescan.settings import TescanMillingSettings
 from fibsem.imaging.spot import SpotBurnProgress, SpotBurnSettings, SpotBurnStatus
 from fibsem.milling.progress import MillingProgress
 from fibsem.services.milling import Milling, bind_milling, progress_update
@@ -64,17 +65,10 @@ class TescanMilling(Milling):
 
     parent: TescanMicroscope
 
-    # The preset sets the current and voltage; the rest go into the DrawBeam layer.
-    setting_names = (
-        "milling_channel",
-        "hfw",
-        "preset",
-        "spot_size",
-        "rate",
-        "dwell_time",
-        "spacing",
-        "patterning_mode",
-    )
+    # The preset sets the current and voltage; it and the rest of Tescan's own
+    # settings go into the DrawBeam layer.
+    setting_names = ("milling_channel", "hfw", "patterning_mode")
+    settings_class = TescanMillingSettings
     scan_directions = TESCAN_SCAN_DIRECTIONS
 
     def __init__(self, connection: TescanConnection, **kwargs: Any):
@@ -88,7 +82,9 @@ class TescanMilling(Milling):
         # Tescan milling is preset-driven: the dose model (stage rate x preset
         # current), not the shared table keyed on the unused milling_current. A
         # preset the model can't read falls back to the table.
-        estimate = tescan.estimate_preset_milling_time(stage)
+        estimate = tescan.estimate_preset_milling_time(
+            stage, cls.own_settings(stage.milling)
+        )
         if estimate is None:
             return super().estimate_stage(stage)
         return estimate
@@ -103,23 +99,24 @@ class TescanMilling(Milling):
         # ion only: the milling preset, then a DrawBeam layer from the recipe
         if settings.milling_channel is not BeamType.ION:
             raise ValueError("Only FIB milling is currently supported.")
+        own = self.own_settings(settings)
         microscope = self.parent
         connection = self.connection
         connection.prepare_beam(settings.milling_channel)
         self._clear()
         microscope.milling_channel = settings.milling_channel
         # QUERY: do we need to set this here as it is also set in IEtching?
-        self.ion.preset.write_through(settings.preset)
+        self.ion.preset.write_through(own.preset)
         layer_settings = tescan.IEtching(
             syncWriteField=False,
             writeFieldSize=settings.hfw,
             beamCurrent=microscope.get_beam_current(settings.milling_channel),
-            spotSize=settings.spot_size,
-            rate=settings.rate,
-            dwellTime=settings.dwell_time,
+            spotSize=own.spot_size,
+            rate=own.rate,
+            dwellTime=own.dwell_time,
             parallel=bool(settings.patterning_mode == "Parallel"),
-            preset=settings.preset,
-            spacing=settings.spacing,
+            preset=own.preset,
+            spacing=own.spacing,
         )
         # TODO: change the layer name to milling stage name
         with connection.lock:
@@ -437,13 +434,16 @@ class TescanSpotBurn(SpotBurn):
     def _setup(self, ion: Beam, current: float) -> None:
         """A layer at the spot burn preset, as wide as the field of view; the
         remaining DrawBeam fields come from the milling defaults."""
+        milling = self.parent.milling
         recipe = FibsemMillingSettings(
             milling_channel=BeamType.ION,
             hfw=ion.hfw.get_value(),
-            preset=SPOT_BURN_PRESET,
             patterning_mode="Serial",
         )
-        self.parent.milling.setup(recipe, name="SpotBurn")
+        recipe.driver[milling.own_name()] = TescanMillingSettings(
+            preset=SPOT_BURN_PRESET
+        )
+        milling.setup(recipe, name="SpotBurn")
 
     def _burn(
         self,

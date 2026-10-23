@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { AgentPage } from "@/pages/Agent";
+import { EventsPage } from "@/pages/Events";
 import { ExperimentPage } from "@/pages/Experiment";
 import { GatewayPage } from "@/pages/Gateway";
 import { GridsPage } from "@/pages/Grids";
@@ -40,6 +41,7 @@ function Shell() {
           {page === "grids" && <GridsPage go={go} />}
           {page === "positions" && <PositionsPage />}
           {page === "agent" && <AgentPage />}
+          {page === "events" && <EventsPage />}
         </div>
       </div>
       <Notices page={page} go={go} />

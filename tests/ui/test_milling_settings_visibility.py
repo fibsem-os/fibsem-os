@@ -49,13 +49,41 @@ def test_the_milling_service_says_which_fields_show(qapp, microscope):
     rows = {row.field for row in widget._rows}
     assert _shown(widget) == set(supported) & rows
     # the Demo mills like ThermoFisher, so none of Tescan's fields
-    assert not {"preset", "spot_size", "rate", "dwell_time", "spacing"} & _shown(widget)
+    assert not any(name.startswith("driver.") for name in _shown(widget))
 
     # the application file's choices are the service's
     (row,) = [r for r in widget._rows if r.field == "application_file"]
     combo = row.control.widget
     items = [combo.itemText(i) for i in range(combo.count())]
     assert items == list(supported["application_file"].choices)
+
+
+def test_a_drivers_own_fields_show_by_their_path(qapp, monkeypatch):
+    from fibsem import config as cfg
+    from tests.fixtures import tescan_sdk
+
+    system = utils.load_microscope_configuration(
+        os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+    ).system
+    tescan, _ = tescan_sdk.connect(monkeypatch, system)
+    widget = _widget(tescan)
+    shown = _shown(widget)
+    assert {
+        "driver.Tescan.preset",
+        "driver.Tescan.spot_size",
+        "driver.Tescan.rate",
+        "driver.Tescan.dwell_time",
+        "driver.Tescan.spacing",
+    } <= shown
+    # the preset sets the current and voltage, and there's no application file
+    assert not {"milling_current", "milling_voltage", "application_file"} & shown
+    # the preset's choices are the instrument's
+    (row,) = [r for r in widget._rows if r.field == "driver.Tescan.preset"]
+    combo = row.control.widget
+    items = [combo.itemText(i) for i in range(combo.count())]
+    assert items == list(
+        tescan.milling.supported_settings()["driver.Tescan.preset"].choices
+    )
 
 
 def test_without_a_milling_service_no_field_shows(qapp, microscope, monkeypatch):
