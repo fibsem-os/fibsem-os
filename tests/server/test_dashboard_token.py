@@ -1,7 +1,5 @@
 """The dashboard's own token (FIB-1035): monitoring reads, and nothing else."""
 
-import os
-
 import pytest
 
 pytest.importorskip("fastapi")
@@ -10,7 +8,6 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient  # noqa: E402
 from psygnal.containers import EventedDict  # noqa: E402
 
-from fibsem import utils  # noqa: E402
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
@@ -27,13 +24,6 @@ DASHBOARD = "dashboard-token"
 
 def _bearer(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    return microscope
 
 
 @pytest.fixture
@@ -60,6 +50,7 @@ MONITORING = [
     "/app/workflow/status",
     "/app/workflow/queue",
     "/app/events",
+    "/app/events/history",  # the Events page's earlier records
     "/microscope/devices",  # what it has, not a device's values
 ]
 

@@ -11,7 +11,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from fibsem import utils
 from fibsem.devices import Device
 from fibsem.devices.entries import (
     DeviceBuildError,
@@ -20,12 +19,9 @@ from fibsem.devices.entries import (
 )
 from fibsem.drivers import registry
 from fibsem.structures import DeviceEntry
+from tests.fixtures.microscopes import demo_microscope
 
-
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(setup_logging=False, manufacturer="Demo")
-    return microscope
+microscope = demo_microscope(scope="function")
 
 
 def _record_disconnects(microscope, calls, monkeypatch):

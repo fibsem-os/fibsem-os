@@ -2,8 +2,6 @@
 Server: the correlation dialog's Continue, at Drive, through the item patch,
 with no window."""
 
-import os
-
 import pytest
 
 pytest.importorskip("fastapi")
@@ -12,7 +10,6 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient  # noqa: E402
 from psygnal.containers import EventedDict  # noqa: E402
 
-from fibsem import utils  # noqa: E402
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
@@ -31,13 +28,6 @@ from tests.run_state import stub_session
 
 TOKEN = "test-token"
 TARGET = Point(3e-6, -2e-6)
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    return microscope
 
 
 @pytest.fixture

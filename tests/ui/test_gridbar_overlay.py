@@ -19,7 +19,6 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from PyQt5.QtWidgets import QApplication
 
 from fibsem import utils
 from fibsem.imaging.overview_session import OverviewSession
@@ -34,12 +33,6 @@ from fibsem.ui.widgets.overview_widget import FibsemOverviewWidget
 
 PITCH = 50.0
 WIDTH = 8.0
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    app = QApplication.instance() or QApplication([])
-    yield app
 
 
 class _FakeCanvas:

@@ -22,13 +22,6 @@ import pytest
 pytest.importorskip("PyQt5")
 
 
-@pytest.fixture(scope="module")
-def qapp():
-    from PyQt5.QtWidgets import QApplication
-
-    return QApplication.instance() or QApplication([])
-
-
 @pytest.fixture
 def viewer(qapp, tmp_path):
     from fibsem import config as cfg

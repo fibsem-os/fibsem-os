@@ -3,11 +3,8 @@ fed by real signals — the Demo microscope's psygnal emissions and a real
 HookManager firing lifecycle events."""
 
 import json
-import os
 import threading
 import time
-
-import pytest
 
 from fibsem.workflows.events import (
     EventBuffer,
@@ -77,15 +74,6 @@ def test_appends_from_many_threads_never_lose_or_duplicate_a_seq():
     result = buffer.events_since(0)
     seqs = [e["seq"] for e in result["events"]]
     assert seqs == list(range(1, 1001))
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
-    from fibsem import utils
-
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    return microscope
 
 
 def test_microscope_taps_capture_real_emissions(microscope):

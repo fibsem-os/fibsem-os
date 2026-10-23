@@ -13,7 +13,6 @@ from typing import List
 
 import pytest
 
-from fibsem import utils
 from fibsem.applications.autolamella.structures import Lamella
 from fibsem.applications.autolamella.workflows.tasks.trench import (
     MillTrenchTask,
@@ -23,12 +22,9 @@ from fibsem.cancellation import OperationCancelledError
 from fibsem.hooks import FunctionHook, HookContext, HookManager
 from fibsem.microscope import FibsemMicroscope
 from fibsem.workflows.status import TaskStatus
+from tests.fixtures.microscopes import demo_microscope
 
-
-@pytest.fixture
-def microscope() -> FibsemMicroscope:
-    scope, _ = utils.setup_session(manufacturer="Demo")
-    return scope
+microscope = demo_microscope(scope="function")
 
 
 def _make_task(microscope: FibsemMicroscope, tmp_path: Path) -> MillTrenchTask:
