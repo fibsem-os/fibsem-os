@@ -58,11 +58,6 @@ class App:
     The gateway runs it (fibsem.gateway)."""
 
     @property
-    def icon_16(self) -> Path:
-        small = self.icon.with_name(f"{self.icon.stem}-16.svg")
-        return small if small.is_file() else self.icon
-
-    @property
     def windows_icon(self) -> Optional[Path]:
         ico = self.icon.with_suffix(".ico")
         return ico if ico.is_file() else None

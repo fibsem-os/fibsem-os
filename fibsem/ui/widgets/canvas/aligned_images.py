@@ -1,4 +1,4 @@
-"""Images aligned by hand over a real-space canvas: placement and bookkeeping (FIB-1030).
+"""Images aligned by hand over a real-space canvas: placement and bookkeeping.
 
 A fluorescence overview laid over the FIB/SEM Overview tab starts where its own
 metadata says and is corrected by hand. Two things have to be kept apart for that to
@@ -88,7 +88,7 @@ def decompose(a: np.ndarray) -> Tuple[bool, float, float, float]:
     The model is `A = diag(1, squash) . R(rotation) . diag(-1 if mirror else 1, 1) .
     scale`: a mirror of the image's own x, a turn clockwise on a y-down canvas, the
     view's squash along its y, and a uniform scale. A view's foreshortening is a
-    squash along the view's y only (FIB-615), which is what makes the top row of `A`
+    squash along the view's y only, which is what makes the top row of `A`
     the unsquashed one and lets the turn be read off it.
     """
     mirror = bool(np.linalg.det(a) < 0)

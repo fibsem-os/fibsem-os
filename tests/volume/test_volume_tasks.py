@@ -29,16 +29,20 @@ class FakeManager:
         return self.abort_token.is_set()
 
 
-def test_a_slice_is_milled_at_its_point_of_interest(
+def test_a_slice_is_milled_past_the_start_slice(
     microscope, experiment, position, milled
 ):
-    experiment.task_protocol.task_config[MILL].slice_thickness = 100e-9
+    saved = experiment.task_protocol.task_config[MILL]
+    saved.slice_thickness = 100e-9
+    saved.milling.stages[0].pattern.height = 100e-9
 
     run_volume_task(microscope, MILL, experiment, position, iteration=2)
 
     (config,) = milled
     point = config.stages[0].pattern.point
-    assert (point.x, point.y) == pytest.approx((0, 1e-6 - 200e-9))
+    # the start slice's face, then two slices, then half of this one
+    face = 1e-6 - saved.start_slice.stages[0].pattern.height / 2
+    assert (point.x, point.y) == pytest.approx((0, face - 250e-9))
     saved = experiment.task_protocol.task_config[MILL].milling.stages[0].pattern.point
     assert (saved.x, saved.y) == (0, 0)
     state = position.task_history[-1]

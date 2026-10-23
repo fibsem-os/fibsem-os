@@ -100,6 +100,12 @@ def test_the_agent_answers_a_supervised_run_with_no_window(agent):
         hold = session.runner.manager.hold
         assert hold.items == (f"{lamella.name}/{SETUP}",)
         assert hold.releases == f"answer {SETUP} on {lamella.name}"
+        # The status line says the same without a window: where the run is,
+        # what it does, and what releases it.
+        assert workflow["queue_position"] == 1
+        assert workflow["waiting_on"] == hold.releases
+        assert workflow["waiting_since"]
+        assert workflow["step"] == f"Waiting: {hold.releases}."
         # What the task acquired is what the agent sees, window or not.
         assert session.images.get(BeamType.ION) is not None
         assert _ok(agent.get("/app/experiment/images"))["available"]

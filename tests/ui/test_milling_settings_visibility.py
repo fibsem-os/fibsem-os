@@ -25,12 +25,6 @@ from fibsem.ui.widgets.pattern_settings_widget import (  # noqa: E402
 )
 
 
-@pytest.fixture(scope="module")
-def microscope():
-    scope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    return scope
-
-
 def _widget(microscope):
     return FibsemMillingSettingsWidget(
         microscope=microscope, settings=FibsemMillingSettings()
@@ -63,7 +57,7 @@ def test_a_drivers_own_fields_show_by_their_path(qapp, monkeypatch):
     from tests.fixtures import tescan_sdk
 
     system = utils.load_microscope_configuration(
-        os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
     ).system
     tescan, _ = tescan_sdk.connect(monkeypatch, system)
     widget = _widget(tescan)

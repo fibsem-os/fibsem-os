@@ -12,6 +12,8 @@ real tab bar exposing the methods the window drives.
 
 import os
 
+from tests.fixtures.main_window import main_window_fixture
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
@@ -41,9 +43,6 @@ class _DetWidget(QWidget):
 
     def _get_detected_features(self):
         return self.det
-
-    def confirm_button_clicked(self):
-        pass
 
     def clear_layers(self):
         self.det = None
@@ -156,21 +155,7 @@ def test_it_does_nothing_when_no_proposal_is_up(ui, qapp):
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def main_ui(qapp):
-    from fibsem.applications.autolamella.ui import window as module
-
-    window = module.AutoLamellaWindow()
-    window.system_widget.connect_to_microscope()
-    yield window
-    if window.microscope is not None:
-        window.microscope.disconnect()
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
-        window.close()
-    finally:
-        qapp.quit = original_quit
+main_ui = main_window_fixture(connect=True)
 
 
 def test_a_proposal_on_one_of_the_windows_own_tabs_is_fronted_there(main_ui, qapp):

@@ -84,7 +84,7 @@ class FluorescenceOverviewTab(AutoLamellaOverviewTabBase):
 
         On a compustage deriving it would give the same answer; on an offset mount it
         would not, and the wrong answer there is a lamella with a milling pose 48 mm off
-        the beam axis that nothing rejects until something tries to mill it (FIB-93).
+        the beam axis that nothing rejects until something tries to mill it.
         Declaring it turns that into a refusal at the point of marking, where there is a
         user to tell.
         """
@@ -103,9 +103,9 @@ class FluorescenceOverviewTab(AutoLamellaOverviewTabBase):
 
         Unless the objective is retracted, in which case its position is a parking spot
         ~10 mm from anything and nobody focused on anything. None hands the decision back
-        to the fallback -- which matters because `fluorescence_selected` only asks
-        whether an objective position exists, so a parked one would read as a focused
-        lamella.
+        to the fallback -- which matters because restoring the pose drives the
+        objective to whatever position it holds, so a parked one would be restored as
+        a focus.
         """
         microscope = self.microscope
         if microscope is None or microscope.fm is None:

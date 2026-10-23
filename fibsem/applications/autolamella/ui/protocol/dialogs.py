@@ -1,29 +1,24 @@
 """The protocol's identity on the Protocol tab: one line, and a pencil.
 
 Name, description and version are set when the experiment is created and rarely
-touched after; the form they used to occupy took the top of the only column that
-has to fit two task lists. The line says which protocol is loaded, which is the
-one thing that panel earned; the dialog behind the pencil does the rest.
+touched after, so they stay out of the only column that has to fit two task lists.
+The line says which protocol is loaded; the dialog behind the pencil does the rest.
 """
 
 from __future__ import annotations
 
-import logging
 from typing import Dict, List, Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QDialog,
     QDialogButtonBox,
-    QDoubleSpinBox,
     QFormLayout,
     QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QMessageBox,
     QVBoxLayout,
     QWidget,
 )
@@ -34,10 +29,8 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.constants import SI_TO_MICRO
 from fibsem.structures import (
-    BeamType,
     FibsemMillingSettings,
     ReferenceImageParameters,
-    field_specs,
 )
 from fibsem.ui.tokens import NEUTRAL_200, TEXT_MUTED_COLOR
 from fibsem.ui.utils import beam_spec

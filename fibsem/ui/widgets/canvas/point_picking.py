@@ -1,4 +1,4 @@
-"""Correlation point picking over any `FibsemImageCanvas` (FIB-535).
+"""Correlation point picking over any `FibsemImageCanvas`.
 
 **Goal: one implementation of "pick correlation points on a canvas",** so the FIB
 and FM surfaces cannot drift apart. Both are moving onto the shared canvas stack
@@ -83,7 +83,7 @@ class PointPicking(QObject):
         # Result markers get their own overlay: they are computed output, never
         # picked, and keeping them off `points` is what makes them unpickable
         # rather than something to remember. Registered second so they draw over
-        # the picked points, matching the old canvas's artist order.
+        # the picked points.
         self.results = CorrelationResultOverlay(legend_host=self.points)
         canvas.add_overlay(self.results)
 
@@ -148,9 +148,8 @@ class PointPicking(QObject):
         """Show or hide the per-point names. Independent of marker visibility --
         a crowded image often wants the points without the text.
 
-        Covers the result markers' numbers too: one toggle, all the text, which is
-        what the old canvas did and what makes the button mean something on an
-        image showing a result."""
+        Covers the result markers' numbers too: one toggle, all the text, so the
+        button means something on an image showing a result."""
         self.points.set_labels_visible(visible)
         self.results.set_labels_visible(visible)
         self.btn_labels.setChecked(visible)

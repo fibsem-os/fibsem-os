@@ -481,7 +481,7 @@ def _since(args) -> Optional[str]:
 def cmd_experiment_list_all(client, args) -> int:
     """The experiments under the experiments folder of the app the server
     hosts (`experiment_list_all`), narrowed to an instrument, an operator or a
-    time window. Answers "what did this microscope do this week?" (FIB-457)."""
+    time window. Answers "what did this microscope do this week?"."""
     try:
         since = _since(args)
     except ValueError as e:

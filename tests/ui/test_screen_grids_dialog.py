@@ -11,6 +11,8 @@ import time
 
 import pytest
 
+from tests.fixtures.main_window import close_window
+
 pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
 
 import fibsem.config as cfg
@@ -41,7 +43,9 @@ from tests.fixtures.demo_stage import demo_grid_loader
 def arctis():
     microscope, _ = utils.setup_session(
         manufacturer="Demo",
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
+        ),
     )
     return microscope
 
@@ -285,7 +289,6 @@ def test_screen_all_grids_from_the_window_runs_on_the_named_grids(
     from PyQt5.QtTest import QTest
 
     from fibsem.applications.autolamella.ui import window as module
-    from fibsem.applications.autolamella.ui import window as ui_module
     from fibsem.applications.autolamella.ui.workflow import tab as workflow_tab
     from fibsem.ui.run import view as run_view_module
     from fibsem.workflows.grid import (
@@ -376,12 +379,7 @@ def test_screen_all_grids_from_the_window_runs_on_the_named_grids(
     finally:
         if ui.microscope is not None:
             ui.microscope.disconnect()
-        original_quit = qapp.quit
-        qapp.quit = lambda: None
-        try:
-            window.close()
-        finally:
-            qapp.quit = original_quit
+        close_window(window)
 
 
 def test_the_quote_is_for_the_grids_the_scan_found(qapp, unscanned, experiment):

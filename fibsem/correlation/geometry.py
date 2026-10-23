@@ -6,8 +6,8 @@ the fitted rotations agree to about half a degree, and on the Arctis the fitted 
 is 90 degrees minus the milling angle to a fraction of a degree. With FIB-milled
 fiducials -- all on one plane -- the fit cannot tell that rotation from its mirror
 image, and the sign it picks decides which way the refractive-index depth correction
-renders (FIB-880). So the rotation is built here from what the metadata already says,
-and the fit is *seeded* with it (FIB-881).
+renders. So the rotation is built here from what the metadata already says,
+and the fit is *seeded* with it.
 
 Nothing geometric is derived in this module. The in-plane part of the map is the
 composition of two projections the repo already trusts -- FM pixel -> stage point
@@ -25,7 +25,6 @@ Arctis (compustage, scan rotation pi, FLIP_XY) and METEOR (Aquilos2 offset mount
 from __future__ import annotations
 
 import dataclasses
-import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional, Tuple
 
@@ -336,7 +335,7 @@ def _complete_fm_pose(
 ) -> Optional[FibsemStagePosition]:
     """A usable FM pose from the recorded position, completing r and t from the geometry.
 
-    Both mountings image at a pose the stage declares (FIB-1101), stamped on the
+    Both mountings image at a pose the stage declares, stamped on the
     image or rebuilt for an older one (`FibsemHardwareGeometry.declared_poses`), so a
     recorded position missing rotation and tilt can be completed rather than refused:
 

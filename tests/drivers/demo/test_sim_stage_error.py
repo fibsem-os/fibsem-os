@@ -1,11 +1,8 @@
 """The simulated stage error (`sim.stage_error`): off by default; when on, the stage
 reads back where it was sent while the sample scene renders where it really went."""
 
-import os
-
 import pytest
 
-import fibsem.config as cfg
 from fibsem import utils
 from fibsem.drivers.demo.stage_error import StageMoveError
 from fibsem.structures import (
@@ -14,15 +11,9 @@ from fibsem.structures import (
     ImageSettings,
     OverviewAcquisitionSettings,
 )
+from tests.fixtures.microscopes import demo_microscope
 
-ARCTIS_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
-
-
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(manufacturer="Demo", config_path=ARCTIS_CONFIG)
-    yield microscope
-    microscope.disconnect()
+microscope = demo_microscope("sim-arctis-configuration.yaml", scope="function")
 
 
 def _turn_on(microscope, **kwargs) -> StageMoveError:

@@ -51,6 +51,7 @@ from fibsem.structures import (
     FibsemStagePosition,
     RangeLimit,
 )
+from tests.fixtures.pins import close_to_pin, plain
 
 PINS_PATH = os.path.join(
     os.path.dirname(__file__), "fixtures", "stage_movement_pins.json"
@@ -58,32 +59,15 @@ PINS_PATH = os.path.join(
 
 MOUNTS = {
     "default": None,
-    "iflm": os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml"),
-    "arctis": os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
+    "iflm": os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml"),
+    "arctis": os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"),
 }
-TESCAN_CONFIG = os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+TESCAN_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
 
 # Off centre, so a rotation or a projection shows in x and y.
 START = dict(x=100e-6, y=50e-6, z=1e-3)
 BEAMS = (BeamType.ELECTRON, BeamType.ION)
 DISPLACEMENTS = ((10e-6, 0.0), (0.0, 20e-6), (-15e-6, 7.5e-6))
-
-
-def _plain(value: Any) -> Any:
-    if isinstance(value, FibsemStagePosition):
-        return {
-            axis: None if getattr(value, axis) is None else float(getattr(value, axis))
-            for axis in ("x", "y", "z", "r", "t")
-        }
-    if isinstance(value, (bool, np.bool_)):
-        return bool(value)
-    if isinstance(value, (float, np.floating, int)):
-        return float(value)
-    if isinstance(value, (list, tuple)):
-        return [_plain(v) for v in value]
-    if isinstance(value, dict):
-        return {k: _plain(v) for k, v in value.items()}
-    return value if value is None or isinstance(value, str) else repr(value)
 
 
 # -- Demo -----------------------------------------------------------------------------
@@ -96,8 +80,8 @@ class _Recorder:
         self.commands: List[list] = []
         self.events: List[str] = []
         stage = microscope.devices["stage"]
-        self._wrap(stage, "_move_absolute", lambda p: ["stage.absolute", _plain(p)])
-        self._wrap(stage, "_move_relative", lambda p: ["stage.relative", _plain(p)])
+        self._wrap(stage, "_move_absolute", lambda p: ["stage.absolute", plain(p)])
+        self._wrap(stage, "_move_relative", lambda p: ["stage.relative", plain(p)])
         for name in ("electron", "ion"):
             beam = microscope.devices.get(name)
             param = None if beam is None else beam.parameters.get("working_distance")
@@ -106,7 +90,7 @@ class _Recorder:
                 self._wrap(
                     param,
                     "_write",
-                    lambda v, name=name: [f"{name}.working_distance", _plain(v)],
+                    lambda v, name=name: [f"{name}.working_distance", plain(v)],
                 )
         objective = microscope.devices.get("objective")
         if objective is not None:
@@ -176,7 +160,7 @@ def _place(microscope, orientation: str) -> None:
 def _run(microscope, recorder, call: Callable[[], Any]) -> Dict[str, Any]:
     recorder.clear()
     try:
-        result = _plain(call())
+        result = plain(call())
         error = None
     except Exception as e:  # noqa: BLE001 - the refusal is part of the pin
         result = None
@@ -186,7 +170,7 @@ def _run(microscope, recorder, call: Callable[[], Any]) -> Dict[str, Any]:
         "events": list(recorder.events),
         "result": result,
         "error": error,
-        "end": _plain(microscope.devices["stage"].position.get_value()),
+        "end": plain(microscope.devices["stage"].position.get_value()),
     }
 
 
@@ -364,7 +348,7 @@ def _tescan_cases() -> Dict[str, Dict[str, Any]]:
             fake.log.clear()
             events.clear()
             try:
-                result = _plain(call())
+                result = plain(call())
                 error = None
             except Exception as e:  # noqa: BLE001 - the refusal is part of the pin
                 result = None
@@ -375,7 +359,7 @@ def _tescan_cases() -> Dict[str, Dict[str, Any]]:
                 if path.split(".")[-1].startswith(("MoveTo", "Set"))
             ]
             cases[f"tescan {key} @{start}"] = {
-                "commands": _plain(writes),
+                "commands": plain(writes),
                 "events": list(events),
                 "result": result,
                 "error": error,
@@ -442,20 +426,6 @@ def _record() -> Dict[str, Dict[str, Any]]:
         logging.disable(logging.NOTSET)
 
 
-def _close(actual: Any, expected: Any) -> bool:
-    if isinstance(expected, float) and isinstance(actual, float):
-        return bool(np.isclose(actual, expected, rtol=1e-9, atol=1e-15))
-    if isinstance(expected, list) and isinstance(actual, list):
-        return len(actual) == len(expected) and all(
-            _close(a, e) for a, e in zip(actual, expected)
-        )
-    if isinstance(expected, dict) and isinstance(actual, dict):
-        return actual.keys() == expected.keys() and all(
-            _close(actual[k], expected[k]) for k in expected
-        )
-    return actual == expected
-
-
 @pytest.fixture(scope="module")
 def recorded():
     return _record()
@@ -489,7 +459,7 @@ def _pinned_keys() -> List[str]:
 @pytest.mark.parametrize("key", _pinned_keys())
 def test_a_move_commands_what_it_did(recorded, pinned, key):
     actual, expected = recorded[key], pinned[key]
-    assert _close(actual, expected), (
+    assert close_to_pin(actual, expected), (
         f"{key}\nexpected: {json.dumps(expected, indent=1)}\n"
         f"actual: {json.dumps(actual, indent=1)}"
     )

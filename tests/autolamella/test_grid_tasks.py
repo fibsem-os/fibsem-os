@@ -14,7 +14,6 @@ from typing import ClassVar, Type
 import pytest
 import yaml
 
-from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
@@ -23,13 +22,13 @@ from fibsem.workflows.grid import (
     GridTask,
     GridTaskConfig,
     get_grid_tasks,
-    load_grid_task_configs,
-    register_grid_task,
     run_grid_task,
 )
 from fibsem.workflows.grid.protocol import GridTaskProtocol
+from fibsem.workflows.grid.registry import GRID_TASK_PLUGINS
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskStatus
+from tests.fixtures.microscopes import demo_microscope
 
 # ---------------------------------------------------------------------------
 # A test task: writes one file, can be told to fail or to block on the token
@@ -66,7 +65,6 @@ class EchoConfig(GridTaskConfig):
     wait_for_abort: bool = False
 
 
-@register_grid_task
 class EchoTask(GridTask):
     config_cls: ClassVar[Type[GridTaskConfig]] = EchoConfig
     config: EchoConfig
@@ -81,6 +79,9 @@ class EchoTask(GridTask):
             path.write_text(self.config.flavour.value)
             self.record_output("echo", path)
         self.log_status_message("WROTE", "Wrote files")
+
+
+GRID_TASK_PLUGINS.register(EchoConfig.task_type, EchoTask)
 
 
 class FakeManager:
@@ -98,10 +99,7 @@ class FakeManager:
         return {"run_id": "test-run"}
 
 
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    return microscope
+microscope = demo_microscope(scope="function")
 
 
 @pytest.fixture

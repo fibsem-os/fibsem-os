@@ -1,4 +1,4 @@
-"""The controls for images aligned by hand over the Overview canvas (FIB-1030).
+"""The controls for images aligned by hand over the Overview canvas.
 
 Which image, load and remove, Align and Reset, how it is shown (opacity, signal only,
 its channels), and a readout of where it has been put. Emits; the host owns the images (`AlignedImages`) and the canvas's overlay

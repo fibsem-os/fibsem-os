@@ -32,6 +32,7 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.structures import FibsemStagePosition
+from tests.fixtures.pins import close_to_pin, plain
 
 PINS_PATH = os.path.join(
     os.path.dirname(__file__), "fixtures", "geometry_read_pins.json"
@@ -39,10 +40,10 @@ PINS_PATH = os.path.join(
 
 MOUNTS = {
     "default": None,
-    "iflm": os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml"),
-    "arctis": os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
+    "iflm": os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml"),
+    "arctis": os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"),
 }
-TESCAN_CONFIG = os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+TESCAN_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
 
 NAMES = ("SEM", "FIB", "MILLING", "FM", "NONE")
 # Off centre, so a rotation shows in x and y.
@@ -54,26 +55,9 @@ ROTATIONS = [np.radians(r) for r in range(0, 360, 45)]
 TILTS = [np.radians(t) for t in range(-180, 91, 5)]
 
 
-def _plain(value: Any) -> Any:
-    if isinstance(value, FibsemStagePosition):
-        return {
-            axis: None if getattr(value, axis) is None else float(getattr(value, axis))
-            for axis in ("x", "y", "z", "r", "t")
-        }
-    if isinstance(value, (bool, np.bool_)):
-        return bool(value)
-    if isinstance(value, (float, np.floating, int)):
-        return float(value)
-    if isinstance(value, (list, tuple)):
-        return [_plain(v) for v in value]
-    if isinstance(value, dict):
-        return {k: _plain(v) for k, v in value.items()}
-    return value if value is None or isinstance(value, str) else repr(value)
-
-
 def _answer(call: Callable[[], Any]) -> Dict[str, Any]:
     try:
-        return {"result": _plain(call()), "error": None}
+        return {"result": plain(call()), "error": None}
     except Exception as e:  # noqa: BLE001 - the refusal is part of the pin
         return {"result": None, "error": f"{type(e).__name__}: {e}"}
 
@@ -113,7 +97,8 @@ def _cases(prefix: str, microscope, start: Dict[str, float]) -> Dict[str, Any]:
             at = f"@{name}{np.degrees(dr):+.0f}r{np.degrees(dt):+.1f}t"
             position = FibsemStagePosition(r=pose.r + dr, t=pose.t + dt, **start)
             case(
-                f"current_device {at}", lambda: microscope.get_current_device(position)
+                f"current_device {at}",
+                lambda: microscope.stage_movement.current_device(position),
             )
             for device in devices:
                 case(
@@ -206,20 +191,6 @@ def _record() -> Dict[str, Any]:
         logging.disable(logging.NOTSET)
 
 
-def _close(actual: Any, expected: Any) -> bool:
-    if isinstance(expected, float) and isinstance(actual, float):
-        return bool(np.isclose(actual, expected, rtol=1e-9, atol=1e-15))
-    if isinstance(expected, list) and isinstance(actual, list):
-        return len(actual) == len(expected) and all(
-            _close(a, e) for a, e in zip(actual, expected)
-        )
-    if isinstance(expected, dict) and isinstance(actual, dict):
-        return actual.keys() == expected.keys() and all(
-            _close(actual[k], expected[k]) for k in expected
-        )
-    return actual == expected
-
-
 @pytest.fixture(scope="module")
 def recorded():
     return _record()
@@ -246,7 +217,9 @@ def test_the_pins_cover_every_answer(pinned):
 
 def test_every_read_answers_what_it_did(recorded, pinned):
     # One test over every case: a few thousand parametrized ones cost a minute.
-    moved = [key for key in sorted(pinned) if not _close(recorded[key], pinned[key])]
+    moved = [
+        key for key in sorted(pinned) if not close_to_pin(recorded[key], pinned[key])
+    ]
     assert not moved, (
         "\n".join(
             f"{key}\nexpected: {json.dumps(pinned[key])}\n"

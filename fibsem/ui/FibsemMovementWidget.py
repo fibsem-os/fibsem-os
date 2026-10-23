@@ -4,7 +4,7 @@ A container. It lays out four things -- the position readout, the move actions, 
 saved-position list and, when the flag is on, the sample holder -- and forwards the
 handful of calls other windows make on the tab.
 
-The two halves it composes are separately owned (FIB-783):
+The two halves it composes are separately owned:
 
 * ``StagePositionWidget`` says where the stage is and reads back what has been typed.
   It has no host contract at all.
@@ -23,7 +23,6 @@ from typing import Any, Callable, Optional
 
 from PyQt5 import QtWidgets
 
-from fibsem import config as cfg
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import FibsemStagePosition
 from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
@@ -156,6 +155,6 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         """Drop the canvas double-click registrations before this tab is destroyed.
 
         The canvases outlive it, and a stale double-click on a deleted widget makes
-        PyQt abort the process (FIB-329). Idempotent.
+        PyQt abort the process. Idempotent.
         """
         self.control_widget._teardown_connections()

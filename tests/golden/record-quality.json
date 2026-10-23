@@ -1,0 +1,11 @@
+{
+  "actor": "agent:model",
+  "at_task": "Mill Rough",
+  "decision_id": [
+    "lamella-1",
+    "Mill Rough"
+  ],
+  "reason": "too thick",
+  "updated_at": "2026-10-20T09:00:00+10:00",
+  "verdict": "REWORK"
+}

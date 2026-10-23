@@ -108,7 +108,7 @@ class TileGridOverlay(QObject, CanvasOverlay):
     # A move or resize gesture has ended. For work a host wants to do once, at the end,
     # rather than on every motion event -- anything that repaints the whole canvas
     # belongs here, because during the drag the grid is blitted over a held background
-    # and a repaint throws that away (FIB-752).
+    # and a repaint throws that away.
     drag_finished = pyqtSignal()
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
@@ -134,7 +134,7 @@ class TileGridOverlay(QObject, CanvasOverlay):
         self._cids: List[int] = []
         # The canvas without the grid on it, captured once when a drag starts. See
         # `_redraw`: while it is held, a drag frame restores it and draws the tiles on
-        # top rather than re-rendering every placed image (FIB-752).
+        # top rather than re-rendering every placed image.
         self._blit_bg = None
         self._resize_axes: Optional[Tuple[bool, bool]] = None  # (horizontal, vertical)
         # Whether dragging may change the grid's *geometry*. Tile toggling is separate
@@ -278,9 +278,8 @@ class TileGridOverlay(QObject, CanvasOverlay):
                 dimmed and crossed as described above. None leaves the previous set
                 alone; an empty one clears it.
             anchor: where to centre the grid, as :meth:`set_anchor` takes it. Here as
-                well because a host that sets both used to pay two full repaints per
-                call -- and this call is on the drag path, where it ran on every motion
-                event (FIB-751). Omitted leaves the anchor as it is; None restores
+                well so a host that sets both pays one repaint, not two, on the drag
+                path. Omitted leaves the anchor as it is; None restores
                 following the content.
         """
         self._tiles = list(tiles)
@@ -348,8 +347,8 @@ class TileGridOverlay(QObject, CanvasOverlay):
         anywhere inside the grid's bounding box was claimed and turned into a tile
         toggle, and the canvas's click signal was suppressed to stop the view panning
         out from under a drag -- so a marked position inside the grid could not be
-        selected at all, and the footprint is exactly where the marked positions are
-        (FIB-767).
+        selected at all, and the footprint is exactly where the marked positions are.
+
 
         Both overview tabs wire this to their own marker hit test, so what the grid
         stands aside for is precisely what a click would otherwise have selected --
@@ -591,7 +590,7 @@ class TileGridOverlay(QObject, CanvasOverlay):
         self._ax.add_line(line)
         return [line]
 
-    # ── blitting a drag (FIB-752) ────────────────────────────────────────
+    # ── blitting a drag ────────────────────────────────────────
 
     def _can_blit(self) -> bool:
         """Whether this frame should be blitted rather than fully redrawn.
@@ -997,7 +996,7 @@ class TileGridOverlay(QObject, CanvasOverlay):
             # The move gesture's threshold, deliberately: a modified press that never
             # travels has to reach `_on_release` still looking like a click, so that
             # Shift+click stays an ordinary toggle and keeps the double-click deferral
-            # that stops a stage move editing the tile under it (FIB-520).
+            # that stops a stage move editing the tile under it.
             self._paint_active = True
             if self._paint_origin is not None:
                 self._paint(*self._paint_origin)
@@ -1060,10 +1059,9 @@ class TileGridOverlay(QObject, CanvasOverlay):
 
         Double-clicking the canvas moves the stage. Inside the grid both gestures start
         the same way, and this release arrives before anything knows whether a second
-        click is coming -- so a double-click used to move the stage *and* toggle the
-        tile under it. Twice, in fact: the overlay's own tiles are not updated between
-        the two releases, so both emissions carried the same value rather than undoing
-        each other (FIB-520).
+        click is coming -- so a double-click would move the stage *and* toggle the
+        tile under it (twice, with the same value, as the overlay's own tiles are not
+        updated between the two releases).
 
         Deferring, rather than emitting and undoing on the second press. Undoing is
         snappier and writes a mask it then has to rewrite; this state decides what the

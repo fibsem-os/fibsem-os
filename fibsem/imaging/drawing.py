@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import functools
 import math
-from typing import Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -20,19 +20,19 @@ _NICE_NUMBERS = [1, 2, 5]
 
 
 _FONT_CANDIDATES = [
-    "arial.ttf",                                                          # Windows
-    "Arial.ttf",                                                          # macOS
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",                   # Ubuntu/Debian
-    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",   # RHEL/Fedora
-    "/usr/share/fonts/truetype/freefont/FreeSans.ttf",                   # fallback Linux
+    "arial.ttf",  # Windows
+    "Arial.ttf",  # macOS
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",  # Ubuntu/Debian
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",  # RHEL/Fedora
+    "/usr/share/fonts/truetype/freefont/FreeSans.ttf",  # fallback Linux
 ]
 
 _FONT_BOLD_CANDIDATES = [
-    "arialbd.ttf",                                                        # Windows
-    "Arial Bold.ttf",                                                     # macOS
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",              # Ubuntu/Debian
-    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",      # RHEL/Fedora
-    "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",               # fallback Linux
+    "arialbd.ttf",  # Windows
+    "Arial Bold.ttf",  # macOS
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",  # Ubuntu/Debian
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",  # RHEL/Fedora
+    "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",  # fallback Linux
 ]
 
 
@@ -64,7 +64,7 @@ def _pick_scalebar_length_m(fov_m: float, target_ratio: float = 0.2) -> float:
         return 0.0
 
     exponent = math.floor(math.log10(target_m))
-    base = 10 ** exponent
+    base = 10**exponent
 
     best = _NICE_NUMBERS[0] * base
     best_diff = abs(target_m - best)
@@ -91,7 +91,11 @@ def _format_length(length_m: float) -> str:
     si_ranges = [
         (1e-9, 1e12, "pm"),
         (1e-6, 1e9, "nm"),
-        (1e-3, 1e6, f"{MICRON_SYMBOL}"), # default font on windows doesnt support greek characters
+        (
+            1e-3,
+            1e6,
+            f"{MICRON_SYMBOL}",
+        ),  # default font on windows doesnt support greek characters
         (1.0, 1e3, "mm"),
         (1e3, 1.0, "m"),
         (1e6, 1e-3, "km"),
@@ -110,6 +114,60 @@ def _ensure_rgb(arr: np.ndarray) -> np.ndarray:
     if arr.ndim == 2:
         return np.stack([arr, arr, arr], axis=2)
     return arr
+
+
+def _scalebar_layout(w, h, pixel_size_x, location, margin, bar_height, font_scale):
+    """Where `draw_scalebar` puts its plate on a *w* x *h* image, and what is
+    on it; None when no bar fits."""
+    fov_m = pixel_size_x * w
+    bar_length_m = _pick_scalebar_length_m(fov_m)
+    if bar_length_m <= 0:
+        return None
+
+    bar_length_px = int(bar_length_m / pixel_size_x)
+    bar_length_px = min(bar_length_px, w - 2 * margin)
+
+    label = _format_length(bar_length_m)
+
+    # Font and text measurement
+    font_size = max(10, int(font_scale * 30))
+    font = _get_font(font_size)
+    bbox = font.getbbox(label)
+    tw = bbox[2] - bbox[0]
+    th = bbox[3] - bbox[1]
+
+    # Background rectangle dimensions
+    pad = 6
+    bg_w = max(bar_length_px, tw) + 2 * pad
+    bg_h = bar_height + th + 3 * pad
+
+    # Position
+    if "left" in location:
+        bg_x = margin
+    else:
+        bg_x = w - margin - bg_w
+    bg_y = h - margin - bg_h
+    return bg_x, bg_y, bg_w, bg_h, bar_length_px, label, font, tw, pad
+
+
+def scalebar_plate(
+    width: int,
+    height: int,
+    pixel_size_x: float,
+    location: str = "lower right",
+    margin: int = 10,
+    bar_height: int = 6,
+    font_scale: float = 0.4,
+) -> Optional[Tuple[int, int, int, int]]:
+    """The ``(x0, y0, x1, y1)`` `draw_scalebar` covers with these arguments on
+    a *width* x *height* image, or None when it draws nothing."""
+    plate = _scalebar_layout(
+        width, height, pixel_size_x, location, margin, bar_height, font_scale
+    )
+    if plate is None:
+        return None
+    x, y, w, h = plate[:4]
+    return x, y, x + w, y + h
 
 
 def draw_scalebar(
@@ -143,35 +201,12 @@ def draw_scalebar(
     """
     rgb = _ensure_rgb(arr)
     h, w = rgb.shape[:2]
-
-    fov_m = pixel_size_x * w
-    bar_length_m = _pick_scalebar_length_m(fov_m)
-    if bar_length_m <= 0:
+    plate = _scalebar_layout(
+        w, h, pixel_size_x, location, margin, bar_height, font_scale
+    )
+    if plate is None:
         return rgb.copy()
-
-    bar_length_px = int(bar_length_m / pixel_size_x)
-    bar_length_px = min(bar_length_px, w - 2 * margin)
-
-    label = _format_length(bar_length_m)
-
-    # Font and text measurement
-    font_size = max(10, int(font_scale * 30))
-    font = _get_font(font_size)
-    bbox = font.getbbox(label)
-    tw = bbox[2] - bbox[0]
-    th = bbox[3] - bbox[1]
-
-    # Background rectangle dimensions
-    pad = 6
-    bg_w = max(bar_length_px, tw) + 2 * pad
-    bg_h = bar_height + th + 3 * pad
-
-    # Position
-    if "left" in location:
-        bg_x = margin
-    else:
-        bg_x = w - margin - bg_w
-    bg_y = h - margin - bg_h
+    bg_x, bg_y, bg_w, bg_h, bar_length_px, label, font, tw, pad = plate
 
     # Single RGBA overlay for all scalebar elements
     base = Image.fromarray(rgb).convert("RGBA")
@@ -239,90 +274,6 @@ def draw_crosshair(
     return np.array(result)
 
 
-def draw_rectangle_reduced(
-    arr: np.ndarray,
-    left: float,
-    top: float,
-    width: float,
-    height: float,
-    color: Tuple[int, int, int] = (0, 255, 0),
-    alpha: float = 0.9,
-    thickness: int = 2,
-) -> np.ndarray:
-    """Draw a rectangle outline defined by relative image coordinates [0, 1].
-
-    Args:
-        arr: Image array (grayscale or RGB, uint8).
-        left: Left edge as a fraction of image width.
-        top: Top edge as a fraction of image height.
-        width: Rectangle width as a fraction of image width.
-        height: Rectangle height as a fraction of image height.
-        color: RGB outline color.
-        alpha: Opacity of the outline (0–1).
-        thickness: Outline thickness in pixels.
-
-    Returns:
-        Modified copy of the array with the rectangle outline drawn.
-    """
-    rgb = _ensure_rgb(arr)
-    h_px, w_px = rgb.shape[:2]
-
-    x0 = int(left * w_px)
-    y0 = int(top * h_px)
-    x1 = int((left + width) * w_px)
-    y1 = int((top + height) * h_px)
-
-    base = Image.fromarray(rgb).convert("RGBA")
-    overlay = Image.new("RGBA", (w_px, h_px), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(overlay)
-    draw.rectangle([(x0, y0), (x1, y1)], outline=(*color, int(alpha * 255)), width=thickness)
-
-    result = Image.alpha_composite(base, overlay).convert("RGB")
-    return np.array(result)
-
-
-def draw_crosshair_at(
-    arr: np.ndarray,
-    cx_frac: float = 0.5,
-    cy_frac: float = 0.5,
-    color: Tuple[int, int, int] = (255, 255, 0),
-    alpha: float = 0.9,
-    size_ratio: float = 0.05,
-    thickness: int = 1,
-) -> np.ndarray:
-    """Draw a crosshair at a specified fractional position in the image.
-
-    Args:
-        arr: Image array (grayscale or RGB, uint8).
-        cx_frac: Horizontal position as a fraction of image width (0=left, 1=right).
-        cy_frac: Vertical position as a fraction of image height (0=top, 1=bottom).
-        color: RGB color of the crosshair lines.
-        alpha: Opacity of the crosshair (0–1).
-        size_ratio: Arm length as a fraction of image width.
-        thickness: Line thickness in pixels.
-
-    Returns:
-        Modified copy of the array with crosshair drawn.
-    """
-    rgb = _ensure_rgb(arr)
-    h, w = rgb.shape[:2]
-
-    cx = int(cx_frac * w)
-    cy = int(cy_frac * h)
-    arm = max(4, int(w * size_ratio))
-
-    base = Image.fromarray(rgb).convert("RGBA")
-    overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(overlay)
-    a = int(alpha * 255)
-    line_color = (*color, a)
-    draw.line([(cx - arm, cy), (cx + arm, cy)], fill=line_color, width=thickness)
-    draw.line([(cx, cy - arm), (cx, cy + arm)], fill=line_color, width=thickness)
-
-    result = Image.alpha_composite(base, overlay).convert("RGB")
-    return np.array(result)
-
-
 def draw_image_overlays(
     arr: np.ndarray,
     pixel_size_x: float,
@@ -345,16 +296,25 @@ def draw_image_overlays(
     out = arr
     if show_crosshair:
         crosshair_kwargs = {
-            k: kwargs[k] for k in ("color", "alpha", "size_ratio", "thickness")
+            k: kwargs[k]
+            for k in ("color", "alpha", "size_ratio", "thickness")
             if k in kwargs
         }
         out = draw_crosshair(out, **crosshair_kwargs)
     if show_scalebar:
         scalebar_kwargs = {
-            k: kwargs[k] for k in (
-                "location", "bar_color", "text_color", "bg_color",
-                "bg_alpha", "margin", "bar_height", "font_scale",
-            ) if k in kwargs
+            k: kwargs[k]
+            for k in (
+                "location",
+                "bar_color",
+                "text_color",
+                "bg_color",
+                "bg_alpha",
+                "margin",
+                "bar_height",
+                "font_scale",
+            )
+            if k in kwargs
         }
         out = draw_scalebar(out, pixel_size_x, **scalebar_kwargs)
     return out

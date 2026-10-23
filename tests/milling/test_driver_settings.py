@@ -81,7 +81,7 @@ def test_a_setting_is_read_and_set_by_its_path():
 
 
 def test_a_patch_reaches_a_drivers_own_setting():
-    from fibsem.server.config_patch import apply_patch
+    from fibsem.workflows.config_patch import apply_patch
 
     recipe = FibsemMillingSettings()
     apply_patch(recipe, {"driver.Tescan.rate": 2e-8})

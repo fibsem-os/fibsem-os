@@ -3,7 +3,7 @@ connects the microscope and serves it over the App Server with an experiment
 open or none (the agent can create or open one), with no window.
 ``fibsem-autolamella-ui`` is the same host with the window (it hands in
 *window*). The agent level starts at Watch; the operator raises it from the
-chat page."""
+web app."""
 
 import argparse
 import threading
@@ -133,7 +133,7 @@ def main(
     session.serve_microscope = (
         args.serve_microscope
         if args.serve_microscope is not None
-        else fibsem_cfg.load_user_preferences().app_server.microscope
+        else fibsem_cfg.load_user_preferences().install.app_server.microscope
     )
     if window is not None:
         return window(session, window_args)

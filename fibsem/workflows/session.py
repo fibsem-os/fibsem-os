@@ -98,7 +98,7 @@ class AppSession:
         # Whoever carries out the run's instructions (show these images, clear
         # the milling editor): the window's QtResponder, or none headless.
         self.responder = responder
-        # The connection's event stream (FIB-1031): made when a microscope
+        # The connection's event stream: made when a microscope
         # connects, whatever else runs, and recorded to events.jsonl in the
         # experiment's directory. None only while disconnected.
         self.recorder: Optional[EventRecorder] = None
@@ -109,24 +109,24 @@ class AppSession:
         # widgets listen to the experiment, or here under a lock.
         self.executor: EditExecutor = executor or LockedExecutor()
         # The latest image of each beam, as the window shows it: what the App
-        # Server serves and a question's marker is placed on (FIB-1451).
+        # Server serves and a question's marker is placed on.
         self.images = LatestImages()
-        # Each overview of the connected microscope, by kind (FIB-1449).
+        # Each overview of the connected microscope, by kind.
         self._overviews: Dict[str, OverviewSession] = {}
-        # Where every run starts, whoever asks (FIB-1448).
+        # Where every run starts, whoever asks.
         self.runner = WorkflowRunner(self)
-        # The App Server over this session (FIB-845), while one is hosted.
+        # The App Server over this session, while one is hosted.
         self.app_server: Optional[Any] = None
         # What outlives a restart of it: the agent's token and level
         # (``AuthConfig``), made when it first starts, and whether it serves
-        # the microscope (FIB-1359), None until the client first says.
+        # the microscope, None until the client first says.
         self.agent_auth: Optional[Any] = None
         self.serve_microscope: Optional[bool] = None
         # Where an agent creates and finds experiments this session; None is
         # the app's default (fibsem-autolamella-server --experiments sets it).
         self.experiments_folder: Optional[str] = None
         # The agent as the operator meets it: its level, its requests and the
-        # operator's messages (FIB-1461).
+        # operator's messages.
         self.agent = AgentSession(self)
         # The surfaces attached to decide a run's proposals (a window: the
         # operator), while they are attached.

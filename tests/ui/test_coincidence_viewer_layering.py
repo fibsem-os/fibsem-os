@@ -27,11 +27,6 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QApplication
 
 
-@pytest.fixture(scope="module")
-def qapp():
-    return QApplication.instance() or QApplication([])
-
-
 @pytest.fixture()
 def viewer_widget(qapp, tmp_path):
     """The whole viewer on a simulated FM microscope.
@@ -48,7 +43,9 @@ def viewer_widget(qapp, tmp_path):
     )
 
     microscope, _ = utils.setup_session(
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
+        )
     )
     assert microscope.fm is not None, "expected an FM on the simulated Arctis"
     return FluorescenceCoincidenceViewerWidget(

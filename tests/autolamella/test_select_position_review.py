@@ -12,11 +12,8 @@ import threading
 import time
 from pathlib import Path
 
-import pytest
 from psygnal.containers import EventedDict
 
-import fibsem.config as cfg
-from fibsem import utils
 from fibsem.acting import ActorKind
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
@@ -39,11 +36,11 @@ from fibsem.workflows.proposals import (
     DecisionOutcome,
 )
 from tests.answering import answering
+from tests.fixtures.microscopes import demo_microscope
 from tests.protocols import planned, task_protocol
 
 SETUP = "Setup Lamella Position"
 ROUGH = "Rough Milling"
-CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
 
 
 def _in_run(relpath: str):
@@ -54,11 +51,7 @@ def _in_run(relpath: str):
     return parts[0], parts[-1]
 
 
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(manufacturer="Demo", config_path=CONFIG)
-    yield microscope
-    microscope.disconnect()
+microscope = demo_microscope("microscope-configuration.yaml", scope="function")
 
 
 def _experiment(
@@ -199,7 +192,7 @@ def test_automated_the_point_is_recorded_unasked_and_nothing_waits(
         POINT_OF_INTEREST,
         ALIGNMENT_AREA,
     ], "the proposals nobody was asked"
-    assert all(p.unreviewed for p in recorded)
+    assert all(p.current.outcome is DecisionOutcome.Unreviewed for p in recorded)
     assert exp.pending_proposals() == []
 
 
@@ -211,7 +204,10 @@ def test_with_select_poi_off_the_point_is_not_asked(microscope, tmp_path):
     _run(_task(microscope, exp))
 
     (point,) = _points(lamella)
-    assert point.unreviewed and "turned off" in point.current.reason
+    assert (
+        point.current.outcome is DecisionOutcome.Unreviewed
+        and "turned off" in point.current.reason
+    )
     assert POINT_OF_INTEREST not in SelectMillingPositionTask.asks_for(
         lamella.task_config[SETUP]
     )

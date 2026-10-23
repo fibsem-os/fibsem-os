@@ -1,6 +1,6 @@
 """What the agent's waiting request or suggestion would do, drawn where the
-operator decides: the window's card and the chat page (FIB-1404, FIB-1411).
-The session draws them, window or none (FIB-1500).
+operator decides: the window's card and the web app.
+The session draws them, window or none.
 
 Under Why: the image the values were measured on, every value drawn on it in
 the app's own styles, with a legend, an agent chip, a scalebar and the image's
@@ -16,7 +16,7 @@ comes down when the request is decided, or the suggestion is approved,
 declined or dropped.
 
 A value on the sample is kept with the frame it was measured on and re-projected
-through the stage onto the frame it is drawn on (FIB-1411). Patterns are places
+through the stage onto the frame it is drawn on. Patterns are places
 in the beam's field, not on the sample: drawn against the frame's field.
 """
 
@@ -112,7 +112,7 @@ def config_edit_stages(
     the edit is applied to a copy, by the same rules as the route."""
     from copy import deepcopy
 
-    from fibsem.server.config_patch import apply_patch
+    from fibsem.workflows.config_patch import apply_patch
 
     before, after = [], []
     for action in request.get("actions", []):
@@ -194,7 +194,7 @@ def request_outside_field(
 ) -> List:
     """The patterns the request would mill past the edge of the field: its
     milling hfw wide and *aspect* of that high (an image's height over width).
-    The Demo mills them; a real instrument refuses (FIB-1411). *stages* in
+    The Demo mills them; a real instrument refuses. *stages* in
     place of the request's own run_stage and run_task stages."""
     from fibsem.milling.base import FibsemMillingStage
     from fibsem.milling.patterning.utils import outside_field, stage_outside_field
@@ -447,11 +447,6 @@ class _Layer:
         # FILL, OUTLINE, AREA or a mark's.
         self.keys: List[Tuple[str, str]] = []
 
-    @property
-    def pattern_shape(self) -> str:
-        """How the legend shows this layer's patterns."""
-        return FILL if self.fill else DASHED if self.dashed else OUTLINE
-
     def add_stages(self, stages, name: str = "") -> None:
         """*stages*' patterns, each named for its stage; or, *name* given,
         bare patterns under that name."""
@@ -572,7 +567,7 @@ def _stage_patterns(stages) -> List:
 
 class AgentPictures:
     """Draws the agent's waiting request and suggestion on the image their
-    values were measured on, for the card and the chat page. Nothing on the
+    values were measured on, for the card and the web app. Nothing on the
     views."""
 
     def __init__(
@@ -638,8 +633,7 @@ class AgentPictures:
         request_id = request.get("request_id") if waiting else None
         picture = self.suggestion_picture if suggestion else self.request_picture
         # Once drawn, a request's picture stays; one that had nothing to draw on
-        # tries again, as the views take images (sim session 2026-10-16: none
-        # came until the request was filed again).
+        # tries again, as the views take images.
         shown = self._shown_ids[suggestion]
         if request_id == shown and (request_id is None or picture is not None):
             return
@@ -835,7 +829,7 @@ class AgentPictures:
             elif tool == "item_update":
                 # Metres in the item's milling frame, and fractions of it: on
                 # the item's own last FIB image, never the live view, which may
-                # be somewhere else on the grid (FIB-1424).
+                # be somewhere else on the grid.
                 patch = arguments.get("patch") or {}
                 poi = _point(patch.get("poi")) or _point(
                     {"x": patch.get("poi.x"), "y": patch.get("poi.y")}
@@ -850,7 +844,7 @@ class AgentPictures:
                         missing.append(item or "the lamella")
                         continue
                     # A new lamella has no image of its own yet: its point on
-                    # the live FIB view, where it was added (FIB-1492).
+                    # the live FIB view, where it was added.
                     add(
                         POI_MARK,
                         BeamType.ION,

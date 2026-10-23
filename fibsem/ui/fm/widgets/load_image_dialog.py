@@ -13,7 +13,6 @@ from PyQt5.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QListWidget,
     QMessageBox,
     QProgressBar,
@@ -43,8 +42,8 @@ class LoadImageDialog(QDialog):
         self.setModal(True)
         self.resize(500, 200)
         # A dialog is its own top-level window and does not pick up the stylesheet its
-        # parent carries, so it has to set the theme itself. This used to come free from
-        # napari, which styles the QApplication; nothing does that any more.
+        # parent carries, and nothing styles the QApplication, so it sets the theme
+        # itself.
         self.setStyleSheet(NAPARI_STYLE)
 
         self.loaded_images: List[FluorescenceImage] = []

@@ -8,6 +8,8 @@ answer it too, and either way the prompt comes down. The task then reads the ins
 
 import os
 
+from tests.fixtures.main_window import close_window
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import threading
@@ -67,12 +69,7 @@ def window(qapp, tmp_path):
         manager.stop()
         _pump(qapp, lambda: not thread.is_alive())
     ui.session.disconnect()
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
-        win.close()
-    finally:
-        qapp.quit = original_quit
+    close_window(win)
     win.deleteLater()
     QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
     qapp.processEvents()

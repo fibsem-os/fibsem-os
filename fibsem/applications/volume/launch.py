@@ -1,7 +1,7 @@
 """``fibsem-volume``: the Volume host. It opens a volume experiment on a
 microscope and serves it over the App Server, with no window.
 ``fibsem-volume-ui`` is the same host with the window (it hands in *window*).
-The agent level starts at Watch; the operator raises it from the chat page."""
+The agent level starts at Watch; the operator raises it from the web app."""
 
 import argparse
 import threading

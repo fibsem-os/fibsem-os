@@ -5,18 +5,11 @@ estimate adds `SIM_ASYNC_MILLING_EXTRA_TIME`. That used to be an `isinstance(Dem
 override inside the coincidence milling strategy, which is timed by the estimate.
 """
 
-import pytest
-
-from fibsem import utils
 from fibsem.drivers.demo import simulator
 from fibsem.structures import MillingState
+from tests.fixtures.microscopes import demo_microscope
 
-
-@pytest.fixture()
-def microscope():
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    yield microscope
-    microscope.disconnect()
+microscope = demo_microscope(scope="function")
 
 
 def _pattern_estimate(microscope) -> float:
@@ -36,7 +29,7 @@ def test_stopping_drops_the_extra_time(microscope):
     idle = _pattern_estimate(microscope)
     microscope.start_milling()
     microscope.stop_milling()
-    assert microscope.get_milling_state() is MillingState.IDLE
+    assert microscope.milling.state.get_value() is MillingState.IDLE
     assert microscope.estimate_milling_time() == idle
 
 

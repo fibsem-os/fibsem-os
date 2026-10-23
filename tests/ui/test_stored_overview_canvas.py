@@ -26,13 +26,6 @@ _app = QApplication.instance() or QApplication([])
 
 
 @pytest.fixture(scope="module")
-def microscope():
-    scope, _ = utils.setup_session(manufacturer="Demo")
-    yield scope
-    scope.disconnect()
-
-
-@pytest.fixture(scope="module")
 def arctis():
     path = os.path.join(
         os.path.dirname(fibsem_config.__file__),
@@ -204,70 +197,16 @@ class TestPositions:
         ]
 
 
-class TestDrafts:
-    """Positions placed but not committed: what a review holds until it is
-    confirmed. The canvas draws them and says which one a click is on; nothing
-    here writes anything."""
+class TestPlacing:
+    """What a right-click offers, and what an add request carries."""
 
-    def test_a_draft_is_drawn_and_found_by_index(self, widget, microscope):
-        base = microscope.get_stage_position()
-        widget.set_image(_beam_image(microscope, base))
-        first = _at(base, dx=30e-6)
-        second = _at(base, dx=-30e-6)
-        widget.set_draft_positions([first, second])
-        _settle(widget)
-        x, y = widget._frame().to_canvas(second)
-        assert widget.draft_at(x, y) == 1
-        assert widget.draft_at(x + 400, y + 400) is None
-        assert len(widget.draft_positions) == 2
-
-    def test_a_draft_is_not_one_of_the_positions(self, widget, microscope):
-        """The two layers are separate: a draft is not something the experiment
-        holds, so it never answers as a marked position."""
-        base = microscope.get_stage_position()
-        widget.set_image(_beam_image(microscope, base))
-        draft = _at(base, dx=30e-6)
-        widget.set_draft_positions([draft])
-        _settle(widget)
-        x, y = widget._frame().to_canvas(draft)
-        assert widget.position_at(x, y) is None
-        assert widget.draft_at(x, y) == 0
-
-    def test_the_menu_over_a_draft_offers_to_remove_that_one(self, widget, microscope):
-        base = microscope.get_stage_position()
-        widget.set_image(_beam_image(microscope, base))
-        widget.set_draft_positions([_at(base, dx=30e-6), _at(base, dx=-30e-6)])
-        _settle(widget)
-        x, y = widget._frame().to_canvas(widget.draft_positions[1])
-        seen = []
-        widget.draft_remove_requested.connect(seen.append)
-        config = widget.position_menu(x, y)
-        assert [a.label for a in config.actions] == ["Remove Position"], (
-            "adding another on top of one is not the offer"
-        )
-        config.actions[0].callback()
-        assert seen == [1], "the one under the cursor, by index"
-
-    def test_away_from_a_draft_the_menu_is_the_ordinary_one(self, widget, microscope):
-        base = microscope.get_stage_position()
-        widget.set_image(_beam_image(microscope, base))
-        widget.set_draft_positions([_at(base, dx=30e-6)])
-        _settle(widget)
-        x, y = widget._frame().to_canvas(_at(base, dx=-30e-6))
-        assert [a.label for a in widget.position_menu(x, y).actions] == [
-            "Add Position Here"
-        ]
-
-    def test_placing_off_offers_neither_add_nor_remove(self, widget, microscope):
+    def test_placing_off_offers_no_add(self, widget, microscope):
         """A caller showing a record that is already decided turns placing off,
         and the right-click then offers nothing rather than an action that
         would do nothing."""
         base = microscope.get_stage_position()
         widget.set_image(_beam_image(microscope, base))
-        draft = _at(base, dx=30e-6)
-        widget.set_draft_positions([draft])
         _settle(widget)
-        on_draft = widget._frame().to_canvas(draft)
         elsewhere = widget._frame().to_canvas(_at(base, dx=-30e-6))
         assert [a.label for a in widget.position_menu(*elsewhere).actions] == [
             "Add Position Here"
@@ -276,28 +215,6 @@ class TestDrafts:
         widget.set_placing_enabled(False)
 
         assert widget.position_menu(*elsewhere) is None
-        assert widget.position_menu(*on_draft) is None, "nor taking one back off"
-
-    def test_a_draft_is_not_drawn_where_it_cannot_be_placed(self, widget, microscope):
-        """No frame, nothing found -- the same rule the other two layers follow,
-        rather than marks left over an image they do not belong to. The list
-        survives the image going away, so putting one back draws them again."""
-        base = microscope.get_stage_position()
-        widget.set_image(_beam_image(microscope, base))
-        draft = _at(base, dx=30e-6)
-        widget.set_draft_positions([draft])
-        _settle(widget)
-        x, y = widget._frame().to_canvas(draft)
-        assert widget.draft_at(x, y) == 0
-
-        widget.clear()
-        _settle(widget)
-        assert widget.draft_at(x, y) is None
-        assert widget.draft_positions == [draft], "kept, not drawn"
-
-        widget.set_image(_beam_image(microscope, base))
-        _settle(widget)
-        assert widget.draft_at(x, y) == 0
 
     def test_an_add_request_names_the_overview_it_was_made_on(self, widget, microscope):
         base = microscope.get_stage_position()

@@ -18,7 +18,6 @@ from fibsem.hooks import (
     HookEvent,
     HookManager,
     covers_event,
-    resolve_events,
     unknown_subscriptions,
 )
 
@@ -142,25 +141,12 @@ def test_a_new_event_joins_its_group_without_touching_any_config(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_resolve_expands_a_group_for_display():
-    resolved = resolve_events(["any_cancellation"])
-
-    assert resolved == ["task_cancelled", "workflow_cancelled"]
-
-
-def test_resolve_does_not_repeat_an_event_named_twice():
-    resolved = resolve_events(["any_failure", "task_failed"])
-
-    assert resolved == ["task_failed", "workflow_failed"]
-
-
-def test_the_group_survives_serialization_unexpanded():
-    """The rule the whole issue turns on: store the group, not its expansion. A saved
-    expansion stops covering events added later, which is the drift groups exist to
-    prevent, reintroduced at save time."""
+def test_the_group_is_kept_unexpanded():
+    """Store the group, not its expansion: an expansion stops covering events added
+    later, which is the drift groups exist to prevent."""
     hook = FunctionHook(name="x", events=["any_failure"])
 
-    assert hook.to_dict()["events"] == ["any_failure"]
+    assert hook.events == ["any_failure"]
 
 
 # ---------------------------------------------------------------------------

@@ -1,9 +1,9 @@
-"""Tools → App Server: the server itself -- status, services, the operator's
+"""Tools → Host: the server itself -- status, services, the operator's
 token and paired computers, and a link to the event log.
 
 The App Server is the API inside AutoLamella that the agent, the event log and
-``FibsemClient`` reach. This dialog is about the server, not the agent
-(FIB-1035): what the agent may do is its level, on the chip in the status bar,
+``FibsemClient`` reach. This dialog is about the server, not the agent:
+what the agent may do is its level, on the chip in the status bar,
 and connecting one is the web app's (Agent page, Settings).
 
 Whether it runs, and whether it serves the microscope, are both set here and
@@ -34,13 +34,11 @@ from fibsem.ui.tokens import (
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
 )
-from fibsem.ui.widgets.custom_widgets import IconToolButton
 
 __all__ = ["AppServerDialog"]
 
 # A change to either switch starts, stops or restarts the server, so it applies
-# once the switches have been still this long: a double click restarts nothing
-# (FIB-1409).
+# once the switches have been still this long: a double click restarts nothing.
 SETTLE_MS = 600
 
 ENABLED_LABEL = "Serve this session"
@@ -179,7 +177,7 @@ class AppServerDialog(QDialog):
         operator_row = QHBoxLayout()
         self._btn_copy_operator = QPushButton(COPY_TOKEN_LABEL)
         self._btn_copy_operator.setToolTip(
-            "Your own token, for the chat page and your scripts: it acts as you. "
+            "Your own token, for the web app and your scripts: it acts as you. "
             "Kept between launches."
         )
         self._btn_copy_operator.clicked.connect(self._on_copy_operator_clicked)
@@ -194,7 +192,7 @@ class AppServerDialog(QDialog):
         self._pair = PairingCode(
             self._pairing,
             PAIR_LABEL,
-            "Show a code to type on another computer or in the chat page: it "
+            "Show a code to type on another computer or in the web app: it "
             "gets a token of its own and acts as you. Works once, for 5 minutes.",
             changed=self.refresh,
         )

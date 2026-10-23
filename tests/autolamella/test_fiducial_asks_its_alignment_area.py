@@ -5,11 +5,8 @@ session's ``finished`` acquisition rather than the pre-mill reference."""
 import os
 from pathlib import Path
 
-import pytest
 from psygnal.containers import EventedDict
 
-import fibsem.config as cfg
-from fibsem import utils
 from fibsem.applications.autolamella.protocol.constants import FIDUCIAL_KEY
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
@@ -20,11 +17,11 @@ from fibsem.applications.autolamella.workflows.tasks.fiducial import (
     MillFiducialTaskConfig,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
-from fibsem.workflows.proposals import ALIGNMENT_AREA, MILLING
+from fibsem.workflows.proposals import ALIGNMENT_AREA, MILLING, DecisionOutcome
+from tests.fixtures.microscopes import demo_microscope
 from tests.protocols import planned, task_protocol
 
 FIDUCIAL = "Mill Fiducial"
-CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
 
 
 def _in_run(relpath: str):
@@ -35,11 +32,7 @@ def _in_run(relpath: str):
     return parts[0], parts[-1]
 
 
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(manufacturer="Demo", config_path=CONFIG)
-    yield microscope
-    microscope.disconnect()
+microscope = demo_microscope("microscope-configuration.yaml", scope="function")
 
 
 def test_the_area_is_a_question_with_a_switch():
@@ -122,7 +115,7 @@ def test_with_no_finished_image_the_task_takes_one_frame_to_ask_on(
     task.run()
 
     area = lamella.proposal(FIDUCIAL, ALIGNMENT_AREA)
-    assert area is not None and area.unreviewed
+    assert area is not None and area.current.outcome is DecisionOutcome.Unreviewed
     assert _in_run(area.provenance["reference_image"]) == (
         FIDUCIAL,
         f"ref_{FIDUCIAL}_post_mill_ib.tif",

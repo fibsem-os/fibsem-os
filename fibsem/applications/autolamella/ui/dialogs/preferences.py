@@ -9,7 +9,6 @@ from PyQt5.QtWidgets import (
     QDialogButtonBox,
     QFormLayout,
     QHBoxLayout,
-    QLabel,
     QLineEdit,
     QListWidget,
     QMessageBox,
@@ -22,7 +21,7 @@ from PyQt5.QtWidgets import (
 from fibsem import update_check
 from fibsem.config import (
     CARD_MODES,
-    DisplayPreferences,
+    QtPreferences,
     UserPreferences,
     card_mode_label,
 )
@@ -65,20 +64,6 @@ _TIP_UPDATE_CHECK_SOURCE = (
     "update it with git instead."
 )
 
-# Features
-_LBL_COINCIDENCE = "Enable Coincidence Milling Viewer"
-_TIP_COINCIDENCE = (
-    "Enable the coincidence milling viewer for simultaneous FIB milling and FM acquisition. "
-    "Only for an instrument whose FM objective sits under the grid while the FIB mills, "
-    "with a sample holder modified to allow it."
-)
-_LBL_CONNECTION_CHIP = "Enable Connection Chip"
-_TIP_CONNECTION_CHIP = (
-    "Show the connected instrument in the tab bar, beside the experiment, and add "
-    "File > Connect to Microscope, which opens a dialog for connecting, "
-    "reconnecting and disconnecting. The Connection tab still works and is still "
-    "where connecting happens; this is the header half of replacing it."
-)
 # Experiment defaults
 _LBL_EXP_DIR = "Default Experiment Directory"
 _TIP_EXP_DIR = "Directory where new experiments will be saved. Pre-fills the directory field when creating a new experiment."
@@ -114,11 +99,6 @@ class PreferencesDialog(QDialog):
         self._preferences = preferences
         self._setup_ui()
         self._load_from_preferences(preferences)
-        # Connected after loading, so opening this dialog with a flag already on does
-        # not fire its warning.
-        self._chk_coincidence_milling.toggled.connect(
-            self._on_coincidence_milling_toggled
-        )
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -130,7 +110,7 @@ class PreferencesDialog(QDialog):
 
         self._sidebar = QListWidget()
         self._sidebar.setFixedWidth(120)
-        self._sidebar.addItems(["Display", "Features", "Experiment", "Movement"])
+        self._sidebar.addItems(["Display", "Experiment", "Movement"])
         self._sidebar.setCurrentRow(0)
 
         self._stack = QStackedWidget()
@@ -171,17 +151,6 @@ class PreferencesDialog(QDialog):
             self._chk_update_check.setToolTip(_TIP_UPDATE_CHECK_SOURCE)
         display_form.addRow(_LBL_UPDATE_CHECK, self._chk_update_check)
         self._stack.addWidget(display_page)
-
-        # --- Feature Flags ---
-        features_page = QWidget()
-        features_form = QFormLayout(features_page)
-        self._chk_coincidence_milling = QCheckBox()
-        self._chk_coincidence_milling.setToolTip(_TIP_COINCIDENCE)
-        self._chk_connection_chip = QCheckBox()
-        self._chk_connection_chip.setToolTip(_TIP_CONNECTION_CHIP)
-        features_form.addRow(_LBL_COINCIDENCE, self._chk_coincidence_milling)
-        features_form.addRow(_LBL_CONNECTION_CHIP, self._chk_connection_chip)
-        self._stack.addWidget(features_page)
 
         # --- Experiment Defaults ---
         experiment_page = QWidget()
@@ -230,12 +199,12 @@ class PreferencesDialog(QDialog):
 
     def _load_from_preferences(self, prefs: UserPreferences):
         """Populate widgets from a UserPreferences instance."""
-        d = prefs.display
-        self._chk_sound.setChecked(d.sound_enabled)
-        self._chk_border.setChecked(d.border_enabled)
-        self._chk_toast_problems.setChecked(d.toast_problems_only)
-        self._chk_dev_mode.setChecked(d.dev_mode)
-        card_index = self._combo_card_mode.findData(d.lamella_card_mode)
+        q = prefs.qt
+        self._chk_sound.setChecked(q.sound_enabled)
+        self._chk_border.setChecked(q.border_enabled)
+        self._chk_toast_problems.setChecked(q.toast_problems_only)
+        self._chk_dev_mode.setChecked(q.dev_mode)
+        card_index = self._combo_card_mode.findData(q.lamella_card_mode)
         if card_index == -1:
             # A value this build does not offer -- a preferences file from an older
             # build, or a hand-edited one. Fall back to the same default the card
@@ -243,26 +212,20 @@ class PreferencesDialog(QDialog):
             # Falling back to index 0 instead would put "Cozy" in the box over a strip
             # drawing Standard, and OK would then apply a layout the user never chose.
             card_index = self._combo_card_mode.findData(
-                DisplayPreferences().lamella_card_mode
+                QtPreferences().lamella_card_mode
             )
         self._combo_card_mode.setCurrentIndex(card_index)
+        self._chk_acquire_sem.setChecked(q.acquire_sem_after_stage_movement)
+        self._chk_acquire_fib.setChecked(q.acquire_fib_after_stage_movement)
 
-        f = prefs.features
-        self._chk_coincidence_milling.setChecked(f.coincidence_milling_enabled)
-        self._chk_connection_chip.setChecked(f.connection_chip)
+        self._chk_update_check.setChecked(prefs.install.update_check_enabled)
 
-        self._chk_update_check.setChecked(prefs.reporting.update_check_enabled)
-
-        e = prefs.experiment
+        e = prefs.shared
         self._dir_experiment.setText(e.default_experiment_directory)
         self._dir_protocol.setText(e.default_protocol_path)
         self._edit_exp_user.setText(e.user)
         self._edit_exp_project.setText(e.project)
         self._edit_exp_organisation.setText(e.organisation)
-
-        m = prefs.movement
-        self._chk_acquire_sem.setChecked(m.acquire_sem_after_stage_movement)
-        self._chk_acquire_fib.setChecked(m.acquire_fib_after_stage_movement)
 
     def _on_restore_defaults(self):
         reply = QMessageBox.question(
@@ -275,52 +238,32 @@ class PreferencesDialog(QDialog):
         if reply == QMessageBox.Yes:
             self._load_from_preferences(UserPreferences())
 
-    def _on_coincidence_milling_toggled(self, checked: bool):
-        if not checked:
-            return
-        QMessageBox.warning(
-            self,
-            "Coincidence Milling — Restricted Use",
-            "This mode can only be used on an instrument whose FM objective sits under "
-            "the grid while the FIB mills, with a sample holder modified to allow it. It "
-            "also requires disabling the software restrictions related to running the "
-            "fluorescence microscope while milling.",
-        )
-
     def get_preferences(self) -> UserPreferences:
         """Build a UserPreferences instance from current widget state.
 
         Starts from a copy of the preferences the dialog was opened with and overwrites
-        only the fields it has a widget for. Everything else -- the hooks, whether the
-        guided setup was dismissed, the recent experiments, crash reporting -- is handed back
-        as it came in, and the caller saves the result to disk. Building a fresh
-        UserPreferences instead reset any field not copied across by hand: hooks came
-        back as None, which means "use the defaults", over a user's [] that means "all
-        off" (FIB-497).
+        only the fields it has a widget for. Everything else -- the App Server, the
+        info bar fields, the contact email -- is handed back as it came in, and the
+        caller saves the result to disk. Building a fresh UserPreferences instead would
+        reset any field not copied across by hand.
 
         A copy rather than self._preferences itself, which the caller still holds: a
         cancelled dialog must leave it untouched.
         """
         prefs = copy.deepcopy(self._preferences)
 
-        d = prefs.display
-        d.sound_enabled = self._chk_sound.isChecked()
-        d.border_enabled = self._chk_border.isChecked()
-        d.toast_problems_only = self._chk_toast_problems.isChecked()
-        d.dev_mode = self._chk_dev_mode.isChecked()
-        d.lamella_card_mode = self._combo_card_mode.currentData()
+        q = prefs.qt
+        q.sound_enabled = self._chk_sound.isChecked()
+        q.border_enabled = self._chk_border.isChecked()
+        q.toast_problems_only = self._chk_toast_problems.isChecked()
+        q.dev_mode = self._chk_dev_mode.isChecked()
+        q.lamella_card_mode = self._combo_card_mode.currentData()
+        q.acquire_sem_after_stage_movement = self._chk_acquire_sem.isChecked()
+        q.acquire_fib_after_stage_movement = self._chk_acquire_fib.isChecked()
 
-        f = prefs.features
-        f.coincidence_milling_enabled = self._chk_coincidence_milling.isChecked()
-        f.connection_chip = self._chk_connection_chip.isChecked()
+        prefs.install.update_check_enabled = self._chk_update_check.isChecked()
 
-        m = prefs.movement
-        m.acquire_sem_after_stage_movement = self._chk_acquire_sem.isChecked()
-        m.acquire_fib_after_stage_movement = self._chk_acquire_fib.isChecked()
-
-        prefs.reporting.update_check_enabled = self._chk_update_check.isChecked()
-
-        e = prefs.experiment
+        e = prefs.shared
         e.default_experiment_directory = self._dir_experiment.text()
         e.default_protocol_path = self._dir_protocol.text()
         e.user = self._edit_exp_user.text()

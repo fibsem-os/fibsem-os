@@ -94,6 +94,19 @@ To get started with the fibsemOS API, see the example/example.py:
 
 You can start an offline demo microscope by setting `info.manufacturer: Demo` in the configuration yaml file (fibsem/config/microscope-configuration.yaml), as the shipped file does. The file's `hardware.devices` list says which devices the microscope builds and how; see [Configuring devices](docs/developers/devices.md#configuring-devices). This will start a demo microscope that you can use to test the API without connecting to a real microscope. To connect to a real microscope, set the ip_address and manufacturer of your microscope in the configuration file or alternatively, you can pass these arguments to utils.setup_session() directly. The simulator can also image a synthetic cryo-grid instead of noise; see [docs/simulator.md](docs/simulator.md).
 
+### Where fibsemOS keeps your files
+
+Everything fibsemOS writes goes under `~/.fibsem` (on Windows `C:\Users\<account>\.fibsem`); set `FIBSEM_HOME` to put it somewhere else, for example a folder shared by every account on a microscope PC. The installed package is never written, so upgrading or reinstalling does not touch your files.
+
+| Folder | Holds |
+|---|---|
+| `config/` | preferences, the list of microscope configurations, the configurations you made, and `session/` (saved positions, holder occupancy, FM settings, one file per configuration) |
+| `experiments/` | new experiments when no default folder is set in preferences |
+| `log/` | logs and data captured outside an experiment |
+| `autolamella/protocols/`, `autolamella/scripts/` | your AutoLamella protocols and scripts |
+
+The App Server's discovery file, pairing tokens and the agent's files stay in `~/.fibsem` even when `FIBSEM_HOME` is set. A release before this layout kept these files inside the package; the first start copies the settings out (leaving the originals) and moves the logs, experiments, protocols and scripts, logging each one and listing them in `~/.fibsem/MOVED-FROM.txt`.
+
 This example shows you how to connect to the microscope, take an image with both beams, and plot the results.
 
 ```python

@@ -29,9 +29,9 @@ from PyQt5.QtWidgets import (
 from fibsem.applications.autolamella.structures import Lamella
 from fibsem.applications.autolamella.task_outputs import history_images
 from fibsem.cancellation import CANCELLED, COMPLETED, FAILED, SKIPPED
-from fibsem.config import load_user_preferences, update_user_preferences
 from fibsem.imaging.drawing import draw_image_overlays
 from fibsem.imaging.export import ImageFields, image_caption, image_summary
+from fibsem.session_state import user_state
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.thumbnails import (
@@ -75,6 +75,10 @@ from fibsem.workflows.history_rows import (
     shown_images,
 )
 from fibsem.workflows.status import TaskStatus
+
+# The filter's section in the per-account session state (FIB-1256): empty until
+# someone filters, so the tab's default still reaches everyone who never did.
+HISTORY_FILTER = "history_filter"
 
 _MIN_THUMB_WIDTH = 120
 _MAX_THUMB_WIDTH = TARGET_WIDTH
@@ -402,7 +406,7 @@ class LamellaTaskImageWidget(QWidget):
         self._expanded: Set[Tuple[str, int]] = set()
         # A run's operations opened or folded by a click, by run: kept across a
         # rebuild like the lines. A run nobody clicked is open only when one of
-        # its operations needs a look (FIB-1361).
+        # its operations needs a look.
         self._operations_open: Dict[str, bool] = {}
         # Whether the experiment records its events: without the file nothing
         # was ever recorded, so "no operations" would be a claim it cannot make.
@@ -444,14 +448,14 @@ class LamellaTaskImageWidget(QWidget):
 
         self._filter_button = _HistoryFilterButton(self)
         self._filter_button.set_filter(
-            HistoryFilter.from_dict(load_user_preferences().display.history_filter)
+            HistoryFilter.from_dict(user_state().load_section(HISTORY_FILTER, {}) or {})
         )
         self._filter_button.changed.connect(self._on_filter_changed)
         self._filter_button.hide()
 
         # What can be done with the lamella's history, behind "...": open its
         # folder, and export the workflow GIF made of the runs and images this tab
-        # shows (FIB-1311). Kept by the widget and moved into each header, as the
+        # shows. Kept by the widget and moved into each header, as the
         # filter is; the menu is unparented for the same reason as the filter's.
         self._actions_button = QToolButton(self)
         self._actions_button.setFixedSize(QSize(26, 26))
@@ -510,7 +514,7 @@ class LamellaTaskImageWidget(QWidget):
 
         `set_lamella` skips the lamella it already shows, so without this the
         panel kept the history it was opened with until another lamella was
-        selected and back (FIB-1111). A cached image goes when its file has
+        selected and back. A cached image goes when its file has
         changed: a re-run writes its reference images to the same filenames, so
         its pixmap would be the previous run's picture. The others stay, so a
         refresh after each task reads only the images that task wrote.
@@ -586,9 +590,7 @@ class LamellaTaskImageWidget(QWidget):
 
     def _on_filter_changed(self) -> None:
         flt = self._filter_button.filter
-        update_user_preferences(
-            lambda prefs: setattr(prefs.display, "history_filter", flt.to_dict())
-        )
+        user_state(writable=True).save_section(HISTORY_FILTER, flt.to_dict())
         self._cancel_worker()
         self._rebuild()
 
@@ -881,7 +883,7 @@ class LamellaTaskImageWidget(QWidget):
 
     def _operations_fold(self, run: HistoryRun) -> QWidget:
         """``› ✓ 3 operations · all completed   6 s``, the run's operations
-        under it. Folded unless one needs a look or it was opened (FIB-1361):
+        under it. Folded unless one needs a look or it was opened:
         a run that went to plan is one line, and one that did not shows why."""
         box = QWidget()
         box.setStyleSheet("background: transparent;")
@@ -1029,8 +1031,8 @@ class LamellaTaskImageWidget(QWidget):
         facts.setHorizontalSpacing(12)
         facts.setVerticalSpacing(2)
         # (name, text, indented, figure): the facts, then for a mill each stage
-        # with, indented under it, what its strategy (FIB-1257) and monitors
-        # (FIB-1481) said and the drift corrections it ran (FIB-1351)
+        # with, indented under it, what its strategy and monitors
+        # said and the drift corrections it ran
         rows: List[Tuple[str, str, bool, Optional[str]]] = [
             (name, value, False, None) for name, value in operation_facts(operation)
         ]
@@ -1185,7 +1187,7 @@ class LamellaTaskImageWidget(QWidget):
             tile.setToolTip(summary)
 
     def _open_expanded(self, filepath: str) -> None:
-        """Open the image at full resolution in the image viewer (FIB-1189), with all
+        """Open the image at full resolution in the image viewer, with all
         of this lamella's images to step through in task order. Each tile stands in
         for its image until the file is read."""
         paths = list(self._task_names) or [filepath]

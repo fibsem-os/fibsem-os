@@ -50,7 +50,7 @@ def _stop_the_microscope(microscope) -> None:
     others from being tried."""
     stops = [microscope.stop_acquisition]
     # The milling service's stop, not the microscope's: it ends a milling task
-    # as well as its pattern, so no later stage starts (FIB-1398).
+    # as well as its pattern, so no later stage starts.
     for service in ("milling", "spot_burn", "imaging", "coating"):
         found = getattr(microscope, service, None)
         if found is not None:
@@ -68,8 +68,8 @@ _START_TIMEOUT_S = 10.0
 
 
 def event_log_url(host) -> str:
-    """The web app's Events page with the read-only dashboard token (FIB-1035),
-    never the agent's, in the URL *fragment* — the one part of a URL a browser
+    """The web app's Events page with the read-only dashboard token, never
+    the agent's, in the URL *fragment* — the one part of a URL a browser
     never sends anywhere, so it reaches the page's own script and nothing
     else (no server log, no referrer)."""
     return f"{host.url}/ui/events#token={host.auth.dashboard_token}"
@@ -98,7 +98,7 @@ class AppServerHost:
     ):
         self._session = session
         self._app_context = app_context
-        # Whether the /microscope routes are served (FIB-1035). Fixed for the
+        # Whether the /microscope routes are served. Fixed for the
         # host's life; a change builds a new one.
         self.serve_microscope = serve_microscope
         self._host = host
@@ -134,7 +134,7 @@ class AppServerHost:
 
     @property
     def requests(self):
-        """The agent's requests (FIB-1283) while the server runs, else None."""
+        """The agent's requests while the server runs, else None."""
         if not self.running or self._app is None:
             return None
         return getattr(self._app.state, "requests", None)
@@ -185,7 +185,7 @@ class AppServerHost:
         return self.auth.agent_session
 
     def stop_agent(self, microscope) -> Optional[str]:
-        """The operator's Stop agent (FIB-1267): down to Watch at once, and stop
+        """The operator's Stop agent: down to Watch at once, and stop
         what the agent is doing on the microscope.
 
         The agent's action is stopped when the agent is in control, or when it
@@ -223,12 +223,12 @@ class AppServerHost:
 
         def save(on: bool) -> None:
             config.update_user_preferences(
-                lambda p: setattr(p.app_server, "allow_local_agents", on)
+                lambda p: setattr(p.install.app_server, "allow_local_agents", on)
             )
 
         connections = Connections(
             self.auth.pairing.tokens,
-            always_allow=config.load_user_preferences().app_server.allow_local_agents,
+            always_allow=config.load_user_preferences().install.app_server.allow_local_agents,
             save_always_allow=save,
         )
 
@@ -267,7 +267,6 @@ class AppServerHost:
         from fibsem.server.devices import WS_PROTOCOL
         from fibsem.server.discovery import (
             read_discovery_file,
-            remove_discovery_file,
             write_discovery_file,
         )
 
@@ -297,7 +296,7 @@ class AppServerHost:
         # restarts (the microscope toggle): the agent's
         # token stays valid, so a connected sidecar carries on, and the level
         # the operator set stands. It starts at Watch at every launch and is
-        # never written to disk (FIB-1035). The override is Drive.
+        # never written to disk. The override is Drive.
         session = self._session
         if session.agent_auth is None:
             session.agent_auth = AuthConfig.generate(

@@ -19,13 +19,13 @@ from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QComboBox, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.server.task_configs import set_task_config_values
 from fibsem.ui.edit_recording import PendingEdits
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 from fibsem.ui.widgets.reference_image_parameters_widget import (
     ReferenceImageParametersWidget,
 )
 from fibsem.ui.widgets.task_config_form import AutoLamellaTaskParametersConfigWidget
+from fibsem.workflows.task_configs import set_task_config_values
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
@@ -113,7 +113,7 @@ class TaskConfigEditor(QWidget):
 
     def set_microscope(self, microscope: "FibsemMicroscope") -> None:
         """After a reconnect: the forms keep the microscope they were built with
-        otherwise. The milling editor's own children are not updated (FIB-530)."""
+        otherwise. The milling editor's own children are not updated."""
         self.milling.microscope = microscope
 
     def show_task(

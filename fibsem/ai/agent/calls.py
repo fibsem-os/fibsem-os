@@ -1,5 +1,4 @@
-"""The agent's call the server is answering, in the words an operator reads
-(FIB-1426).
+"""The agent's call the server is answering, in the words an operator reads.
 
 The sidecar names the tool it is running and its arguments on each acting call
 (`TOOL_HEADER`, `ARGUMENTS_HEADER`); an approved request names its action. The

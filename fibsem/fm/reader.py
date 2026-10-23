@@ -1,4 +1,4 @@
-"""Reading a fluorescence image from other software, so it can be imported (FIB-1030).
+"""Reading a fluorescence image from other software, so it can be imported.
 
 An image to lay over the Overview tab has to say where it was taken and how its
 camera saw the sample. Our own acquisitions do; a file from another microscope --
@@ -382,7 +382,7 @@ def build_image(
         )
         channels.append(replace(base, name=str(name), color=str(colour)))
     # An imported file says only when it was modified, which is not an acquisition
-    # time, so `acquisition_datetime` is left unset (FIB-1190).
+    # time, so `acquisition_datetime` is left unset.
     metadata = FluorescenceImageMetadata(
         pixel_size_x=float(pixel_size),
         pixel_size_y=float(pixel_size),

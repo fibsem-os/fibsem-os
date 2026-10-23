@@ -1,8 +1,6 @@
 """Every /app route answers what its response model says: each answer on the
 Demo decodes, strictly, as the route's declared class."""
 
-import os
-
 import pytest
 
 pytest.importorskip("fastapi")
@@ -12,7 +10,6 @@ from fastapi.routing import APIRoute  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from psygnal.containers import EventedDict  # noqa: E402
 
-from fibsem import utils  # noqa: E402
 from fibsem.applications.autolamella.experiment_setup import (  # noqa: E402
     default_protocol_path,
 )
@@ -29,13 +26,6 @@ from fibsem.workflows.grids import GridRecord  # noqa: E402
 from tests.run_state import stub_session  # noqa: E402
 
 TOKEN = "test-token"
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    return microscope
 
 
 def _client(microscope, experiment, folder):
@@ -405,6 +395,8 @@ def test_every_app_route_declares_its_answer(client):
     images = {
         "/app/experiment/items/{item_name}/outputs/{filename}",
         "/app/experiment/grids/{grid_name}/outputs/{filename}",
+        "/app/experiment/export/image",
+        "/app/experiment/export/animation",
     }
     untyped = [
         (method, path)

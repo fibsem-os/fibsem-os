@@ -1,4 +1,4 @@
-"""The operator's side of the agent, without Qt (FIB-1461).
+"""The operator's side of the agent, without Qt.
 
 What the agent chip, its card and its menu do, as calls: set the level, the
 brake, allow or deny an agent asking to connect, approve or reject a request,
@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 from fibsem.acting import AGENT, OPERATOR
 from fibsem.ai.agent.levels import AgentLevel, if_allowed
 from fibsem.workflows.actions import ACTION, NOTE, action_record, note_record
+from fibsem.workflows.evidence import EVIDENCE
 from fibsem.workflows.proposals import DecisionResult
 
 if TYPE_CHECKING:
@@ -24,9 +25,9 @@ if TYPE_CHECKING:
 
 # A request the operator still has to decide, or one being applied.
 OPEN = ("pending", "applying")
-# The longest message to the agent, in characters (FIB-1423).
+# The longest message to the agent, in characters.
 MESSAGE_LIMIT = 2000
-# How often a waiting request's values are read again (FIB-1412).
+# How often a waiting request's values are read again.
 REQUEST_REFRESH_S = 15.0
 # The share of its budget at which the card and the record warn.
 BUDGET_WARNING = 0.8
@@ -124,7 +125,7 @@ class AgentSession:
         self._store: Optional[Any] = None
         self._unsubscribe: Optional[Callable[[], None]] = None
         # The pictures of the waiting request and the suggestion, for the
-        # card and the chat page: kind ("request", "suggestion") to its PNG,
+        # card and the web app: kind ("request", "suggestion") to its PNG,
         # caption and version. Drawn on a thread of their own (`keep_pictures`).
         self._pictures: Dict[str, Dict[str, Any]] = {}
         self._picture_version = 0
@@ -187,7 +188,7 @@ class AgentSession:
 
     def stop(self) -> Optional[str]:
         """The brake: down to Watch at once, without asking, and stop what the
-        agent is doing on the microscope (FIB-1267). A running workflow is left
+        agent is doing on the microscope. A running workflow is left
         running: runs are the app's, with their own Stop. Returns the stopped
         action, or None when the agent was doing nothing or is not served."""
         host = self.host
@@ -415,18 +416,28 @@ class AgentSession:
 
     # --- what the agent hears ------------------------------------------------
 
-    def message(self, text: str) -> Optional[str]:
+    def message(
+        self, text: str, evidence: Optional[Dict[str, Any]] = None
+    ) -> Optional[str]:
         """Put the operator's message to the agent on the session's record,
         where the agent's watch hears it as a ``MESSAGE`` line and answers with
-        a message naming its id (FIB-1423). Returns the id, or None when nothing
-        is recording, so the agent can't hear it."""
+        a message naming its id. *evidence*, the record of the
+        image the operator marked for it (`fibsem.workflows.evidence.save`),
+        goes on the record first and the message cites it. Returns the id, or
+        None when nothing is recording, so the agent can't hear it."""
         recorder = self._session.recorder
         if recorder is None:
             return None
         message_id = uuid.uuid4().hex[:8]
         logging.info("Operator message to the agent (%s): %s", message_id, text)
+        evidence_id = None
+        if evidence is not None:
+            evidence_id = evidence["evidence_id"]
+            recorder.buffer.append(EVIDENCE, dict(evidence), actor=OPERATOR)
         recorder.buffer.append(
-            NOTE, note_record(text, to=AGENT, id=message_id), actor=OPERATOR
+            NOTE,
+            note_record(text, to=AGENT, id=message_id, evidence=evidence_id),
+            actor=OPERATOR,
         )
         return message_id
 

@@ -1,4 +1,4 @@
-"""Correlation point-picking on the shared canvas stack (FIB-535).
+"""Correlation point-picking on the shared canvas stack.
 
 `FibsemImageCanvas` + :class:`PointPicking`. This is what the correlation
 tab's FIB panel is; :class:`CorrelationFMCanvasWidget` is its FM counterpart, and

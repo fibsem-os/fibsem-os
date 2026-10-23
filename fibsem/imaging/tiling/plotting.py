@@ -2,7 +2,8 @@
 
 Split from the geometry so that consuming the geometry does not cost a matplotlib
 import. Pure presentation: nothing here computes a position, it only draws ones
-computed elsewhere.
+computed elsewhere. Figures are drawn on their own Agg canvas, never pyplot's, so
+the server can draw them off the GUI thread while the Qt app runs.
 """
 
 from __future__ import annotations
@@ -10,10 +11,12 @@ from __future__ import annotations
 import logging
 from typing import Dict, List, Optional, Sequence, Tuple
 
-import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import patheffects
+from matplotlib.axes import Axes
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
+from matplotlib.patches import Circle
 
 from fibsem import constants
 from fibsem.conversions import is_inside_image_bounds
@@ -107,7 +110,7 @@ def _label_placement(
 def plot_tile_positions(
     tiles: list[TilePosition],
     settings: OverviewAcquisitionSettings,
-    ax: Optional[plt.Axes] = None,
+    ax: Optional[Axes] = None,
     stage_positions: Optional[list[FibsemStagePosition]] = None,
 ) -> Figure:
     """Plot the tile grid with traversal order, for debugging and validation.
@@ -150,7 +153,7 @@ def plot_tile_grid(
     fov_x: float,
     fov_y: float,
     order: Optional[list[TilePosition]] = None,
-    ax: Optional[plt.Axes] = None,
+    ax: Optional[Axes] = None,
     stage_positions: Optional[list[FibsemStagePosition]] = None,
     title: Optional[str] = None,
 ) -> Figure:
@@ -184,7 +187,9 @@ def plot_tile_grid(
     tile_fov_y = fov_y * constants.SI_TO_MICRO
 
     if ax is None:
-        fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+        fig = Figure(figsize=(8, 6))
+        FigureCanvasAgg(fig)
+        ax = fig.add_subplot()
     else:
         fig = ax.get_figure()
 
@@ -295,7 +300,6 @@ def plot_tile_grid(
 def plot_stage_positions_on_image(
     image: FibsemImage,
     positions: List[FibsemStagePosition],
-    show: bool = False,
     bound: bool = True,
     color: Optional[str] = None,
     show_scalebar: bool = False,
@@ -305,15 +309,13 @@ def plot_stage_positions_on_image(
     """Plot stage positions reprojected on an image as matplotlib figure. Assumes image is flat to beam.
 
     An adapter over :func:`plot_minimap`, which draws the overview plot dialog's
-    preview. This used to be a second renderer, and the two had drifted, so the
-    overview page in the PDF report was not what the dialog showed. What it keeps of
-    its own: a colour per position when ``color`` is None, which the statistics plots
+    preview, so the PDF report's overview page is what the dialog shows. What it keeps
+    of its own: a colour per position when ``color`` is None, which the statistics plots
     use to tell tracks apart, and its 14 pt labels.
 
     Args:
         image: The image.
         positions: The positions.
-        show: Whether to show the plot.
         bound: Whether to only plot points inside the image.
         color: The color of the points. (None -> default colour cycle)
         figsize: Figure size in inches. None sizes it to the image's aspect.
@@ -327,7 +329,6 @@ def plot_stage_positions_on_image(
     return plot_minimap(
         image,
         positions,
-        show=show,
         bound=bound,
         color=color or POSITION_COLOURS[0],
         colors=colors,
@@ -344,7 +345,6 @@ def plot_minimap(
     positions: List[FibsemStagePosition],
     current_position: Optional[FibsemStagePosition] = None,
     grid_positions: Optional[List[FibsemStagePosition]] = None,
-    show: bool = False,
     bound: bool = True,
     color: str = "cyan",
     colors: Optional[Sequence[str]] = None,
@@ -356,7 +356,7 @@ def plot_minimap(
     fontsize: int = 12,
     markersize: int = 20,
     figsize: Optional[Tuple[float, float]] = None,
-    ax: Optional[plt.Axes] = None,
+    ax: Optional[Axes] = None,
     outline: bool = False,
 ) -> Figure:
     """Plot stage positions reprojected on an image as matplotlib figure. Assumes image is flat to beam.
@@ -365,7 +365,6 @@ def plot_minimap(
         positions: The positions.
         current_position: Optional current position to highlight
         grid_positions: Optional grid positions to show
-        show: Whether to show the plot.
         bound: Whether to only plot points inside the image.
         color: The color of the points.
         colors: Optional colour per entry of ``positions``, overriding ``color``.
@@ -398,7 +397,9 @@ def plot_minimap(
     if ax is None:
         if figsize is None:
             figsize = figsize_for_image(image.data.shape)
-        fig, ax = plt.subplots(figsize=figsize)
+        fig = Figure(figsize=figsize)
+        FigureCanvasAgg(fig)
+        ax = fig.add_subplot()
     else:
         fig = ax.figure
     ax.imshow(image.data, cmap="gray")
@@ -440,9 +441,7 @@ def plot_minimap(
         if kind == "grid" and show_grid_radius:
             r_pixels = 1000e-6 / image.metadata.pixel_size.x
             ax.add_artist(
-                plt.Circle(
-                    (pt.x, pt.y), radius=r_pixels, color=c, fill=False, linewidth=5
-                )
+                Circle((pt.x, pt.y), radius=r_pixels, color=c, fill=False, linewidth=5)
             )
 
     if marker_entries:
@@ -516,7 +515,5 @@ def plot_minimap(
             logging.debug(f"Could not add scalebar: {e}")
 
     ax.axis("off")
-    if show:
-        plt.show()
 
     return fig

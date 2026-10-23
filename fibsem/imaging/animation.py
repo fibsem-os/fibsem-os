@@ -287,7 +287,7 @@ def render_frame(
     """One frame: one beam ``options.width`` wide, or SEM and FIB side by side.
 
     ``name`` is the lamella's, for the plate; without one, the name its images
-    recorded (FIB-466), if they did.
+    recorded, if they did.
     """
     kinds = _kinds(options)
     gap = 6 if len(kinds) > 1 else 0
@@ -322,7 +322,7 @@ def _subtitle(
     total: int,
 ) -> Optional[str]:
     """ "02-pro-moose · 2 / 4": which lamella -- the name passed in, else the one the
-    image recorded (FIB-466) -- and how far along."""
+    image recorded -- and how far along."""
     if name is None:
         name = {f.key: f.value for f in image.provenance}.get("item")
     parts = [

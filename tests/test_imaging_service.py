@@ -17,18 +17,9 @@ from fibsem.autofunctions.autofocus import (
 )
 from fibsem.services.imaging import Imaging
 from fibsem.structures import BeamType, FibsemRectangle
+from tests.fixtures.microscopes import demo_microscope
 
-
-@pytest.fixture
-def microscope():
-    previous = os.environ.get("FIBSEM_SIM_NO_DELAY")
-    os.environ["FIBSEM_SIM_NO_DELAY"] = "1"
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    yield microscope
-    if previous is None:
-        os.environ.pop("FIBSEM_SIM_NO_DELAY", None)
-    else:
-        os.environ["FIBSEM_SIM_NO_DELAY"] = previous
+microscope = demo_microscope(scope="function")
 
 
 def _one_short_pass() -> AutoFocusSettings:
@@ -143,7 +134,9 @@ def test_an_fm_with_no_beam_has_an_imaging_service(tmp_path):
 
     import fibsem.config as fconfig
 
-    with open(os.path.join(fconfig.CONFIG_PATH, "sim-arctis-configuration.yaml")) as f:
+    with open(
+        os.path.join(fconfig.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
+    ) as f:
         config = yaml.safe_load(f)
     for device in config["hardware"]["devices"]:
         if device["name"] in ("electron", "ion"):

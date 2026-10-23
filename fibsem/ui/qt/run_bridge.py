@@ -103,7 +103,7 @@ def _complete(call, outcome) -> None:
 
 class GuiExecutor(QObject):
     # The work, bound to its arguments and its Future, and marked as whoever
-    # asked (FIB-1276) -- the mark stays on the requesting thread.
+    # asked -- the mark stays on the requesting thread.
     _call = pyqtSignal(object)
 
     def __init__(self, before: Callable[[], None], parent=None) -> None:

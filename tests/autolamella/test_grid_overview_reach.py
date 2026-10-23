@@ -7,13 +7,11 @@ acquire time, which for a grid task is after the exchange and again on every gri
 in the run's history which it skipped; it fails only when no tile is in reach.
 """
 
-import os
 from pathlib import Path
 
 import pytest
 
 import fibsem.config as cfg
-from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
@@ -27,19 +25,13 @@ from fibsem.workflows.grid import (
     FluorescenceOverviewGridTaskConfig,
 )
 from fibsem.workflows.status import TaskStatus as Status
+from tests.fixtures.microscopes import demo_microscope
 from tests.run_state import run_grids
 
 ROWS_OUT_OF_REACH = "(0,0), (0,1), (0,2), (0,3), (3,0), (3,1), (3,2), (3,3)"
 
 
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(
-        manufacturer="Demo",
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
-    )
-    yield microscope
-    microscope.disconnect()
+microscope = demo_microscope("sim-arctis-configuration.yaml", scope="function")
 
 
 @pytest.fixture
@@ -94,8 +86,7 @@ def test_tiles_out_of_reach_are_skipped_and_named(
 
 
 def test_the_report_says_which_tiles_were_skipped(microscope, experiment, tmp_path):
-    pytest.importorskip("reportlab")
-    from fibsem.applications.autolamella.tools.grid_report_pdf import (
+    from fibsem.applications.autolamella.tools.grid_report_html import (
         generate_grid_report,
     )
 
@@ -103,13 +94,11 @@ def test_the_report_says_which_tiles_were_skipped(microscope, experiment, tmp_pa
         task_name="overview", settings=_beam(4, 4, 300e-6)
     )
     _run(microscope, experiment, config)
-    path = generate_grid_report(
-        experiment, output_path=str(tmp_path / "report.pdf"), compress=False
+    path = generate_grid_report(experiment, output_path=str(tmp_path / "report.html"))
+    text = Path(path).read_text(encoding="utf-8")
+    assert (
+        "Finished; 8 of 16 tiles were past the stage&#x27;s reach and skipped:" in text
     )
-    text = Path(path).read_bytes()
-    # the line wraps in the overview's facts column, so in pieces
-    assert b"Finished; 8 of 16 tiles were" in text
-    assert b"past the stage's reach and skipped:" in text
 
 
 def test_an_overview_in_reach_is_untouched(microscope, experiment):

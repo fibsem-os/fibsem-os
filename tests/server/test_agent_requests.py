@@ -14,7 +14,6 @@ from fastapi.testclient import TestClient  # noqa: E402
 from psygnal.containers import EventedDict  # noqa: E402
 
 import fibsem.applications.autolamella  # noqa: E402
-from fibsem import utils  # noqa: E402
 from fibsem.acting import WORKFLOW, current_actor  # noqa: E402
 from fibsem.ai.agent.calls import EVIDENCE_HEADER  # noqa: E402
 from fibsem.ai.agent.catalog import CATALOG  # noqa: E402
@@ -53,13 +52,6 @@ class RecordingContext(AutoLamellaAppContext):
 
     def record_event(self, kind, payload):
         self.recorded.append((kind, payload, current_actor()))
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    return microscope
 
 
 @pytest.fixture
@@ -534,14 +526,6 @@ def test_cancel_clears_the_waiting_request(client, app):
     assert store.cancel("Stop agent").id == filed["request_id"]
     assert store.pending() is None
     assert store.cancel("again") is None
-
-
-def test_an_expiring_request_lapses_as_it_says(app):
-    store = app.state.requests
-    request = store.create([NUDGE], "countdown", expires_at=100.0, on_expiry="reject")
-    assert store.expire_due(now=99.0) is None
-    assert store.expire_due(now=100.0).status == "rejected"
-    assert request.decided_by == "task:expiry"
 
 
 # The arguments a named tool cannot be called without.

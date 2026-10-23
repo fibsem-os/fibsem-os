@@ -163,10 +163,10 @@ def test_mirror_is_a_proper_rotation_on_the_other_branch():
 
 
 def test_eulers_round_trip():
-    from fibsem.correlation.solver import rotation_from_eulers_deg
+    from scipy.spatial.transform import Rotation
 
     nominal = _nominal(ENTRIES[0])
-    rebuilt = rotation_from_eulers_deg(nominal.eulers_deg())
+    rebuilt = Rotation.from_euler("zxz", nominal.eulers_deg(), degrees=True).as_matrix()
     assert rotation_angle_deg(rebuilt, nominal.rotation) < 1e-6
 
 

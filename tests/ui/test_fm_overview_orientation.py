@@ -22,16 +22,11 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from PyQt5.QtWidgets import QApplication, QDialog, QMessageBox
+from PyQt5.QtWidgets import QDialog, QMessageBox
 
 from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession
 from fibsem.ui.fm.widgets import fm_overview_widget as module
 from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    return QApplication.instance() or QApplication([])
 
 
 @pytest.fixture()
@@ -210,7 +205,7 @@ class TestOffsetMounts:
         import fibsem.config as cfg
         from fibsem import utils
 
-        config = os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
+        config = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml")
         microscope, _ = utils.setup_session(config_path=config)
         built = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
         built.fm.objective.insert()

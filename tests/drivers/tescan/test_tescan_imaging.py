@@ -21,7 +21,6 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.drivers.tescan import connection as tescan_connection
-from fibsem.drivers.tescan import microscope as tescan_module
 from fibsem.structures import (
     BeamType,
     FibsemImage,
@@ -41,7 +40,7 @@ AREA = FibsemRectangle(0.25, 0.25, 0.5, 0.5)
 
 def _system():
     return utils.load_microscope_configuration(
-        os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
     ).system
 
 
