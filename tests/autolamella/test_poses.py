@@ -30,7 +30,7 @@ from tests.fixtures.demo_stage import demo_session
 def _microscope(compustage: bool = True, with_fm: bool = True):
     microscope, _ = demo_session(compustage=compustage)
     microscope.system.stage.shuttle_pre_tilt = 0
-    microscope._update_orientations()
+    microscope.stage_movement.update_orientations()
     if with_fm and microscope.fm is None:
         from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
 

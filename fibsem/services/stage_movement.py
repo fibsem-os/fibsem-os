@@ -412,7 +412,7 @@ class StageMovement(Service):
         as "needs travel".
 
         Each device has its own range, and the beams' is unbounded, so the stage can be
-        within more than one; it is at the one `get_current_device` picks, the nearest
+        within more than one; it is at the one `current_device` picks, the nearest
         origin. Within the beams' range but nearer the FM's origin is at the FM. Where
         the stage device says a pose puts it at a device (`Stage.device_at_pose`), the
         pose decides and no range is checked.
@@ -1736,7 +1736,7 @@ class StageMovement(Service):
     def _check_arrival(self, device: str, arrival: FibsemStagePosition) -> None:
         """Refuse a traverse that would arrive outside *device*'s range.
 
-        The start is checked by finding the source (`get_current_device`); this is the
+        The start is checked by finding the source (`current_device`); this is the
         other end. Each device has its own range, and the stage keeps its offset from
         the source's origin, so a position well inside the beams' range can land
         outside an FM's -- where the stage would report it had not arrived, and could

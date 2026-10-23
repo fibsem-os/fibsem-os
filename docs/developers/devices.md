@@ -297,8 +297,7 @@ needle.axes.x.limits          # RangeLimit, from the position limits the driver 
 
 The chamber's commands are `pump()` and `vent()`; on a microscope with no chamber
 device, `microscope.pump()` and `vent()` raise rather than do nothing. The chamber
-camera's one command is `acquire()`, which returns the frame as an array
-(`microscope.acquire_chamber_image` goes to it). The manipulator's commands are
+camera's one command is `acquire()`, which returns the frame as an array. The manipulator's commands are
 `insert(name)`, `retract()`, `move_absolute`, `move_relative`, `move_to_offset`,
 `move_corrected(dx, dy, beam_type)` (a move in a beam's view, where the driver has
 one) and `stop()`. `stop` does not wait for the move it stops; a driver that cannot stop its
@@ -535,14 +534,14 @@ as milling found it on every backend.
 
 Workflow code mills through `fibsem.milling` (milling stages, strategies and
 `fibsem.milling.tasks.run_milling_task`), as before. The microscope's named milling methods (`setup_milling`,
-`draw_rectangle`, `start_milling`, `run_milling`, `finish_milling`, ...) go to the
+`draw_pattern`, `start_milling`, `run_milling`, `finish_milling`, ...) go to the
 service; `finish_milling` is the service's `finish`, which clears the patterns and
 restores the beam. `run_milling(stop_event=None)` is the
 service's `run`: it mills what is drawn with the beam conditions `setup_milling`
 applied, reports `progress`, and returns when the mill ends; a set `stop_event` stops
 the beam. To start a mill and return at once, use `start_milling`. With the ion column
 disabled, `microscope.milling` is `None` and those methods raise, except
-`stop_milling`, which does nothing, and `get_milling_state`, which answers `IDLE`.
+`stop_milling`, which does nothing.
 
 A driver adds milling by subclassing `fibsem.services.milling.Milling` and
 implementing its hooks the way its instrument mills: `_setup`, one draw hook per

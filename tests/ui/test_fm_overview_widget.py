@@ -1890,7 +1890,7 @@ def test_the_canvas_is_anchored_at_the_fm_device_not_at_the_stage(qapp):
         config_path=os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
     )
     microscope.move_to_orientation("SEM")
-    assert microscope.get_current_device() == "FIBSEM"
+    assert microscope.stage_movement.current_device() == "FIBSEM"
     widget = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
     try:
         frame = widget._frame()
@@ -2809,7 +2809,7 @@ def _microscope_at(tilt_deg: float):
 
     microscope, _ = demo_session(compustage=True)
     microscope.system.stage.shuttle_pre_tilt = 0
-    microscope._update_orientations()
+    microscope.stage_movement.update_orientations()
     if microscope.fm is None:
         microscope.fm = DemoFluorescenceMicroscope(parent=microscope)
     microscope.move_stage_absolute(

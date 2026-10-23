@@ -165,7 +165,7 @@ SETS_ONLY = (
 # The scan-mode methods, through the scan commands on one side and the old keys on
 # the other. Nothing read the scan mode before, so these are not read back.
 SCANS = (
-    ("spot", lambda m, b: m.set_spot_scanning_mode(Point(0.25, 0.75), b)),
+    ("spot", lambda m, b: m.beams[b].spot(Point(0.25, 0.75))),
     (
         "reduced_area",
         lambda m, b: m.set_reduced_area_scanning_mode(

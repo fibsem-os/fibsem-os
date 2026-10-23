@@ -306,13 +306,13 @@ def _inverse_y_corrected_stage_movement(
 ) -> float:
     """Recover the in-image y-displacement from a y/z stage movement, off an image.
 
-    The inverse of `_y_corrected_stage_movement`, answered from the image's own
+    The inverse of `StageMovement.y_corrected_movement`, answered from the image's own
     metadata rather than a live instrument -- so a saved overview projects as it was
     taken.
 
     Deferred to :func:`fibsem.geometry.movement.inverse_view_corrected_dy` rather than
     derived here. This function used to carry its own copy of the trigonometry, as did
-    `FibsemMicroscope._inverse_view_corrected_stage_movement`, so one decision about the
+    `StageMovement.inverse_view_corrected_movement`, so one decision about the
     geometry lived in three places and only stayed consistent by everyone editing all
     three.
 

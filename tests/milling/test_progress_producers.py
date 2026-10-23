@@ -112,14 +112,13 @@ class TestTheCoincidenceStrategy:
         this strategy is running a fluorescence acquisition that holds the view for its
         whole duration -- asking would yank it away mid-acquisition."""
         calls = []
-        original = microscope.get_milling_state
-        microscope.get_milling_state = lambda *a, **k: (
-            calls.append(1) or original(*a, **k)
-        )
+        state = microscope.milling.state
+        original = state.get_value
+        state.get_value = lambda *a, **k: calls.append(1) or original(*a, **k)
         try:
             emitted = self._monitor_once(microscope)
         finally:
-            microscope.get_milling_state = original
+            del state.get_value
 
         assert emitted
         assert calls == [], "the monitor loop polled the milling state"

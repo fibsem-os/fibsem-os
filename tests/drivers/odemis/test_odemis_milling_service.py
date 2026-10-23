@@ -72,7 +72,6 @@ def test_without_an_ion_beam_there_is_no_milling(odemis_cls):
     assert microscope.milling is None
     with pytest.raises(ValueError, match="ION beam is not enabled"):
         microscope.setup_milling(SETTINGS)
-    assert microscope.get_milling_state() is MillingState.IDLE
 
 
 def _setup(m):
@@ -89,12 +88,12 @@ def _run(m):
     _draw(m)
     return [
         m.estimate_milling_time(),
-        m.get_milling_state(),
+        m.milling.state.get_value(),
         m.start_milling(),
         m.pause_milling(),
         m.resume_milling(),
         m.stop_milling(),
-        m.clear_patterns(),
+        m.milling.clear(),
     ]
 
 
@@ -121,7 +120,7 @@ def test_milling_makes_the_same_odemis_calls(odemis_cls, call):
 
 
 def test_the_state_is_read_on_the_milling_channel(odemis_cls):
-    ran = run(make(odemis_cls), lambda m: m.get_milling_state())
+    ran = run(make(odemis_cls), lambda m: m.milling.state.get_value())
     assert ran["result"] == repr(MillingState.IDLE)
     assert [c[0] for c in ran["calls"]] == [
         "set_active_view",

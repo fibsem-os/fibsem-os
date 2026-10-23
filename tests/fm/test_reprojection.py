@@ -45,7 +45,7 @@ def _pose(microscope, *, compustage, pretilt_deg, rotation_deg, tilt_deg):
     """Pin the microscope into a known geometry without moving the stage."""
     microscope.stage_device.compustage = compustage
     microscope.system.stage.shuttle_pre_tilt = pretilt_deg
-    microscope._update_orientations()
+    microscope.stage_movement.update_orientations()
     position = FibsemStagePosition(
         x=0.0,
         y=0.0,
@@ -94,7 +94,7 @@ class TestParityWithTheLiveMicroscope:
             type(microscope.fm), "camera_tilt", property(lambda self: camera_tilt)
         )
 
-        live = microscope._inverse_view_corrected_stage_movement(
+        live = microscope.stage_movement.inverse_view_corrected_movement(
             dy=12e-6, dz=-3e-6, view_tilt=np.deg2rad(camera_tilt)
         )
         pure = inverse_view_corrected_dy(
@@ -126,7 +126,7 @@ class TestParityWithTheLiveMicroscope:
             type(microscope.fm), "camera_tilt", property(lambda self: camera_tilt)
         )
 
-        live = microscope._view_corrected_stage_movement(
+        live = microscope.stage_movement.view_corrected_movement(
             expected_y=17e-6, view_tilt=np.deg2rad(camera_tilt)
         )
         dy, dz = view_corrected_stage_movement(
@@ -155,7 +155,7 @@ class TestParityWithTheLiveMicroscope:
         )
         assert microscope.get_stage_orientation() != "FIB", "pose assumption drifted"
 
-        live = microscope._inverse_view_corrected_stage_movement(
+        live = microscope.stage_movement.inverse_view_corrected_movement(
             dy=12e-6, dz=-3e-6, view_tilt=np.deg2rad(microscope.fm.camera_tilt)
         )
         pure = inverse_view_corrected_dy(

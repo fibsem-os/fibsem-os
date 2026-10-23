@@ -315,11 +315,6 @@ def test_applying_at_connect_sets_only_the_defaults(tmp_path, monkeypatch):
         return original(self, key, *args, **kwargs)
 
     monkeypatch.setattr(FibsemMicroscope, "_write_beam", spy)
-    # the column's enabled flag, geometry and gas are set only with the system settings
-    system = []
-    monkeypatch.setattr(
-        FibsemMicroscope, "set_beam_system_settings", lambda *a: system.append(a)
-    )
     moved = []
     monkeypatch.setattr(
         FibsemMicroscope, "move_stage_absolute", lambda *a, **k: moved.append(a)
@@ -329,7 +324,6 @@ def test_applying_at_connect_sets_only_the_defaults(tmp_path, monkeypatch):
         assert microscope.connect_actions["defaults"] is True
         assert "hfw" in keys
         assert "plasma_gas" not in keys
-        assert system == []
         assert moved == []
     finally:
         microscope.disconnect()

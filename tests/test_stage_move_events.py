@@ -141,7 +141,7 @@ def test_a_move_to_a_device_is_one_event_not_three():
     moves = [payload for kind, payload in events if kind == "stage_moved"]
     assert [m["move"] for m in moves] == ["move_to_device"]
     assert moves[0]["request"] == {"device": "FM", "orientation": None}
-    assert microscope.get_current_device() == "FM"
+    assert microscope.stage_movement.current_device() == "FM"
 
 
 def test_moves_made_one_after_another_are_each_recorded(microscope, recorded):

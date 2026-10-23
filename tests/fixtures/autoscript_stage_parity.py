@@ -471,7 +471,7 @@ def cases():
 
         add(
             "get position",
-            lambda m: m._stage_value("position"),
+            lambda m: m.stage.parameters["position"].get_value(),
             lambda s, m: s.position.get_value(),
         )
         add(
@@ -481,20 +481,20 @@ def cases():
         )
         add(
             "get homed",
-            lambda m: m._stage_value("homed"),
+            lambda m: m.stage.parameters["homed"].get_value(),
             lambda s, m: s.homed.get_value(),
         )
         add("home", lambda m: (m.stage.home(), None)[1], lambda s, m: s._home())
         if not compustage:
             add(
                 "get linked",
-                lambda m: m._stage_value("linked"),
+                lambda m: m.stage.parameters["linked"].get_value(),
                 lambda s, m: s.linked.get_value(),
             )
             add("link", lambda m: (m.stage.link(), None)[1], lambda s, m: s._link())
             add(
                 "link_stage",
-                lambda m: m.link_stage(),
+                lambda m: m.stage.link(),
                 lambda s, m: (s._link(), s.linked.get_value())[1],
             )
         add("home()", lambda m: m.stage.home(), lambda s, m: (s._home(), True)[1])

@@ -113,11 +113,17 @@ def test_the_configured_manipulator_is_the_one_driven(monkeypatch):
     microscope, fake = _tescan(monkeypatch, ENTRY)
 
     assert microscope.insert_manipulator("PARK") == PARK
-    assert microscope.get_manipulator_state() is True
+    assert (
+        microscope.manipulator_device.state.get_value()
+        is InsertableDeviceState.INSERTED
+    )
     delta = FibsemManipulatorPosition(x=1e-6)
     assert microscope.move_manipulator_relative(delta) == PARK + delta
     microscope.retract_manipulator()
-    assert microscope.get_manipulator_state() is False
+    assert (
+        microscope.manipulator_device.state.get_value()
+        is InsertableDeviceState.RETRACTED
+    )
     assert not [path for path, _, _ in fake.log if "Nanomanipulator" in path]
 
 

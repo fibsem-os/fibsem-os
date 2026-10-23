@@ -147,7 +147,7 @@ def _state(microscope) -> Dict[str, Any]:
     state = {
         "position": _point(microscope.get_stage_position()),
         "orientation": microscope.get_stage_orientation(),
-        "device": microscope.get_current_device(),
+        "device": microscope.stage_movement.current_device(),
     }
     if microscope.fm is not None:
         # Pinned as AutoScript's names, which the API answered then.
@@ -209,7 +209,9 @@ def _queries_case(mount: str, start: str) -> Dict[str, Any]:
     microscope = _microscope(mount)
     position = _go(microscope, start)
     result: Dict[str, Any] = {"orientation": microscope.get_stage_orientation(position)}
-    result["current_device"] = _attempt(lambda: microscope.get_current_device(position))
+    result["current_device"] = _attempt(
+        lambda: microscope.stage_movement.current_device(position)
+    )
     for device in DEVICES:
         result[f"is_at_device({device})"] = _attempt(
             lambda: microscope.is_at_device(device, position)

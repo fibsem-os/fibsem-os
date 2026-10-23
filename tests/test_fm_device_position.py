@@ -324,7 +324,7 @@ def test_the_beams_are_wherever_no_other_device_is():
 
     assert microscope.is_at_device("FIBSEM", position) is True
     assert microscope.is_at_device("FM", position) is False
-    assert microscope.get_current_device(position) == "FIBSEM"
+    assert microscope.stage_movement.current_device(position) == "FIBSEM"
 
 
 def test_where_two_devices_contain_the_stage_the_nearest_origin_wins():
@@ -334,7 +334,7 @@ def test_where_two_devices_contain_the_stage_the_nearest_origin_wins():
 
     for x_mm, expected in ((30.0, "FM"), (48.8, "FM"), (68.0, "FM"), (24.0, "FIBSEM")):
         position = FibsemStagePosition(x=x_mm * 1e-3, y=0.0, z=0.0, r=0.0, t=0.0)
-        assert microscope.get_current_device(position) == expected, x_mm
+        assert microscope.stage_movement.current_device(position) == expected, x_mm
 
 
 def test_the_axes_a_device_does_not_constrain_do_not_decide():
@@ -498,9 +498,9 @@ def test_the_source_is_where_the_stage_is_not_the_other_device():
     """`get_current_device` reports the device the stage is at."""
     microscope = _microscope()
 
-    assert microscope.get_current_device() == "FIBSEM"
+    assert microscope.stage_movement.current_device() == "FIBSEM"
     assert (
-        microscope.get_current_device(
+        microscope.stage_movement.current_device(
             FibsemStagePosition(x=48.8e-3, y=0, z=0, r=0, t=0)
         )
         == "FM"
@@ -535,7 +535,7 @@ def test_a_stage_at_no_device_is_refused_rather_than_guessed():
     microscope.move_stage_relative(
         FibsemStagePosition(x=OUTSIDE_THE_FM_MM * 1e-3, y=0, z=0, r=0, t=0)
     )
-    assert microscope.get_current_device() is None
+    assert microscope.stage_movement.current_device() is None
 
     with pytest.raises(ValueError, match="not at any configured device"):
         microscope.move_to_device("FM")
@@ -630,11 +630,11 @@ def test_the_window_is_the_devices_range_about_its_origin():
 def test_widening_one_devices_range_leaves_the_others_alone():
     microscope = _microscope()
     position = FibsemStagePosition(x=26.0e-3, y=0.0, z=0.0)
-    assert microscope.get_current_device(position) == "FIBSEM"
+    assert microscope.stage_movement.current_device(position) == "FIBSEM"
 
     microscope.system.stage.devices["FM"].range = FibsemStagePosition(x=25.0e-3)
 
-    assert microscope.get_current_device(position) == "FM"
+    assert microscope.stage_movement.current_device(position) == "FM"
     assert microscope.system.stage.devices["FIBSEM"].range is None
 
 
@@ -760,7 +760,7 @@ def test_an_axis_a_device_leaves_unset_is_the_beams():
     after = microscope.get_stage_position()
     assert after.x == pytest.approx(before.x + 48.8e-3)
     assert after.y == pytest.approx(before.y + 2.0e-3)
-    assert microscope.get_current_device() == "FM"
+    assert microscope.stage_movement.current_device() == "FM"
 
 
 def test_a_range_covers_every_axis_its_origin_sets():

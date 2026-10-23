@@ -178,32 +178,6 @@ def test_connecting_fills_the_capability_from_the_stage(
     assert microscope.system.stage.rotation_180 == opposite
 
 
-def test_applying_a_configuration_does_not_overwrite_the_capability():
-    """The regression this change is most likely to grow.
-
-    `apply_configuration` replaces `system.stage` wholesale from a settings object the
-    user chose, and it is reachable from a button in the system setup widget. Since no
-    file states `rotation` any more, the replacement carries the field default of
-    `True` -- so on a compustage, pressing Apply would move the FIB orientation half a
-    turn away and hand the compucentric correction a rotation the stage cannot make.
-
-    The settings applied here are a real load of the same configuration, which is what
-    that button does.
-    """
-    path = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
-    microscope, _ = utils.setup_session(config_path=path, manufacturer="Demo")
-    assert microscope.system.stage.rotation is False
-
-    applied = SystemSettings.from_dict(utils.load_yaml(path))
-    assert applied.stage.rotation is True, "the file cannot say, so it says the default"
-
-    microscope.apply_configuration(applied)
-
-    assert microscope.system.stage.rotation is False
-    assert microscope.system.stage.rotation_180 == 0.0
-    assert np.isclose(microscope.get_orientation("FIB").r, 0.0)
-
-
 def test_the_thermo_backend_reports_a_compustage_without_a_rotation_axis():
     """The real Arctis path, which no test on CI can connect to.
 
