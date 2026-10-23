@@ -126,15 +126,3 @@ def name_and_record_grids(
         logging.info(f"Recorded {len(added)} grid(s): {[g.name for g in added]}")
     experiment.save()
     return [final[e.slot_name] for e in inventory if e.slot_name in final]
-
-
-def screening_plan(
-    microscope: "FibsemMicroscope",
-    experiment: "GridExperiment",
-    task_names: Optional[List[str]] = None,
-) -> List[Tuple[str, str]]:
-    """What "Screen all grids" would run, for a confirmation: the load and task
-    steps per present grid. Refreshes the inventory to answer."""
-    if task_names is None:
-        task_names = experiment.grid_protocol.ordered_task_names
-    return plan_grid_run(task_names, present_grids(microscope, experiment))

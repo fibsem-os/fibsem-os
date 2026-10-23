@@ -127,15 +127,6 @@ def acquisition_datetime_of(metadata) -> Optional[datetime]:
     return to_datetime(_acquisition_value(metadata))
 
 
-def acquisition_wall_time_of(
-    metadata, zone: Optional[tzinfo] = None
-) -> Optional[datetime]:
-    """When an image was acquired, on the instrument's clock: :func:`wall_time_of`
-    the value :func:`acquisition_datetime_of` reads, as recorded, so that an older
-    image's POSIX time is read in *zone* rather than in this machine's."""
-    return wall_time_of(_acquisition_value(metadata), zone)
-
-
 def _acquisition_value(metadata):
     """The value an image's acquisition time is read from, as recorded."""
     recorded = getattr(metadata, "acquisition_datetime", None)

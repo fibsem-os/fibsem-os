@@ -31,7 +31,7 @@ from fibsem.geometry.movement import (
     vertical_move_delta,
     view_corrected_stage_movement,
 )
-from fibsem.movement import rotation_angle_is_smaller
+from fibsem.geometry.angles import rotation_angle_is_smaller
 from tests.test_stage_poses_pinned import STAGE_TYPES, _microscope
 
 TILTS_DEG = (-180, -160, -128, -100, -90, -60, -23, -10, 0, 10, 20, 38, 52)

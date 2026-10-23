@@ -36,7 +36,8 @@ from unittest.mock import Mock, patch
 import numpy as np
 import pytest
 
-from fibsem import movement, utils
+from fibsem import utils
+from fibsem.geometry import angles
 from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
 from fibsem.fm.structures import (
     AutoFocusMode,
@@ -83,11 +84,11 @@ def _reference_y_corrected(microscope, expected_y: float, beam_type: BeamType):
         stage_tilt += np.pi
 
     PRETILT_SIGN = 1.0
-    if movement.rotation_angle_is_smaller(
+    if angles.rotation_angle_is_smaller(
         stage_rotation, stage_rotation_flat_to_eb, atol=5
     ):
         PRETILT_SIGN = 1.0
-    if movement.rotation_angle_is_smaller(
+    if angles.rotation_angle_is_smaller(
         stage_rotation, stage_rotation_flat_to_ion, atol=5
     ):
         PRETILT_SIGN = -1.0
@@ -159,11 +160,11 @@ def _reference_inverse_y_corrected(
         stage_tilt += np.pi
 
     PRETILT_SIGN = 1.0
-    if movement.rotation_angle_is_smaller(
+    if angles.rotation_angle_is_smaller(
         stage_rotation, stage_rotation_flat_to_eb, atol=5
     ):
         PRETILT_SIGN = 1.0
-    if movement.rotation_angle_is_smaller(
+    if angles.rotation_angle_is_smaller(
         stage_rotation, stage_rotation_flat_to_ion, atol=5
     ):
         PRETILT_SIGN = -1.0

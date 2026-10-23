@@ -893,7 +893,7 @@ def test_a_dismissed_offer_stays_dismissed(qapp, isolated_state, monkeypatch):
 def test_dismissing_the_offer_makes_it_stay_dismissed(connection_tab, isolated_state):
     connection_tab._dismiss_first_run()
     assert connection_tab._frame_first_run.isHidden()
-    assert wizard.is_offer_dismissed()
+    assert cfg.load_user_preferences().display.guided_setup_dismissed
 
     from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
 

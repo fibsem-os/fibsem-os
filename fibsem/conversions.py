@@ -216,21 +216,6 @@ def convert_pixels_to_metres(pixels: int, pixelsize: float) -> float:
     return float(pixels * pixelsize)
 
 
-def distance_between_points(p1: Point, p2: Point) -> Point:
-    """
-    Calculate the Euclidean distance between two points, returning a Point object representing the result.
-
-    Args:
-        p1 (Point): The first point.
-        p2 (Point): The second point.
-
-    Returns:
-        Point: A Point object representing the distance between the two points.
-    """
-
-    return Point(x=(p2.x - p1.x), y=(p2.y - p1.y))
-
-
 def convert_point_from_pixel_to_metres(point: Point, pixelsize: float) -> Point:
     """
     Convert a Point object from pixel coordinates to metre coordinates, based on a given pixel size.

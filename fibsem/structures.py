@@ -4489,32 +4489,6 @@ class FibsemImage:
             data=_apply_gamma(self.data, gamma), metadata=deepcopy(self.metadata)
         )
 
-    def auto_contrast_brightness(
-        self,
-        clip_percentile_lo: float = 0.5,
-        clip_percentile_hi: float = 99.5,
-    ) -> "FibsemImage":
-        """Return a copy of the image with a percentile stretch applied.
-
-        Pixel values are clipped to [p_lo, p_hi] and linearly rescaled to fill
-        the full dtype range.
-
-        Args:
-            clip_percentile_lo: Lower clip percentile (default 0.5).
-            clip_percentile_hi: Upper clip percentile (default 99.5).
-
-        Returns:
-            FibsemImage: New image with stretched data and the same metadata.
-        """
-        from copy import deepcopy
-
-        from fibsem.imaging.utils import percentile_stretch
-
-        stretched = percentile_stretch(
-            self.data, clip_percentile_lo, clip_percentile_hi
-        )
-        return FibsemImage(data=stretched, metadata=deepcopy(self.metadata))
-
     def compute_stats(self) -> "ImageStats":
         """Compute histogram statistics for this image.
 
@@ -4603,17 +4577,6 @@ class FibsemImage:
             ),
         )
         return image
-
-
-@dataclass
-class ReferenceImages:
-    low_res_eb: FibsemImage
-    high_res_eb: FibsemImage
-    low_res_ib: FibsemImage
-    high_res_ib: FibsemImage
-
-    def __iter__(self) -> List[FibsemImage]:
-        yield self.low_res_eb, self.high_res_eb, self.low_res_ib, self.high_res_ib
 
 
 def check_data_format(data: np.ndarray) -> bool:

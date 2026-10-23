@@ -28,6 +28,49 @@ pytestmark = pytest.mark.slow
 TFS_SHUTTLE_CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
 
 
+def _replay(run_dir: str) -> list:
+    """Re-measure every pair a saved run kept, with the parameters it recorded:
+    [(record, sem_image, fib_image, measurement)] in run order."""
+    import json
+
+    from fibsem.alignment.coincidence import (
+        DEFAULT_AGREEMENT_TOLERANCE,
+        DEFAULT_CAPTURE_RANGE,
+        DEFAULT_MAX_LATERAL_OFFSET,
+        DEFAULT_MAX_RIVAL_RATIO,
+        measure_coincidence_from_images,
+    )
+    from fibsem.structures import FibsemImage
+
+    with open(os.path.join(run_dir, "run.json")) as f:
+        run = json.load(f)
+    replayed = []
+    for record in run["measurements"]:
+        if "sem" not in record:
+            continue
+        sem_image = FibsemImage.load(os.path.join(run_dir, record["sem"]))
+        fib_image = FibsemImage.load(os.path.join(run_dir, record["fib"]))
+        prior = record.get("prior")
+        measurement = measure_coincidence_from_images(
+            sem_image,
+            fib_image,
+            prior=None if prior is None else tuple(prior),
+            capture_range=record.get("capture_range", DEFAULT_CAPTURE_RANGE),
+            agreement_tolerance=record.get(
+                "agreement_tolerance", DEFAULT_AGREEMENT_TOLERANCE
+            ),
+            max_lateral_offset=record.get(
+                "max_lateral_offset", DEFAULT_MAX_LATERAL_OFFSET
+            ),
+            max_rival_ratio=record.get("max_rival_ratio", DEFAULT_MAX_RIVAL_RATIO),
+        )
+        measurement.coarse = record["pass"] == "coarse"
+        measurement.sem_image = sem_image
+        measurement.fib_image = fib_image
+        replayed.append((record, sem_image, fib_image, measurement))
+    return replayed
+
+
 @pytest.fixture
 def microscope():
     microscope, settings = utils.setup_session(
@@ -167,8 +210,6 @@ def test_progress_reports_every_step_and_moves_are_counted(microscope, tmp_path)
     # case: every pair as tif with metadata, the numbers, one summary figure
     import os
 
-    from fibsem.alignment.plotting import load_coincidence_run
-
     run_dir = save_coincidence_diagnostics(result, str(tmp_path), prefix="start_")
     assert os.path.basename(run_dir).startswith("start_coincidence_")
     saved = sorted(os.listdir(run_dir))
@@ -180,7 +221,7 @@ def test_progress_reports_every_step_and_moves_are_counted(microscope, tmp_path)
         "run.json",
         "summary.png",
     ]
-    replayed = load_coincidence_run(run_dir)
+    replayed = _replay(run_dir)
     assert len(replayed) == 2
     for record, _, _, fresh in replayed:
         assert fresh.is_reliable == record["is_reliable"]
@@ -191,10 +232,7 @@ def test_a_coarse_run_replays_with_its_own_parameters(microscope, tmp_path):
     """A coarse pair re-measured with the fine window reads differently;
     the run records what each measurement was run with, and the replay
     uses it, so the replay reproduces the run."""
-    from fibsem.alignment.plotting import (
-        load_coincidence_run,
-        save_coincidence_diagnostics,
-    )
+    from fibsem.alignment.plotting import save_coincidence_diagnostics
 
     microscope._connection.sample_scene.coincidence_offset = 40e-6
     microscope._connection.sample_scene.reference_position = None
@@ -202,7 +240,7 @@ def test_a_coarse_run_replays_with_its_own_parameters(microscope, tmp_path):
     result = ensure_coincident(microscope, tolerance=1e-6)
     assert result.coarse_used
 
-    replayed = load_coincidence_run(save_coincidence_diagnostics(result, str(tmp_path)))
+    replayed = _replay(save_coincidence_diagnostics(result, str(tmp_path)))
     assert [r["pass"] for r, *_ in replayed] == ["fine", "coarse", "fine"]
     for record, _, _, fresh in replayed:
         assert fresh.is_reliable == record["is_reliable"]

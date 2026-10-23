@@ -108,9 +108,6 @@ class Control:
         # starts something and returns (start_milling) has let go of control
         # while what it started runs on (FIB-1267's Stop agent).
         self._last: Optional[InControl] = None
-        # Epoch seconds of the operator's last take or release, for the
-        # agent's Drive countdown (FIB-1267). None until the operator acts.
-        self.last_operator_action: Optional[float] = None
 
     @property
     def current(self) -> Optional[InControl]:
@@ -157,7 +154,6 @@ class Control:
                 raise MicroscopeBusy(self._beside or holder)
             if join and not joined:
                 self._joinable.append(entry)
-            self._note_operator(by)
             self._last = entry
         if joined:
             try:
@@ -165,7 +161,6 @@ class Control:
             finally:
                 with self._cond:
                     self._joined -= 1
-                    self._note_operator(by)
                     self._cond.notify_all()
             return
         if not (borrowed or beside):
@@ -194,7 +189,6 @@ class Control:
                     self._owner = None
                     self._owner_thread = None
                     self._lent = False
-                self._note_operator(by)
                 self._cond.notify_all()
                 now = self._borrower or self._owner
             self.changed.emit(now)
@@ -229,10 +223,6 @@ class Control:
                     self._lent = False
                     while self._borrower is not None:
                         self._cond.wait()
-
-    def _note_operator(self, by: str) -> None:
-        if by == OPERATOR:
-            self.last_operator_action = time.time()
 
 
 def _remember(thread: Optional[int], control: Control) -> None:

@@ -83,11 +83,6 @@ def is_enabled() -> bool:
         return False
 
 
-def get_status() -> Optional[UpdateStatus]:
-    """The cached result, or None if no check has succeeded this session."""
-    return _status
-
-
 def get_available_update() -> Optional[str]:
     """The newer version available, or None.
 

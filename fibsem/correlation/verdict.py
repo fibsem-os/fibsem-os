@@ -92,18 +92,6 @@ class FitEvidence:
     rotation: Optional[np.ndarray] = field(default=None, compare=False)
 
     @property
-    def loo_median_um(self) -> float:
-        return (
-            float(np.median([p.loo_error_um for p in self.pairs]))
-            if self.pairs
-            else 0.0
-        )
-
-    @property
-    def loo_max_um(self) -> float:
-        return max((p.loo_error_um for p in self.pairs), default=0.0)
-
-    @property
     def agreement_um(self) -> float:
         """The headline: how well the fiducials agree (RMS or the target's spread)."""
         return max(self.rms_um, self.poi_jackknife_um or 0.0)

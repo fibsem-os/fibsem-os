@@ -282,9 +282,3 @@ def beam_overview_cost(settings: Optional[OverviewAcquisitionSettings]) -> float
     # the runner returns the stage to where it started
     total += stage_move_cost(1)
     return total
-
-
-def log_estimate(label: str, seconds: float) -> None:
-    """Debug-log an estimate in the same shape everywhere, for later comparison
-    against the durations the experiment record already stores."""
-    logging.debug({"msg": "duration_estimate", "label": label, "seconds": seconds})

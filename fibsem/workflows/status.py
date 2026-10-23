@@ -105,10 +105,6 @@ class TaskState:
             return 0
         return (end - start).total_seconds()
 
-    @property
-    def duration_str(self) -> str:
-        return format_duration_precise(self.duration)
-
     def to_dict(self) -> dict:
         """Convert the task state to a dictionary."""
         ddict = asdict(self)

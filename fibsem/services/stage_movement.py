@@ -49,7 +49,7 @@ from fibsem.geometry.orientations import (
     milling_angle_from_tilt,
     repose,
 )
-from fibsem.movement import rotation_angle_is_smaller
+from fibsem.geometry.angles import rotation_angle_is_larger, rotation_angle_is_smaller
 from fibsem.services.core import Service
 from fibsem.structures import (
     BEAMS_STAGE_DEVICE,
@@ -1467,10 +1467,8 @@ class StageMovement(Service):
         if not self.parent.system.stage.rotation or stage_position.r is None:
             return
 
-        from fibsem import movement
-
         current_position = self._position()
-        if movement.rotation_angle_is_larger(stage_position.r, current_position.r):
+        if rotation_angle_is_larger(stage_position.r, current_position.r):
             self._move_stage(FibsemStagePosition(t=0))
             logging.info("tilting to flat for large rotation.")
 
