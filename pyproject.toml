@@ -259,3 +259,5 @@ ignore = [
 # namespace: services.py, images.py and the parity fixtures reach them as
 # `autoscript.X`.
 "fibsem/drivers/autoscript/microscope.py" = ["F401"]
+# The TESCAN SDK names the driver's modules reach as `sdk.X`.
+"fibsem/drivers/tescan/sdk.py" = ["F401"]

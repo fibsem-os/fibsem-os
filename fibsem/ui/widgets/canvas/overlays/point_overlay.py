@@ -15,7 +15,7 @@ from fibsem.theme.plots import DARK
 from fibsem.ui.tokens import (
     CANVAS_BG,
 )
-from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
+from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay, _modifiers_from_event
 
 if TYPE_CHECKING:
     from fibsem.ui.widgets.canvas.canvas_base import ContentRect
@@ -1032,7 +1032,6 @@ class PointOverlay(QObject):
         arrives as "Control"."""
         if not self._multi_select:
             return ()
-        from fibsem.ui.widgets.canvas.canvas_base import _modifiers_from_event
 
         return _modifiers_from_event(event)
 

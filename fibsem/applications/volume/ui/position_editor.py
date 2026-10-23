@@ -37,11 +37,14 @@ from fibsem.applications.volume.position_milling import (
 from fibsem.structures import BeamType, FibsemImage, FibsemRectangle, Point
 from fibsem.ui import stylesheets
 from fibsem.ui.run.run_refusal import refused
-from fibsem.ui.widgets.canvas import ItemEditorView, MicroscopeViewController
 from fibsem.ui.widgets.canvas.canvas_state import (
     AlignmentSpec,
     MillingSpec,
     PointsSpec,
+)
+from fibsem.ui.widgets.canvas.quad_view import (
+    ItemEditorView,
+    MicroscopeViewController,
 )
 from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig
 from fibsem.util.timestamps import format_time

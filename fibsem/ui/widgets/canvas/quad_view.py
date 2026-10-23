@@ -59,6 +59,10 @@ from fibsem.ui.widgets.canvas.canvas_state import (
 from fibsem.ui.widgets.canvas.chamber_view import ChamberView
 from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
+from fibsem.ui.widgets.canvas.overlays.alignment_overlay import AlignmentAreaOverlay
+from fibsem.ui.widgets.canvas.overlays.mask_overlay import MaskOverlay
+from fibsem.ui.widgets.canvas.overlays.milling_overlay import MillingPatternOverlay
+from fibsem.ui.widgets.canvas.overlays.point_overlay import PointOverlay
 from fibsem.ui.widgets.canvas.view_info_bar import ViewInfoBar, show_fm_plane
 
 if TYPE_CHECKING:
@@ -1236,20 +1240,10 @@ class MicroscopeViewController(QObject):
         """Construct the overlay object for *spec* and wire its edit signal (if any)
         back to :attr:`overlay_edited` (one branch per migrated slice)."""
         if isinstance(spec, MillingSpec):
-            from fibsem.ui.widgets.canvas.overlays.milling_overlay import (
-                MillingPatternOverlay,
-            )
-
             return MillingPatternOverlay()
         if isinstance(spec, MaskSpec):
-            from fibsem.ui.widgets.canvas.overlays.mask_overlay import MaskOverlay
-
             return MaskOverlay()
         if isinstance(spec, AlignmentSpec):
-            from fibsem.ui.widgets.canvas.overlays.alignment_overlay import (
-                AlignmentAreaOverlay,
-            )
-
             obj = AlignmentAreaOverlay(editable=spec.editing)
             beam = self._beams.get(canvas)
             obj.alignment_area_changed.connect(
@@ -1257,8 +1251,6 @@ class MicroscopeViewController(QObject):
             )
             return obj
         if isinstance(spec, PointsSpec):
-            from fibsem.ui.widgets.canvas.overlays.point_overlay import PointOverlay
-
             obj = PointOverlay(
                 color=spec.color,
                 selected_color=spec.selected_color,
