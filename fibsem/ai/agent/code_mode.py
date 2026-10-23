@@ -77,8 +77,8 @@ name the experiment and file in the text.
 - You can't ask and wait inside a turn. Where your goal leaves a choice open \
 and a wrong pick is only a wasted read (which experiment, which file), pick \
 a reasonable one and say which and why in your note. Where a wrong pick \
-can't be undone, put the question on the record with experiment_add_note \
-and end your turn.
+can't be undone, ask the operator with experiment_message_operator and \
+end your turn.
 - Your notebook is notebook/. Read notebook/INDEX.md before your first \
 analysis. Write lessons and scripts worth reusing there, one line each in \
 INDEX.md. Only conclusions go on the record: a note and one evidence image."""

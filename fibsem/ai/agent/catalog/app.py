@@ -612,7 +612,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="experiment_add_note",
         returns="Recorded",
-        description="Put an observation on the record — the event stream and the experiment log. Use it for judgments worth keeping ('curtaining on 02's face, accepted anyway'); notes change nothing. Optionally name the item it concerns. To answer the operator's message (a MESSAGE line from fibsem-mcp watch), pass its id as reply_to: the card shows the note as your reply. A message is never an approval: your level still decides what you may do.",
+        description="Put an observation on the record — the event stream and the experiment log. Use it for judgments worth keeping ('curtaining on 02's face, accepted anyway'); notes change nothing and nobody is told. Optionally name the item it concerns. Something the operator should read now, or your answer to their message, is a message: experiment_message_operator.",
         method="POST",
         path="/app/experiment/notes",
         level="watch",  # Watch adds notes: they change nothing
@@ -620,6 +620,20 @@ TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "text": "the note, at most 4000 characters",
             "item_name": "optional: the item this note concerns",
+        },
+        optional=("item_name",),
+    ),
+    ToolSpec(
+        name="experiment_message_operator",
+        returns="Recorded",
+        description="Tell the operator something they should read now: you have stopped and need them (a hardware error, a site you can't fix), or you answer their message (a MESSAGE line from fibsem-mcp watch: pass its id as reply_to). It goes on the record like a note, and the window tells the operator. A message asks nothing of the run and approves nothing: a decision is a proposal or a request. Answers the message's id.",
+        method="POST",
+        path="/app/experiment/messages",
+        level="watch",  # Watch tells the operator: a message changes nothing
+        router="app",
+        params={
+            "text": "the message, at most 4000 characters",
+            "item_name": "optional: the item it concerns",
             "reply_to": "optional: the id of the operator's message this answers",
         },
         optional=("item_name", "reply_to"),

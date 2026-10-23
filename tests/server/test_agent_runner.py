@@ -532,6 +532,7 @@ LEAD_ONLY = {
     "proposal_suggest",
     "request_create",
     "experiment_add_note",
+    "experiment_message_operator",
     "item_update_task_config",
     "item_remove",
     "milling_run_stage",
@@ -634,11 +635,11 @@ def test_an_operator_message_wakes_the_agent_and_it_answers(session):
         if found is None:
             return None
         with _http(session) as http:
-            note = http.post(
-                "/app/experiment/notes",
+            answer = http.post(
+                "/app/experiment/messages",
                 json={"text": "01 looks fine", "reply_to": found.group(1)},
             )
-        assert note.status_code == 200, note.text
+        assert answer.status_code == 200, answer.text
         answered.set()
 
     agent = ScriptedAgent(reply)

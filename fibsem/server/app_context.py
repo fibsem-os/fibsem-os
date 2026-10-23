@@ -9,10 +9,11 @@ and adds what its own experiment and protocol need.
 
 import logging
 import os
+import uuid
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
-from fibsem.acting import Actor, current_actor
+from fibsem.acting import OPERATOR, Actor, current_actor
 from fibsem.codec import decode, encode
 from fibsem.geometry.saved_images import image_point_to_stage_position, stage_projector
 from fibsem.server.responses import (
@@ -962,18 +963,44 @@ class AppContext:
         self,
         text: str,
         item_name: Optional[str] = None,
-        reply_to: Optional[str] = None,
         evidence: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Put an agent observation on the record, or its answer to the
-        operator's message (``reply_to``, the message's id, FIB-1423), citing
-        the *evidence* (its id) it rests on.
+        """Put an agent observation on the record, citing the *evidence* (its
+        id) it rests on.
 
         The agent's judgments otherwise live only in its chat: this writes
         them where the run's story is told — the event stream (live consumers:
         timeline, dashboard, other agents) and the experiment log (durable).
         Notes are observations, not actions: nothing changes state.
         """
+        return self._note(text, item_name, evidence=evidence)
+
+    def add_message(
+        self,
+        text: str,
+        item_name: Optional[str] = None,
+        reply_to: Optional[str] = None,
+        evidence: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Put the agent's message to the operator on the record: something they
+        should read now, or its answer to their message (``reply_to``, the
+        message's id). The window tells the operator; it changes nothing."""
+        message_id = uuid.uuid4().hex[:8]
+        result = self._note(
+            text,
+            item_name,
+            evidence=evidence,
+            to=OPERATOR,
+            id=message_id,
+            reply_to=reply_to,
+        )
+        if result.get("recorded"):
+            result["id"] = message_id
+        return result
+
+    def _note(
+        self, text: str, item_name: Optional[str], **fields: Any
+    ) -> Dict[str, Any]:
         text = str(text).strip()
         if not text:
             return {"available": True, "recorded": False, "error": "empty note"}
@@ -984,7 +1011,8 @@ class AppContext:
                 return {"available": True, "recorded": False, **refusal}
             item_id = item.id
         logging.info(
-            "agent note%s: %s",
+            "agent %s%s: %s",
+            "message" if fields.get("to") else "note",
             f" [{item_name}]" if item_name else "",
             text,
         )
@@ -992,13 +1020,7 @@ class AppContext:
         # it is about, not whichever one is running (FIB-1328).
         self.record_event(
             NOTE,
-            note_record(
-                text,
-                item_id=item_id,
-                item_name=item_name,
-                reply_to=reply_to,
-                evidence=evidence,
-            ),
+            note_record(text, item_id=item_id, item_name=item_name, **fields),
         )
         return {"available": True, "recorded": True}
 

@@ -280,13 +280,13 @@ function describe(e) {
       if (p.refused) return ["refused", `${esc(p.what)} <span class="muted">${esc(p.error_type)} at ${esc(p.level)}</span>`];
       return [p.ok ? "did" : "failed",
         `${esc(p.what)}${p.request_id ? ` <span class="muted">request ${esc(p.request_id)}</span>` : ""}${p.ok ? "" : ` <span class="err">${esc(p.error_type || p.status || "")}</span>`}${cites(p)}`];
-    case "note": return [e.actor === "operator" && p.id ? "message" : (p.reply_to ? "reply" : "note"),
+    case "note": return [p.to || p.reply_to || (e.actor === "operator" && p.id) ? "message" : "note",
       esc(p.text) + (p.item_name ? ` · ${esc(p.item_name)}` : "") + cites(p)];
     case "evidence": {
       const file = String(p.image || "").split(/[\\/]/).pop();
       return ["evidence", `${esc(file)}${p.uploaded ? " (the agent's own)" : ""} <span class="muted">${esc(p.evidence_id)}</span>`];
     }
-    case "agent_note": return [p.reply_to ? "reply" : "note", esc(p.text)];
+    case "agent_note": return [p.reply_to ? "message" : "note", esc(p.text)];
     case "operator_message": return ["message", esc(p.text)];
     case "agent_stop":
       return ["stopped", `${esc(p.what || p.action)}${p.own ? " (its own)" : ""} <span class="muted">${esc(p.reason)}</span>`];
