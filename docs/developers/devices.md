@@ -194,8 +194,9 @@ through the old API, a live read that found a different value, or a change the
 backend reports from elsewhere (the vendor's own UI, another client). The value before
 the change is in `parameter.previous`. `metadata_changed` fires with the new
 `ParameterMetadata` when a parameter's limits or choices were refreshed. The signals
-are [psygnal](https://psygnal.readthedocs.io) signals; in a Qt widget, connect them to
-a slot that runs on the GUI thread.
+are [psygnal](https://psygnal.readthedocs.io) signals; in a Qt widget, connect them with
+`connect_on_gui_thread(widget, signal, slot)` from `fibsem/ui/qt/connections.py`, which
+calls the slot on the GUI thread and disconnects when the widget goes.
 
 ## Commands
 
