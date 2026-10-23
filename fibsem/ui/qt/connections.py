@@ -88,7 +88,12 @@ def connect_on_gui_thread(
     signal.connect(relay.forward, max_args=_max_args(slot))
 
     def disconnect() -> None:
-        signal.disconnect(relay.forward, missing_ok=True)
+        try:
+            signal.disconnect(relay.forward, missing_ok=True)
+        except AttributeError:
+            # Collected in the same pass as *owner*, the signal is already half
+            # gone; an exception in a Qt slot aborts the process.
+            pass
 
     owner.destroyed.connect(lambda *_: disconnect())
     return disconnect
