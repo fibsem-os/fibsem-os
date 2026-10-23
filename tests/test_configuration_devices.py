@@ -6,7 +6,6 @@ device the file does not name is built as before. Version 1 files, with a block 
 device, load unchanged, and are converted the first time anything saves them.
 """
 
-import copy
 import logging
 import os
 

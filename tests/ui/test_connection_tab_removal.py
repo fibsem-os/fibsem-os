@@ -26,7 +26,6 @@ from fibsem import config as cfg  # noqa: E402
 from fibsem import guided_setup  # noqa: E402
 from fibsem.applications.autolamella.ui.window import AutoLamellaWindow  # noqa: E402
 from fibsem.ui.widgets.connection_dialog import ConnectionDialog  # noqa: E402
-from tests.fixtures.main_window import close_window  # noqa: E402
 
 
 @pytest.fixture

@@ -46,7 +46,6 @@ from typing import (
     Optional,
     Tuple,
     Type,
-    Union,
 )
 
 import numpy as np

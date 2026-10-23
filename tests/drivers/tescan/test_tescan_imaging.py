@@ -21,7 +21,6 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.drivers.tescan import connection as tescan_connection
-from fibsem.drivers.tescan import microscope as tescan_module
 from fibsem.structures import (
     BeamType,
     FibsemImage,

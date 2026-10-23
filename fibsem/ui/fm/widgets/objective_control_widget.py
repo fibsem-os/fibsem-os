@@ -5,7 +5,6 @@ import numpy as np
 from PyQt5.QtCore import pyqtSlot
 from PyQt5.QtWidgets import (
     QDialog,
-    QDoubleSpinBox,
     QGridLayout,
     QHBoxLayout,
     QLabel,

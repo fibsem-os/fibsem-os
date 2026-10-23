@@ -37,7 +37,6 @@ import math
 from contextlib import contextmanager
 from typing import Any, Dict, Iterator, Mapping, Optional
 
-from fibsem.constants import DEGREE_SYMBOL
 from fibsem.devices.core import (
     AXIS_UNITS,
     UNLIMITED,  # noqa: F401  (re-exported: drivers import it from here)
@@ -56,7 +55,6 @@ from fibsem.structures import (
     BEAMS_STAGE_DEVICE,
     KNOWN_ORIENTATIONS,
     STAGE_FRAME_FIBSEM,
-    Display,
     FibsemStagePosition,
     RangeLimit,
 )

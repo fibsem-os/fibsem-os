@@ -22,7 +22,6 @@ from fibsem.structures import (
     ImageSettings,
     Parameter,
     Resolution,
-    field_specs,
 )
 from fibsem.ui import stylesheets
 from fibsem.ui.tokens import (

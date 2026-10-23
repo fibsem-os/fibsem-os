@@ -5,7 +5,6 @@ This module provides a plugin architecture for BasePattern implementations,
 similar to the MillingStrategy plugin system.
 """
 
-import logging
 import typing
 from typing import Any, Dict, Optional, Type
 

@@ -206,23 +206,13 @@ select = ["E4", "E7", "E9", "F", "I", "UP"]
 # in this file is wrong within days, and it is the copy people trust because it
 # sits next to the config. Current numbers are one command:
 #
-#     ruff check --select F401 --statistics .     # or ALL, or any rule below
+#     ruff check --select E402 --statistics .     # or ALL, or any rule below
 #
 # and the burn-down is tracked in Linear under FIB-754, which is also where the
 # per-rule analysis lives.
 #
 # What is worth writing down here is what does NOT drift:
 ignore = [
-    # Do not autofix blind. Ruff answers "is this name used in this file", which
-    # is not "is it safe to delete" -- names re-exported through a module, or
-    # reached as `mod.X` after `from pkg import mod`, look unused to it and are
-    # not. Some removals it rates *safe* break a caller elsewhere.
-    # Check candidates against the whole repo first, and run the suite.
-    # In __init__.py an unused import IS the re-export idiom; ruff already
-    # refuses to autofix those, and they want a per-file-ignore at the moment
-    # this rule leaves the list -- adding one earlier suppresses nothing, since
-    # the rule is ignored globally here.
-    "F401",
     # F821 (undefined-name) is NOT here, deliberately. It was, with a note saying
     # every remaining instance was dead or annotation-only and none was a live
     # NameError. Three live ones shipped while it was off: a removed colour
@@ -258,11 +248,14 @@ ignore = [
     "UP007",  # Union[X, Y] -> X | Y
 ]
 
-# F401 is not a mechanical fix in this codebase, and `--fix` alone is enough to
-# break it -- ruff classes most of these removals as SAFE. A dozen modules exist
-# only to re-export under a shorter name, and ruff honours a redundant `X as X`
-# alias as an explicit re-export but not a renaming one, so every
-# `AUTOLAMELLA_EXPERIMENT_NAME as EXPERIMENT_NAME` reads as unused. Running the
-# fix empties fibsem/applications/autolamella/config.py to nothing and takes
-# `import fibsem.applications.autolamella.structures` down with it. Giving those
-# modules an explicit __all__ is the prerequisite, and it is its own piece of work.
+# F401 (unused-import) is on. Ruff answers "is this name used in this file", not
+# "is it safe to delete": a name another module reaches as `mod.X`, or patches by
+# its dotted path, looks unused to it. A package's re-exports go in its
+# `__all__` (or `import X as X`). Check the whole repo before deleting one, and
+# run the suite.
+
+[tool.ruff.lint.per-file-ignores]
+# The AutoScript SDK names this driver imports in its availability check are its
+# namespace: services.py, images.py and the parity fixtures reach them as
+# `autoscript.X`.
+"fibsem/drivers/autoscript/microscope.py" = ["F401"]

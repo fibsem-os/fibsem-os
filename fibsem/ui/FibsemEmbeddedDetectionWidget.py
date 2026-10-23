@@ -7,14 +7,11 @@ from PyQt5 import QtWidgets
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QGridLayout, QLabel, QSizePolicy, QSpacerItem
 
-import fibsem
 from fibsem.detection.detection import DetectedFeatures
-from fibsem.segmentation.model import load_model
 from fibsem.structures import (
     BeamType,
     Point,
 )
-from fibsem.versioning import get_version_string
 
 
 class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):

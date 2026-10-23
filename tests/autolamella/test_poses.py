@@ -11,8 +11,6 @@ No Qt and no experiment here: this is the arithmetic, and it is worth being able
 it without either.
 """
 
-from copy import deepcopy
-
 import numpy as np
 import pytest
 

@@ -34,8 +34,6 @@ from fibsem.fm.progress import (
     FluorescenceAcquisitionStatus,
 )
 from fibsem.fm.structures import (
-    AutoFocusMode,
-    AutoFocusSettings,
     ChannelSettings,
     FluorescenceImage,
     FluorescenceImageMetadata,
@@ -55,7 +53,6 @@ from fibsem.imaging.tiling.progress import (
     TiledProgress,
     TiledStatus,
 )
-from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     DeviceImagingState,
     FibsemStagePosition,
@@ -72,11 +69,8 @@ from fibsem.ui.fm.widgets.fm_overview_settings_widget import FMOverviewSettingsW
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.tokens import (
     CURRENT_POSITION_COLOUR,
-    GRID_BOUNDARY_COLOUR,
     SAVED_POSITION_COLOUR,
     SELECTED_POSITION_COLOUR,
-    SLOT_COLOUR,
-    STAGE_LIMITS_COLOUR,
 )
 from fibsem.ui.widgets.canvas.fm_canvas import FMRealSpaceCanvasWidget
 from fibsem.ui.widgets.canvas.overlay_controls import (
@@ -85,9 +79,7 @@ from fibsem.ui.widgets.canvas.overlay_controls import (
 )
 from fibsem.ui.widgets.canvas.overlays import stage_context
 from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
-    GRID_BOUNDARY_RADIUS_M,
     MinimapShapesOverlay,
-    ShapeSpec,
 )
 from fibsem.ui.widgets.canvas.overlays.point_overlay import (
     FieldOfViewOverlay,

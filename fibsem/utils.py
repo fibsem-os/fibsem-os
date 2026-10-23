@@ -20,7 +20,6 @@ from fibsem.structures import (
     CONFIGURED_DEVICES,
     DEVICES_KEEPING_DRIVER_KEYS,
     STAGE_POSITION_KEYS,
-    BeamType,
     DeviceEntry,
     FibsemStagePosition,
     MicroscopeSettings,

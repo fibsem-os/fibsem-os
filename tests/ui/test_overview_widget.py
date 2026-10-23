@@ -4460,7 +4460,6 @@ class TestTheSpiralPromotionIsVisible:
     """
 
     def _set(self, widget, mode, order):
-        from fibsem.structures import TileOrderStrategy
 
         widget.settings_widget.combo_autofocus.set_value(mode)
         widget.settings_widget.grid.combo_tile_order.set_value(order)

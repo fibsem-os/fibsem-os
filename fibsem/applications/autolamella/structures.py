@@ -6,9 +6,8 @@ import shutil
 import uuid
 from abc import ABC
 from copy import deepcopy
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional, Tuple, Union
 
@@ -21,7 +20,6 @@ from psygnal.containers import EventedDict, EventedList
 from fibsem.applications.autolamella import config as cfg
 from fibsem.codec.upgrades import pre_task_protocol
 from fibsem.codec.upgrades import protocol as upgrade
-from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
 from fibsem.correlation.config import CorrelationConfig
 from fibsem.structures import (
     DEFAULT_ALIGNMENT_AREA,
@@ -31,14 +29,11 @@ from fibsem.structures import (
     FibsemRectangle,
     FibsemStagePosition,
     MicroscopeState,
-    Parameter,
     Point,
     SessionInfo,
-    field_specs,
     param,
 )
-from fibsem.util.durations import format_duration_precise
-from fibsem.util.timestamps import format_time, now
+from fibsem.util.timestamps import now
 from fibsem.workflows.deciding import ProposalDecisions
 from fibsem.workflows.experiment import BaseExperiment
 from fibsem.workflows.grid.protocol import GridTaskProtocol
@@ -55,7 +50,6 @@ from fibsem.workflows.site_task import SiteTaskConfig
 from fibsem.workflows.status import TaskState
 from fibsem.workflows.task_config import (
     RunPlan,
-    TaskConfig,
     TaskProtocol,
     WorkflowOptions,
 )

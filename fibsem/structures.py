@@ -1,7 +1,6 @@
 # fibsem structures
 from __future__ import annotations
 
-import json
 import logging
 import math
 import numbers
@@ -10,7 +9,7 @@ import sys
 import weakref
 from abc import ABC, abstractmethod
 from copy import deepcopy
-from dataclasses import MISSING, InitVar, asdict, dataclass, field, fields, replace
+from dataclasses import MISSING, InitVar, dataclass, field, fields, replace
 from datetime import datetime, tzinfo
 from enum import Enum, auto
 from pathlib import Path
@@ -57,7 +56,6 @@ from fibsem.codec import (
 from fibsem.config import (
     DEFAULT_STANDARD_RESOLUTION_LIST,
     METADATA_VERSION,
-    UNVERSIONED_METADATA,
 )
 from fibsem.util.timestamps import (
     acquisition_datetime_of,

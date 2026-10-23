@@ -39,8 +39,6 @@ from fibsem.structures import (
     FibsemPatternSettings,
     ImageSettings,
     MillingAlignment,
-    Parameter,
-    field_specs,
     flagged_fields,
     param,
 )

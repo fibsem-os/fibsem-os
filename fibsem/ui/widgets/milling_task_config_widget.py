@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import (
 from fibsem import constants
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.structures import BeamType, FibsemMillingSettings, field_specs
+from fibsem.structures import BeamType, FibsemMillingSettings
 from fibsem.ui import stylesheets
 from fibsem.ui.utils import beam_spec
 from fibsem.ui.widgets.custom_widgets import (

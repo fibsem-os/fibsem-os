@@ -56,7 +56,6 @@ from fibsem.ui.widgets.canvas.fm_composite import (
 )
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 from fibsem.ui.widgets.canvas.real_space_canvas import (
-    WHOLE_IMAGE,
     FibsemRealSpaceCanvas,
     ImageRegion,
 )

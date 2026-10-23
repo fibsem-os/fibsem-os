@@ -12,7 +12,6 @@ conversions and its position read are the ones under test.
 """
 
 import os
-import threading
 from types import SimpleNamespace
 
 import numpy as np

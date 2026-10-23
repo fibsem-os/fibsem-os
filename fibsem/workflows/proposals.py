@@ -31,14 +31,13 @@ import threading
 import uuid
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
-from datetime import datetime
 from enum import Enum, auto
 from typing import Annotated, Any, Callable, Dict, List, Optional, Tuple, Union
 
 from pydantic import Field, PlainSerializer, PlainValidator
 from typing_extensions import TypedDict
 
-from fibsem.acting import Actor, ActorKind, SavedActor
+from fibsem.acting import Actor, SavedActor
 from fibsem.codec import NamedEnum, Timestamp, decode, encode, saved
 from fibsem.codec.upgrades import records as upgrade
 from fibsem.structures import (

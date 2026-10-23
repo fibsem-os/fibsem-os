@@ -15,7 +15,6 @@ import inspect
 import os
 import pkgutil
 import threading
-from types import SimpleNamespace
 
 import numpy as np
 import pytest

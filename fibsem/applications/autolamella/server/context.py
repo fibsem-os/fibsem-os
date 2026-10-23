@@ -31,7 +31,6 @@ import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-import fibsem.config as fibsem_cfg
 from fibsem.acting import Actor
 from fibsem.applications.autolamella import task_outputs as _task_outputs
 from fibsem.applications.autolamella.config_edits import (
@@ -53,13 +52,11 @@ from fibsem.server.responses import (
     SummaryRow,
     TaskOutputs,
 )
-from fibsem.structures import BeamType
 from fibsem.util.records import content_hash
 from fibsem.workflows.actions import NOTE
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.experiment import find_item
 from fibsem.workflows.grid.edits import keep_grid_note, remove_grid_record
-from fibsem.workflows.item import item_pose_positions
 from fibsem.workflows.outputs import (
     all_item_outputs,
     files_by_run,

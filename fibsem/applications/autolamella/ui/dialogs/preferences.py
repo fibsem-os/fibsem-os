@@ -9,7 +9,6 @@ from PyQt5.QtWidgets import (
     QDialogButtonBox,
     QFormLayout,
     QHBoxLayout,
-    QLabel,
     QLineEdit,
     QListWidget,
     QMessageBox,

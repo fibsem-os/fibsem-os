@@ -1,7 +1,5 @@
 """Unit tests for the fibsem hook system."""
 
-import pytest
-
 from fibsem.hooks import (
     FunctionHook,
     HookContext,
@@ -9,7 +7,6 @@ from fibsem.hooks import (
     HookManager,
     LoggingHook,
     NotificationHook,
-    WebhookHook,
     fire_event,
 )
 

@@ -11,7 +11,6 @@ from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QCheckBox,
     QColorDialog,
-    QComboBox,
     QDialog,
     QFileDialog,
     QFormLayout,
@@ -19,7 +18,6 @@ from PyQt5.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
-    QSpinBox,
     QVBoxLayout,
     QWidget,
 )

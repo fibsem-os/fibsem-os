@@ -544,7 +544,6 @@ def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeyp
     shared timeline and the record. A fixed holder, so no exchange."""
     ui = main_ui
     # The post-run summary is modal; under offscreen it would block forever.
-    from fibsem.applications.autolamella.ui import window as ui_module
     from fibsem.ui.run import view as run_view_module
 
     class _NoDialog:

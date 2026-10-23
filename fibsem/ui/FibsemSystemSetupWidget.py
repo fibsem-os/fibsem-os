@@ -8,7 +8,7 @@ from PyQt5.QtCore import pyqtSignal
 from fibsem import config as cfg
 from fibsem import guided_setup, utils
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import ImageSettings, MicroscopeSettings, SystemSettings
+from fibsem.structures import ImageSettings, MicroscopeSettings
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
