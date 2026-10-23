@@ -49,8 +49,7 @@ from PyQt5.QtWidgets import (
 from fibsem.fm.structures import ChannelSettings
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import ImageSettings
-from fibsem.ui import stylesheets
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     OK_COLOR,
     PANEL_COLOR,
     ROW_ALT_COLOR,
@@ -60,6 +59,7 @@ from fibsem.ui.tokens import (
     TEXT_STRONG_COLOR,
     WARN_COLOR,
 )
+from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import TitledPanel
 from fibsem.ui.widgets.microscope_defaults_widget import MicroscopeDefaultsWidget
 from fibsem.util.durations import format_time_ago

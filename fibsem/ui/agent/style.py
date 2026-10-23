@@ -16,7 +16,7 @@ from fibsem.ai.agent.levels import (
 from fibsem.ai.agent.levels import (
     AgentLevel,
 )
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     BORDER_COLOR,
     PURPLE_COLOR,
     RED_COLOR,

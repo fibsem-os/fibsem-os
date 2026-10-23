@@ -40,10 +40,7 @@ from fibsem.imaging.animation import (
     save_animation,
     webp_supported,
 )
-from fibsem.ui import notification_service
-from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.stylesheets import PRIMARY_BUTTON_STYLESHEET
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     ACCENT_COLOR,
     BORDER_COLOR,
     CONTROL_STYLE,
@@ -52,6 +49,9 @@ from fibsem.ui.tokens import (
     SURFACE_COLOR,
     TEXT_COLOR,
 )
+from fibsem.ui import notification_service
+from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.stylesheets import PRIMARY_BUTTON_STYLESHEET
 from fibsem.ui.utils import arr_to_qimage
 from fibsem.ui.widgets.image_export_dialog import (
     _caption,

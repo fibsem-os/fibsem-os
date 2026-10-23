@@ -30,6 +30,7 @@ from PyQt5.QtWidgets import (
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.workflows.plan import LamellaRunPlan
 from fibsem.structures import BeamType
+from fibsem.theme import tokens
 from fibsem.ui import stylesheets
 from fibsem.ui.stylesheets import PRIMARY_BUTTON_STYLESHEET, SECONDARY_BUTTON_STYLESHEET
 from fibsem.ui.widgets import preflight
@@ -374,7 +375,7 @@ class WorkflowPreflightDialog(QDialog):
         label = QLabel(text)
         label.setStyleSheet(
             f"QLabel {{ color: {TEXT}; font-size: 11px; background: {PANEL};"
-            f" border: none; border-left: 2px solid {stylesheets.WARN_COLOR};"
+            f" border: none; border-left: 2px solid {tokens.WARN_COLOR};"
             f" padding: 7px 10px; }}"
         )
         label.setWordWrap(True)

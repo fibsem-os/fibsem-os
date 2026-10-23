@@ -32,7 +32,7 @@ from fibsem.fm.preview import composite_projection
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.geometry.projection import image_stage_geometry
 from fibsem.structures import FibsemImage, FibsemStagePosition
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     CURRENT_POSITION_COLOUR,
     GRID_BOUNDARY_COLOUR,
     SAVED_POSITION_COLOUR,

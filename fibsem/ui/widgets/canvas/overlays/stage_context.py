@@ -26,7 +26,7 @@ import numpy as np
 from fibsem.geometry.frames import StageModel
 from fibsem.geometry.projection import BeamStageProjection, lifted
 from fibsem.structures import FibsemStagePosition
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     GRID_BOUNDARY_COLOUR,
     SLOT_COLOUR,
     STAGE_LIMITS_COLOUR,

@@ -27,6 +27,7 @@ from PyQt5.QtWidgets import (
 from fibsem.imaging.overview_session import OverviewSession
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import MicroscopeSettings
+from fibsem.theme.tokens import GRAY_ICON_COLOR
 from fibsem.tools.app_identity import set_app_identity
 from fibsem.tools.apps import FIBSEM_UI
 from fibsem.tools.desktop_launch import Splash
@@ -37,7 +38,6 @@ from fibsem.ui.FibsemSampleWidget import FibsemSampleWidget
 from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
 from fibsem.ui.icon import fibsem_icon, fibsemos_icon
 from fibsem.ui.stylesheets import NAPARI_STYLE
-from fibsem.ui.tokens import GRAY_ICON_COLOR
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 from fibsem.ui.widgets.custom_widgets import scrollable
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget

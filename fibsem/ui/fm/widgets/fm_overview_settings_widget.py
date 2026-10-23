@@ -31,11 +31,11 @@ from fibsem.fm.structures import (
     ZParameters,
 )
 from fibsem.structures import DEFAULT_OVERVIEW_FILENAME, TileOrderStrategy
-from fibsem.ui.fm.widgets.autofocus_widget import AutofocusWidget
-from fibsem.ui.fm.widgets.z_parameters_widget import ZParametersWidget
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     TEXT_MUTED_COLOR,
 )
+from fibsem.ui.fm.widgets.autofocus_widget import AutofocusWidget
+from fibsem.ui.fm.widgets.z_parameters_widget import ZParametersWidget
 from fibsem.ui.widgets.custom_widgets import (
     QDirectoryLineEdit,
     TitledPanel,

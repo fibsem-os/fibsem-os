@@ -43,11 +43,11 @@ from fibsem.applications.autolamella.ui.grids.card import GridCardContainer
 from fibsem.applications.autolamella.ui.grids.overview import GridPositionsWidget
 from fibsem.applications.autolamella.ui.grids.results import GridResultsWidget
 from fibsem.structures import GridInventoryEntry
-from fibsem.ui import stylesheets
+from fibsem.theme import tokens
+from fibsem.theme.tokens import ERROR_COLOR, PANEL_COLOR, TEXT_MUTED_COLOR
 from fibsem.ui.control import control_of
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.qt.threading import thread_worker
-from fibsem.ui.tokens import ERROR_COLOR, PANEL_COLOR, TEXT_MUTED_COLOR
 from fibsem.ui.widgets.overview_widget import MODALITY_CHIP_STYLE, VIEW_CHIP_SPACING
 from fibsem.ui.widgets.sample_loader_widget import _ICON_BTN_STYLE, ICON_INVENTORY
 from fibsem.workflows.actions import NOTE
@@ -116,7 +116,7 @@ class GridsTabWidget(QWidget):
         self.btn_inventory.setIconSize(QSize(18, 18))
         self.btn_inventory.setStyleSheet(_ICON_BTN_STYLE)
         self.btn_inventory.setIcon(
-            fibsem_icon(ICON_INVENTORY, color=stylesheets.GRAY_ICON_COLOR)
+            fibsem_icon(ICON_INVENTORY, color=tokens.GRAY_ICON_COLOR)
         )
         self.btn_inventory.setToolTip(
             "Refresh: read what the hardware knows it holds and add a record for "

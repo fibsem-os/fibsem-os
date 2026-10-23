@@ -18,13 +18,13 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.config import load_user_preferences
 from fibsem.constants import DATETIME_EXPERIMENT
+from fibsem.theme.tokens import ERROR_COLOR, TEXT_MUTED_COLOR, WARN_COLOR
 from fibsem.ui import utils as fui
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
 )
-from fibsem.ui.tokens import ERROR_COLOR, TEXT_MUTED_COLOR, WARN_COLOR
 from fibsem.ui.widgets.custom_widgets import QDirectoryLineEdit, TitledPanel
 from fibsem.util.system import DiskSpace, FreeSpaceLevel, disk_space
 from fibsem.utils import format_bytes

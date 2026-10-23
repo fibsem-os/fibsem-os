@@ -30,13 +30,14 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.ui import stylesheets as stylesheets
-from fibsem.ui.icon import fibsem_icon, qta
-from fibsem.ui.tokens import (
+from fibsem.theme import tokens
+from fibsem.theme.tokens import (
     CANVAS_BG,
     CAPTION_STYLE,
     TEXT_MUTED_COLOR,
 )
+from fibsem.ui import stylesheets as stylesheets
+from fibsem.ui.icon import fibsem_icon, qta
 from fibsem.ui.utils import find_data, install_wheel_blocker
 from fibsem.utils import format_value
 
@@ -713,7 +714,7 @@ class IconToolButton(QToolButton):
     def __init__(
         self,
         icon: str,
-        color: str = stylesheets.GRAY_ICON_COLOR,
+        color: str = tokens.GRAY_ICON_COLOR,
         checked_icon: str | None = None,
         checked_color: str | None = None,
         tooltip: str | None = None,
@@ -728,7 +729,7 @@ class IconToolButton(QToolButton):
         self._color = color
         self._checked_icon = checked_icon if checked_icon is not None else icon
         self._checked_color = (
-            checked_color if checked_color is not None else stylesheets.GRAY_WHITE_COLOR
+            checked_color if checked_color is not None else tokens.GRAY_WHITE_COLOR
         )
         self._tooltip = tooltip
         self._checked_tooltip = (

@@ -38,15 +38,15 @@ from fibsem.applications.autolamella.workflows.tasks.tasks import (
     SpotBurnFiducialTaskConfig,
 )
 from fibsem.structures import BeamType, FibsemImage
-from fibsem.ui import stylesheets
-from fibsem.ui.edit_recording import PendingEdits
-from fibsem.ui.run.run_refusal import refused_during_run
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     BORDER_COLOR,
     NEUTRAL_200,
     SEMANTIC_WARNING_COLOR,
     TEXT_MUTED_COLOR,
 )
+from fibsem.ui import stylesheets
+from fibsem.ui.edit_recording import PendingEdits
+from fibsem.ui.run.run_refusal import refused_during_run
 from fibsem.ui.widgets.canvas.quad_view import (
     LamellaEditorView,
     MicroscopeViewController,

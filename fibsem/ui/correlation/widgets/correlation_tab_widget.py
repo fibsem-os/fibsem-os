@@ -140,18 +140,7 @@ from fibsem.correlation.verdict import (
 )
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.structures import CameraImageTransform, FibsemImage, Point
-from fibsem.ui import notification_service, stylesheets
-from fibsem.ui.correlation.widgets.coordinate_list_widget import CoordinateListWidget
-from fibsem.ui.correlation.widgets.correlation_fm_canvas_widget import (
-    CorrelationFMCanvasWidget,
-)
-from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
-    FitConfirmationDialog,
-)
-from fibsem.ui.correlation.widgets.refractive_index_widget import RefractiveIndexWidget
-from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.stylesheets import IMAGE_HEADER_STYLE
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     ACCENT_COLOR,
     BODY_MUTED_STYLE,
     BODY_STYLE,
@@ -170,6 +159,17 @@ from fibsem.ui.tokens import (
     state_color,
     state_style,
 )
+from fibsem.ui import notification_service, stylesheets
+from fibsem.ui.correlation.widgets.coordinate_list_widget import CoordinateListWidget
+from fibsem.ui.correlation.widgets.correlation_fm_canvas_widget import (
+    CorrelationFMCanvasWidget,
+)
+from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
+    FitConfirmationDialog,
+)
+from fibsem.ui.correlation.widgets.refractive_index_widget import RefractiveIndexWidget
+from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.stylesheets import IMAGE_HEADER_STYLE
 from fibsem.ui.utils import install_wheel_blocker
 from fibsem.ui.widgets.canvas.overlays.coordinate_overlay import POINT_COLORS
 from fibsem.ui.widgets.canvas.point_canvas import PointCanvasWidget

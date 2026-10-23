@@ -55,15 +55,16 @@ from fibsem.structures import (
     FibsemStagePosition,
     Point,
 )
-from fibsem.ui import notification_service, stylesheets
-from fibsem.ui.edit_recording import PendingEdits
-from fibsem.ui.tokens import (
+from fibsem.theme import tokens
+from fibsem.theme.tokens import (
     BORDER_COLOR,
     CANVAS_BG,
     NEUTRAL_200,
     SEMANTIC_WARNING_COLOR,
     TEXT_MUTED_COLOR,
 )
+from fibsem.ui import notification_service, stylesheets
+from fibsem.ui.edit_recording import PendingEdits
 from fibsem.ui.widgets.canvas.canvas_state import AlignmentSpec, PointsSpec
 from fibsem.ui.widgets.canvas.overlay_controls import (
     CanvasOverlayControls,
@@ -303,14 +304,13 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             self.listWidget_selected_task.set_task_states({})
             return
         states = {
-            name: ("Completed", stylesheets.GREEN_COLOR)
-            for name in lamella.completed_tasks
+            name: ("Completed", tokens.GREEN_COLOR) for name in lamella.completed_tasks
         }
         if (
             self._active_lamella_name == lamella.name
             and self._active_task_name is not None
         ):
-            states[self._active_task_name] = ("In Progress", stylesheets.ACCENT_COLOR)
+            states[self._active_task_name] = ("In Progress", tokens.ACCENT_COLOR)
         self.listWidget_selected_task.set_task_states(states)
 
     def _is_editing_locked(self) -> bool:

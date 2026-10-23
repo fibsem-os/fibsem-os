@@ -44,8 +44,8 @@ from fibsem.fm.reader import (
     default_channels,
 )
 from fibsem.fm.structures import FluorescenceImage
+from fibsem.theme.tokens import CANVAS_BG, ERROR_COLOR, TEXT_COLOR, WARN_COLOR
 from fibsem.ui import stylesheets
-from fibsem.ui.tokens import CANVAS_BG, ERROR_COLOR, TEXT_COLOR, WARN_COLOR
 from fibsem.ui.widgets.canvas.overlay_controls import panel_hint, panel_section
 
 # More channels than this and the channel axis is probably z.

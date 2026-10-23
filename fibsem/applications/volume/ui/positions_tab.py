@@ -34,13 +34,13 @@ from fibsem.applications.volume.server import VolumeAppContext
 from fibsem.applications.volume.tasks.acquisition import SLICE_ROLE
 from fibsem.applications.volume.tasks.milling import SLICE_FIB_ROLE
 from fibsem.applications.volume.ui.position_editor import PositionEditor
-from fibsem.ui.thumbnails import cached_thumbnail, load_and_resize
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     ACCENT_COLOR,
     ERROR_COLOR,
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
 )
+from fibsem.ui.thumbnails import cached_thumbnail, load_and_resize
 from fibsem.ui.utils import arr_to_qimage
 from fibsem.ui.widgets.custom_widgets import ElidedLabel
 from fibsem.util.timestamps import format_time

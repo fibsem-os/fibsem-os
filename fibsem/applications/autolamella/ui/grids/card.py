@@ -33,10 +33,8 @@ from fibsem.applications.autolamella.ui.common.lamella_display import (
 )
 from fibsem.config import CARD_MODES, MODE_COMPACT, MODE_COZY
 from fibsem.structures import GridInventoryEntry, GridSlotState
-from fibsem.ui import stylesheets
-from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.thumbnails import cached_thumbnail
-from fibsem.ui.tokens import (
+from fibsem.theme import tokens
+from fibsem.theme.tokens import (
     ACCENT_COLOR,
     ERROR_COLOR,
     NEUTRAL_200,
@@ -47,6 +45,8 @@ from fibsem.ui.tokens import (
     PRIMARY_COLOR,
     SURFACE_COLOR,
 )
+from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.thumbnails import cached_thumbnail
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, chip
 from fibsem.ui.widgets.sample_loader_widget import ICON_LOAD, ICON_UNLOAD
 from fibsem.workflows.grid.manager import (
@@ -135,7 +135,7 @@ def grid_headline(grid: GridRecord) -> Tuple[str, str]:
     if failed:
         return f"{failed} task{'s' if failed != 1 else ''} failed", ERROR_COLOR
     if cancelled:
-        return "Cancelled", stylesheets.DEFECT_ORANGE_COLOR
+        return "Cancelled", tokens.DEFECT_ORANGE_COLOR
     # The lamella card's line: the last completed task and when, not a verdict.
     last = tasks[-1]
     return f"{last.name} ({last.completed_at})", NEUTRAL_550
@@ -213,7 +213,7 @@ class GridCardWidget(QWidget):
         self._btn_actions.setFixedSize(_BTN_SIZE, _BTN_SIZE)
         self._btn_actions.setStyleSheet(_BTN_STYLE)
         self._btn_actions.setIcon(
-            fibsem_icon("mdi:dots-horizontal", color=stylesheets.GRAY_ICON_COLOR)
+            fibsem_icon("mdi:dots-horizontal", color=tokens.GRAY_ICON_COLOR)
         )
         self._btn_actions.setToolTip("Actions")
         self._btn_actions.setPopupMode(QToolButton.InstantPopup)
@@ -221,21 +221,21 @@ class GridCardWidget(QWidget):
         # Rename says why when it is greyed out (a grid that has run).
         menu.setToolTipsVisible(True)
         self._action_load = menu.addAction(
-            fibsem_icon(ICON_LOAD, color=stylesheets.GRAY_ICON_COLOR), "Load"
+            fibsem_icon(ICON_LOAD, color=tokens.GRAY_ICON_COLOR), "Load"
         )
         self._action_unload = menu.addAction(
-            fibsem_icon(ICON_UNLOAD, color=stylesheets.GRAY_ICON_COLOR), "Unload"
+            fibsem_icon(ICON_UNLOAD, color=tokens.GRAY_ICON_COLOR), "Unload"
         )
         self._action_rename = menu.addAction(
-            fibsem_icon("mdi:pencil-outline", color=stylesheets.GRAY_ICON_COLOR),
+            fibsem_icon("mdi:pencil-outline", color=tokens.GRAY_ICON_COLOR),
             "Rename…",
         )
         self._action_note = menu.addAction(
-            fibsem_icon("mdi:note-edit-outline", color=stylesheets.GRAY_ICON_COLOR),
+            fibsem_icon("mdi:note-edit-outline", color=tokens.GRAY_ICON_COLOR),
             "Edit note…",
         )
         self._action_remove = menu.addAction(
-            fibsem_icon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR),
+            fibsem_icon("mdi:trash-can-outline", color=tokens.GRAY_ICON_COLOR),
             "Remove",
         )
         self._action_load.triggered.connect(lambda: self.load_requested.emit(self.grid))

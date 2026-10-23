@@ -28,8 +28,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     BORDER_COLOR,
     CANVAS_BG,
     GRAY_ICON_COLOR,
@@ -37,6 +36,7 @@ from fibsem.ui.tokens import (
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
 )
+from fibsem.ui.icon import fibsem_icon
 
 # Every row in the panel's lists, and the type in them: the name, then whatever
 # qualifies it (a status, what a task waits for, a task's type).

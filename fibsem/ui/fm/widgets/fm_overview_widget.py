@@ -58,6 +58,12 @@ from fibsem.structures import (
     FibsemStagePosition,
     InsertableDeviceState,
 )
+from fibsem.theme import tokens
+from fibsem.theme.tokens import (
+    CURRENT_POSITION_COLOUR,
+    SAVED_POSITION_COLOUR,
+    SELECTED_POSITION_COLOUR,
+)
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui import utils as ui_utils
 from fibsem.ui.control import control_of
@@ -67,11 +73,6 @@ from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
 )
 from fibsem.ui.fm.widgets.fm_overview_settings_widget import FMOverviewSettingsWidget
 from fibsem.ui.qt.threading import FunctionWorker
-from fibsem.ui.tokens import (
-    CURRENT_POSITION_COLOUR,
-    SAVED_POSITION_COLOUR,
-    SELECTED_POSITION_COLOUR,
-)
 from fibsem.ui.widgets.canvas.fm_canvas import FMRealSpaceCanvasWidget
 from fibsem.ui.widgets.canvas.overlay_controls import (
     CanvasOverlayControls,
@@ -103,7 +104,7 @@ from fibsem.ui.widgets.progress_widget import (
     ProgressUpdate,
 )
 
-TEXT_MUTED = stylesheets.TEXT_MUTED_COLOR
+TEXT_MUTED = tokens.TEXT_MUTED_COLOR
 PROGRESS_FONT_PX = 10
 
 
@@ -551,7 +552,7 @@ class FMOverviewWidget(QWidget):
         # which leaves you looking at a dead panel (FIB-436).
         self.orientation_notice = ElidedLabel("")
         self.orientation_notice.setStyleSheet(
-            f"color: {stylesheets.WARN_COLOR}; font-size: 11px;"
+            f"color: {tokens.WARN_COLOR}; font-size: 11px;"
         )
         # Labelled in `_refresh_orientation_banner`, from the same `default_orientation`
         # the move targets -- the control widget lets that be changed at runtime, and a

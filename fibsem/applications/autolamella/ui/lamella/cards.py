@@ -34,17 +34,17 @@ from fibsem.applications.autolamella.ui.common.lamella_display import (
     status_look,
 )
 from fibsem.config import CARD_MODES, MODE_COMPACT, MODE_COZY, MODE_STANDARD
-from fibsem.ui import stylesheets
-from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION, fibsem_icon
-from fibsem.ui.qt.connections import connect_for_lifetime
-from fibsem.ui.thumbnails import cached_thumbnail
-from fibsem.ui.tokens import (
+from fibsem.theme import tokens
+from fibsem.theme.tokens import (
     NEUTRAL_200,
     NEUTRAL_550,
     NEUTRAL_900,
     PRIMARY_COLOR,
     SURFACE_COLOR,
 )
+from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION, fibsem_icon
+from fibsem.ui.qt.connections import connect_for_lifetime
+from fibsem.ui.thumbnails import cached_thumbnail
 from fibsem.ui.utils import arr_to_qimage
 from fibsem.ui.widgets.custom_widgets import ElidedLabel
 
@@ -153,21 +153,21 @@ class LamellaCardWidget(QWidget):
             _BTN_STYLE + " QToolButton::menu-indicator { image: none; }"
         )
         self._btn_actions.setIcon(
-            fibsem_icon("mdi:dots-horizontal", color=stylesheets.GRAY_ICON_COLOR)
+            fibsem_icon("mdi:dots-horizontal", color=tokens.GRAY_ICON_COLOR)
         )
         self._btn_actions.setToolTip("Actions")
         self._btn_actions.setPopupMode(QToolButton.InstantPopup)
         _actions_menu = QMenu(self)
         self._action_move = _actions_menu.addAction(
-            fibsem_icon(ICON_MOVE_TO_POSITION, color=stylesheets.GRAY_ICON_COLOR),
+            fibsem_icon(ICON_MOVE_TO_POSITION, color=tokens.GRAY_ICON_COLOR),
             "Move to Position",
         )
         self._action_update = _actions_menu.addAction(
-            fibsem_icon(ICON_UPDATE_POSITION, color=stylesheets.GRAY_ICON_COLOR),
+            fibsem_icon(ICON_UPDATE_POSITION, color=tokens.GRAY_ICON_COLOR),
             "Update Position",
         )
         self._action_remove = _actions_menu.addAction(
-            fibsem_icon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR),
+            fibsem_icon("mdi:trash-can-outline", color=tokens.GRAY_ICON_COLOR),
             "Remove",
         )
         # The defect is set from here; its icon only shows once there is one.

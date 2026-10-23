@@ -3,7 +3,7 @@ Shared status labels and colours for the task summary and the lamella and grid l
 so they stay visually consistent.
 """
 
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     ACCENT_COLOR,
     ERROR_COLOR,
     OK_COLOR,

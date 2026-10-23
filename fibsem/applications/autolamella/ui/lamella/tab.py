@@ -27,7 +27,7 @@ from fibsem.applications.autolamella.ui.lamella.history import LamellaTaskImageW
 from fibsem.applications.autolamella.ui.protocol.lamella_editor import (
     AutoLamellaProtocolEditorWidget,
 )
-from fibsem.ui.tokens import TEXT_MUTED_COLOR
+from fibsem.theme.tokens import TEXT_MUTED_COLOR
 from fibsem.workflows.status import TaskStatus
 
 if TYPE_CHECKING:

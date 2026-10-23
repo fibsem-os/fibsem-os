@@ -25,15 +25,15 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.server.hosting import event_log_url
-from fibsem.ui import stylesheets
-from fibsem.ui.agent.level_chip import last_heard_text
-from fibsem.ui.agent.pairing_widgets import PairedList, PairingCode
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     ACCENT_COLOR,
     OK_COLOR,
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
 )
+from fibsem.ui import stylesheets
+from fibsem.ui.agent.level_chip import last_heard_text
+from fibsem.ui.agent.pairing_widgets import PairedList, PairingCode
 
 __all__ = ["AppServerDialog"]
 

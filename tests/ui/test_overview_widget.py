@@ -4817,10 +4817,10 @@ class TestTheOverlaySwitchesAreOnTheCanvas:
         `QFrame` -- which drew the switches as unbacked text straight over the data."""
         from PyQt5.QtWidgets import QFrame
 
-        from fibsem.ui.stylesheets import CANVAS_POPOVER_STYLE
+        from fibsem.ui.stylesheets import CANVAS_PANEL_STYLE
 
         assert isinstance(widget.overlay_popover, QFrame)
-        assert widget.overlay_popover.styleSheet() == CANVAS_POPOVER_STYLE
+        assert widget.overlay_popover.styleSheet() == CANVAS_PANEL_STYLE
 
     def test_the_pitch_controls_live_in_the_align_panel(self, widget):
         """They are placement controls, and mean nothing while the lattice is off --

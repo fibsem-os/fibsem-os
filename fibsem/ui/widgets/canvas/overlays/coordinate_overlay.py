@@ -47,7 +47,7 @@ from PyQt5.QtCore import pyqtSignal
 
 from fibsem.correlation.points import POINT_RULES, point_names, types_on
 from fibsem.correlation.structures import Coordinate, PointType
-from fibsem.ui.tokens import ORANGE_COLOR
+from fibsem.theme.tokens import ORANGE_COLOR
 from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
 from fibsem.ui.widgets.canvas.overlays.point_overlay import PointOverlay
 from fibsem.ui.widgets.point_store import PointStore

@@ -25,8 +25,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem.correlation.point_fit import FitStatus, PointFitResult
 from fibsem.correlation.structures import PointXYZ
-from fibsem.ui import stylesheets
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     BODY_MUTED_STYLE,
     BODY_STYLE,
     CANVAS_BG,
@@ -35,6 +34,7 @@ from fibsem.ui.tokens import (
     state_color,
     state_style,
 )
+from fibsem.ui import stylesheets
 
 # (background, foreground) per status — dark-theme chips
 # Chip colours by outcome: the semantic text colour on the panel ground, with a

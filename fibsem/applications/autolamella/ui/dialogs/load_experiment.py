@@ -13,20 +13,19 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.config import get_last_experiment_file, get_recent_experiments
-from fibsem.ui import utils as fui
-from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.qt.threading import FunctionWorker
-from fibsem.ui.stylesheets import (
+from fibsem.theme.tokens import (
     BORDER_COLOR,
     DISABLED_TEXT_COLOR,
     PANEL_COLOR,
-    PRIMARY_BUTTON_STYLESHEET,
     PRIMARY_COLOR_PRESSED,
     ROW_ALT_COLOR,
-    SECONDARY_BUTTON_STYLESHEET,
     TEXT_COLOR,
     TEXT_MUTED_COLOR,
 )
+from fibsem.ui import utils as fui
+from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.qt.threading import FunctionWorker
+from fibsem.ui.stylesheets import PRIMARY_BUTTON_STYLESHEET, SECONDARY_BUTTON_STYLESHEET
 from fibsem.ui.widgets.custom_widgets import TitledPanel
 from fibsem.util.system import directory_size
 from fibsem.util.timestamps import format_time

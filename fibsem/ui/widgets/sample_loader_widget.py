@@ -32,11 +32,8 @@ from PyQt5.QtWidgets import (
 
 from fibsem.services.sample_handling import GridMagazine
 from fibsem.structures import GridSlot, SampleGrid
-from fibsem.ui import stylesheets
-from fibsem.ui.control import control_of
-from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.qt.threading import thread_worker
-from fibsem.ui.tokens import (
+from fibsem.theme import tokens
+from fibsem.theme.tokens import (
     ERROR_COLOR,
     NEUTRAL_700,
     OK_COLOR,
@@ -44,6 +41,10 @@ from fibsem.ui.tokens import (
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
 )
+from fibsem.ui import stylesheets
+from fibsem.ui.control import control_of
+from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.qt.threading import thread_worker
 from fibsem.ui.widgets.custom_widgets import TitledPanel, style_with_tooltip
 from fibsem.ui.widgets.sample_holder_widget import _NAME_FIELD_STYLE
 
@@ -175,7 +176,7 @@ class _MagazineRow(QWidget):
 
         if self.state == "loaded":
             self.btn_action.setIcon(
-                fibsem_icon(ICON_UNLOAD, color=stylesheets.GRAY_ICON_COLOR)
+                fibsem_icon(ICON_UNLOAD, color=tokens.GRAY_ICON_COLOR)
             )
             self.btn_action.setToolTip(
                 f"Return {name} to the magazine"
@@ -184,7 +185,7 @@ class _MagazineRow(QWidget):
             )
         else:
             self.btn_action.setIcon(
-                fibsem_icon(ICON_LOAD, color=stylesheets.GRAY_ICON_COLOR)
+                fibsem_icon(ICON_LOAD, color=tokens.GRAY_ICON_COLOR)
             )
             self.btn_action.setToolTip(
                 f"Bring {name} onto the stage"
@@ -272,7 +273,7 @@ class SampleLoaderWidget(QWidget):
         self.btn_inventory.setIconSize(QSize(18, 18))
         self.btn_inventory.setStyleSheet(_ICON_BTN_STYLE)
         self.btn_inventory.setIcon(
-            fibsem_icon(ICON_INVENTORY, color=stylesheets.GRAY_ICON_COLOR)
+            fibsem_icon(ICON_INVENTORY, color=tokens.GRAY_ICON_COLOR)
         )
         self.btn_inventory.setToolTip(
             "Refresh: read what the autoloader knows about its magazine. Instant; "
@@ -284,7 +285,7 @@ class SampleLoaderWidget(QWidget):
         self.btn_scan.setFixedSize(_ICON_BTN, _ICON_BTN)
         self.btn_scan.setIconSize(QSize(18, 18))
         self.btn_scan.setStyleSheet(_ICON_BTN_STYLE)
-        self.btn_scan.setIcon(fibsem_icon(ICON_SCAN, color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_scan.setIcon(fibsem_icon(ICON_SCAN, color=tokens.GRAY_ICON_COLOR))
         self.btn_scan.setToolTip(
             "Scan magazine: the autoloader checks every slot for a grid. Takes a "
             "while; the magazine must stay shut"

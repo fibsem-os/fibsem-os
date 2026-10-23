@@ -28,6 +28,7 @@ from fibsem.applications.volume.server import VolumeAppContext
 from fibsem.applications.volume.ui.positions_panel import PositionsPanel
 from fibsem.applications.volume.ui.positions_tab import PositionsTab
 from fibsem.applications.volume.ui.protocol_tab import ProtocolTab
+from fibsem.theme.tokens import GRAY_ICON_COLOR
 from fibsem.tools.app_identity import set_app_identity
 from fibsem.tools.apps import VOLUME
 from fibsem.ui import notification_service
@@ -37,7 +38,6 @@ from fibsem.ui.qt.gc import install_main_thread_gc
 from fibsem.ui.run.attention import AttentionRouter
 from fibsem.ui.run.run_refusal import refused_during_run
 from fibsem.ui.run.view import RunView
-from fibsem.ui.stylesheets import GRAY_ICON_COLOR
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 from fibsem.ui.widgets.microscope_panel import MicroscopePanel
 from fibsem.workflows.experiment import EXPERIMENT_FILENAME

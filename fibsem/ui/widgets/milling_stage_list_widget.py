@@ -24,13 +24,13 @@ from fibsem.milling.patterning import get_pattern, get_pattern_names
 from fibsem.milling.patterning.shapes import COLOURS
 from fibsem.milling.strategy import get_strategy_names
 from fibsem.structures import Parameter
-from fibsem.ui import stylesheets
-from fibsem.ui.icon import DRAG_HANDLE_HEIGHT, DRAG_HANDLE_WIDTH, drag_handle_pixmap
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     CANVAS_BG,
     NEUTRAL_700,
     ORANGE_COLOR,
 )
+from fibsem.ui import stylesheets
+from fibsem.ui.icon import DRAG_HANDLE_HEIGHT, DRAG_HANDLE_WIDTH, drag_handle_pixmap
 from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueComboBox, ValueSpinBox
 from fibsem.ui.widgets.form_builder import configure_spinbox
 from fibsem.ui.widgets.lists import ReorderableListWidget

@@ -12,8 +12,8 @@ from PyQt5.QtWidgets import (
 
 from fibsem.constants import SI_TO_MICRO
 from fibsem.structures import ReferenceImageParameters
-from fibsem.ui import stylesheets
-from fibsem.ui.tokens import SEMANTIC_WARNING_COLOR
+from fibsem.theme import tokens
+from fibsem.theme.tokens import SEMANTIC_WARNING_COLOR
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     TitledPanel,
@@ -174,7 +174,7 @@ class ReferenceImageParametersWidget(QWidget):
         self._btn_advanced_imaging = IconToolButton(
             icon="mdi:tune",
             checked_icon="mdi:tune-variant",
-            checked_color=stylesheets.GRAY_WHITE_COLOR,
+            checked_color=tokens.GRAY_WHITE_COLOR,
             tooltip="Show advanced settings",
             checked_tooltip="Hide advanced settings",
         )

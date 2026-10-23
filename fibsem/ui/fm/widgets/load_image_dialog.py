@@ -21,13 +21,13 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.fm.structures import FluorescenceImage
+from fibsem.theme.tokens import (
+    NEUTRAL_650,
+)
 from fibsem.ui.stylesheets import (
     CONFIRM_BUTTON_STYLESHEET,
     NAPARI_STYLE,
     SECONDARY_BUTTON_STYLESHEET,
-)
-from fibsem.ui.tokens import (
-    NEUTRAL_650,
 )
 
 

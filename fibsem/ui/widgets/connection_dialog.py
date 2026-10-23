@@ -34,21 +34,18 @@ from fibsem import config as cfg
 from fibsem import guided_setup, utils
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import MicroscopeSettings
-from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.stylesheets import (
-    PRIMARY_BUTTON_STYLESHEET,
-    PRIMARY_COLOR,
-    SECONDARY_BUTTON_STYLESHEET,
-)
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     BORDER_COLOR,
     ERROR_COLOR,
     OK_COLOR,
     PANEL_COLOR,
+    PRIMARY_COLOR,
     SURFACE_COLOR,
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
 )
+from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.stylesheets import PRIMARY_BUTTON_STYLESHEET, SECONDARY_BUTTON_STYLESHEET
 from fibsem.ui.utils import message_box_ui, open_existing_file_dialog
 
 DIALOG_WIDTH = 400

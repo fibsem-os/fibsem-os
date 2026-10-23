@@ -36,14 +36,15 @@ from fibsem.applications.autolamella.ui.common.lamella_display import (
     not_on_stage_reason,
     status_look,
 )
-from fibsem.ui import stylesheets
-from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION, fibsem_icon
-from fibsem.ui.qt.connections import connect_for_lifetime
-from fibsem.ui.tokens import (
+from fibsem.theme import tokens
+from fibsem.theme.tokens import (
     ACCENT_COLOR,
     CANVAS_BG,
     NEUTRAL_550,
 )
+from fibsem.ui import stylesheets
+from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION, fibsem_icon
+from fibsem.ui.qt.connections import connect_for_lifetime
 from fibsem.ui.utils import arr_to_qimage
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, IconToolButton
 from fibsem.ui.widgets.lists import (
@@ -184,7 +185,7 @@ class LamellaRow(QWidget):
             + " QToolButton::menu-indicator { image: none; }"
         )
         self.btn_actions.setIcon(
-            fibsem_icon("mdi:dots-horizontal", color=stylesheets.GRAY_ICON_COLOR)
+            fibsem_icon("mdi:dots-horizontal", color=tokens.GRAY_ICON_COLOR)
         )
         self.btn_actions.setToolTip("Actions")
         self.btn_actions.setPopupMode(QToolButton.InstantPopup)
@@ -193,11 +194,11 @@ class LamellaRow(QWidget):
         self.action_update: Optional[QAction] = None
         if stage_actions:
             self.action_move_to = menu.addAction(
-                fibsem_icon(ICON_MOVE_TO_POSITION, color=stylesheets.GRAY_ICON_COLOR),
+                fibsem_icon(ICON_MOVE_TO_POSITION, color=tokens.GRAY_ICON_COLOR),
                 "Move to Position",
             )
             self.action_update = menu.addAction(
-                fibsem_icon(ICON_UPDATE_POSITION, color=stylesheets.GRAY_ICON_COLOR),
+                fibsem_icon(ICON_UPDATE_POSITION, color=tokens.GRAY_ICON_COLOR),
                 "Update Position",
             )
             self.action_move_to.triggered.connect(
@@ -207,10 +208,10 @@ class LamellaRow(QWidget):
                 lambda: self.update_clicked.emit(self.lamella)
             )
         self.action_edit = menu.addAction(
-            fibsem_icon("mdi:pencil", color=stylesheets.GRAY_ICON_COLOR), "Edit"
+            fibsem_icon("mdi:pencil", color=tokens.GRAY_ICON_COLOR), "Edit"
         )
         self.action_remove = menu.addAction(
-            fibsem_icon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR),
+            fibsem_icon("mdi:trash-can-outline", color=tokens.GRAY_ICON_COLOR),
             "Remove",
         )
         self.defect_menu = add_defect_menu(menu, lamella, self._on_defect_written)
@@ -391,7 +392,7 @@ class _GridFilterButton(QToolButton):
         self.setIcon(
             fibsem_icon(
                 "mdi:filter-variant",
-                color=ACCENT_COLOR if on else stylesheets.GRAY_ICON_COLOR,
+                color=ACCENT_COLOR if on else tokens.GRAY_ICON_COLOR,
             )
         )
         self.setToolTip(

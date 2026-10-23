@@ -26,7 +26,7 @@ from fibsem.correlation.structures import (
 )
 from fibsem.correlation.upgrade import CORRELATION_FILE_VERSION
 from fibsem.structures import Point
-from fibsem.ui.tokens import ERROR_COLOR, TEXT_MUTED_COLOR, WARN_COLOR
+from fibsem.theme.tokens import ERROR_COLOR, TEXT_MUTED_COLOR, WARN_COLOR
 
 
 def _coord(x=0.0, y=0.0, z=0.0, pt=PointType.FIB) -> Coordinate:

@@ -175,7 +175,7 @@ def test_the_session_line_shows_what_the_agent_reported(qapp):
 
 def test_the_session_line_takes_the_warning_colour_when_the_budget_is_low(qapp):
     from fibsem.ai.agent.session import budget_low
-    from fibsem.ui.tokens import TEXT_MUTED_COLOR, WARN_COLOR
+    from fibsem.theme.tokens import TEXT_MUTED_COLOR, WARN_COLOR
 
     assert not budget_low({"spent_usd": 3.9, "budget_usd": 5})
     assert budget_low({"spent_usd": 4.0, "budget_usd": 5})

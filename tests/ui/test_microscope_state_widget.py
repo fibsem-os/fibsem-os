@@ -23,7 +23,7 @@ from fibsem.structures import (
     FibsemStagePosition,
     MicroscopeState,
 )
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     CURRENT_POSITION_COLOUR,
     SAVED_POSITION_COLOUR,
     TEXT_MUTED_COLOR,

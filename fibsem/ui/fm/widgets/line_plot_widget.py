@@ -18,13 +18,13 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.theme.plots import DARK, style_axes, style_legend
-from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     GRAY_WHITE_COLOR,
     NEUTRAL_400,
     NEUTRAL_450,
     ORANGE_COLOR,
 )
+from fibsem.ui.icon import fibsem_icon
 
 _OVERLAY_BTN_STYLE = (
     "QPushButton { background: rgba(40,41,48,180); border: 1px solid #555;"

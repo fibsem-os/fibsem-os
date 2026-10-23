@@ -19,11 +19,11 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.structures import FibsemStagePosition
-from fibsem.ui import stylesheets
-from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     CANVAS_BG,
 )
+from fibsem.ui import stylesheets
+from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION
 from fibsem.ui.utils import message_box_ui
 from fibsem.ui.widgets.custom_widgets import IconToolButton
 

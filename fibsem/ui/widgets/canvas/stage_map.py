@@ -36,7 +36,7 @@ from PyQt5.QtWidgets import QWidget
 
 from fibsem.geometry.projection import BeamStageProjection
 from fibsem.structures import BeamType, FibsemStagePosition
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     CANVAS_BG,
     CURRENT_POSITION_COLOUR,
     GRID_BOUNDARY_COLOUR,

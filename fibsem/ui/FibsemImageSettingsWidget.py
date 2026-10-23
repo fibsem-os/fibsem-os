@@ -17,6 +17,7 @@ from fibsem.structures import (
     FibsemRectangle,
     ImageSettings,
 )
+from fibsem.theme import tokens
 from fibsem.ui import notification_service
 from fibsem.ui import stylesheets as stylesheets
 from fibsem.ui.control import control_of
@@ -211,7 +212,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         self._btn_advanced_image = IconToolButton(
             icon="mdi:tune",
             checked_icon="mdi:tune-variant",
-            checked_color=stylesheets.GRAY_WHITE_COLOR,
+            checked_color=tokens.GRAY_WHITE_COLOR,
             tooltip="Show advanced settings",
             checked_tooltip="Hide advanced settings",
         )
@@ -298,12 +299,10 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         )
 
         self.pushButton_run_autocontrast.setIcon(
-            fibsem_icon("mdi:contrast-circle", color=stylesheets.GRAY_ICON_COLOR)
+            fibsem_icon("mdi:contrast-circle", color=tokens.GRAY_ICON_COLOR)
         )
         self.pushButton_run_autofocus.setIcon(
-            fibsem_icon(
-                "mdi:image-filter-center-focus", color=stylesheets.GRAY_ICON_COLOR
-            )
+            fibsem_icon("mdi:image-filter-center-focus", color=tokens.GRAY_ICON_COLOR)
         )
 
         self.acquisition_buttons: List[QtWidgets.QPushButton] = [

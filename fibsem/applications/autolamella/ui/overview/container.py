@@ -46,7 +46,7 @@ from fibsem.applications.autolamella.ui.overview.beam import BeamOverviewTab
 from fibsem.applications.autolamella.ui.overview.fluorescence import (
     FluorescenceOverviewTab,
 )
-from fibsem.ui.tokens import BORDER_COLOR
+from fibsem.theme.tokens import BORDER_COLOR
 from fibsem.ui.widgets.overview_widget import (
     MODALITY_CHIP_STYLE,
     VIEW_CHIP_SPACING,

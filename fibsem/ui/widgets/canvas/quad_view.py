@@ -29,24 +29,18 @@ from PyQt5.QtWidgets import (
 from fibsem import constants
 from fibsem.imaging.export import image_fields, z_stack
 from fibsem.structures import BeamType, FibsemImage, InsertableDeviceState
-from fibsem.ui.stylesheets import (
-    CANVAS_BG as _BG,
-)
-from fibsem.ui.stylesheets import (
-    GREEN_COLOR,
-)
-from fibsem.ui.stylesheets import (
-    PRIMARY_ACCENT as _SELECT_ACCENT,
-)
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     ACCENT_COLOR,
     BORDER_COLOR,
     CANVAS_BG,
+    GREEN_COLOR,
     PANEL_COLOR,
     ROW_ALT_COLOR,
     TEXT_COLOR,
     TEXT_STRONG_COLOR,
 )
+from fibsem.theme.tokens import CANVAS_BG as _BG
+from fibsem.theme.tokens import PRIMARY_ACCENT as _SELECT_ACCENT
 from fibsem.ui.widgets.canvas.canvas_state import (
     AlignmentSpec,
     CanvasState,

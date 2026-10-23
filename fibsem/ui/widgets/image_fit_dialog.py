@@ -29,8 +29,8 @@ from PyQt5.QtWidgets import (
 
 from fibsem.correlation.structures import PointType
 from fibsem.geometry.similarity import SimilarityFit
+from fibsem.theme.tokens import CANVAS_BG, TEXT_COLOR, WARN_COLOR
 from fibsem.ui import stylesheets
-from fibsem.ui.tokens import CANVAS_BG, TEXT_COLOR, WARN_COLOR
 from fibsem.ui.widgets.canvas.point_canvas import PointCanvasWidget
 from fibsem.ui.widgets.point_store import PointStore
 

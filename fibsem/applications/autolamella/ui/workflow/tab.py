@@ -45,9 +45,9 @@ from fibsem.applications.autolamella.workflows.estimate import (
 )
 from fibsem.applications.autolamella.workflows.plan import plan_lamella_run
 from fibsem.structures import BeamType
+from fibsem.theme.tokens import SURFACE_COLOR
 from fibsem.ui import notification_service
 from fibsem.ui.run.run_refusal import refused_during_run
-from fibsem.ui.tokens import SURFACE_COLOR
 from fibsem.ui.widgets.workflow.timeline import WorkflowProgressWidget
 from fibsem.workflows.attendance import (
     grid_run_attendance,
