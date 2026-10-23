@@ -212,17 +212,32 @@ def test_each_channel_is_its_own_projected_layer():
     assert layers[0].data[1, 1] == 900 and layers[1].data[5, 5] == 700
 
 
-def test_gray_channels_in_a_stack_take_the_palette():
+def test_gray_channels_in_a_stack_take_the_colour_of_their_light():
     """Gray is the settings' default, so a stack of gray channels would draw as
-    one gray blur (FIB-1517): each takes its palette colour instead, and the
-    legend says so. A lone gray channel stays gray."""
-    data = np.zeros((2, 3, 8, 8), dtype=np.uint16)
-    image = _stack(data, ["gray", "gray"])
+    one gray blur (FIB-1517): reflection stays gray and each other channel takes
+    the colour of its excitation, and the legend says so. A lone gray channel
+    stays gray, and a colour set on purpose is kept."""
+    data = np.zeros((5, 3, 8, 8), dtype=np.uint16)
+    image = _stack(data, ["gray"] * 5)
+    for channel, (name, nm) in zip(
+        image.metadata.channels,
+        [("Reflection", 550), ("DAPI", 405), ("GFP", 488), ("RFP", 561), ("Cy5", 640)],
+    ):
+        channel.name, channel.excitation_wavelength = name, nm
     colors = [layer.color for layer in projection_layers(image)]
-    assert colors == ["violet", "blue"]
+    assert colors == ["gray", "blue", "green", "red", "violet"]
     assert [c["color"] for c in stack_facts(image)["channels"]] == colors
     lone = _stack(np.zeros((1, 3, 8, 8), dtype=np.uint16), ["gray"])
     assert projection_layers(lone)[0].color == "gray"
+    chosen = _stack(np.zeros((2, 3, 8, 8), dtype=np.uint16), ["cyan", "yellow"])
+    assert [layer.color for layer in projection_layers(chosen)] == ["cyan", "yellow"]
+
+
+def test_a_gray_channel_with_no_light_recorded_takes_the_palette():
+    image = _stack(np.zeros((2, 3, 8, 8), dtype=np.uint16), ["gray", "gray"])
+    for channel in image.metadata.channels:
+        channel.excitation_wavelength = None
+    assert [layer.color for layer in projection_layers(image)] == ["violet", "blue"]
 
 
 def test_the_composite_is_the_blend_of_the_layers():

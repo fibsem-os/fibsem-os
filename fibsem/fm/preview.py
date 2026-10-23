@@ -99,14 +99,33 @@ def _channel_look(channels: list, index: int, count: int = 1) -> Tuple[str, str]
     """A channel's name and colour as the projection draws it. Metadata should
     describe every channel, but never drop a plane when it doesn't: an unnamed
     channel is better than a silently missing one. Gray is the settings'
-    default, so in a stack of several channels it takes the palette's colour."""
+    default, so in a stack of several channels a gray channel takes the colour
+    of its light (`_light_color`), and the palette's when that isn't known."""
     fallback = AVAILABLE_COLORS[index % len(AVAILABLE_COLORS)]
     if index < len(channels):
-        color = getattr(channels[index], "color", None)
+        channel = channels[index]
+        color = getattr(channel, "color", None)
         if not color or (color == "gray" and count > 1):
-            color = fallback
-        return channels[index].name, color
+            color = _light_color(channel) or fallback
+        return channel.name, color
     return f"Channel-{index + 1:02d}", fallback
+
+
+def _light_color(channel: Any) -> Optional[str]:
+    """The colour a channel's light suggests: gray for reflection, else by its
+    excitation in nm (405 blue, 488 green, 561 red, 640 violet)."""
+    if "reflect" in str(getattr(channel, "name", "")).lower():
+        return "gray"
+    nm = getattr(channel, "excitation_wavelength", None)
+    if not nm:
+        return None
+    if nm < 450:
+        return "blue"
+    if nm < 530:
+        return "green"
+    if nm < 610:
+        return "red"
+    return "violet"
 
 
 def stack_facts(image: FluorescenceImage) -> Dict[str, Any]:
