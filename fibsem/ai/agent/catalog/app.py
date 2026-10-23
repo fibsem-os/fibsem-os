@@ -1045,7 +1045,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="app_get_display_images",
         returns="DisplayImages",
-        description="The SEM and FIB images the app's GUI is displaying right now, as previews — the display cache, not a new acquisition. Post-mill images appear here as soon as the GUI shows them, before they reach disk.",
+        description="The SEM and FIB images the app's GUI is displaying right now, and the FM's latest frame (live, or the last plane of an acquisition, in its channel's colour), as previews — the display cache, not a new acquisition. Post-mill images appear here as soon as the GUI shows them, before they reach disk.",
         method="GET",
         path="/app/experiment/images",
         level="watch",

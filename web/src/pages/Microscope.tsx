@@ -146,17 +146,18 @@ function DeviceCard({ slot, values }: { slot: Slot; values?: DeviceValues }) {
   );
 }
 
-const IMAGE_LABEL: Record<string, string> = { sem: "SEM Image", fib: "FIB Image" };
+const IMAGE_LABEL: Record<string, string> = { sem: "SEM Image", fib: "FIB Image", fm: "FM Image" };
 
 function LastAcquired() {
   const images = useQuery({ queryKey: ["app/experiment/images"], queryFn: () => api<DisplayImages>("/app/experiment/images") });
   const [shown, setShown] = useState<string | null>(null);
-  const pairs = (["sem", "fib"] as const).map((key) => [key, images.data?.[key] ?? null] as [string, ImagePayload | null]);
+  const keys = images.data?.fm_available ? (["sem", "fib", "fm"] as const) : (["sem", "fib"] as const);
+  const pairs = keys.map((key) => [key, images.data?.[key] ?? null] as [string, ImagePayload | null]);
   const big = pairs.find(([key]) => key === shown)?.[1];
   return (
     <Card className="flex flex-col gap-3">
       <CardTitle>Last acquired</CardTitle>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${keys.length > 2 ? "lg:grid-cols-3" : ""}`}>
         {pairs.map(([key, image]) =>
           image ? (
             <button

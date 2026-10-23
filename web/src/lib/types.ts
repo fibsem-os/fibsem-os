@@ -75,6 +75,8 @@ export interface DisplayImages {
   available: boolean;
   sem: ImagePayload | null;
   fib: ImagePayload | null;
+  fm?: ImagePayload | null;
+  fm_available?: boolean;
 }
 
 export interface PairedComputer {

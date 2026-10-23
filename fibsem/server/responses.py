@@ -393,6 +393,10 @@ class DisplayImages:
     available: bool
     sem: Optional[ImagePayload] = None
     fib: Optional[ImagePayload] = None
+    # the FM's latest frame, in its channel's colour; fm_available is False on a
+    # microscope without an FM
+    fm: Optional[ImagePayload] = None
+    fm_available: bool = False
 
 
 @dataclass
