@@ -815,9 +815,9 @@ class AppContext:
         evidence: str = "",
     ) -> Dict[str, Any]:
         """Decide a pending proposal, exactly as the operator's answer is: the same
-        Experiment.decide, on the main thread, blocking until applied. The
-        actor is recorded as the agent (``actor`` names its model), never as
-        the operator.
+        Experiment.decide, on the main thread, blocking until applied. A call
+        with the operator token is recorded as the operator named on the
+        experiment; any other as the agent (``actor`` names its model).
 
         ``action`` is what a loop's pass is decided as (run, edit, skip,
         accept). ``patch`` sets fields of its value by dotted path, on the
@@ -880,7 +880,11 @@ class AppContext:
                 return {"available": True, "applied": False, "invalid_value": str(exc)}
         decision = Decision(
             outcome=decided,
-            actor=Actor.agent(actor or "remote"),
+            actor=(
+                experiment.actor()
+                if current_actor() is OPERATOR
+                else Actor.agent(actor or "remote")
+            ),
             values=decoded,
             reason=reason,
             via="server",
