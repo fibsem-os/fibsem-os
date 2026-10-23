@@ -2273,7 +2273,9 @@ class _OnTheFMChannel(Device):
 class AutoscriptFMFilterSet(_OnTheFMChannel, FilterSet):
     """The excitation is held here, as the old filter set holds it: AutoScript's
     emission type is read-only, so the colour is applied when the light starts. The
-    emission filter is the camera's filter type, reflection or fluorescence."""
+    emission filter is the camera's filter type, reflection or fluorescence. It is held
+    too: AutoScript applies the filter type only during an acquisition and doesn't
+    store it, so reading it back is never right."""
 
     needs_channel = frozenset({"emission_filter"})
 
@@ -2282,6 +2284,7 @@ class AutoscriptFMFilterSet(_OnTheFMChannel, FilterSet):
 
         super().__init__("filter_set", channel, **kwargs)
         self.emission_type = CameraEmissionType.RED
+        self._emission_filter: EmissionFilter = REFLECTION
 
     def read_excitation_wavelength(self) -> float:
         color_to_wavelength = _color_to_wavelength()
@@ -2305,12 +2308,7 @@ class AutoscriptFMFilterSet(_OnTheFMChannel, FilterSet):
         return ParameterMetadata(choices=sorted(AVAILABLE_FM_WAVELENGTHS))
 
     def read_emission_filter(self) -> EmissionFilter:
-        from autoscript_sdb_microscope_client.enumerations import CameraFilterType
-
-        mode = self._channel.read(lambda: self._channel.settings().filter.type.value)
-        if mode is CameraFilterType.FLUORESCENCE:
-            return MULTI_BAND
-        return REFLECTION
+        return self._emission_filter
 
     def write_emission_filter(self, value: EmissionFilter) -> None:
         from autoscript_sdb_microscope_client.enumerations import CameraFilterType
@@ -2322,6 +2320,7 @@ class AutoscriptFMFilterSet(_OnTheFMChannel, FilterSet):
             settings.filter.type.value = CameraFilterType.REFLECTION
         else:
             settings.filter.type.value = CameraFilterType.FLUORESCENCE
+        self._emission_filter = value
 
     def metadata_emission_filter(self) -> ParameterMetadata:
         return ParameterMetadata(choices=[REFLECTION, MULTI_BAND])
@@ -2517,6 +2516,7 @@ class AutoscriptFMObjective(_OnTheFMChannel, Objective):
         self._limit_position: float = DEFAULT_CONFIGURATION.get(
             "limit_position", 8.6e-3
         )
+        self._focus_position = DEFAULT_CONFIGURATION["focus_position"]
 
     def _focus_limits(self) -> Tuple[float, float]:
         with self._channel.scope():
@@ -2673,12 +2673,11 @@ class AutoscriptFM(FM):
 
 class ThermoFisherObjectiveLens(fm_api.ObjectiveLens):
     """The FM API's objective over the Thermo objective device, with what the old
-    Thermo objective added: its configured focus position, and homing."""
+    Thermo objective added: homing."""
 
     def __init__(self, device, channel, parent=None):
         super().__init__(device, parent=parent)
         self._channel = channel
-        self._focus_position = DEFAULT_CONFIGURATION["focus_position"]
 
     def is_homed(self) -> bool:
         with self._channel.scope():

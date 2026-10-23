@@ -5,6 +5,7 @@ import { GridsPage } from "@/pages/Grids";
 import { LamellaePage } from "@/pages/Lamellae";
 import { MicroscopePage } from "@/pages/Microscope";
 import { PositionsPage } from "@/pages/Positions";
+import { Notices } from "@/shell/Notices";
 import { Pair } from "@/shell/Pair";
 import { Rail } from "@/shell/Rail";
 import { Settings } from "@/shell/Settings";
@@ -40,6 +41,7 @@ function Shell() {
           {page === "agent" && <AgentPage />}
         </div>
       </div>
+      <Notices page={page} go={go} />
       <Settings open={settings} onOpenChange={setSettings} />
     </div>
   );

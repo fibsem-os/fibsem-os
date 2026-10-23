@@ -928,12 +928,12 @@ class OdemisFMObjective(Objective):
         # Where the objective focuses, for the FM API: the inserted position.
         active_position = self.active_position
         if active_position is not None:
-            self.focus_position: float = active_position["z"]
+            self._focus_position = active_position["z"]
         else:
-            self.focus_position = self._focuser.position.value["z"]
+            self._focus_position = self._focuser.position.value["z"]
             logging.warning(
                 "Focuser has no active-position metadata; using the current "
-                f"position ({self.focus_position * 1e3:.3f} mm) as the focus position."
+                f"position ({self._focus_position * 1e3:.3f} mm) as the focus position."
             )
         # default user limit: no restriction beyond the hardware range
         self._limit_position = self._limits()[1]
@@ -1125,11 +1125,8 @@ class OdemisFM(FM):
 
 class OdemisObjectiveLens(fm_api.ObjectiveLens):
     """The FM API's objective over the Odemis objective device, focusing where the old
-    objective does: odemis's favourite inserted position."""
-
-    def __init__(self, device, parent=None):
-        super().__init__(device, parent=parent)
-        self._focus_position = device.focus_position
+    objective does: odemis's favourite inserted position (the device's saved focus
+    position)."""
 
 
 def _is_fluorescence(emission: EmissionFilter) -> bool:
