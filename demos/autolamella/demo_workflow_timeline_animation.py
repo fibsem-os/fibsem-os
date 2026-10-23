@@ -149,9 +149,7 @@ class AnimatedDemo(QWidget):
             elif outer.status is TaskStatus.InProgress:
                 outer.status = TaskStatus.Completed
         self._report(item, TaskStatus.InProgress)
-        self._status_label.setText(
-            f"[{item.item_name}] {item.task_name} — starting…"
-        )
+        self._status_label.setText(f"[{item.item_name}] {item.task_name} — starting…")
 
         # Short pause before first inner step
         self._timer.start(600)
@@ -180,9 +178,7 @@ class AnimatedDemo(QWidget):
         self._progress.update_step(step_name)
 
         item = self._outer_items[self._outer_idx]
-        self._status_label.setText(
-            f"[{item.item_name}] {item.task_name} — {step_name}"
-        )
+        self._status_label.setText(f"[{item.item_name}] {item.task_name} — {step_name}")
 
         is_last_inner = self._inner_idx == len(self._inner_steps) - 1
         if is_last_inner:
