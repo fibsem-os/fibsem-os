@@ -9,6 +9,7 @@ decides what the agent may do, and the runner never sets the level. Needs the
     fibsem-agent
     fibsem-agent --resume <session id>
     fibsem-agent --resume                     # the last session run in the same folder
+    fibsem-agent --session-id <id>            # a new session with this id (a manager's)
     cd ~/fibsem-work && fibsem-agent --code   # it writes and runs code, sandboxed
     fibsem-agent --files ~/fibsem-work         # it reads and writes files there, runs nothing
 """
@@ -30,6 +31,7 @@ from pathlib import Path
 from typing import Callable, List, Optional
 
 from fibsem.ai.agent import code_mode
+from fibsem.ai.agent import manager as sessions
 from fibsem.ai.agent.levels import LEVEL_SKILLS
 from fibsem.ai.agent.mcp import watch as watch_mod
 from fibsem.logo import print_fibsem_logo
@@ -422,6 +424,8 @@ class Runner:
         self._turns = 0
         self._spent_usd: Optional[float] = None
         self._end_reason = "stopped at fibsem-agent"
+        # False when resuming can't help: the model can't answer.
+        self._resumable = True
         self._connect = connect
         self._resumed = resumed
         self._server_wait_s = server_wait_s
@@ -435,6 +439,15 @@ class Runner:
         self._wakes = Wakes()
         self._code = 0
         self._stop_requested = False
+
+    def outcome(self) -> dict:
+        """How the run ended, for its session's record."""
+        return {
+            "reason": self._end_reason,
+            "spent_usd": self._spent_usd,
+            "turns": self._turns,
+            "resumable": self._resumable,
+        }
 
     def stop(self) -> None:
         """Interrupt the agent's turn and end the run. Safe from a signal
@@ -547,6 +560,7 @@ class Runner:
         session = end.session_id or getattr(self._agent, "session_id", None)
         if end.error in FATAL_ERRORS:
             self._end_reason = f"the model can't answer ({end.error})"
+            self._resumable = False
             log.error(
                 "The model can't answer (%s); fibsem-agent stops. Set "
                 "ANTHROPIC_API_KEY to a Claude API key (or configure Bedrock or "
@@ -926,8 +940,6 @@ def _show(message, agent: SdkAgent) -> None:
             agent.session_id = data.get("session_id") or agent.session_id
             agent.model = data.get("model") or agent.model
             log.info("Session %s", agent.session_id)
-            if agent.session_id and agent.cwd is not None:
-                keep_session(agent.cwd, agent.session_id)
             tools = data.get("tools") or []
             ours = [tool for tool in tools if tool.startswith(f"mcp__{SERVER}__")]
             others = [tool for tool in tools if tool not in ours]
@@ -1096,43 +1108,6 @@ def _log_to(path: Path) -> None:
 LAST = "last"
 
 
-def _sessions_file() -> Path:
-    return Path.home() / ".fibsem" / "agent" / "sessions.json"
-
-
-def _sessions() -> dict:
-    try:
-        sessions = json.loads(_sessions_file().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return sessions if isinstance(sessions, dict) else {}
-
-
-def last_session(folder: Path) -> Optional[str]:
-    """The last session run in *folder* (the CLI's: the work folder, else the
-    checkout), or None. The CLI keeps a session under its folder, so one run
-    elsewhere can't be resumed here."""
-    session = _sessions().get(str(folder))
-    return session if isinstance(session, str) else None
-
-
-def keep_session(folder: Path, session_id: str) -> None:
-    """Remember *session_id* as the last one run in *folder*."""
-    sessions = _sessions()
-    sessions[str(folder)] = session_id
-    path = _sessions_file()
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(sessions, indent=2), encoding="utf-8")
-    except OSError as error:
-        log.warning("Couldn't keep the session id in %s: %s", path, error)
-
-
-def _default_log() -> Path:
-    stamp = timestamps.now().strftime("%Y-%m-%d-%H-%M-%S")
-    return Path.home() / ".fibsem" / "agent" / f"fibsem-agent-{stamp}.log"
-
-
 def status(
     args,
     checkout: Path,
@@ -1210,6 +1185,14 @@ def main(argv=None) -> int:
         "folder (the --code or --files folder, else the checkout)",
     )
     parser.add_argument(
+        "--session-id",
+        default=None,
+        type=_session_id,
+        metavar="SESSION_ID",
+        help="start a new session with this id (a UUID), as a manager does so "
+        "it can find the session's folder",
+    )
+    parser.add_argument(
         "--server-wait",
         type=float,
         default=SERVER_WAIT_S,
@@ -1217,7 +1200,10 @@ def main(argv=None) -> int:
         f"stopping (default {SERVER_WAIT_S:.0f})",
     )
     parser.add_argument(
-        "--log", default=None, help="log file (default ~/.fibsem/agent/...)"
+        "--log",
+        default=None,
+        help="log file (default: in the session's folder, "
+        "~/.fibsem/agent/sessions/<date>-<session id>/)",
     )
     parser.add_argument(
         "--checkout",
@@ -1245,6 +1231,8 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     if args.code and args.files:
         parser.error("--code already gives the agent its files: use one of them")
+    if args.session_id and args.resume:
+        parser.error("--session-id starts a new session: --resume carries one on")
 
     try:
         import claude_agent_sdk  # noqa: F401
@@ -1275,7 +1263,7 @@ def main(argv=None) -> int:
             print(refused, file=sys.stderr)
             return 1
     if args.resume == LAST:
-        args.resume = last_session(work or checkout)
+        args.resume = sessions.last_session(work or checkout)
         if args.resume is None:
             print(
                 f"No earlier fibsem-agent session in {work or checkout} to "
@@ -1285,11 +1273,14 @@ def main(argv=None) -> int:
             return 1
     # From the environment, so it is not in the process list or shell history.
     token = os.environ.get("FIBSEM_SERVER_TOKEN")
-    log_path = Path(args.log).expanduser() if args.log else _default_log()
+    # A new session's id is chosen here, so the status can name it.
+    session_id = args.resume or args.session_id or str(uuid.uuid4())
+    session = sessions.SessionFolder.open(
+        session_id, _about(args, checkout, work, code)
+    )
+    log_path = Path(args.log).expanduser() if args.log else session.log_path
     print_fibsem_logo()
     _log_to(log_path)
-    # A new session's id is chosen here, so the status can name it.
-    session_id = args.resume or str(uuid.uuid4())
     for line in status(args, checkout, log_path, work, session_id, code):
         log.info(line)
     if work is not None:
@@ -1335,17 +1326,47 @@ def main(argv=None) -> int:
         runner.stop()
 
     previous = signal.signal(signal.SIGINT, on_interrupt)
+    # A manager stops it with a file, which works where a signal can't reach.
+    sessions.watch_for_stop(session, runner.stop)
+    outcome = None
     try:
-        return asyncio.run(runner.run())
+        code = asyncio.run(runner.run())
     except KeyboardInterrupt:
-        return 130
+        code = 130
     except Exception as error:
         log.exception("The agent failed: %s", error)
         if agent.session_id:
             log.error("--resume %s carries the session on.", agent.session_id)
-        return 1
+        code, outcome = 1, {"reason": f"the agent failed: {error}"}
     finally:
         signal.signal(signal.SIGINT, previous)
+    session.end(code, **(outcome or runner.outcome()))
+    return code
+
+
+def _session_id(text: str) -> str:
+    try:
+        return str(uuid.UUID(text))
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a UUID: {text}") from None
+
+
+def _about(args, checkout: Path, work: Optional[Path], code: bool) -> dict:
+    """What a session runs with, for its record."""
+    from fibsem import __version__
+
+    return {
+        "fibsem": __version__,
+        "cwd": str(work or checkout),
+        "url": args.url,
+        "goal": args.goal,
+        "model": args.model,
+        "effort": args.effort,
+        "max_budget_usd": args.max_budget_usd,
+        "max_turns": args.max_turns,
+        "mode": ("code" if code else "files") if work is not None else "none",
+        "checkout": str(checkout),
+    }
 
 
 if __name__ == "__main__":
