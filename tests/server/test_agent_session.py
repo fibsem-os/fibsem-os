@@ -158,9 +158,11 @@ def test_a_clock_time_is_its_next_occurrence():
         {"checklist": "x"},
         {"constraints": [{"text": "x", "by": "tomorrow"}]},
         {"constraints": [{"text": "x" * 201}]},
+        {"hooks": [{"when": "site", "say": "x"}]},
+        {"hooks": "x"},
     ],
 )
-def test_a_bad_checklist_or_constraint_is_refused(server, body):
+def test_a_bad_checklist_constraint_or_reminder_is_refused(server, body):
     _, client, recorded = server
     assert client.post("/app/agent/session", json=body).status_code == 422
     assert recorded == []
@@ -172,3 +174,12 @@ def test_a_session_without_an_id_takes_the_first_one_reported(server):
     session = client.post("/app/agent/session", json={"session_id": "s1"}).json()
     assert session["session"]["checklist"] == [{"text": "Polish 01", "state": "open"}]
     assert _kinds(recorded) == [SESSION_STARTED]
+
+
+def test_the_profile_and_its_reminders_are_kept(server):
+    _, client, _ = server
+    hooks = [{"when": "site", "label": "At a site", "say": "Check the film."}]
+    body = {"profile": "night", "profile_hash": "abc", "hooks": hooks}
+    session = client.post("/app/agent/session", json=body).json()["session"]
+    assert (session["profile"], session["profile_hash"]) == ("night", "abc")
+    assert session["hooks"] == hooks

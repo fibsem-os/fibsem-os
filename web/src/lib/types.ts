@@ -206,6 +206,10 @@ export interface AgentState {
 
 /** GET /app/agent/session: what the agent reported of its session. */
 export interface ReportedSession {
+  /** The fibsem-agent profile it runs with, and its reminders. */
+  profile?: string;
+  profile_hash?: string;
+  hooks?: { when: string; label: string; say: string }[];
   goal?: string;
   budget_usd?: number;
   spent_usd?: number;

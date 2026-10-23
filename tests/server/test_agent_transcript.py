@@ -122,6 +122,8 @@ def test_the_agent_says_what_it_can_do_and_the_chip_lists_it():
     assert dict(session_facts(files))["Code"] == "Off; reads and writes files in /w"
     # Claude Code says none of it: nothing to list but what it reported.
     assert session_facts({"model": "m"}) == [("Model", "m")]
+    profiled = {"profile": "night", "profile_hash": "abc"}
+    assert session_facts(profiled) == [("Profile", "night (abc)")]
     assert session_facts(None) == []
 
 

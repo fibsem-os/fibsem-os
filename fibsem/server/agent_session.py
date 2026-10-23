@@ -32,12 +32,23 @@ SESSION_BUDGET = "agent_session_budget"
 SESSION_CONSTRAINTS = "agent_session_constraints"
 
 MAX_TEXT = 500
-_TEXT = ("session_id", "model", "goal", "reason", "harness", "effort", "workdir")
+_TEXT = (
+    "session_id",
+    "model",
+    "goal",
+    "reason",
+    "harness",
+    "effort",
+    "workdir",
+    "profile",
+    "profile_hash",
+)
 _NUMBERS = ("budget_usd", "spent_usd")
 MAX_SKILLS = 20
 MAX_ITEM = 200
 MAX_CHECKLIST = 50
 MAX_CONSTRAINTS = 10
+MAX_HOOKS = 20
 CHECK_STATES = ("open", "done", "always")
 
 
@@ -61,6 +72,7 @@ def _checked(body: Dict[str, Any]) -> Dict[str, Any]:
             "skills",
             "checklist",
             "constraints",
+            "hooks",
         }
     )
     unknown = sorted(set(body) - known)
@@ -113,6 +125,8 @@ def _checked(body: Dict[str, Any]) -> Dict[str, Any]:
         report["checklist"] = _checklist(body["checklist"])
     if body.get("constraints") is not None:
         report["constraints"] = _constraints(body["constraints"])
+    if body.get("hooks") is not None:
+        report["hooks"] = _hooks(body["hooks"])
     ended = body.get("ended")
     if ended is not None and not isinstance(ended, bool):
         raise _refused("ended is true or false.")
@@ -171,6 +185,27 @@ def _constraints(items: Any) -> List[Dict[str, str]]:
                 ) from None
         checked.append(constraint)
     return checked
+
+
+def _hooks(items: Any) -> List[Dict[str, str]]:
+    """A profile's reminders, each {when, label, say}."""
+    if (
+        not isinstance(items, list)
+        or len(items) > MAX_HOOKS
+        or not all(
+            isinstance(item, dict)
+            and set(item) == {"when", "label", "say"}
+            and all(isinstance(v, str) and len(v) <= MAX_TEXT for v in item.values())
+            for item in items
+        )
+    ):
+        raise _refused(
+            f"hooks is a list of at most {MAX_HOOKS} reminders, each {{when, "
+            f"label, say}} of at most {MAX_TEXT} characters."
+        )
+    return [
+        {key: item[key].strip() for key in ("when", "label", "say")} for item in items
+    ]
 
 
 def report(auth: AuthConfig, body: Dict[str, Any]) -> tuple:

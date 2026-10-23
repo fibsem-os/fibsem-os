@@ -40,7 +40,8 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 export function hasPanel(session: ReportedSession | null | undefined): session is ReportedSession {
   return Boolean(
     session &&
-      (session.goal ||
+      (session.profile ||
+        session.goal ||
         session.budget_usd != null ||
         session.spent_usd != null ||
         session.constraints?.length ||
@@ -48,12 +49,34 @@ export function hasPanel(session: ReportedSession | null | undefined): session i
   );
 }
 
-/** The agent's goal, budget, the operator's constraints and its checklist. */
+/** The agent's profile, goal, budget, the operator's constraints and its checklist. */
 export function SidePanel({ session, budgetLow }: { session: ReportedSession; budgetLow: boolean }) {
   const now = useNow(30000);
-  const { goal, budget_usd: budget, spent_usd: spent, constraints, checklist } = session;
+  const {
+    profile,
+    profile_hash: hash,
+    hooks,
+    goal,
+    budget_usd: budget,
+    spent_usd: spent,
+    constraints,
+    checklist,
+  } = session;
   return (
     <div className="flex flex-col gap-3.5 text-[13px] leading-[1.45]">
+      {profile && (
+        <Section title="Profile">
+          <p className="m-0 break-words">
+            {profile}
+            {hash && <span className="text-muted-foreground"> · {hash.slice(0, 7)}</span>}
+          </p>
+          {hooks?.map((hook, i) => (
+            <p key={i} className="m-0 mt-1.5 break-words">
+              <span className="text-muted-foreground">{hook.label}:</span> {hook.say}
+            </p>
+          ))}
+        </Section>
+      )}
       {goal && (
         <Section title="Goal">
           <p className="m-0 break-words">{goal}</p>

@@ -1561,6 +1561,7 @@ def main(argv=None) -> int:
             "effort": args.effort,
             "skills": skills_for(profile),
             "resumed": args.resume is not None,
+            **(_profile_report(profile) if profile else {}),
         },
     )
 
@@ -1618,6 +1619,22 @@ def _about(
         "checkout": str(checkout),
         "profile": profile.name if profile else None,
         "profile_hash": profile.hash if profile else None,
+    }
+
+
+def _profile_report(profile: profiles.Profile) -> dict:
+    """The profile for the Agent page: its name, hash and reminders."""
+    return {
+        "profile": profile.name,
+        "profile_hash": profile.hash,
+        "hooks": [
+            {
+                "when": hook.when,
+                "label": profiles.HOOK_OPTIONS[hook.when].label,
+                "say": hook.say,
+            }
+            for hook in profile.hooks
+        ],
     }
 
 
