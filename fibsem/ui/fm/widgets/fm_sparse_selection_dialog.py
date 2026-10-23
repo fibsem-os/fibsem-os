@@ -113,9 +113,8 @@ class FMSparseSelectionDialog(QDialog):
 
         # The warning gets a row of its own and an `ElidedLabel`; the counter gets
         # neither. A message whose length depends on what the user drew must not decide
-        # how wide the dialog is -- the warning ran past 90 characters and took the whole
-        # bar with it, the same fault FIB-470 fixed on the FM overview widget, where one
-        # long status dragged the minimum width from 1030 px to 1728.
+        # how wide the dialog is -- a warning past 90 characters would take the whole
+        # bar with it.
         #
         # Not both, though: `ElidedLabel` has an Ignored size policy, so it asks for no
         # width at all. Applied to the counter as well, the stretch beside it took

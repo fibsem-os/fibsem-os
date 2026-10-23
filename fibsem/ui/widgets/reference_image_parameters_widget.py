@@ -94,7 +94,7 @@ class ReferenceImageParametersWidget(QWidget):
 
         # Image 1 Options
         # One row per image: its switch and its field of view together. The row's
-        # label is both the old "Acquire Image 1" and "Field of View 1" labels.
+        # label names both.
         self.acquire_image1_check = QCheckBox()
         self.acquire_image1_check.setChecked(True)
         self.acquire_image1_check.setToolTip(WIDGET_CONFIG["acquire_image1"]["tooltip"])
