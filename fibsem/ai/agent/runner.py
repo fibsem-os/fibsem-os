@@ -34,6 +34,7 @@ from fibsem.ai.agent import code_mode
 from fibsem.ai.agent import manager as sessions
 from fibsem.ai.agent.levels import LEVEL_SKILLS
 from fibsem.ai.agent.mcp import watch as watch_mod
+from fibsem.client.transport import SERVER_TOKEN_ENV, SERVER_URL_ENV, server_env
 from fibsem.logo import print_fibsem_logo
 from fibsem.util import timestamps
 
@@ -1136,9 +1137,9 @@ def build_options(
     # goes on the CLI's command line, where anyone can list it.
     env = dict(CLI_ENV)
     if url:
-        env["FIBSEM_SERVER_URL"] = url
+        env[SERVER_URL_ENV] = url
     if token:
-        env["FIBSEM_SERVER_TOKEN"] = token
+        env[SERVER_TOKEN_ENV] = token
     tools, allowed, denied = BUILT_IN_TOOLS, ALLOWED_TOOLS, DENIED_TOOLS
     settings = None
     if work is not None:
@@ -1372,7 +1373,7 @@ def main(argv=None) -> int:
             )
             return 1
     # From the environment, so it is not in the process list or shell history.
-    token = os.environ.get("FIBSEM_SERVER_TOKEN")
+    token = server_env()[1]
     # A new session's id is chosen here, so the status can name it.
     session_id = args.resume or args.session_id or str(uuid.uuid4())
     session = sessions.SessionFolder.open(
