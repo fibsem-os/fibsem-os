@@ -423,7 +423,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="app_get_status",
         returns="AppStatus",
-        description="What the application is doing: experiment, running workflow, current task and item.",
+        description="What the application is doing: experiment, running workflow, current task and item, its place in the queue and step, what holds it, its last failure, progress on the microscope and who holds it.",
         method="GET",
         path="/app/workflow/status",
         level="watch",
