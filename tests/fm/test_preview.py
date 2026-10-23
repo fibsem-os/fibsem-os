@@ -11,7 +11,6 @@ from fibsem.fm.preview import (
     load_stack_preview,
     projection_layers,
     render_stack,
-    stack_facts,
     stack_layers,
 )
 from fibsem.fm.structures import (
@@ -178,7 +177,7 @@ def test_a_recorded_z_step_is_the_step(stack_on_disk):
     image = _stack(np.zeros((1, 3, 8, 8), dtype=np.uint16), ["red"])
     image.metadata.pixel_size_z = 5e-7
 
-    assert stack_facts(image)["z_step"] == pytest.approx(5e-7)
+    assert load_stack_preview(stack_on_disk(image))[2]["z_step"] == pytest.approx(5e-7)
 
 
 def test_a_stack_with_no_channels_raises(stack_on_disk):
@@ -212,7 +211,7 @@ def test_each_channel_is_its_own_projected_layer():
     assert layers[0].data[1, 1] == 900 and layers[1].data[5, 5] == 700
 
 
-def test_gray_channels_in_a_stack_take_the_colour_of_their_light():
+def test_gray_channels_in_a_stack_take_the_colour_of_their_light(stack_on_disk):
     """Gray is the settings' default, so a stack of gray channels would draw as
     one gray blur (FIB-1517): reflection stays gray and each other channel takes
     the colour of its excitation, and the legend says so. A lone gray channel
@@ -226,7 +225,8 @@ def test_gray_channels_in_a_stack_take_the_colour_of_their_light():
         channel.name, channel.excitation_wavelength = name, nm
     colors = [layer.color for layer in projection_layers(image)]
     assert colors == ["gray", "blue", "green", "red", "violet"]
-    assert [c["color"] for c in stack_facts(image)["channels"]] == colors
+    facts = load_stack_preview(stack_on_disk(image))[2]
+    assert [c["color"] for c in facts["channels"]] == colors
     lone = _stack(np.zeros((1, 3, 8, 8), dtype=np.uint16), ["gray"])
     assert projection_layers(lone)[0].color == "gray"
     chosen = _stack(np.zeros((2, 3, 8, 8), dtype=np.uint16), ["cyan", "yellow"])
@@ -301,11 +301,11 @@ def test_a_plane_or_channel_the_stack_lacks_is_named():
         render_stack(image, channels=["GFP"])
 
 
-def test_each_channel_says_how_sharp_each_plane_is():
+def test_each_channel_says_how_sharp_each_plane_is(stack_on_disk):
     image = _spots()
     image.metadata.z_positions = [0.0, 5e-7, 1e-6, 1.5e-6, 2e-6]
 
-    facts = stack_facts(image)
+    facts = load_stack_preview(stack_on_disk(image))[2]
 
     green, red = facts["channels"]
     assert green["sharpest_plane"] == 1 and red["sharpest_plane"] == 3
@@ -313,8 +313,9 @@ def test_each_channel_says_how_sharp_each_plane_is():
     assert facts["z_positions"] == pytest.approx(image.metadata.z_positions)
 
 
-def test_a_single_plane_has_no_sharpness_to_compare():
-    facts = stack_facts(_stack(np.ones((1, 1, 8, 8), dtype=np.uint16), ["red"]))
+def test_a_single_plane_has_no_sharpness_to_compare(stack_on_disk):
+    image = _stack(np.ones((1, 1, 8, 8), dtype=np.uint16), ["red"])
+    facts = load_stack_preview(stack_on_disk(image))[2]
 
     assert "sharpness" not in facts["channels"][0]
     assert facts["z_positions"] is None

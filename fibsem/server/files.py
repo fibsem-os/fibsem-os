@@ -130,7 +130,7 @@ def load_image(
 ) -> Tuple[np.ndarray, Any, Optional[float], Optional[Dict[str, Any]]]:
     """A saved image as something viewable: its data (2-D, or RGB), the
     FibsemImage it is when it is a beam image (else None), its pixel size in
-    metres when known, and a fluorescence stack's ``stack_facts`` (else None).
+    metres when known, and a fluorescence stack's legend facts (else None).
 
     Fluorescence stacks (``.ome.tiff``) composite through the FM canvas's own
     projection, so each channel keeps its colour: plane *z* (0 the first) in
