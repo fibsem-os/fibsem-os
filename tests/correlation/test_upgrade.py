@@ -22,6 +22,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from fibsem.codec.upgrades.correlation import (
+    CORRELATION_FILE_VERSION,
+    OLD_STATUS,
+    upgrade,
+    upgrade_input_data,
+    upgrade_result,
+)
 from fibsem.correlation.history import LamellaCorrelation, load_run, save_run
 from fibsem.correlation.structures import (
     Coordinate,
@@ -33,13 +40,6 @@ from fibsem.correlation.structures import (
     PointType,
     PointXYZ,
     load_correlation_file,
-)
-from fibsem.correlation.upgrade import (
-    CORRELATION_FILE_VERSION,
-    OLD_STATUS,
-    upgrade,
-    upgrade_input_data,
-    upgrade_result,
 )
 from fibsem.structures import Point
 from fibsem.util.timestamps import to_datetime
@@ -326,7 +326,7 @@ def test_the_stored_values_follow_the_live_image():
         },
     )()
     written = data.to_dict()
-    assert written["stored_fib_image_shape"] == (30, 40)
+    assert written["stored_fib_image_shape"] == [30, 40]
     assert written["stored_fib_image_pixel_size"] == 2e-8
     assert written["stored_fib_image_filename"] == "live_ib.tif"
 

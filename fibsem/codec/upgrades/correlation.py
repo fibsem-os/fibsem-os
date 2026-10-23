@@ -130,6 +130,8 @@ def _input_data(data: dict, version: int) -> dict:
         for key in _SINGLE_COORDINATES:
             if data.get(key):
                 data[key] = _coordinate(data[key])
+            elif key in data:
+                data[key] = None  # early files wrote an empty dict for none
     return data
 
 

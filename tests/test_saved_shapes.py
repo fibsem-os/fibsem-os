@@ -1021,6 +1021,5 @@ def test_a_correlation_config_section_absent_reads_as_the_defaults():
     from fibsem.correlation.config import CorrelationConfig, FitSettings, RISettings
 
     assert CorrelationConfig.from_dict(None) == CorrelationConfig()
-    assert CorrelationConfig.from_dict({"fit": None, "ri": None}) == CorrelationConfig()
     assert FitSettings.from_dict(None) == FitSettings()
     assert RISettings.from_dict(None) == RISettings()

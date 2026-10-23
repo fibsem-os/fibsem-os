@@ -37,10 +37,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import List, Optional, Sequence, Tuple
+from typing import Annotated, List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from fibsem.codec import NotSaved, decode, encode
 from fibsem.correlation import solver
 from fibsem.correlation.config import MIN_FIDUCIAL_PAIRS
 from fibsem.correlation.geometry import NominalTransform
@@ -89,7 +90,9 @@ class FitEvidence:
     poi_hull_distance_um: Optional[float] = None  # 0 inside the fiducials
     worst: Optional[int] = None  # position in ``pairs`` of the largest LOO error
     suggested_z: Optional[float] = None  # slice at which the worst pair fits best
-    rotation: Optional[np.ndarray] = field(default=None, compare=False)
+    rotation: Annotated[Optional[np.ndarray], NotSaved] = field(
+        default=None, compare=False
+    )
 
     @property
     def loo_median_um(self) -> float:
@@ -110,46 +113,10 @@ class FitEvidence:
 
     @classmethod
     def from_dict(cls, d: dict) -> "FitEvidence":
-        return cls(
-            rms_um=float(d["rms_um"]),
-            pairs=[
-                PairDiagnostic(
-                    int(p["index"]), float(p["residual_um"]), float(p["loo_error_um"])
-                )
-                for p in d.get("pairs", [])
-            ],
-            mirror_ratio=float(d["mirror_ratio"]),
-            depth_span_um=float(d["depth_span_um"]),
-            scale_ratio=float(d["scale_ratio"]),
-            n_pairs=int(d["n_pairs"]),
-            n_accepted=int(d.get("n_accepted", 0)),
-            poi_jackknife_um=d.get("poi_jackknife_um"),
-            poi_hull_distance_um=d.get("poi_hull_distance_um"),
-            worst=d.get("worst"),
-            suggested_z=d.get("suggested_z"),
-        )
+        return decode(cls, d)
 
     def to_dict(self) -> dict:
-        return {
-            "rms_um": self.rms_um,
-            "pairs": [
-                {
-                    "index": p.index,
-                    "residual_um": p.residual_um,
-                    "loo_error_um": p.loo_error_um,
-                }
-                for p in self.pairs
-            ],
-            "mirror_ratio": self.mirror_ratio,
-            "depth_span_um": self.depth_span_um,
-            "scale_ratio": self.scale_ratio,
-            "n_pairs": self.n_pairs,
-            "n_accepted": self.n_accepted,
-            "poi_jackknife_um": self.poi_jackknife_um,
-            "poi_hull_distance_um": self.poi_hull_distance_um,
-            "worst": self.worst,
-            "suggested_z": self.suggested_z,
-        }
+        return encode(self)
 
 
 @dataclass(frozen=True)

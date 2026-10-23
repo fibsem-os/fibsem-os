@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from fibsem.codec.upgrades.correlation import upgrade_result
 from fibsem.correlation.structures import (
     Coordinate,
     CorrelationInputData,
@@ -15,7 +16,6 @@ from fibsem.correlation.structures import (
     PointType,
     PointXYZ,
 )
-from fibsem.correlation.upgrade import upgrade_result
 from fibsem.structures import Point
 
 # ---------------------------------------------------------------------------
