@@ -374,7 +374,7 @@ def test_the_grid_workflow_flag_is_gone():
     drops unknown keys, checked here rather than assumed, because the failure would
     be at every startup.
     """
-    assert not hasattr(cfg.FeatureFlags(), "grid_workflow")
+    assert "grid_workflow" not in str(cfg.UserPreferences().to_dict())
     for value in (False, True):
         stale = {"features": {"grid_workflow": value}}
         assert cfg.UserPreferences.from_dict(stale) is not None

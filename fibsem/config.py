@@ -242,19 +242,32 @@ def card_mode_label(mode: str) -> str:
 
 
 @dataclass
-class DisplayPreferences:
+class SharedPreferences:
+    """What both apps follow: the Qt window, and the server for the web app."""
+
+    # Which fields the bar under each view shows, by view kind ("SEM", "FIB", "FM"),
+    # in order (FIB-1186). Only a kind someone has customised has an entry: an absent
+    # kind takes the bar's defaults, so a later change to those defaults still reaches
+    # everyone who never chose -- which a stored default would not, since every save
+    # writes every key.
+    info_bar_fields: Dict[str, List[str]] = field(default_factory=dict)
+    default_experiment_directory: str = ""
+    default_protocol_path: str = ""
+    # Pre-filled into a new experiment's metadata.
+    user: str = ""
+    project: str = ""
+    organisation: str = ""
+
+
+@dataclass
+class QtPreferences:
+    """What only the Qt window reads."""
+
     sound_enabled: bool = False
     # No `toasts_enabled` here: toasts are how the application talks, not a nicety
     # sitting beside sound. It was a preference defaulting to False, which meant 165
-    # call sites emitted feedback that reached nowhere at all -- `show_toast`
-    # deliberately bypasses notification history, so off was not "quieter", it was
-    # silent.
-    #
-    # Removed rather than flipped. `to_dict` is `dataclasses.asdict`, so every save
-    # writes the key and opening an experiment is enough to trigger a save: a new
-    # default would have reached only a machine that had never run the app, while
-    # everyone else kept the pinned `false`. Older files still carry the
-    # key and `_sub_from_dict` drops it.
+    # call sites emitted feedback that reached nowhere at all. Removed rather than
+    # flipped (FIB-781); older files still carry the key and `_sub_from_dict` drops it.
     border_enabled: bool = True
     # Only errors, warnings and a run's end pop up as toasts; the rest go to the
     # notification bell. Not named `toasts_enabled`: older files still carry that
@@ -268,77 +281,18 @@ class DisplayPreferences:
     # yaml.safe_dump, which raises RepresenterError on an Enum -- and the write is
     # wrapped in a bare `except Exception: logging.warning`, so the failure would
     # surface as "my preferences do not save" with nothing pointing at the cause.
-    # Cozy, because it is what the strip drew before the other two existed: a new
-    # layout is offered, never imposed on an upgrade.
     lamella_card_mode: str = MODE_COZY
-    # Whether the first-run guided setup offer has been waved away. State rather than
-    # a preference -- nobody sets this in the dialog, they set it by pressing the x on
-    # the callout -- and it lives here for the same reason `last_experiment_path` does.
-    #
-    # Its own field, and deliberately not inferred from this file existing. The offer
-    # is shown when no microscope configuration has ever been registered, and
-    # dismissing must not fake one: a person who intends to configure by hand has
-    # still configured nothing.
-    guided_setup_dismissed: bool = False
-    # Which fields the bar under each view shows, by view kind ("SEM", "FIB", "FM"),
-    # in order. Only a kind someone has customised has an entry: an absent
-    # kind takes the bar's defaults, so a later change to those defaults still reaches
-    # everyone who never chose -- which a stored default would not, since every save
-    # writes every key.
-    info_bar_fields: Dict[str, List[str]] = field(default_factory=dict)
-    # What the History tab shows: ``show``, ``status`` and ``task``, as
-    # ``HistoryFilter.to_dict`` writes them. Empty until someone filters, so the
-    # tab's default still reaches everyone who never did; a value the tab does not
-    # recognise shows everything.
-    history_filter: Dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class FeatureFlags:
-    # A saved preferences file that names a flag not listed here still loads;
-    # unknown keys are ignored.
-    coincidence_milling_enabled: bool = False
-    # The connection chip in the tab-corner header, and the experiment buttons
-    # waiting for a microscope alongside it. Off while the Connection tab is still
-    # how people connect. The dialog it opens is not gated: File -> Connect to
-    # Microscope reaches it either way. A staging flag, deleted when the chip
-    # replaces the tab.
-    connection_chip: bool = False
-
-
-@dataclass
-class MovementPreferences:
+    # Retake images after the operator moves the stage from the Qt stage controls.
     acquire_sem_after_stage_movement: bool = True
     acquire_fib_after_stage_movement: bool = True
+    # Pre-filled into Help -> Report an Issue.
+    contact_email: str = ""
 
 
 # Maximum number of recent experiments to remember for quick-select
 MAX_RECENT_EXPERIMENTS = 10
-
-
-@dataclass
-class ExperimentPreferences:
-    default_experiment_directory: str = ""
-    default_protocol_path: str = ""
-    last_experiment_path: str = ""
-    recent_experiments: List[str] = field(default_factory=list)
-    user: str = ""
-    project: str = ""
-    organisation: str = ""
-
-
-@dataclass
-class ReportingPreferences:
-    contact_email: str = ""
-    crash_reporting_enabled: bool = False
-    sentry_dsn: str = ""
-    # Grouped with crash reporting because it is the same question: may the
-    # application make outbound network calls? Opt-in for the same reason —
-    # these run on instrument PCs, sometimes on institutional networks where an
-    # unannounced connection at startup is a compliance question and the
-    # operator would have no idea it was happening. Skipped entirely for source
-    # installs regardless of this setting (see fibsem.update_check.is_enabled).
-    update_check_enabled: bool = False
+# Their section in the per-account session state.
+RECENT_EXPERIMENTS = "recent_experiments"
 
 
 @dataclass
@@ -366,72 +320,131 @@ class AppServerPreferences:
 
 
 @dataclass
-class UserPreferences:
-    display: DisplayPreferences = field(default_factory=DisplayPreferences)
-    features: FeatureFlags = field(default_factory=FeatureFlags)
-    movement: MovementPreferences = field(default_factory=MovementPreferences)
-    experiment: ExperimentPreferences = field(default_factory=ExperimentPreferences)
-    reporting: ReportingPreferences = field(default_factory=ReportingPreferences)
+class InstallPreferences:
+    """About the program on this PC rather than how it looks."""
+
+    # May the application make outbound network calls at start-up? Opt-in: these
+    # run on instrument PCs, sometimes on institutional networks where an
+    # unannounced connection is a compliance question. Skipped entirely for source
+    # installs regardless of this setting (see fibsem.update_check.is_enabled).
+    update_check_enabled: bool = False
     app_server: AppServerPreferences = field(default_factory=AppServerPreferences)
-    # Serialized hooks, as HookManager.to_dict()["hooks"] produces them. Held as plain
-    # dicts rather than Hook objects on purpose: to_dict() below is dataclasses.asdict,
-    # which would recurse into a Hook, strip the "type" key that reconstructs it, and
-    # then hit NotificationHook._notify -- a callable, which yaml.safe_dump refuses.
-    # Keeping them opaque also keeps this module free of any hook imports.
-    #
-    # None and [] are different, and the difference is the whole feature: None means
-    # never configured, so the application uses its defaults, while [] means the user
-    # turned everything off. Conflating them either resurrects hooks someone deleted or
-    # silences a fresh install.
-    hooks: Optional[List[dict]] = None
+
+
+# Keys an older file kept under its sections (display, movement, experiment,
+# reporting, app_server) and where they live now. Anything not listed was retired,
+# and a retired name is never reused for a new key: an older file still carries it,
+# and every save writes every key (FIB-781). Retired so far: every `features.*` flag
+# (sample_holder_widget, bug_report_enabled, scripts_enabled, grid_workflow,
+# agent_server_enabled, napari_overview_tab, overview_canvas_tab,
+# proposer_reviewer_workflow_enabled, coincidence_milling_enabled, connection_chip),
+# `display.toasts_enabled`, `experiment.last_experiment_path`,
+# `reporting.crash_reporting_enabled`, `reporting.sentry_dsn`, `app_server.devices`
+# and `hooks`.
+_OLD_SECTIONS = {
+    "display": {
+        "sound_enabled": "qt",
+        "border_enabled": "qt",
+        "toast_problems_only": "qt",
+        "dev_mode": "qt",
+        "lamella_card_mode": "qt",
+        "info_bar_fields": "shared",
+    },
+    "movement": {
+        "acquire_sem_after_stage_movement": "qt",
+        "acquire_fib_after_stage_movement": "qt",
+    },
+    "experiment": {
+        "default_experiment_directory": "shared",
+        "default_protocol_path": "shared",
+        "user": "shared",
+        "project": "shared",
+        "organisation": "shared",
+    },
+    "reporting": {
+        "contact_email": "qt",
+        "update_check_enabled": "install",
+    },
+}
+
+# What an older file kept that the application remembers rather than the person
+# chooses. It moves to the per-account session state (`user_state`) on first load.
+_OLD_STATE = {
+    ("experiment", "recent_experiments"): "recent_experiments",
+    ("display", "guided_setup_dismissed"): "guided_setup_dismissed",
+    ("display", "history_filter"): "history_filter",
+}
+
+
+@dataclass
+class UserPreferences:
+    shared: SharedPreferences = field(default_factory=SharedPreferences)
+    qt: QtPreferences = field(default_factory=QtPreferences)
+    install: InstallPreferences = field(default_factory=InstallPreferences)
 
     def to_dict(self) -> dict:
         return dataclasses.asdict(self)
 
     @classmethod
     def from_dict(cls, d: dict) -> "UserPreferences":
-        """Reconstruct from a dict, handling both nested and legacy flat formats."""
-        if any(
-            k in d
-            for k in (
-                "display",
-                "features",
-                "movement",
-                "experiment",
-                "reporting",
-                "app_server",
-                "hooks",
-            )
-        ):
-            return cls(
-                display=_sub_from_dict(DisplayPreferences, d.get("display", {})),
-                features=_sub_from_dict(FeatureFlags, d.get("features", {})),
-                movement=_sub_from_dict(MovementPreferences, d.get("movement", {})),
-                experiment=_sub_from_dict(
-                    ExperimentPreferences, d.get("experiment", {})
-                ),
-                reporting=_sub_from_dict(ReportingPreferences, d.get("reporting", {})),
-                app_server=_sub_from_dict(
-                    AppServerPreferences, d.get("app_server", {})
-                ),
-                # .get() rather than a default, so an absent key stays None
-                hooks=d.get("hooks"),
-            )
+        """Reconstruct from a dict: this shape, the older sectioned one, or the
+        oldest flat one."""
+        sections: Dict[str, dict] = {"shared": {}, "qt": {}, "install": {}}
+        for old, keys in _OLD_SECTIONS.items():
+            for key, value in (d.get(old) or {}).items():
+                if key in keys:
+                    sections[keys[key]][key] = value
+        app_server = dict(d.get("app_server") or {})
         # Legacy flat format
-        prefs = cls()
         if "acquire_sem_after_stage_movement" in d:
-            prefs.movement.acquire_sem_after_stage_movement = d[
+            sections["qt"]["acquire_sem_after_stage_movement"] = d[
                 "acquire_sem_after_stage_movement"
             ]
         if "acquire_fib_after_stage_movement" in d:
-            prefs.movement.acquire_fib_after_stage_movement = d[
+            sections["qt"]["acquire_fib_after_stage_movement"] = d[
                 "acquire_fib_after_stage_movement"
             ]
         if "experiment_directory" in d:
-            prefs.experiment.default_experiment_directory = d["experiment_directory"]
-        if "last_experiment_path" in d:
-            prefs.experiment.last_experiment_path = d["last_experiment_path"]
-        return prefs
+            sections["shared"]["default_experiment_directory"] = d[
+                "experiment_directory"
+            ]
+        # This shape wins over an older one where a file has both.
+        for name in sections:
+            sections[name].update(d.get(name) or {})
+        app_server.update(sections["install"].pop("app_server", None) or {})
+        install = _sub_from_dict(InstallPreferences, sections["install"])
+        install.app_server = _sub_from_dict(AppServerPreferences, app_server)
+        return cls(
+            shared=_sub_from_dict(SharedPreferences, sections["shared"]),
+            qt=_sub_from_dict(QtPreferences, sections["qt"]),
+            install=install,
+        )
+
+
+def _old_state(d: dict) -> Dict[str, Any]:
+    """The remembered values an older preferences file holds, by state section."""
+    found: Dict[str, Any] = {}
+    for (section, key), name in _OLD_STATE.items():
+        value = (d.get(section) or {}).get(key)
+        if value:
+            found[name] = value
+    return found
+
+
+def _move_old_state(d: dict) -> None:
+    """Copy what an older preferences file remembered into the per-account session
+    state, where a section is not there yet. The next preferences save drops it
+    from the preferences file."""
+    found = _old_state(d)
+    if not found:
+        return
+    from fibsem.session_state import user_state
+
+    state = user_state(writable=True)
+    held = state.sections()
+    for name, value in found.items():
+        if name not in held:
+            state.save_section(name, value)
 
 
 def _sub_from_dict(cls, d: dict):
@@ -476,6 +489,10 @@ def load_user_preferences() -> UserPreferences:
             f"Failed to load user preferences from {USER_PREFERENCES_PATH}: {e}"
         )
         return UserPreferences()
+    try:
+        _move_old_state(loaded)
+    except Exception as e:
+        logging.warning(f"Could not move remembered values out of preferences: {e}")
     _preferences_cache = ((USER_PREFERENCES_PATH, key), preferences)
     return copy.deepcopy(preferences)
 
@@ -588,42 +605,33 @@ def peek_experiment(experiment_yaml_path: str) -> ExperimentSummary:
         )
 
 
-def add_recent_experiment(prefs: UserPreferences, experiment_yaml_path: str) -> None:
-    """Update ``prefs.experiment.recent_experiments`` in place (does not save).
+def _recent_state(writable: bool = False):
+    from fibsem.session_state import user_state
 
-    Moves the path to the front, de-duplicates, and truncates to
-    ``MAX_RECENT_EXPERIMENTS``. Use this when the caller already holds a prefs
-    object it intends to save, to avoid a redundant load/save cycle.
+    return user_state(writable=writable)
+
+
+def recent_experiment_paths() -> List[str]:
+    """The ``experiment.yaml`` paths of the recent experiments, most-recent-first."""
+    return [str(p) for p in _recent_state().load_section(RECENT_EXPERIMENTS, []) or []]
+
+
+def record_recent_experiment(experiment_yaml_path: str) -> None:
+    """Record an experiment as recently used, moving it to the front of the list
+    and keeping at most ``MAX_RECENT_EXPERIMENTS``.
 
     Args:
-        prefs: The preferences object to mutate.
         experiment_yaml_path: Path to the experiment.yaml file.
     """
     if not experiment_yaml_path:
         return
 
     path = os.path.normpath(str(experiment_yaml_path))
-    recent = [
-        p
-        for p in prefs.experiment.recent_experiments
-        if os.path.normpath(str(p)) != path
-    ]
+    recent = [p for p in recent_experiment_paths() if os.path.normpath(p) != path]
     recent.insert(0, path)
-    prefs.experiment.recent_experiments = recent[:MAX_RECENT_EXPERIMENTS]
-
-
-def record_recent_experiment(experiment_yaml_path: str) -> None:
-    """Record an experiment as recently used, moving it to the front of the list.
-
-    Args:
-        experiment_yaml_path: Path to the experiment.yaml file.
-    """
-    if not experiment_yaml_path:
-        return
-
-    prefs = load_user_preferences()
-    add_recent_experiment(prefs, experiment_yaml_path)
-    save_user_preferences(prefs)
+    _recent_state(writable=True).save_section(
+        RECENT_EXPERIMENTS, recent[:MAX_RECENT_EXPERIMENTS]
+    )
 
 
 def get_recent_experiments(prune_missing: bool = True) -> List[ExperimentSummary]:
@@ -631,46 +639,27 @@ def get_recent_experiments(prune_missing: bool = True) -> List[ExperimentSummary
 
     Args:
         prune_missing: If True, drop paths that no longer exist on disk and
-            persist the pruned list back to preferences.
+            save the pruned list.
     """
-    prefs = load_user_preferences()
-    infos = [peek_experiment(str(p)) for p in prefs.experiment.recent_experiments]
+    infos = [peek_experiment(p) for p in recent_experiment_paths()]
 
     if prune_missing:
         kept = [info for info in infos if info.exists]
         if len(kept) != len(infos):
-            prefs.experiment.recent_experiments = [info.path for info in kept]
-            save_user_preferences(prefs)
+            _recent_state(writable=True).save_section(
+                RECENT_EXPERIMENTS, [info.path for info in kept]
+            )
         return kept
 
     return infos
 
 
 def get_last_experiment_file() -> Optional[str]:
-    """Path to the ``experiment.yaml`` of the last experiment opened, or None.
-
-    ``last_experiment_path`` is the experiment *directory* -- that is how both the
-    create and the load dialog record it -- so callers do not have to know where
-    the file sits inside it.
-
-    Falls back to the newest recent entry still on disk, because the two lists go
-    stale differently: recents are pruned when their file disappears and this one
-    never is, so the last experiment opened is routinely a scratch experiment that
-    has since been deleted. The next-newest one is the useful answer there, not
-    nothing.
-    """
-    prefs = load_user_preferences()
-
-    last_path = str(prefs.experiment.last_experiment_path or "")
-    if last_path:
-        candidate = os.path.join(last_path, "experiment.yaml")
-        if os.path.exists(candidate):
-            return candidate
-
-    for path in prefs.experiment.recent_experiments:
-        if os.path.exists(str(path)):
-            return str(path)
-
+    """Path to the ``experiment.yaml`` of the newest recent experiment still on
+    disk, or None."""
+    for path in recent_experiment_paths():
+        if os.path.exists(path):
+            return path
     return None
 
 

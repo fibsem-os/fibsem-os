@@ -12,9 +12,7 @@ from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Type
-
-import yaml
+from typing import Any, Callable, Dict, List, Optional
 
 from fibsem.structures import Configurable, Display, RangeLimit, param
 
@@ -287,19 +285,6 @@ class Hook(Configurable, ABC):
     def run(self, context: HookContext) -> None:
         pass
 
-    def to_dict(self) -> dict:
-        return {
-            "type": self.__class__.__name__,
-            "name": self.name,
-            "events": [e.value if hasattr(e, "value") else e for e in self.events],
-            "enabled": self.enabled,
-            "task_types": list(self.task_types),
-        }
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "Hook":
-        raise NotImplementedError
-
 
 @dataclass
 class LoggingHook(Hook):
@@ -315,19 +300,6 @@ class LoggingHook(Hook):
         logging.log(
             level,
             f"[Hook] {context.event} | task={context.task_name} item={context.item_name} error={context.error}",
-        )
-
-    def to_dict(self) -> dict:
-        return {**super().to_dict(), "level": self.level}
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "LoggingHook":
-        return cls(
-            name=d.get("name", ""),
-            events=d.get("events", []),
-            enabled=d.get("enabled", True),
-            task_types=d.get("task_types", []),
-            level=d.get("level", "INFO"),
         )
 
 
@@ -354,24 +326,6 @@ class NotificationHook(Hook):
             logging.info(
                 f"[NotificationHook] {self.notification_type.upper()}: {message}"
             )
-
-    def to_dict(self) -> dict:
-        return {
-            **super().to_dict(),
-            "notification_type": self.notification_type,
-            "message_template": self.message_template,
-        }
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "NotificationHook":
-        return cls(
-            name=d.get("name", ""),
-            events=d.get("events", []),
-            enabled=d.get("enabled", True),
-            task_types=d.get("task_types", []),
-            notification_type=d.get("notification_type", "info"),
-            message_template=d.get("message_template", DEFAULT_MESSAGE_TEMPLATE),
-        )
 
 
 _WEBHOOK_ALLOWED_METHODS = ("POST", "GET")
@@ -518,32 +472,6 @@ class WebhookHook(Hook):
                 f"{_redact_url(str(exc), self.url)}"
             )
 
-    def to_dict(self) -> dict:
-        return {
-            **super().to_dict(),
-            "url": self.url,
-            "method": self.method,
-            "timeout": self.timeout,
-        }
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "WebhookHook":
-        method = d.get("method", "POST").upper()
-        if method not in _WEBHOOK_ALLOWED_METHODS:
-            logging.warning(
-                f"WebhookHook: invalid method '{method}', defaulting to POST"
-            )
-            method = "POST"
-        return cls(
-            name=d.get("name", ""),
-            events=d.get("events", []),
-            enabled=d.get("enabled", True),
-            task_types=d.get("task_types", []),
-            url=d.get("url", ""),
-            method=method,
-            timeout=d.get("timeout", 5),
-        )
-
 
 @dataclass
 class SlackHook(WebhookHook):
@@ -564,21 +492,10 @@ class SlackHook(WebhookHook):
     def _payload(self, context: HookContext) -> dict:
         return {"text": render_template(self.message_template, context)}
 
-    def to_dict(self) -> dict:
-        return {**super().to_dict(), "message_template": self.message_template}
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "SlackHook":
-        # super() builds via cls(), so this is already a SlackHook; only the field
-        # WebhookHook does not know about is left to set.
-        hook = super().from_dict(d)
-        hook.message_template = d.get("message_template", DEFAULT_MESSAGE_TEMPLATE)
-        return hook
-
 
 @dataclass
 class FunctionHook(Hook):
-    """Hook that calls a Python callable. Not serializable — registered in code only."""
+    """Hook that calls a Python callable."""
 
     callback: Optional[Callable[["HookContext"], None]] = field(
         default=None, repr=False
@@ -587,14 +504,6 @@ class FunctionHook(Hook):
     def run(self, context: HookContext) -> None:
         if self.callback:
             self.callback(context)
-
-
-HOOK_TYPES: Dict[str, Type[Hook]] = {
-    "LoggingHook": LoggingHook,
-    "NotificationHook": NotificationHook,
-    "WebhookHook": WebhookHook,
-    "SlackHook": SlackHook,
-}
 
 
 class HookManager:
@@ -626,10 +535,8 @@ class HookManager:
     def set_notifier(self, notify: Optional[Callable[[str, str], None]]) -> None:
         """Supply the sink NotificationHooks deliver to, as notify(message, type).
 
-        Hooks loaded from YAML have no callable — it cannot be serialized — so the
-        application injects one here. It applies to hooks already registered and to
-        every hook registered afterwards, so hooks added later (e.g. from the config
-        widget) notify too instead of silently falling back to logging.
+        A hook is built without one, so the application injects it here. It applies
+        to hooks already registered and to every hook registered afterwards.
 
         The caller owns thread-safety: hooks run on the worker thread that fired them,
         so a Qt application should pass a signal's ``emit``. Leave unset for headless
@@ -651,34 +558,6 @@ class HookManager:
             return
         if isinstance(hook, NotificationHook) and hook._notify is None:
             hook._notify = self._notifier
-
-    def to_dict(self) -> dict:
-        return {
-            "hooks": [
-                h.to_dict() for h in self._hooks if h.__class__.__name__ in HOOK_TYPES
-            ]
-        }
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "HookManager":
-        manager = cls()
-        for hook_dict in d.get("hooks", []):
-            hook_type = hook_dict.get("type")
-            if hook_type in HOOK_TYPES:
-                manager.register(HOOK_TYPES[hook_type].from_dict(hook_dict))
-            else:
-                logging.warning(f"Unknown hook type '{hook_type}', skipping")
-        return manager
-
-    def save_yaml(self, path: str) -> None:
-        with open(path, "w") as f:
-            yaml.dump(self.to_dict(), f)
-
-    @classmethod
-    def load_yaml(cls, path: str) -> "HookManager":
-        with open(path) as f:
-            d = yaml.safe_load(f) or {}
-        return cls.from_dict(d)
 
 
 def fire_event(

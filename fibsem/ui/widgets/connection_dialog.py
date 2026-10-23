@@ -201,18 +201,15 @@ class ConnectionDialog(QDialog):
         frame.setVisible(False)
         return frame
 
-    def refresh_first_run_offer(self, preferences=None) -> None:
+    def refresh_first_run_offer(self) -> None:
         """Show the offer when nothing is configured yet and it has not been dismissed.
 
         The same two conditions the Connection tab applied, and separate for the
         same reason: dismissal must not be inferred from the file whose absence
         means "fresh install".
         """
-        if preferences is None:
-            preferences = cfg.load_user_preferences()
         self.first_run_frame.setVisible(
-            not preferences.display.guided_setup_dismissed
-            and guided_setup.is_first_run()
+            not guided_setup.is_offer_dismissed() and guided_setup.is_first_run()
         )
 
     def _dismiss_first_run(self) -> None:

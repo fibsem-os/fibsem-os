@@ -846,7 +846,7 @@ def test_writing_preferences_does_not_suppress_the_offer(
         "fibsem.ui.notification_service.show_toast", lambda *a, **k: None
     )
     preferences = cfg.load_user_preferences()
-    preferences.display.sound_enabled = True
+    preferences.qt.sound_enabled = True
     cfg.save_user_preferences(preferences)
     assert os.path.exists(cfg.USER_PREFERENCES_PATH)
 
@@ -878,7 +878,7 @@ def test_a_dismissed_offer_stays_dismissed(qapp, isolated_state, monkeypatch):
 def test_dismissing_the_offer_makes_it_stay_dismissed(connection_tab, isolated_state):
     connection_tab._dismiss_first_run()
     assert connection_tab._frame_first_run.isHidden()
-    assert cfg.load_user_preferences().display.guided_setup_dismissed
+    assert wizard.is_offer_dismissed()
 
     from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
 

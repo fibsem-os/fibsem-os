@@ -341,8 +341,8 @@ class StageControlWidget(QWidget):
             self.update_ui()
             return
         prefs = cfg.load_user_preferences()
-        acquire_sem = prefs.movement.acquire_sem_after_stage_movement
-        acquire_fib = prefs.movement.acquire_fib_after_stage_movement
+        acquire_sem = prefs.qt.acquire_sem_after_stage_movement
+        acquire_fib = prefs.qt.acquire_fib_after_stage_movement
         if acquire_sem and acquire_fib:
             self.image_widget.acquire_reference_images()
             return

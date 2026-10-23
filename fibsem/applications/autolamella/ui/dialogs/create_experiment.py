@@ -161,7 +161,7 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
         prefs = load_user_preferences()
         self.lineEdit_experiment_directory.setText(default_experiment_directory())
 
-        exp_prefs = prefs.experiment
+        exp_prefs = prefs.shared
         if exp_prefs.user:
             self.lineEdit_experiment_user.setText(exp_prefs.user)
         if exp_prefs.project:

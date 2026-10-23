@@ -137,7 +137,7 @@ class VolumeWindow(AppWindow):
             controls=self.workflow_controls,
             status_bar=self.status_bar,
             timeline=None,
-            sound_enabled=lambda: self._preferences.display.sound_enabled,
+            sound_enabled=lambda: self._preferences.qt.sound_enabled,
             parent=self,
         )
         self.run_view = RunView(

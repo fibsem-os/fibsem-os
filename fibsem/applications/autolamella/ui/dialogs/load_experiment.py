@@ -13,11 +13,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.config import (
-    get_recent_experiments,
-    load_user_preferences,
-    save_user_preferences,
-)
+from fibsem.config import get_last_experiment_file, get_recent_experiments
 from fibsem.ui import utils as fui
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.qt.threading import FunctionWorker
@@ -384,12 +380,11 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
 
     def _select_experiment(self):
         """Open dialog to select an experiment folder."""
-        # Default to last used experiment directory if available
+        # Start in the last experiment used, if it is still there
         default_path = str(cfg.LOG_PATH)
-        prefs = load_user_preferences()
-        last_path = prefs.experiment.last_experiment_path
-        if last_path and os.path.exists(last_path):
-            default_path = last_path
+        last_file = get_last_experiment_file()
+        if last_file is not None:
+            default_path = os.path.dirname(last_file)
 
         experiment_dir = fui.open_existing_directory_dialog(
             msg="Select an experiment folder",

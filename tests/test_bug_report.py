@@ -137,14 +137,16 @@ def test_scrub_text_handles_empty():
     assert bug_report.scrub_text("") == ""
 
 
-def test_reporting_preferences_roundtrip():
-    """Reporting preferences survive a yaml round-trip."""
+def test_the_contact_email_roundtrips():
+    """The contact email survives a yaml round-trip, and an older file's moves over."""
     import fibsem.config as cfg
 
     prefs = cfg.UserPreferences()
-    prefs.reporting.contact_email = "me@example.org"
+    prefs.qt.contact_email = "me@example.org"
     restored = cfg.UserPreferences.from_dict(prefs.to_dict())
-    assert restored.reporting.contact_email == "me@example.org"
+    assert restored.qt.contact_email == "me@example.org"
+    older = {"reporting": {"contact_email": "me@example.org"}}
+    assert cfg.UserPreferences.from_dict(older).qt.contact_email == "me@example.org"
 
 
 def test_a_preferences_file_naming_the_retired_bug_report_flag_still_loads():
@@ -154,8 +156,7 @@ def test_a_preferences_file_naming_the_retired_bug_report_flag_still_loads():
     prefs = cfg.UserPreferences.from_dict(
         {"features": {"bug_report_enabled": True, "scripts_enabled": False}}
     )
-    assert not hasattr(prefs.features, "bug_report_enabled")
-    assert not hasattr(prefs.features, "scripts_enabled")
+    assert prefs == cfg.UserPreferences()
 
 
 @pytest.mark.parametrize(

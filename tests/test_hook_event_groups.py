@@ -141,13 +141,12 @@ def test_a_new_event_joins_its_group_without_touching_any_config(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_the_group_survives_serialization_unexpanded():
-    """The rule the whole issue turns on: store the group, not its expansion. A saved
-    expansion stops covering events added later, which is the drift groups exist to
-    prevent, reintroduced at save time."""
+def test_the_group_is_kept_unexpanded():
+    """Store the group, not its expansion: an expansion stops covering events added
+    later, which is the drift groups exist to prevent."""
     hook = FunctionHook(name="x", events=["any_failure"])
 
-    assert hook.to_dict()["events"] == ["any_failure"]
+    assert hook.events == ["any_failure"]
 
 
 # ---------------------------------------------------------------------------

@@ -50,17 +50,14 @@ def experiment(tmp_path):
 
 
 def test_buttons_wait_for_a_microscope(host):
-    """They used to be shown and greyed out here.
-
-    Neither can do anything without a microscope, and once the header carries a
-    Connect chip a greyed-out pair beside it is the same spent chrome this file
-    removed from the loaded state. Only true with that chip present, which is why
-    the host sets its flag; `test_connection_chip.py` covers the other branch.
-    """
+    """Shown but greyed out: neither can do anything without a microscope, and the
+    Connection tab is where one connects."""
     host.update_experiment_header()
 
-    assert host.btn_create_experiment.isHidden()
-    assert host.btn_load_experiment.isHidden()
+    assert not host.btn_create_experiment.isHidden()
+    assert not host.btn_load_experiment.isHidden()
+    assert not host.btn_create_experiment.isEnabled()
+    assert not host.btn_load_experiment.isEnabled()
     # Nothing to name yet either, so the name button stays out of the way.
     assert host.btn_experiment_menu.isHidden()
 

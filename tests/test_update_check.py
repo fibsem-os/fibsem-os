@@ -33,9 +33,9 @@ def wheel_install(monkeypatch):
 @pytest.fixture
 def update_check_active(monkeypatch, wheel_install):
     """A wheel install whose user has opted in: the check actually runs."""
-    from fibsem.config import ReportingPreferences, UserPreferences
+    from fibsem.config import InstallPreferences, UserPreferences
 
-    prefs = UserPreferences(reporting=ReportingPreferences(update_check_enabled=True))
+    prefs = UserPreferences(install=InstallPreferences(update_check_enabled=True))
     monkeypatch.setattr("fibsem.config.load_user_preferences", lambda: prefs)
 
 
@@ -84,18 +84,18 @@ def test_opt_in_so_disabled_by_default(wheel_install):
 
 
 def test_enabled_once_the_user_opts_in(monkeypatch, wheel_install):
-    from fibsem.config import ReportingPreferences, UserPreferences
+    from fibsem.config import InstallPreferences, UserPreferences
 
-    prefs = UserPreferences(reporting=ReportingPreferences(update_check_enabled=True))
+    prefs = UserPreferences(install=InstallPreferences(update_check_enabled=True))
     monkeypatch.setattr("fibsem.config.load_user_preferences", lambda: prefs)
 
     assert update_check.is_enabled() is True
 
 
 def test_opting_in_does_not_override_source_install_suppression(monkeypatch):
-    from fibsem.config import ReportingPreferences, UserPreferences
+    from fibsem.config import InstallPreferences, UserPreferences
 
-    prefs = UserPreferences(reporting=ReportingPreferences(update_check_enabled=True))
+    prefs = UserPreferences(install=InstallPreferences(update_check_enabled=True))
     monkeypatch.setattr("fibsem.config.load_user_preferences", lambda: prefs)
     monkeypatch.setattr(update_check, "get_revision", lambda: "v0.5.1-48-gabc")
 
@@ -123,11 +123,9 @@ def test_is_supported_is_about_the_install_not_the_preference(monkeypatch):
 
 def test_force_bypasses_the_opt_in_preference(monkeypatch, wheel_install):
     """A user clicking 'check for updates' is consent for that one call."""
-    from fibsem.config import ReportingPreferences, UserPreferences
+    from fibsem.config import InstallPreferences, UserPreferences
 
-    opted_out = UserPreferences(
-        reporting=ReportingPreferences(update_check_enabled=False)
-    )
+    opted_out = UserPreferences(install=InstallPreferences(update_check_enabled=False))
     monkeypatch.setattr("fibsem.config.load_user_preferences", lambda: opted_out)
     monkeypatch.setattr("fibsem.__version__", "0.5.1", raising=False)
     _stub_urlopen(monkeypatch, _pypi_payload("0.5.3"))

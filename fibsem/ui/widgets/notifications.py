@@ -573,7 +573,7 @@ class ToastManager:
         self.toasts: list[ToastNotification] = []
         self.spacing = 10
         self.notification_bell: NotificationBell = None
-        # Only problems pop up (`DisplayPreferences.toast_problems_only`).
+        # Only problems pop up (`QtPreferences.toast_problems_only`).
         self.problems_only = False
         self._last_active: Optional[weakref.ref] = None  # to a QWidget
         app = QApplication.instance()

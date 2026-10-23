@@ -65,7 +65,7 @@ def is_enabled() -> bool:
 
     **Opt-in.** These run on instrument PCs, sometimes on institutional networks
     where an unannounced connection at startup is a compliance question, so the
-    user has to ask for it (``reporting.update_check_enabled``).
+    user has to ask for it (``install.update_check_enabled``).
 
     This governs the background check only. A user-initiated check goes through
     ``refresh(force=True)`` — the click is the consent.
@@ -75,7 +75,7 @@ def is_enabled() -> bool:
     try:
         from fibsem.config import load_user_preferences
 
-        return bool(load_user_preferences().reporting.update_check_enabled)
+        return bool(load_user_preferences().install.update_check_enabled)
     except Exception:
         # Fail closed. An unreadable preferences file must not produce a network
         # call the user never opted into.

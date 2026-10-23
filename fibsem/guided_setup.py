@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from fibsem import config as cfg
 from fibsem.codec.upgrades.configuration import upgrade
+from fibsem.session_state import user_state
 
 logger = logging.getLogger(__name__)
 
@@ -691,11 +692,11 @@ def _save_folder_preferences(choices: SetupChoices, warnings: List[str]) -> bool
     try:
         preferences = cfg.load_user_preferences()
         if choices.experiment_directory:
-            preferences.experiment.default_experiment_directory = (
+            preferences.shared.default_experiment_directory = (
                 choices.experiment_directory
             )
         if choices.protocol_path:
-            preferences.experiment.default_protocol_path = choices.protocol_path
+            preferences.shared.default_protocol_path = choices.protocol_path
         cfg.save_user_preferences(preferences)
         return os.path.exists(cfg.USER_PREFERENCES_PATH)
     except Exception as e:  # pragma: no cover - defensive
@@ -724,11 +725,27 @@ def is_first_run() -> bool:
     return not os.path.exists(cfg.USER_CONFIGURATIONS_PATH)
 
 
+# Its section in the per-account session state.
+GUIDED_SETUP_DISMISSED = "guided_setup_dismissed"
+
+
+def is_offer_dismissed() -> bool:
+    """Whether the offer was waved away.
+
+    Separate from :func:`is_first_run` because they answer different questions --
+    "has anything been configured" and "does this person want to be asked" -- and
+    conflating them is what broke the first attempt.
+    """
+    try:
+        return bool(user_state().load_section(GUIDED_SETUP_DISMISSED, False))
+    except Exception as e:  # pragma: no cover - defensive
+        logger.warning(f"Could not read the guided setup dismissal: {e}")
+        return False
+
+
 def dismiss_first_run() -> None:
     """Record that the offer was seen and declined."""
     try:
-        preferences = cfg.load_user_preferences()
-        preferences.display.guided_setup_dismissed = True
-        cfg.save_user_preferences(preferences)
+        user_state(writable=True).save_section(GUIDED_SETUP_DISMISSED, True)
     except Exception as e:  # pragma: no cover - defensive
         logger.warning(f"Could not record the guided setup dismissal: {e}")
