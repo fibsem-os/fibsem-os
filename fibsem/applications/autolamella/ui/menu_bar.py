@@ -89,8 +89,6 @@ class MainMenuBar(QObject):
         self._view_controller = view_controller
         self._run_border = run_border
         self._show_toast = show_toast
-        # Read once: the File entry and the header chip are both gated on it.
-        self.connection_chip_enabled = preferences.features.connection_chip
         self._create_menu_bar()
         self._create_test_menu()
         self.apply_preferences(preferences)
@@ -152,12 +150,8 @@ class MainMenuBar(QObject):
         self.action_exit = QAction("Exit", self._host)
         self.action_exit.triggered.connect(self._host.close)
 
-        # Behind the same flag as the chip. The action is built either way -- it is
-        # the thing the tab removal will depend on -- but nothing offers it until
-        # the feature is switched on, so a release carrying this changes nothing.
-        if self.connection_chip_enabled:
-            file_menu.addAction(self.action_connect_microscope)
-            file_menu.addSeparator()
+        file_menu.addAction(self.action_connect_microscope)
+        file_menu.addSeparator()
         file_menu.addAction(self.action_new_experiment)
         file_menu.addAction(self.action_load_experiment)
         file_menu.addAction(self.action_open_experiment_directory)
@@ -383,7 +377,7 @@ class MainMenuBar(QObject):
         self.action_print_hello.triggered.connect(lambda: print("Hello"))
         dev_menu.addAction(self.action_print_hello)
 
-        self._action_coincidence_separator = dev_menu.addSeparator()
+        dev_menu.addSeparator()
         self.action_open_coincidence_viewer = QAction(
             "Open Coincidence Milling Viewer", self
         )
@@ -521,21 +515,21 @@ class MainMenuBar(QObject):
         # setting of its own since start-up (the view bars' fields, FIB-1186).
         self.preferences_saved.emit(
             fibsem_cfg.update_user_preferences(
-                lambda p: setattr(p.display, "sound_enabled", checked)
+                lambda p: setattr(p.qt, "sound_enabled", checked)
             )
         )
 
     def _on_toast_problems_toggle(self, checked: bool):
         self.preferences_saved.emit(
             fibsem_cfg.update_user_preferences(
-                lambda p: setattr(p.display, "toast_problems_only", checked)
+                lambda p: setattr(p.qt, "toast_problems_only", checked)
             )
         )
 
     def _on_border_toggle(self, checked: bool):
         self.preferences_saved.emit(
             fibsem_cfg.update_user_preferences(
-                lambda p: setattr(p.display, "border_enabled", checked)
+                lambda p: setattr(p.qt, "border_enabled", checked)
             )
         )
 
@@ -555,17 +549,13 @@ class MainMenuBar(QObject):
             self.preferences_saved.emit(preferences)
 
     def apply_preferences(self, preferences) -> None:
-        """The toggles, the dev and test menus and the coincidence viewer entry
-        follow *preferences*."""
-        d = preferences.display
+        """The toggles and the dev and test menus follow *preferences*."""
+        d = preferences.qt
         self.action_sound_toggle.setChecked(d.sound_enabled)
         self.action_border_toggle.setChecked(d.border_enabled)
         self.action_toast_problems_only.setChecked(d.toast_problems_only)
         self._dev_menu.menuAction().setVisible(d.dev_mode)
         self._test_menu.menuAction().setVisible(d.dev_mode)
-        coincidence_enabled = preferences.features.coincidence_milling_enabled
-        self.action_open_coincidence_viewer.setVisible(coincidence_enabled)
-        self._action_coincidence_separator.setVisible(coincidence_enabled)
 
     #### USER SCRIPTS (FIB-338)
 

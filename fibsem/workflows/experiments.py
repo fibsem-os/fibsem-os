@@ -47,7 +47,7 @@ DEFAULT_MAX_DEPTH = 3
 def default_experiment_directory() -> str:
     """Where a new experiment goes: the preference when it names a folder that
     exists, else the AutoLamella log folder (the Create dialog's default)."""
-    preferred = load_user_preferences().experiment.default_experiment_directory
+    preferred = load_user_preferences().shared.default_experiment_directory
     if preferred and os.path.isdir(preferred):
         return str(preferred)
     if preferred:

@@ -21,7 +21,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List
 
-import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella.hook_defaults import build_hook_manager
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.hooks import HookManager
@@ -158,16 +157,8 @@ def make_lamella_manager(
 
 
 def lamella_run_hooks() -> HookManager:
-    """The hooks for one run.
-
-    Built per run, not once at startup, so a user's saved configuration takes
-    effect on the next run without a restart, and the config dialog can never
-    be editing a manager a running workflow is holding (FIB-497). The hook set
-    comes from the user's saved configuration when there is one, and from
-    hook_defaults.default_hooks() when there is not; re-read each time, so
-    editing user-preferences.yaml by hand takes effect on the next run.
-    """
-    manager = build_hook_manager(fibsem_cfg.load_user_preferences().hooks)
+    """The hooks for one run, built per run so no two runs share a notifier."""
+    manager = build_hook_manager()
 
     # Deliberately not registered yet. The trigger is proven end to end and the
     # writer is tested, but completion-summary.json is a placeholder for the real

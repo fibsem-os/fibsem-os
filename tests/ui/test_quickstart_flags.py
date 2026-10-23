@@ -58,10 +58,7 @@ def make_experiment(path: Path, name: str, with_protocol: bool = True) -> Experi
 
 def remember(experiment: Experiment) -> None:
     """Record an experiment the way the create and load dialogs do."""
-    prefs = cfg.load_user_preferences()
-    prefs.experiment.last_experiment_path = str(experiment.path)
-    cfg.add_recent_experiment(prefs, os.path.join(experiment.path, "experiment.yaml"))
-    cfg.save_user_preferences(prefs)
+    cfg.record_recent_experiment(os.path.join(experiment.path, "experiment.yaml"))
 
 
 @pytest.fixture

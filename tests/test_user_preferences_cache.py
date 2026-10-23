@@ -35,35 +35,35 @@ def test_an_unchanged_file_is_parsed_once(prefs_path, monkeypatch):
     first = cfg.load_user_preferences()
     second = cfg.load_user_preferences()
 
-    assert first.experiment.user == second.experiment.user == "someone"
+    assert first.shared.user == second.shared.user == "someone"
     assert len(calls) == 1
 
 
 def test_each_call_gets_its_own_copy(prefs_path):
     prefs_path.write_text(yaml.safe_dump({"experiment": {"user": "someone"}}))
 
-    cfg.load_user_preferences().experiment.user = "changed but not saved"
+    cfg.load_user_preferences().shared.user = "changed but not saved"
 
-    assert cfg.load_user_preferences().experiment.user == "someone"
+    assert cfg.load_user_preferences().shared.user == "someone"
 
 
 def test_a_save_is_seen_by_the_next_load(prefs_path):
     preferences = cfg.load_user_preferences()
-    preferences.experiment.user = "saved"
+    preferences.shared.user = "saved"
     cfg.save_user_preferences(preferences)
 
-    assert cfg.load_user_preferences().experiment.user == "saved"
+    assert cfg.load_user_preferences().shared.user == "saved"
 
 
 def test_an_edit_from_outside_is_seen(prefs_path):
     prefs_path.write_text(yaml.safe_dump({"experiment": {"user": "before"}}))
-    assert cfg.load_user_preferences().experiment.user == "before"
+    assert cfg.load_user_preferences().shared.user == "before"
 
     prefs_path.write_text(yaml.safe_dump({"experiment": {"user": "after, longer"}}))
     stat = os.stat(prefs_path)
     os.utime(prefs_path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000))
 
-    assert cfg.load_user_preferences().experiment.user == "after, longer"
+    assert cfg.load_user_preferences().shared.user == "after, longer"
 
 
 def test_a_missing_file_reads_as_defaults(prefs_path):

@@ -154,13 +154,12 @@ def test_resolve_does_not_repeat_an_event_named_twice():
     assert resolved == ["task_failed", "workflow_failed"]
 
 
-def test_the_group_survives_serialization_unexpanded():
-    """The rule the whole issue turns on: store the group, not its expansion. A saved
-    expansion stops covering events added later, which is the drift groups exist to
-    prevent, reintroduced at save time."""
+def test_the_group_is_kept_unexpanded():
+    """Store the group, not its expansion: an expansion stops covering events added
+    later, which is the drift groups exist to prevent."""
     hook = FunctionHook(name="x", events=["any_failure"])
 
-    assert hook.to_dict()["events"] == ["any_failure"]
+    assert hook.events == ["any_failure"]
 
 
 # ---------------------------------------------------------------------------

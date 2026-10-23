@@ -26,7 +26,7 @@ from fibsem.workflows import protocol_files
 def default_protocol_path() -> str:
     """The protocol a new experiment starts with: the preference when the file
     exists, else the shipped task protocol."""
-    preferred = load_user_preferences().experiment.default_protocol_path
+    preferred = load_user_preferences().shared.default_protocol_path
     if preferred and os.path.isfile(preferred):
         return str(preferred)
     if preferred:

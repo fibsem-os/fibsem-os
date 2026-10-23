@@ -1,7 +1,7 @@
 """Embedded hosting: the App Server running inside an application's process.
 
 This is the piece that turns the factory into the app's public interface: when
-a microscope connects (and the App Server preference, ``app_server.enabled``, is on), the
+a microscope connects (and the App Server preference, ``install.app_server.enabled``, is on), the
 app's session builds ``build_server(microscope, app_context=...)`` and runs it on a
 daemon thread. One process, one microscope connection, one commander — the whole
 reason embedded hosting exists. The microscope, the event stream
@@ -225,12 +225,12 @@ class AppServerHost:
 
         def save(on: bool) -> None:
             config.update_user_preferences(
-                lambda p: setattr(p.app_server, "allow_local_agents", on)
+                lambda p: setattr(p.install.app_server, "allow_local_agents", on)
             )
 
         connections = Connections(
             self.auth.pairing.tokens,
-            always_allow=config.load_user_preferences().app_server.allow_local_agents,
+            always_allow=config.load_user_preferences().install.app_server.allow_local_agents,
             save_always_allow=save,
         )
 

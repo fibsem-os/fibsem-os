@@ -6,11 +6,7 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, List, Optional
 
-from fibsem.config import (
-    add_recent_experiment,
-    load_user_preferences,
-    save_user_preferences,
-)
+from fibsem.config import record_recent_experiment
 from fibsem.workflows.experiment import EXPERIMENT_FILENAME
 from fibsem.workflows.session import PROTOCOL
 
@@ -59,10 +55,7 @@ def protocol_file_for(folder: str, name: str) -> str:
 
 def record_recent(experiment) -> None:
     """Make *experiment* the last one used, at the top of the recents."""
-    prefs = load_user_preferences()
-    prefs.experiment.last_experiment_path = str(experiment.path)
-    add_recent_experiment(prefs, os.path.join(experiment.path, EXPERIMENT_FILENAME))
-    save_user_preferences(prefs)
+    record_recent_experiment(os.path.join(experiment.path, EXPERIMENT_FILENAME))
 
 
 def adopt_protocol(session, protocol) -> None:

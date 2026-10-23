@@ -99,7 +99,7 @@ class BugReportDialog(QDialog):
         self.lineEdit_email = QLineEdit()
         self.lineEdit_email.setPlaceholderText("you@example.com (optional)")
         prefs = fibsem_cfg.load_user_preferences()
-        self.lineEdit_email.setText(getattr(prefs.reporting, "contact_email", ""))
+        self.lineEdit_email.setText(prefs.qt.contact_email)
 
         self.textEdit_description = QTextEdit()
         self.textEdit_description.setPlaceholderText("What happened?")
@@ -258,7 +258,7 @@ class BugReportDialog(QDialog):
         """Remember the contact email for next time."""
         try:
             prefs = fibsem_cfg.load_user_preferences()
-            prefs.reporting.contact_email = content.contact_email
+            prefs.qt.contact_email = content.contact_email
             fibsem_cfg.save_user_preferences(prefs)
         except Exception as e:
             logging.debug("Could not persist contact email: %s", e)

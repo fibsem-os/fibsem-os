@@ -1,31 +1,25 @@
-"""AutoLamella's default hook set, expressed as data rather than as UI code.
+"""AutoLamella's hook set.
 
-Deliberately outside the UI package and free of Qt, so the same hooks a GUI run gets
-can be built headlessly, and so the defaults can be serialized and compared against a
-user's saved configuration without a QApplication.
-
-First step of FIB-497: before a user can override the defaults, the defaults have to
-be something you can round-trip through YAML and diff. They were previously four
-`manager.register(...)` calls inlined in the window's run set-up, reachable only
-by reading the source.
+Outside the UI package and free of Qt, so a headless run gets the same hooks a GUI
+run does. Not a user setting: which run events reach a person is the notifications
+design's question, not a hooks list in the preferences file.
 """
 
-import logging
-from typing import List, Optional
+from typing import List
 
 from fibsem.hooks import Hook, HookEvent, HookManager, LoggingHook, NotificationHook
 
 
 def default_hooks() -> List[Hook]:
-    """The hooks AutoLamella registers when the user has not configured any.
+    """The hooks every AutoLamella run registers.
 
     Returns **fresh instances on every call**, deliberately. `HookManager.set_notifier`
     injects a callable into each `NotificationHook`, so a shared module-level list
     would leak one run's notifier into the next. `lamella_run_hooks()` runs once per workflow run.
 
-    Every hook here must be a type in `HOOK_TYPES`. `HookManager.to_dict` silently
-    drops anything that is not, so a `FunctionHook` default would vanish the first time
-    a user saved their configuration. Pinned by a test.
+    No toast for a task that completes: one per lamella per task is noise, and the
+    events page and the record carry every one. Failures and cancellations are
+    problems, so they pop up.
     """
     return [
         LoggingHook(
@@ -36,12 +30,6 @@ def default_hooks() -> List[Hook]:
                 HookEvent.TASK_FAILED,
                 HookEvent.TASK_CANCELLED,
             ],
-        ),
-        NotificationHook(
-            name="completion_toast",
-            events=[HookEvent.TASK_COMPLETED],
-            notification_type="success",
-            message_template="Task {task_name} complete for {item_name}",
         ),
         NotificationHook(
             name="failure_toast",
@@ -64,39 +52,9 @@ def default_hooks() -> List[Hook]:
     ]
 
 
-def build_hook_manager(configured: Optional[List[dict]]) -> HookManager:
-    """Build the manager for a run from a user's saved hooks, or from the defaults.
-
-    ``configured`` is ``UserPreferences.hooks``. The three states are distinct:
-
-    * ``None`` -- never configured. Use the defaults, and note they are *not* written
-      to disk on first run: materialising them would freeze every user who never opens
-      the dialog on this version's defaults forever, so improving them later would
-      reach nobody.
-    * a list -- **replaces** the defaults rather than merging with them. Someone who
-      deleted the failure toast must get no failure toast; merging would put it back.
-    * ``[]`` -- everything turned off. A real answer, not an empty file.
-
-    A configuration that cannot be read falls back to the defaults with a warning
-    rather than raising: a bad hooks section must not stop the application starting,
-    and running with no notifications at all is worse than running with the standard
-    ones. The whole section falls back rather than the offending entry, so the warning
-    describes something a user can actually find and fix.
-    """
-    if configured is None:
-        manager = HookManager()
-        for hook in default_hooks():
-            manager.register(hook)
-        return manager
-
-    try:
-        return HookManager.from_dict({"hooks": configured})
-    except Exception:
-        logging.exception(
-            "Could not build hooks from your saved configuration; falling back to the "
-            "defaults. Fix or remove the 'hooks' section of user-preferences.yaml."
-        )
-        manager = HookManager()
-        for hook in default_hooks():
-            manager.register(hook)
-        return manager
+def build_hook_manager() -> HookManager:
+    """A manager holding the default hooks, for one run."""
+    manager = HookManager()
+    for hook in default_hooks():
+        manager.register(hook)
+    return manager

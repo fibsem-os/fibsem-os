@@ -79,7 +79,7 @@ class AppWindow(QMainWindow):
 
         self.toast_manager = ToastManager(self)
         self._preferences = fibsem_cfg.load_user_preferences()
-        self.run_border.set_on(self._preferences.display.border_enabled)
+        self.run_border.set_on(self._preferences.qt.border_enabled)
 
     def app_context(self, event_buffer) -> "AppContext":
         """What the App Server serves over this window's session."""
@@ -204,7 +204,7 @@ class AppWindow(QMainWindow):
         The agent starts at Watch; never raises — an optional observer
         must not be able to take the session down (see fibsem/server/hosting.py).
         """
-        preference = fibsem_cfg.load_user_preferences().app_server
+        preference = fibsem_cfg.load_user_preferences().install.app_server
         if preference.enabled:
             if self.session.serve_microscope is None:
                 # the operator's choice in Tools → App Server is per session,
@@ -221,7 +221,7 @@ class AppWindow(QMainWindow):
         picks the preference up as before.
         """
         host = self.session.app_server
-        preference = fibsem_cfg.load_user_preferences().app_server
+        preference = fibsem_cfg.load_user_preferences().install.app_server
         if preference.enabled:
             if self.microscope is not None and (host is None or not host.running):
                 self._start_app_server()
@@ -252,7 +252,7 @@ class AppWindow(QMainWindow):
             AppServerDialog,
         )
 
-        preference = fibsem_cfg.load_user_preferences().app_server
+        preference = fibsem_cfg.load_user_preferences().install.app_server
         dialog = AppServerDialog(
             host_provider=lambda: self.session.app_server,
             parent=self,
@@ -266,7 +266,7 @@ class AppWindow(QMainWindow):
     def _set_app_server_enabled(self, enabled: bool) -> None:
         """Tools → App Server: save whether the server runs, and act on it now."""
         self._preferences = fibsem_cfg.update_user_preferences(
-            lambda p: setattr(p.app_server, "enabled", bool(enabled))
+            lambda p: setattr(p.install.app_server, "enabled", bool(enabled))
         )
         self.sync_app_server_with_preference()
 
@@ -274,7 +274,7 @@ class AppWindow(QMainWindow):
         """Tools → App Server: save whether the microscope is served, and act on it
         now (a running server restarts)."""
         self._preferences = fibsem_cfg.update_user_preferences(
-            lambda p: setattr(p.app_server, "microscope", bool(serve))
+            lambda p: setattr(p.install.app_server, "microscope", bool(serve))
         )
         self.set_app_server_microscope(serve)
 

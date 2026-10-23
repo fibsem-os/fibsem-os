@@ -461,7 +461,7 @@ def test_apply_setup_writes_registers_and_defaults(isolated_registry):
     assert cfg.USER_CONFIGURATIONS_YAML["default"] == result.configuration_name
 
     preferences = cfg.load_user_preferences()
-    assert preferences.experiment.default_experiment_directory == str(
+    assert preferences.shared.default_experiment_directory == str(
         isolated_registry / "experiments"
     )
 
@@ -508,7 +508,7 @@ def test_the_two_folder_answers_do_not_touch_each_other(isolated_registry, tmp_p
     )
 
     assert os.path.dirname(result.path) == str(configurations)
-    saved = cfg.load_user_preferences().experiment.default_experiment_directory
+    saved = cfg.load_user_preferences().shared.default_experiment_directory
     assert saved == str(experiments)
     assert saved != os.path.dirname(result.path)
 
@@ -592,7 +592,7 @@ def test_writing_preferences_does_not_end_the_first_run(isolated_registry):
     assert wizard.is_first_run()
 
     preferences = cfg.load_user_preferences()
-    preferences.display.sound_enabled = True
+    preferences.qt.sound_enabled = True
     cfg.save_user_preferences(preferences)
 
     assert os.path.exists(cfg.USER_PREFERENCES_PATH)
@@ -626,12 +626,12 @@ def test_dismissal_is_recorded_without_faking_a_configuration(isolated_registry)
 def test_dismissal_keeps_the_preferences_that_were_already_there(isolated_registry):
     """It records that the offer was declined; it is not a reset."""
     preferences = cfg.load_user_preferences()
-    preferences.experiment.user = "someone"
+    preferences.shared.user = "someone"
     cfg.save_user_preferences(preferences)
 
     wizard.dismiss_first_run()
-    assert cfg.load_user_preferences().experiment.user == "someone"
-    assert cfg.load_user_preferences().display.guided_setup_dismissed
+    assert cfg.load_user_preferences().shared.user == "someone"
+    assert wizard.is_offer_dismissed()
 
 
 def test_the_manufacturers_come_from_the_driver_registry(monkeypatch):

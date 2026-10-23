@@ -39,10 +39,10 @@ def _pretend_wheel_install(stack: ExitStack, version: str = FAKE_INSTALLED_VERSI
     opt-in even for wheel installs, so a default preferences file disables it.
     """
     import fibsem
-    from fibsem.config import ReportingPreferences, UserPreferences
+    from fibsem.config import InstallPreferences, UserPreferences
 
     opted_in = UserPreferences(
-        reporting=ReportingPreferences(update_check_enabled=True)
+        install=InstallPreferences(update_check_enabled=True)
     )
     stack.enter_context(patch("fibsem.update_check.get_revision", lambda: None))
     stack.enter_context(patch.object(fibsem, "__version__", version))
