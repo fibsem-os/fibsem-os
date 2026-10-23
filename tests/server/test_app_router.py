@@ -638,25 +638,40 @@ def test_agent_notes_land_on_the_record(microscope, host, event_buffer):
         empty = client.post("/app/experiment/notes", headers=AUTH, json={"text": "   "})
         assert empty.status_code == 422
 
-        # Its answer to the operator's message names the message (FIB-1423).
+        # Its message to the operator, or its answer to theirs (FIB-1423).
+        told = client.post(
+            "/app/experiment/messages",
+            headers=AUTH,
+            json={"text": "the ion column reports a hardware error", "item_name": item},
+        )
+        assert told.status_code == 200 and told.json()["recorded"] is True
+        events = client.get("/app/events?since=0", headers=AUTH).json()["events"]
+        message = [e for e in events if e["kind"] == "note"][-1]["payload"]
+        assert message["to"] == "operator" and message["id"] == told.json()["id"]
+        assert message["item_name"] == item and "reply_to" not in message
         reply = client.post(
-            "/app/experiment/notes",
+            "/app/experiment/messages",
             headers=AUTH,
             json={"text": "skipping 03", "reply_to": "ab12"},
         )
         assert reply.status_code == 200
         events = client.get("/app/events?since=0", headers=AUTH).json()["events"]
-        note = [e for e in events if e["kind"] == "note"][-1]
-        assert note["payload"]["reply_to"] == "ab12"
+        assert [e for e in events if e["kind"] == "note"][-1]["payload"][
+            "reply_to"
+        ] == "ab12"
         bad = client.post(
-            "/app/experiment/notes", headers=AUTH, json={"text": "x", "reply_to": 3}
+            "/app/experiment/messages", headers=AUTH, json={"text": "x", "reply_to": 3}
         )
         assert bad.status_code == 422
+        # A note tells nobody: it is for the record.
+        assert "to" not in note["payload"]
 
 
 def test_agent_notes_need_only_the_read_scope(client):
     # A watching agent notes what it sees (FIB-1035); a note changes nothing.
     resp = client.post("/app/experiment/notes", headers=AUTH, json={"text": "x"})
+    assert resp.status_code == 200
+    resp = client.post("/app/experiment/messages", headers=AUTH, json={"text": "x"})
     assert resp.status_code == 200
 
 

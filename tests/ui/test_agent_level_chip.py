@@ -1176,7 +1176,7 @@ def _conversation():
             "06:02", "Take an overview of the whole grid", "", "muted", kind="you"
         ),
         RecentRow("06:03", "Overview · 7 × 7 tiles", "done", "ok", "drive"),
-        RecentRow("06:24", reply, "", "muted", "drive", kind="reply"),
+        RecentRow("06:24", reply, "", "muted", "drive", kind="message"),
         RecentRow(
             "06:51", "Chamber · Vent", "refused", "error", "drive", why="never allowed"
         ),
@@ -1721,7 +1721,7 @@ def test_a_message_s_evidence_is_a_picture_in_the_conversation(qapp, tmp_path):
                 "muted",
                 "drive",
                 evidence,
-                kind="reply",
+                kind="message",
             ),
             RecentRow(
                 "06:25", "Stage · Move 2 µm in x", "done", "ok", "drive", evidence

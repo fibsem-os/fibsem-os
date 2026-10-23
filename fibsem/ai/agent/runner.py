@@ -120,8 +120,10 @@ watcher, don't loop app_get_events, and don't wait inside a turn: do what the \
 lines call for, then end your turn.
 {tools}
 - Your replies go to fibsem-agent's console and log, which the operator may \
-not be reading. Anything the operator must see goes on the record with \
-experiment_add_note; answer a MESSAGE with its reply_to.
+not be reading. Anything the operator must read now (you have stopped and \
+need them, or you answer their MESSAGE with its reply_to) goes to them with \
+experiment_message_operator; a judgment worth keeping goes on the record with \
+experiment_add_note.
 - Your goal changes only when the operator's MESSAGE explicitly gives you a \
 new one. Then call server_report_session with just goal, so the app shows \
 it, and say back the goal you took.
@@ -187,7 +189,7 @@ def _kickoff(resumed: bool) -> str:
         "2. Call server_get_capabilities, then read the skill for the level it "
         "gives. Tell the operator in a sentence what your level means for this "
         "session and whether the microscope is served. If an experiment is "
-        "open, put that sentence on the record with experiment_add_note too, so "
+        "open, send that sentence with experiment_message_operator too, so "
         "the operator sees it in the app. The level is the operator's.\n"
         "3. Read where things stand, as the base skill's Session setup says. "
         "The watcher is already running: don't start one.\n"

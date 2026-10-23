@@ -452,7 +452,7 @@ def test_a_message_is_heard_only_while_something_records(session, microscope):
     session.start_recording()
     message_id = session.agent.message("hold on")
     assert _kinds(session, "note") == [
-        ({"text": "hold on", "id": message_id}, "operator")
+        ({"text": "hold on", "to": "agent", "id": message_id}, "operator")
     ]
 
 

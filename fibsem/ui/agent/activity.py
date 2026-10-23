@@ -11,6 +11,8 @@ and this follows it:
   would bury the window during a session. A long command the agent started (a
   mill, an FM overview) gets its end toast when its run ends, from the record,
   whether or not it held control to the end;
+* the agent's message to the operator gets a toast, kept in the bell; its notes
+  get none;
 * the patterns the agent draws for a mill are drawn on the FIB view, labelled
   "Agent" in the agent's purple, until they are removed (the run ends, or the next setup). The milling
   service announces what is drawn (``patterns_changed``); they are the agent's
@@ -43,6 +45,7 @@ from fibsem.structures import BeamType
 from fibsem.ui import notification_service
 from fibsem.ui.tokens import PURPLE_COLOR
 from fibsem.util.durations import format_duration_rounded
+from fibsem.workflows.actions import NOTE, is_message
 
 if TYPE_CHECKING:
     from fibsem.control import InControl
@@ -55,6 +58,9 @@ ANNOUNCE_MS = 3000
 # How close together two ends of one action are the same end: its control let
 # go and its run's ``command_ended``.
 SAME_END_S = 5.0
+
+# The most of an agent's message the toast shows; the card has all of it.
+MESSAGE_CHARS = 200
 
 # How a long command's run ended, in the toast.
 _ENDED = {"done": "finished", "failed": "failed", "cancelled": "was stopped"}
@@ -165,6 +171,19 @@ class AgentActivity(QObject):
             self.recent_changed.emit(self._recent.rows)
         if fresh and record.get("kind") == "command_ended":
             self._command_ended(record)
+        if fresh and record.get("kind") == NOTE and record.get("actor") == AGENT:
+            self._agent_message(record)
+
+    def _agent_message(self, record: dict) -> None:
+        """The agent's message to the operator: a toast, kept in the bell,
+        even with toasts for problems only. A note tells nobody."""
+        p = record.get("payload") or {}
+        if not is_message(record):
+            return
+        text = " ".join(str(p.get("text", "")).split())
+        if len(text) > MESSAGE_CHARS:
+            text = text[: MESSAGE_CHARS - 1] + "…"
+        notification_service.show(f"Agent: {text}", "info", always=True)
 
     def _command_ended(self, record: dict) -> None:
         """The agent's long command ended: say so, once."""

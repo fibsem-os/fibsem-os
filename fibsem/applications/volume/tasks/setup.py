@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import ClassVar, Optional
 
 from fibsem.applications.volume.position import SEM_POSE
-from fibsem.applications.volume.tasks.base import VolumeTask
+from fibsem.applications.volume.tasks.base import VolumeTask, placed
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning.patterns import FiducialPattern, RectanglePattern
 from fibsem.milling.tasks import FibsemMillingTaskConfig
@@ -164,10 +164,7 @@ class VolumeSetupMillingTask(VolumeTask):
     def _mill_at(
         self, milling: FibsemMillingTaskConfig, poi: Optional[Point], msg: str
     ) -> None:
-        config = deepcopy(milling)
-        if poi is not None:
-            for stage in config.stages:
-                stage.pattern.point = deepcopy(poi)
+        config = placed(milling, poi)
         config.acquisition.imaging.path = self.output_dir
         self.update_milling_config_ui(config, msg=msg)
 

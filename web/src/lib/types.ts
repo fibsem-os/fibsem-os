@@ -186,7 +186,7 @@ export interface RecentRow {
   level: string;
   evidence: Evidence | null;
   why: string;
-  kind: "you" | "reply" | "note" | "action";
+  kind: "you" | "message" | "note" | "action";
   /** When, as an ISO time with its offset. */
   at: string;
 }

@@ -284,7 +284,10 @@ export function ImageViewer({ paths, at, onClose }: { paths: string[]; at: numbe
             e.preventDefault();
           }}
         >
-          <div className="flex min-h-[240px] items-center justify-center self-start bg-black p-2">
+          <div className="relative flex min-h-[240px] items-center justify-center self-start bg-black p-2">
+            {shown && (!p || read.isPlaceholderData) && (
+              <span className="absolute top-3 left-3 z-10 bg-black/70 px-2 py-0.5 text-[12px] text-white">Reading…</span>
+            )}
             {shown ? (
               <div
                 className={cn("relative", marking && "outline outline-1 outline-[#50a6ff]")}
@@ -294,7 +297,7 @@ export function ImageViewer({ paths, at, onClose }: { paths: string[]; at: numbe
                 }}
               >
                 <img
-                  className={cn("absolute inset-0 block h-full w-full", !p && "opacity-50")}
+                  className={cn("absolute inset-0 block h-full w-full", (!p || read.isPlaceholderData) && "opacity-50")}
                   alt={name}
                   src={`data:image/jpeg;base64,${shown.image_b64_jpeg}`}
                 />

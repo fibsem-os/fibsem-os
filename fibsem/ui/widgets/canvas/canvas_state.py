@@ -51,6 +51,8 @@ class MillingSpec(OverlaySpec):
     dashed: bool = False
     # Where the stage legend goes (a matplotlib legend loc).
     legend_loc: str = "upper right"
+    # A stage's own style by index ("filled", "outline", "dashed"), over the above.
+    stage_styles: Sequence[str] = ()
 
 
 @dataclass
