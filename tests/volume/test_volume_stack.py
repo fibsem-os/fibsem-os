@@ -59,7 +59,6 @@ def test_the_slices_are_one_stack_in_iteration_order(agent, sliced):
         agent.get("/app/experiment/items/aspen/stack", params={"role": "slice"})
     )
 
-    assert stack["available"] is True
     assert stack["role"] == "slice"
     slices = stack["slices"]
     assert [s["iteration"] for s in slices] == [0, 1, 2]
@@ -97,23 +96,20 @@ def test_a_slice_is_served_at_the_width_asked_for(agent, sliced):
     assert len(small.content) < len(full.content)
 
 
-def test_an_unknown_position_or_role_reads_as_nothing_there(agent, sliced):
-    missing = _ok(
-        agent.get("/app/experiment/items/oak/stack", params={"role": "slice"})
-    )
-    assert missing["available"] is False
-    assert missing["item_names"] == ["aspen"]
+def test_an_unknown_position_is_refused_and_an_unknown_role_is_empty(agent, sliced):
+    missing = agent.get("/app/experiment/items/oak/stack", params={"role": "slice"})
+    assert missing.status_code == 404
+    assert missing.json()["detail"]["item_names"] == ["aspen"]
 
     other = _ok(
         agent.get("/app/experiment/items/aspen/stack", params={"role": "other"})
     )
-    assert other["available"] is True and other["slices"] == []
+    assert other["slices"] == []
 
 
 def test_a_position_has_a_history_like_any_item(agent, sliced):
     history = _ok(agent.get("/app/experiment/items/aspen/history"))
 
-    assert history["available"] is True
     assert history["total"] == 6
     assert history["tasks"] == [MILL, IMAGE]
     imaged = [run for run in history["runs"] if run["task_name"] == IMAGE]
