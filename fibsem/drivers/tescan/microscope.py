@@ -380,6 +380,7 @@ class TescanMicroscope(FibsemMicroscope):
 
         self.spot_burn = bind_tescan_spot_burn(self)
 
+    @property
     def stage_frame(self) -> str:
         """fibsem's frame through the stage device; Tescan's own without one."""
         return self.stage.frame if self.stage is not None else STAGE_FRAME_TESCAN
