@@ -55,11 +55,12 @@ CATALOG: Tuple[ToolSpec, ...] = (
 # (tests/server/test_catalog_discovery.py). A new route fails that test until
 # someone decides. Path parameter names don't matter.
 NOT_TOOLS: Dict[str, str] = {
+    "GET /app/experiment/replay": "The web page's replay timeline; app_get_events and item_get_history give the agent the same record.",
+    "GET /app/experiment/replay/{index}": "The web page's replay scene, images and overlays at one recorded action; the agent reads the record and images directly.",
     "GET /health": "Open liveness check, no token; the agent's first read is server_get_capabilities.",
     "GET /app/agent/session": "The agent's own report, read back by the app and the dashboard; the agent knows what it reported.",
     "GET /app/agent/transcript": "What fibsem-agent printed, read back by the web page; the agent has its own context.",
     "POST /app/agent/transcript": "fibsem-agent's runner sends what it printed; not the agent's to call.",
-    "GET /dashboard/log": "The operator's event log page, HTML; app_get_events is the agent's read.",
     "GET /chat": "A redirect to the web app's Agent page, GET /ui/agent.",
     "GET /ui": "The operator's web app, HTML; it calls the operator's routes.",
     "GET /ui/{}": "The web app's pages and assets, served like GET /ui.",
@@ -74,7 +75,7 @@ NOT_TOOLS: Dict[str, str] = {
     "PATCH /pairing/computers/{computer_id}": "The operator sets what a paired hub may do (operator token only).",
     "PUT /pairing/always_allow_local": "The operator's setting to allow agents logged in to this PC without a click (operator token only).",
     "POST /app/experiment/evidence": "Every acting tool's evidence argument: the sidecar keeps it here first, then the call cites it.",
-    "GET /app/events/history": "The event log page's read of the run before the live buffer; an agent reads a finished run from its experiment folder.",
+    "GET /app/events/history": "The web Events page's read of the run before the live buffer; an agent reads a finished run from its experiment folder.",
     "GET /microscope/devices/{device}": "device_list carries every device's description.",
     "GET /microscope/devices/{device}/{parameter}/metadata": "device_list carries limits, choices and settable.",
     "GET /microscope/services/{service}": "service_list carries every service's description.",

@@ -54,22 +54,9 @@ from PyQt5.QtWidgets import (
 )
 from superqt import ensure_main_thread
 
-from fibsem.fm.progress import (
-    FluorescenceAcquisitionProgress,
-    FluorescenceAcquisitionStatus,
-)
-from fibsem.imaging.spot import SpotBurnProgress, SpotBurnStatus
-from fibsem.imaging.tiling.progress import (
-    MODALITY_FLUORESCENCE,
-    TiledProgress,
-    TiledStatus,
-)
-from fibsem.milling.progress import (
-    AgentMillOwner,
-    MillingMessageTracker,
-    MillingProgress,
-    MillingProgressStatus,
-)
+from fibsem.fm.progress import FluorescenceAcquisitionProgress
+from fibsem.imaging.spot import SpotBurnProgress
+from fibsem.imaging.tiling.progress import TiledProgress
 from fibsem.ui.stylesheets import SECONDARY_BUTTON_STYLESHEET, STATUS_BAR_STYLESHEET
 from fibsem.ui.tokens import (
     ACCENT_COLOR,
@@ -81,6 +68,13 @@ from fibsem.ui.tokens import (
 )
 from fibsem.ui.widgets.custom_widgets import ElidedLabel
 from fibsem.util.durations import format_duration_rounded
+from fibsem.workflows.progress_line import (
+    FM_STALE_S,
+    OUTCOME_S,
+    ProgressLine,
+    ProgressReader,
+    progress_sources,
+)
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
@@ -95,29 +89,11 @@ _STEP_STYLE = _LABEL.format(color=TEXT_COLOR, extra="")
 _MUTED_STYLE = _LABEL.format(color=TEXT_MUTED_COLOR, extra="")
 _FAILED_STYLE = _LABEL.format(color=ERROR_COLOR, extra="")
 
-# How long an outcome ("done", "cancelled", a failure) stays before the line goes back.
-OUTCOME_MS = 2000
+# How long an outcome stays, and a fluorescence line outlives its last report
+# (`fibsem.workflows.progress_line`), as the line's timers count them.
+OUTCOME_MS = int(OUTCOME_S * 1000)
+FM_STALE_MS = int(FM_STALE_S * 1000)
 
-# How long a fluorescence acquisition's line outlives its last report. Only
-# `acquire_image` says FINISHED; the autofocus sweep and the device's own z-stack
-# stop without a word, and their line would otherwise stay for the session (the
-# FIB-374 failure). Every routine reports at least once per plane or step, well
-# inside this.
-FM_STALE_MS = 3000
-
-# What the line calls each state of a tiled run, under "FIB/SEM overview" or
-# "Fluorescence overview": what kind of thing is happening, read at a glance from
-# another tab, rather than the producer's own wording. Moved here from the main
-# window, which drew them in its own progress widget.
-_TILE_STEPS = {
-    TiledStatus.STARTING: "collecting tiles",
-    TiledStatus.MOVING: "moving stage",
-    TiledStatus.TILE_STARTED: "collecting tiles",
-    TiledStatus.TILE_COLLECTED: "collecting tiles",
-    TiledStatus.TILES_ACQUIRED: "collecting tiles",
-    TiledStatus.STITCHING: "stitching tiles",
-    TiledStatus.SAVING: "saving overview",
-}
 # Thin, rounded, no text inside: the numbers sit beside it, so nothing is clipped in a
 # 6 px bar. Blue, as the views' MOVING and ACQUIRING chips are: green in this app says
 # OK, automated, supervised.
@@ -233,32 +209,19 @@ class FibsemStatusBar(QStatusBar):
         self._agent_clock.setInterval(1000)
         self._agent_clock.timeout.connect(self._render)
         self._microscope: Optional["FibsemMicroscope"] = None
-        # A delegating strategy names itself once and the backend's ticks carry no
-        # words; this keeps the strategy's (FIB-797).
-        self._milling_label = MillingMessageTracker()
-        # The milling run the reports belong to, and its name when it is the
-        # agent's own mill outside any task: the line is the agent's, not the run's
-        # current task, to its end (FIB-1401).
-        self._mill_owner = AgentMillOwner()
-        # The mill's step ("stage 2 of 3") on its own, for a tick to keep: the
-        # line's step may carry the agent's mill name before it (FIB-1413).
-        self._mill_step: Optional[str] = None
-        # A tiled run's last count, kept while a state without one (a stage move, the
-        # stitch) changes the words: the bar must not snap back to nothing.
-        self._tile_count: Optional[Tuple[float, str]] = None
+        # Each source's reports, read into lines (`ProgressReader`).
+        self._reader = ProgressReader()
         self._outcome_timer = QTimer(self)
         self._outcome_timer.setSingleShot(True)
         # A bound method, not a lambda: Qt drops the connection with the bar, where a
         # lambda would still be called after the bar was gone, and crash.
         self._outcome_timer.timeout.connect(self._end_outcome)
         # Whether the line's progress is a fluorescence acquisition's, for the
-        # expiry below; and whether a tiled run is going, whose line wins over the
-        # per-tile reports of the channels and planes inside it.
+        # expiry below.
         self._fm_owns_progress = False
         self._fm_stale_timer = QTimer(self)
         self._fm_stale_timer.setSingleShot(True)
         self._fm_stale_timer.timeout.connect(self._end_stale_fm)
-        self._tiling = False
         self._render()
 
     # ── the host's side ──────────────────────────────────────────────────
@@ -288,26 +251,15 @@ class FibsemStatusBar(QStatusBar):
                 signal.connect(slot)
 
     def _subscriptions(self, microscope: "FibsemMicroscope"):
-        subscriptions = []
-        # On the services: no imaging without a beam, no milling or spot burn
-        # without an ion beam.
-        imaging = getattr(microscope, "imaging", None)
-        if imaging is not None:
-            subscriptions.append((imaging.tiled_progress, self._on_tiled_progress))
-        milling = getattr(microscope, "milling", None)
-        if milling is not None:
-            subscriptions.append((milling.progress.changed, self._on_milling_progress))
-        spot_burn = getattr(microscope, "spot_burn", None)
-        if spot_burn is not None:
-            subscriptions.append(
-                (spot_burn.progress.changed, self._on_spot_burn_progress)
-            )
-        # On the optional fluorescence device, not the microscope: a system without
-        # one has no signal to connect.
-        fm = getattr(microscope, "fm", None)
-        if fm is not None:
-            subscriptions.append((fm.acquisition_progress_signal, self._on_fm_progress))
-        return subscriptions
+        slots = {
+            "tiled": self._on_tiled_progress,
+            "milling": self._on_milling_progress,
+            "spot_burn": self._on_spot_burn_progress,
+            "fluorescence": self._on_fm_progress,
+        }
+        return [
+            (signal, slots[source]) for signal, source in progress_sources(microscope)
+        ]
 
     # ── the three sources ────────────────────────────────────────────────
     def set_instruction(self, text: Optional[str]) -> None:
@@ -529,181 +481,57 @@ class FibsemStatusBar(QStatusBar):
         waited = f"waiting {minutes}:{seconds:02d}"
         return (what, releases, " · ".join(p for p in (waited, detail) if p))
 
-    # ── milling ──────────────────────────────────────────────────────────
+    # ── measurable progress ──────────────────────────────────────────────
+    def _show(self, line: ProgressLine) -> None:
+        if line.outcome:
+            self.show_outcome(line.label, line.step, line.failed, line.standalone)
+        else:
+            self.set_progress(
+                line.label, line.step, line.fraction, line.numbers, line.standalone
+            )
+
     @ensure_main_thread
     def _on_milling_progress(self, payload: object) -> None:
-        """One milling report, as the line: the label the producer gave, which stage
-        of how many, and the countdown once there is one.
-
-        Total over whatever arrives: this runs in a queued slot, where an exception is
-        a process abort on PyQt5 (FIB-329), and a plugin strategy may still emit the
-        old dict (`from_payload`)."""
-        report = MillingProgress.from_payload(payload)
-        agent_mill = self._agent_mill_of(report)
-        what, standalone = ("Agent", True) if agent_mill else ("Milling", False)
-        ended = f"{agent_mill} " if agent_mill else ""
-        if report.status is MillingProgressStatus.TASK_FAILED:
-            reason = f": {report.error}" if report.error else ""
-            self.show_outcome(what, f"{ended}failed{reason}", True, standalone)
-            return
-        if report.status is MillingProgressStatus.TASK_CANCELLED:
-            self.show_outcome(what, f"{ended}cancelled", standalone=standalone)
-            return
-        if report.status.is_terminal:
-            self.show_outcome(what, f"{ended}done", standalone=standalone)
-            return
-        label = self._milling_label.label(report)
-        step = None
-        stage, total = report.display_stage, report.total_stages
-        if stage and total and total > 1:
-            step = f"stage {stage} of {total}"
-        elif self._progress is not None and report.status is not (
-            MillingProgressStatus.STAGE_STARTED
-        ):
-            step = self._mill_step  # a tick does not repeat the stage count
-        self._mill_step = step
-        fraction = numbers = None
-        remaining, estimated = report.remaining_time, report.estimated_time
-        if (
-            report.status is MillingProgressStatus.STAGE_UPDATE
-            and remaining is not None
-            and estimated
-        ):
-            fraction = min(max(1.0 - remaining / estimated, 0.0), 1.0)
-            numbers = (
-                f"{int(fraction * 100)}% · {format_duration_rounded(remaining)} left"
+        """One milling report (`ProgressReader.milling`)."""
+        self._show(
+            self._reader.milling(
+                payload, self._agent is not None, self._progress is not None
             )
-        if agent_mill:
-            step = " · ".join(p for p in (agent_mill, step) if p)
-            self.set_progress("Agent", step, fraction, numbers, standalone=True)
-            return
-        self.set_progress(label, step, fraction, numbers)
-
-    def _agent_mill_of(self, report: MillingProgress) -> Optional[str]:
-        """The name of the agent's own mill *report* is from, or None."""
-        return self._mill_owner.agent_mill(report, self._agent is not None)
+        )
 
     @staticmethod
     def _set(label: QLabel, text: Optional[str]) -> None:
         label.setText(text or "")
         label.setVisible(bool(text))
 
-    # ── tiles ────────────────────────────────────────────────────────────
     @ensure_main_thread
     def _on_tiled_progress(self, event: TiledProgress) -> None:
         """One report from a tiled acquisition, either modality: the status bar is the
         one consumer that wants both, while the overview tabs each want theirs
         (FIB-725)."""
-        what = (
-            "Fluorescence overview"
-            if event.modality == MODALITY_FLUORESCENCE
-            else "FIB/SEM overview"
-        )
-        self._tiling = not event.status.is_terminal
-        if event.status.is_terminal:
-            self._tile_count = None
-            if event.status is TiledStatus.FAILED:
-                reason = f": {event.error}" if event.error else ""
-                self.show_outcome(what, f"failed{reason}", failed=True)
-            elif event.status is TiledStatus.CANCELLED:
-                self.show_outcome(what, "cancelled")  # what was asked for: not red
-            else:
-                self.show_outcome(what, "done")
-            return
-        words = _TILE_STEPS.get(event.status, "collecting tiles")
-        if event.completed is not None and event.total:
-            done = min(event.completed, event.total)
-            fraction = done / event.total
-            self._tile_count = (fraction, f"{done} of {event.total}")
-            numbers = f"{int(fraction * 100)}%"
-            if event.estimated_remaining_seconds > 0:
-                left = format_duration_rounded(event.estimated_remaining_seconds)
-                numbers += f" · {left} left"
-        elif self._tile_count is not None:
-            # The last count stands, but not its time left: it would sit frozen
-            # through the stitch.
-            numbers = f"{int(self._tile_count[0] * 100)}%"
-        else:
-            self.set_progress(what, words)
-            return
-        fraction, count = self._tile_count
-        self.set_progress(what, f"{words} · {count}", fraction, numbers)
+        self._show(self._reader.tiled(event))
 
-    # ── spot burn ────────────────────────────────────────────────────────
     @ensure_main_thread
     def _on_spot_burn_progress(self, report: SpotBurnProgress) -> None:
         """One report from a spot burn, supervised or not."""
-        what = "Spot burn"
-        if report.status.is_terminal:
-            if report.status is SpotBurnStatus.FAILED:
-                reason = f": {report.error}" if report.error else ""
-                self.show_outcome(what, f"failed{reason}", failed=True)
-            elif report.status is SpotBurnStatus.CANCELLED:
-                self.show_outcome(what, "cancelled")
-            else:
-                self.show_outcome(what, "done")
-            return
-        step = None
-        if report.current_point and report.total_points:
-            step = f"spot {report.current_point} of {report.total_points}"
-        fraction = numbers = None
-        remaining, total = report.total_remaining_time, report.total_estimated_time
-        if remaining is not None and total:
-            fraction = min(max(1.0 - remaining / total, 0.0), 1.0)
-            numbers = (
-                f"{int(fraction * 100)}% · {format_duration_rounded(remaining)} left"
-            )
-        self.set_progress(what, step, fraction, numbers)
+        self._show(self._reader.spot_burn(report))
 
-    # ── fluorescence ─────────────────────────────────────────────────────
     def _end_stale_fm(self) -> None:
         if self._fm_owns_progress:
             self.set_progress(None)
 
     @ensure_main_thread
     def _on_fm_progress(self, report: FluorescenceAcquisitionProgress) -> None:
-        """One report from a fluorescence acquisition: the channel, and the plane,
-        the autofocus step or the channel count it is on.
-
-        Not while a tiled run is going: the tiles are its line, and each tile's
-        channels and planes report here too, so the two would take turns. And it
-        does not outlive its last report by more than `FM_STALE_MS`, because most
-        routines never say they have finished."""
-        if self._tiling:
+        """One report from a fluorescence acquisition. Its line does not outlive its
+        last report by more than `FM_STALE_MS`, because most routines never say they
+        have finished."""
+        line = self._reader.fluorescence(report)
+        if line is None:
             return
-        status = report.status
-        if status is FluorescenceAcquisitionStatus.FINISHED:
+        if line.outcome:
             if self._fm_owns_progress:
-                self.show_outcome("Fluorescence", "done")
+                self._show(line)
             return
-        channel = report.channel or None
-        count = fraction = None
-        if status is FluorescenceAcquisitionStatus.ACQUIRING_AUTOFOCUS:
-            parts = ["autofocus", channel]
-            if report.zlevel and report.total_zlevels:
-                count = f"step {report.zlevel} of {report.total_zlevels}"
-                fraction = report.zlevel / report.total_zlevels
-            if report.total_passes and report.total_passes > 1 and report.pass_index:
-                parts.append(f"pass {report.pass_index} of {report.total_passes}")
-        elif status is FluorescenceAcquisitionStatus.ACQUIRING_ZSTACK:
-            parts = [channel]
-            if report.zlevel and report.total_zlevels:
-                count = f"plane {report.zlevel} of {report.total_zlevels}"
-                fraction = report.zlevel / report.total_zlevels
-            if report.total_channels and report.total_channels > 1:
-                parts.append(
-                    f"channel {report.channel_index} of {report.total_channels}"
-                )
-        else:
-            parts = [channel]
-            if report.channel_index and report.total_channels:
-                count = f"channel {report.channel_index} of {report.total_channels}"
-                fraction = report.channel_index / report.total_channels
-        step = " · ".join(p for p in (*parts, count) if p) or None
-        numbers = None
-        if fraction is not None:
-            fraction = min(max(fraction, 0.0), 1.0)
-            numbers = f"{int(fraction * 100)}%"
-        self.set_progress("Fluorescence", step, fraction, numbers)
+        self._show(line)
         self._fm_owns_progress = True
         self._fm_stale_timer.start(FM_STALE_MS)

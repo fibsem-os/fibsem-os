@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Dict, Generic, List, Optional, TypeVar
 from fibsem.ai.agent.recent import RecentRow
 from fibsem.codec import encode, saved
 from fibsem.control import InControl
+from fibsem.geometry.stage_places import StageMapPlaces
 from fibsem.structures import (
     FibsemImageMetadata,
     FibsemRectangle,
@@ -23,6 +24,7 @@ from fibsem.structures import (
     Point,
 )
 from fibsem.workflows.outputs import RunFiles, StackSlice
+from fibsem.workflows.progress_line import ProgressLine
 
 if TYPE_CHECKING:
     from fastapi.responses import JSONResponse
@@ -293,12 +295,32 @@ class Asking:
 
 
 @dataclass
+class RunFailed:
+    """The run's last failed task, or why it stalled: kept until the next run."""
+
+    what: str
+    message: str
+    at: Optional[str] = None
+    # how many of the run's tasks failed
+    count: int = 1
+
+
+@dataclass
 class WorkflowState:
     running: bool
     current_task: Optional[str] = None
     current_item: Optional[str] = None
+    # the task's place in the live queue, 1-based, of queue_total
+    queue_position: Optional[int] = None
     queue_total: Optional[int] = None
     queue_version: Optional[int] = None
+    iteration: Optional[int] = None
+    # what the task or the run is doing now: "Aligning", "Loading grid G2..."
+    step: Optional[str] = None
+    # what releases a held run, and since when
+    waiting_on: Optional[str] = None
+    waiting_since: Optional[str] = None
+    failed: Optional[RunFailed] = None
     asking: List[Asking] = field(default_factory=list)
 
 
@@ -307,6 +329,10 @@ class AppStatus:
     microscope_connected: bool
     experiment: Optional[ExperimentRef]
     workflow: WorkflowState
+    # measurable progress on the microscope: milling, tiles, a spot burn, FM
+    progress: Optional[ProgressLine] = None
+    # who holds the microscope, doing what, when it is not the run
+    in_control: Optional[InControl] = None
 
 
 @dataclass
@@ -622,6 +648,106 @@ class GridMarkers:
     unplaced: List[Unplaced] = field(default_factory=list)
     linked: Optional[bool] = None
     reason: Optional[str] = None
+
+
+# --- Replay: what an experiment recorded, step by step ---
+
+
+@dataclass
+class ReplayRow:
+    """One recorded action, in time order."""
+
+    index: int
+    time: str
+    kind: str
+    summary: str
+    item: Optional[str] = None
+    item_type: Optional[str] = None
+    task: Optional[str] = None
+    step: Optional[str] = None
+    # "task", "agent" or "operator"; None when the record doesn't say
+    actor: Optional[str] = None
+    duration: Optional[float] = None
+
+
+@dataclass
+class ReplayTimeline:
+    available: bool
+    # the file it was read from: events.jsonl, or the log
+    source: Optional[str] = None
+    start: Optional[str] = None
+    end: Optional[str] = None
+    counts: Dict[str, int] = field(default_factory=dict)
+    events: List[ReplayRow] = field(default_factory=list)
+    error: Optional[str] = None
+
+
+@dataclass
+class ReplayMillingStage:
+    name: str
+    # the stage being milled at this moment
+    current: bool = False
+    # pattern outlines, each a list of [x, y]; a ring of more than two points
+    # closes on itself
+    outlines: List[List[List[float]]] = field(default_factory=list)
+
+
+@dataclass
+class ReplayImage:
+    """An image shown at a moment of the replay, with what is drawn over it.
+    Overlay coordinates are fractions of the image, origin top-left, +y down."""
+
+    # relative to the experiment folder, for /app/experiment/files
+    path: str
+    time: str
+    item: Optional[str] = None
+    # acquisitions since this one that weren't saved
+    unsaved_since: int = 0
+    milling: List[ReplayMillingStage] = field(default_factory=list)
+    spots: List[List[float]] = field(default_factory=list)
+    # a question's or decision's values: points [x, y], areas [left, top, w, h]
+    proposed: List[List[float]] = field(default_factory=list)
+    decided: List[List[float]] = field(default_factory=list)
+    areas_proposed: List[List[float]] = field(default_factory=list)
+    areas_decided: List[List[float]] = field(default_factory=list)
+
+
+@dataclass
+class ReplayStage:
+    """Where the stage was at a recorded action, as the stage card draws it:
+    angles in degrees, the map in metres (``StageMapPlaces``)."""
+
+    # "SEM", "FIB", "MILLING", "FM" or None between orientations
+    orientation: Optional[str] = None
+    # the slot whose grid the stage was over
+    grid: Optional[str] = None
+    milling_angle: Optional[float] = None
+    # the side view: the stage's tilt, the shuttle's pre-tilt and the ion column's
+    stage_tilt: Optional[float] = None
+    pre_tilt: float = 0.0
+    column_tilt: float = 0.0
+    # turned a half turn from the rotation reference, so the side view is drawn mirrored
+    mirrored: bool = False
+    # an FM objective under the stage (an Arctis), and whether it was inserted
+    objective_below: bool = False
+    objective_inserted: bool = False
+    map: Optional[StageMapPlaces] = None
+
+
+@dataclass
+class ReplayView:
+    """The instrument at one recorded action."""
+
+    available: bool
+    index: int = 0
+    event: Optional[ReplayRow] = None
+    sem: Optional[ReplayImage] = None
+    fib: Optional[ReplayImage] = None
+    # a fluorescence stack's path, for /app/experiment/files
+    fm: Optional[str] = None
+    stage_position: Optional[Dict[str, Any]] = None
+    stage: Optional[ReplayStage] = None
+    error: Optional[str] = None
 
 
 @dataclass

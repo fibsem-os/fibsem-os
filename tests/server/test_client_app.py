@@ -4,8 +4,6 @@ agent's tools, offered by the parts the server serves.
 Skipped when the [server] extra is not installed.
 """
 
-import os
-
 import pytest
 
 pytest.importorskip("fastapi")
@@ -13,7 +11,6 @@ pytest.importorskip("httpx")
 
 from psygnal.containers import EventedDict  # noqa: E402
 
-from fibsem import utils  # noqa: E402
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
@@ -24,13 +21,6 @@ from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.structures import MicroscopeState  # noqa: E402
 from tests.run_state import stub_session  # noqa: E402
 from tests.server.test_client import TOKEN, InProcess  # noqa: E402
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    return microscope
 
 
 @pytest.fixture
@@ -67,7 +57,14 @@ def client(microscope, auth, host):
 def test_the_app_offers_the_core_and_its_parts(client):
     app = client.app
     assert app.served and app.name == "AutoLamella"
-    assert app.parts == ["items", "poses", "grids", "milling_stages", "lamellae"]
+    assert app.parts == [
+        "items",
+        "poses",
+        "grids",
+        "milling_stages",
+        "lamellae",
+        "replay",
+    ]
     assert {"app_get_status", "proposal_list", "item_get", "grid_list"} <= set(
         app.tools
     )

@@ -4,7 +4,7 @@ The App Server's config edits: patch an item's task config, the protocol's,
 or the item's own fields; reorder a milling config's stages; re-copy the
 protocol onto an item. The editors' copy onto other lamellae and global
 edit of the reference imaging are here too, beside the agent's; their task
-config write and its save are ``fibsem.server.task_configs``'. Each agent
+config write and its save are ``fibsem.workflows.task_configs``'. Each agent
 edit runs where the experiment is edited (``session.run_edit``), checks the
 version it was written against beside the apply, saves, and is recorded as the agent's edit (FIB-1034, FIB-1062). A
 window writes its editors' pending edits before any edit runs (its executor)
@@ -23,10 +23,14 @@ import logging
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from fibsem.acting import AGENT, acting
-from fibsem.server.app_context import content_hash, find_item, item_pose_positions
-from fibsem.server.config_patch import PatchError, apply_patch, check_patch
-from fibsem.server.responses import no_experiment, refused
-from fibsem.server.task_configs import (
+from fibsem.server.app_context import find_item
+from fibsem.server.responses import no_experiment, refusal_of, refused
+from fibsem.util.records import content_hash
+from fibsem.workflows.config_patch import PatchError, apply_patch, check_patch
+from fibsem.workflows.edit_recording import PendingEdits
+from fibsem.workflows.item import item_pose_positions
+from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.task_configs import (
     config_version,
     patch_config,
     plain_changes,
@@ -35,8 +39,6 @@ from fibsem.server.task_configs import (
     task_config_at,
     workflow_field_refusal,
 )
-from fibsem.workflows.edit_recording import PendingEdits
-from fibsem.workflows.status import TaskStatus
 
 # The item-document fields an agent may patch: what a lamella IS — geometry,
 # verdict, notes. Everything else on the object (poses, ids, paths, history)
@@ -145,9 +147,9 @@ def patch_task_config(
     """Patch one task config: an item's (*level* ``item``) or the protocol's.
     The version check sits beside the apply, so an edit landing in between is
     refused as stale, never half-merged."""
-    _lamella, config, refusal = task_config_at(experiment, level, item_name, task_name)
-    if refusal:
-        return refusal
+    _lamella, config, why = task_config_at(experiment, level, item_name, task_name)
+    if why:
+        return refusal_of({"applied": False, **why})
     patched = patch_config(config, patch, version)
     if not patched["applied"]:
         return patched

@@ -11,7 +11,6 @@ from types import SimpleNamespace
 import pytest
 from psygnal.containers import EventedDict
 
-from fibsem import utils
 from fibsem.applications.autolamella.server import AutoLamellaAppContext
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
@@ -34,13 +33,6 @@ def experiment(tmp_path) -> Experiment:
     for _ in range(2):
         exp.add_new_lamella(MicroscopeState(), EventedDict())
     return exp
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    return microscope
 
 
 def _plain(value):

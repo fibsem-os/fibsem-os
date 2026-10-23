@@ -15,7 +15,6 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from PyQt5.QtWidgets import QApplication
 
 from fibsem.geometry.projection import BeamStageProjection, surface_foreshortening
 from fibsem.imaging.tiling.geometry import PlaneRegion
@@ -23,11 +22,6 @@ from fibsem.structures import BeamType, FibsemStagePosition
 from fibsem.ui.fm.widgets.fm_tile_preview import FMTilePreviewWidget
 
 OVERLAP = 0.1
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    return QApplication.instance() or QApplication([])
 
 
 @pytest.fixture()

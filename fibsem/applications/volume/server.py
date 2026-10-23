@@ -19,12 +19,7 @@ from fibsem.applications.volume.poses import (
     set_pose_now,
 )
 from fibsem.applications.volume.protocol import PROTOCOL_FOLDER, VolumeProtocol
-from fibsem.server.app_context import (
-    AppContext,
-    content_hash,
-    find_item,
-    item_pose_positions,
-)
+from fibsem.server.app_context import AppContext, find_item
 from fibsem.server.files import jpeg_preview
 from fibsem.server.responses import (
     ExperimentSummary,
@@ -35,6 +30,8 @@ from fibsem.server.responses import (
     refused,
 )
 from fibsem.structures import FibsemRectangle, FibsemStagePosition, Point
+from fibsem.util.records import content_hash
+from fibsem.workflows.item import item_pose_positions
 from fibsem.workflows.outputs import item_output_named, saved_file
 
 __all__ = ["VolumeAppContext", "serve"]
@@ -235,7 +232,7 @@ class VolumeAppContext(AppContext):
             return None, None, refusal
         position, refusal = find_item(experiment, item_name)
         if refusal:
-            return None, None, {"error_type": "not_found", **refusal}
+            return None, None, refusal
         return position, self._microscope, None
 
     def move_to_item_pose(self, item_name: str, pose_name: str) -> Dict[str, Any]:
@@ -297,7 +294,7 @@ class VolumeAppContext(AppContext):
             }
         _, refusal = find_item(experiment, item_name)
         if refusal:
-            return {"error_type": "not_found", **refusal}
+            return refusal
         refusal = self._busy(self._runner.busy_refusal([item_name], "move it"))
         if refusal:
             return refusal

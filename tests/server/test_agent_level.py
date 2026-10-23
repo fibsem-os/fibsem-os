@@ -3,7 +3,6 @@ notes, Drive acts on the session and, with the devices service on, on the
 microscope (FIB-1267). The dashboard's token ignores the level."""
 
 import json
-import os
 
 import pytest
 
@@ -13,7 +12,6 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient  # noqa: E402
 from psygnal.containers import EventedDict  # noqa: E402
 
-from fibsem import utils  # noqa: E402
 from fibsem.acting import AGENT as AGENT_ACTOR  # noqa: E402
 from fibsem.acting import (
     WORKFLOW,
@@ -49,13 +47,6 @@ _NUDGE = {
     }
 }
 DASHBOARD = {"Authorization": "Bearer dashboard"}
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    return microscope
 
 
 @pytest.fixture

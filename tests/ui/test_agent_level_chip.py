@@ -3,6 +3,8 @@ clicks, shown whenever the App Server runs."""
 
 import os
 
+from tests.fixtures.main_window import main_window_fixture
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
@@ -348,18 +350,7 @@ def test_an_agent_asking_to_connect_turns_the_chip_and_shows_first(qapp):
 # --- in the window ----------------------------------------------------------
 
 
-@pytest.fixture(scope="module")
-def main_ui(qapp):
-    from fibsem.applications.autolamella.ui import window as module
-
-    window = module.AutoLamellaWindow()
-    yield window
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
-        window.close()
-    finally:
-        qapp.quit = original_quit
+main_ui = main_window_fixture(scope="module")
 
 
 class _Host:

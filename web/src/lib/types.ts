@@ -8,7 +8,19 @@ export interface Capabilities {
   routers: { microscope: boolean; services: boolean; app: boolean };
   app_name?: string;
   level?: string;
+  // the optional /app parts the app serves (fibsem.server.parts)
+  parts?: string[];
   fibsem?: { version: string; path: string };
+}
+
+/** Measurable progress on the microscope, as the Qt status bar says it. */
+export interface ProgressLine {
+  label: string;
+  step: string | null;
+  fraction: number | null;
+  numbers: string | null;
+  outcome: boolean;
+  failed: boolean;
 }
 
 export interface WorkflowStatus {
@@ -18,8 +30,18 @@ export interface WorkflowStatus {
     running: boolean;
     current_task: string | null;
     current_item: string | null;
+    queue_position: number | null;
     queue_total: number | null;
+    iteration: number | null;
+    step: string | null;
+    waiting_on: string | null;
+    waiting_since: string | null;
+    /** The run's last failed task, or why it stalled, until the next run. */
+    failed: { what: string; message: string; at: string | null; count: number } | null;
   };
+  progress: ProgressLine | null;
+  /** Who holds the microscope, when it is not the run. */
+  in_control: { by: string; action: string; since: number } | null;
 }
 
 export interface SystemInfo {
@@ -416,4 +438,94 @@ export interface GridMarkers {
   unplaced: { item_name: string; reason: string }[];
   linked?: boolean;
   reason?: string;
+}
+
+/** One recorded action of the experiment replay. */
+export interface ReplayRow {
+  index: number;
+  time: string;
+  kind: string;
+  summary: string;
+  item: string | null;
+  item_type: string | null;
+  task: string | null;
+  step: string | null;
+  // "task", "agent" or "operator"; null when the record doesn't say
+  actor: string | null;
+  duration: number | null;
+}
+
+/** GET /app/experiment/replay: every recorded action, in time order. */
+export interface ReplayTimeline {
+  available: boolean;
+  source: string | null;
+  start: string | null;
+  end: string | null;
+  counts: Record<string, number>;
+  events: ReplayRow[];
+  error: string | null;
+}
+
+/** A replay image and what is drawn over it, in fractions of the image (+y down). */
+export interface ReplayImage {
+  path: string;
+  time: string;
+  item: string | null;
+  unsaved_since: number;
+  milling: { name: string; current: boolean; outlines: number[][][] }[];
+  spots: number[][];
+  proposed: number[][];
+  decided: number[][];
+  areas_proposed: number[][];
+  areas_decided: number[][];
+}
+
+/** GET /app/experiment/replay/{index}: the instrument at one recorded action. */
+export interface ReplayView {
+  available: boolean;
+  index: number;
+  event: ReplayRow | null;
+  sem: ReplayImage | null;
+  fib: ReplayImage | null;
+  fm: string | null;
+  stage_position: Record<string, number | string | null> | null;
+  stage: StageDrawing | null;
+  error: string | null;
+}
+
+/** A named place on a stage map, in metres on the map's plane (+y down). */
+export interface MapPlace {
+  name: string;
+  x: number;
+  y: number;
+}
+
+/** What a stage map draws (fibsem.geometry.stage_places.StageMapPlaces). */
+export interface StageMapPlaces {
+  stage: number[] | null;
+  // [left, top, right, bottom]
+  limits: number[] | null;
+  slots: MapPlace[];
+  // a grid boundary's radii, across and down
+  boundary: number[];
+  // [centre x, centre y, side]
+  holder: number[] | null;
+  stations: MapPlace[];
+  positions: MapPlace[];
+  here: string[];
+  slot: string | null;
+}
+
+/** The stage at a moment, as the stage card draws it (ReplayStage); angles in degrees. */
+export interface StageDrawing {
+  orientation: string | null;
+  grid: string | null;
+  milling_angle: number | null;
+  stage_tilt: number | null;
+  pre_tilt: number;
+  column_tilt: number;
+  mirrored: boolean;
+  objective_below: boolean;
+  objective_inserted: boolean;
+  map: StageMapPlaces | null;
 }
