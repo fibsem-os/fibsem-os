@@ -1,7 +1,20 @@
 """Stage geometry of a saved image, beam or fluorescence, from its own metadata:
 the same projections the overview canvases use, read from the file."""
 
-from typing import Any, Callable, Dict, Tuple
+from typing import Any, Callable, Dict, List, Sequence, Tuple
+
+
+def _load(path: str):
+    """The saved image at *path*: a fluorescence stack or a beam image."""
+    from fibsem.fm.preview import is_fluorescence_image
+
+    if is_fluorescence_image(path):
+        from fibsem.fm.structures import FluorescenceImage
+
+        return FluorescenceImage.load(path)
+    from fibsem.structures import FibsemImage
+
+    return FibsemImage.load(path)
 
 
 def image_point_to_stage_position(path: str, px=None, fraction=None):
@@ -9,7 +22,6 @@ def image_point_to_stage_position(path: str, px=None, fraction=None):
     stored overview canvas resolves a click
     (`fibsem.geometry.projection.image_point_to_stage`). ``px`` is [x, y] in
     source pixels; ``fraction`` is [x, y] from 0 to 1. Raises ValueError."""
-    from fibsem.fm.preview import is_fluorescence_image
     from fibsem.geometry.projection import image_point_to_stage
 
     if (px is None) == (fraction is None):
@@ -19,14 +31,7 @@ def image_point_to_stage_position(path: str, px=None, fraction=None):
         raise ValueError("The point is [x, y].")
     x, y = float(point[0]), float(point[1])
 
-    if is_fluorescence_image(path):
-        from fibsem.fm.structures import FluorescenceImage
-
-        image = FluorescenceImage.load(path)
-    else:
-        from fibsem.structures import FibsemImage
-
-        image = FibsemImage.load(path)
+    image = _load(path)
     height, width = image.data.shape[-2:]
     if fraction is not None:
         x, y = x * width, y * height
@@ -38,6 +43,24 @@ def image_point_to_stage_position(path: str, px=None, fraction=None):
         raise ValueError(
             "The overview has no stage geometry to convert from."
         ) from None
+
+
+def image_points_to_stage(path: str, points: Sequence[Tuple[float, float]]) -> List:
+    """The stage position under each of *points* (source pixels) of the saved
+    image at *path*, read once, as `image_point_to_stage_position` converts
+    one; None for a point off the image or an image with no stage geometry."""
+    from fibsem.geometry.projection import image_point_to_stage, image_stage_geometry
+
+    image = _load(path)
+    if image_stage_geometry(image) is None:
+        return [None] * len(points)
+    height, width = image.data.shape[-2:]
+    return [
+        image_point_to_stage(image, x, y)
+        if 0 <= x <= width and 0 <= y <= height
+        else None
+        for x, y in points
+    ]
 
 
 def stage_projector(path: str) -> Tuple[Dict[str, Any], Callable]:

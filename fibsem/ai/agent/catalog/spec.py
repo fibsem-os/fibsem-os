@@ -119,7 +119,8 @@ EVIDENCE_PARAM = (
     "your code drew, a plot; PNG or JPEG, at most 4 MB, saved at most 2048 px), "
     "shown as it is, with source, the experiment image it was drawn from; "
     "marks, {points: [{x, y, label?}], areas: [{x, y, width, height, label?}]} "
-    "in the image's pixels from its top left, labels naming what is where. "
+    "in the image's pixels from its top left, labels (at most 32 characters) "
+    "naming what is where. "
     "Attach it whenever an image decided what you do; without it the operator "
     "sees 'No evidence'"
 )

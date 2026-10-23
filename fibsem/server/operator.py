@@ -148,12 +148,17 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
         image = record.get("image")
         try:
             relative = os.path.relpath(image, os.path.realpath(root))
-            read = files.read(root, relative)
+            # A fluorescence stack shows the channels it was marked on.
+            read = files.read(root, relative, channels=record.get("channels"))
         except (TypeError, ValueError, files.FileRefusal) as exc:
             raise _refused(404, "not_found", f"The evidence image is missing: {exc}")
         return answer(
             EvidenceView(
-                read.get("preview"), record.get("marks"), relative.replace(os.sep, "/")
+                read.get("preview"),
+                record.get("marks"),
+                relative.replace(os.sep, "/"),
+                record.get("by") or evidence.AGENT,
+                record.get("channels"),
             )
         )
 
@@ -166,14 +171,34 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
                 "too_long",
                 f"A message is at most {MESSAGE_LIMIT} characters.",
             )
-        message_id = agent.message(text)
+        marked = body.get("evidence")
+        record = None
+        if marked is not None:
+            # The image the operator marked for the agent, kept in the
+            # experiment as the agent's own evidence is.
+            if not isinstance(marked, dict):
+                raise _refused(422, "invalid", "evidence is {image, marks, channels?}.")
+            try:
+                record = evidence.save(
+                    agent.experiment_path,
+                    image=marked.get("image"),
+                    marks=marked.get("marks"),
+                    channels=marked.get("channels"),
+                    by=evidence.OPERATOR,
+                )
+            except evidence.EvidenceRefused as refusal:
+                raise HTTPException(
+                    status_code=refusal.status_code, detail=refusal.detail
+                )
+        message_id = agent.message(text, evidence=record)
         if message_id is None:
             raise _refused(
                 409,
                 "not_recording",
                 "Nothing is recording, so the agent can't hear a message.",
             )
-        return answer(MessageSent(message_id), status_code=201)
+        evidence_id = record["evidence_id"] if record is not None else None
+        return answer(MessageSent(message_id, evidence_id), status_code=201)
 
     @router.put("/level", response_model=LevelSet)
     def set_level(body: Dict[str, Any]):
