@@ -732,8 +732,3 @@ def create_overview_image_widget(
     dialog.setLayout(layout)
 
     return dialog
-
-
-# TODO: add more options for customization (scalebar size, font type, etc.)
-# - show only completed lamellae
-# - show defected lamellae in different color

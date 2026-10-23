@@ -1,4 +1,4 @@
-"""An experiment's record as tables, read from its ``events.jsonl`` (FIB-1036).
+"""An experiment's record as tables, read from its ``events.jsonl``.
 
 The second version of the report is built from these. Only the event stream is
 read: not the log, and not ``Experiment.load()``. Each table is a DataFrame with

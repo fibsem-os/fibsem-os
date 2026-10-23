@@ -771,8 +771,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         from fibsem.structures import CrossSectionPattern
         from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 
-        # Default coincidence milling task config (previously defined in the
-        # removed fluorescence_coincidence_widget module).
+        # Default coincidence milling task config.
         DEFAULT_MILLING_TASK_CONFIG = FibsemMillingTaskConfig(
             name="Coincidence Milling Task",
             field_of_view=100e-6,
@@ -1195,7 +1194,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         """Persist a defect set from this list's row menu.
 
         The row writes `lamella.defect` and emits; nothing here was listening, so the
-        change lived in memory and was gone on reload (FIB-564). Every other display of
+        change lived in memory and was gone on reload. Every other display of
         it now redraws off `lamella.events.defect`, so this only has to make it durable.
         """
         if self.experiment is not None:
@@ -1427,7 +1426,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             if self._is_scrubbing:
                 # The operator is looking at an earlier frame: the display path
                 # above already holds it, and the slider and label must describe
-                # it, not the frame that just arrived (FIB-968).
+                # it, not the frame that just arrived.
                 return
             # Advance slider to latest without triggering scrub (live display stays untouched)
             self.fm_canvas.time_slider.blockSignals(True)
@@ -1643,7 +1642,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         else:
             # The third place in the app that can start a live stream, and so the third
             # that has to ask whether the microscope is free -- a tileset never streams,
-            # so `is_streaming` would read idle right through one (FIB-441).
+            # so `is_streaming` would read idle right through one.
             if fm.is_acquiring:
                 QMessageBox.warning(
                     self,
@@ -1811,7 +1810,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         # Total-by-construction decode. Every in-tree producer emits a
         # `MillingProgress` and this is a no-op for them; it stands because a
         # plugin-loaded strategy is a producer too, and psygnal hands whatever it
-        # emits to this slot unchanged (FIB-797).
+        # emits to this slot unchanged.
         report = MillingProgress.from_payload(payload)
         label = self._milling_label.label(report)
 
@@ -1935,7 +1934,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         strategy's own coincidence-images folders.
 
         Saved in the recorded run's own folder, ``<lamella>/<task>/<YYYYMMDD-
-        HHMMSS>/`` (FIB-1275), as a task's run would, so recording again keeps
+        HHMMSS>/``, as a task's run would, so recording again keeps
         the earlier image. The file keeps the review-panel naming.
         """
         lamella = self._selected_lamella

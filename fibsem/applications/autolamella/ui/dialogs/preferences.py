@@ -296,7 +296,7 @@ class PreferencesDialog(QDialog):
         as it came in, and the caller saves the result to disk. Building a fresh
         UserPreferences instead reset any field not copied across by hand: hooks came
         back as None, which means "use the defaults", over a user's [] that means "all
-        off" (FIB-497).
+        off".
 
         A copy rather than self._preferences itself, which the caller still holds: a
         cancelled dialog must leave it untouched.

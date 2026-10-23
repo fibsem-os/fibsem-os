@@ -82,7 +82,7 @@ if TYPE_CHECKING:
 # not the app, not a script, not a test -- so the bridge was never called and the
 # extra fields never had a reader. Removed rather than left dormant, because half a
 # user model is worse than either answer. fibsem.structures.FibsemUser is the only
-# user model now; see FIB-450 and the ownership rule on FibsemImageMetadata.
+# user model now and the ownership rule on FibsemImageMetadata.
 
 
 @dataclass
@@ -190,7 +190,7 @@ class AutoLamellaTaskProtocol(TaskProtocol):
     version: str = "1.0"
     options: WorkflowOptions = field(default_factory=WorkflowOptions)
     lamella_defaults: LamellaDefaultConfig = field(default_factory=LamellaDefaultConfig)
-    # Experiment-global correlation config (FIB-298): a user-step config, not an
+    # Experiment-global correlation config: a user-step config, not an
     # automated task, so a peer field rather than an entry in task_config.
     correlation: CorrelationConfig = field(default_factory=CorrelationConfig)
     # Grid-level tasks (overviews, and later cleaning and deposition): their own
@@ -305,7 +305,7 @@ GridQuality = Verdict
 # card at 280 px wide (the hover tooltip is 256). Storing the acquired frame at full
 # resolution meant decoding a 1536x1024, 823 KB PNG per card per refresh for a picture
 # thrown away at a fifth of the size -- 26 ms each, and the card strip re-reads every
-# lamella whenever one is added (FIB-681).
+# lamella whenever one is added.
 #
 # 512 rather than 280: it leaves the largest card headroom on a HiDPI display, still
 # decodes in ~3 ms, and is a tenth of the bytes. Only ever shrinks -- a frame already
@@ -341,7 +341,7 @@ _THUMBNAIL_PLACEHOLDER = None
 class Lamella(SiteItem):
     item_type: ClassVar[str] = "lamella"
     path: Path
-    number: int  # TODO: deprecate, use petname instead
+    number: int
     petname: str
     alignment_area: FibsemRectangle = field(
         default_factory=lambda: FibsemRectangle.from_dict(DEFAULT_ALIGNMENT_AREA)
@@ -380,7 +380,7 @@ class Lamella(SiteItem):
         # therefore wrote into whatever machine the experiment came from, at a
         # path the caller never named. Directories are created where a lamella is
         # actually created (``Experiment.add_new_lamella``) and where files are
-        # actually written (``FibsemImage.save``, ``save_thumbnail``). See FIB-420.
+        # actually written (``FibsemImage.save``, ``save_thumbnail``).
         if self.id is None:
             self.id = str(uuid.uuid4())
         self.task_state.item_id = self.id
@@ -404,7 +404,7 @@ class Lamella(SiteItem):
         was *created* at, so a lamella loaded from a moved or copied experiment
         still points at the original machine. Worse, when that directory happens
         to still exist locally, reads silently succeed against the wrong data.
-        ``Experiment.load`` calls this so paths follow the experiment. See FIB-367.
+        ``Experiment.load`` calls this so paths follow the experiment.
         """
         self.path = os.path.join(experiment_path, self.name)
         self._sync_imaging_paths()
@@ -430,7 +430,7 @@ class Lamella(SiteItem):
 
         Whether a failed task blocks dependent work is a separate question,
         answered by completed_tasks -- which filters on task status, so a failed
-        prerequisite does not license the task that requires it. See FIB-490.
+        prerequisite does not license the task that requires it.
         """
         return self.defect.verdict is Verdict.FAILED
 
@@ -667,7 +667,7 @@ class Lamella(SiteItem):
             # writes atomically now, so a torn file should no longer be produced -- but one
             # written before that fix is still on disk, and any other corruption lands here
             # too. This is reached from a Qt slot, where an escaping exception aborts the
-            # process under PyQt5 rather than raising (FIB-329).
+            # process under PyQt5 rather than raising.
             logging.warning(f"Could not read the thumbnail at {thumb_path}: {e}")
             if _THUMBNAIL_PLACEHOLDER is None:
                 _THUMBNAIL_PLACEHOLDER = _make_thumbnail_placeholder()
@@ -678,7 +678,7 @@ class Lamella(SiteItem):
 
         Written to a temporary file and moved into place, so a reader never sees a
         partly-written one. `get_thumbnail` runs from the lamella cards on the GUI
-        thread while saving happens on a worker (FIB-563), so the two do overlap: the
+        thread while saving happens on a worker, so the two do overlap: the
         reported failure was `OSError: image file is truncated` out of `Image.open`,
         with the existence check passing because the file was there, just incomplete.
 
@@ -772,7 +772,7 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
     positions: EventedList[Lamella] = field(default_factory=EventedList)
     grids: EventedList[GridRecord] = field(default_factory=EventedList)
     landing_positions: List[FibsemStagePosition] = field(default_factory=list)
-    # Aware, written as ISO 8601 with its offset (FIB-1197); older files hold a
+    # Aware, written as ISO 8601 with its offset; older files hold a
     # POSIX float, which reads as this machine's zone.
     created_at: Optional[datetime] = field(default_factory=now)
     task_protocol: "AutoLamellaTaskProtocol" = field(
@@ -952,7 +952,7 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
 
         # lamella paths are stored as-created, so re-point them at wherever the
         # experiment actually is now. otherwise a moved or copied experiment
-        # reads and writes against the original location. (FIB-367)
+        # reads and writes against the original location.
         for lamella in experiment.positions:
             lamella.relocate(experiment.path)
 
@@ -961,7 +961,6 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
         # so reading an experiment would reach into the calling process's global
         # logging and redirect its output into this experiment's logfile. Callers
         # that want that ask for it: the app does so when it adopts an experiment.
-        # See FIB-421.
 
         # attempt to load task protocol from the same directory
         protocol_path = os.path.join(experiment.path, "protocol.yaml")
@@ -1101,7 +1100,7 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
 
     def remove_task(self, task_name: str) -> None:
         """Remove a task from the experiment: from the protocol, from the
-        workflow, and from every lamella's config (FIB-1109).
+        workflow, and from every lamella's config.
 
         All three together, so the workflow never lists a task the protocol no
         longer has, and no lamella runs a stale copy of one. A task that listed
@@ -1168,7 +1167,6 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
 
         # NOTE: as with load(), creating an experiment does not reconfigure the
         # calling process's logging -- the app does that when it adopts one.
-        # See FIB-421.
 
         # save the experiment
         experiment.save()
