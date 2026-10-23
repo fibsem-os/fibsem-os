@@ -265,14 +265,6 @@ def _save_converted_protocol(path: str, protocol: AutoLamellaTaskProtocol) -> No
     )
 
 
-# The names this type and its enum had before they were one thing. Every reader
-# of ``DefectState`` / ``DefectType`` / ``GridQuality`` keeps working; new code
-# says ``QualityRecord`` / ``Verdict``.
-DefectState = QualityRecord
-DefectType = Verdict
-GridQuality = Verdict
-
-
 def _make_thumbnail_placeholder():
     import numpy as np
     from PIL import Image, ImageDraw, ImageFont
@@ -310,7 +302,7 @@ class Lamella(SiteItem):
     poses: Dict[str, MicroscopeState] = field(default_factory=dict)
     task_state: TaskState = field(default_factory=TaskState)
     task_history: List["TaskState"] = field(default_factory=list)
-    defect: DefectState = field(default_factory=DefectState)
+    defect: QualityRecord = field(default_factory=QualityRecord)
     milling_angle: Optional[float] = None
     poi: Point = field(
         default_factory=lambda: Point(0.0, 0.0)
@@ -539,7 +531,7 @@ class Lamella(SiteItem):
             task_history=[
                 TaskState.from_dict(task) for task in data.get("task_history", [])
             ],
-            defect=DefectState.from_dict(data.get("defect", {})),
+            defect=QualityRecord.from_dict(data.get("defect", {})),
             milling_angle=data.get("milling_angle", None),
             poi=Point.from_dict(data.get("poi", {"x": 0, "y": 0})),
             description=data.get("description", ""),

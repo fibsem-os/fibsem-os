@@ -13,7 +13,6 @@ from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
-    GridQuality,
 )
 from fibsem.applications.autolamella.ui.grids.card import grid_headline
 from fibsem.applications.autolamella.ui.grids.tab import GridsTabWidget
@@ -23,6 +22,7 @@ from fibsem.workflows.grid.manager import (
     LOAD_ENTRY_NAME,
 )
 from fibsem.workflows.grids import GridRecord
+from fibsem.workflows.quality import Verdict
 from fibsem.workflows.status import TaskState, TaskStatus
 from tests.run_state import StubRunner
 
@@ -161,12 +161,12 @@ class TestCards:
         changed = []
         tab.experiment_changed.connect(lambda: changed.append(True))
         card = tab.cards.cards[0]
-        card.set_quality(GridQuality.GOOD)
-        assert card.grid.quality.verdict is GridQuality.GOOD
+        card.set_quality(Verdict.GOOD)
+        assert card.grid.quality.verdict is Verdict.GOOD
         assert "Good" in card._btn_quality.toolTip()
         assert changed == [True]
         loaded = Experiment.load(Path(experiment.path) / "experiment.yaml")
-        assert loaded.get_grid_by_name("Grid-01").quality.verdict is GridQuality.GOOD
+        assert loaded.get_grid_by_name("Grid-01").quality.verdict is Verdict.GOOD
         # a task outcome does not touch it
         assert grid_headline(card.grid)[0] == ""
 
@@ -649,7 +649,7 @@ class TestNote:
     def test_a_verdict_keeps_the_note(self, card, monkeypatch):
         self.type_note(monkeypatch, self.NOTE)
         card._action_note.trigger()
-        card.set_quality(GridQuality.GOOD)
+        card.set_quality(Verdict.GOOD)
         assert card.grid.description == self.NOTE
 
     def test_an_empty_note_clears_it(self, card, monkeypatch):

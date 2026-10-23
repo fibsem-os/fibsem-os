@@ -226,7 +226,7 @@ def collect_sample(lamella: Lamella, stem: str) -> Optional[ExportedSample]:
             else {}
         ),
         milling_angle=lamella.milling_angle,
-        defect=lamella.defect.state.name,
+        defect=lamella.defect.verdict.name,
         completed_tasks=list(lamella.completed_tasks),
     )
 

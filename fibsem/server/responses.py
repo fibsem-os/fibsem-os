@@ -999,7 +999,7 @@ class GridEdit(Edit):
     was: Optional[str] = None
     added: Optional[List[str]] = None
     grid_names: Optional[List[str]] = None
-    # the verdict and its reason (`GridQuality.to_dict`)
+    # the verdict and its reason (`QualityRecord.to_dict`)
     quality: Optional[Dict[str, Any]] = None
     note: Optional[str] = None
     items_without_grid: Optional[List[str]] = None
