@@ -673,7 +673,10 @@ ends either one. `fm_acquire_overview` is the fluorescence one, from the FM
 pose with the objective in and near its focus: inserted is not enough. Go to
 the item's stored objective position (`item_move_to_objective_position`) or
 run `fm_auto_focus` first, for any FM image. Focus in reflection, not in a
-fluorescence channel. Its `settings` set the sweep
+fluorescence channel. Once it is in focus, `fm_save_focus_position` saves
+that objective position: an overview with `objective_start` `focus` starts
+there (and is refused while none is saved). `fm_auto_focus`'s `settings` set
+the sweep
 (`passes` of `search_range` and `step_size`, in metres of objective travel),
 and `fm_acquire_overview` takes the same as `autofocus_settings` for its
 `autofocus_mode`. `fm_estimate_overview` gives its whole run time,

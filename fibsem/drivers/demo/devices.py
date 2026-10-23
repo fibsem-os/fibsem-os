@@ -68,6 +68,7 @@ from fibsem.drivers.demo.simulator import (
     SIM_CAMERA_PIXEL_SIZE,
     SIM_CAMERA_RESOLUTION,
     SIM_LIGHT_SOURCE_POWER,
+    SIM_OBJECTIVE_FOCUS_POSITION,
     SIM_OBJECTIVE_INSERT_POSITION,
     SIM_OBJECTIVE_MAGNIFICATION,
     SIM_OBJECTIVE_NA,
@@ -1309,6 +1310,8 @@ class DemoObjective(Objective):
         self.sim_insert_position: float = SIM_OBJECTIVE_INSERT_POSITION
         self.sim_retract_position: float = SIM_OBJECTIVE_RETRACT_POSITION
         self.sim_limit_position: float = SIM_OBJECTIVE_USER_POSITION_LIMIT
+        # The Demo FM starts with a saved focus.
+        self._focus_position = SIM_OBJECTIVE_FOCUS_POSITION
 
     def read_position(self) -> float:
         sim_sleep(0.1)
