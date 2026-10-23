@@ -27,7 +27,6 @@ path, so a demo named after a package it imports would shadow it.
 | Demo | Shows |
 |---|---|
 | `demo_confirm_run_workflow_dialog.py` | the dialog that confirms a workflow run |
-| `demo_experiment_replay.py` | `ExperimentReplayWidget`, stepping through a recorded experiment |
 | `demo_lamella_card.py` | `LamellaCardContainer` |
 | `demo_lamella_list.py` | `LamellaListWidget` |
 | `demo_lamella_name_list_widget.py` | `LamellaNameListWidget`, on real experiment data |
@@ -80,17 +79,6 @@ path, so a demo named after a package it imports would shadow it.
 | `demo_drawing_widget.py` | the image drawing overlays, on QLabels |
 | `demo_tile_order_strategies.py` | every `TileOrderStrategy` on a 5 × 5 grid |
 
-## measure_tools
-
-Prototype measure tools; the widgets live in `fibsem/ui/widgets/` and are not in
-the app yet.
-
-| Demo | Shows |
-|---|---|
-| `demo_drag_distance.py` | `DragDistanceOverlay` |
-| `demo_radial_menu.py` | the radial menu (`QuadMenuOverlay`) |
-| `demo_radial_ruler.py` | the radial menu with every measure tool: ruler, rectangle, angle, profile, pins, loupe |
-
 ## milling
 
 | Demo | Shows |
@@ -99,7 +87,7 @@ the app yet.
 | `demo_milling_settings_widget.py` | `FibsemMillingSettingsWidget` |
 | `demo_milling_stage_list.py` | `MillingStageListWidget` |
 | `demo_milling_stages_widget.py` | `FibsemMillingStagesWidget` |
-| `demo_milling_task_config_widget2.py` | `MillingTaskConfigWidget2` |
+| `demo_milling_task_config_widget.py` | `MillingTaskConfigWidget` |
 | `demo_milling_task_viewer_widget.py` | `MillingTaskViewerWidget` |
 | `demo_pattern_settings_widget.py` | `FibsemPatternSettingsWidget` |
 

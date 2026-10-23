@@ -49,7 +49,7 @@ class ProposalDecisions:
 
     def _run_edit(self, func, *args):
         """``func(*args)`` where the experiment is edited, waiting for it.
-        What it raises is raised here, in the caller (FIB-1352)."""
+        What it raises is raised here, in the caller."""
         executor = self.edit_executor
         if executor is None:
             return func(*args)
@@ -104,12 +104,15 @@ class ProposalDecisions:
             item = self.get_item_by_id(item_id)
             if item is None:
                 return DecisionResult(
-                    applied=False, reason=f"No item with id {item_id!r}."
+                    applied=False,
+                    error_type="not_found",
+                    reason=f"No item with id {item_id!r}.",
                 )
             proposal = item.proposal(task_name)
             if proposal is None:
                 return DecisionResult(
                     applied=False,
+                    error_type="not_found",
                     reason=f"{item.name} has no proposal from {task_name!r}.",
                 )
             if decision.proposal_id and decision.proposal_id != proposal.id:
@@ -145,11 +148,11 @@ class ProposalDecisions:
             # (the answer there is Stop, not a decision), or the decision writes
             # values the running task may be reading. The run, not the task
             # name. A grid's tasks run back to back, so anything stricter
-            # refuses the ordinary case (FIB-1008).
+            # refuses the ordinary case.
             running = item.task_state.status is TaskStatus.InProgress
             # The one case a decision may land on a running task: the task is
-            # parked on this very proposal, waiting to be told the answer
-            # (FIB-1025). The hazard both refusals below guard against is a
+            # parked on this very proposal, waiting to be told the answer.
+            # The hazard both refusals below guard against is a
             # decision arriving *unasked* while a task may be reading those
             # values -- and a task stopped on a future is not reading, it is
             # waiting. Phrased about the waiting rather than about the values,
@@ -178,7 +181,11 @@ class ProposalDecisions:
                         f"stop it before writing {sorted(decision.values)} through.",
                     )
             if decision.outcome is DecisionOutcome.Rejected and not decision.reason:
-                return DecisionResult(applied=False, reason="A reject needs a reason.")
+                return DecisionResult(
+                    applied=False,
+                    error_type="missing_field",
+                    reason="A reject needs a reason.",
+                )
             if decision.outcome in (
                 DecisionOutcome.Withdrawn,
                 DecisionOutcome.Unreviewed,
@@ -565,12 +572,12 @@ class ProposalDecisions:
         ``item_id`` None, a proposal about the experiment itself.
 
         Marks the proposal as the one being waited on, so a decision may land
-        on it while its task runs (FIB-1025), and fires ``asked`` so the inbox
+        on it while its task runs, and fires ``asked`` so the inbox
         re-derives -- nothing else would, since the tab refreshes when a task
         *finishes* and this one is only halfway through. ``asking`` is the
         live flag and is not saved; ``provenance["asked"]`` is the fact, and
         is, so a load can tell a question the task was waiting on from a
-        value left open (FIB-1046).
+        value left open.
 
         Unlike ``decide`` this does **not** run on the main thread. It is
         called from the workflow thread by a responder whose contract is not to
@@ -681,7 +688,7 @@ class ProposalDecisions:
         nothing is waiting on it any more. A question exists only while its
         task waits; Stop and a failing task withdraw it, but a process that
         ends without unwinding leaves it on disk as pending, and on the next
-        load it would read as a value to decide (FIB-1046). Called by
+        load it would read as a value to decide. Called by
         ``load``; the second load finds nothing pending and appends nothing.
         Returns how many."""
         withdrawn = 0
@@ -732,12 +739,15 @@ class ProposalDecisions:
             item = self.get_item_by_id(item_id)
             if item is None:
                 return DecisionResult(
-                    applied=False, reason=f"No item with id {item_id!r}."
+                    applied=False,
+                    error_type="not_found",
+                    reason=f"No item with id {item_id!r}.",
                 )
             proposal = item.proposal(task_name)
             if proposal is None:
                 return DecisionResult(
                     applied=False,
+                    error_type="not_found",
                     reason=f"{item.name} has no proposal from {task_name!r}.",
                 )
             if not proposal.pending:

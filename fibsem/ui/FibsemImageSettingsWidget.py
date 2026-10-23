@@ -6,6 +6,7 @@ from PyQt5.QtCore import QEvent, pyqtSignal
 from superqt import ensure_main_thread
 
 from fibsem import acquire, utils
+from fibsem.constants import TIME_FILE
 from fibsem.imaging.latest import LatestImages
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
@@ -28,7 +29,7 @@ from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
 
 class FibsemImageSettingsWidget(QtWidgets.QWidget):
     viewer_update_signal = pyqtSignal()  # when the viewer is updated
-    acquisition_progress_signal = pyqtSignal(dict)  # TODO: add progress indicator
+    acquisition_progress_signal = pyqtSignal(dict)
     alignment_area_updated = pyqtSignal(FibsemRectangle)
 
     def __init__(
@@ -143,7 +144,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
     def _setup_ui(self):
         """Set up the UI components and layout"""
 
-        # --- Outer layout + scroll area (previously from generated setupUi) ---
+        # --- Outer layout + scroll area ---
         self.gridLayout = QtWidgets.QGridLayout(self)
 
         self.scrollArea = QtWidgets.QScrollArea(self)
@@ -180,8 +181,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         self._spinner = _SpinnerLabel(parent=self)
         self._spinner.setVisible(False)
 
-        # Scalebar and crosshair used to live here as napari-layer toggles. The canvas
-        # owns both now, with its own controls.
+        # Scalebar and crosshair are the canvas's, with its own controls.
 
         tools_row = QtWidgets.QWidget()
         tools_layout = QtWidgets.QHBoxLayout(tools_row)
@@ -566,27 +566,6 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         """Set the image settings to the UI components."""
         self.image_settings_widget.update_from_settings(image_settings)
 
-    def _set_beam_settings_to_ui(self, beam_settings: BeamSettings) -> None:
-        """Set the beam settings to the ui components"""
-        beam_widget = (
-            self.dual_beam_widget.sem_widget
-            if beam_settings.beam_type is BeamType.ELECTRON
-            else self.dual_beam_widget.fib_widget
-        )
-        beam_widget.beam_settings_widget.update_from_settings(beam_settings)
-
-    def _set_detector_settings_to_ui(
-        self, detector_settings: FibsemDetectorSettings
-    ) -> None:
-        """Set the detector settings to the UI components."""
-        beam_type = self.dual_beam_widget.beam_type
-        beam_widget = (
-            self.dual_beam_widget.sem_widget
-            if beam_type is BeamType.ELECTRON
-            else self.dual_beam_widget.fib_widget
-        )
-        beam_widget.detector_settings_widget.update_from_settings(detector_settings)
-
     def update_ui_saving_settings(self) -> None:
         """Toggle the visibility / state of the image saving settings"""
         # If save_with_selected_lamella is checked, ensure save_image is also checked
@@ -670,8 +649,6 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             logging.debug(msg)
             notification_service.show_toast(msg)
 
-        # TODO: implement progress bar for acquisition
-
     def acquisition_finished(self, beams=()) -> None:
         """Imaging has finished, update the viewer and re-enable interactions"""
         if self.ib_image is not None:
@@ -717,10 +694,10 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         except Exception as e:
             logging.error(f"Error getting selected lamella for image saving: {e}")
 
-        ts = utils.current_timestamp_v3()
+        ts = utils.current_timestamp(TIME_FILE)
         self.image_settings.filename = f"{self.image_settings.filename}-{ts}"
 
-        # The views' chips (FIB-1188): a frame is on its way to each of these.
+        # The views' chips: a frame is on its way to each of these.
         beams = (
             [BeamType.ELECTRON, BeamType.ION]
             if both
@@ -771,7 +748,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         canvases. Idempotent, and called from ``closeEvent`` AND the host's disconnect path —
         ``deleteLater`` fires neither ``closeEvent`` nor ``close``, so without this a scroll
         or overlay edit after a reconnect would drive the dead widget's slot on the still-live
-        controller, and PyQt aborts the process on an exception in a slot (FIB-329)."""
+        controller, and PyQt aborts the process on an exception in a slot."""
         if self._overlay_edited_wired:
             controller = self._view_controller()
             if controller is not None:

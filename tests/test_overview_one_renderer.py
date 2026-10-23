@@ -142,3 +142,14 @@ def test_grid_and_current_positions_are_known_by_their_list(overview):
         ]
     finally:
         plt.close(fig)
+
+
+def test_the_overview_is_drawn_without_pyplot(overview, tmp_path, no_pyplot):
+    """The server draws it on its own thread while the Qt app runs."""
+    from fibsem.applications.autolamella.overview_figure import save_markers_picture
+
+    positions = _positions(overview, ["01-a"])
+    plot_minimap(overview, positions, grid_positions=positions, show_grid_radius=True)
+    assert save_markers_picture(overview, [], str(tmp_path / "markers.png"))[:2] == (
+        b"\xff\xd8"
+    )

@@ -32,7 +32,6 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
 from fibsem.server import AuthConfig, build_server
 from fibsem.structures import MicroscopeState
 from fibsem.workflows.event_recording import EventRecorder
-from fibsem.workflows.events import EventBuffer
 from tests.fixtures.main_window import close_window
 
 TOKEN = "test-token"
@@ -216,7 +215,7 @@ def test_the_configure_scope_gates_the_route(ui, qapp):
         doc = client.get(
             f"/app/experiment/items/{item}/task_config/{TASK}", headers=AUTH
         ).json()
-        assert doc["available"] is True
+        assert doc["version"]
         resp = client.post(
             f"/app/experiment/items/{item}/task_config/{TASK}",
             headers=AUTH,

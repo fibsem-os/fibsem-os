@@ -1,5 +1,5 @@
 """Who is acting: the one ``Actor`` every record names, and the mark that says
-who is acting on the microscope right now (FIB-1062).
+who is acting on the microscope right now.
 
 An :class:`Actor` is a kind and a name, written ``kind:name``
 (``operator:patrick``, ``agent:claude``, ``task:Mill Rough``). Proposals,
@@ -28,7 +28,9 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable, Iterator, Optional, TypeVar, Union
+from typing import Annotated, Callable, Iterator, Optional, TypeVar, Union
+
+from pydantic import PlainSerializer, PlainValidator
 
 T = TypeVar("T")
 
@@ -107,6 +109,14 @@ class Actor:
         return f"{self.kind.value} · {self.name or 'unknown'}"
 
 
+# An Actor as a record saves it: its ``kind:name`` text.
+SavedActor = Annotated[
+    Actor,
+    PlainValidator(Actor.parse, json_schema_input_type=str),
+    PlainSerializer(str, return_type=str, when_used="json"),
+]
+
+
 _actor: "ContextVar[Optional[ActorKind]]" = ContextVar("fibsem_actor", default=None)
 
 
@@ -139,7 +149,7 @@ def carried(fn: Callable[..., T]) -> Callable[..., T]:
     """*fn*, marked as whoever called this, on whatever thread it later runs.
 
     The mark is read now, not when *fn* runs: hand the result to the other
-    thread (FIB-1276).
+    thread.
     """
     actor = current_actor()
 

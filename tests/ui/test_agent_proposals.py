@@ -41,7 +41,6 @@ from fibsem.workflows.attention import Attention
 from fibsem.workflows.events import EventBuffer  # noqa: E402
 from fibsem.workflows.proposals import (  # noqa: E402
     POINT_OF_INTEREST,  # noqa: E402
-    Decision,
     DecisionOutcome,
     Proposal,
 )
@@ -164,7 +163,6 @@ def test_the_list_has_the_pending_proposal_with_its_image(ui):
         resp = client.get("/app/workflow/proposals", headers=AUTH)
     assert resp.status_code == 200, resp.text
     doc = resp.json()
-    assert doc["available"] is True
     (listed,) = doc["proposals"]
     lamella = ui.experiment.positions[0]
     assert listed["item_id"] == lamella.id
@@ -264,8 +262,8 @@ def test_decide_refuses_what_is_not_pending_or_is_running(ui, qapp):
                 "outcome": "Confirmed",
             },
         )
-        assert resp.status_code == 409
-        assert resp.json()["detail"]["error_type"] == "not_pending"
+        assert resp.status_code == 404
+        assert resp.json()["detail"]["error_type"] == "not_found"
 
         # a look at an earlier task's result, while a later one runs, lands:
         # only the task being decided, or a value, is refused under a run
@@ -284,7 +282,7 @@ def test_decide_refuses_what_is_not_pending_or_is_running(ui, qapp):
             },
         )
         assert resp.status_code == 409
-        assert resp.json()["detail"]["error_type"] == "running"
+        assert resp.json()["detail"]["error_type"] == "task_running"
 
         # now the run being decided is the run in progress: a stop, not a
         # decision, even though it carries no values
@@ -302,7 +300,7 @@ def test_decide_refuses_what_is_not_pending_or_is_running(ui, qapp):
             },
         )
         assert resp.status_code == 409
-        assert resp.json()["detail"]["error_type"] == "running"
+        assert resp.json()["detail"]["error_type"] == "task_running"
     assert lamella.proposal(SETUP).pending
 
 

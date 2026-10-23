@@ -4,7 +4,7 @@ One folder listed at a time; a text file (yaml, json, log, md, csv) as text; an
 image as a preview with its metadata, the shape every image answer has
 (:func:`fibsem.server.images.image_answer`), or one region of it at native
 resolution. A file's raw bytes too (:func:`raw_file`), for an agent whose code
-runs on another machine (Patrick, 2026-10-21; previews only before).
+runs on another machine.
 
 Every path resolves inside the experiment folder, symlinks followed, so ``..``,
 an absolute path elsewhere and a link out of the folder are refused alike
@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
+
+from fibsem.server.responses import refused
 
 TEXT_SUFFIXES = (".yaml", ".yml", ".json", ".jsonl", ".log", ".md", ".csv", ".txt")
 IMAGE_SUFFIXES = (".tif", ".tiff", ".png", ".jpg", ".jpeg")
@@ -132,7 +134,7 @@ def load_image(
 ) -> Tuple[np.ndarray, Any, Optional[float], Optional[Dict[str, Any]], Tuple[int, ...]]:
     """A saved image as something viewable: its data (2-D, or RGB), the
     FibsemImage it is when it is a beam image (else None), its pixel size in
-    metres when known, a fluorescence stack's ``stack_facts`` (else None), and
+    metres when known, a fluorescence stack's legend facts (else None), and
     the full image's shape. With *max_px*, the data may be a smaller copy the
     file holds, still that size on its long side; the pixel size and the shape
     stay the full image's.
@@ -145,7 +147,6 @@ def load_image(
     dropped.
     """
     from fibsem.fm.preview import is_fluorescence_image, load_stack_preview
-    from fibsem.structures import FibsemImage
 
     image = None
     pixel_size = None
@@ -238,13 +239,8 @@ def jpeg_preview(
             # metres per PREVIEW pixel, as image answers carry it.
             metadata["preview_pixelsize"] = metadata["pixel_size"] * full[1] / width
     except Exception as exc:  # noqa: BLE001 - a broken file is a data fact
-        return {
-            "available": True,
-            "jpeg": None,
-            "error": f"Could not render {filename!r}: {exc}",
-        }
+        return refused("invalid", f"Could not render {filename!r}: {exc}")
     return {
-        "available": True,
         "jpeg": jpeg,
         "width": width,
         "height": height,

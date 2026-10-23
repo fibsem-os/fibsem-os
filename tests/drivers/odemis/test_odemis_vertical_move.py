@@ -28,7 +28,7 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.services.stage_movement import StageMovement
 from fibsem.structures import BeamType, FibsemStagePosition
 
-ODEMIS_CONFIG_PATH = os.path.join(cfg.CONFIG_PATH, "odemis-configuration.yaml")
+ODEMIS_CONFIG_PATH = os.path.join(cfg.SHIPPED_CONFIG_PATH, "odemis-configuration.yaml")
 
 
 class _UprightStage:
@@ -132,8 +132,6 @@ def test_odemis_takes_every_parameter_the_base_declares(odemis_microscope_cls):
         "stable_move",
         "vertical_move",
         "project_stable_move",
-        "_y_corrected_stage_movement",
-        "_inverse_y_corrected_stage_movement",
         "safe_absolute_stage_movement",
     ],
 )

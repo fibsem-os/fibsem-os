@@ -31,7 +31,7 @@ from fibsem.applications.autolamella.ui.common.lamella_display import (
     add_verdict_actions,
     mark_current_verdict,
 )
-from fibsem.config import CARD_MODES, MODE_COMPACT, MODE_COZY, MODE_STANDARD
+from fibsem.config import CARD_MODES, MODE_COMPACT, MODE_COZY
 from fibsem.structures import GridInventoryEntry, GridSlotState
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
@@ -579,7 +579,7 @@ class GridCardContainer(QWidget):
         self._cards.clear()
         # Ids are stable and the host clears then re-adds the same set, so a
         # surviving id would name a card drawn unselected while this thinks it is
-        # selected (the lamella strip's FIB-578).
+        # selected.
         self._selected_id = None
 
     def select_grid(self, grid: Optional[GridRecord]) -> None:

@@ -20,6 +20,8 @@ __all__ = [
     "PARTS",
     "POSES",
     "Poses",
+    "REPLAY",
+    "Replay",
     "served_parts",
 ]
 
@@ -28,6 +30,7 @@ POSES = "poses"
 GRIDS = "grids"
 MILLING_STAGES = "milling_stages"
 LAMELLAE = "lamellae"
+REPLAY = "replay"
 
 
 @runtime_checkable
@@ -188,7 +191,7 @@ class MillingStages(Protocol):
 @runtime_checkable
 class Lamellae(Protocol):
     """Lamella-only routes: thickness, correlation results, lamella
-    defaults, the lamella run's plan."""
+    defaults, the lamella run's plan, a lamella's animation."""
 
     def measure_thickness(
         self,
@@ -231,6 +234,18 @@ class Lamellae(Protocol):
         add: bool = False,
     ) -> Dict[str, Any]: ...
 
+    def animation_steps(self, item_name: str) -> Dict[str, Any]: ...
+
+
+@runtime_checkable
+class Replay(Protocol):
+    """The experiment's recorded actions, read back as a timeline to step
+    through."""
+
+    def replay(self) -> Any: ...
+
+    def replay_scene(self, index: int, item: Optional[str] = None) -> Any: ...
+
 
 PARTS = {
     ITEMS: Items,
@@ -238,6 +253,7 @@ PARTS = {
     GRIDS: Grids,
     MILLING_STAGES: MillingStages,
     LAMELLAE: Lamellae,
+    REPLAY: Replay,
 }
 
 

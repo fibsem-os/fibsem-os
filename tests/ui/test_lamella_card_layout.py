@@ -272,9 +272,9 @@ def test_switching_into_compact_and_back_restores_the_thumbnail():
 
 def test_an_unknown_mode_is_ignored_rather_than_drawn_blank():
     """A hand-edited preferences file should not be able to empty the panel."""
-    from fibsem.config import DisplayPreferences
+    from fibsem.config import QtPreferences
 
-    default = DisplayPreferences().lamella_card_mode
+    default = QtPreferences().lamella_card_mode
     card = LamellaCardWidget(_lamella(), mode="enormous")
 
     assert card.mode() == default
@@ -292,11 +292,11 @@ def test_the_card_mode_survives_the_preferences_dialog():
     from fibsem.config import UserPreferences
 
     prefs = UserPreferences()
-    prefs.display.lamella_card_mode = MODE_COMPACT
+    prefs.qt.lamella_card_mode = MODE_COMPACT
 
     dialog = PreferencesDialog(prefs)
     try:
-        assert dialog.get_preferences().display.lamella_card_mode == MODE_COMPACT
+        assert dialog.get_preferences().qt.lamella_card_mode == MODE_COMPACT
     finally:
         dialog.deleteLater()
 
@@ -311,17 +311,17 @@ def test_a_mode_this_build_does_not_know_falls_back_the_same_way_everywhere():
     would then apply a layout nobody chose.
     """
     from fibsem.applications.autolamella.ui.dialogs.preferences import PreferencesDialog
-    from fibsem.config import DisplayPreferences, UserPreferences
+    from fibsem.config import QtPreferences, UserPreferences
 
     prefs = UserPreferences()
-    prefs.display.lamella_card_mode = "tile"  # a name from before the rename
+    prefs.qt.lamella_card_mode = "tile"  # a name from before the rename
 
     card = LamellaCardWidget(_lamella(), mode="tile")
     dialog = PreferencesDialog(prefs)
     try:
-        fallback = DisplayPreferences().lamella_card_mode
+        fallback = QtPreferences().lamella_card_mode
         assert card.mode() == fallback
-        assert dialog.get_preferences().display.lamella_card_mode == fallback
+        assert dialog.get_preferences().qt.lamella_card_mode == fallback
     finally:
         dialog.deleteLater()
 

@@ -287,7 +287,7 @@ def checked_marks(
 def _found(path: str, root: str, item_name: Optional[str]) -> Optional[str]:
     """The file *path* names: as given when absolute; a relative one (as
     proposal_list gives a reference image) in the item's folder, then the
-    experiment's, then the one item folder that holds it (FIB-1494)."""
+    experiment's, then the one item folder that holds it."""
     if os.path.isabs(path):
         return path if os.path.isfile(path) else None
     folders = [os.path.join(root, item_name)] if item_name else []

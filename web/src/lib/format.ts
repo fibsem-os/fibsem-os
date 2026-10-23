@@ -51,10 +51,23 @@ export function bytes(size: number | null | undefined): string {
   return `${(size / 1024 ** 3).toFixed(2)} GB`;
 }
 
+/** A time as the server sends it: an ISO string or seconds since the epoch. */
+type Time = string | number | null | undefined;
+
+function date(t: Time): Date | null {
+  if (t == null || t === "") return null;
+  const d = new Date(typeof t === "number" ? t * 1000 : t);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** "05:52", in this browser's zone. */
+export function clock(t: Time): string {
+  return date(t)?.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) ?? "";
+}
+
 /** "21 Oct 2026, 05:52", in this browser's zone. */
-export function when(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+export function when(t: Time): string {
+  return (
+    date(t)?.toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) ?? ""
+  );
 }

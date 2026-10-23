@@ -53,7 +53,7 @@ class AutoLamellaTaskConfigEditor(TaskConfigEditor):
         self.fluorescence.settings_changed.connect(self._on_fluorescence)
 
     def set_microscope(self, microscope: "FibsemMicroscope") -> None:
-        """And the fluorescence channels its filters (FIB-525)."""
+        """And the fluorescence channels its filters."""
         super().set_microscope(microscope)
         self.fluorescence.set_microscope(microscope)
 

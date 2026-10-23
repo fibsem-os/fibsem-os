@@ -11,7 +11,7 @@ from fibsem.util import wording
 
 def _fit_quality(result: Any) -> str:
     """The fit a correlation's point comes from, on a line of its own: its RMS
-    and verdict, a bad one said plainly (FIB-1492)."""
+    and verdict, a bad one said plainly."""
     from fibsem.correlation.verdict import FitEvidence, verdict
 
     data = result.input_data

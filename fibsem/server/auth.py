@@ -1,11 +1,11 @@
-"""Authentication and the agent level gate for the App Server (FIB-852, FIB-1035).
+"""Authentication and the agent level gate for the App Server.
 
 One bearer token per server instance, and one gate: the agent level the
 operator sets from the Agent chip. Each route needs a level:
 
 - ``watch``: reads, and adding notes. Every valid token at Watch or above.
 - ``assist``: stopping what is running, and suggesting an answer: at Assist
-  and Drive, with no request (FIB-1283).
+  and Drive, with no request.
 - ``drive``: acting on the session and the microscope. At Assist the agent
   asks first, and an approved request lends Drive to its calls
   (:func:`lending_drive`).
@@ -14,7 +14,7 @@ Fail closed: a server always has a token (generated when the hosting does not
 supply one), and starts at Watch unless the hosting says otherwise. Off
 refuses everything, reads included.
 
-A second, read-only **dashboard token** (FIB-1035) reaches the monitoring
+A second, read-only **dashboard token** reaches the monitoring
 routes -- /capabilities and GETs of the app's read routes -- and nothing else:
 not the microscope, not a POST, whatever the level. It is carried in the
 dashboard link and never written to the discovery file, so the dashboard and
@@ -96,7 +96,7 @@ class AuthConfig:
     # (fibsem.server.connections) and reaches nothing else.
     connect_token: Optional[str] = None
     connections: Optional["Connections"] = None
-    # The agent level (FIB-1035): the only gate.
+    # The agent level: the only gate.
     level: AgentLevel = AgentLevel.WATCH
     # Set by stop_agent, cleared by the next set_level: the operator braked, so a
     # refusal says so rather than only naming the level.
@@ -104,8 +104,7 @@ class AuthConfig:
     # Monotonic time of the last request that presented the valid token; None
     # until one arrives. The connected agent's proof of life: its event
     # long-poll alone touches the server every half-minute, so staleness here
-    # means nobody is on the other end (used to hand a parked question to the
-    # operator without waiting out the full hand-over time).
+    # means nobody is on the other end.
     last_seen_monotonic: Optional[float] = None
     # The MCP client behind the sidecar, as the sidecar names it in its
     # User-Agent ("claude-code/2.1.3"); None until a sidecar request names one.
@@ -240,7 +239,7 @@ def client_from_user_agent(user_agent: Optional[str]) -> Optional[str]:
     return products[1]
 
 
-# Drive, lent to the calls an approved request makes (FIB-1283), for those calls
+# Drive, lent to the calls an approved request makes, for those calls
 # only. A context variable: set by the request's worker around each call it
 # makes into the app, so nothing arriving over the network can carry it.
 _lent: "ContextVar[bool]" = ContextVar("fibsem_drive_lent", default=False)
@@ -278,44 +277,41 @@ def _matches(token: Optional[str], expected: Optional[str]) -> bool:
     )
 
 
-def _unauthorized() -> HTTPException:
+def refusal_error(
+    status_code: int, error_type: str, message: str, **extra: Any
+) -> HTTPException:
+    """A refusal as every route answers it: ``{error_type, message}``, and
+    whatever else the client needs to act on it."""
     return HTTPException(
-        status_code=401,
-        detail={
-            "error_type": "unauthorized",
-            "message": "Missing or invalid bearer token.",
-        },
+        status_code=status_code,
+        detail={"error_type": error_type, "message": message, **extra},
     )
 
 
+def _unauthorized() -> HTTPException:
+    return refusal_error(401, "unauthorized", "Missing or invalid bearer token.")
+
+
 def _operator_only() -> HTTPException:
-    return HTTPException(
-        status_code=403,
-        detail={
-            "error_type": "operator_only",
-            "message": "Only the operator does this: the agent's token can't.",
-        },
+    return refusal_error(
+        403, "operator_only", "Only the operator does this: the agent's token can't."
     )
 
 
 def _connect_first(app_name: str) -> HTTPException:
-    return HTTPException(
-        status_code=403,
-        detail={
-            "error_type": "connect_first",
-            "message": "This token only asks to connect (POST /connect): the "
-            f"operator allows the agent in {app_name}.",
-        },
+    return refusal_error(
+        403,
+        "connect_first",
+        "This token only asks to connect (POST /connect): the "
+        f"operator allows the agent in {app_name}.",
     )
 
 
 def _dashboard_refused() -> HTTPException:
-    return HTTPException(
-        status_code=403,
-        detail={
-            "error_type": "dashboard_read_only",
-            "message": "The dashboard token reads the monitoring routes only.",
-        },
+    return refusal_error(
+        403,
+        "dashboard_read_only",
+        "The dashboard token reads the monitoring routes only.",
     )
 
 
@@ -397,14 +393,12 @@ def require_level(needed: AgentLevel):
         if not lent:
             auth.mark_seen(request.headers.get("User-Agent"), token)
         if auth.level is AgentLevel.OFF:
-            raise HTTPException(
-                status_code=403,
-                detail={
-                    "error_type": "agent_off",
-                    "level": AgentLevel.OFF.value,
-                    "message": "The agent is off: the operator has set the "
-                    f"agent level to Off in {_app_name(request)}.",
-                },
+            raise refusal_error(
+                403,
+                "agent_off",
+                "The agent is off: the operator has set the "
+                f"agent level to Off in {_app_name(request)}.",
+                level=AgentLevel.OFF.value,
             )
         if not (auth.reaches(needed) or lent):
             # What the agent may never do says so at every level, not "ask
@@ -416,10 +410,7 @@ def require_level(needed: AgentLevel):
                 else None
             )
             if why is not None:
-                raise HTTPException(
-                    status_code=403,
-                    detail={"error_type": "not_allowed", "message": why},
-                )
+                raise refusal_error(403, "not_allowed", why)
             raise HTTPException(
                 status_code=403,
                 detail=_level_detail(
@@ -497,15 +488,15 @@ def refuse_dashboard(request: Request) -> None:
 
 
 def action_name(request: Request) -> str:
-    """What a request does, in words, for the record, the log and the toast
-    (FIB-1359): "focus sweep", "move stage relative", "set electron imaging
+    """What a request does, in words, for the record, the log and the toast:
+    "focus sweep", "move stage relative", "set electron imaging
     settings". Not the route: an operator reads it."""
     params = request.path_params
     for key in ("command", "query"):
         if key in params:
             name = params[key].replace("_", " ")
             # A one-word command says too little on its own: "milling run", not
-            # "run" (FIB-1377).
+            # "run".
             if " " not in name and "device" in params:
                 return f"{params['device'].replace('_', ' ')} {name}"
             return name
@@ -520,7 +511,7 @@ def action_name(request: Request) -> str:
 
 
 def described_action(request: Request) -> str:
-    """The agent's call as the line an operator reads (FIB-1426): its tool and
+    """The agent's call as the line an operator reads: its tool and
     arguments described as a request's card says them, else :func:`action_name`."""
     call = current_call()
     if call is not None and call.action:
@@ -529,17 +520,16 @@ def described_action(request: Request) -> str:
 
 
 def take_control(request: Request):
-    """Take control of the microscope for this request (FIB-1270), or 409.
+    """Take control of the microscope for this request, or 409.
     Declared with ``scope="function"``, so control is given up before the answer
     is sent: a caller's next request never finds its own last one in control.
 
-    The control a run, a script and the operator take too, so a server command
-    never interleaves with them or with another request: concurrent requests on
-    the threadpool would interleave multi-call vendor operations (the
-    FIB-517/542/569 incident class). A structured refusal naming who is in
-    control beats queueing: a caller blocked behind an hour-long mill should be
-    told, not held. During a run's question, the run has lent control, so the
-    request borrows it.
+    The control a run, a script and the operator take too, so a server command never
+    interleaves with them or with another request: concurrent requests on the threadpool
+    would interleave multi-call vendor operations. A structured refusal naming who is in
+    control beats queueing: a caller blocked behind an hour-long mill should be told,
+    not held. During a run's question, the run has lent control, so the request borrows
+    it.
     """
     lease_id = request.headers.get(LEASE_HEADER)
     if lease_id is not None:
@@ -573,13 +563,11 @@ def take_control(request: Request):
 
 def busy_refusal(busy: MicroscopeBusy) -> HTTPException:
     """The 409 a take refused with: who is in control, doing what."""
-    return HTTPException(
-        status_code=409,
-        detail={
-            "error_type": "microscope_busy",
-            "message": str(busy),
-            "in_control": {"by": busy.in_control.by, "action": busy.in_control.action},
-        },
+    return refusal_error(
+        409,
+        "microscope_busy",
+        str(busy),
+        in_control={"by": busy.in_control.by, "action": busy.in_control.action},
     )
 
 
@@ -587,13 +575,11 @@ def caller_lease(request: Request, lease_id: str):
     """The caller's live lease *lease_id*, or 409: given up, or another's."""
     lease = request.app.state.leases.get(lease_id)
     if lease is None or lease.entry.by != (current_actor() or AGENT):
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "error_type": "lease_gone",
-                "message": "This control lease was given up (released, or "
-                "idle too long); take control again.",
-            },
+        raise refusal_error(
+            409,
+            "lease_gone",
+            "This control lease was given up (released, or "
+            "idle too long); take control again.",
         )
     return lease
 
@@ -609,14 +595,12 @@ def adopt_control(request: Request) -> Optional[Callable[[], None]]:
         running = control.beside_of(request.state.control_entry)
         if running is not None:
             # Beside a long command, act once at a time; never start another.
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "error_type": "microscope_busy",
-                    "message": f"{running.action} is still running; a long "
-                    "command waits for it to end.",
-                    "in_control": {"by": running.by, "action": running.action},
-                },
+            raise refusal_error(
+                409,
+                "microscope_busy",
+                f"{running.action} is still running; a long "
+                "command waits for it to end.",
+                in_control={"by": running.by, "action": running.action},
             )
         request.state.control_adopted = True
         control.let_act_beside(request.state.control_entry)

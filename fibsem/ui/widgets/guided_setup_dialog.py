@@ -1358,7 +1358,7 @@ class GuidedSetupDialog(QtWidgets.QDialog):
         if self._closed:
             # Closed while the connection was still opening. Touching a widget here
             # would raise inside a slot, which PyQt5 turns into a process abort
-            # (FIB-329) -- and the client would leak with nothing left to close it.
+            # -- and the client would leak with nothing left to close it.
             try:
                 microscope.disconnect()
             except Exception as e:  # pragma: no cover - defensive
@@ -1615,9 +1615,8 @@ class GuidedSetupDialog(QtWidgets.QDialog):
 
         preferences = cfg.load_user_preferences()
 
-        # First, because it is the one directory this wizard actually writes to. It
-        # used to be unasked and unnamed, which left "Experiments" as the only folder
-        # question on the page and invited it being answered for both.
+        # First, because it is the one directory this wizard actually writes to, and
+        # named, so "Experiments" is not answered for both.
         self._configuration_dir = QDirectoryLineEdit()
         self._configuration_dir.setText(cfg.CONFIG_PATH)
         self._configuration_dir.textChanged.connect(self._on_configuration_dir_changed)
@@ -1633,8 +1632,7 @@ class GuidedSetupDialog(QtWidgets.QDialog):
 
         self._experiment_dir = QDirectoryLineEdit()
         self._experiment_dir.setText(
-            preferences.experiment.default_experiment_directory
-            or os.path.expanduser("~")
+            preferences.shared.default_experiment_directory or os.path.expanduser("~")
         )
         column.addLayout(
             self._directory_row(
@@ -1646,7 +1644,7 @@ class GuidedSetupDialog(QtWidgets.QDialog):
         )
 
         self._protocol_file = QFileLineEdit()
-        self._protocol_file.setText(preferences.experiment.default_protocol_path)
+        self._protocol_file.setText(preferences.shared.default_protocol_path)
         column.addLayout(
             self._directory_row(
                 "Default protocol",
@@ -1815,7 +1813,7 @@ class GuidedSetupDialog(QtWidgets.QDialog):
             # of the sample is reached at, and someone who typed 250° should see that
             # this became 70° rather than discover it from a stage that turned the
             # wrong way. Computed here rather than read back from `stage`, which no
-            # longer carries it (FIB-834) -- and only reachable for an editable stage,
+            # longer carries it -- and only reachable for an editable stage,
             # i.e. one that rotates, so the modulo is the whole of the derivation.
             reference = float(stage.get("rotation_reference", 0))
             rows.insert(

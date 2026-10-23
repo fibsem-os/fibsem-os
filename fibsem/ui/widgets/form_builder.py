@@ -65,15 +65,6 @@ from fibsem.ui.widgets.custom_widgets import (
     unit_suffix,
 )
 
-# Fallback spinbox bounds, used when a field declares no limits.
-#
-# `ValueSpinBox` itself falls back to (0.0, 1e6), which is wrong for any field
-# that can go negative -- and a floor of zero does not error, it silently clamps.
-# The forms that had their own hardcoded ranges keep them by passing this
-# explicitly; the milling forms keep the spinbox defaults by passing None.
-DEFAULT_FLOAT_RANGE = (-1e10, 1e10)
-DEFAULT_INT_RANGE = (-2147483648, 2147483647)
-
 
 @dataclass(frozen=True)
 class FormDefaults:
@@ -131,7 +122,7 @@ class Control:
         argument silently receives the payload. That is not hypothetical: the
         task form captured its field name with `lambda name=field:`, PyQt passed
         `valueChanged`'s float as `name`, and every spinbox, checkbox and combo
-        edit was dropped without a word (FIB-526). A slot that genuinely cannot
+        edit was dropped without a word. A slot that genuinely cannot
         take zero arguments now raises instead.
         """
         for signal in self.signals:
@@ -454,10 +445,8 @@ def build_control(
 
         def read_text():
             # An empty box on an Optional[str] field means "unset", not "".
-            # Rendering used to be str(value), so a None field showed the literal
-            # text "None" and read it straight back onto the config -- an
-            # AcquireReferenceImage filename of "None" instead of the
-            # auto-generated one, from a focus-out alone.
+            # str(value) would show the literal text "None" and read it straight
+            # back onto the config on a focus-out.
             text = control.text()
             return None if (optional and not text) else text
 

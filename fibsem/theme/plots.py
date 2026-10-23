@@ -64,7 +64,7 @@ class PlotTheme:
     grid: str  # axes edges and grid lines: recessive on purpose
     # Line colours in a fixed order, so the first series is always the first
     # colour. The same six hues in both themes, each stepped for its
-    # background; checked for contrast and colour-blind separation (FIB-1288).
+    # background; checked for contrast and colour-blind separation.
     series: Tuple[str, ...]
     # A score or a verdict. Always drawn with the number or word it colours,
     # never as colour alone.

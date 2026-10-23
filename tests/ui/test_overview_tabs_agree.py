@@ -104,8 +104,10 @@ def test_no_tab_carries_a_hex_colour_literal(tab, sources):
 def test_the_grid_radius_is_defined_once():
     """It was `GRID_RADIUS_M` on one tab and `GRID_BOUNDARY_RADIUS` on the other: the
     same 1000 µm, in two files, under two names, with nothing to keep them equal."""
-    overlays = OVERLAYS.read_text(encoding="utf-8")
-    assert re.search(r"^GRID_BOUNDARY_RADIUS_M\s*=", overlays, re.M)
+    places = (REPO_ROOT / "fibsem" / "geometry" / "stage_places.py").read_text(
+        encoding="utf-8"
+    )
+    assert re.search(r"^GRID_BOUNDARY_RADIUS_M\s*=", places, re.M)
 
     for tab, source in (
         ("beam", BEAM.read_text(encoding="utf-8")),

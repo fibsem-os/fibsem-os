@@ -39,7 +39,6 @@ from fibsem.workflows.proposals import (
     ALIGNMENT_AREA,
     POINT_OF_INTEREST,
     STATE,
-    Decision,
     DecisionOutcome,
 )
 from fibsem.workflows.status import HoldKind, TaskStatus

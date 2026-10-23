@@ -37,7 +37,7 @@ from fibsem.ui.widgets.lists import ReorderableListWidget
 
 # Columns are flexible: each is (minimum_width, stretch). The header and every row
 # consume the SAME spec so their column boundaries stay aligned as the panel resizes,
-# while the whole row can shrink well below the old ~660px fixed-width floor.
+# while the whole row can shrink well below ~660px.
 # Minimums are what the cell's text needs: "200.0 pA" or "Standard" plus the combo's
 # arrow, "2.0 µm" plus the stacked stepper. Below these a cell clips mid-word.
 _COL_NAME = (80, 3)
@@ -626,7 +626,7 @@ class MillingStageListWidget(QWidget):
         box cycles through PartiallyChecked, which the header reports as
         `bool(Qt.PartiallyChecked)`, i.e. True. So the third click ticks every row
         while the header itself stays showing a dash. Syncing after the loop settles
-        it back onto the rows it just changed (FIB-577).
+        it back onto the rows it just changed.
 
         Public for the same reason as the AutoLamella lists: any caller that clears
         the selection programmatically needs the header to follow, and reaching for
@@ -640,13 +640,6 @@ class MillingStageListWidget(QWidget):
             row.stage.enabled = checked
         self._sync_select_all()
         self.enabled_changed.emit(self.get_enabled_stages())
-
-    def set_pattern_column_visible(self, visible: bool) -> None:
-        """Show or hide the Pattern column in the header and all rows."""
-        self._show_pattern = visible
-        self._header.lbl_pattern.setVisible(visible)
-        for i in range(self._list.count()):
-            self._row(i).pattern_combo.setVisible(visible)
 
     # ------------------------------------------------------------------
     # Internal

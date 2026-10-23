@@ -1,4 +1,4 @@
-"""The App Server: the fibsem server, embedded in the AutoLamella app (FIB-852).
+"""The App Server: the fibsem server, embedded in the AutoLamella app.
 
 ``build_server`` constructs the FastAPI app around an already-connected
 ``FibsemMicroscope``: the app passes its live microscope and an ``app_context``
@@ -7,7 +7,7 @@ that additionally mounts the app-level router.
 Every route requires a bearer token, and an agent level (``auth``): reads at
 Watch, acting at Drive. The agent stops its own action at Assist or Drive,
 anything else only at Drive, and never at Watch; every stop carries a reason. A hardware command also takes control
-of the microscope (FIB-1270) for as long as it runs; when a run, a script or
+of the microscope for as long as it runs; when a run, a script or
 another command is in control it is refused with a structured ``409
 microscope_busy`` naming who, rather than interleaved or queued.
 """
@@ -16,7 +16,7 @@ import json
 import logging
 from typing import Any, Callable, Dict, Mapping, Optional
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, WebSocket
+from fastapi import APIRouter, Depends, FastAPI, Request, WebSocket
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import JSONResponse, Response
 from fastapi.routing import APIRoute
@@ -49,6 +49,7 @@ from fibsem.server.auth import (
     caller_lease,
     drive_is_lent,
     is_operator_token,
+    refusal_error,
     require_level,
     require_monitoring,
     require_token,
@@ -90,7 +91,7 @@ API_VERSION = "0.3.0"
 
 def _show_in_app(microscope: FibsemMicroscope, image) -> None:
     """Show an image a route acquired in the app's SEM/FIB views, as the
-    workflow's one-shots do (FIB-1375).
+    workflow's one-shots do.
 
     Before this, an agent's image went back to the agent only: the app kept the
     frame from before the agent's move, and a question raised next showed that.
@@ -105,7 +106,7 @@ def _show_in_app(microscope: FibsemMicroscope, image) -> None:
 class _RefusingRoute(APIRoute):
     """A microscope route whose expected errors (a stage limit, a bad value, a
     stopped mill) are refusals, as on the device routes: a 4xx in the one refusal
-    shape, logged as one line, not a 500 with a traceback (FIB-1377)."""
+    shape, logged as one line, not a 500 with a traceback."""
 
     def get_route_handler(self):
         handler = super().get_route_handler()
@@ -198,14 +199,14 @@ def _device_command_gate(request: Request, command: str):
 
 def _agents_own_action(request: Request) -> bool:
     """Whether what is running now is the agent's own: its command holds control
-    of the microscope (FIB-1270). Control is one at a time, so while the agent
+    of the microscope. Control is one at a time, so while the agent
     holds it, nothing anyone else started is running through it."""
     in_control = request.app.state.microscope.control.current
     return in_control is not None and in_control.by == AGENT
 
 
 def _stop_gate(request: Request) -> None:
-    """The stop rule (Patrick, 2026-10-14): the agent stops its own action at the
+    """The stop rule: the agent stops its own action at the
     levels it acts at, Assist and Drive, and anything else (a workflow, the
     operator's mill) only at Drive, or in a request the operator approved. Watch
     never stops. A wrong stop isn't free: a mill stopped partway can spoil a
@@ -240,19 +241,17 @@ async def _stop_reason(request: Request):
     if not operator and (not isinstance(reason, str) or not reason.strip()):
         kwargs = body.get("kwargs") if isinstance(body, dict) else None
         misplaced = isinstance(kwargs, dict) and "reason" in kwargs
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error_type": "missing_reason",
-                "message": "Pass a reason with a stop: the operator reads why "
-                "the agent stopped it."
-                + (
-                    ' It goes beside kwargs, not inside them: {"kwargs": {}, '
-                    '"reason": "..."}.'
-                    if misplaced
-                    else ""
-                ),
-            },
+        raise refusal_error(
+            422,
+            "missing_reason",
+            "Pass a reason with a stop: the operator reads why "
+            "the agent stopped it."
+            + (
+                ' It goes beside kwargs, not inside them: {"kwargs": {}, '
+                '"reason": "..."}.'
+                if misplaced
+                else ""
+            ),
         )
     own = _agents_own_action(request)
     yield
@@ -320,7 +319,7 @@ AGENT_REFUSALS = ("level", "ask_first", "agent_off", "agent_stopped", "not_allow
 
 def _record_refusal(request: Request, exc: StarletteHTTPException) -> None:
     """An agent's action refused for its permissions, as ``agent_refused`` on the
-    record and one log line (FIB-1402): an agent trying to act without asking is
+    record and one log line: an agent trying to act without asking is
     what the operator should be able to see. Reads stay out of the record, as do
     the calls an approved request makes. Never raises."""
     try:
@@ -348,7 +347,7 @@ def _record_refusal(request: Request, exc: StarletteHTTPException) -> None:
             evidence=call.evidence if call is not None else None,
         )
         if call is not None and call.action and not detail.get("call"):
-            # The call as the card says it (FIB-1426), when the sidecar named it.
+            # The call as the card says it, when the sidecar named it.
             payload["line"] = call.action
         logging.info(
             f"agent refused: {payload['what']} ({payload['route']}): "
@@ -379,15 +378,15 @@ _POSTED_READS = (
 
 
 class _AgentActs:
-    """Every request is the agent acting, for the experiment's record (FIB-1062).
+    """Every request is the agent acting, for the experiment's record.
 
     Pure ASGI middleware. The mark is a context variable, and a route handler --
     a sync function, which FastAPI runs in a worker thread -- runs with a copy
     of the request's context, so the mark reaches whatever the handler calls.
 
     An acting call is also the agent's call (`fibsem.ai.agent.calls`), named by
-    the sidecar's headers, and once answered is recorded as ``agent_called``
-    (FIB-1426): what it did in the operator's words, how it ended, and at which
+    the sidecar's headers, and once answered is recorded as ``agent_called``:
+    what it did in the operator's words, how it ended, and at which
     level. Not a read, an approved request's call (the request's own events say
     those), a refusal for the agent's permissions (``agent_refused``), a long
     command (its run's events), a POST that only reads (a query), or a route
@@ -527,7 +526,7 @@ def build_server(
     ``app_context`` is the application's view (AutoLamellaAppContext in practice);
     passing one mounts the ``/app`` routes and flips ``routers.app`` in /capabilities.
 
-    ``serve_microscope`` is the App Server's microscope setting (FIB-1035):
+    ``serve_microscope`` is the App Server's microscope setting:
     every route under ``/microscope``, reads included, since a read reaches the
     instrument too. False leaves each answering 404 ``microscope_off``, and
     /capabilities reports ``routers.microscope`` off. The App Server passes its
@@ -615,10 +614,10 @@ def build_server(
                 type_path(base): type_path(own)
                 for base, own in getattr(app_context, "answer_types", {}).items()
             },
-            # The agent level (FIB-1035): what the agent may do right now.
+            # The agent level: what the agent may do right now.
             "level": auth.level.value,
             # The code the server runs, so a sidecar can tell it imports
-            # other code (a worktree on the app's PYTHONPATH, FIB-1429).
+            # other code (a worktree on the app's PYTHONPATH).
             "fibsem": {"version": __version__, "path": fibsem_folder()},
         }
 
@@ -659,12 +658,8 @@ def build_server(
     @whole.websocket("/events", dependencies=[Depends(_watch)])
     async def microscope_events(websocket: WebSocket):
         if "origin" in websocket.headers:
-            raise HTTPException(
-                status_code=403,
-                detail={
-                    "error_type": "browser_refused",
-                    "message": "The events socket refuses a browser page.",
-                },
+            raise refusal_error(
+                403, "browser_refused", "The events socket refuses a browser page."
             )
         await stream_events(
             websocket,
@@ -676,12 +671,8 @@ def build_server(
     @whole.websocket("/devices/{device}/live", dependencies=[Depends(_watch)])
     async def microscope_live(websocket: WebSocket, device: str):
         if "origin" in websocket.headers:
-            raise HTTPException(
-                status_code=403,
-                detail={
-                    "error_type": "browser_refused",
-                    "message": "The live socket refuses a browser page.",
-                },
+            raise refusal_error(
+                403, "browser_refused", "The live socket refuses a browser page."
             )
         await stream_live(
             websocket,
@@ -820,7 +811,7 @@ def build_server(
             )
         )
     else:
-        # Off, the same paths answer why they are missing (FIB-1359): a bare
+        # Off, the same paths answer why they are missing: a bare
         # "Not Found" reads as a wrong path, not as the operator's choice.
         app.include_router(_microscope_off_router())
     if app_context is not None:
@@ -850,7 +841,7 @@ def build_server(
         app.include_router(
             build_app_suggest_router(app_context), dependencies=[Depends(_assist)]
         )
-        # The agent's requests (FIB-1283): actions the operator approves in the
+        # The agent's requests: actions the operator approves in the
         # app, run through the routes above. The app decides them through
         # app.state.requests.
         mounted = (
@@ -894,10 +885,7 @@ MICROSCOPE_OFF_MESSAGE = (
 
 
 def _microscope_off(request: Request) -> None:
-    raise HTTPException(
-        status_code=404,
-        detail={"error_type": "microscope_off", "message": MICROSCOPE_OFF_MESSAGE},
-    )
+    raise refusal_error(404, "microscope_off", MICROSCOPE_OFF_MESSAGE)
 
 
 def _microscope_off_router() -> APIRouter:

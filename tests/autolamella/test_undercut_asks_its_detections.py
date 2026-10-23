@@ -120,7 +120,7 @@ def test_headless_every_detection_goes_on_the_record_unreviewed(
         ["LamellaCentre"],
     ]
     for proposal in detections:
-        assert proposal.unreviewed
+        assert proposal.current.outcome is DecisionOutcome.Unreviewed
         assert proposal.provenance["proposer"] == "autolamella-waffle-20240107"
         assert proposal.provenance["checkpoint"] == CHECKPOINT, "by name, as asked for"
         image = proposal.provenance["reference_image"]

@@ -4,12 +4,9 @@ They are stage coordinates, so they belong to one instrument configuration and l
 its session state (`fibsem.session_state`) under ``saved_positions``, a list of
 positions in the order they were saved.
 
-They used to be two files for the whole PC. ``saved-positions.yaml`` is what the Saved
-Positions panel wrote and the cryo-deposition widget listed; ``positions.yaml`` is an
-older file that the deposition itself looked names up in -- so a position picked from
-the list could not be found when the deposition ran. Both are imported the first time
-the section is absent, ``saved-positions.yaml`` winning a name both contain, and
-neither is deleted. Every reader and the one writer now use the same list.
+The first time the section is absent, the PC-wide ``saved-positions.yaml`` and
+``positions.yaml`` are imported into it (``saved-positions.yaml`` wins a name both
+contain); neither file is deleted.
 """
 
 import logging

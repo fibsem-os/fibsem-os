@@ -42,7 +42,7 @@ def set_supervision(
 
     The workflow reads it at every decision point, so a change takes effect
     at the next one, mid-run included. A supervised proposal goes to the
-    operator and the agent alike, and the first decision wins (FIB-1035).
+    operator and the agent alike, and the first decision wins.
     """
     protocol = experiment.task_protocol
     supervise = bool(supervise)
@@ -138,7 +138,14 @@ def set_schedule(
     config = experiment.task_protocol.workflow_config
     why = config.set_schedule(task_name, scheduled_at)
     if why:
-        return {"applied": False, "error": why, "task_names": config.workflow}
+        return {
+            "applied": False,
+            "error": why,
+            "error_type": "not_found"
+            if config.get(task_name) is None
+            else "invalid_value",
+            "task_names": config.workflow,
+        }
     iso = scheduled_at.isoformat() if scheduled_at else None
     saved = save_workflow_change(
         experiment,

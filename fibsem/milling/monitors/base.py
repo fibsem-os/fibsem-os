@@ -1,4 +1,4 @@
-"""Milling monitors: code that runs during a mill step (FIB-1481).
+"""Milling monitors: code that runs during a mill step.
 
 A strategy is how a stage is milled, between steps; a monitor is what happens
 during one step. A stage lists its monitors (``stage.monitors``, each a
@@ -17,7 +17,7 @@ import logging
 import os
 import threading
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
     Any,

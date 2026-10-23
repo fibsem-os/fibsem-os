@@ -1,7 +1,7 @@
 """Read an experiment's recorded actions back as a timeline, for replay.
 
 An experiment recorded with the event stream has an ``events.jsonl`` beside its
-log (FIB-455), and that is read when it is there: every event already says which
+log, and that is read when it is there: every event already says which
 lamella or grid and task it belongs to, and names the file an image was saved
 to. Experiments recorded before it are read from the log, as follows.
 
@@ -311,15 +311,25 @@ class ReplayEvent:
         return (self.data.get("metadata") or {}).get("image") or self.data
 
     @property
-    def field_size(self) -> Optional[Tuple[float, float]]:
-        """The (width, height) in metres an image covers, if recorded."""
-        settings = self._image_settings
+    def resolution(self) -> Optional[Tuple[float, float]]:
+        """The (width, height) in pixels of an image, if recorded."""
         try:
-            hfw = float(settings["hfw"])
-            w, h = (float(v) for v in settings["resolution"])
+            w, h = (float(v) for v in self._image_settings["resolution"])
         except (KeyError, TypeError, ValueError):
             return None
-        return (hfw, hfw * h / w) if w else None
+        return (w, h) if w and h else None
+
+    @property
+    def field_size(self) -> Optional[Tuple[float, float]]:
+        """The (width, height) in metres an image covers, if recorded."""
+        try:
+            hfw = float(self._image_settings["hfw"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        if self.resolution is None:
+            return None
+        w, h = self.resolution
+        return (hfw, hfw * h / w)
 
     @property
     def is_full_frame(self) -> bool:
@@ -1552,6 +1562,16 @@ def _load_from_events(root: Path) -> ExperimentReplay:
                 _move_summary(payload),
                 data=payload,
                 position=end,
+            )
+        elif kind in ("grid_loaded", "grid_unloaded"):
+            grid, slot = payload.get("grid") or "a grid", payload.get("slot")
+            summary = (
+                f"Loaded {grid}" + (f" from {slot}" if slot else "")
+                if kind == "grid_loaded"
+                else f"Unloaded {grid}" + (f" to {slot}" if slot else "")
+            ) + _failed(payload)
+            event = ReplayEvent(
+                time, EventKind.STAGE, summary, data={**payload, "msg": kind}
             )
         elif kind == "beam_shifted":
             summary = _beam_shift_summary(payload) + _failed(payload)

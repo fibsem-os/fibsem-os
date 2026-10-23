@@ -1,4 +1,4 @@
-"""The agent's requests: actions the operator approves before they run (FIB-1283).
+"""The agent's requests: actions the operator approves before they run.
 
 At Assist the agent acts by asking. It files a request -- one or more of its
 own tool calls, and why -- and the operator approves or rejects it in the app.
@@ -15,7 +15,7 @@ approve its own request.
 
 One request is pending at a time; a batch covers "several things at once".
 There is no expiry at Assist -- silence means no -- but a request may carry one,
-with what expiry does, for Drive's countdown (FIB-1267).
+with what expiry does, for Drive's countdown.
 
 Each request is an ``actions`` proposal on the experiment, so it is saved with
 who approved or rejected it and why; this store keeps what only this session
@@ -24,13 +24,12 @@ knows (applying, each action's result).
 
 import asyncio
 import json
-import os
 import re
 import secrets
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -46,7 +45,7 @@ from fibsem.ai.agent.catalog.describe import (
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.codec import encode
 from fibsem.devices.wire import command_body
-from fibsem.server.auth import AuthConfig, lending_drive, require_level
+from fibsem.server.auth import AuthConfig, lending_drive, refusal_error, require_level
 from fibsem.server.responses import (
     ActionView,
     AgentRequestView,
@@ -128,11 +127,8 @@ class AgentRequest:
     cancel_reason: str = ""
     # One per action run: tool, status_code, ok, and the route's answer.
     results: List[Dict[str, Any]] = field(default_factory=list)
-    # For Drive's countdown (FIB-1267): when it lapses, and what lapsing does.
-    expires_at: Optional[float] = None
-    on_expiry: str = "reject"
     # What the agent judged from (`fibsem.workflows.evidence`, its record), and
-    # the beam image of it the card draws the actions' values on (FIB-1411).
+    # the beam image of it the card draws the actions' values on.
     evidence: Optional[Dict[str, Any]] = None
     image: Optional[str] = None
     # The experiment its proposal is on.
@@ -154,8 +150,6 @@ class AgentRequest:
             reject_reason=self.reject_reason,
             cancel_reason=self.cancel_reason,
             results=list(self.results),
-            expires_at=self.expires_at,
-            on_expiry=self.on_expiry if self.expires_at is not None else None,
             image=self.image or None,
             evidence=self.evidence,
         )
@@ -219,7 +213,7 @@ async def _asgi_call(app, method: str, path: str, body, token: str, query: str =
 def _call_named(spec: ToolSpec, tool: str, arguments: Dict[str, Any]) -> str:
     """A tool call as the record names it: the tool and what its route names
     ("device_set_parameter electron.on"), so a refusal at filing says what was
-    refused rather than "requests" (FIB-1421)."""
+    refused rather than "requests"."""
     target = ".".join(
         str(arguments[name])
         for name in re.findall(r"{(\w+)}", spec.path)
@@ -230,7 +224,7 @@ def _call_named(spec: ToolSpec, tool: str, arguments: Dict[str, Any]) -> str:
 
 def _argument_problem(spec: ToolSpec, unknown: List[str], missing: List[str]) -> str:
     """What is wrong with a request's arguments for *spec*, in the agent's terms:
-    the names it does not take, the ones it needs, and what it takes (FIB-1425).
+    the names it does not take, the ones it needs, and what it takes.
     Checked at filing, so the operator never reads an action with a value left
     out ("Load 'None'")."""
     parts = []
@@ -256,8 +250,8 @@ def _started_run(answer: Any) -> Optional[Dict[str, Any]]:
 
 def _cut_short(answer: Any) -> bool:
     """Whether an action ran but was stopped part way: a mill answers
-    ``cancelled`` rather than failing (FIB-1377). Applied, but the operator and
-    the agent are told it was cut short (FIB-1398). A long command answers its
+    ``cancelled`` rather than failing. Applied, but the operator and
+    the agent are told it was cut short. A long command answers its
     run, whose ``state`` says so when it ended before the answer."""
     if not isinstance(answer, dict):
         return False
@@ -268,9 +262,9 @@ def _cut_short(answer: Any) -> bool:
 
 
 # The flags a route answers 2xx with to say whether it did what it was asked:
-# workflow_start answers ``started: false`` and a reason when it is turned away,
-# a context edit ``applied: false``, a stop with nothing to stop ``stopped: false``.
-_OUTCOME_FLAGS = ("ok", "started", "applied", "stopped")
+# an edit that changed nothing ``applied: false``, a stop with nothing to stop
+# ``stopped: false``. A refusal is an HTTP error.
+_OUTCOME_FLAGS = ("ok", "applied", "stopped")
 
 
 def turned_away(answer: Any) -> Optional[Dict[str, Any]]:
@@ -387,8 +381,6 @@ class RequestStore:
         self,
         actions: Any,
         reason: Any,
-        expires_at: Optional[float] = None,
-        on_expiry: str = "reject",
         evidence: Any = None,
     ) -> AgentRequest:
         resolved = self._resolve(actions)
@@ -404,8 +396,6 @@ class RequestStore:
                 f"Pass a reason (at most {MAX_REASON} characters): it is what the "
                 "operator reads before approving.",
             )
-        if on_expiry not in ("approve", "reject"):
-            raise ValueError("on_expiry is 'approve' or 'reject'")
         experiment = self._recording()
         for index, line in enumerate(self._describe_actions(resolved)):
             if line.get("refused"):
@@ -429,8 +419,6 @@ class RequestStore:
                 id=secrets.token_hex(4),
                 actions=resolved,
                 reason=reason.strip(),
-                expires_at=expires_at,
-                on_expiry=on_expiry,
                 image=frame_path(cited),
                 evidence=cited,
             )
@@ -442,8 +430,6 @@ class RequestStore:
             provenance["evidence"] = cited["evidence_id"]
         if request.image:
             provenance["reference_image"] = request.image
-        if expires_at is not None:
-            provenance.update(expires_at=expires_at, on_expiry=on_expiry)
         experiment.ask_proposal(
             None,
             "",
@@ -672,17 +658,6 @@ class RequestStore:
             else f"the agent level changed to {level.value.title()}"
         )
 
-    def expire_due(self, now: Optional[float] = None) -> Optional[AgentRequest]:
-        """Lapse the pending request if its time is up, as its ``on_expiry``
-        says. Driven by whoever shows the countdown (FIB-1267)."""
-        now = time.time() if now is None else now
-        request = self.pending()
-        if request is None or request.expires_at is None or now < request.expires_at:
-            return None
-        if request.on_expiry == "approve":
-            return self.approve(request.id, by="expiry")
-        return self.reject(request.id, by="expiry")
-
     # --- running an approved request ---
 
     def _apply(self, request: AgentRequest) -> None:
@@ -762,7 +737,7 @@ class RequestStore:
     def _wait_for_run(self, request: AgentRequest, action: Action, run: Dict):
         """Wait for the *run* *action* started to end: (status, answer), the
         answer the ended run as the command's own would be. A run that raised
-        is its error, with the status the route answers it with (FIB-1491); one
+        is its error, with the status the route answers it with; one
         that failed otherwise is a 500. A stopped one is cut short. Stops
         waiting, the run still going, when the request is cancelled."""
         run_id = run["run_id"]
@@ -798,9 +773,9 @@ class RequestStore:
 
     def refresh(self, request_id: str) -> bool:
         """Describe a waiting request's actions again: the values now, read when
-        the operator looks, not when it was filed (FIB-1412). An edit against a
+        the operator looks, not when it was filed. An edit against a
         version keeps the line it was filed with: it applies only to the values
-        it was read against, so those are its "now" (FIB-1491). Reads the routes
+        it was read against, so those are its "now". Reads the routes
         it describes, so never on the GUI thread. False when it no longer
         waits."""
         request = self.get(request_id)
@@ -983,18 +958,16 @@ def build_request_router(store: RequestStore) -> APIRouter:
     def create_request(request: Request, body: Dict[str, Any]):
         auth: AuthConfig = request.app.state.auth
         if auth.level is not AgentLevel.ASSIST:
-            raise HTTPException(
-                status_code=403,
-                detail={
-                    "error_type": "level",
-                    "level": auth.level.value,
-                    "message": "Requests are how the agent acts at Assist. "
-                    + (
-                        "At Drive, make the call itself."
-                        if auth.level is AgentLevel.DRIVE
-                        else "The operator sets the level from the Agent chip."
-                    ),
-                },
+            raise refusal_error(
+                403,
+                "level",
+                "Requests are how the agent acts at Assist. "
+                + (
+                    "At Drive, make the call itself."
+                    if auth.level is AgentLevel.DRIVE
+                    else "The operator sets the level from the Agent chip."
+                ),
+                level=auth.level.value,
             )
         try:
             call = current_call()
@@ -1023,13 +996,7 @@ def build_request_router(store: RequestStore) -> APIRouter:
     def get_request(request_id: str):
         found = store.get(request_id)
         if found is None:
-            raise HTTPException(
-                status_code=404,
-                detail={
-                    "error_type": "not_found",
-                    "message": f"No request {request_id!r}.",
-                },
-            )
+            raise refusal_error(404, "not_found", f"No request {request_id!r}.")
         return answer(found.view())
 
     return router

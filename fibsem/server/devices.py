@@ -59,7 +59,6 @@ import importlib
 import io
 import json
 import logging
-import math
 import threading
 from functools import partial
 from pathlib import Path
@@ -92,7 +91,7 @@ from fastapi.responses import Response
 
 from fibsem.ai.agent.calls import current_call
 from fibsem.cancellation import NothingToStop, OperationCancelledError
-from fibsem.codec import encode
+from fibsem.codec import decode, encode
 from fibsem.devices.core import (
     Device,
     DeviceFault,
@@ -100,7 +99,6 @@ from fibsem.devices.core import (
     ParameterReadOnly,
     ParameterUnavailable,
     ResourceBusy,
-    _limits_to_dict,
 )
 from fibsem.devices.runs import RUNNING, Run
 from fibsem.devices.sample_loader import GridExchangeError
@@ -119,7 +117,7 @@ from fibsem.devices.wire import (
 )
 from fibsem.schema import arguments_schema
 from fibsem.server import device_auth
-from fibsem.server.auth import require_operator
+from fibsem.server.auth import refusal_error, require_operator
 from fibsem.server.device_auth import DeviceAuth, read_device_token
 from fibsem.server.images import (
     TIFF_MEDIA_TYPE,
@@ -134,11 +132,9 @@ from fibsem.server.responses import (
     DeviceDescription,
     DeviceHealth,
     Health,
-    Limits,
     MetadataAnswer,
     ParameterDescription,
     QueryDescription,
-    Range,
     ResultAnswer,
     RunAnswer,
     RunEnvelope,
@@ -146,7 +142,7 @@ from fibsem.server.responses import (
     Values,
     answer,
 )
-from fibsem.structures import FibsemImage
+from fibsem.structures import FibsemImage, Limits
 
 # Before uvicorn 0.54 its default websockets implementation imports websockets.legacy,
 # which websockets 14+ deprecates on import; under the test suite's warnings-as-errors
@@ -160,9 +156,9 @@ WS_PROTOCOL = "websockets-sansio"
 ERROR_STATUS = {
     ParameterUnavailable: 404,
     ParameterReadOnly: 409,
-    OperationCancelledError: 409,  # stopped: a sweep, a mill (FIB-1355)
+    OperationCancelledError: 409,  # stopped: a sweep, a mill
     ResourceBusy: 409,  # held by someone else: a scanner live on the other beam
-    NothingToStop: 409,  # a stop with nothing running (FIB-1398)
+    NothingToStop: 409,  # a stop with nothing running
     GridExchangeError: 409,  # a grid not in the inventory, or the loader refused
     TypeError: 422,
     ValueError: 422,  # an argument that does not decode names its parameter
@@ -174,8 +170,8 @@ ERROR_STATUS = {
 def refusal(error: Exception, what: str) -> HTTPException:
     """The answer to an expected error (one of ``ERROR_STATUS``), in the shape every
     App Server refusal has: ``error_type`` and ``message``, with ``parameter`` for
-    an argument that did not decode and ``status: cancelled`` for a stop
-    (FIB-1377). Logged as one line, no traceback."""
+    an argument that did not decode and ``status: cancelled`` for a stop.
+    Logged as one line, no traceback."""
     status = next(s for t, s in ERROR_STATUS.items() if isinstance(error, t))
     detail = {"error_type": type(error).__name__, "message": str(error)}
     if isinstance(error, OperationCancelledError):
@@ -189,7 +185,7 @@ def refusal(error: Exception, what: str) -> HTTPException:
     if isinstance(error, ResourceBusy):
         detail.update(resource=error.resource, holder=error.holder)
     logging.info(f"{what}: {status} {detail['error_type']}: {error}")
-    return HTTPException(status, detail)
+    return refusal_error(status, **detail)
 
 
 def unexpected(error: Exception, what: str) -> HTTPException:
@@ -197,8 +193,7 @@ def unexpected(error: Exception, what: str) -> HTTPException:
     client reads every failure one way. The traceback goes to the server's log,
     not the answer."""
     logging.error(f"{what}: {type(error).__name__}: {error}", exc_info=error)
-    detail = {"error_type": type(error).__name__, "message": str(error)}
-    return HTTPException(500, detail)
+    return refusal_error(500, type(error).__name__, str(error))
 
 
 def answer_for_error(error: Exception, what: str) -> HTTPException:
@@ -212,19 +207,9 @@ def _choices_to_wire(choices: Any) -> Any:
     return None if choices is None else [to_wire(choice) for choice in choices]
 
 
-def _bound(value: Any) -> Any:
-    """JSON has no infinity: an unbounded end of a limit (a Tescan stage axis) goes
-    as None, and the remote driver reads None back as unbounded."""
-    return None if isinstance(value, float) and math.isinf(value) else value
-
-
-def _limits_to_wire(limits: Any) -> Optional[Limits]:
-    """``_limits_to_dict``'s output with each infinite end as None."""
-    if limits is None:
-        return None
-    if set(limits) == {"min", "max"}:
-        return Range(_bound(limits["min"]), _bound(limits["max"]))
-    return {name: _limits_to_wire(limit) for name, limit in limits.items()}
+def _limits(limits: Any) -> Optional[Limits]:
+    """``_limits_to_dict``'s output as the limits it describes."""
+    return None if limits is None else decode(Limits, limits)
 
 
 def _facts(device: Device) -> Dict[str, Any]:
@@ -244,9 +229,7 @@ Refuse = Callable[[Device, str, str, Mapping[str, Any]], Optional[str]]
 
 
 def not_allowed(message: str) -> HTTPException:
-    return HTTPException(
-        status_code=403, detail={"error_type": "not_allowed", "message": message}
-    )
+    return refusal_error(403, "not_allowed", message)
 
 
 def never_allowed(device: Device, kind: str, name: str, why: str) -> str:
@@ -282,7 +265,7 @@ def describe_device(
             name: ParameterDescription(
                 **{
                     **info,
-                    "limits": _limits_to_wire(info["limits"]),
+                    "limits": _limits(info["limits"]),
                     "choices": _choices_to_wire(info["choices"]),
                 },
                 type_path=_type_path(device, name),
@@ -347,7 +330,7 @@ def _returns(device: Device, name: str) -> Optional[str]:
 
 def metadata_payload(metadata: ParameterMetadata) -> MetadataAnswer:
     return MetadataAnswer(
-        limits=_limits_to_wire(_limits_to_dict(metadata.limits)),
+        limits=metadata.limits,
         choices=_choices_to_wire(metadata.choices),
         settable=metadata.settable,
         native_max=metadata.native_max,
@@ -580,7 +563,7 @@ def build_device_router(
     server passes none, the App Server its token, level and hardware lock. A query
     moves nothing, so it takes the *read* dependencies, not the hardware lock.
     *on_image* is given each image a command acquired, before it is answered: the
-    App Server shows it in the app's views (FIB-1375). *refuse* says why a write
+    App Server shows it in the app's views. *refuse* says why a write
     or a command is never allowed here (403 ``not_allowed``), and the listings
     mark those (``agent: false``): the App Server's blocklist. *paths* reads a
     command's or query's relative paths where they belong (the App Server: in the
@@ -600,12 +583,14 @@ def build_device_router(
         try:
             return devices()[name]
         except KeyError:
-            raise HTTPException(404, f"no {noun} '{name}'") from None
+            raise refusal_error(404, "not_found", f"no {noun} '{name}'") from None
 
     def parameter_of(device: str, name: str) -> Any:
         d = lookup(device)
         if name not in d.declared_parameters():
-            raise HTTPException(404, f"'{device}' declares no parameter '{name}'")
+            raise refusal_error(
+                404, "not_found", f"'{device}' declares no parameter '{name}'"
+            )
         return getattr(d, name)  # ParameterUnavailable when this backend lacks it
 
     def check(d: Device, kind: str, name: str, kwargs: Mapping[str, Any]) -> None:
@@ -660,12 +645,8 @@ def build_device_router(
             runs = lookup(device).runs
             found = runs.wait(run_id, min(max(wait, 0.0), RUN_WAIT_CAP_S))
             if found is None:
-                raise HTTPException(
-                    404,
-                    detail={
-                        "error_type": "not_found",
-                        "message": f"{noun} {device} has run no long command",
-                    },
+                raise refusal_error(
+                    404, "not_found", f"{noun} {device} has run no long command"
                 )
             return answer(RunEnvelope(run_answer(device, found)))
 
@@ -760,7 +741,9 @@ def build_device_router(
     ) -> Any:
         d = lookup(device)
         if command not in d.commands:
-            raise HTTPException(404, f"'{device}' has no command '{command}'")
+            raise refusal_error(
+                404, "not_found", f"'{device}' has no command '{command}'"
+            )
         method = getattr(d, command)
         what = f"{noun} {device}.{command}"
         kwargs = run(lambda: command_kwargs(method, body), what)
@@ -850,7 +833,7 @@ def build_device_router(
     def ask(device: str, query: str, body: Dict[str, Any] = _NO_BODY) -> Response:
         d = lookup(device)
         if query not in getattr(d, "queries", {}):
-            raise HTTPException(404, f"'{device}' has no query '{query}'")
+            raise refusal_error(404, "not_found", f"'{device}' has no query '{query}'")
         method = getattr(d, query)
         what = f"{noun} {device}.{query}"
         kwargs = run(lambda: decode_kwargs(method, body.get("kwargs", {})), what)
@@ -878,7 +861,7 @@ def live_source(devices: Mapping[str, Device], name: str) -> Any:
     """The device *name* names, if it has a live view; else 404."""
     device = devices.get(name)
     if device is None or not hasattr(device, "live_frame"):
-        raise HTTPException(404, f"no beam '{name}' with a live view")
+        raise refusal_error(404, "not_found", f"no beam '{name}' with a live view")
     return device
 
 
@@ -983,7 +966,7 @@ def demo_fm_devices(config: Optional[Mapping[str, Any]] = None) -> List[Device]:
 
 
 def odemis_fm_devices(config: Optional[Mapping[str, Any]] = None) -> List[Device]:
-    """The METEOR's FM, through the odemis backend on this computer (FIB-1095).
+    """The METEOR's FM, through the odemis backend on this computer.
 
     odemis is reachable only from the computer running it, over unix sockets, which
     is why the FM is served from there rather than driven from the beams' PC.

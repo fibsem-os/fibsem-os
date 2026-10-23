@@ -31,6 +31,7 @@ from fibsem.server.responses import (
     PixelPoint,
     Queue,
     QueueEntry,
+    Refusal,
     RunFailed,
     SavedImageMetadata,
     SavedImagePixels,
@@ -39,15 +40,18 @@ from fibsem.server.responses import (
     TaskHistory,
     TaskOutputs,
     WorkflowState,
+    no_experiment,
+    refusal_of,
+    refused,
 )
-from fibsem.structures import BeamType, FibsemStagePosition
-from fibsem.util.records import content_hash, dataframe_records
+from fibsem.structures import BeamType
+from fibsem.util.records import dataframe_records
 from fibsem.util.timestamps import to_iso, wall_time_of
 from fibsem.workflows import workflow_edits
 from fibsem.workflows.actions import NOTE, note_record
 from fibsem.workflows.events import iso_time
 from fibsem.workflows.evidence import EVIDENCE, frame_path
-from fibsem.workflows.experiment import find_item
+from fibsem.workflows.experiment import find_item as find_experiment_item
 from fibsem.workflows.experiments import (
     default_experiment_directory,
     discover_experiments,
@@ -63,6 +67,28 @@ from fibsem.workflows.status import TaskStatus
 __all__ = [
     "AppContext",
 ]
+
+
+def decision_answer(result) -> Any:
+    """A ``DecisionResult`` as a route answers it: its dict when it applied,
+    else its refusal (a task running under it is ``task_running``)."""
+    if result.applied:
+        return result.to_dict()
+    error_type = result.error_type or (
+        "task_running" if result.running else "not_pending"
+    )
+    return refused(error_type, result.reason)
+
+
+def find_item(experiment, item_name: str):
+    """The item named *item_name*, and None; or None and the refusal every
+    route answers an unknown item with, naming the items there are."""
+    if experiment is None:
+        return None, no_experiment()
+    item, why = find_experiment_item(experiment, item_name)
+    if item is not None:
+        return item, None
+    return None, refused("not_found", why["error"], item_names=why["item_names"])
 
 
 def is_failure(item) -> bool:
@@ -165,10 +191,7 @@ class AppContext:
             return refusal
         image = FibsemImage.load(target)
         if image.metadata is None:
-            return {
-                "error_type": "not_found",
-                "message": f"{path} carries no beam image metadata.",
-            }
+            return refused("not_found", f"{path} carries no beam image metadata.")
         return SavedImageMetadata(path, image.metadata)
 
     def _experiment_image(self, path: str):
@@ -181,9 +204,9 @@ class AppContext:
         try:
             target = resolve(self.experiment_path, path)
         except FileRefusal as refusal:
-            return None, refusal.detail
+            return None, refused(refusal.error_type, refusal.message)
         if not os.path.isfile(target):
-            return None, {"error_type": "not_found", "message": f"{path} is a folder."}
+            return None, refused("not_found", f"{path} is a folder.")
         return target, None
 
     def image_stage_position(self, path: str, px=None, fraction=None, crop=None) -> Any:
@@ -202,7 +225,7 @@ class AppContext:
                 px, fraction = _uncropped_point(target, crop, px, fraction)
             position = image_point_to_stage_position(target, px=px, fraction=fraction)
         except ValueError as exc:
-            return {"error_type": "invalid", "message": str(exc)}
+            return refused("invalid", str(exc))
         return SavedImagePosition(path, position)
 
     def image_pixels(self, path: str, stage_positions: List[Dict[str, Any]]) -> Any:
@@ -217,7 +240,7 @@ class AppContext:
         try:
             positions = [FibsemStagePosition.from_dict(p) for p in stage_positions]
         except (TypeError, KeyError, AttributeError) as exc:
-            return {"error_type": "invalid", "message": f"Not a stage position: {exc}"}
+            return refused("invalid", f"Not a stage position: {exc}")
         block, project = stage_projector(target)
         points = []
         for position in positions:
@@ -398,12 +421,12 @@ class AppContext:
         return self._progress.current
 
     def queue(self) -> Queue:
-        """The live work queue: id-anchored items plus the mutation version."""
+        """The live work queue: id-anchored items plus the mutation version;
+        empty, with no version, when nothing runs."""
         manager = self._manager
         if manager is None:
-            return Queue(available=False)
+            return Queue()
         return Queue(
-            available=True,
             version=manager.queue.version,
             items=[
                 QueueEntry(item.id, item.item_name, item.task_name, item.status.name)
@@ -436,9 +459,8 @@ class AppContext:
     def experiment_summary(self) -> ExperimentSummary:
         experiment = self._experiment
         if experiment is None:
-            return self.answer_type(ExperimentSummary)(available=False)
+            return no_experiment()
         return self.answer_type(ExperimentSummary)(
-            available=True,
             items=[self.summary_row(experiment, p) for p in experiment.positions],
         )
 
@@ -446,7 +468,7 @@ class AppContext:
         """Every run of every item, in the order they started."""
         experiment = self._experiment
         if experiment is None:
-            return TaskHistory(available=False)
+            return no_experiment()
         rows = [
             (s.start_timestamp, history_row(p, s))
             for p in experiment.positions
@@ -454,18 +476,15 @@ class AppContext:
         ]
         # Through POSIX time, so old naive stamps and aware ones still compare.
         rows.sort(key=lambda r: r[0].timestamp() if r[0] else float("inf"))
-        return TaskHistory(available=True, items=[row for _, row in rows])
+        return TaskHistory(items=[row for _, row in rows])
 
     def item_read(self, item_name: str, read: Callable[[Any, Any], Any], type_):
-        """*read*(experiment, item) for the item named *item_name*, or *type_*
-        saying it isn't there and which items are."""
-        experiment = self._experiment
-        if experiment is None:
-            return type_(available=False, item_name=item_name)
-        item, refusal = find_item(experiment, item_name)
+        """*read*(experiment, item) for the item named *item_name*, or the
+        refusal naming the items there are."""
+        item, refusal = find_item(self._experiment, item_name)
         if refusal:
-            return type_(available=False, item_name=item_name, **refusal)
-        return read(experiment, item)
+            return refusal
+        return read(self._experiment, item)
 
     def item_detail(self, item_name: str) -> ItemDetail:
         """The durable facts about one item, as a curated snapshot: every
@@ -475,7 +494,6 @@ class AppContext:
     def detail_of(self, experiment, item) -> ItemDetail:
         """*item*'s detail; an app adds its facts."""
         return self.answer_type(ItemDetail)(
-            available=True,
             item_name=item.name,
             id=item.id,
             description=item.description,
@@ -498,7 +516,6 @@ class AppContext:
         """*item*'s outputs; an app adds its own."""
         history = list(item.task_history)
         return self.answer_type(TaskOutputs)(
-            available=True,
             item_name=item.name,
             completed_tasks=[
                 s.name for s in history if s.status is TaskStatus.Completed
@@ -511,12 +528,12 @@ class AppContext:
         order: a volume position's slices, scrubbed as one stack."""
 
         def read(experiment, item) -> ItemStack:
-            slices = stack_slices(experiment.item_path(item), item.task_history, role)
+            slices = stack_slices(
+                experiment.item_path(item), item.task_history, role, experiment.path
+            )
             for entry in slices:
                 entry.z = self.slice_depth(item, entry.iteration)
-            return ItemStack(
-                available=True, item_name=item.name, role=role, slices=slices
-            )
+            return ItemStack(item_name=item.name, role=role, slices=slices)
 
         return self.item_read(item_name, read, ItemStack)
 
@@ -544,11 +561,9 @@ class AppContext:
         )
 
         experiment = self._experiment
-        if experiment is None:
-            return {"available": False, "item_name": item_name}
         item, refusal = find_item(experiment, item_name)
         if refusal:
-            return {"available": False, "item_name": item_name, **refusal}
+            return refusal
         path = Path(experiment.path) / EVENTS_FILENAME
         events: List[Dict[str, Any]] = []
         if path.is_file():
@@ -561,7 +576,6 @@ class AppContext:
         )
         shown = HistoryFilter.from_dict(flt)
         return {
-            "available": True,
             "item_name": item.name,
             "filter": shown.to_dict(),
             "tasks": list(dict.fromkeys(run.task_name for run in runs)),
@@ -582,15 +596,12 @@ class AppContext:
         """The most recent run's outcome table, if a run has happened."""
         manager = self._manager
         if manager is not None:
-            return {
-                "available": True,
-                "items": dataframe_records(manager.build_run_summary_dataframe()),
-            }
+            return {"items": dataframe_records(manager.build_run_summary_dataframe())}
         runner = self._runner
         last = runner.last_summary if runner is not None else None
         if last is not None:
-            return {"available": True, "items": dataframe_records(last)}
-        return {"available": False, "items": []}
+            return {"items": dataframe_records(last)}
+        return refused("not_found", "No run has finished in this session.")
 
     def log(
         self,
@@ -609,52 +620,38 @@ class AppContext:
 
         experiment = self._experiment
         if experiment is None:
-            return {"available": False, "records": []}
+            return no_experiment()
         if level is not None:
             level = level.upper()
             if level not in log_tail.LEVELS:
-                return {
-                    "available": True,
-                    "error_type": "invalid",
-                    "error": f"No log level {level!r}.",
-                    "levels": list(log_tail.LEVELS),
-                }
+                return refused(
+                    "invalid", f"No log level {level!r}.", levels=list(log_tail.LEVELS)
+                )
         window = {}
         for name, value in (("since", since), ("until", until)):
             if value is None:
                 continue
             window[name] = wall_time_of(value)
             if window[name] is None:
-                return {
-                    "available": True,
-                    "error_type": "invalid",
-                    "error": f"{name}={value!r} is not a time.",
-                }
+                return refused("invalid", f"{name}={value!r} is not a time.")
         if task_id is not None:
             if window:
-                return {
-                    "available": True,
-                    "error_type": "invalid",
-                    "error": "Give task_id or since/until, not both.",
-                }
+                return refused("invalid", "Give task_id or since/until, not both.")
             found = log_tail.run_window(experiment.path, task_id)
             if found is None:
-                return {
-                    "available": True,
-                    "error_type": "not_found",
-                    "error": f"No run {task_id!r} in this experiment's record.",
-                }
+                return refused(
+                    "not_found", f"No run {task_id!r} in this experiment's record."
+                )
             window = {"since": found[0], "until": found[1]}
             # A run's window at DEBUG is mostly noise, and the cap keeps its
             # end: the start of the run would be the part dropped.
             level = level or "INFO"
         path = Path(experiment.path) / log_tail.LOG_FILENAME
         if not path.is_file():
-            return {"available": False, "records": []}
+            return {"records": []}
         result = log_tail.read_log(path, level=level, lines=lines, **window)
         start, end = window.get("since"), window.get("until")
         return {
-            "available": True,
             "since": start.isoformat() if start is not None else None,
             "until": end.isoformat() if end is not None else None,
             "level": level or "DEBUG",
@@ -680,7 +677,7 @@ class AppContext:
 
         images = self._latest_images
         if images is None:
-            return DisplayImages(available=False)
+            return refused("not_found", "No microscope is connected.")
 
         def preview(image):
             payload = image_payload(image)
@@ -689,7 +686,6 @@ class AppContext:
             return decode(ImagePayload, {**payload, "info": image_info(image)})
 
         return DisplayImages(
-            available=True,
             sem=preview(images.get(BeamType.ELECTRON)),
             fib=preview(images.get(BeamType.ION)),
             fm=preview(images.get_fm()),
@@ -738,10 +734,10 @@ class AppContext:
 
         experiment = self._experiment
         if experiment is None:
-            return {"available": False, "events": [], "start": 0}
+            return no_experiment()
         path = Path(experiment.path) / EVENTS_FILENAME
         if not path.is_file():
-            return {"available": True, "events": [], "start": 0}
+            return {"events": [], "start": 0}
         # What the buffer still holds, `events` serves; leave it out here.
         held = None
         if self._event_buffer is not None:
@@ -762,7 +758,7 @@ class AppContext:
             skip_kinds=LIVE_KINDS,
             keep=keep,
         )
-        return {"available": True, "events": events, "start": start}
+        return {"events": events, "start": start}
 
     # --- discovery --------------------------------------------------------------
 
@@ -831,22 +827,22 @@ class AppContext:
         )
         return {"folder": folder, "items": [self.experiment_entry(s) for s in found]}
 
-    def _not_while_running(self, what: str) -> Optional[Dict[str, Any]]:
+    def _not_while_running(self, what: str) -> Optional[Refusal]:
         """The refusal while a workflow runs (*what* to do when it has
         stopped), or None."""
         why = self._runner.run_refusal(what)
-        return {"error_type": "task_running", "error": why} if why else None
+        return refused("task_running", why) if why else None
 
-    def _busy(self, why: str) -> Optional[Dict[str, Any]]:
+    def _busy(self, why: str) -> Optional[Refusal]:
         """A run_edits refusal as the routes answer it, or None."""
-        return {"error_type": "task_running", "error": why} if why else None
+        return refused("task_running", why) if why else None
 
-    def _no_microscope(self) -> Optional[Dict[str, Any]]:
+    def _no_microscope(self) -> Optional[Refusal]:
         if self._microscope is None:
-            return {"error_type": "not_found", "error": "No microscope is connected."}
+            return refused("not_found", "No microscope is connected.")
         return None
 
-    def _session_refusal(self) -> Optional[Dict[str, Any]]:
+    def _session_refusal(self) -> Optional[Refusal]:
         """Why the open experiment cannot be replaced now, or None."""
         return self._not_while_running("change experiments") or self._no_microscope()
 
@@ -859,7 +855,7 @@ class AppContext:
         reference image its values sit on as an agent-sized preview."""
         experiment = self._experiment
         if experiment is None:
-            return {"available": False, "proposals": []}
+            return no_experiment()
         from fibsem.server.image_payloads import image_payload
         from fibsem.workflows.events import to_plain
         from fibsem.workflows.reference_images import (
@@ -890,7 +886,7 @@ class AppContext:
             return doc
 
         proposals = [describe(*entry) for entry in experiment.pending_proposals()]
-        return {"available": True, "proposals": proposals}
+        return {"proposals": proposals}
 
     def decide(
         self,
@@ -925,7 +921,7 @@ class AppContext:
         is refused."""
         experiment = self._experiment
         if experiment is None:
-            return {"available": False, "applied": False, "reason": "No experiment."}
+            return no_experiment()
         from fibsem.workflows.proposals import (
             Decision,
             DecisionOutcome,
@@ -937,19 +933,14 @@ class AppContext:
         try:
             decided = DecisionOutcome[outcome]
         except KeyError:
-            return {
-                "available": True,
-                "applied": False,
-                "invalid_value": f"outcome must be Confirmed or Rejected, not {outcome!r}",
-            }
+            return refused(
+                "invalid_value",
+                f"outcome must be Confirmed or Rejected, not {outcome!r}",
+            )
         try:
             decoded = _decode_values(values or {})
         except Exception as exc:  # noqa: BLE001 - any bad document is refused
-            return {
-                "available": True,
-                "applied": False,
-                "invalid_value": f"values could not be read: {exc}",
-            }
+            return refused("invalid_value", f"values could not be read: {exc}")
         if patch:
             item = experiment.get_item_by_id(item_id)
             shown = next(
@@ -961,15 +952,14 @@ class AppContext:
                 None,
             )
             if shown is None:
-                return {
-                    "available": True,
-                    "applied": False,
-                    "invalid_value": "patch needs the proposal_id of a current proposal.",
-                }
+                return refused(
+                    "invalid_value",
+                    "patch needs the proposal_id of a current proposal.",
+                )
             try:
                 decoded = patch_values(shown.kind, decoded or dict(shown.values), patch)
             except ValueRefused as exc:
-                return {"available": True, "applied": False, "invalid_value": str(exc)}
+                return refused("invalid_value", str(exc))
         decision = Decision(
             outcome=decided,
             actor=signer(experiment.actor(), actor or "remote"),
@@ -981,10 +971,7 @@ class AppContext:
             action=str(action or ""),
             evidence=evidence,
         )
-        result = experiment.decide(item_id, task_name, decision)
-        doc = result.to_dict()
-        doc["available"] = True
-        return doc
+        return decision_answer(experiment.decide(item_id, task_name, decision))
 
     def suggest(
         self,
@@ -1004,7 +991,7 @@ class AppContext:
         decision would be, so one that could not be approved is refused now."""
         experiment = self._experiment
         if experiment is None:
-            return {"available": False, "applied": False, "reason": "No experiment."}
+            return no_experiment()
         from fibsem.workflows.proposals import (
             DecisionOutcome,
             Suggestion,
@@ -1012,21 +999,13 @@ class AppContext:
         )
 
         if outcome not in ("Confirmed", "Rejected"):
-            return {
-                "available": True,
-                "applied": False,
-                "error_type": "invalid_value",
-                "reason": f"outcome is Confirmed or Rejected, not {outcome!r}",
-            }
+            return refused(
+                "invalid_value", f"outcome is Confirmed or Rejected, not {outcome!r}"
+            )
         try:
             decoded = _decode_values(values or {})
         except Exception as exc:  # noqa: BLE001 - any bad document is refused
-            return {
-                "available": True,
-                "applied": False,
-                "error_type": "invalid_value",
-                "reason": f"values could not be read: {exc}",
-            }
+            return refused("invalid_value", f"values could not be read: {exc}")
         # The beam image of the cited evidence, to draw the value on.
         image = frame_path(evidence)
         if image:
@@ -1044,9 +1023,9 @@ class AppContext:
         )
         result = experiment.suggest(item_id, task_name, proposal_id, suggestion)
         if not result.applied:
-            return {**result.to_dict(), "available": True}
+            return decision_answer(result)
         # Nothing was decided, so nothing ran or synced.
-        doc = {"applied": True, "available": True, "suggestion_id": suggestion.id}
+        doc = {"applied": True, "suggestion_id": suggestion.id}
         if result.save_error:
             doc["save_error"] = result.save_error
         return doc
@@ -1086,7 +1065,7 @@ class AppContext:
             id=message_id,
             reply_to=reply_to,
         )
-        if result.get("recorded"):
+        if not isinstance(result, Refusal):
             result["id"] = message_id
         return result
 
@@ -1095,12 +1074,12 @@ class AppContext:
     ) -> Dict[str, Any]:
         text = str(text).strip()
         if not text:
-            return {"available": True, "recorded": False, "error": "empty note"}
+            return refused("missing_field", "A note needs its text.")
         item_id = None
         if item_name is not None:
             item, refusal = find_item(self._experiment, item_name)
             if refusal:
-                return {"available": True, "recorded": False, **refusal}
+                return refusal
             item_id = item.id
         logging.info(
             "agent %s%s: %s",
@@ -1109,12 +1088,12 @@ class AppContext:
             text,
         )
         # With the item's id, so the record files the note under the item
-        # it is about, not whichever one is running (FIB-1328).
+        # it is about, not whichever one is running.
         self.record_event(
             NOTE,
             note_record(text, item_id=item_id, item_name=item_name, **fields),
         )
-        return {"available": True, "recorded": True}
+        return {"recorded": True}
 
     def add_evidence(
         self, item_name: Optional[str], save: Callable[[], Dict[str, Any]]
@@ -1126,7 +1105,7 @@ class AppContext:
         if item_name is not None:
             item, refusal = find_item(self._experiment, item_name)
             if refusal:
-                return {"available": True, "recorded": False, **refusal}
+                return refusal
             item_id = item.id
         record = save()
         logging.info(
@@ -1136,13 +1115,13 @@ class AppContext:
             record["image"],
         )
         self.record_event(EVIDENCE, {**record, "item_id": item_id})
-        return {"available": True, "recorded": True, **record}
+        return {"recorded": True, **record}
 
     def record_event(
         self, kind: str, payload: Dict[str, Any], actor: Optional[str] = None
     ) -> None:
         """Put an event on the experiment's record: everything the server's
-        side writes, the agent's requests and their outcomes (FIB-1283)
+        side writes, the agent's requests and their outcomes
         among them. *actor* as for ``EventBuffer.append``."""
         if self._event_buffer is not None:
             self._event_buffer.append(kind, payload, actor=actor)
@@ -1157,13 +1136,9 @@ class AppContext:
         lock.
         """
         if not self._running:
-            return {
-                "available": True,
-                "stopped": False,
-                "reason": "no workflow is running",
-            }
+            return {"stopped": False, "reason": "no workflow is running"}
         self._runner.stop(message=stop_message(current_actor(), reason))
-        return {"available": True, "stopped": True}
+        return {"stopped": True}
 
     def stop_task(
         self, item_name: str, task_name: str, reason: str = ""
@@ -1180,15 +1155,15 @@ class AppContext:
             item_name,
             task_name,
         ):
-            return {
-                "stopped": False,
-                "reason": f"{task_name} for {item_name} is not the task running",
-                "running": (
+            return refused(
+                "not_running",
+                f"{task_name} for {item_name} is not the task running.",
+                running=(
                     {"item_name": active.item_name, "task_name": active.task_name}
                     if active is not None
                     else None
                 ),
-            }
+            )
         self._runner.stop_task(message=stop_message(current_actor(), reason))
         return {"stopped": True, "item_name": item_name, "task_name": task_name}
 
@@ -1197,11 +1172,12 @@ class AppContext:
         experiment is edited, as every start goes."""
         runner = self._runner
         outcome = self._session.run_edit(
-            lambda: runner.start(self._experiment, request).as_dict()
+            lambda: runner.start(self._experiment, request)
         )
-        result = outcome.result(timeout=timeout)
-        result["available"] = True
-        return result
+        started = outcome.result(timeout=timeout)
+        if not started.started:
+            return refused(started.error_type, started.reason, **started.details)
+        return started.as_dict()
 
     def start_workflow(
         self,
@@ -1225,9 +1201,9 @@ class AppContext:
             ),
             timeout,
         )
-        if result.get("started"):
+        if not isinstance(result, Refusal):
             # Who started it: the run's own workflow_started fires on its
-            # worker thread, which carries no one's mark (FIB-1414).
+            # worker thread, which carries no one's mark.
             self.record_event(
                 "workflow_start",
                 {"task_names": list(task_names), "item_names": item_names},
@@ -1252,18 +1228,9 @@ class AppContext:
             )
         )
         if not edit.applied:
-            out: Dict[str, Any] = {
-                "available": True,
-                "queued": False,
-                "reason": edit.reason,
-                **edit.details,
-            }
-            if edit.error_type in ("already_queued", "fixed"):
-                out["error_type"] = edit.error_type
-            return out
+            return refused(edit.error_type, edit.reason, **edit.details)
         (item,) = edit.items
         return {
-            "available": True,
             "queued": True,
             "item_id": item.id,
             "item_name": item_name,
@@ -1273,7 +1240,7 @@ class AppContext:
 
     def edit_queue(self, item_name: str, task_name: str, action: str) -> Dict[str, Any]:
         """Remove or move a waiting (item, task) pair in the running workflow's
-        queue, as the timeline's menu does (FIB-1419).
+        queue, as the timeline's menu does.
 
         ``action`` is one of :data:`QUEUE_ACTIONS`: ``remove`` (it will not run;
         kept in the run record as Removed), ``move_up``, ``move_down`` or
@@ -1283,18 +1250,9 @@ class AppContext:
         """
         edit = self._session.runner.edit(item_name, task_name, action)
         if not edit.applied:
-            if edit.error_type == "not_running":
-                return {"available": True, "applied": False, "reason": edit.reason}
-            return {
-                "available": True,
-                "applied": False,
-                "error_type": edit.error_type,
-                "error": edit.reason,
-                **edit.details,
-            }
+            return refused(edit.error_type, edit.reason, **edit.details)
         (item,) = edit.items
         return {
-            "available": True,
             "applied": True,
             # Already first or last: nothing moved.
             "changed": edit.changed,
@@ -1307,7 +1265,7 @@ class AppContext:
 
     # --- experiments and protocols: the File menu, for an agent at Drive ---------
     #
-    # Kept to known places (Patrick's call, 2026-10-14; widened 2026-10-20): a new
+    # Kept to known places: a new
     # experiment goes anywhere under the experiments folder, a load is a recent
     # experiment or one under that folder, and a protocol is one of the files in
     # the app's protocol folder, by name (discovery, above, lists the
@@ -1317,7 +1275,13 @@ class AppContext:
     protocol_type = None
 
     def _protocol_folder(self) -> Optional[str]:
+        """Where the app's protocols are saved; None for an app with none."""
         return None
+
+    def _protocol_folders(self) -> List[str]:
+        """Where the app's protocols are listed from, its saving folder first."""
+        folder = self._protocol_folder()
+        return [folder] if folder else []
 
     def _default_protocol_path(self) -> Optional[str]:
         """The protocol a new experiment starts with; None for the protocol
@@ -1333,28 +1297,26 @@ class AppContext:
         """The experiment at *path* to open, and None; or None and why not."""
         raise NotImplementedError
 
-    def _no_files(self) -> Optional[Dict[str, Any]]:
+    def _no_files(self) -> Optional[Refusal]:
         if self.protocol_type is None:
-            return {
-                "error_type": "invalid",
-                "error": f"{self.app_name} has no experiment or protocol files.",
-            }
+            return refused(
+                "invalid", f"{self.app_name} has no experiment or protocol files."
+            )
         return None
 
     def _listed_protocols(self) -> List[Dict[str, Any]]:
         from fibsem.workflows.protocol_files import list_protocols
 
-        folder = self._protocol_folder()
-        return list_protocols(folder, self._default_protocol_path()) if folder else []
+        folders = self._protocol_folders()
+        return list_protocols(folders, self._default_protocol_path()) if folders else []
 
     def protocol(self) -> Dict[str, Any]:
         """The workflow: each task's plan entry, in order."""
         experiment = self._experiment
         protocol = getattr(experiment, "task_protocol", None) if experiment else None
         if protocol is None:
-            return {"available": False, "tasks": []}
+            return no_experiment()
         return {
-            "available": True,
             "name": protocol.name,
             "tasks": [task.to_dict() for task in protocol.workflow_config.tasks],
         }
@@ -1377,18 +1339,17 @@ class AppContext:
                 None,
             )
         if path is None:
-            return None, {
-                "error_type": "not_found",
-                "error": f"No protocol named {name!r} in the protocol folder.",
-                "protocol_names": [p["name"] for p in self._listed_protocols()],
-            }
+            return None, refused(
+                "not_found",
+                f"No protocol named {name!r} in the protocol folder.",
+                protocol_names=[p["name"] for p in self._listed_protocols()],
+            )
         try:
             return self.protocol_type.load(path), None
         except Exception as exc:  # noqa: BLE001 - a broken file is a data fact
-            return None, {
-                "error_type": "invalid",
-                "error": f"Could not load the protocol {path}: {exc}",
-            }
+            return None, refused(
+                "invalid", f"Could not load the protocol {path}: {exc}"
+            )
 
     def _adopt(self, experiment) -> None:
         """Make *experiment* the open one, as the dialogs' OK does."""
@@ -1412,19 +1373,19 @@ class AppContext:
         parts = (name or "").replace("\\", "/").split("/")
         path = self._under_experiments_folder(name or "")
         if any(p in ("", ".", "..") for p in parts) or path is None:
-            return {
-                "error_type": "invalid",
-                "error": "name is a folder, or a path of folders, under the "
+            return refused(
+                "invalid",
+                "name is a folder, or a path of folders, under the "
                 f"experiments folder {self._experiments_folder()}.",
-            }
+            )
         if len(parts) > DEFAULT_MAX_DEPTH:
-            return {
-                "error_type": "invalid",
-                "error": f"At most {DEFAULT_MAX_DEPTH} folders deep, so "
+            return refused(
+                "invalid",
+                f"At most {DEFAULT_MAX_DEPTH} folders deep, so "
                 "experiment_list_all finds it again.",
-            }
+            )
         if os.path.exists(path):
-            return {"error_type": "invalid", "error": f"{path} exists."}
+            return refused("invalid", f"{path} exists.")
         task_protocol, refusal = self._protocol_or_refusal(protocol)
         if refusal:
             return refusal
@@ -1456,17 +1417,17 @@ class AppContext:
                 or os.path.basename(found) != EXPERIMENT_FILENAME
                 or (not os.path.isfile(found))
             ):
-                return {
-                    "error_type": "not_found",
-                    "error": "Not a recent experiment or one under the "
+                return refused(
+                    "not_found",
+                    "Not a recent experiment or one under the "
                     f"experiments folder {self._experiments_folder()}; the "
                     "operator opens any other from the Load dialog.",
-                    "recent_paths": recent,
-                }
+                    recent_paths=recent,
+                )
             path = found
         experiment, why = self._load_for_adoption(path)
         if experiment is None:
-            return {"error_type": "invalid", "error": f"Not loaded: {why}."}
+            return refused("invalid", f"Not loaded: {why}.")
         self._adopt(experiment)
         record_recent(experiment)
         return {"applied": True, "experiment": encode(self.experiment_summary())}
@@ -1482,7 +1443,7 @@ class AppContext:
             return refusal
         experiment = self._experiment
         if experiment is None:
-            return {"error_type": "not_found", "error": "No experiment is loaded."}
+            return no_experiment()
         task_protocol, refusal = self._protocol_or_refusal(protocol)
         if refusal:
             return refusal
@@ -1501,18 +1462,18 @@ class AppContext:
         experiment = self._experiment
         protocol = getattr(experiment, "task_protocol", None) if experiment else None
         if protocol is None:
-            return {"error_type": "not_found", "error": "No experiment is loaded."}
+            return no_experiment()
         try:
             path = protocol_file_for(self._protocol_folder(), name)
         except ValueError as exc:
-            return {"error_type": "invalid", "error": str(exc)}
+            return refused("invalid", str(exc))
         if os.path.exists(path) and not overwrite:
-            return {
-                "error_type": "invalid",
-                "error": f"{os.path.basename(path)} already exists in the protocol "
+            return refused(
+                "invalid",
+                f"{os.path.basename(path)} already exists in the protocol "
                 "folder; pass overwrite to replace it.",
-                "protocol_names": [p["name"] for p in self._listed_protocols()],
-            }
+                protocol_names=[p["name"] for p in self._listed_protocols()],
+            )
         os.makedirs(os.path.dirname(path), exist_ok=True)
         protocol.save(path)
         self.record_event("workflow_changed", {"field": "protocol_saved", "path": path})
@@ -1527,15 +1488,14 @@ class AppContext:
         protocol = getattr(experiment, "task_protocol", None) if experiment else None
         config_map = getattr(protocol, "task_config", None) if protocol else None
         if config_map is None:
-            return {"available": False, "task_name": task_name}
+            return no_experiment()
         config = dict(config_map).get(task_name)
         if config is None:
-            return {
-                "available": True,
-                "task_name": task_name,
-                "error": f"No task named {task_name!r} in the protocol.",
-                "task_names": list(config_map.keys()),
-            }
+            return refused(
+                "not_found",
+                f"No task named {task_name!r} in the protocol.",
+                task_names=list(config_map.keys()),
+            )
         return self._config_document(task_name, config, level="protocol")
 
     @staticmethod
@@ -1547,7 +1507,6 @@ class AppContext:
         from fibsem.workflows.task_configs import config_version
 
         return {
-            "available": True,
             "task_name": task_name,
             "level": level,
             "version": config_version(config),
@@ -1562,28 +1521,27 @@ class AppContext:
         timeout: float = 10.0,
     ) -> Dict[str, Any]:
         """Patch a task's protocol-level settings, what each run of it reads,
-        when *version* names the state the patch was written against."""
-        from fibsem.workflows.task_configs import patch_config
+        when *version* names the state the patch was written against. Recorded
+        as the agent's. A running task holds its item's copy, so the edit
+        reaches items created (or re-copied) after it lands."""
+        from fibsem.workflows.task_configs import agent_patch_task_config
 
         session = self._session
 
         def edit():
-            experiment = session.experiment
-            protocol = getattr(experiment, "task_protocol", None)
-            config_map = getattr(protocol, "task_config", None)
-            if config_map is None:
-                return {"applied": False, "error": "no protocol is loaded"}
-            config = dict(config_map).get(task_name)
-            if config is None:
-                return {
-                    "applied": False,
-                    "error": f"No task named {task_name!r} in the protocol.",
-                    "task_names": list(config_map.keys()),
-                }
-            result = patch_config(config, dict(patch), str(version))
+            result = agent_patch_task_config(
+                session.experiment,
+                lambda: session.microscope,
+                "protocol",
+                "",
+                task_name,
+                dict(patch),
+                str(version),
+            )
+            result = refusal_of(result)
+            if isinstance(result, Refusal):
+                return result
             if result["applied"]:
-                result["saved"] = self._save_protocol(experiment)
-                result["task_name"] = task_name
                 session.changed.emit(
                     CONFIG,
                     {
@@ -1595,9 +1553,7 @@ class AppContext:
                 )
             return result
 
-        result = self._agent_call(edit, timeout)
-        result["available"] = True
-        return result
+        return self._agent_call(edit, timeout)
 
     def set_supervision(self, task_name: str, supervise: bool) -> Dict[str, Any]:
         """Set whether ``task_name`` asks for supervision
@@ -1606,11 +1562,10 @@ class AppContext:
 
         experiment = self._experiment
         if experiment is None or experiment.task_protocol is None:
-            return {"available": False, "applied": False}
-        return {
-            "available": True,
-            **set_supervision(experiment, task_name, supervise, self.record_event),
-        }
+            return no_experiment()
+        return refusal_of(
+            set_supervision(experiment, task_name, supervise, self.record_event)
+        )
 
     def set_task_schedule(
         self, task_name: str, scheduled_at: Optional[str]
@@ -1631,33 +1586,26 @@ class AppContext:
             try:
                 parsed = datetime.fromisoformat(scheduled_at)
             except ValueError:
-                return {
-                    "available": True,
-                    "applied": False,
-                    "invalid_value": f"{scheduled_at!r} is not an ISO-8601 "
-                    "timestamp (e.g. '2026-09-04T06:00:00'); null clears "
-                    "the schedule.",
-                }
+                return refused(
+                    "invalid_value",
+                    f"{scheduled_at!r} is not an ISO-8601 timestamp "
+                    "(e.g. '2026-09-04T06:00:00'); null clears the schedule.",
+                )
         experiment = self._experiment
         if experiment is None or experiment.task_protocol is None:
-            return {"available": False, "applied": False}
-        return {
-            "available": True,
-            **workflow_edits.set_schedule(
+            return no_experiment()
+        return refusal_of(
+            workflow_edits.set_schedule(
                 experiment, task_name, parsed, self.record_event
-            ),
-        }
+            )
+        )
 
     def _workflow_edit(self, what: str):
         """The experiment and its workflow config for an edit, or a refusal."""
         experiment = self._experiment
         protocol = getattr(experiment, "task_protocol", None) if experiment else None
         if protocol is None:
-            return (
-                None,
-                None,
-                {"error_type": "not_found", "error": "No experiment is loaded."},
-            )
+            return None, None, no_experiment()
         refusal = self._not_while_running(what)
         if refusal:
             return None, None, refusal
@@ -1704,7 +1652,7 @@ class AppContext:
         - ``show_run_summary``: whether the window's run summary dialog opens
           when a run ends. Off leaves the run-end toast and its Show summary link: an agent
           starting many short runs turns it off so no dialog stands over the
-          window (FIB-1376).
+          window.
         - ``turn_beams_off``: whether the beams are turned off when a run ends.
 
         Each is read when it applies (a run's end), so a change
@@ -1714,13 +1662,13 @@ class AppContext:
         experiment = self._experiment
         protocol = getattr(experiment, "task_protocol", None) if experiment else None
         if getattr(protocol, "options", None) is None:
-            return {"available": False, "applied": False}
+            return no_experiment()
         for name, value in options.items():
             setattr(protocol.options, name, value)
         saved = self._save_protocol(experiment)
         for name, value in options.items():
             self.record_event("workflow_changed", {"field": name, "value": value})
-        return {"available": True, "applied": True, "saved": saved, **options}
+        return {"applied": True, "saved": saved, **options}
 
     def add_task(self, task_type: str, task_name: str) -> Dict[str, Any]:
         """Add a task of a type the protocol registers
@@ -1731,11 +1679,9 @@ class AppContext:
             return refusal
         types = sorted(experiment.task_protocol.task_classes())
         if task_type not in types:
-            return {
-                "error_type": "not_found",
-                "error": f"No task type {task_type!r}.",
-                "task_type_names": types,
-            }
+            return refused(
+                "not_found", f"No task type {task_type!r}.", task_type_names=types
+            )
 
         result = self._agent_call(
             self._protocol_edit(
@@ -1743,7 +1689,7 @@ class AppContext:
             )
         )
         if not result["applied"]:
-            return {"error_type": "invalid", "error": result["error"]}
+            return refused("invalid", result["error"])
         return {
             **result,
             "task_names": experiment.task_protocol.workflow_config.workflow,
@@ -1757,11 +1703,11 @@ class AppContext:
         if refusal:
             return refusal
         if task_name not in experiment.task_protocol.task_config:
-            return {
-                "error_type": "not_found",
-                "error": f"No task named {task_name!r} in the protocol.",
-                "task_names": list(experiment.task_protocol.task_config),
-            }
+            return refused(
+                "not_found",
+                f"No task named {task_name!r} in the protocol.",
+                task_names=list(experiment.task_protocol.task_config),
+            )
 
         result = self._agent_call(
             self._protocol_edit(workflow_edits.remove_task, experiment, task_name)
@@ -1780,11 +1726,7 @@ class AppContext:
             self._protocol_edit(workflow_edits.reorder_tasks, experiment, order)
         )
         if not result["applied"]:
-            return {
-                "error_type": "invalid",
-                "error": result["error"],
-                "task_names": config.workflow,
-            }
+            return refused("invalid", result["error"], task_names=config.workflow)
         return {**result, "task_names": config.workflow}
 
     def set_task_requirements(
@@ -1803,11 +1745,11 @@ class AppContext:
         protocol = experiment.task_protocol
         task = config.get(task_name)
         if task is None or task_name not in protocol.task_config:
-            return {
-                "error_type": "not_found",
-                "error": f"No task named {task_name!r} in the workflow.",
-                "task_names": config.workflow,
-            }
+            return refused(
+                "not_found",
+                f"No task named {task_name!r} in the workflow.",
+                task_names=config.workflow,
+            )
 
         result = self._agent_call(
             self._protocol_edit(
@@ -1819,7 +1761,7 @@ class AppContext:
             )
         )
         if not result["applied"]:
-            return {"error_type": "invalid", "error": result["error"]}
+            return refused("invalid", result["error"])
         return result
 
 

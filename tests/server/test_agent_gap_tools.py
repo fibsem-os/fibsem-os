@@ -71,7 +71,7 @@ def test_the_agent_judges_notes_and_removes_a_grid(driving):
     )
     assert judged["quality"]["verdict"] == "REWORK"
     quality = experiment.get_grid_by_name("G1").quality
-    assert quality.state.name == "REWORK" and quality.description == "cracked"
+    assert quality.verdict.name == "REWORK" and quality.reason == "cracked"
 
     _ok(_call(driving, "grid_set_note", grid_name="G1", note="thin ice in the centre"))
     assert experiment.get_grid_by_name("G1").description == "thin ice in the centre"
@@ -336,17 +336,15 @@ def test_stop_task_stops_only_the_task_named(driving):
     assert nothing["stopped"] is False and driving.host.runner.stops == []
 
     driving.host.runner.manager = _Manager(_Item())
-    other = _ok(
-        _call(
-            driving,
-            "workflow_stop_task",
-            item_name="01-live-raptor",
-            task_name="Polishing",
-            reason="too thin",
-        )
+    other = _call(
+        driving,
+        "workflow_stop_task",
+        item_name="01-live-raptor",
+        task_name="Polishing",
+        reason="too thin",
     )
-    assert other["stopped"] is False
-    assert other["running"] == {
+    assert other.status_code == 409
+    assert other.json()["detail"]["running"] == {
         "item_name": "01-live-raptor",
         "task_name": "Rough Milling",
     }
@@ -371,25 +369,15 @@ def test_stop_task_stops_only_the_task_named(driving):
 
 
 def test_grid_tasks_join_only_a_running_grid_run(driving):
-    answer = _ok(
-        _call(
-            driving,
-            "workflow_queue_grids",
-            task_names=["SEM Overview"],
-            grid_names=["G1"],
-        )
+    answer = _call(
+        driving, "workflow_queue_grids", task_names=["SEM Overview"], grid_names=["G1"]
     )
-    assert answer["queued"] is False
+    assert answer.status_code == 409
     driving.host.runner.manager = _Manager(None)
-    lamella_run = _ok(
-        _call(
-            driving,
-            "workflow_queue_grids",
-            task_names=["SEM Overview"],
-            grid_names=["G1"],
-        )
+    lamella_run = _call(
+        driving, "workflow_queue_grids", task_names=["SEM Overview"], grid_names=["G1"]
     )
-    assert "lamella run" in lamella_run["reason"]
+    assert "lamella run" in lamella_run.json()["detail"]["message"]
 
 
 def test_grid_tasks_are_queued_after_what_waits(driving):
@@ -417,10 +405,11 @@ def test_grid_tasks_are_queued_after_what_waits(driving):
     )
     added = [(a["grid_name"], a["step"]) for a in answer["added"]]
     assert ("G1", "SEM Overview") in added and ("G2", "SEM Overview") in added
-    unknown = _ok(
-        _call(driving, "workflow_queue_grids", task_names=["Bake"], grid_names=["G1"])
+    unknown = _call(
+        driving, "workflow_queue_grids", task_names=["Bake"], grid_names=["G1"]
     )
-    assert unknown["queued"] is False and "SEM Overview" in unknown["task_names"]
+    assert unknown.status_code == 404
+    assert "SEM Overview" in unknown.json()["detail"]["task_names"]
 
 
 # --- points on saved images ---------------------------------------------------------

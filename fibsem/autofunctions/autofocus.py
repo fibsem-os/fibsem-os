@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, List, Optional
@@ -25,7 +25,6 @@ from fibsem.structures import (
     Configurable,
     Display,
     FibsemRectangle,
-    Parameter,
     param,
 )
 
@@ -36,12 +35,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # A focus that moves the working distance further than this is doubtful: a
-# starting guess (2026-10-19 run: dark sites picked a bad WD), to be set from
+# starting guess (dark sites picked a bad WD), to be set from
 # the verdicts real runs record.
 MAX_WD_JUMP = 100e-6
 
 # A sweep whose scores vary by less than this fraction of the best has no peak:
-# nowhere in the range was sharper than anywhere else (FIB-1519).
+# nowhere in the range was sharper than anywhere else.
 FLAT_SWEEP = 0.01
 
 
@@ -490,7 +489,7 @@ def _auto_focus(
         ``AutoFocusResult`` with the best probe image, winning working
         distance, focus score, and full per-pass iteration history — or ``None``
         when the backend cannot set the working distance for this beam (the sweep
-        is skipped with a warning rather than faking a completed focus, FIB-508).
+        is skipped with a warning rather than faking a completed focus).
 
     Raises:
         OperationCancelledError: if ``stop_event`` is set during the sweep.
@@ -501,8 +500,8 @@ def _auto_focus(
     # Skip rather than fake success: on backends where the working-distance write is
     # a best-effort no-op (TESCAN ION), the sweep would run to completion, score
     # images against a focus that never moved, and log an applied WD that was never
-    # applied (FIB-508). Gate before touching the hardware at all; None says nothing
-    # happened, unlike the completed-looking result the sweep used to fabricate.
+    # applied. Gate before touching the hardware at all; None says nothing
+    # happened, rather than a completed-looking result.
     if not microscope.is_working_distance_settable(beam_type):
         logger.warning(
             "AutoFocus skipped: %s cannot set the working distance for the %s beam.",

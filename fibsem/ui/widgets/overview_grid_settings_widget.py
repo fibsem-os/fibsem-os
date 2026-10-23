@@ -176,17 +176,11 @@ class OverviewGridSettingsWidget(QWidget):
         """The mask is positional, so it has to follow the grid it describes.
 
         **Resizing remaps the mask** -- tiles that still exist keep their state, tiles
-        that come into existence start enabled. That is the fluorescence tab's answer.
-        The old napari FIB/SEM tab answered the opposite: it *dropped* a mask whose
-        shape no longer matched, on the grounds that growing has to invent whether the
-        new tiles are in or out, and shrinking throws away a choice.
-
-        Remapping wins here because of what resizing now is. Dragging a grid edge on the
+        that come into existence start enabled, as on the fluorescence tab. Dropping the
+        mask instead would be worse: dragging a grid edge on the
         canvas resizes it on **every motion event**, so "drop the mask on any resize"
         means nudging a 3x3 to a 4x3 silently discards a selection built by hand. Having
-        to invent one row of enabled tiles is the smaller surprise, and it is what the
-        other tab already does -- one behaviour, rather than the same gesture meaning
-        two things depending on which tab you learned it on.
+        to invent one row of enabled tiles is the smaller surprise.
         """
         self.tile_mask.set_grid_size(self.rows, self.cols)
         self._on_changed()

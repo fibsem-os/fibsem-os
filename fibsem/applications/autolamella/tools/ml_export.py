@@ -22,9 +22,7 @@ experiment carries its training data with it::
 
 One sample is one lamella. ``points/`` is authoritative and ``labels/`` is derived
 from it, so the raster should never be hand-edited -- to change the label geometry,
-re-export at a different ``radius_m`` (or rasterise the sidecar yourself). The
-``images/`` + ``labels/`` pairing is what
-:func:`~fibsem.applications.autolamella.tools.upload_to_hf.create_dataset` consumes.
+re-export at a different ``radius_m`` (or rasterise the sidecar yourself).
 
 No stage reprojection is involved: the reference image is acquired at the milling
 position, so the POI -- already a milling-coordinate offset in metres from the image
@@ -32,8 +30,6 @@ centre -- converts straight to pixels via the image's own pixel size.
 
 Failed lamellae are exported and tagged rather than dropped: a target a human picked
 that then failed is a useful hard negative, not data to discard.
-
-See FIB-305.
 """
 
 import argparse
@@ -164,7 +160,7 @@ def find_final_fib_image(lamella: Lamella) -> Optional[Tuple[str, str]]:
     for task_type in SOURCE_TASK_TYPES:
         candidates: List[str] = []
         for task_name in task_names_for_type(lamella, task_type):
-            # the latest run's, wherever it saved them (FIB-1275)
+            # the latest run's, wherever it saved them
             candidates.extend(
                 path
                 for path in latest_final_reference_images(lamella, task_name)
@@ -228,7 +224,7 @@ def collect_sample(lamella: Lamella, stem: str) -> Optional[ExportedSample]:
             else {}
         ),
         milling_angle=lamella.milling_angle,
-        defect=lamella.defect.state.name,
+        defect=lamella.defect.verdict.name,
         completed_tasks=list(lamella.completed_tasks),
     )
 

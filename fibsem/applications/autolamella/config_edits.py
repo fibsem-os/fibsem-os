@@ -1,17 +1,19 @@
 """Edits to an experiment's configs and items, with no window.
 
-The App Server's config edits: patch an item's task config, the protocol's,
-or the item's own fields; reorder a milling config's stages; re-copy the
-protocol onto an item. The editors' copy onto other lamellae and global
-edit of the reference imaging are here too, beside the agent's; their task
-config write and its save are ``fibsem.workflows.task_configs``'. Each agent
-edit runs where the experiment is edited (``session.run_edit``), checks the
-version it was written against beside the apply, saves, and is recorded as the agent's edit (FIB-1034, FIB-1062). A
-window writes its editors' pending edits before any edit runs (its executor)
-and redraws when ``session.changed`` says the edit applied. The versions an
-edit is checked against are here too, for the server's reads to serve.
+The App Server's config edits: patch an item's task config, the protocol's, or the
+item's own fields; reorder a milling config's stages; re-copy the protocol onto an item.
+The editors' copy onto other lamellae and global edit of the reference imaging are here
+too, beside the agent's; their task config write and its save are
+``fibsem.workflows.task_configs``'. Each agent edit runs where the experiment is edited
+(``session.run_edit``), checks the version it was written against beside the apply,
+saves, and is recorded as the agent's edit. A window writes its editors' pending edits
+before any edit runs (its executor) and redraws when ``session.changed`` says the edit
+applied. The versions an edit is checked against are here too, for the server's reads to
+serve.
 
-Each returns a plain dict: the applied changes, or a structured refusal.
+Each returns a plain dict of the applied changes, or a `Refusal`; a patch
+written against an old version, or one that cannot apply, answers ``stale``
+or ``invalid_patch``.
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ import copy
 import logging
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
-from fibsem.acting import AGENT, Actor, acting
+from fibsem.acting import Actor, acting
 from fibsem.util.records import content_hash
 from fibsem.workflows.config_patch import PatchError, apply_patch, check_patch
 from fibsem.workflows.edit_recording import PendingEdits
@@ -28,13 +30,12 @@ from fibsem.workflows.experiment import find_item
 from fibsem.workflows.item import item_pose_positions
 from fibsem.workflows.status import TaskStatus
 from fibsem.workflows.task_configs import (
+    agent_patch_task_config,
     config_version,
-    patch_config,
     plain_changes,
     save_edits,
     save_experiment,
     task_config_at,
-    workflow_field_refusal,
 )
 
 # The item-document fields an agent may patch: what a lamella IS — geometry,
@@ -50,7 +51,7 @@ def item_fields_version(lamella) -> str:
 
     The item document's version, hashing the ITEM_PATCH_FIELDS and where the
     poses put the stage — so a task re-recording geometry or moving the
-    milling pose rotates it, and a pending patch goes stale (FIB-1420): a POI
+    milling pose rotates it, and a pending patch goes stale: a POI
     is in the milling frame, so one chosen before the pose moved names a
     different place after. History growing does not rotate it.
     """
@@ -75,10 +76,15 @@ def apply_agent_edit(
 ) -> Dict[str, Any]:
     """Apply an App Server edit at *level*, recorded as *actor*'s (the agent
     when not given): what it changed, before and after, on *microscope*'s
-    record. *level* is ``item`` or ``protocol`` (a task-config patch),
-    ``item_fields``, ``reorder_stages`` or ``apply_protocol``. A verdict set
-    by an ``item_fields`` patch is signed by *actor*."""
+    record. *level* is ``item`` or ``protocol`` (a task-config patch,
+    :func:`agent_patch_task_config`), ``item_fields``, ``reorder_stages`` or
+    ``apply_protocol``. A verdict set by an ``item_fields`` patch is signed by
+    *actor*."""
     actor = actor or Actor.agent("remote")
+    if level in ("item", "protocol"):
+        return agent_patch_task_config(
+            experiment, microscope, level, item_name, task_name, patch, version, actor
+        )
     edits = PendingEdits(microscope, via="agent patch")
     with acting(actor.kind):
         touch_agent_patch(edits, experiment, level, item_name, task_name, patch)
@@ -101,12 +107,6 @@ def touch_agent_patch(
     """Touch what an agent's config edit at *level* can change
     (``config_edits.apply_agent_edit``)."""
     try:
-        if level == "protocol":
-            configs = experiment.task_protocol.task_config
-            edits.touch(
-                None, task_name, "protocol.task_config", lambda: configs.get(task_name)
-            )
-            return
         lamella = experiment.get_lamella_by_name(item_name)
         if lamella is None:
             return
@@ -131,48 +131,22 @@ def touch_agent_patch(
         logging.debug("could not note what an agent patch changes", exc_info=True)
 
 
+def _refused(error_type: str, **why: Any) -> dict:
+    """An edit that did nothing: ``error`` says why, ``error_type`` what kind
+    of refusal it is (the App Server's status), and the names there are."""
+    return {"applied": False, "error_type": error_type, **why}
+
+
 def _apply(experiment, level, item_name, task_name, patch, version, actor) -> dict:
     if experiment is None:
-        return {"applied": False, "error": "no experiment is loaded"}
+        return _refused("no_experiment", error="No experiment is loaded.")
     if level == "item_fields":
         return patch_item_fields(experiment, item_name, patch, version, actor)
     if level == "reorder_stages":
         return reorder_milling_stages(experiment, item_name, task_name, patch, version)
     if level == "apply_protocol":
         return apply_protocol_to_item(experiment, item_name, patch.get("task_names"))
-    return patch_task_config(experiment, level, item_name, task_name, patch, version)
-
-
-def patch_task_config(
-    experiment, level: str, item_name: str, task_name: str, patch: dict, version: str
-) -> dict:
-    """Patch one task config: an item's (*level* ``item``) or the protocol's.
-    The version check sits beside the apply, so an edit landing in between is
-    refused as stale, never half-merged."""
-    _lamella, config, refusal = task_config_at(experiment, level, item_name, task_name)
-    if refusal:
-        return {"applied": False, **refusal}
-    patched = patch_config(config, patch, version)
-    if not patched["applied"]:
-        return patched
-    where = f"{item_name} / {task_name}" if level == "item" else task_name
-    logging.info(
-        f"agent config patch applied ({level}): {where}: "
-        + ", ".join(
-            f"{c['path']}: {c['old']!r} -> {c['new']!r}" for c in patched["changes"]
-        )
-    )
-    saved = save_edits(experiment, level, "agent config patch")
-    result = {
-        "applied": True,
-        "saved": saved,
-        "task_name": task_name,
-        "changes": patched["changes"],
-        "version": patched["version"],
-    }
-    if level == "item":
-        result["item_name"] = item_name
-    return result
+    raise ValueError(f"not an item edit: {level!r}")
 
 
 # The workflow fields a task-config patch may not set, and the verb that sets each.
@@ -206,9 +180,9 @@ def patch_item_fields(
 ) -> dict:
     """The App Server's item patch: :func:`edit_item_fields` on the item named
     *item_name*, a verdict it sets signed by *actor*, saved."""
-    lamella, refusal = find_item(experiment, item_name)
-    if refusal:
-        return {"applied": False, **refusal}
+    lamella, why = find_item(experiment, item_name)
+    if why:
+        return _refused("not_found", **why)
     result = edit_item_fields(lamella, patch, version)
     if result["applied"]:
         if any(c["path"].startswith("defect") for c in result["changes"]):
@@ -346,19 +320,11 @@ def reorder_milling_stages(
     level = payload.get("level", "item")
     milling_key = payload.get("milling_key")
     order = payload.get("order") or []
-    if level == "protocol":
-        protocol = getattr(experiment, "task_protocol", None)
-        config_map = getattr(protocol, "task_config", None)
-        if config_map is None:
-            return {"applied": False, "error": "no protocol is loaded"}
-        config = dict(config_map).get(task_name)
-    else:
-        lamella, refusal = find_item(experiment, item_name)
-        if refusal:
-            return {"applied": False, **refusal}
-        config = dict(lamella.task_config).get(task_name)
-    if config is None:
-        return {"applied": False, "error": f"No task config named {task_name!r}."}
+    _, config, refusal = task_config_at(
+        experiment, "protocol" if level == "protocol" else "item", item_name, task_name
+    )
+    if refusal:
+        return _refused("not_found", **refusal)
     milling = getattr(config, "milling", None) or {}
     if milling_key not in milling:
         return {
@@ -413,21 +379,21 @@ def apply_protocol_to_item(
     does (``Experiment.apply_lamella_config``): the item keeps its milling
     pattern positions. No version check. ``task_names`` of None means every
     task the protocol defines."""
-    lamella, refusal = find_item(experiment, item_name)
-    if refusal:
-        return {"applied": False, **refusal}
+    lamella, why = find_item(experiment, item_name)
+    if why:
+        return _refused("not_found", **why)
     protocol = getattr(experiment, "task_protocol", None)
     config_map = getattr(protocol, "task_config", None)
     if config_map is None:
-        return {"applied": False, "error": "no protocol is loaded"}
+        return _refused("no_experiment", error="No experiment is loaded.")
     names = list(task_names) if task_names else list(config_map.keys())
     unknown = [n for n in names if n not in config_map]
     if unknown:
-        return {
-            "applied": False,
-            "error": f"Not in the protocol: {unknown!r}.",
-            "task_names": list(config_map.keys()),
-        }
+        return _refused(
+            "not_found",
+            error=f"Not in the protocol: {unknown!r}.",
+            task_names=list(config_map.keys()),
+        )
     _, saved = copy_task_configs(experiment, [lamella.name], names)
     return {
         "applied": True,
@@ -469,7 +435,7 @@ def set_reference_imaging(
     """Global edit: set the reference imaging and each milling config's field
     of view on *task_names*, the protocol's and those of each of *lamellae*
     that has the task; saved with the protocol. Only these two settings: a
-    lamella keeps everything else it was tuned to (FIB-1071).
+    lamella keeps everything else it was tuned to.
 
     A lamella's task that is running is left alone: the task holds that config
     object, so an edit would change its settings mid-run. Returns how many of

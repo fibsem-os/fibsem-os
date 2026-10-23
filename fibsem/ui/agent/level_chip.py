@@ -1,17 +1,17 @@
-"""The agent chip in the status bar: the agent's level, and the way to its card
-(FIB-1035, FIB-1404).
+"""The agent chip in the status bar: the agent's level, and the way to its card.
+
 
 The agent is a second operator at the app, and its level is the one knob: Off,
 Watch, Assist or Drive. The chip shows the level; clicking it opens the agent
 card (`card.AgentCard`) above the chip: the level, Stop agent, what waits and
 the way to the web Agent page, where the operator answers the agent.
 
-At Assist the agent acts by asking (FIB-1283). While its request waits, the chip
+At Assist the agent acts by asking. While its request waits, the chip
 turns amber, "Agent asks". Only one request waits at a time, so the chip carries
 no count. A suggestion on the pending proposal says "Agent suggests" in its
 level's look, not amber (the run's Attention Required already is). Either one
 asks the system for the operator's attention (a dock bounce or taskbar flash)
-and opens nothing: the window never comes forward on its own (FIB-1501).
+and opens nothing: the window never comes forward on its own.
 
 While the agent acts on the microscope (the card's Now line), the chip pulses.
 
@@ -27,7 +27,7 @@ from typing import Any, Callable, Dict, Optional
 from PyQt5.QtCore import QPoint, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import QApplication, QFrame, QPushButton, QVBoxLayout, QWidget
 
-from fibsem.ai.agent.levels import AgentLevel
+from fibsem.ai.agent.levels import AgentLevel, chip_request_text
 from fibsem.ui.agent.card import (
     AgentCard,
     last_heard_text,
@@ -70,30 +70,6 @@ _HELP = (
     ".\n\nClick for the agent's card. “Agent” is any client holding the App "
     "Server's agent token: the fibsem-mcp sidecar, FibsemClient or a script."
 )
-
-
-def _doing(tool: Any) -> str:
-    """What a request's step is doing, in a word: "applying" read as writing a
-    config whatever the step was (FIB-1492)."""
-    tool = str(tool or "")
-    if tool.startswith(("milling_", "spot_burn")):
-        return "milling"
-    if tool.startswith(("stage_", "item_move_", "grid_load", "grid_unload")):
-        return "moving"
-    if "acquire" in tool or tool.startswith(("fm_auto_focus", "beam_auto_")):
-        return "imaging"
-    return "running"
-
-
-def chip_request_text(request: Dict[str, Any]) -> str:
-    """The chip's word while a request waits or is being applied."""
-    if request.get("status") == "applying":
-        actions = request.get("actions", [])
-        total = len(actions)
-        step = min(len(request.get("results", [])) + 1, total)
-        doing = _doing(actions[step - 1].get("tool")) if actions else "running"
-        return f"Agent: {doing} {step}/{total}"
-    return "Agent asks"
 
 
 class _CardPopup(QFrame):
@@ -285,7 +261,7 @@ class AgentLevelChip(QPushButton):
     def _ask_for_attention(self) -> None:
         """Something new waits for the operator: the system's attention
         request, which neither raises nor activates the window. Opening the
-        card here took focus from the operator's browser (FIB-1501)."""
+        card here took focus from the operator's browser."""
         if self.isVisible():
             QApplication.alert(self.window())
 

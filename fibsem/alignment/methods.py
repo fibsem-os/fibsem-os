@@ -8,6 +8,7 @@ import numpy as np
 
 from fibsem import config as cfg
 from fibsem import utils
+from fibsem.constants import DATETIME_FILE_NANO
 from fibsem.imaging import masks
 from fibsem.imaging import utils as image_utils
 from fibsem.structures import FibsemImage, Point
@@ -147,7 +148,7 @@ def shift_from_crosscorrelation(
     # spectra to the same energy, so a perfect match peaks at the pixel count.
     # Dividing by the masked images' norms instead read above 1 for every
     # match under the rectangular mask the alignment uses, so every step
-    # scored 1.00; and (ncc + 1) / 2 put unrelated images at 0.5 (FIB-1299).
+    # scored 1.00; and (ncc + 1) / 2 put unrelated images at 0.5.
     score = _ncc_score(xcorr)
 
     # np.unravel_index returns (row, col); row=Y, col=X
@@ -371,7 +372,7 @@ def _save_alignment_data(
     import pandas as pd
     import tifffile as tff
 
-    ts = utils.current_timestamp_v2()
+    ts = utils.current_timestamp(DATETIME_FILE_NANO)
     fname = os.path.join(cfg.DATA_CC_PATH, str(ts))
 
     # save fibsem images
@@ -458,8 +459,8 @@ def shift_from_skimage_phase_correlation(
     dy_px, dx_px = -float(shift[0]), -float(shift[1])
     # Not 1 - error: with normalization="phase", skimage's error compares the
     # phase-normalised peak with the raw images' energy, so it is about 1 for
-    # every pair and the score was 0 for every pair, a perfect match included
-    # (FIB-1299). The height of the phase-correlation peak is the measure.
+    # every pair and the score was 0 for every pair, a perfect match included.
+    # The height of the phase-correlation peak is the measure.
     score = _phase_correlation_peak(ref_data, new_data)
 
     success = True

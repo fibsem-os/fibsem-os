@@ -38,7 +38,9 @@ from fibsem.workflows.status import TaskStatus
 def microscope():
     microscope, _ = utils.setup_session(
         manufacturer="Demo",
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
+        ),
     )
     assert microscope._fm_is_a_pose() and microscope.fm is not None
     # the working slot is the origin by construction; put a grid in it

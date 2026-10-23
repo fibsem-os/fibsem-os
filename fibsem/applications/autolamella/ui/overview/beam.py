@@ -18,8 +18,8 @@ marker on the far side of the grid.
 Why this exists at all
 ----------------------
 It replaced `FibsemMinimapWidget`, which was the last module under `fibsem/ui/` that
-imported AutoLamella (FIB-560): it reached through `parent_widget.experiment` in nineteen
-places, typed its parent as `AutoLamellaUI`, and knew about `DefectType`,
+imported AutoLamella: it reached through `parent_widget.experiment` in nineteen
+places, typed its parent as `AutoLamellaUI`, and knew about lamella verdicts,
 `sync_fluorescence_pose` and milling protocol keys -- while also being the widget the
 generic `FibsemUI` hosted. Splitting it along the line the parent contract already
 suggested is what the pair does: `FibsemOverviewWidget` for anyone with a microscope,
@@ -37,12 +37,12 @@ from typing import TYPE_CHECKING, Callable, Optional
 from PyQt5.QtWidgets import QWidget
 
 from fibsem.applications.autolamella.poses import move_lamella
-from fibsem.applications.autolamella.structures import DefectType
 from fibsem.applications.autolamella.ui.overview.base import AutoLamellaOverviewTabBase
 from fibsem.imaging.overview_session import BEAM
 from fibsem.ui import notification_service
 from fibsem.ui.widgets.overview_widget import FibsemOverviewWidget
 from fibsem.workflows.grids import OverlayRecord
+from fibsem.workflows.quality import Verdict
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
     from fibsem.applications.autolamella.structures import Lamella
@@ -55,7 +55,7 @@ logger = logging.getLogger(__name__)
 # just re-target this": one has failed, the other needs work. The tab this replaces
 # drew them red and orange; there is one warning colour here, because the list beside
 # the canvas already distinguishes them and a second colour on a crosshair does not.
-FLAGGED_DEFECT_STATES = (DefectType.FAILURE, DefectType.REWORK)
+FLAGGED_DEFECT_STATES = (Verdict.FAILED, Verdict.REWORK)
 
 
 class BeamOverviewTab(AutoLamellaOverviewTabBase):
@@ -75,10 +75,7 @@ class BeamOverviewTab(AutoLamellaOverviewTabBase):
         # building this tab and calling `refresh_microscope` is enough on its own, which
         # is how it is used standalone and in tests.
         #
-        # **Nothing in production sets this any more.** It carried
-        # `features.overview_canvas_tab` while this tab was staged in beside the napari
-        # one; that flag is retired (FIB-780) and the tab ships to everyone, so the only
-        # callers left are the tests below. Kept rather than deleted because it is the
+        # Nothing in production sets this; only the tests below do. Kept because it is the
         # beam-side half of the build-or-drop pair the fluorescence tab answers with
         # `_can_build`, and a modality that can be switched off is a plausible thing to
         # want back -- but it is dead code today and should be read as such.
@@ -121,7 +118,7 @@ class BeamOverviewTab(AutoLamellaOverviewTabBase):
         flagged = [
             lamella.name
             for lamella in lamellae
-            if lamella.defect.state in FLAGGED_DEFECT_STATES
+            if lamella.defect.verdict in FLAGGED_DEFECT_STATES
         ]
         self.overview.set_positions(positions, flagged=flagged)
 
@@ -362,7 +359,7 @@ class BeamOverviewTab(AutoLamellaOverviewTabBase):
         """Persist a defect set from the list, and re-flag the canvas.
 
         The row writes `lamella.defect` and emits; nothing was listening, so the change
-        lived in memory and was gone on reload (FIB-564). Redrawing as well as saving,
+        lived in memory and was gone on reload. Redrawing as well as saving,
         because the marker's colour is one of the things the defect decides.
         """
         experiment = self.experiment

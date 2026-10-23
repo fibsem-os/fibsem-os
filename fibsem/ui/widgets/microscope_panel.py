@@ -217,10 +217,6 @@ class MicroscopePanel(QWidget):
         Asked of the Overview tab rather than of a widget held here: the tab owns both
         modalities and rebuilds its widgets on every reconnection, so anything holding
         one of them directly would be answering for a widget that had been replaced.
-
-        This used to ask the napari minimap, which means it stopped being true the
-        moment the Overview tab took over acquisition -- a run from there did not
-        suppress anything.
         """
         return self._overview_acquiring()
 
@@ -240,7 +236,7 @@ class MicroscopePanel(QWidget):
         """Keep the stage readout on ``microscope``'s moves, and off any other's.
 
         The readout follows the microscope, not the experiment: a move with no
-        experiment open still moves the stage (FIB-1421)."""
+        experiment open still moves the stage."""
         followed = self._stage_followed
         if followed is microscope:
             return
@@ -314,7 +310,7 @@ class MicroscopePanel(QWidget):
                 image_widget=self.image_widget,
                 parent=self,
             )
-            # The milling widget no longer scrolls itself; its tab does. The tab is
+            # The tab scrolls the milling widget. The tab is
             # kept by name because indexOf / setCurrentWidget want the tab, not the
             # widget inside it -- see front_tab.
             self.milling_tab = scrollable(self.milling_task_config_widget)

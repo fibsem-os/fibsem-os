@@ -2,11 +2,9 @@
 
 import logging
 import os
-from pprint import pprint
 
 import numpy as np
 
-import fibsem
 from fibsem import acquire, alignment, utils
 from fibsem.alignment import AlignmentSubsystem
 from fibsem.structures import (
@@ -14,7 +12,6 @@ from fibsem.structures import (
     CrossSectionPattern,
     FibsemMillingSettings,
     FibsemRectangleSettings,
-    ImageSettings,
 )
 
 

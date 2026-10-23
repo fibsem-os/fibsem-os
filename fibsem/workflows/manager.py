@@ -6,7 +6,6 @@ lamella and grid managers are two.
 """
 
 import logging
-import threading
 import time
 from contextlib import contextmanager
 from typing import Any, Callable, Dict, List, Optional, Protocol, Set, Tuple
@@ -24,7 +23,6 @@ from fibsem.control import MicroscopeBusy
 from fibsem.hooks import HookEvent, HookManager, fire_event
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType
-from fibsem.util.durations import format_duration_precise
 from fibsem.workflows.event_recording import run_recorder
 from fibsem.workflows.interaction import Responder
 from fibsem.workflows.queue import TaskQueue, WorkItem
@@ -58,7 +56,7 @@ class WorkflowExperiment(Protocol):
     def turns_beams_off(self) -> bool: ...
 
 
-# Exactly one of these ends every run (FIB-1327).
+# Exactly one of these ends every run.
 _RUN_ENDS = frozenset(
     {
         HookEvent.WORKFLOW_COMPLETED,
@@ -130,7 +128,7 @@ class BaseTaskManager:
         # Whether this run's end event has fired; no run, nothing to report.
         self._run_ended = True
         # Whether workflow_started has fired: a run that dies before it is
-        # reported by end_unstarted_run (FIB-1353).
+        # reported by end_unstarted_run.
         self._run_began = False
         # The third way a run ends: not completed, not cancelled -- drained with
         # work that can never run. Read after the run by whoever launched it.
@@ -144,14 +142,14 @@ class BaseTaskManager:
         """The run's own set-up, done inside the run, after workflow_started:
         what fails here ends the run with workflow_failed like anything else
         that escapes it. In the constructor, a failed save ended a run the
-        agent had been told was started with no event at all (FIB-1353).
+        agent had been told was started with no event at all.
 
         Stamps the experiment onto the images this run acquires. Done here
         rather than only in the UI so a run with no window
         records it too; the app also calls it when it adopts an experiment,
-        and repeating it just re-sets the same two attributes. See FIB-449.
+        and repeating it just re-sets the same two attributes.
 
-        No task starts while the experiment cannot be saved (FIB-1352):
+        No task starts while the experiment cannot be saved:
         registering saves, and an experiment still unsaved after it is saved
         here, so a file that cannot be written fails the run before any work.
         """
@@ -163,7 +161,7 @@ class BaseTaskManager:
 
     @contextmanager
     def _recording(self):
-        """The event stream for this run (FIB-1044), the same with or without the
+        """The event stream for this run, the same with or without the
         GUI: the microscope's own recorder when something keeps one -- the app
         does, from connecting -- else one made for the run, recording to the
         experiment, and closed after it however the run ends. Its lifecycle hook
@@ -239,8 +237,8 @@ class BaseTaskManager:
         say so (``proposal_waiting``).
 
         Said on the record too (``proposal_held`` / ``proposal_released``), so
-        a watcher hears that the run has stopped to be told something
-        (FIB-1050)."""
+        a watcher hears that the run has stopped to be told something.
+        """
         names = {"item_name": item_name, "task_name": task_name}
         shown: List[Tuple[ActorKind, ...]] = []
 
@@ -391,11 +389,11 @@ class BaseTaskManager:
     def execute(self, task_names: List[str], names: Optional[List[str]] = None) -> None:
         """The whole run, as whoever starts one calls it; never raises.
 
-        In control of the microscope for all of it (FIB-1270), the beams it
+        In control of the microscope for all of it, the beams it
         needs turned on, then ``run``, then both beams off however it ended
         when the experiment says so. A failure before the run began -- someone
         else in control, a beam that will not come on -- still ends the run
-        with an event, so whoever was told it started sees it end (FIB-1353).
+        with an event, so whoever was told it started sees it end.
         """
         try:
             with self.microscope.control.take(WORKFLOW, self.RUN_DESCRIPTION):
@@ -523,7 +521,7 @@ class BaseTaskManager:
         try:
             self._run_task(task_name, record)
         except Exception as e:
-            # The task records its own outcome before re-raising (FIB-490); this
+            # The task records its own outcome before re-raising; this
             # is the fallback for what fails before a task exists -- an unknown
             # task name, a construction failure. The cancellation predicate is
             # the task's, so the live state and the history cannot disagree.
@@ -718,10 +716,10 @@ class BaseTaskManager:
     def _end_escaped_run(self, error: BaseException) -> None:
         """Report the end of a run an exception escaped, unless it was reported.
 
-        Every run ends with exactly one of the run-end events (FIB-1327): one
-        that dies outside a task's own handling -- a save that fails, the
-        objective retract -- used to end with none, and anything waiting for
-        the end waited forever. A Stop that unwinds this far is a cancellation.
+        Every run ends with exactly one of the run-end events, including one that dies
+        outside a task's own handling (a save that fails, the objective retract), so
+        nothing waiting for the end waits forever. A Stop that unwinds this far is a
+        cancellation.
         """
         if self._run_ended:
             return
@@ -731,10 +729,10 @@ class BaseTaskManager:
         """Report a run that died in the launcher's set-up, before it began.
 
         ``execute`` does work of its own before calling ``run``: taking
-        control, turning the beams on, the grid inventory. A failure there used to end a run
-        that start_workflow had already answered ``started`` for with no event
-        (FIB-1353). It ends with workflow_failed now, or workflow_cancelled
-        for a Stop, through this run's recording. A run that began reports
+        control, turning the beams on, the grid inventory. A failure there ends a run
+        that start_workflow has already answered ``started`` for with
+        workflow_failed, or workflow_cancelled for a Stop, through this run's
+        recording. A run that began reports
         its own end, so this does nothing then.
         """
         if self._run_began:
@@ -778,7 +776,7 @@ class BaseTaskManager:
 
     def _result_not_saved(self, item: Any, task_name: str, error: Exception) -> None:
         """A task that finished, whose result the save after it could not
-        write: it did not complete (FIB-1374). Recorded Failed on the item and
+        write: it did not complete. Recorded Failed on the item and
         its history entry, and announced with task_failed, so the record and
         the event stream agree that it failed; the caller re-raises, which
         ends the run."""
@@ -833,7 +831,7 @@ class BaseTaskManager:
         brackets — the manager brackets the task *call*, the task brackets its own
         *execution* — and they are deliberately not merged. Hooks run user-configurable
         code synchronously on the worker thread and HookManager.fire swallows what it
-        raises; the UI needs neither of those properties. See FIB-464.
+        raises; the UI needs neither of those properties.
 
         What the two must agree on is vocabulary: the item is item_name here as it is in
         HookContext. The queue position fields below have no hook counterpart and stay —

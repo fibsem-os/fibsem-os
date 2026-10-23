@@ -32,7 +32,7 @@ from fibsem.milling.progress import (  # noqa: E402
     MillingProgress,
     MillingProgressStatus,
 )
-from fibsem.ui.widgets.milling_widget import FibsemMillingWidget2  # noqa: E402
+from fibsem.ui.widgets.milling_widget import FibsemMillingWidget  # noqa: E402
 from fibsem.ui.widgets.status_bar import FibsemStatusBar  # noqa: E402
 
 # --------------------------------------------------------------------------------------
@@ -95,13 +95,13 @@ def task_finished():
 
 
 class _MillingWidgetHost:
-    """`FibsemMillingWidget2`'s two bars, plus the real button-state method the decode
+    """`FibsemMillingWidget`'s two bars, plus the real button-state method the decode
     calls on every report."""
 
-    _on_milling_progress = FibsemMillingWidget2._on_milling_progress
-    _update_button_states = FibsemMillingWidget2._update_button_states
-    is_milling = FibsemMillingWidget2.is_milling
-    _own_run = FibsemMillingWidget2._own_run
+    _on_milling_progress = FibsemMillingWidget._on_milling_progress
+    _update_button_states = FibsemMillingWidget._update_button_states
+    is_milling = FibsemMillingWidget.is_milling
+    _own_run = FibsemMillingWidget._own_run
 
     def __init__(self):
         from PyQt5.QtWidgets import QProgressBar, QPushButton, QWidget
@@ -420,7 +420,7 @@ class TestATaskEnding:
         stop, which ends the whole task (FIB-1398)."""
         from types import SimpleNamespace
 
-        from fibsem.ui.widgets.milling_widget import FibsemMillingWidget2
+        from fibsem.ui.widgets.milling_widget import FibsemMillingWidget
 
         stops = []
         recorded = []
@@ -431,7 +431,7 @@ class TestATaskEnding:
         milling_widget._on_milling_progress(
             MillingProgress(MillingProgressStatus.TASK_STARTED, total_stages=1)
         )
-        FibsemMillingWidget2.stop_milling(milling_widget)
+        FibsemMillingWidget.stop_milling(milling_widget)
         assert stops == [True]
         # On the record as the operator's act.
         assert [(kind, p["stops"]) for kind, p in recorded] == [("action", "milling")]

@@ -5,7 +5,6 @@ from fibsem.devices.beam import Beam
 from fibsem.structures import (
     FibsemMillingSettings,
     ImageSettings,
-    field_specs,
 )
 
 

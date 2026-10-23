@@ -1,5 +1,5 @@
 """The latest image of each beam: what the window shows, and what the App Server
-serves and click-to-move reads (FIB-1451).
+serves and click-to-move reads.
 
 Held on the app's session rather than on the image widget, so a reader needs no
 widget. Each image is replaced whole, never changed in place, so a reader on

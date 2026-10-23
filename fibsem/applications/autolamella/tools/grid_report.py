@@ -1,10 +1,10 @@
-"""What a grid screening report says, read off the experiment (FIB-1057).
+"""What a grid screening report says, read off the experiment.
 
 The report exists so that someone can be handed a screened magazine and asked
 "which of these do you want?" without opening the app. This module is the data
 side of it: it walks every grid record, its history and the outputs recorded on
 it, and answers with plain dataclasses a renderer lays out. Nothing here touches
-the microscope, imports Qt or reportlab, or globs a directory -- every path comes
+the microscope, imports Qt, or globs a directory -- every path comes
 from a history entry's `outputs`, as the Grids tab reads them.
 
 Images are read for their metadata only. A stitched overview is tens of

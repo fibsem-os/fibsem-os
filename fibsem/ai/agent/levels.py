@@ -1,4 +1,4 @@
-"""The agent level (FIB-1035), importable without the [server] extra.
+"""The agent level, importable without the [server] extra.
 
 The App Server's auth (``fibsem.server.auth``) gates each route on a level and
 needs FastAPI; the GUI only needs the names, and must run where FastAPI is not
@@ -6,19 +6,19 @@ installed.
 """
 
 from enum import Enum
-from typing import Optional
+from typing import Any, Dict, Optional
 
 
 class AgentLevel(str, Enum):
-    """How far the agent may act in the App Server (FIB-1035): the one knob the
+    """How far the agent may act in the App Server: the one knob the
     operator sees, and the server's only gate: each route needs a level.
 
     - ``off``: every agent-token request is refused, reads included.
     - ``watch``: reads everything and adds notes; acts on nothing, stops nothing.
-    - ``assist``: as Drive, but each action is a request the operator approves
-      (FIB-1283); stopping needs no approval.
+    - ``assist``: as Drive, but each action is a request the operator approves;
+      stopping needs no approval.
     - ``drive``: acts on the session: starts, stops, schedules, answers, edits;
-      and on the microscope, when the devices setting is on (FIB-1267).
+      and on the microscope, when the devices setting is on.
     """
 
     OFF = "off"
@@ -35,7 +35,7 @@ AGENT_LISTENING_S = 120.0
 
 
 # Each level as the operator reads it: its name, the chip's word, and what it
-# allows. The window's chip and menu and the chat page's say the same.
+# allows. The window's chip and menu and the web app's say the same.
 LEVEL_NAMES = {
     AgentLevel.OFF: "Off",
     AgentLevel.WATCH: "Watch",
@@ -84,3 +84,39 @@ LEVEL_SKILLS = {
     AgentLevel.ASSIST: "assist-autolamella",
     AgentLevel.DRIVE: "supervise-autolamella",
 }
+
+
+def _doing(tool: Any) -> str:
+    """What a request's step is doing, in a word: "applying" read as writing a
+    config whatever the step was."""
+    tool = str(tool or "")
+    if tool.startswith(("milling_", "spot_burn")):
+        return "milling"
+    if tool.startswith(("stage_", "item_move_", "grid_load", "grid_unload")):
+        return "moving"
+    if "acquire" in tool or tool.startswith(("fm_auto_focus", "beam_auto_")):
+        return "imaging"
+    return "running"
+
+
+def chip_request_text(request: Dict[str, Any]) -> str:
+    """The chip's word while a request waits or is being applied."""
+    if request.get("status") == "applying":
+        actions = request.get("actions", [])
+        total = len(actions)
+        step = min(len(request.get("results", [])) + 1, total)
+        doing = _doing(actions[step - 1].get("tool")) if actions else "running"
+        return f"Agent: {doing} {step}/{total}"
+    return "Agent asks"
+
+
+def chip_text(
+    level: Optional[AgentLevel], request: Optional[Dict[str, Any]], suggests: bool
+) -> str:
+    """The chip's word: what the agent asks for or is applying, that it suggests a
+    decision, or else its level."""
+    if request is not None:
+        return chip_request_text(request)
+    if suggests:
+        return "Agent suggests"
+    return LEVEL_WORDS[level] if level is not None else ""
