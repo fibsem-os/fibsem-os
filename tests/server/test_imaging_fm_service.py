@@ -323,6 +323,8 @@ def test_the_display_images_answer_the_fm_frame_in_its_colour(microscope):
     assert fm.pixelsize.x == frame.metadata.pixel_size_x
     assert fm.hfw == pytest.approx(frame.metadata.pixel_size_x * fm.full_width)
     assert fm.acquired_at is not None
+    assert fm.info["kind"] == "FM"
+    assert fm.info["scalebar"]["fraction"] > 0
     jpeg = Image.open(io.BytesIO(base64.b64decode(fm.image_b64_jpeg)))
     red, green, blue = np.asarray(jpeg.convert("RGB"), float).mean(axis=(0, 1))
     assert green > 4 * max(red, blue)

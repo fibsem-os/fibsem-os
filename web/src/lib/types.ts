@@ -69,6 +69,7 @@ export interface ImagePayload {
   hfw?: number;
   beam_type?: string;
   acquired_at?: string | null;
+  info?: ImageInfo | null;
 }
 
 export interface DisplayImages {

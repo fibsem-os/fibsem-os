@@ -386,6 +386,9 @@ class ImagePayload:
     pixelsize: Optional[PixelSize] = None
     preview_pixelsize: Optional[float] = None
     acquired_at: Optional[str] = None
+    # what the bar under the image says, and its scalebar
+    # (`fibsem.server.image_payloads.image_info`); only where an answer adds it
+    info: Optional[Dict[str, Any]] = None
 
 
 @dataclass

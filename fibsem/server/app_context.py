@@ -589,7 +589,7 @@ class AppContext:
         whole on acquisition, never mutated in place) and encodes previews on
         the server thread; the GUI thread is neither entered nor blocked.
         """
-        from fibsem.server.image_payloads import image_payload
+        from fibsem.server.image_payloads import image_info, image_payload
 
         images = self._latest_images
         if images is None:
@@ -597,7 +597,9 @@ class AppContext:
 
         def preview(image):
             payload = image_payload(image)
-            return decode(ImagePayload, payload) if payload is not None else None
+            if payload is None:
+                return None
+            return decode(ImagePayload, {**payload, "info": image_info(image)})
 
         return DisplayImages(
             available=True,

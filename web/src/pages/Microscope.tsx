@@ -1,5 +1,6 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { ImageInfoBar, ScaleBar } from "@/components/image-info";
 import { Card, CardTitle, Facts } from "@/components/ui/card";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { api } from "@/lib/api";
@@ -148,6 +149,22 @@ function DeviceCard({ slot, values }: { slot: Slot; values?: DeviceValues }) {
 
 const IMAGE_LABEL: Record<string, string> = { sem: "SEM Image", fib: "FIB Image", fm: "FM Image" };
 
+/** An image in a box exactly its shape, with its scalebar: *height* is the room it
+ * has, as a CSS length, and it fits in the width it is given. */
+function Shown({ image, alt, height }: { image: ImagePayload; alt: string; height: string }) {
+  const ratio = image.width / image.height;
+  return (
+    <div className="relative" style={{ aspectRatio: `${ratio}`, width: `min(100%, calc(${height} * ${ratio}))` }}>
+      <img
+        src={`data:image/jpeg;base64,${image.image_b64_jpeg}`}
+        alt={alt}
+        className="absolute inset-0 block h-full w-full"
+      />
+      <ScaleBar info={image.info} />
+    </div>
+  );
+}
+
 function LastAcquired() {
   const images = useQuery({ queryKey: ["app/experiment/images"], queryFn: () => api<DisplayImages>("/app/experiment/images") });
   const [shown, setShown] = useState<string | null>(null);
@@ -163,20 +180,13 @@ function LastAcquired() {
             <button
               key={key}
               onClick={() => setShown(key)}
-              className="flex min-w-0 cursor-pointer flex-col gap-1.5 border-0 bg-transparent p-0 text-left text-foreground"
+              className="flex min-w-0 cursor-pointer flex-col overflow-hidden rounded-sm border-0 bg-transparent p-0 text-left text-foreground"
             >
-              <img
-                src={`data:image/jpeg;base64,${image.image_b64_jpeg}`}
-                alt={`Last ${IMAGE_LABEL[key]}`}
-                className="block aspect-[3/2] w-full rounded-sm bg-black object-cover"
-              />
-              <span className="text-[13px]">
-                {IMAGE_LABEL[key]}{" "}
-                <span className="text-muted-foreground">
-                  · {fmt.length(image.hfw)}
-                  {image.acquired_at ? ` · ${fmt.ago(image.acquired_at)}` : ""}
-                </span>
-              </span>
+              {/* A 3:2 frame, the image fitted inside it: the scalebar needs the whole image. */}
+              <div className="flex aspect-[3/2] w-full items-center justify-center bg-black [container-type:inline-size]">
+                <Shown image={image} alt={`Last ${IMAGE_LABEL[key]}`} height="(100cqw * 2 / 3)" />
+              </div>
+              <ImageInfoBar info={image.info} />
             </button>
           ) : (
             <div key={key} className="flex flex-col gap-1.5">
@@ -191,20 +201,11 @@ function LastAcquired() {
       <Dialog open={!!big} onOpenChange={(open) => !open && setShown(null)}>
         {big && shown && (
           <DialogContent title={IMAGE_LABEL[shown]} className="w-[min(1100px,calc(100vw-32px))]">
-            <div className="flex flex-wrap gap-4 overflow-auto p-3.5">
-              <img
-                src={`data:image/jpeg;base64,${big.image_b64_jpeg}`}
-                alt={IMAGE_LABEL[shown]}
-                className="aspect-[3/2] max-w-[760px] min-w-0 flex-[1_1_520px] rounded-sm bg-black object-contain"
-              />
-              <Facts
-                className="h-fit flex-[1_1_220px]"
-                rows={[
-                  ["Field width", fmt.length(big.hfw)],
-                  ["Preview", `${big.width} × ${big.height}`],
-                  ["Taken", big.acquired_at ? new Date(big.acquired_at).toLocaleTimeString() : "–"],
-                ]}
-              />
+            <div className="flex flex-col p-3.5">
+              <div className="flex items-center justify-center bg-black">
+                <Shown image={big} alt={IMAGE_LABEL[shown]} height="70vh" />
+              </div>
+              <ImageInfoBar info={big.info} />
             </div>
           </DialogContent>
         )}

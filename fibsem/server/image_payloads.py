@@ -148,6 +148,7 @@ def fields_info(
         "scalebar": scalebar,
     }
 
+
 def _fluorescence_payload(image) -> Optional[Dict[str, Any]]:
     """A fluorescence image as the FM canvas draws it: each channel's max
     projection in its colour, with its pixel size and when it was taken."""
