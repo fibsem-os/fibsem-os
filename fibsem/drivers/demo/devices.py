@@ -81,6 +81,7 @@ from fibsem.drivers.demo.simulator import (
     UINT16_MIN,
     sim_is_compustage,
 )
+from fibsem.drivers.demo.stage_error import StageMoveError
 from fibsem.fm.structures import (
     REFLECTION,
     ChannelSettings,
@@ -401,12 +402,31 @@ class DemoStage(Stage):
         self._axis_limits = (
             STAGE_LIMITS_COMPUSTAGE if self.compustage else STAGE_LIMITS_DEFAULT
         )
+        # Off unless `sim.stage_error` turns it on (`fibsem.drivers.demo.stage_error`).
+        self.sim_error = StageMoveError.from_config(
+            (parent.system.sim or {}).get("stage_error")
+        )
+        if self.sim_error is not None:
+            self.sim_error.start_at(self.sim_position)
 
     # -- position ----------------------------------------------------------------
 
     def read_position(self) -> FibsemStagePosition:
         sim_sleep(0.1)  # the read delay the Demo branch has
         return deepcopy(self.sim_position)
+
+    def sim_actual(self, position: FibsemStagePosition) -> FibsemStagePosition:
+        """Where the stage really is when it reads back `position`: the same, unless
+        the stage error is on. The sample scene renders here."""
+        if self.sim_error is None:
+            return position
+        return self.sim_error.actual(position)
+
+    def sim_calibrated(self, position: FibsemStagePosition) -> FibsemStagePosition:
+        """Where a position saved on this stage really is, without a move's jitter."""
+        if self.sim_error is None:
+            return position
+        return self.sim_error.calibrated(position)
 
     def metadata_position(self) -> ParameterMetadata:
         # The axes are the ones the simulator gives limits for: a compustage has no r.
@@ -454,18 +474,35 @@ class DemoStage(Stage):
         from fibsem.drivers.demo.simulator import STAGE_MOVEMENT_SLEEP_TIME
 
         sim_sleep(STAGE_MOVEMENT_SLEEP_TIME)
+        before = deepcopy(self.sim_position)
         for axis in ("x", "y", "z", "r", "t"):
             value = getattr(position, axis)
             if value is not None:
                 setattr(self.sim_position, axis, value)
+        self._moved(before)
         logging.debug({"msg": "move_stage_absolute", "position": position.to_dict()})
 
     def _move_relative(self, delta: FibsemStagePosition) -> None:
         from fibsem.drivers.demo.simulator import STAGE_MOVEMENT_SLEEP_TIME
 
         sim_sleep(STAGE_MOVEMENT_SLEEP_TIME)
+        before = deepcopy(self.sim_position)
         self.sim_position += delta
+        self._moved(before)
         logging.debug({"msg": "move_stage_relative", "position": delta.to_dict()})
+
+    def _moved(self, before: FibsemStagePosition) -> None:
+        if self.sim_error is None:
+            return
+        self.sim_error.moved(before, self.sim_position)
+        actual = self.sim_error.actual(self.sim_position)
+        logging.debug(
+            {
+                "msg": "sim_stage_error",
+                "reported": self.sim_position.to_dict(),
+                "actual_xy": (actual.x, actual.y),
+            }
+        )
 
     def _home(self) -> None:
         logging.info("Homing stage...")
