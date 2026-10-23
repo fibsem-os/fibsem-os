@@ -1197,7 +1197,7 @@ class AgentView:
     stopped: bool
     last_heard_s: Optional[float]
     client: Optional[str]
-    # its session as it reported it, in the card's words
+    # its model, mode and start, as the Agent page's session line shows them
     session: Optional[str]
     request: Optional[AgentRequestView]
     suggestion: Optional[SuggestionCard]
@@ -1209,7 +1209,7 @@ class AgentView:
     asking: Optional[ConnectAskView] = None
     # what it said it can do, as [name, value] rows
     facts: List[List[str]] = field(default_factory=list)
-    # whether it has spent most of its budget: the session line warns
+    # whether it has spent most of its budget: the card and the side panel warn
     budget_low: bool = False
 
 

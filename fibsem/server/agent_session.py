@@ -193,7 +193,8 @@ def report(auth: AuthConfig, body: Dict[str, Any]) -> tuple:
     )
     kinds = []
     if starts:
-        session = {"client": auth.agent_client, **fields}
+        started = datetime.now().astimezone().isoformat(timespec="seconds")
+        session = {"client": auth.agent_client, "started": started, **fields}
         kinds.append(SESSION_STARTED)
     else:
         session = {**previous, **fields}

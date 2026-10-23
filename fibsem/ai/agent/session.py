@@ -12,6 +12,7 @@ import logging
 import threading
 import time
 import uuid
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
 from fibsem.acting import AGENT, OPERATOR
@@ -76,6 +77,23 @@ def session_text(session: Optional[Dict[str, Any]]) -> Optional[str]:
         parts.append(f"{_dollars(spent)} of {_dollars(budget)}")
     elif spent is not None:
         parts.append(f"{_dollars(spent)} spent")
+    if session.get("ended"):
+        reason = session.get("reason")
+        parts.append(f"ended: {reason}" if reason else "ended")
+    return " · ".join(parts) or None
+
+
+def session_line(session: Optional[Dict[str, Any]]) -> Optional[str]:
+    """ "claude-opus · code mode · started 23:12" for the Agent page, whose
+    side panel shows the goal and the budget; None when it reported none."""
+    if not session:
+        return None
+    parts = [session["model"]] if session.get("model") else []
+    if session.get("code") is True:
+        parts.append("code mode")
+    if session.get("started"):
+        started = datetime.fromisoformat(session["started"]).astimezone()
+        parts.append(f"started {started:%H:%M}")
     if session.get("ended"):
         reason = session.get("reason")
         parts.append(f"ended: {reason}" if reason else "ended")
@@ -643,6 +661,10 @@ class AgentSession:
         """The reported session in one line, as the card and the chat show
         it, or None."""
         return session_text(self.reported_session())
+
+    def session_line(self) -> Optional[str]:
+        """The reported session as the Agent page's line shows it, or None."""
+        return session_line(self.reported_session())
 
     def budget_low(self) -> bool:
         """Whether the agent reported spending most of its budget."""
