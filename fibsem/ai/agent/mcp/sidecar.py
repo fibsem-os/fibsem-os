@@ -5,7 +5,7 @@ proxies MCP tool calls to a fibsem server over HTTP with a bearer token. It
 owns no microscope connection and enforces nothing itself — the server is the
 security boundary. It registers every tool the server's mounted routers serve,
 whatever the agent's level: the level changes mid-session, and the server's
-403 says what is needed (FIB-1035).
+403 says what is needed.
 
 Connection resolution, in order: ``--url``/``--token`` arguments, the
 ``FIBSEM_SERVER_URL``/``FIBSEM_SERVER_TOKEN`` environment variables, the token
@@ -35,7 +35,7 @@ import os
 import re
 import sys
 from contextvars import ContextVar
-from typing import Annotated, Any, Dict, List, Optional, Tuple
+from typing import Annotated, Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import quote, unquote
 
 from fibsem.ai.agent.calls import headers_for
@@ -48,7 +48,7 @@ from fibsem.client import tools
 from fibsem.client.transport import ServerUnreachable, Transport
 
 # How long start-up looks for the server before answering the MCP client anyway:
-# a client gives a server only so long to start (FIB-1416).
+# a client gives a server only so long to start.
 _PROBE_S = 2.0
 
 
@@ -145,7 +145,7 @@ def _connect_with_retry(
 
 class _LazyClient:
     """The server's connection, made on the first tool call rather than at
-    start-up (FIB-1416).
+    start-up.
 
     An MCP client gives a server only so long to answer its handshake, and the
     App Server may be slow to answer, or not started yet, while the client
@@ -199,7 +199,7 @@ class _LazyClient:
 def _connected_lines(base_url, capabilities):
     """What ``--check`` and the first call print: where the sidecar connected,
     the agent level when the server says one, and a warning when the app runs
-    other ``fibsem`` code than this sidecar (FIB-1429)."""
+    other ``fibsem`` code than this sidecar."""
     from fibsem.server.discovery import code_mismatch
 
     level = capabilities.get("level")
@@ -315,7 +315,7 @@ def _call(client, method, path, payload=None):
     kwargs = {"params": payload} if method == "GET" and payload else {"json": payload}
     tool = _calling.get()
     if tool is not None and method != "GET":
-        # The server describes the call for the operator from these (FIB-1426).
+        # The server describes the call for the operator from these.
         kwargs["headers"] = headers_for(*tool, evidence=_citing.get())
     try:
         resp = client.request(method, path, **kwargs)
@@ -421,7 +421,7 @@ def build_sidecar(client, capabilities):
 
     def _send(tool_name, arguments):
         """A tool's call (`tools.send`): its response, the headers naming the
-        agent's own call (FIB-1426)."""
+        agent's own call."""
         tool = _calling.get()
         headers = headers_for(*tool, evidence=_citing.get()) if tool else {}
         return tools.send(client, tool_name, arguments, headers=headers)
@@ -454,6 +454,12 @@ def build_sidecar(client, capabilities):
     # Explicit signatures so FastMCP derives a real parameter schema per tool.
     def server_get_capabilities():
         return _tool("server_get_capabilities")
+
+    def server_set_constraints(constraints: List[Dict[str, Any]]):
+        return _tool("server_set_constraints", constraints=constraints)
+
+    def server_set_checklist(checklist: List[Dict[str, Any]]):
+        return _tool("server_set_checklist", checklist=checklist)
 
     def server_report_session(
         session_id: Optional[str] = None,
@@ -1142,14 +1148,90 @@ def build_sidecar(client, capabilities):
         y: Optional[float] = None,
         fx: Optional[float] = None,
         fy: Optional[float] = None,
+        crop: Optional[Union[str, List[float]]] = None,
     ):
+        if isinstance(crop, (list, tuple)):
+            crop = ",".join(str(v) for v in crop)
         return _tool(
-            "experiment_get_image_stage_position", path=path, x=x, y=y, fx=fx, fy=fy
+            "experiment_get_image_stage_position",
+            path=path,
+            x=x,
+            y=y,
+            fx=fx,
+            fy=fy,
+            crop=crop,
         )
 
-    def experiment_render_markers(path: str, grid_name: Optional[str] = None):
+    def experiment_render_markers(
+        path: str,
+        grid_name: Optional[str] = None,
+        fov: Optional[bool] = None,
+        current: Optional[bool] = None,
+    ):
         return _routed(
-            "experiment_render_markers", path=path, **_given(grid_name=grid_name)
+            "experiment_render_markers",
+            path=path,
+            **_given(grid_name=grid_name, fov=fov, current=current),
+        )
+
+    def experiment_draw_image(
+        path: str,
+        marks: Optional[dict] = None,
+        crosshair: Optional[bool] = None,
+        metadata_bar: Optional[bool] = None,
+        channels: Optional[List[str]] = None,
+    ):
+        return _routed(
+            "experiment_draw_image",
+            path=path,
+            **_given(
+                marks=dict(marks) if marks is not None else None,
+                crosshair=crosshair,
+                metadata_bar=metadata_bar,
+                channels=list(channels) if channels is not None else None,
+            ),
+        )
+
+    def experiment_draw_pair(
+        before: str,
+        after: str,
+        marks: Optional[dict] = None,
+        metadata_bar: Optional[bool] = None,
+        channels: Optional[List[str]] = None,
+    ):
+        return _routed(
+            "experiment_draw_pair",
+            before=before,
+            after=after,
+            **_given(
+                marks=dict(marks) if marks is not None else None,
+                metadata_bar=metadata_bar,
+                channels=list(channels) if channels is not None else None,
+            ),
+        )
+
+    def item_draw_milling(
+        item_name: str,
+        task_names: List[str],
+        image_path: Optional[str] = None,
+        background: Optional[str] = None,
+        scan_direction: Optional[bool] = None,
+        alignment_area: Optional[bool] = None,
+        metadata_bar: Optional[bool] = None,
+    ):
+        return _routed(
+            "item_draw_milling",
+            item_name=item_name,
+            task_names=[task_names]
+            if isinstance(task_names, str)
+            else list(task_names),
+            **_given(
+                image_path=image_path,
+                background=background,
+                scan_direction=scan_direction,
+                alignment_area=alignment_area,
+                metadata_bar=metadata_bar,
+            ),
         )
 
     def experiment_get_image_pixels(path: str, stage_positions: list):
@@ -1163,9 +1245,20 @@ def build_sidecar(client, capabilities):
         return None if values is None else ",".join(str(float(v)) for v in values)
 
     def _read_file(
-        path, box=None, fraction=None, z=None, channels=None, experiment=None
+        path,
+        box=None,
+        fraction=None,
+        z=None,
+        channels=None,
+        experiment=None,
+        cells=None,
     ):
-        """The file route's answer for *path*: (data, err)."""
+        """The file route's answer for *path*: (data, err). *cells* is true
+        (show the cells) or the cells' names (crop them)."""
+        if isinstance(cells, (list, tuple)):
+            cells = ",".join(str(name) for name in cells)
+        elif cells is not None:
+            cells = "true" if cells else None
         return _route(
             "experiment_read_file",
             path=str(path),
@@ -1173,6 +1266,7 @@ def build_sidecar(client, capabilities):
             fraction=_region(fraction),
             z=z,
             channels=",".join(channels) if channels else None,
+            cells=cells,
             experiment=experiment,
         )
 
@@ -1185,15 +1279,19 @@ def build_sidecar(client, capabilities):
         path: str,
         z: Optional[int] = None,
         channels: Optional[List[str]] = None,
+        cells: Optional[bool] = None,
         experiment: Optional[str] = None,
     ):
-        data, err = _read_file(path, z=z, channels=channels, experiment=experiment)
+        data, err = _read_file(
+            path, z=z, channels=channels, experiment=experiment, cells=cells
+        )
         return err if err else _with_images(data)
 
     def experiment_crop_image(
         path: str,
         box: Optional[list] = None,
         fraction: Optional[list] = None,
+        cells: Optional[List[str]] = None,
         z: Optional[int] = None,
         channels: Optional[List[str]] = None,
         experiment: Optional[str] = None,
@@ -1205,6 +1303,7 @@ def build_sidecar(client, capabilities):
             z=z,
             channels=channels,
             experiment=experiment,
+            cells=list(cells) if cells is not None else None,
         )
         return err if err else _with_images(data)
 
@@ -1275,10 +1374,17 @@ def build_sidecar(client, capabilities):
     def grid_get(grid_name: str):
         return _routed("grid_get", grid_name=grid_name)
 
-    def grid_get_output_image(grid_name: str, filename: str):
-        # A JPEG, like an item's output image.
+    def grid_get_output_image(
+        grid_name: str, filename: str, cells: Optional[bool] = None
+    ):
+        # A JPEG, like an item's output image; its cells ride in the metadata.
         resp = _send(
-            "grid_get_output_image", dict(grid_name=grid_name, filename=filename)
+            "grid_get_output_image",
+            dict(
+                grid_name=grid_name,
+                filename=filename,
+                **_given(cells="true" if cells else None),
+            ),
         )
         if resp.status_code >= 400:
             return _refusal(resp)
@@ -1755,6 +1861,9 @@ def build_sidecar(client, capabilities):
             microscope_set_state,
             experiment_get_image_stage_position,
             experiment_render_markers,
+            experiment_draw_image,
+            experiment_draw_pair,
+            item_draw_milling,
             experiment_get_image_pixels,
             grid_set_quality,
             grid_set_note,
@@ -1874,6 +1983,8 @@ def build_sidecar(client, capabilities):
             experiment_add_note,
             experiment_message_operator,
             server_report_session,
+            server_set_constraints,
+            server_set_checklist,
             request_create,
             request_withdraw,
             request_get,
@@ -2153,7 +2264,7 @@ def main(argv=None):
         sys.exit(_pair(argv[1:]))
     watch_argv = _watch_argv(argv)
     if watch_argv is not None:
-        # Before the mcp import: watching needs only HTTP (FIB-1269).
+        # Before the mcp import: watching needs only HTTP.
         from fibsem.ai.agent.mcp.watch import main as watch_main
 
         sys.exit(watch_main(watch_argv))
@@ -2197,7 +2308,7 @@ def main(argv=None):
         _say_connected(client.url, capabilities)
         return
     # Answer the MCP client's handshake first, and wait for a server in the
-    # first call (FIB-1416).
+    # first call.
     capabilities = _probe(args.url, args.token)
     if capabilities is None:
         print(

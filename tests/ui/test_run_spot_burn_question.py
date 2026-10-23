@@ -14,6 +14,8 @@ time is gone.
 
 import os
 
+from tests.fixtures.main_window import close_window
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import threading
@@ -112,14 +114,7 @@ def window(qapp, tmp_path_factory):
         setattr(module_, name, value)
     if ui.microscope is not None:
         ui.microscope.disconnect()
-    # closeEvent ends in app.quit(); on the shared test QApplication that latches
-    # and breaks every later QEventLoop.exec_(): close with quit stubbed out.
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
-        window.close()
-    finally:
-        qapp.quit = original_quit
+    close_window(window)
 
 
 @pytest.fixture

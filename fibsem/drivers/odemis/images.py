@@ -23,7 +23,6 @@ def fibsem_image_from_frame(
     data: np.ndarray, image_settings: ImageSettings, state: MicroscopeState
 ) -> FibsemImage:
     """A FibsemImage of *data*, with its pixel size from the settings' hfw."""
-    # TODO: retrieve the full image metadata from image md, rather than reconstruct
     pixel_size = image_settings.hfw / image_settings.resolution[0]
     md = FibsemImageMetadata(
         image_settings=image_settings,

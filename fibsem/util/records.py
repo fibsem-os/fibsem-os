@@ -1,5 +1,7 @@
 """Dataframe rows as JSON-able records."""
 
+import hashlib
+import json
 import math
 from datetime import datetime
 from typing import Any, Dict, List
@@ -34,3 +36,10 @@ def dataframe_records(df) -> List[Dict[str, Any]]:
         {key: json_safe(val) for key, val in record.items()}
         for record in df.to_dict(orient="records")
     ]
+
+
+def content_hash(data) -> str:
+    """A short hash naming exactly this content: a document's version."""
+    return hashlib.sha256(
+        json.dumps(data, sort_keys=True, default=str).encode()
+    ).hexdigest()[:16]

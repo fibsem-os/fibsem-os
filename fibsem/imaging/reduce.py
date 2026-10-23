@@ -173,14 +173,8 @@ PREVIEW_MAX_DIMENSION = 2048
 class PreviewMosaic:
     """A decimated mosaic, painted tile by tile as a run fills it in.
 
-    Both tiled runners want this and had a copy each -- the same stride rule, the same
-    `downsample` call, the same paste-and-clip, down to a character-identical debug line
-    (FIB-699). The only real difference was the channel axis, which is a parameter.
-
-    That the copies were the same is not an argument on its own; what makes it worth one
-    class is that they must *stay* the same. FIB-629 had to change one of them from
-    sampling pixels to averaging them, because small bright features could vanish from
-    the preview -- the other needed it for the same reason and did not get it.
+    Both tiled runners use it, so they stay the same: one stride rule, averaging rather
+    than sampling so small bright features do not vanish from the preview.
 
     Two dimensions or three. A beam mosaic is one plane; a fluorescence mosaic is one
     per channel. `paint` takes ``(y, x)`` or ``(channels, y, x)`` and matches whichever
@@ -219,7 +213,7 @@ class PreviewMosaic:
 
         Averaged, not sampled. ``arr[::n, ::n]`` does not blur what it leaves out, it
         deletes it, so a feature a pixel or two across is present at one zoom and gone
-        at the next (FIB-589, and FIB-629 for this path). `downsample` returns
+        at the next. `downsample` returns
         ``ceil(n / factor)`` per axis -- the same shape striding gave -- so the paste
         offsets are unaffected. `max_px` is how the factor is chosen, so it is expressed
         as the size the thumbnail has to come out at.

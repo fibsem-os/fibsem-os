@@ -22,7 +22,7 @@ class Verdict(Enum):
     acting for one) and never by a task.
 
     ``UNASSESSED`` and ``GOOD`` are different answers: nobody has looked, versus
-    somebody looked and it was fine. The old ``DefectType.NONE`` meant both.
+    somebody looked and it was fine.
     """
 
     UNASSESSED = auto()
@@ -59,8 +59,8 @@ class QualityRecord:
     actor: str = ""  # "operator:<name>" | "agent:<model>"; "" when unrecorded
     reason: str = ""
     at_task: str = ""  # the task the item was judged at
-    # When the verdict was set: aware, written as ISO 8601 with its offset
-    # (FIB-1197); older files hold a POSIX float, which reads as this machine's zone.
+    # When the verdict was set: aware, written as ISO 8601 with its offset;
+    # older files hold a POSIX float, which reads as this machine's zone.
     updated_at: Optional[datetime] = None
     decision_id: Optional[Tuple[str, str]] = None  # (item_id, task_name)
 

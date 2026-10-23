@@ -2,7 +2,7 @@
 
 Renders a task config's own fields -- the ones past the base class --
 as a grid of controls, using the shared builder that the pattern, strategy and
-milling-settings forms use (FIB-526).
+milling-settings forms use.
 
 This form used to read raw ``dataclasses.fields(...).metadata`` and understood
 four keys, so most of the vocabulary was simply unavailable to it: an int field

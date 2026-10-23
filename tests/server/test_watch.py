@@ -2,7 +2,6 @@
 client, the sidecar's reconnecting client and the /app/events long-poll, with
 nothing faked but the moment events arrive (FIB-1269, FIB-870)."""
 
-import os
 import subprocess
 import sys
 import threading
@@ -15,7 +14,6 @@ uvicorn = pytest.importorskip("uvicorn")
 
 from psygnal.containers import EventedDict  # noqa: E402
 
-from fibsem import utils  # noqa: E402
 from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
 from fibsem.ai.agent.mcp import watch as watch_mod  # noqa: E402
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
@@ -33,13 +31,6 @@ from tests.run_state import stub_session
 
 TOKEN = "test-token"
 POLL_S = 0.3
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    return microscope
 
 
 @pytest.fixture
@@ -207,6 +198,87 @@ def test_the_operator_s_message_is_a_line_that_says_how_to_answer(app):
         "experiment_message_operator (reply_to=ab12). It is not an approval: your level "
         "still decides what you may do"
     )
+
+
+def _marked(evidence_id, marks, **fields):
+    return {
+        "evidence_id": evidence_id,
+        "by": "operator",
+        "image": "/exp/ref_fib.tif",
+        "marks": marks,
+        **fields,
+    }
+
+
+def test_the_message_writes_out_the_operator_s_marks(app):
+    marks = {
+        "points": [
+            {
+                "x": 362,
+                "y": 256,
+                "label": "target",
+                "stage": {"x": 1.2031e-3, "y": -0.8842e-3},
+            }
+        ],
+        "lines": [{"x1": 10, "y1": 20, "x2": 30, "y2": 40, "arrow": True}],
+    }
+
+    def run():
+        app.buffer.append("evidence", _marked("3f9a01c2", marks), actor="operator")
+        app.buffer.append(
+            "note",
+            {"text": "this one", "id": "ab12", "evidence": "3f9a01c2"},
+            actor="operator",
+        )
+        app.buffer.append("workflow_completed", {})
+
+    code, lines = _watch({2: run})
+
+    assert lines[0].startswith(
+        "MESSAGE id=ab12 from the operator: this one -- marks on /exp/ref_fib.tif "
+        '(evidence 3f9a01c2): point "target" at 362,256 px = stage x 1.2031 '
+        "y -0.8842 mm; arrow from 10,20 px to 30,40 px -- answer with"
+    )
+
+
+def test_a_message_waiting_for_the_watch_keeps_its_marks(app):
+    marks = {"areas": [{"x": 1, "y": 2, "width": 3, "height": 4, "label": "here"}]}
+    app.buffer.append("evidence", _marked("aa00bb11", marks), actor="operator")
+    app.buffer.append(
+        "note", {"text": "look", "id": "ab12", "evidence": "aa00bb11"}, actor="operator"
+    )
+
+    def run():
+        app.buffer.append("workflow_completed", {})
+
+    code, lines = _watch({2: run})
+
+    assert 'area "here" at 1,2 px 3x4 px' in lines[0]
+
+
+def test_only_five_marks_are_written_out():
+    marks = {"points": [{"x": i, "y": i} for i in range(7)]}
+    lines = []
+    watch_mod._print_events(
+        [
+            {
+                "seq": 1,
+                "kind": "evidence",
+                "actor": "operator",
+                "payload": _marked("cc00dd11", marks, channels=["GFP"]),
+            },
+            {
+                "seq": 2,
+                "kind": "note",
+                "actor": "operator",
+                "payload": {"text": "t", "id": "ab12", "evidence": "cc00dd11"},
+            },
+        ],
+        0,
+        lines.append,
+    )
+    assert "(max projection of GFP)" in lines[0]
+    assert "point at 4,4 px; and 2 more --" in lines[0]
 
 
 def test_a_level_change_names_the_skill_to_work_by(app):

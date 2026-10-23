@@ -184,7 +184,7 @@ class AutoLamellaTask(SiteTask):
 
         The configured objective (focus) position is preserved: get_microscope_state()
         does not capture the objective position, so overwriting the pose here (and
-        re-reading the live objective position) previously wiped the user's configured
+        re-reading the live objective position) would wipe the user's configured
         focus.
         """
         configured_objective_position = (

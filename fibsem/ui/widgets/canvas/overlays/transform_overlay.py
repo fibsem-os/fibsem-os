@@ -1,7 +1,7 @@
 """A body on the canvas you can drag, turn and scale: the gesture, without the body.
 
 Two things on the Overview tab want placing by hand against the picture underneath:
-the grid's bars (FIB-608) and, later, a fluorescence overview (FIB-1030). The body is
+the grid's bars and, later, a fluorescence overview. The body is
 different, the gesture is the same -- press inside it and drag to move, take the handle
 and drag to rotate -- so the gesture lives here once and the body is a subclass. A body
 that names its corners can be scaled from them too; one whose size is known (the bars'
@@ -13,8 +13,8 @@ the user's. A canvas draws the plane a beam sees, and a beam looking at the samp
 off its normal sees a length along the surface shortened by the cosine of that angle --
 1.0 straight down, 0.616 in the crossed views, 0.259 for the ion beam at the milling
 pose. The host reads that factor off its frame and hands it in; what the user places is
-always the body on the sample, and it lands foreshortened however the view is tilted
-(FIB-615). Keeping the squash out of the user's hands is the point: dragged free, it
+always the body on the sample, and it lands foreshortened however the view is tilted.
+Keeping the squash out of the user's hands is the point: dragged free, it
 would be rediscovered by eye every time and slightly wrong every time.
 
 Emits rather than mutating (the convention every interactive overlay here follows): the
@@ -70,7 +70,7 @@ class TransformGestureOverlay(QObject, CanvasOverlay):
     # A move or rotate gesture has ended. For work a host wants to do once, at the end,
     # rather than on every motion event -- anything that repaints the whole canvas
     # belongs here, because during the drag the body is blitted over a held background
-    # and a repaint throws that away (FIB-752).
+    # and a repaint throws that away.
     drag_finished = pyqtSignal()
 
     def __init__(self, parent: Optional[QObject] = None) -> None:

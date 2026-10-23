@@ -135,7 +135,7 @@ class SpotBurnFiducialTask(SiteTask):
         """Burn the points, asking first when supervised, and keep the settings
         as last used.
 
-        The loop is the task's, on this thread, as the mill's is (FIB-1236):
+        The loop is the task's, on this thread, as the mill's is:
         each pass a ``spot_burn`` question through ``ask``, on the record,
         decided as run (burn the settings as decided and ask again with the
         pass counted, and the error if the burn failed), edit (ask again with

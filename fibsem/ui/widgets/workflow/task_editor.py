@@ -244,7 +244,7 @@ class WorkflowTaskEditorWidget(QWidget):
         # ── buttons ─────────────────────────────────────────────────────
         btn_row = QHBoxLayout()
         # Remove lives here, on the left, away from Apply: rare, destructive,
-        # and no longer a button on every row of the list.
+        # and not a button on every row of the list.
         self._remove_btn = QPushButton("Remove task…")
         self._remove_btn.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         self._remove_btn.setToolTip("Remove this task from the workflow")

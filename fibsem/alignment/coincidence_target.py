@@ -2,9 +2,9 @@
 
 On the Arctis the whole-frame measure (`fibsem.alignment.coincidence`) found
 almost nothing the two beams share before milling: at 2 kV the SEM sees charge
-contrast on a smooth square, the FIB sees topography (FIB-987). By hand, an
+contrast on a smooth square, the FIB sees topography. By hand, an
 agent did better by following one feature: the target it had centred in the
-SEM, a raised cell that both beams show (2026-10-15).
+SEM, a raised cell that both beams show.
 
 This measures that way. It cuts a patch of the SEM image around the target,
 squashes it into the FIB view by the foreshortening the pair's geometry gives
@@ -42,8 +42,8 @@ from fibsem.alignment.coincidence import (
 from fibsem.structures import BeamType, FibsemImage
 
 METHOD = "target-patch"
-# Width and height of the SEM patch around the target. About what the agent
-# matched on 2026-10-15 (320 x 280 preview px); clipped to the frame.
+# Width and height of the SEM patch around the target, about what the agent
+# matched by hand (320 x 280 preview px); clipped to the frame.
 DEFAULT_PATCH_SIZE: Tuple[float, float] = (60e-6, 50e-6)  # m
 # How far either side of the geometry's foreshortening to search, as a
 # fraction of it. The geometry knows the number; a wide free search can lock

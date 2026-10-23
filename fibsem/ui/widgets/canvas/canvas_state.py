@@ -47,12 +47,14 @@ class MillingSpec(OverlaySpec):
     # One colour for every stage instead of a colour each (the agent's purple).
     colour: Optional[str] = None
     # Dashed edges and a fainter fill: patterns not drawn on the microscope yet,
-    # such as the ones an agent's waiting request would draw (FIB-1404).
+    # such as the ones an agent's waiting request would draw.
     dashed: bool = False
     # Where the stage legend goes (a matplotlib legend loc).
     legend_loc: str = "upper right"
     # A stage's own style by index ("filled", "outline", "dashed"), over the above.
     stage_styles: Sequence[str] = ()
+    # A stage's own colour by index, over ``colour``.
+    stage_colours: Sequence[str] = ()
 
 
 @dataclass

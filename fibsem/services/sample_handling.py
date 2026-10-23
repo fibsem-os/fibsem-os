@@ -200,7 +200,7 @@ class GridMagazine:
             return grid
         if working.loaded_grid is not None:
             self.unload_grid()
-        # On the record (FIB-1359), with how long the exchange took and why it
+        # On the record, with how long the exchange took and why it
         # failed, if it did.
         with session_of(self.parent).recording(
             "grid_loaded", grid=grid.name, slot=slot_name, working_slot=working.name
@@ -954,7 +954,7 @@ def _resolve_configured_holder(stage_settings) -> SampleHolder:
 BUILTIN_HOLDER_NAME = "Built-in holder"
 # The built-in shuttle's one slot. Its own name, not "Slot-01", which is also
 # the loader's first magazine slot: "loaded from Slot-01 into Slot-01" named two
-# places as one (FIB-1359).
+# places as one.
 BUILTIN_SLOT_NAME = "Shuttle"
 # What it was called before it had its own name. A calibration saved under it is
 # read, and recorded occupancy under it restored.
@@ -969,7 +969,7 @@ def _builtin_working_slot(stage_settings) -> GridSlot:
 
     Nominally the stage origin, and that is the slot until someone calibrates it.
     A loaded grid on a real instrument sits off the origin, in x, y and z, by the same
-    amount on every load (FIB-1144), so a position captured with the calibration
+    amount on every load, so a position captured with the calibration
     wizard and saved in the configuration replaces it -- once it passes the trust
     check a fixed holder's slots get: captured against this pre-tilt and reference
     rotation. One that does not is dropped with a warning, and the origin is used.

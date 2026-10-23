@@ -160,9 +160,9 @@ WS_PROTOCOL = "websockets-sansio"
 ERROR_STATUS = {
     ParameterUnavailable: 404,
     ParameterReadOnly: 409,
-    OperationCancelledError: 409,  # stopped: a sweep, a mill (FIB-1355)
+    OperationCancelledError: 409,  # stopped: a sweep, a mill
     ResourceBusy: 409,  # held by someone else: a scanner live on the other beam
-    NothingToStop: 409,  # a stop with nothing running (FIB-1398)
+    NothingToStop: 409,  # a stop with nothing running
     GridExchangeError: 409,  # a grid not in the inventory, or the loader refused
     TypeError: 422,
     ValueError: 422,  # an argument that does not decode names its parameter
@@ -174,8 +174,8 @@ ERROR_STATUS = {
 def refusal(error: Exception, what: str) -> HTTPException:
     """The answer to an expected error (one of ``ERROR_STATUS``), in the shape every
     App Server refusal has: ``error_type`` and ``message``, with ``parameter`` for
-    an argument that did not decode and ``status: cancelled`` for a stop
-    (FIB-1377). Logged as one line, no traceback."""
+    an argument that did not decode and ``status: cancelled`` for a stop.
+    Logged as one line, no traceback."""
     status = next(s for t, s in ERROR_STATUS.items() if isinstance(error, t))
     detail = {"error_type": type(error).__name__, "message": str(error)}
     if isinstance(error, OperationCancelledError):
@@ -580,7 +580,7 @@ def build_device_router(
     server passes none, the App Server its token, level and hardware lock. A query
     moves nothing, so it takes the *read* dependencies, not the hardware lock.
     *on_image* is given each image a command acquired, before it is answered: the
-    App Server shows it in the app's views (FIB-1375). *refuse* says why a write
+    App Server shows it in the app's views. *refuse* says why a write
     or a command is never allowed here (403 ``not_allowed``), and the listings
     mark those (``agent: false``): the App Server's blocklist. *paths* reads a
     command's or query's relative paths where they belong (the App Server: in the
@@ -983,7 +983,7 @@ def demo_fm_devices(config: Optional[Mapping[str, Any]] = None) -> List[Device]:
 
 
 def odemis_fm_devices(config: Optional[Mapping[str, Any]] = None) -> List[Device]:
-    """The METEOR's FM, through the odemis backend on this computer (FIB-1095).
+    """The METEOR's FM, through the odemis backend on this computer.
 
     odemis is reachable only from the computer running it, over unix sockets, which
     is why the FM is served from there rather than driven from the beams' PC.

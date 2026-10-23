@@ -1,4 +1,4 @@
-"""SEM/FIB coincidence measurement (FIB-868).
+"""SEM/FIB coincidence measurement.
 
 Coincidence error is a height error: the sample surface sitting above or below
 the fixed intersection point of the two beam axes. Because the beams are
@@ -23,8 +23,7 @@ the search window is tight). A peak on the search-window boundary is refused
 outright.
 
 Validated offline on a reference cryo-lamella dataset: sub-micron
-repeatability when topographic features are present. See FIB-868 for the
-full findings.
+repeatability when topographic features are present.
 """
 
 from __future__ import annotations
@@ -64,7 +63,7 @@ REFUSAL_RIVAL_PEAK = "rival-peak"
 # the ratio reads the same at any field width; on the simulator's scenes
 # (mammalian, yeast, bacteria; 80-300 um fields; with and without noise)
 # every correct fine lock measured 0.35-0.72 and every false fine lock
-# 0.86-0.99. Calibrated on the simulator only; the bench pairs (FIB-872)
+# 0.86-0.99. Calibrated on the simulator only; the bench pairs
 # are the check.
 DEFAULT_MAX_RIVAL_RATIO = 0.80
 # ...but not at the coarse field of view: there a correct lock can read
@@ -73,7 +72,7 @@ DEFAULT_MAX_RIVAL_RATIO = 0.80
 # follows re-verifies under the strict gate. Disabled (1.0) for coarse.
 DEFAULT_COARSE_MAX_RIVAL_RATIO = 1.0
 # A height error cannot produce dx, and a real beam misalignment is a few
-# microns at most (FIB-873 measured ~1.3 um) - a lock further out in x is a
+# microns at most (~1.3 um measured) - a lock further out in x is a
 # rival peak, and both bands agreeing on it does not make it right. On the
 # simulator's mesh, rival locks at 9 um passed a 10 um bound.
 DEFAULT_MAX_LATERAL_OFFSET = 5e-6  # m
@@ -90,7 +89,7 @@ class CoincidenceMeasurement:
     height error along the chamber-vertical axis (the z move to apply).
 
     dx is diagnostic only: a height error cannot produce it. A persistent dx
-    indicates beam misalignment (correctable by beam shift, see FIB-873),
+    indicates beam misalignment (correctable by beam shift,
     scan-rotation mismatch, or a failed SEM centring - never fold it into a
     vertical correction.
     """
@@ -308,7 +307,7 @@ def measure_coincidence(
             measurement at this site. Centres the search window.
         capture_range: half-width of the search window in metres. Keep well
             under one grid pitch: periodic structure creates rival
-            correlation peaks one pitch apart (FIB-711).
+            correlation peaks one pitch apart.
         agreement_tolerance: max distance (m) between the two independent
             band estimates for the result to be reliable.
         max_lateral_offset: |dx| (m) beyond which a lock is refused as a
@@ -434,8 +433,7 @@ DEFAULT_MAX_ITERATIONS = 3
 
 # The coarse (establish) pass: a wide view buys capture range at the cost of
 # precision. Its search window must stay well under one grid pitch - the mesh
-# is periodic, and rival correlation peaks sit exactly one pitch apart
-# (FIB-711 by construction).
+# is periodic, and rival correlation peaks sit exactly one pitch apart.
 # Sized for height errors up to ~100 um: the FIB-view displacement of a
 # height error, stretched into the correlation space, must still fit the
 # frame - and the search window must stay under one grid pitch (125 um),
@@ -445,7 +443,7 @@ DEFAULT_COARSE_CAPTURE_RANGE = 100e-6  # m, just under one 125 um grid pitch
 # The coarse pass only has to land inside the fine pass's capture range
 # (DEFAULT_CAPTURE_RANGE, 20 um), so its two bands need not agree closer than
 # a fraction of that: 8 um accepted three of four Arctis attempts that 2 um
-# refused, all at the same +26..29 um height error (FIB-987).
+# refused, all at the same +26..29 um height error.
 DEFAULT_COARSE_AGREEMENT_TOLERANCE = 8e-6  # m
 DEFAULT_COARSE_MAX_LATERAL_OFFSET = 20e-6  # m
 
@@ -458,8 +456,8 @@ class CoincidenceAlignment:
     """The full history of one ensure_coincident run.
 
     `converged` is only ever set from a fresh measurement taken AFTER the
-    last correction - success is measured, never assumed from having moved
-    (FIB-809 philosophy). When a measurement refuses, the loop stops and
+    last correction - success is measured, never assumed from having moved.
+    When a measurement refuses, the loop stops and
     `reason` carries the refusal; the stage is left where the last reliable
     correction put it.
     """
@@ -534,7 +532,7 @@ def _default_image_settings() -> "ImageSettings":
         resolution=DEFAULT_ALIGNMENT_RESOLUTION,
         # 1 us: at 0.2 us the SEM frame on an Arctis (2 kV, 25 pA, ETD) was
         # noise -- neighbour-pixel correlation 0.16 -- and every measurement
-        # of a session was refused (FIB-987). The ion dose at 1 us over a
+        # of a session was refused. The ion dose at 1 us over a
         # 150 um field is still small for something that runs a few times.
         dwell_time=1.0e-6,
         autocontrast=False,
@@ -642,7 +640,7 @@ def ensure_coincident(
     belong in here.
 
     dx is never corrected here - a persistent lateral offset is not a height
-    error (beam misalignment, FIB-873) and no stage move can change it: the
+    error (beam misalignment) and no stage move can change it: the
     stage carries both views together. It rides along as a diagnostic, and a
     large one refuses the measurement outright (a rival peak, not an offset).
 

@@ -23,14 +23,9 @@ pytest.importorskip("PyQt5")
 
 from PyQt5 import sip
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QApplication, QWidget
+from PyQt5.QtWidgets import QWidget
 
 from fibsem.ui.widgets.notifications import ToastManager
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    return QApplication.instance() or QApplication([])
 
 
 @pytest.fixture()

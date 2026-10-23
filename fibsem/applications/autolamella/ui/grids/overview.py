@@ -28,8 +28,7 @@ overviews.
 Overview tabs saved into the experiment's root carry no grid, so they are placed
 here, best effort, by where they were taken: their stage position, the holder slot
 it falls in, the grid loaded there, the record of that name. An overview that can't
-be placed that way is left out of every grid rather than guessed into one
-(FIB-1195 is to record the link when the overview is saved).
+be placed that way is left out of every grid rather than guessed into one.
 
 **One image per view.** The canvas shows one view at a time (a beam at a pose, or
 the fluorescence microscope), switched with the chips. Within a view, only the
