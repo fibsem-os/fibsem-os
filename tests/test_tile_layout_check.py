@@ -86,6 +86,7 @@ def test_a_scale_error_is_measured_and_warned_about():
     assert summary.y.step_fraction == pytest.approx(1.0, abs=0.01)
     assert summary.warning is not None
     assert "in x" in summary.warning and "in y" not in summary.warning
+    assert "shorter than planned" in summary.warning
 
 
 def test_featureless_tiles_give_no_summary_and_no_warning():

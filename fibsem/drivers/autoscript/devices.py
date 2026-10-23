@@ -36,6 +36,11 @@ step inside it, and take the microscope's ``imaging_channel`` lock (its
 that scope. The generic claim isn't used because it holds the lock through the read and
 always takes it; the old scope skips the lock when the FM already has the view, which is
 what keeps the objective movable while live view re-takes the lock every frame.
+A beam can take the view between the FM being selected and the call, so a read that
+fails is tried once more holding the lock (``AutoscriptFMChannel.read``), and a write,
+or a command that acts on the detector, holds the lock throughout
+(``AutoscriptFMChannel.held``): a gain written on a beam's view sets that beam's
+detector, with no error.
 
 Live view keeps what the old fast acquisition does, with each frame pulled rather than
 pushed: `AutoscriptFM.start_live` switches the light on and starts the acquisition, each
@@ -2210,6 +2215,30 @@ class AutoscriptFMChannel:
                 if self._depth == 0:
                     self.connection.imaging.set_active_view(self._restore_view)
 
+    @contextmanager
+    def held(self) -> Iterator[None]:
+        """``scope()`` with the lock held through the block, for a write or a command
+        on the detector: on a beam's view it would act on the beam's detector, and a
+        beam takes the lock to switch the view. Live view releases the lock between
+        frames, so a write waits for one frame at most."""
+        with self.lock, self.scope():
+            yield
+
+    def read(self, read: Callable[[], Any]) -> Any:
+        """``read()``, made in a scope, tried once more holding the lock if it fails.
+
+        The scope's body runs without the lock, so a beam can take the view between
+        the FM being selected and the read, and AutoScript then answers for the
+        beam's detector ("The active detector does not have a parameter: binning").
+        A beam takes the lock to switch the view, so the second try keeps the FM's.
+        Any other failure fails again, from the second try.
+        """
+        try:
+            return read()
+        except Exception:
+            with self.lock, self.scope():
+                return read()
+
 
 class _OnTheFMChannel(Device):
     """A part whose ``needs_channel`` parameters run in the FM channel's scope."""
@@ -2230,6 +2259,14 @@ class _OnTheFMChannel(Device):
             yield
             return
         with self._channel.scope():
+            yield
+
+    @contextmanager
+    def _claim_write(self, param: BoundParameter) -> Iterator[None]:
+        if not param.needs_channel:
+            yield
+            return
+        with self._channel.held():
             yield
 
 
@@ -2270,7 +2307,7 @@ class AutoscriptFMFilterSet(_OnTheFMChannel, FilterSet):
     def read_emission_filter(self) -> EmissionFilter:
         from autoscript_sdb_microscope_client.enumerations import CameraFilterType
 
-        mode = self._channel.settings().filter.type.value
+        mode = self._channel.read(lambda: self._channel.settings().filter.type.value)
         if mode is CameraFilterType.FLUORESCENCE:
             return MULTI_BAND
         return REFLECTION
@@ -2316,7 +2353,7 @@ class AutoscriptFMCamera(_OnTheFMChannel, Camera):
             return (limits.min, limits.max)
 
     def read_exposure_time(self) -> float:
-        return self._channel.settings().exposure_time.value
+        return self._channel.read(lambda: self._channel.settings().exposure_time.value)
 
     def write_exposure_time(self, value: float) -> None:
         limits = self._exposure_time_limits()
@@ -2336,10 +2373,10 @@ class AutoscriptFMCamera(_OnTheFMChannel, Camera):
 
     def _binning(self) -> int:
         with self._channel.scope():
-            return self._channel.settings().binning.value
+            return self.read_binning()
 
     def read_binning(self) -> int:
-        return self._channel.settings().binning.value
+        return self._channel.read(lambda: self._channel.settings().binning.value)
 
     def write_binning(self, value: int) -> None:
         # The choices are read again for the message, as the old setter reads them.
@@ -2353,7 +2390,9 @@ class AutoscriptFMCamera(_OnTheFMChannel, Camera):
         return ParameterMetadata(choices=list(self._available_binnings()))
 
     def read_gain(self) -> float:
-        return self._channel.connection.detector.contrast.value
+        return self._channel.read(
+            lambda: self._channel.connection.detector.contrast.value
+        )
 
     def write_gain(self, value: float) -> None:
         self._channel.connection.detector.contrast.value = value
@@ -2429,7 +2468,9 @@ class AutoscriptFMLightSource(_OnTheFMChannel, LightSource):
         self._filter_set = filter_set
 
     def read_power(self) -> float:
-        return self._channel.connection.detector.brightness.value
+        return self._channel.read(
+            lambda: self._channel.connection.detector.brightness.value
+        )
 
     def write_power(self, value: float) -> None:
         self.start_emission(self._filter_set.emission_type)
@@ -2442,13 +2483,13 @@ class AutoscriptFMLightSource(_OnTheFMChannel, LightSource):
             return ParameterMetadata(limits=RangeLimit(min=limits.min, max=limits.max))
 
     def start_emission(self, emission_type: Any) -> None:
-        with self._channel.scope():
+        with self._channel.held():
             self._channel.connection.detector.camera_settings.emission.start(
                 emission_type=emission_type
             )
 
     def stop_emission(self) -> None:
-        with self._channel.scope():
+        with self._channel.held():
             self._channel.connection.detector.camera_settings.emission.stop()
 
 
@@ -2483,16 +2524,15 @@ class AutoscriptFMObjective(_OnTheFMChannel, Objective):
             return (limits.min, limits.max)
 
     def read_position(self) -> float:
-        return self._channel.settings().focus.value
+        return self._channel.read(lambda: self._channel.settings().focus.value)
 
     def metadata_position(self) -> ParameterMetadata:
         low, high = self._focus_limits()
         return ParameterMetadata(limits=RangeLimit(min=low, max=high))
 
     def read_state(self) -> InsertableDeviceState:
-        return _OBJECTIVE_STATES.get(
-            self._channel.connection.detector.state, InsertableDeviceState.UNKNOWN
-        )
+        state = self._channel.read(lambda: self._channel.connection.detector.state)
+        return _OBJECTIVE_STATES.get(state, InsertableDeviceState.UNKNOWN)
 
     def read_magnification(self) -> float:
         return self._magnification
@@ -2522,14 +2562,14 @@ class AutoscriptFMObjective(_OnTheFMChannel, Objective):
                 f"{self._limit_position}"
             )
             position = np.clip(position, 0, self._limit_position)
-        with self._channel.scope():
+        with self._channel.held():
             self._channel.settings().focus.value = position
 
     def _move_relative(self, delta: float) -> None:
         self._move_absolute(self.position.get_value() + delta)
 
     def _insert(self) -> bool:
-        with self._channel.scope():
+        with self._channel.held():
             if self.state.get_value() is InsertableDeviceState.INSERTED:
                 logging.warning("Objective lens is already inserted.")
                 return False
@@ -2537,7 +2577,7 @@ class AutoscriptFMObjective(_OnTheFMChannel, Objective):
             return True
 
     def _retract(self) -> bool:
-        with self._channel.scope():
+        with self._channel.held():
             if self.state.get_value() is InsertableDeviceState.RETRACTED:
                 logging.warning("Objective lens is already retracted.")
                 return False
@@ -2645,7 +2685,7 @@ class ThermoFisherObjectiveLens(fm_api.ObjectiveLens):
             return self._channel.connection.detector.is_homed
 
     def home(self) -> None:
-        with self._channel.scope():
+        with self._channel.held():
             self._channel.connection.detector.home()
         self._notify_moved()
 

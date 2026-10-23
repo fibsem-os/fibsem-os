@@ -32,6 +32,7 @@ from enum import Enum
 from typing import (
     Any,
     Callable,
+    ContextManager,
     Dict,
     FrozenSet,
     Iterator,
@@ -406,7 +407,7 @@ class BoundParameter:
 
     def _write_path(self, value: Any) -> Any:
         """Write, cache and signal; returns the value now held."""
-        with self.device._claim(self):
+        with self.device._claim_write(self):
             self._write(value)
             if self.spec.nearest:
                 # what the hardware applied, which a driver may have adjusted again
@@ -968,6 +969,10 @@ class _Controllable:
             return
         with self.claim_channel():
             yield
+
+    def _claim_write(self, param: BoundParameter) -> ContextManager[None]:
+        """The claim a write runs in: a read's, unless a backend needs more."""
+        return self._claim(param)
 
     def select_channel(self) -> Optional[Callable[[], None]]:
         """Make this device the active imaging channel. Backends that share one override it.
