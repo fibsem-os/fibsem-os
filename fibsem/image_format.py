@@ -3,7 +3,7 @@
 Format 1 (fibsem 0.60) is OME-TIFF for every image: FIB/SEM images carry OME-XML
 with our full metadata kept inside it as an OME map annotation, as FM stacks
 already did. Pages are zlib-compressed. A large image or any z-stack also carries
-1/2, 1/4 and 1/8 copies of each page (SubIFDs, which readers that don't know them
+1/4 and 1/8 copies of each page (SubIFDs, which readers that don't know them
 skip), and a large image is stored in 256 px tiles, so a viewer can read a small
 copy or one area without the whole file.
 
@@ -28,9 +28,8 @@ METADATA_KEY = "FibsemImageMetadata"
 
 # A page longer than this on its long side gets the small copies and is tiled.
 PYRAMID_ABOVE = 2048
-# The small copies, as reduction factors of the full page. Each halves the one before,
-# as tiled viewers (deck.gl, Viv) take a pyramid's levels to.
-LEVELS: Tuple[int, ...] = (2, 4, 8)
+# The small copies, as reduction factors of the full page: about 8% more pixels.
+LEVELS: Tuple[int, ...] = (4, 8)
 TILE = 256
 COMPRESSION = "zlib"
 # Image data above this many bytes is saved as BigTIFF: a classic TIFF can't hold
@@ -238,3 +237,19 @@ def beam_image_ome(data: np.ndarray, metadata: Optional[Any]) -> str:
         ),
     )
     return ome.to_xml()
+
+
+def read_level(
+    tif: "tff.TiffFile", max_px: Optional[int]
+) -> Tuple[np.ndarray, Tuple[int, ...]]:
+    """An open single-image file's pixels from its smallest copy still *max_px* on
+    its long side (the full image when None, or when it has no copies), and the
+    full image's shape."""
+    series = tif.series[0]
+    chosen = series.levels[0]
+    if max_px is not None:
+        for level in series.levels[1:]:
+            if max(level.shape[-2:]) < max_px:
+                break
+            chosen = level
+    return chosen.asarray(), tuple(series.shape)

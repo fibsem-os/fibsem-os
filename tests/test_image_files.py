@@ -86,7 +86,6 @@ def test_a_large_beam_image_is_tiled_and_carries_its_small_copies(tmp_path):
         assert series.shape == (2100, 3000)
         assert [level.shape for level in series.levels] == [
             (2100, 3000),
-            (1050, 1500),
             (525, 750),
             (263, 375),
         ]
@@ -94,17 +93,15 @@ def test_a_large_beam_image_is_tiled_and_carries_its_small_copies(tmp_path):
         assert page.is_tiled and page.tilewidth == image_format.TILE
         assert page.compression.name == "ADOBE_DEFLATE"
         np.testing.assert_array_equal(
-            series.levels[3].asarray(), _block_mean(image.data, 8)
+            series.levels[2].asarray(), _block_mean(image.data)
         )
 
 
-def _block_mean(data: np.ndarray, factor: int) -> np.ndarray:
+def _block_mean(data: np.ndarray) -> np.ndarray:
+    """The 1/8 copy, as the writer makes it: the 1/4 copy halved."""
     from fibsem.imaging.reduce import reduce_by
 
-    out = data
-    for _ in range(int(np.log2(factor))):
-        out = reduce_by(out, 2)
-    return out
+    return reduce_by(reduce_by(data, 4), 2)
 
 
 def test_a_small_beam_image_is_compressed_without_copies(tmp_path):
@@ -157,7 +154,6 @@ def test_an_fm_stack_carries_its_small_copies_and_format(tmp_path):
     with tifffile.TiffFile(path) as tif:
         assert [level.shape[-2:] for level in tif.series[0].levels] == [
             (48, 64),
-            (24, 32),
             (12, 16),
             (6, 8),
         ]
@@ -193,5 +189,52 @@ def test_an_fm_stack_records_its_channels_in_the_colours_the_apps_draw(tmp_path)
 
     with tifffile.TiffFile(path) as tif:
         channels = from_xml(tif.pages.first.description).images[0].pixels.channels
-    assert [c.color.as_rgb_tuple()[:3] for c in channels] == [(128, 128, 128), (0, 128, 0)]
-    assert [c.color for c in FluorescenceImage.load(path).metadata.channels] == ["gray", "gray"]
+    assert [c.color.as_rgb_tuple()[:3] for c in channels] == [
+        (128, 128, 128),
+        (0, 128, 0),
+    ]
+    assert [c.color for c in FluorescenceImage.load(path).metadata.channels] == [
+        "gray",
+        "gray",
+    ]
+
+
+def test_a_preview_of_a_large_beam_image_reads_its_small_copy(tmp_path, monkeypatch):
+    from fibsem.server import files
+
+    image = _beam_image((2100, 3000))
+    image.save(str(tmp_path / "large.tif"))
+    monkeypatch.setattr(FibsemImage, "load", None)  # the full image is never read
+
+    answer = files.read(str(tmp_path), "large.tif", max_width=600)
+
+    preview = answer["preview"]
+    assert (preview["full_width"], preview["full_height"]) == (3000, 2100)
+    assert preview["width"] == 600
+    assert preview["preview_pixelsize"] == pytest.approx(
+        image.metadata.pixel_size.x * 5
+    )
+    assert answer["summary"]["shape"] == [2100, 3000]
+
+
+def test_a_crop_of_a_large_beam_image_is_in_full_resolution(tmp_path):
+    from fibsem.server import files
+
+    image = _beam_image((2100, 3000))
+    image.save(str(tmp_path / "large.tif"))
+
+    answer = files.read(
+        str(tmp_path), "large.tif", box=[100, 200, 50, 40], max_width=600
+    )
+
+    assert answer["preview"]["region"] == {
+        "x": 100,
+        "y": 200,
+        "width": 50,
+        "height": 40,
+    }
+    assert (answer["preview"]["full_width"], answer["preview"]["full_height"]) == (
+        50,
+        40,
+    )
+    assert answer["summary"]["shape"] == [2100, 3000]
