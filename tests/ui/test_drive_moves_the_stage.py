@@ -45,10 +45,7 @@ def window(qapp, tmp_path, request):
         win._on_experiment_update()
 
     yield win
-    microscope = ui.microscope
-    ui.disconnect_from_microscope()
-    if microscope is not None:
-        microscope.disconnect()
+    ui.session.disconnect()
     original_quit = qapp.quit
     qapp.quit = lambda: None
     try:

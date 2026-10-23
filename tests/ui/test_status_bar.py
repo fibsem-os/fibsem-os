@@ -497,10 +497,9 @@ def test_autolamella_shows_milling_from_its_microscope(no_quit, qapp):
     assert not hasattr(window, "progress_widget"), "tiles and spot burn too"
 
     # The window hears the session lose its microscope.
-    window.disconnect_from_microscope()
+    window.session.disconnect()
     microscope.milling.report(_tick(remaining=15.0))
     assert window.status_bar.fraction is None
-    microscope.disconnect()
     _close(window, qapp)
 
 
