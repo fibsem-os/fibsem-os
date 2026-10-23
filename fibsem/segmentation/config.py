@@ -31,5 +31,3 @@ def get_colormap():
 
 def get_class_labels():
     return CLASS_LABELS
-
-CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yml")
