@@ -13,8 +13,8 @@ pytest.importorskip("PyQt5")
 from fibsem import utils  # noqa: E402
 from fibsem.milling.tasks import FibsemMillingTaskConfig  # noqa: E402
 from fibsem.structures import ReferenceImageParameters  # noqa: E402
-from fibsem.ui.widgets.milling_task_config_widget2 import (  # noqa: E402
-    MillingTaskConfigWidget2,
+from fibsem.ui.widgets.milling_task_config_widget import (  # noqa: E402
+    MillingTaskConfigWidget,
 )
 from fibsem.ui.widgets.reference_image_parameters_widget import (  # noqa: E402
     ReferenceImageParametersWidget,
@@ -26,7 +26,7 @@ FIELDS_OF_VIEW = [1e-4, 80e-6, 150e-6, 25e-6, 0.3e-3]
 @pytest.mark.parametrize("fov", FIELDS_OF_VIEW)
 def test_the_milling_field_of_view_survives_a_save(qapp, fov):
     microscope, _ = utils.setup_session(manufacturer="Demo", setup_logging=False)
-    widget = MillingTaskConfigWidget2(microscope=microscope)
+    widget = MillingTaskConfigWidget(microscope=microscope)
     widget.update_from_settings(FibsemMillingTaskConfig(field_of_view=fov))
 
     assert widget.get_settings().field_of_view == fov

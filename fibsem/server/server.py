@@ -367,9 +367,15 @@ _RECORDS_ITSELF = (
     "/app/experiment/evidence",
     "/app/workflow/proposals/suggest",
 )
-# POST routes that only read: a query, the grid run's plan, and the experiment
-# image routes (points on an image, the items drawn on one). Not the agent acting.
-_POSTED_READS = ("/queries/", "/app/workflow/grids/plan", "/app/experiment/images/")
+# POST routes that only read: a query, the grid run's plan, the experiment
+# image routes (points on an image, the items drawn on one) and an item's
+# milling drawn. Not the agent acting.
+_POSTED_READS = (
+    "/queries/",
+    "/app/workflow/grids/plan",
+    "/app/experiment/images/",
+    "/milling/drawn",
+)
 
 
 class _AgentActs:

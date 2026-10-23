@@ -282,7 +282,7 @@ class MillingPatternOverlay(CanvasOverlay):
                 self._ax.add_artist(artist)
                 self._artists.append(artist)
         # A stage's pattern has a point it is placed at; patterns drawn on their own
-        # (an agent's mill, FIB-1375) have none to mark.
+        # (an agent's mill) have none to mark.
         pattern = getattr(stage, "pattern", None)
         if pattern is not None:
             self._draw_crosshair(pattern.point, shape, pixelsize, colour, zorder + 0.5)
@@ -296,8 +296,8 @@ class MillingPatternOverlay(CanvasOverlay):
         drawn inside it, hence the list.
         """
         if getattr(ps, "is_exclusion", False):
-            # Exclusion zones are the region the mill must not touch. Black in the
-            # napari path and in the report plot; black here too. Lines have no
+            # Exclusion zones are the region the mill must not touch. Black, as in
+            # the report plot. Lines have no
             # is_exclusion, hence the getattr.
             colour = _EXCLUSION_COLOUR
         # Solid edge + same-colour fill at _FILL_ALPHA. Independent face/edge

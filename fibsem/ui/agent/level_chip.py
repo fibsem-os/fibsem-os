@@ -1,17 +1,17 @@
-"""The agent chip in the status bar: the agent's level, and the way to its card
-(FIB-1035, FIB-1404).
+"""The agent chip in the status bar: the agent's level, and the way to its card.
+
 
 The agent is a second operator at the app, and its level is the one knob: Off,
 Watch, Assist or Drive. The chip shows the level; clicking it opens the agent
 card (`card.AgentCard`) above the chip: the level, Stop agent, what waits and
 the way to the web Agent page, where the operator answers the agent.
 
-At Assist the agent acts by asking (FIB-1283). While its request waits, the chip
+At Assist the agent acts by asking. While its request waits, the chip
 turns amber, "Agent asks". Only one request waits at a time, so the chip carries
 no count. A suggestion on the pending proposal says "Agent suggests" in its
 level's look, not amber (the run's Attention Required already is). Either one
 asks the system for the operator's attention (a dock bounce or taskbar flash)
-and opens nothing: the window never comes forward on its own (FIB-1501).
+and opens nothing: the window never comes forward on its own.
 
 While the agent acts on the microscope (the card's Now line), the chip pulses.
 
@@ -74,7 +74,7 @@ _HELP = (
 
 def _doing(tool: Any) -> str:
     """What a request's step is doing, in a word: "applying" read as writing a
-    config whatever the step was (FIB-1492)."""
+    config whatever the step was."""
     tool = str(tool or "")
     if tool.startswith(("milling_", "spot_burn")):
         return "milling"
@@ -285,7 +285,7 @@ class AgentLevelChip(QPushButton):
     def _ask_for_attention(self) -> None:
         """Something new waits for the operator: the system's attention
         request, which neither raises nor activates the window. Opening the
-        card here took focus from the operator's browser (FIB-1501)."""
+        card here took focus from the operator's browser."""
         if self.isVisible():
             QApplication.alert(self.window())
 

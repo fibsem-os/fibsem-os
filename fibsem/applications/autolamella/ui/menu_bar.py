@@ -118,7 +118,7 @@ class MainMenuBar(QObject):
         # telling create from load at a glance. Qt hides action icons in menus on
         # macOS unless each action asks for them, hence set_menu_icon.
         # Connecting had no menu entry at all -- the Connection tab was the only
-        # door, which is what made that tab impossible to remove (FIB-775). Built
+        # door, which is what made that tab impossible to remove. Built
         # unconditionally, offered only when the feature flag is on: see below.
         self.action_connect_microscope = QAction("Connect to Microscope...", self._host)
         set_menu_icon(self.action_connect_microscope, "mdi:connection")
@@ -206,7 +206,7 @@ class MainMenuBar(QObject):
             fullscreen_menu.addAction(act)
 
         # The standalone viewer, where a multi-channel image is composed: the
-        # Microscope tab's fluorescence view shows one frame (FIB-942). Needs no
+        # Microscope tab's fluorescence view shows one frame. Needs no
         # experiment; it is a file viewer.
         view_menu.addSeparator()
         self.action_open_fm_image_viewer = QAction(
@@ -270,7 +270,7 @@ class MainMenuBar(QObject):
         self.action_generate_overview_plot.triggered.connect(
             self._actions.generate_overview_plot
         )
-        # The grid screening report (FIB-1057): what the Grids tab holds, as a page.
+        # The grid screening report: what the Grids tab holds, as a page.
         self.action_generate_grid_report = QAction(
             "Generate Grid Screening Report", self
         )
@@ -283,7 +283,7 @@ class MainMenuBar(QObject):
         reporting_menu.addAction(self.action_generate_grid_report)
         reporting_menu.addAction(self.action_generate_overview_plot)
 
-        # user scripts (FIB-338). The menu itself is application-agnostic; this
+        # user scripts. The menu itself is application-agnostic; this
         # supplies only the folder, the context, and how to notify.
         #
         # Constructing the controller costs nothing -- it adds two fixed actions and
@@ -303,9 +303,9 @@ class MainMenuBar(QObject):
         )
 
         # The embedded App Server's dialog: whether it runs, its services, the
-        # event log. The agent's level and connecting one are the agent chip's
-        # (FIB-1035). Always visible: it is where the server is turned on. Next
-        # to Scripts (FIB-863).
+        # event log. The agent's level and connecting one are the agent chip's.
+        # Always visible: it is where the server is turned on. Next
+        # to Scripts.
         self.action_app_server = QAction("App Server...", self._host)
         self.action_app_server.setMenuRole(QAction.NoRole)
         self.action_app_server.setToolTip(
@@ -394,24 +394,6 @@ class MainMenuBar(QObject):
         )
 
         self._dev_menu = dev_menu
-
-        action_load_fm_configuration = QAction(
-            "Load Fluorescence Configuration", self._host
-        )
-        action_load_fm_configuration.triggered.connect(
-            lambda: self._panel().import_fm_configuration()
-        )
-        dev_menu.addAction(action_load_fm_configuration)
-
-        action_save_fm_configuration = QAction(
-            "Save Fluorescence Configuration", self._host
-        )
-        action_save_fm_configuration.triggered.connect(
-            lambda: self._panel().export_fm_configuration()
-        )
-        dev_menu.addAction(action_save_fm_configuration)
-
-        dev_menu.addSeparator()
 
         self.action_export_targeting_ml_data = QAction(
             "Export Targeting ML Data...", self
@@ -511,7 +493,7 @@ class MainMenuBar(QObject):
 
     def _on_sound_toggle(self, checked: bool):
         # Through the file, not a copy held here: another widget may have saved a
-        # setting of its own since start-up (the view bars' fields, FIB-1186).
+        # setting of its own since start-up (the view bars' fields).
         self.preferences_saved.emit(
             fibsem_cfg.update_user_preferences(
                 lambda p: setattr(p.display, "sound_enabled", checked)
@@ -560,7 +542,7 @@ class MainMenuBar(QObject):
         self.action_open_coincidence_viewer.setVisible(coincidence_enabled)
         self._action_coincidence_separator.setVisible(coincidence_enabled)
 
-    #### USER SCRIPTS (FIB-338)
+    #### USER SCRIPTS
 
     def _script_context(self):
         """Build the context a script runs against, or explain why it cannot.
@@ -739,7 +721,7 @@ class MainMenuBar(QObject):
                 return
             # `is_acquisition_active`, not `is_acquiring` — the latter does not exist on
             # this widget, so a getattr default of False would make the guard inert and
-            # let F2 start a second FM acquisition mid-run (cf. FIB-441 / FIB-436).
+            # let F2 start a second FM acquisition mid-run.
             if fm_widget.is_acquisition_active:
                 logging.info("F2 acquire: fluorescence acquisition already in progress")
                 return

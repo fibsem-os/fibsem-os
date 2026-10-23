@@ -164,10 +164,9 @@ def _refuse_unless_fm_sees(
 def sync_fluorescence_pose(microscope: "FibsemMicroscope", lamella) -> bool:
     """Bring a lamella's fluorescence pose back in line with its milling pose.
 
-    For the callers that move a lamella on the beam side. They set the milling pose and
-    have historically stopped there, which leaves the fluorescence pose describing where
-    the lamella *used to be* -- a stale pose being worse than a missing one, because
-    nothing about it looks wrong.
+    For the callers that move a lamella on the beam side. They set the milling pose;
+    stopping there would leave the fluorescence pose describing where the lamella *was*
+    -- a stale pose being worse than a missing one, because nothing about it looks wrong.
 
     Only the stage position is rewritten. Everything else the fluorescence pose carries
     is kept, the objective position most of all: someone focused on this lamella by hand,
@@ -285,7 +284,7 @@ def _to_fluorescence(
 # -- adding a lamella and setting its poses, without the window ----------------------
 #
 # What the Lamella tab's buttons do, minus the dialogs and the redraw, so the App
-# Server runs the very same steps for an agent (FIB-1261 step 6). The window calls
+# Server runs the very same steps for an agent. The window calls
 # these and then refreshes itself; the server calls them on the GUI thread too.
 
 

@@ -74,7 +74,7 @@ class PathValue(str):
     What it buys: elided from the *left* with the whole path in the tooltip. A
     destination is an experiment path plus a stamped run directory, which runs well past
     a dialog's width and wrapped to three lines; and the part that answers "am I writing
-    where I meant to" is the tail, not the mount point (FIB-660).
+    where I meant to" is the tail, not the mount point.
     """
 
 

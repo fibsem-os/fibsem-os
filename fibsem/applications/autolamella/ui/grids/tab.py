@@ -10,7 +10,7 @@ inventory on every refresh and drawn as chips.
 
 Run inventory, Load and Unload are conveniences over the same ``Stage``
 primitives the Sample view uses, run off the GUI thread. ``generate_report``
-writes the grid screening report (FIB-1057) under the experiment folder and
+writes the grid screening report under the experiment folder and
 opens it; Tools → Reporting is what calls it, and the outcome is said on this tab's
 strip. Running tasks is not on this tab; that is Workflow → Grids.
 """

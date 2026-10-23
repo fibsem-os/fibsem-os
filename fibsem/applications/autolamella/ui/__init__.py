@@ -1,10 +1,8 @@
 """AutoLamella's UI package.
 
-Deliberately exports nothing. `AutoLamellaUI` used to be re-exported here, which meant
-importing *any* leaf widget in this package ran the whole application's import first --
-the package `__init__` runs before the submodule. That closed import loops with
-`fibsem.ui`, and the `except ImportError` wrapped around it bound `AutoLamellaUI` to
-None, so the failure surfaced as a dead application rather than a traceback.
+Deliberately exports nothing: the package `__init__` runs before any submodule, so a
+re-export of the window here would run the whole application's import for every leaf
+widget, and close import loops with `fibsem.ui`.
 
 Import the window from its own module instead:
 
