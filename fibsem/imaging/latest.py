@@ -12,10 +12,12 @@ from fibsem.structures import BeamType, FibsemImage
 
 
 class LatestImages:
-    """The latest image of each beam, by its metadata's beam type."""
+    """The latest image of each beam, by its metadata's beam type, and the FM's
+    latest frame."""
 
     def __init__(self) -> None:
         self._images: Dict[BeamType, FibsemImage] = {}
+        self._fm: Optional[Any] = None
         self._unfollow: List[Callable[[], None]] = []
 
     def set(self, image: FibsemImage, beam_type: Optional[BeamType] = None) -> None:
@@ -31,10 +33,20 @@ class LatestImages:
         """*beam_type*'s latest image, or None before the first."""
         return self._images.get(beam_type)
 
+    def set_fm(self, image: Any) -> None:
+        """Keep *image* (a `FluorescenceImage`) as the FM's latest frame."""
+        self._fm = image
+
+    def get_fm(self) -> Optional[Any]:
+        """The FM's latest frame: one plane of one channel, or None before the
+        first."""
+        return self._fm
+
     def follow(self, microscope: Optional[Any]) -> None:
         """Keep what *microscope*'s views are sent: each image shown
-        (``imaging.image_shown``) and each live frame, window or none. Stops
-        following the one before; None follows nothing."""
+        (``imaging.image_shown``), each live frame, and each FM frame (live, or a
+        plane of an acquisition), window or none. Stops following the one before;
+        None follows nothing."""
         for unfollow in self._unfollow:
             unfollow()
         self._unfollow = []
@@ -46,5 +58,11 @@ class LatestImages:
             beam.live_frame for beam in getattr(microscope, "beams", {}).values()
         ]
         for signal in signals:
-            signal.connect(self.set)
-            self._unfollow.append(lambda signal=signal: signal.disconnect(self.set))
+            self._connect(signal, self.set)
+        fm = getattr(microscope, "fm", None)
+        if fm is not None:
+            self._connect(fm.acquisition_signal, self.set_fm)
+
+    def _connect(self, signal: Any, slot: Callable[..., None]) -> None:
+        signal.connect(slot)
+        self._unfollow.append(lambda: signal.disconnect(slot))
