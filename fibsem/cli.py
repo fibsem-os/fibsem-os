@@ -346,6 +346,14 @@ def cmd_beam_blank(client, args) -> int:
     return 0
 
 
+def cmd_beam_turn(client, args) -> int:
+    """The beam's own turn_on or turn_off command (``args.command``)."""
+    for name, beam_type in _beams(args.beam_type):
+        on = client.devices[name].call(args.command)
+        print(f"{beam_type.name}: {'on' if on else 'off'}")
+    return 0
+
+
 def cmd_beam_set_parameters(client, args) -> int:
     """Each write is the server's: checked against the beam's limits and
     choices, a read-only one refused."""
@@ -718,6 +726,10 @@ def _add_microscope_parsers(sub, conn) -> None:
     for verb in ("blank", "unblank"):
         p = add(verb, cmd_beam_blank, f"{verb.capitalize()} a beam")
         p.set_defaults(command=verb)
+        _beam_type(p, both=True)
+    for state in ("on", "off"):
+        p = add(f"turn-{state}", cmd_beam_turn, f"Switch a beam {state}")
+        p.set_defaults(command=f"turn_{state}")
         _beam_type(p, both=True)
     p = add(
         "set-parameters",

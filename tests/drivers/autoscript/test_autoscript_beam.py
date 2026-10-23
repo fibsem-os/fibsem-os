@@ -181,6 +181,8 @@ def test_the_moved_keys_are_the_ones_routed(recording, plasma, beam):
         "spot",
         "start_live",
         "stop_live",
+        "turn_off",
+        "turn_on",
         "unblank",
     ]
 

@@ -45,8 +45,10 @@ function useGridImage(grid: string, filename: string | null) {
     queryFn: () => imageUrl(`${gridPath(grid)}/outputs/${encodeURIComponent(filename!)}`),
     enabled: !!filename,
     staleTime: Infinity,
+    // A new overview replaces the last one once it has loaded.
+    placeholderData: (previous, last) => (last?.queryKey[1] === grid ? previous : undefined),
   });
-  return { src: url.data, loading: url.isLoading };
+  return { src: url.data, loading: url.isLoading, old: url.isPlaceholderData };
 }
 
 function GridCard({ grid, picked, onPick }: { grid: GridSummary; picked: boolean; onPick: () => void }) {
@@ -97,10 +99,11 @@ function GridCard({ grid, picked, onPick }: { grid: GridSummary; picked: boolean
 
 /** The overview with the grid's lamellae where they sit: green, red when failed. */
 function Overview({ grid, filename }: { grid: string; filename: string }) {
-  const { src } = useGridImage(grid, filename);
+  const { src, old } = useGridImage(grid, filename);
   const markers = useQuery({
     queryKey: ["grid markers", grid, filename],
     queryFn: () => api<GridMarkers>(`${gridPath(grid)}/outputs/${encodeURIComponent(filename)}/markers`),
+    placeholderData: (previous, last) => (last?.queryKey[1] === grid ? previous : undefined),
   });
   const m = markers.data;
   const w = m?.image?.width ?? 1;
@@ -117,7 +120,7 @@ function Overview({ grid, filename }: { grid: string; filename: string }) {
             Loading overview…
           </div>
         )}
-        {src && m?.image && (
+        {src && m?.image && old === markers.isPlaceholderData && (
           <svg className="absolute inset-0 size-full" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="xMidYMid meet">
             {m.markers
               .filter((p) => p.inside)
@@ -190,7 +193,7 @@ function GridPanel({ name, go }: { name: string; go: Go }) {
         </div>
       )}
       {overview ? (
-        <Overview key={overview} grid={name} filename={overview} />
+        <Overview grid={name} filename={overview} />
       ) : (
         d && <div className="text-[13px] text-muted-foreground">No overview yet.</div>
       )}
