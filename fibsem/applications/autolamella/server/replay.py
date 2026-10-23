@@ -3,12 +3,14 @@ actions, and the images and overlays at any one of them
 (``tools/replay.py`` builds both)."""
 
 import logging
+import math
 import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from fibsem.applications.autolamella.tools.replay import (
     LOGFILE_NAME,
+    EventKind,
     ExperimentReplay,
     ReplayEvent,
     ReplayScene,
@@ -19,9 +21,11 @@ from fibsem.server.responses import (
     ReplayImage,
     ReplayMillingStage,
     ReplayRow,
+    ReplayStage,
     ReplayTimeline,
     ReplayView,
 )
+from fibsem.structures import FibsemStagePosition
 from fibsem.workflows.event_recording import EVENTS_FILENAME
 
 logger = logging.getLogger(__name__)
@@ -68,7 +72,16 @@ class ReplayReader:
             events=rows,
         )
 
-    def view(self, root: Path, index: int, item: Optional[str] = None):
+    def view(
+        self,
+        root: Path,
+        index: int,
+        item: Optional[str] = None,
+        microscope=None,
+        positions: Sequence[FibsemStagePosition] = (),
+    ):
+        """The scene at *index*; with *microscope*, the stage drawn from its
+        configuration, with *positions* (the lamellae) on its map."""
         try:
             replay, rows = self._load(root)
         except FileNotFoundError:
@@ -90,7 +103,78 @@ class ReplayReader:
             fib=_image(root, scene, scene.fib, scene.fib_unsaved_since),
             fm=_relative(root, scene.fm.image_path) if scene.fm else None,
             stage_position=scene.stage_position,
+            stage=_stage(microscope, scene.stage_position, replay, index, positions),
         )
+
+
+def _stage(
+    microscope,
+    recorded: Optional[Dict[str, Any]],
+    replay: ExperimentReplay,
+    index: int,
+    positions: Sequence[FibsemStagePosition],
+) -> Optional[ReplayStage]:
+    """The stage at a recorded position, as the Qt chamber view draws it
+    (``QuadView._update_chamber_view``); None without a microscope or a position."""
+    from fibsem.geometry.stage_places import is_half_turn, stage_map
+
+    if microscope is None or not recorded:
+        return None
+    position = FibsemStagePosition(
+        **{k: recorded.get(k) for k in ("x", "y", "z", "r", "t")},
+        name=recorded.get("name") or "",
+    )
+    out = ReplayStage()
+    try:
+        stage = microscope.system.stage
+        out.pre_tilt = stage.shuttle_pre_tilt
+        out.column_tilt = microscope.system.ion.column_tilt
+        if position.r is not None:
+            out.mirrored = is_half_turn(position.r, stage.rotation_reference)
+        out.objective_below = microscope.fm is not None and microscope._fm_is_a_pose()
+    except Exception:
+        logger.debug("Replay could not read the stage's geometry", exc_info=True)
+    if position.t is not None:
+        out.stage_tilt = math.degrees(position.t)
+    if None not in (position.r, position.t):
+        try:
+            orientation = microscope.get_stage_orientation(position)
+            out.orientation = None if orientation == "NONE" else orientation
+            out.milling_angle = microscope.get_current_milling_angle(position)
+        except Exception:
+            logger.debug("Replay could not place the stage's pose", exc_info=True)
+    out.objective_inserted = _objective_inserted(replay, index)
+    if None not in (position.x, position.y):
+        out.map = stage_map(microscope, position, positions)
+    loaded = _grid_loaded(replay, index)
+    if loaded is not None:
+        out.grid = loaded or None
+    elif out.map is not None:
+        out.grid = out.map.slot
+    return out
+
+
+def _grid_loaded(replay: ExperimentReplay, index: int) -> Optional[str]:
+    """The grid the last recorded load at or before *index* put on the stage; ""
+    after an unload; None when no load is recorded before it."""
+    for event in reversed(replay.events[: index + 1]):
+        msg = event.data.get("msg") if event.kind == EventKind.STAGE else None
+        if msg == "grid_loaded" and not event.data.get("error"):
+            return event.data.get("grid") or ""
+        if msg == "grid_unloaded" and not event.data.get("error"):
+            return ""
+    return None
+
+
+def _objective_inserted(replay: ExperimentReplay, index: int) -> bool:
+    """Whether the objective was last recorded inserted, at or before *index*."""
+    for event in reversed(replay.events[: index + 1]):
+        if event.kind != EventKind.FLUORESCENCE:
+            continue
+        state = str(event.data.get("state") or "").lower()
+        if state in ("inserted", "retracted"):
+            return state == "inserted"
+    return False
 
 
 def _iso(time) -> Optional[str]:

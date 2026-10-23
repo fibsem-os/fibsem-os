@@ -23,6 +23,8 @@ from typing import TYPE_CHECKING
 
 import matplotlib.patches as mpatches
 
+# Re-exported: the overview tabs import the grid radius from here.
+from fibsem.geometry.stage_places import GRID_BOUNDARY_RADIUS_M
 from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
 
 if TYPE_CHECKING:
@@ -33,16 +35,6 @@ _logger = logging.getLogger(__name__)
 
 _DEFAULT_CROSSHAIR_HALF_PX = 40  # crosshair arm half-length, image pixels
 _LABEL_FONTSIZE = 7
-
-# The specimen grid's radius in metres, for the boundary circle both overview tabs draw.
-# Here rather than in either of them because it was in both, under two names -- the
-# fluorescence tab's `GRID_RADIUS_M` and the beam tab's `GRID_BOUNDARY_RADIUS`, the same
-# 1000 um written twice in two files.
-#
-# A constant only because nothing currently reports it. FIB-572 wants the radius from
-# `SampleGrid.radius`, which would retire this: a holder knows how big its grids are,
-# and a fixed 1 mm is right for the common case and wrong for anything else.
-GRID_BOUNDARY_RADIUS_M = 1000e-6
 
 
 @dataclass

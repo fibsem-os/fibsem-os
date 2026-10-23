@@ -471,5 +471,43 @@ export interface ReplayView {
   fib: ReplayImage | null;
   fm: string | null;
   stage_position: Record<string, number | string | null> | null;
+  stage: StageDrawing | null;
   error: string | null;
+}
+
+/** A named place on a stage map, in metres on the map's plane (+y down). */
+export interface MapPlace {
+  name: string;
+  x: number;
+  y: number;
+}
+
+/** What a stage map draws (fibsem.geometry.stage_places.StageMapPlaces). */
+export interface StageMapPlaces {
+  stage: number[] | null;
+  // [left, top, right, bottom]
+  limits: number[] | null;
+  slots: MapPlace[];
+  // a grid boundary's radii, across and down
+  boundary: number[];
+  // [centre x, centre y, side]
+  holder: number[] | null;
+  stations: MapPlace[];
+  positions: MapPlace[];
+  here: string[];
+  slot: string | null;
+}
+
+/** The stage at a moment, as the stage card draws it (ReplayStage); angles in degrees. */
+export interface StageDrawing {
+  orientation: string | null;
+  grid: string | null;
+  milling_angle: number | null;
+  stage_tilt: number | null;
+  pre_tilt: number;
+  column_tilt: number;
+  mirrored: boolean;
+  objective_below: boolean;
+  objective_inserted: boolean;
+  map: StageMapPlaces | null;
 }

@@ -26,6 +26,7 @@ edit runs where the session edits the experiment, and a window redraws on the
 experiment's events and ``session.changed``.
 """
 
+import dataclasses
 import functools
 import logging
 import os
@@ -382,7 +383,15 @@ class AutoLamellaAppContext(AppContext):
         experiment = self._experiment
         if experiment is None:
             return ReplayView(available=False, error="No experiment is open.")
-        return self._replay_reader.view(Path(experiment.path), index, item)
+        # Named for the lamella: a saved position's own name is often empty.
+        positions = [
+            dataclasses.replace(lamella.stage_position, name=lamella.name)
+            for lamella in experiment.positions
+            if lamella.stage_position is not None
+        ]
+        return self._replay_reader.view(
+            Path(experiment.path), index, item, self._microscope, positions
+        )
 
     # --- grids: the screening read model (FIB-876) ----------------------------
 
