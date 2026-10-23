@@ -21,7 +21,7 @@ pytest.importorskip("PyQt5")
 
 from typing import TYPE_CHECKING
 
-from PyQt5.QtWidgets import QApplication, QDialog
+from PyQt5.QtWidgets import QDialog
 
 from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
 from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession
@@ -29,11 +29,6 @@ from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget
 
 if TYPE_CHECKING:
     from fibsem.structures import DeviceImagingState
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    return QApplication.instance() or QApplication([])
 
 
 def _stop(fm) -> None:

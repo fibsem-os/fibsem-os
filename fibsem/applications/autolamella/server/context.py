@@ -45,7 +45,7 @@ from fibsem.applications.autolamella.config_edits import (
 )
 from fibsem.codec import encode
 from fibsem.geometry.saved_images import image_point_to_stage_position, stage_projector
-from fibsem.server.app_context import AppContext, find_item, item_pose_positions
+from fibsem.server.app_context import AppContext
 from fibsem.server.files import jpeg_preview
 from fibsem.server.responses import (
     ExperimentSummary,
@@ -56,11 +56,13 @@ from fibsem.server.responses import (
     SummaryRow,
     TaskOutputs,
 )
-from fibsem.server.task_configs import config_version, workflow_field_refusal
 from fibsem.structures import BeamType
+from fibsem.util.records import content_hash
 from fibsem.workflows.actions import NOTE
 from fibsem.workflows.attention import Attention
+from fibsem.workflows.experiment import find_item
 from fibsem.workflows.grid.edits import keep_grid_note, remove_grid_record
+from fibsem.workflows.item import item_pose_positions
 from fibsem.workflows.outputs import (
     all_item_outputs,
     files_by_run,
@@ -71,6 +73,7 @@ from fibsem.workflows.outputs import (
 from fibsem.workflows.runner import GRIDS, ITEMS, RunRequest
 from fibsem.workflows.session import CONFIG, GRID_RECORDS
 from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.task_configs import config_version, workflow_field_refusal
 
 __all__ = [
     "AutoLamellaAppContext",
@@ -184,8 +187,6 @@ def _grid_file(experiment, grid, filename: str):
 def _grid_task_version(grid_protocol: Any, task_name: str, config: Any) -> str:
     """The version a grid task's patch echoes: its settings and its attention,
     which the patch also sets."""
-    from fibsem.server.app_context import content_hash
-
     attention = grid_protocol.get_attention(task_name).value
     return content_hash([config_version(config), attention])
 
@@ -1320,7 +1321,7 @@ class AutoLamellaAppContext(AppContext):
         runs, checked at filing so the operator never approves one that can only
         fail. None for any other action, or one whose target the route itself
         refuses (no such item or task)."""
-        from fibsem.server.config_patch import PatchError, check_patch
+        from fibsem.workflows.config_patch import PatchError, check_patch
 
         experiment = self._experiment
         patch = arguments.get("patch")
@@ -1856,7 +1857,7 @@ class AutoLamellaAppContext(AppContext):
         tab's grid task form does; ``attention`` (automated, supervised) is the
         Grids view's Automated/Supervised chip. Version-guarded like the lamella
         task configs."""
-        from fibsem.server.config_patch import PatchError, apply_patch
+        from fibsem.workflows.config_patch import PatchError, apply_patch
         from fibsem.workflows.events import to_plain
 
         experiment, grid_protocol, refusal = self._grid_protocol_edit("edit grid tasks")

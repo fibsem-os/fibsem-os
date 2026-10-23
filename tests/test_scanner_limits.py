@@ -11,9 +11,9 @@ import logging
 
 import pytest
 
-from fibsem import utils
 from fibsem.drivers.demo.devices import DemoScanGenerator
 from fibsem.structures import BeamType, RangeLimit
+from tests.fixtures.microscopes import demo_microscope
 
 DWELL = RangeLimit(min=100e-9, max=10e-6)
 RESOLUTIONS = ((256, 256), (2048, 2048))
@@ -30,11 +30,7 @@ class LimitedScanner(DemoScanGenerator):
         return self.frames
 
 
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(setup_logging=False, manufacturer="Demo")
-    yield microscope
-    microscope.disconnect()
+microscope = demo_microscope(scope="function")
 
 
 def test_a_scanner_without_limits_takes_any_positive_frame():

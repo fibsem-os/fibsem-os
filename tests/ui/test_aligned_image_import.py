@@ -8,6 +8,8 @@ look in. A restore never asks anything.
 
 import os
 
+from tests.fixtures.microscopes import demo_microscope
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
@@ -18,8 +20,6 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QDialog
 
-import fibsem.config as fibsem_config
-from fibsem import utils
 from fibsem.fm.reader import assumed_geometry, assumed_pose
 from fibsem.fm.structures import (
     FluorescenceChannelMetadata,
@@ -41,15 +41,7 @@ from fibsem.ui.widgets.overview_widget import FibsemOverviewWidget
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
 
-@pytest.fixture(scope="module")
-def microscope():
-    path = os.path.join(
-        os.path.dirname(fibsem_config.__file__),
-        "config",
-        "sim-arctis-configuration.yaml",
-    )
-    scope, _ = utils.setup_session(manufacturer="Demo", config_path=path)
-    return scope
+microscope = demo_microscope("sim-arctis-configuration.yaml")
 
 
 @pytest.fixture(autouse=True)

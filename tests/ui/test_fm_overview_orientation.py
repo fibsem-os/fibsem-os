@@ -22,16 +22,11 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from PyQt5.QtWidgets import QApplication, QDialog, QMessageBox
+from PyQt5.QtWidgets import QDialog, QMessageBox
 
 from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession
 from fibsem.ui.fm.widgets import fm_overview_widget as module
 from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    return QApplication.instance() or QApplication([])
 
 
 @pytest.fixture()

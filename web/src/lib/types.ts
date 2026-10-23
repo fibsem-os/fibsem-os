@@ -13,6 +13,16 @@ export interface Capabilities {
   fibsem?: { version: string; path: string };
 }
 
+/** Measurable progress on the microscope, as the Qt status bar says it. */
+export interface ProgressLine {
+  label: string;
+  step: string | null;
+  fraction: number | null;
+  numbers: string | null;
+  outcome: boolean;
+  failed: boolean;
+}
+
 export interface WorkflowStatus {
   microscope_connected: boolean;
   experiment: { name: string; path: string; num_items: number } | null;
@@ -20,8 +30,18 @@ export interface WorkflowStatus {
     running: boolean;
     current_task: string | null;
     current_item: string | null;
+    queue_position: number | null;
     queue_total: number | null;
+    iteration: number | null;
+    step: string | null;
+    waiting_on: string | null;
+    waiting_since: string | null;
+    /** The run's last failed task, or why it stalled, until the next run. */
+    failed: { what: string; message: string; at: string | null; count: number } | null;
   };
+  progress: ProgressLine | null;
+  /** Who holds the microscope, when it is not the run. */
+  in_control: { by: string; action: string; since: number } | null;
 }
 
 export interface SystemInfo {

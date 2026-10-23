@@ -2,18 +2,12 @@
 
 import pytest
 
-from fibsem import acquire, utils
+from fibsem import acquire
 from fibsem.applications.volume.experiment import VolumeExperiment
 from fibsem.applications.volume.position import FIB_REFERENCE, SEM_REFERENCE
 from fibsem.applications.volume.tasks import milling as milling_module
 from fibsem.structures import BeamType, ImageSettings, Point
 from fibsem.workflows import task as task_module
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    return microscope
 
 
 @pytest.fixture

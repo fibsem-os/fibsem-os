@@ -26,7 +26,6 @@ pytest.importorskip("PyQt5")
 
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, Point
-from fibsem.ui import notification_service
 from fibsem.ui.widgets.stage_control_widget import StageControlWidget
 
 
@@ -51,17 +50,6 @@ class FibOnlyMicroscope(RecordingMicroscope):
     """A backend that can only correct coincidence from the FIB view."""
 
     vertical_move_views = (BeamType.ION,)
-
-
-@pytest.fixture
-def toasts(monkeypatch):
-    events = []
-    monkeypatch.setattr(
-        notification_service,
-        "show_toast",
-        lambda msg, notification_type="info": events.append((msg, notification_type)),
-    )
-    return events
 
 
 def make_widget(microscope):

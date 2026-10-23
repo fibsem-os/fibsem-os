@@ -7,6 +7,8 @@ The real main window on Demo, with the recorder it builds itself.
 
 import os
 
+from tests.fixtures.main_window import main_window_fixture
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
@@ -33,21 +35,7 @@ TASK = "Setup Lamella Position"
 RUN = "run-1"
 
 
-@pytest.fixture(scope="module")
-def window(qapp):
-    from fibsem.applications.autolamella.ui import window as module
-
-    win = module.AutoLamellaWindow()
-    win.system_widget.connect_to_microscope()
-    yield win
-    if win.microscope is not None:
-        win.microscope.disconnect()
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
-        win.close()
-    finally:
-        qapp.quit = original_quit
+window = main_window_fixture(connect=True, scope="module", name="window")
 
 
 def _experiment(path, name):

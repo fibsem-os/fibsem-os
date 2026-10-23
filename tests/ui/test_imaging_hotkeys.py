@@ -6,6 +6,8 @@ by name, a move of those widgets left every key a silent no-op.
 
 import os
 
+from tests.fixtures.main_window import main_window_fixture
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
@@ -14,22 +16,7 @@ pytest.importorskip("PyQt5")
 
 from fibsem.structures import BeamType
 
-
-@pytest.fixture
-def main_ui(qapp):
-    from fibsem.applications.autolamella.ui import window as module
-
-    window = module.AutoLamellaWindow()
-    window.system_widget.connect_to_microscope()
-    yield window
-    if window.microscope is not None:
-        window.microscope.disconnect()
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
-        window.close()
-    finally:
-        qapp.quit = original_quit
+main_ui = main_window_fixture(connect=True)
 
 
 def _select(monkeypatch, window, view):
