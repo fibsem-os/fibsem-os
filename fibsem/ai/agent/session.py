@@ -12,7 +12,7 @@ import logging
 import threading
 import time
 import uuid
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
 from fibsem.acting import AGENT, OPERATOR
 from fibsem.ai.agent.levels import AgentLevel, if_allowed
@@ -123,8 +123,6 @@ class AgentSession:
         self._session = session
         self._store: Optional[Any] = None
         self._unsubscribe: Optional[Callable[[], None]] = None
-        # Requests whose ending has been said, so each is said once.
-        self._said: Set[str] = set()
         # The pictures of the waiting request and the suggestion, for the
         # card and the chat page: kind ("request", "suggestion") to its PNG,
         # caption and version. Drawn on a thread of their own (`keep_pictures`).
@@ -238,8 +236,6 @@ class AgentSession:
         self._store = store
         if store is None:
             return None
-        # What ended before anyone was following is not news.
-        self._said.update(r.id for r in store.recent() if r.status not in OPEN)
         self._unsubscribe = store.subscribe(lambda _request: on_change())
         return store
 
@@ -250,18 +246,6 @@ class AgentSession:
             if request.status in OPEN:
                 return request
         return None
-
-    def outcomes(self) -> List[Any]:
-        """The requests that have ended and not been said yet, each returned
-        once: how one ended is said once, so it can go in a toast."""
-        store = self.requests
-        ended = []
-        for request in store.recent() if store is not None else []:
-            if request.status in OPEN or request.id in self._said:
-                continue
-            self._said.add(request.id)
-            ended.append(request)
-        return ended
 
     def approve(self, request_id: str) -> None:
         """Run the request; its actions run on their own worker thread, so this

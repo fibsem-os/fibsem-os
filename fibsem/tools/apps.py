@@ -52,6 +52,10 @@ class App:
     splash_animation: Optional[str] = None
     """``"milling"`` mills AutoLamella's icon in passes once the window is up;
     otherwise the icon is drawn as it is."""
+    serve: Optional[str] = None
+    """``"package.module:function"`` that serves the app with no window, called
+    as ``function(argv, stop=event)``; None when it has no headless command.
+    The gateway runs it (fibsem.gateway)."""
 
     @property
     def icon_16(self) -> Path:
@@ -93,6 +97,7 @@ AUTOLAMELLA = App(
         ),
     ),
     splash_animation="milling",
+    serve="fibsem.applications.autolamella.launch:main",
 )
 
 FIBSEM_UI = App(

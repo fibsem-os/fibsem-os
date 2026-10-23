@@ -22,20 +22,22 @@ import os
 import secrets
 import threading
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 from fibsem.server.discovery import DISCOVERY_DIR
 
 __all__ = [
     "AGENT",
     "CODE_TTL_S",
+    "HUB",
     "MAX_TRIES",
     "OPERATOR",
     "PairedComputer",
     "PairedTokens",
     "Pairing",
+    "SWITCH_MODES",
 ]
 
 PAIRED_FILE = DISCOVERY_DIR / "paired.json"
@@ -45,10 +47,13 @@ MAX_TRIES = 5
 # A code opened from an unpaired browser (headless) that died of wrong tries
 # keeps the next one shut this long: guessing stays slow.
 REQUEST_LOCKOUT_S = 3600.0
-# What a paired token is: the operator's, or an agent's.
+# What a paired token is: the operator's, an agent's, or a hub's (a gateway's
+# only: it reads the gateway, and switches its mode with SWITCH_MODES).
 OPERATOR = "operator"
 AGENT = "agent"
+HUB = "hub"
 ROLES = (OPERATOR, AGENT)
+SWITCH_MODES = "switch_modes"
 
 
 class PairingRefused(Exception):
@@ -76,6 +81,7 @@ class PairedComputer:
     # The browser's own id, kept in its storage: pairing it again replaces this
     # row. Never shown, so only that browser can name it.
     browser: str = ""
+    grants: Tuple[str, ...] = ()
 
     def to_dict(self) -> dict:
         return {
@@ -83,22 +89,45 @@ class PairedComputer:
             "name": self.name,
             "paired_at": self.paired_at,
             "role": self.role,
+            "grants": list(self.grants),
         }
 
 
 class PairedTokens:
-    """The paired computers' tokens, hashed, kept in a file (``0600``)."""
+    """The paired computers' tokens, hashed, kept in a file (``0600``). The
+    App Server and the gateway on one PC share the file, so each reads it
+    again when the other has changed it."""
 
     def __init__(self, path: Optional[Path] = None):
         self._path = Path(path) if path is not None else PAIRED_FILE
         self._lock = threading.Lock()
+        self._stamp = self._stat()
         self._computers: Dict[str, PairedComputer] = self._load()
+
+    def _stat(self) -> Optional[tuple]:
+        try:
+            found = os.stat(self._path)
+        except OSError:
+            return None
+        return found.st_mtime_ns, found.st_size
+
+    def _fresh(self) -> None:
+        """Read the file again if it changed since we last did (under the lock)."""
+        stamp = self._stat()
+        if stamp != self._stamp:
+            self._stamp = stamp
+            self._computers = self._load()
 
     def _load(self) -> Dict[str, PairedComputer]:
         try:
             with open(self._path) as f:
                 rows = json.load(f).get("computers", [])
-            return {row["id"]: PairedComputer(**row) for row in rows}
+            return {
+                row["id"]: PairedComputer(
+                    **{**row, "grants": tuple(row.get("grants", ()))}
+                )
+                for row in rows
+            }
         except FileNotFoundError:
             return {}
         except (OSError, ValueError, TypeError, KeyError, AttributeError):
@@ -116,9 +145,14 @@ class PairedTokens:
                 indent=2,
             )
         os.chmod(self._path, 0o600)
+        self._stamp = self._stat()
 
     def add(
-        self, name: str, role: str = OPERATOR, browser: str = ""
+        self,
+        name: str,
+        role: str = OPERATOR,
+        browser: str = "",
+        grants: Tuple[str, ...] = (),
     ) -> "tuple[PairedComputer, str]":
         """Pair a computer named *name* as *role*: its record and its token,
         which is shown once and kept only hashed here. A *browser* paired
@@ -132,8 +166,10 @@ class PairedTokens:
             token_hash=_hash(token),
             role=role,
             browser=browser,
+            grants=tuple(grants),
         )
         with self._lock:
+            self._fresh()
             for old in [
                 c
                 for c in self._computers.values()
@@ -148,22 +184,42 @@ class PairedTokens:
     def remove(self, computer_id: str) -> bool:
         """Unpair one computer: its token stops working at once."""
         with self._lock:
+            self._fresh()
             if self._computers.pop(computer_id, None) is None:
                 return False
             self._save()
         return True
+
+    def set_grants(
+        self, computer_id: str, grants: Tuple[str, ...]
+    ) -> Optional[PairedComputer]:
+        """Replace one computer's grants; None when no computer has that id."""
+        with self._lock:
+            self._fresh()
+            computer = self._computers.get(computer_id)
+            if computer is None:
+                return None
+            computer = replace(computer, grants=tuple(grants))
+            self._computers[computer_id] = computer
+            self._save()
+        return computer
 
     def match(self, token: Optional[str]) -> Optional[PairedComputer]:
         """The paired computer whose token this is, or None."""
         if not token:
             return None
         hashed = _hash(token)
-        for computer in list(self._computers.values()):
+        with self._lock:
+            self._fresh()
+            computers = list(self._computers.values())
+        for computer in computers:
             if hmac.compare_digest(hashed, computer.token_hash):
                 return computer
         return None
 
     def computers(self) -> List[PairedComputer]:
+        with self._lock:
+            self._fresh()
         return sorted(self._computers.values(), key=lambda c: c.paired_at)
 
     def agent(self) -> Optional[PairedComputer]:
@@ -182,13 +238,16 @@ class Pairing:
         tokens: PairedTokens,
         ttl_s: float = CODE_TTL_S,
         clock: Callable[[], float] = time.monotonic,
+        roles: Tuple[str, ...] = ROLES,
     ):
         self.tokens = tokens
+        self.roles = roles
         self._ttl_s = ttl_s
         self._clock = clock
         self._lock = threading.Lock()
         self._code: Optional[str] = None
         self._role = OPERATOR
+        self._grants: Tuple[str, ...] = ()
         self._expires = 0.0
         self._tries = 0
         self._requested = False
@@ -214,16 +273,20 @@ class Pairing:
             self._code = None
         return self._code is not None
 
-    def open(self, role: str = OPERATOR) -> str:
-        """Open pairing with a new code for *role*; one already open is replaced."""
-        if role not in ROLES:
+    def open(self, role: str = OPERATOR, grants: Tuple[str, ...] = ()) -> str:
+        """Open pairing with a new code for *role*, the computer getting
+        *grants*; one already open is replaced."""
+        if role not in self.roles:
             raise ValueError(f"No pairing role {role!r}")
-        return self._open(requested=False, role=role)
+        return self._open(requested=False, role=role, grants=tuple(grants))
 
-    def _open(self, requested: bool, role: str = OPERATOR) -> str:
+    def _open(
+        self, requested: bool, role: str = OPERATOR, grants: Tuple[str, ...] = ()
+    ) -> str:
         with self._lock:
             self._code = f"{secrets.randbelow(10**CODE_DIGITS):0{CODE_DIGITS}d}"
             self._role = role
+            self._grants = grants
             self._expires = self._clock() + self._ttl_s
             self._tries = 0
             self._requested = requested
@@ -253,12 +316,14 @@ class Pairing:
             self._changed()
 
     def state(self) -> dict:
-        """``{"open", "role", "code", "expires_in_s"}``; the code only while open."""
+        """``{"open", "role", "grants", "code", "expires_in_s"}``; the code
+        only while open."""
         with self._lock:
             live = self._live()
             return {
                 "open": live,
                 "role": self._role if live else None,
+                "grants": list(self._grants) if live else [],
                 "code": self._code if live else None,
                 "expires_in_s": max(0.0, self._expires - self._clock())
                 if live
@@ -292,6 +357,7 @@ class Pairing:
             else:
                 self._code = None
                 role = self._role
+                grants = self._grants
                 died = False
         if died:
             logging.warning("Pairing closed after %d wrong codes", MAX_TRIES)
@@ -302,7 +368,7 @@ class Pairing:
                 "microscope PC.",
             )
         browser = str(browser or "")[:64]
-        paired = self.tokens.add(name, role, browser)
+        paired = self.tokens.add(name, role, browser, grants)
         logging.info("Paired %s as %s", paired[0].name, role)
         self._changed()
         return paired
