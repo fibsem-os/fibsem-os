@@ -33,7 +33,9 @@
   },
   "id": "pinned-protocol-id",
   "lamella_defaults": {
+    "alignment_area": null,
     "name_prefix": "",
+    "poi": null,
     "use_petname": true
   },
   "name": "autolamella-on-grid-baseline",
@@ -132,7 +134,7 @@
                   "x": 2.5e-05,
                   "y": 0.0
                 },
-                "rotation": 45,
+                "rotation": 45.0,
                 "width": 1e-06
               },
               "strategy": {
