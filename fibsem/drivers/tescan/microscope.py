@@ -9,6 +9,7 @@ import fibsem.constants as constants
 from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.drivers.tescan.connection import TescanConnection
 from fibsem.drivers.tescan.devices import STAGE_FRAME_TESCAN
+from fibsem.drivers.tescan.settings import TescanMillingSettings
 from fibsem.microscope import (
     FibsemMicroscope,
 )
@@ -206,8 +207,11 @@ def parse_current_from_preset(preset: Optional[str]) -> Optional[float]:
     return float(match.group(1)) * _SI_CURRENT_PREFIX[match.group(2)]
 
 
-def estimate_preset_milling_time(stage: FibsemMillingStage) -> Optional[float]:
-    """Dose-model estimate t = volume / (rate × current) for a preset-driven stage.
+def estimate_preset_milling_time(
+    stage: FibsemMillingStage, own: TescanMillingSettings
+) -> Optional[float]:
+    """Dose-model estimate t = volume / (rate × current) for a preset-driven stage,
+    milled with *own*, the stage's Tescan settings.
 
     The same inputs DrawBeam computes the real exposure from: the stage's own
     (per-material) etch rate and the current embedded in the preset name. The
@@ -219,8 +223,8 @@ def estimate_preset_milling_time(stage: FibsemMillingStage) -> Optional[float]:
     if pattern_time:
         return pattern_time
 
-    current = parse_current_from_preset(stage.milling.preset)
-    rate = stage.milling.rate  # m³/A/s
+    current = parse_current_from_preset(own.preset)
+    rate = own.rate  # m³/A/s
     if current is None or current <= 0 or not rate or rate <= 0:
         return None
 

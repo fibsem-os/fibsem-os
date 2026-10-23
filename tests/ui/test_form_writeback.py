@@ -24,6 +24,7 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QCheckBox  # noqa: E402
 
+import fibsem.config as cfg  # noqa: E402
 from fibsem import utils  # noqa: E402
 from fibsem.milling.base import get_strategy_config  # noqa: E402
 from fibsem.milling.patterning import get_pattern  # noqa: E402
@@ -47,6 +48,18 @@ from fibsem.ui.widgets.strategy_settings_widget import (  # noqa: E402
 @pytest.fixture(scope="module")
 def microscope():
     scope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
+    return scope
+
+
+@pytest.fixture
+def tescan(monkeypatch):
+    """A Tescan microscope over the fake SDK: its form has number fields of its own."""
+    from tests.fixtures import tescan_sdk
+
+    system = utils.load_microscope_configuration(
+        os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+    ).system
+    scope, _ = tescan_sdk.connect(monkeypatch, system)
     return scope
 
 
@@ -144,20 +157,22 @@ def test_a_strategy_checkbox_edit_reaches_the_config(qapp):
 # --- milling settings ---------------------------------------------------------
 
 
-def test_a_milling_settings_edit_reaches_the_settings(qapp, microscope):
-    widget = FibsemMillingSettingsWidget(
-        microscope=microscope, settings=FibsemMillingSettings()
-    )
+def test_a_milling_settings_edit_reaches_the_settings(qapp, tescan):
+    given = FibsemMillingSettings()
+    widget = FibsemMillingSettingsWidget(microscope=tescan, settings=given)
     emitted = []
     widget.settings_changed.connect(emitted.append)
 
+    # a field of the driver's own, which the recipe keeps in its driver block
     row = _first_of(widget, ValueSpinBox)
-    assert row is not None
+    assert row is not None and row.field.startswith("driver.Tescan.")
     control = row.control.widget
-    control.setValue(control.value() + 1)
+    control.setValue(control.value() * 2)
 
     assert emitted
-    assert getattr(emitted[-1], row.field) == row.control.read()
+    assert emitted[-1].setting(row.field) == row.control.read()
+    # the settings the form was given are left as they were
+    assert given.setting(row.field) != row.control.read()
 
 
 def test_a_milling_settings_combo_edit_reaches_the_settings(qapp, microscope):
