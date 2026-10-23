@@ -21,7 +21,7 @@ from fibsem.ui.widgets.canvas.chamber_view import MAP, SIDE
 from fibsem.ui.widgets.canvas.overlays.minimap_overlays import GRID_BOUNDARY_RADIUS_M
 from fibsem.ui.widgets.canvas.overlays.stage_context import holder_slots
 from fibsem.ui.widgets.canvas.quad_view import (
-    LamellaEditorView,
+    ItemEditorView,
     MicroscopeViewController,
 )
 from fibsem.ui.widgets.canvas.stage_frame import StageFrame
@@ -302,7 +302,7 @@ def test_both_views_draw_in_both_places(controller, microscope, main):
 
 
 def test_the_lamella_editor_has_no_map(qapp, microscope):
-    MicroscopeViewController(view=LamellaEditorView()).set_map_positions(
+    MicroscopeViewController(view=ItemEditorView()).set_map_positions(
         [microscope.get_stage_position()]
     )
 

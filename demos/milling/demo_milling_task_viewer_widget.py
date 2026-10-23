@@ -19,13 +19,13 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem import utils
+from fibsem.applications.autolamella.config import TASK_PROTOCOL_PATH
 from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
-from fibsem.config import AUTOLAMELLA_TASK_PROTOCOL_PATH
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import BeamType, FibsemImage
 from fibsem.ui.stylesheets import NAPARI_STYLE
 from fibsem.ui.widgets.canvas.quad_view import (
-    LamellaEditorView,
+    ItemEditorView,
     MicroscopeViewController,
 )
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
@@ -57,13 +57,13 @@ def main() -> None:
 
     microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
 
-    task_configs = _load_task_configs(AUTOLAMELLA_TASK_PROTOCOL_PATH)
+    task_configs = _load_task_configs(TASK_PROTOCOL_PATH)
     initial_config = next(iter(task_configs.values()), FibsemMillingTaskConfig())
 
     # ── canvas ───────────────────────────────────────────────────────────
     # Patterns render through the reducer onto the FIB canvas, so the harness needs a
     # controller — this is the same view the Lamella Editor drives (FIB-407).
-    view = LamellaEditorView()
+    view = ItemEditorView()
     controller = MicroscopeViewController(view=view)
     view.show_beams()
 

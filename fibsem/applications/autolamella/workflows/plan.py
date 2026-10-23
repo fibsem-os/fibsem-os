@@ -25,6 +25,7 @@ class LamellaRunPlan:
     pairs: Tuple[Tuple[str, str], ...] = ()
     request: Optional[RunRequest] = None
     reason: str = ""
+    error_type: str = ""
     details: Dict[str, Any] = field(default_factory=dict)
     add: bool = False
     run_next: bool = False
@@ -50,7 +51,11 @@ def plan_lamella_run(
     if not add:
         checked = runner.check(experiment, request)
         if not checked.started:
-            return LamellaRunPlan(reason=checked.reason, details=checked.details)
+            return LamellaRunPlan(
+                reason=checked.reason,
+                error_type=checked.error_type,
+                details=checked.details,
+            )
         resolved = checked.request or request
         pairs = tuple(item_task_pairs(resolved))
         return LamellaRunPlan(
@@ -61,7 +66,11 @@ def plan_lamella_run(
     plan = runner.plan_addition(request, run_next)
     if isinstance(plan, QueueEdit):
         return LamellaRunPlan(
-            reason=plan.reason, details=plan.details, add=True, run_next=run_next
+            reason=plan.reason,
+            error_type=plan.error_type,
+            details=plan.details,
+            add=True,
+            run_next=run_next,
         )
     queue = runner.manager.queue
     pending = {(i.item_name, i.task_name) for i in queue.pending}

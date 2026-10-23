@@ -182,7 +182,8 @@ def test_supervision_schedule_and_requirements_are_saved_with_the_protocol(
         "/app/experiment/protocol/supervision",
         json={"task_name": "Nope", "supervise": True},
     )
-    assert _ok(missing)["applied"] is False
+    assert missing.status_code == 404
+    assert MILL in missing.json()["detail"]["task_names"]
 
 
 def test_tasks_are_reordered_and_removed(agent, experiment):
@@ -332,10 +333,9 @@ def test_volume_answers_decode_as_its_own_classes(agent):
     assert call("GET", "/app/experiment").items[0].item_name == "aspen"
     task = call("GET", "/app/experiment/protocol").tasks[0]
     assert task.attention == "supervised"
-    call(
-        "GET",
-        f"/app/experiment/items/aspen/task_config/{task.name}",
-        base + "/task_config/{task_name}",
+    # positions share the protocol's configs
+    call.refused(
+        422, "invalid", "GET", f"/app/experiment/items/aspen/task_config/{task.name}"
     )
     call("DELETE", "/app/experiment/items/aspen", base)
 
