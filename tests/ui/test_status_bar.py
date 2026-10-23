@@ -422,18 +422,6 @@ def test_a_failed_task_names_itself_while_the_run_moves_on(slot):
 # --- the real windows ----------------------------------------------------------
 
 
-@pytest.fixture
-def no_quit(qapp):
-    # AutoLamella's closeEvent ends in app.quit(), which latches on the shared test
-    # QApplication (see test_mainui_workflow_status.py).
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
-        yield
-    finally:
-        qapp.quit = original_quit
-
-
 def _close(window, qapp):
     window.close()
     window.deleteLater()

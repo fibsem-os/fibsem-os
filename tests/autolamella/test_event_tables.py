@@ -17,8 +17,6 @@ import pandas as pd
 import pytest
 from psygnal.containers import EventedDict
 
-import fibsem.config as cfg
-from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     Experiment,
 )
@@ -53,15 +51,6 @@ from tests.run_state import run_lamellae
 
 SETUP = "Setup Lamella Position"
 ROUGH = "Rough Milling"
-CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
-    microscope, _ = utils.setup_session(manufacturer="Demo", config_path=CONFIG)
-    yield microscope
-    microscope.disconnect()
 
 
 @pytest.fixture

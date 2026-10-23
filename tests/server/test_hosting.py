@@ -1,6 +1,5 @@
 """AppServerHost over a real socket: lifecycle, discovery, events, refusal."""
 
-import os
 import socket
 
 import pytest
@@ -8,7 +7,6 @@ import pytest
 fastapi = pytest.importorskip("fastapi")
 httpx = pytest.importorskip("httpx")
 
-from fibsem import utils  # noqa: E402
 from fibsem.applications.autolamella.server.context import (  # noqa: E402
     AutoLamellaAppContext,
 )
@@ -31,13 +29,6 @@ def _free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    return microscope
 
 
 @pytest.fixture

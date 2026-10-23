@@ -14,7 +14,6 @@ from typing import ClassVar, Type
 import pytest
 import yaml
 
-from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
@@ -30,6 +29,7 @@ from fibsem.workflows.grid import (
 from fibsem.workflows.grid.protocol import GridTaskProtocol
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskStatus
+from tests.fixtures.microscopes import demo_microscope
 
 # ---------------------------------------------------------------------------
 # A test task: writes one file, can be told to fail or to block on the token
@@ -98,10 +98,7 @@ class FakeManager:
         return {"run_id": "test-run"}
 
 
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    return microscope
+microscope = demo_microscope(scope="function")
 
 
 @pytest.fixture

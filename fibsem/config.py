@@ -63,6 +63,18 @@ REFERENCE_HFW_ULTRA = 50e-6
 # (`fibsem.devices.beam.STANDARD_RESOLUTIONS` for a driver that reports none).
 DEFAULT_STANDARD_RESOLUTION_LIST = [1536, 1024]
 
+# The field of view drawn around each marked position, in metres: the Overview and
+# Positions canvases, the grid report and the markers picture. A fixed size rather
+# than the current imaging settings: the box says how much sample a lamella occupies,
+# which does not change when somebody adjusts the HFW for the next overview -- and a
+# box that resized itself under a settings change would look like the positions had
+# moved. 100 um at the standard resolution's aspect, so it is the frame a normal
+# image is.
+POSITION_FOV_WIDTH = 100e-6
+POSITION_FOV_HEIGHT = POSITION_FOV_WIDTH * (
+    DEFAULT_STANDARD_RESOLUTION_LIST[1] / DEFAULT_STANDARD_RESOLUTION_LIST[0]
+)
+
 
 # Shipped files are read from the package; everything written goes under the state
 # root (`fibsem.paths`). An older release's files are brought over on the first start.

@@ -17,13 +17,10 @@ misleading answers:
    they must agree.
 """
 
-import os
-
 import numpy as np
 import pytest
 
-import fibsem.config as cfg
-from fibsem import conversions, utils
+from fibsem import conversions
 from fibsem.alignment.coincidence import measure_coincidence_from_images
 from fibsem.structures import (
     BeamType,
@@ -32,24 +29,15 @@ from fibsem.structures import (
     OverviewAcquisitionSettings,
     Point,
 )
-
-# The geometry under test is a pre-tilted TFS shuttle; pin it rather than
-# inherit whatever configuration an earlier test left as the default
-TFS_SHUTTLE_CONFIG = os.path.join(
-    cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml"
-)
+from tests.fixtures.microscopes import demo_microscope
 
 COINCIDENCE_OFFSET = 8e-6
 MILLING_POSE_TILT = np.deg2rad(12.0)
 
 
-@pytest.fixture
-def microscope():
-    microscope, settings = utils.setup_session(
-        manufacturer="Demo", config_path=TFS_SHUTTLE_CONFIG
-    )
-    yield microscope
-    microscope.disconnect()
+# The geometry under test is a pre-tilted TFS shuttle; pin it rather than
+# inherit whatever configuration an earlier test left as the default
+microscope = demo_microscope("microscope-configuration.yaml", scope="function")
 
 
 def _enable_projection(microscope, offset: float = COINCIDENCE_OFFSET, **scene_kwargs):

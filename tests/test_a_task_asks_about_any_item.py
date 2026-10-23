@@ -5,14 +5,11 @@ lamella task asks about its lamella, waits for the answer, and Stop wakes the
 wait at once.
 """
 
-import os
 import threading
 import time
 
 import pytest
 
-import fibsem.config as cfg
-from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
@@ -22,6 +19,7 @@ from fibsem.workflows.attention import Attention
 from fibsem.workflows.grid import BeamOverviewGridTaskConfig, GridTask
 from fibsem.workflows.grid.manager import GridTaskManager
 from fibsem.workflows.proposals import STATE, Decision, DecisionOutcome
+from tests.fixtures.microscopes import demo_microscope
 
 TASK = "overview_sem"
 
@@ -33,15 +31,7 @@ class _AsksAboutTheGrid(GridTask):
         pass
 
 
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(
-        manufacturer="Demo",
-        config_path=os.path.join(
-            cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
-        ),
-    )
-    return microscope
+microscope = demo_microscope("sim-arctis-configuration.yaml", scope="function")
 
 
 @pytest.fixture

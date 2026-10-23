@@ -6,14 +6,12 @@ position picked from the list was "not found". Both are imported into
 `saved_positions`, and every reader uses it.
 """
 
-import os
 from pathlib import Path
 
 import pytest
 import yaml
 
 import fibsem.config as cfg
-from fibsem import utils
 from fibsem.saved_positions import (
     get_saved_position,
     load_saved_positions,
@@ -21,8 +19,7 @@ from fibsem.saved_positions import (
 )
 from fibsem.session_state import SessionState, session_state_for
 from fibsem.structures import FibsemStagePosition
-
-SHIPPED = os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
+from tests.fixtures.microscopes import demo_microscope
 
 
 def _position(name: str, x: float = 0.0) -> dict:
@@ -103,13 +100,7 @@ def _saved_position(microscope, name: str):
     return get_saved_position(name, session_state_for(microscope))
 
 
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(
-        config_path=SHIPPED, manufacturer="Demo", setup_logging=False
-    )
-    yield microscope
-    microscope.disconnect()
+microscope = demo_microscope("microscope-configuration.yaml", scope="function")
 
 
 def test_a_lookup_finds_a_position_the_panel_saved(microscope):
@@ -153,12 +144,8 @@ def test_a_lookup_uses_the_microscope_s_configuration(microscope):
 
 
 @pytest.fixture
-def service():
-    microscope, _ = utils.setup_session(
-        config_path=SHIPPED, manufacturer="Demo", setup_logging=False
-    )
-    yield microscope.stage_movement
-    microscope.disconnect()
+def service(microscope):
+    return microscope.stage_movement
 
 
 def test_the_service_saves_moves_to_renames_and_forgets(service):

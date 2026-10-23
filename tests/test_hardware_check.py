@@ -6,12 +6,10 @@ recorded on the pull request, not here.
 """
 
 import json
-import os
 
 import pytest
 
-from fibsem import cli, utils
-from fibsem import config as cfg
+from fibsem import cli
 from fibsem.structures import RangeLimit
 from fibsem.tools.hardware_check import (
     Level,
@@ -20,19 +18,9 @@ from fibsem.tools.hardware_check import (
     run_hardware_check,
     same,
 )
+from tests.fixtures.microscopes import demo_microscope
 
-
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(
-        config_path=os.path.join(
-            cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml"
-        ),
-        manufacturer="Demo",
-        setup_logging=False,
-    )
-    yield microscope
-    microscope.disconnect()
+microscope = demo_microscope("sim-iflm-configuration.yaml", scope="function")
 
 
 def _state(microscope):

@@ -43,20 +43,23 @@ from fibsem.applications.autolamella.config_edits import (
 )
 from fibsem.codec import encode
 from fibsem.geometry.saved_images import image_point_to_stage_position, stage_projector
-from fibsem.server.app_context import AppContext, find_item, item_pose_positions
+from fibsem.server.app_context import AppContext
 from fibsem.server.files import jpeg_preview
 from fibsem.server.responses import (
     ExperimentSummary,
     ItemDetail,
+    ItemMillingDrawn,
     ProtocolView,
     SummaryRow,
     TaskOutputs,
 )
-from fibsem.server.task_configs import config_version, workflow_field_refusal
 from fibsem.structures import BeamType
+from fibsem.util.records import content_hash
 from fibsem.workflows.actions import NOTE
 from fibsem.workflows.attention import Attention
+from fibsem.workflows.experiment import find_item
 from fibsem.workflows.grid.edits import keep_grid_note, remove_grid_record
+from fibsem.workflows.item import item_pose_positions
 from fibsem.workflows.outputs import (
     all_item_outputs,
     files_by_run,
@@ -67,6 +70,7 @@ from fibsem.workflows.outputs import (
 from fibsem.workflows.runner import GRIDS, ITEMS, RunRequest
 from fibsem.workflows.session import CONFIG, GRID_RECORDS
 from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.task_configs import config_version, workflow_field_refusal
 
 __all__ = [
     "AutoLamellaAppContext",
@@ -180,8 +184,6 @@ def _grid_file(experiment, grid, filename: str):
 def _grid_task_version(grid_protocol: Any, task_name: str, config: Any) -> str:
     """The version a grid task's patch echoes: its settings and its attention,
     which the patch also sets."""
-    from fibsem.server.app_context import content_hash
-
     attention = grid_protocol.get_attention(task_name).value
     return content_hash([config_version(config), attention])
 
@@ -403,14 +405,15 @@ class AutoLamellaAppContext(AppContext):
         return detail
 
     def grid_output_image(
-        self, grid_name: str, filename: str, max_width: int = 768
+        self, grid_name: str, filename: str, max_width: int = 768, cells: bool = False
     ) -> Dict[str, Any]:
         """One grid output (overview or thumbnail), rendered as JPEG.
 
         ``filename`` is a basename the grid's history recorded, or a saved
         image's path in the experiment (`_grid_file`); anything else is
         refused with the valid names. Overviews are large; this is the
-        downscaled preview.
+        downscaled preview, with *cells* the overview's named cells drawn on
+        it and listed in its metadata.
         """
         experiment = self._experiment
         if experiment is None:
@@ -421,7 +424,7 @@ class AutoLamellaAppContext(AppContext):
         match, refusal = _grid_file(experiment, grid, filename)
         if refusal:
             return {"available": True, "jpeg": None, **refusal}
-        return jpeg_preview(match, filename, max_width)
+        return jpeg_preview(match, filename, max_width, cells=cells)
 
     def grid_markers(self, grid_name: str, filename: str) -> Dict[str, Any]:
         """Where the experiment's items fall on one recorded overview.
@@ -507,14 +510,19 @@ class AutoLamellaAppContext(AppContext):
         return payload
 
     def render_markers(
-        self, path: str, grid_name: Optional[str] = None
+        self,
+        path: str,
+        grid_name: Optional[str] = None,
+        fov: bool = False,
+        current: bool = False,
     ) -> Dict[str, Any]:
         """Any beam image in the experiment with the items drawn on it, as the
         overview plot dialog draws them (`overview_figure`): numbers for names,
         green, red for a failed item. *grid_name* draws that grid's items only;
         without it, every item with a pose. Saved as ``markers/<image>.png``
         beside the image (replaced when drawn again), a path the agent can cite
-        as evidence; the answer carries a preview."""
+        as evidence; the answer carries a preview. *fov* draws each item's
+        field of view, *current* where the stage is now."""
         import base64
 
         from fibsem.applications.autolamella.overview_figure import (
@@ -548,7 +556,10 @@ class AutoLamellaAppContext(AppContext):
             return {"error_type": "invalid", "error": f"{path!r}: {exc}"}
         stem = os.path.splitext(os.path.basename(target))[0]
         saved = os.path.join(os.path.dirname(target), "markers", f"{stem}.png")
-        jpeg = save_markers_picture(image, lamellae, saved)
+        stage = None
+        if current and self._microscope is not None:
+            stage = self._microscope.get_stage_position()
+        jpeg = save_markers_picture(image, lamellae, saved, fov=fov, current=stage)
         answer = {
             "image": path,
             "path": saved,
@@ -560,6 +571,98 @@ class AutoLamellaAppContext(AppContext):
         if reason:
             answer["reason"] = reason
         return answer
+
+    def draw_item_milling(
+        self,
+        item_name: str,
+        task_names: List[str],
+        image_path: Optional[str] = None,
+        background: str = "related",
+        scan_direction: bool = False,
+        alignment_area: bool = False,
+        metadata_bar: bool = True,
+    ) -> Any:
+        """An item's milling as its own task configs have it, drawn on an ion
+        image (the lamella editor's: the latest FIB image, else *image_path*):
+        the first of *task_names*' enabled stages in the milling view's
+        colours, the others behind them in black, with the tasks related to
+        the first (*background* "related") as the editor shows them, and the
+        item's point of interest. Saved as ``drawn/<image>-<task>.png`` beside
+        the image, a path the agent can cite as evidence."""
+        from fibsem.imaging.marks import drawn_path, image_stem, save_drawn
+        from fibsem.milling.patterning.picture import milling_picture
+        from fibsem.structures import FibsemImage
+
+        experiment = self._experiment
+        if experiment is None:
+            return {"error_type": "not_found", "error": "No experiment is open."}
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
+            return dict(refusal, error_type="not_found")
+        configs = dict(lamella.task_config)
+        missing = [
+            name
+            for name in task_names
+            if not getattr(configs.get(name), "milling", None)
+        ]
+        if not task_names or missing:
+            return {
+                "error_type": "not_found",
+                "error": f"{item_name} has no milling task named "
+                f"{(missing or [''])[0]!r}.",
+                "task_names": [n for n, c in configs.items() if c.milling],
+            }
+        if image_path:
+            target, refusal = self._experiment_image(image_path)
+            if refusal:
+                return refusal
+        else:
+            relative = _task_outputs.latest_task_image(lamella, "_ib.tif")
+            if not relative:
+                return {
+                    "error_type": "not_found",
+                    "error": f"{item_name} has no FIB image yet: pass image_path.",
+                }
+            target = os.path.join(str(lamella.path), relative)
+
+        def enabled(name):
+            return [
+                stage
+                for task_milling in configs[name].milling.values()
+                for stage in task_milling.enabled_stages
+            ]
+
+        stages = enabled(task_names[0])
+        behind = [stage for name in task_names[1:] for stage in enabled(name)]
+        if background == "related":
+            behind += [
+                stage
+                for stage in lamella.related_milling_stages(task_names[0])
+                if all(stage is not other for other in behind)
+            ]
+        try:
+            image = FibsemImage.load(target)
+            rgb = milling_picture(
+                image,
+                stages,
+                behind,
+                scan_direction=scan_direction,
+                alignment_area=lamella.alignment_area if alignment_area else None,
+                poi=lamella.poi,
+                metadata_bar=metadata_bar,
+            )
+        except Exception as exc:  # noqa: BLE001 - an image that can't be drawn on
+            return {"error_type": "invalid", "error": f"{target}: {exc}"}
+        saved = drawn_path(target, f"{image_stem(target)}-{task_names[0]}")
+        return ItemMillingDrawn(
+            item_name,
+            list(task_names),
+            target,
+            saved,
+            [stage.name for stage in stages],
+            [stage.name for stage in behind],
+            save_drawn(rgb, saved),
+        )
 
     @staticmethod
     def _grid_summary(experiment, grid) -> Dict[str, Any]:
@@ -1301,7 +1404,7 @@ class AutoLamellaAppContext(AppContext):
         runs, checked at filing so the operator never approves one that can only
         fail. None for any other action, or one whose target the route itself
         refuses (no such item or task)."""
-        from fibsem.server.config_patch import PatchError, check_patch
+        from fibsem.workflows.config_patch import PatchError, check_patch
 
         experiment = self._experiment
         patch = arguments.get("patch")
@@ -1837,7 +1940,7 @@ class AutoLamellaAppContext(AppContext):
         tab's grid task form does; ``attention`` (automated, supervised) is the
         Grids view's Automated/Supervised chip. Version-guarded like the lamella
         task configs."""
-        from fibsem.server.config_patch import PatchError, apply_patch
+        from fibsem.workflows.config_patch import PatchError, apply_patch
         from fibsem.workflows.events import to_plain
 
         experiment, grid_protocol, refusal = self._grid_protocol_edit("edit grid tasks")

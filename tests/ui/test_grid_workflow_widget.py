@@ -397,22 +397,6 @@ def test_the_preflight_says_how_the_run_ends(qapp):
     assert not any(t.startswith("When the run ends") for t in _labels(adding))
 
 
-@pytest.fixture
-def main_ui(qapp):
-    from fibsem.applications.autolamella.ui import window as module
-
-    window = module.AutoLamellaWindow()
-    yield window
-    if window.microscope is not None:
-        window.microscope.disconnect()
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
-        window.close()
-    finally:
-        qapp.quit = original_quit
-
-
 def _wait_for_run(ui, timeout_s: float = 90.0) -> None:
     deadline = time.monotonic() + timeout_s
     while ui.session.runner.is_running and time.monotonic() < deadline:

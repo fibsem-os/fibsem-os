@@ -21,10 +21,10 @@ from fibsem.applications.autolamella.structures import (
     Lamella,
 )
 from fibsem.applications.autolamella.tools.grid_report import (
-    LAMELLA_BOX_WIDTH,
     collect_grid_report,
     read_beam_metadata,
 )
+from fibsem.config import POSITION_FOV_WIDTH
 from fibsem.fm.structures import ChannelSettings, OverviewParameters
 from fibsem.services.sample_handling import BUILTIN_SLOT_NAME
 from fibsem.structures import (
@@ -287,7 +287,7 @@ class TestMarks:
         assert centre.y == pytest.approx(h / 2, abs=0.5)
         east = by_name["lamella-01"]
         assert east.x - centre.x == pytest.approx(50e-6 / sem.pixel_size, rel=0.05)
-        assert east.width == pytest.approx(LAMELLA_BOX_WIDTH / sem.pixel_size)
+        assert east.width == pytest.approx(POSITION_FOV_WIDTH / sem.pixel_size)
         assert sem.unmarked == []
 
     def test_the_fib_view_places_the_same_lamellae(self, report):

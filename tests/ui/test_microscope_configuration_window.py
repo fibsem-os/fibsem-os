@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 
 import pytest
 
+from tests.fixtures.microscopes import demo_microscope
+
 pytest.importorskip("PyQt5")
 
 import fibsem.config as cfg  # noqa: E402
@@ -16,15 +18,7 @@ from fibsem.ui.widgets.microscope_configuration_window import (  # noqa: E402
     slot_rows,
 )
 
-
-@pytest.fixture
-def microscope():
-    path = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml")
-    microscope, _ = utils.setup_session(
-        config_path=path, manufacturer="Demo", setup_logging=False
-    )
-    yield microscope
-    microscope.disconnect()
+microscope = demo_microscope("sim-iflm-configuration.yaml", scope="function")
 
 
 def _texts(widget) -> str:

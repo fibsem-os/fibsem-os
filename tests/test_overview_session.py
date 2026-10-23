@@ -1,7 +1,5 @@
 """The overview session: what both overview tabs share, without Qt (FIB-1449)."""
 
-import os
-
 import pytest
 
 from fibsem import utils
@@ -15,13 +13,6 @@ from fibsem.imaging.overview_session import (
 )
 from fibsem.structures import FibsemStagePosition
 from fibsem.workflows.session import AppSession
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
-    scope, _ = utils.setup_session(manufacturer="Demo")
-    return scope
 
 
 def test_each_change_says_which_part_changed(microscope):

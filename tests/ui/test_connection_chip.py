@@ -20,7 +20,6 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem import utils  # noqa: E402
 from fibsem.applications.autolamella.structures import Experiment  # noqa: E402
 from fibsem.applications.autolamella.ui.header import (
     CONNECTION_CHIP_MAX_WIDTH,  # noqa: E402
@@ -44,13 +43,6 @@ def host_without_chip(qapp):
     host = HeaderHost(chip_enabled=False)
     yield host
     host.close()
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    yield microscope
-    microscope.disconnect()
 
 
 def test_disconnected_the_chip_asks_to_connect(host):

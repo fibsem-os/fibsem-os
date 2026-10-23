@@ -13,8 +13,6 @@ from pathlib import Path
 import pytest
 from psygnal.containers import EventedDict
 
-import fibsem.config as cfg
-from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     Experiment,
 )
@@ -35,18 +33,14 @@ from fibsem.workflows.proposals import (
     Proposal,
 )
 from fibsem.workflows.status import TaskStatus
+from tests.fixtures.microscopes import demo_microscope
 from tests.protocols import planned, task_protocol
 
 ROUGH = "Rough Milling"
 POLISH = "Polishing"
-CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
 
 
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(manufacturer="Demo", config_path=CONFIG)
-    yield microscope
-    microscope.disconnect()
+microscope = demo_microscope("microscope-configuration.yaml", scope="function")
 
 
 def _experiment(

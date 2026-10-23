@@ -27,11 +27,6 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QApplication
 
 
-@pytest.fixture(scope="module")
-def qapp():
-    return QApplication.instance() or QApplication([])
-
-
 @pytest.fixture()
 def viewer_widget(qapp, tmp_path):
     """The whole viewer on a simulated FM microscope.

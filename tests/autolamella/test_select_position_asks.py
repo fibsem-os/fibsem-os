@@ -18,8 +18,6 @@ from pathlib import Path
 import pytest
 from psygnal.containers import EventedDict
 
-import fibsem.config as cfg
-from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     Experiment,
 )
@@ -38,11 +36,11 @@ from fibsem.workflows.proposals import (
     STATE,
 )
 from tests.answering import answering
+from tests.fixtures.microscopes import demo_microscope
 from tests.protocols import planned, task_protocol
 
 SETUP = "Setup Lamella Position"
 ROUGH = "Rough Milling"
-CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
 MILLING_ANGLE = 15.0
 
 
@@ -54,11 +52,7 @@ def _in_run(relpath: str):
     return parts[0], parts[-1]
 
 
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(manufacturer="Demo", config_path=CONFIG)
-    yield microscope
-    microscope.disconnect()
+microscope = demo_microscope("microscope-configuration.yaml", scope="function")
 
 
 def _experiment(

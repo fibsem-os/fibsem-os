@@ -23,7 +23,6 @@ import pytest
 from psygnal.containers import EventedDict
 
 import fibsem.config as cfg
-from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     Experiment,
 )
@@ -31,8 +30,6 @@ from fibsem.applications.autolamella.workflows.tasks import get_tasks
 from fibsem.workflows.status import TaskStatus
 from tests.protocols import planned, task_protocol
 from tests.run_state import run_lamellae
-
-CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
 
 # Built-in tasks that cannot run here, and why. Any other built-in task runs in
 # this test, so a new one is guarded from the day it is registered; one that
@@ -62,16 +59,6 @@ BUILT_IN_TASKS = sorted(
     for task_type, task_cls in get_tasks().items()
     if task_cls.__module__.startswith("fibsem.")
 )
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
-    microscope, _ = utils.setup_session(
-        manufacturer="Demo", config_path=CONFIG, setup_logging=False
-    )
-    yield microscope
-    microscope.disconnect()
 
 
 @pytest.fixture

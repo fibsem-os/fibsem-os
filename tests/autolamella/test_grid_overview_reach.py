@@ -7,13 +7,11 @@ acquire time, which for a grid task is after the exchange and again on every gri
 in the run's history which it skipped; it fails only when no tile is in reach.
 """
 
-import os
 from pathlib import Path
 
 import pytest
 
 import fibsem.config as cfg
-from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
@@ -27,21 +25,13 @@ from fibsem.workflows.grid import (
     FluorescenceOverviewGridTaskConfig,
 )
 from fibsem.workflows.status import TaskStatus as Status
+from tests.fixtures.microscopes import demo_microscope
 from tests.run_state import run_grids
 
 ROWS_OUT_OF_REACH = "(0,0), (0,1), (0,2), (0,3), (3,0), (3,1), (3,2), (3,3)"
 
 
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(
-        manufacturer="Demo",
-        config_path=os.path.join(
-            cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
-        ),
-    )
-    yield microscope
-    microscope.disconnect()
+microscope = demo_microscope("sim-arctis-configuration.yaml", scope="function")
 
 
 @pytest.fixture
