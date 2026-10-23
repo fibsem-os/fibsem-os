@@ -14,16 +14,10 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from PyQt5.QtWidgets import QApplication
 
 from fibsem.structures import BeamType, FibsemStagePosition, ImageSettings
 from fibsem.ui.fm.widgets.fm_region_selector import FMRegionSelectorWidget
 from fibsem.ui.widgets.overview_widget import OverviewView
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    return QApplication.instance() or QApplication([])
 
 
 @pytest.fixture()

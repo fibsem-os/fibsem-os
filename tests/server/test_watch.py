@@ -2,7 +2,6 @@
 client, the sidecar's reconnecting client and the /app/events long-poll, with
 nothing faked but the moment events arrive (FIB-1269, FIB-870)."""
 
-import os
 import subprocess
 import sys
 import threading
@@ -15,7 +14,6 @@ uvicorn = pytest.importorskip("uvicorn")
 
 from psygnal.containers import EventedDict  # noqa: E402
 
-from fibsem import utils  # noqa: E402
 from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
 from fibsem.ai.agent.mcp import watch as watch_mod  # noqa: E402
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
@@ -33,13 +31,6 @@ from tests.run_state import stub_session
 
 TOKEN = "test-token"
 POLL_S = 0.3
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    return microscope
 
 
 @pytest.fixture

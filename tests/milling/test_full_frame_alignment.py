@@ -7,11 +7,12 @@ whole frame instead of the alignment area; above it, or with the setting off
 
 import pytest
 
-from fibsem import alignment, utils
+from fibsem import alignment
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.core import setup_milling
 from fibsem.milling.tasks import FibsemMillingTask, FibsemMillingTaskConfig
 from fibsem.structures import MillingAlignment
+from tests.fixtures.microscopes import demo_microscope
 
 
 def test_off_by_default_and_for_protocols_predating_it():
@@ -24,10 +25,7 @@ def test_round_trips():
     assert MillingAlignment.from_dict(settings.to_dict()).full_frame_below == 80e-12
 
 
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    return microscope
+microscope = demo_microscope(scope="function")
 
 
 @pytest.fixture

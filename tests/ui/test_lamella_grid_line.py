@@ -12,6 +12,8 @@ on whatever grid *is* there. The defect icon is drawn only once there is a defec
 import gc
 import os
 
+from tests.fixtures.main_window import close_window
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
@@ -255,12 +257,7 @@ class TestFromTheWindow:
         ui.system_widget.connect_to_microscope()
         yield window
         ui.microscope.disconnect()
-        original_quit = qapp.quit
-        qapp.quit = lambda: None
-        try:
-            window.close()
-        finally:
-            qapp.quit = original_quit
+        close_window(window)
         # Destroyed here, on purpose, rather than left to the collector: a
         # window this size collected during a later test's `processEvents`
         # took that test down with a segfault.

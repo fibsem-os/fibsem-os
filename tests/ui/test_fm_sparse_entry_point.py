@@ -15,7 +15,6 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from PyQt5.QtWidgets import QApplication
 
 from fibsem.fm.structures import OverviewParameters
 from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession
@@ -25,11 +24,6 @@ from fibsem.ui.fm.widgets.fm_sparse_selection_dialog import (
     SparseSelection,
     beam_overviews_in,
 )
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    return QApplication.instance() or QApplication([])
 
 
 @pytest.fixture(scope="module")

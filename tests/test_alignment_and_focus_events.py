@@ -10,7 +10,7 @@ from datetime import datetime
 
 import pytest
 
-from fibsem import acquire, utils
+from fibsem import acquire
 from fibsem.alignment import AlignmentSubsystem, multi_step_alignment_v2
 from fibsem.alignment.coincidence import check_coincidence
 from fibsem.autofunctions.autofocus import (
@@ -25,12 +25,9 @@ from fibsem.workflows.event_recording import (
     EventRecorder,
     read_events,
 )
+from tests.fixtures.microscopes import demo_microscope
 
-
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    return microscope
+microscope = demo_microscope(scope="function")
 
 
 @pytest.fixture

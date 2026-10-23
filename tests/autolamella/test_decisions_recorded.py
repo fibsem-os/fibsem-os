@@ -13,7 +13,6 @@ import numpy as np
 import pytest
 from psygnal.containers import EventedDict
 
-from fibsem import utils
 from fibsem.acting import OPERATOR
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
@@ -39,14 +38,6 @@ from tests.proposal_records import set_proposals
 
 TASK = "Setup Lamella Position"
 RUN = "run-1"
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    yield microscope
-    microscope.disconnect()
 
 
 @pytest.fixture

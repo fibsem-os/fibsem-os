@@ -23,19 +23,14 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
 from fibsem.workflows.task import ALIGNMENT_REFERENCE_IMAGE_FILENAME
 from tests.answering import answering
 from tests.autolamella._on_the_record import manager_for
+from tests.fixtures.microscopes import demo_microscope
 
 # Tens of seconds each on the simulator, so pull requests run these on one CI leg
 # only; the nightly and release runs take them everywhere (python-package.yml).
 pytestmark = pytest.mark.slow
 
-CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
 
-
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(manufacturer="Demo", config_path=CONFIG)
-    yield microscope
-    microscope.disconnect()
+microscope = demo_microscope("microscope-configuration.yaml", scope="function")
 
 
 @pytest.mark.parametrize("auto_milling_alignment", [False, True])
