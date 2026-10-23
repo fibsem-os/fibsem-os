@@ -92,10 +92,8 @@ def test_an_agent_edit_redraws_the_panel_through_the_session(
 
     assert result["applied"] is True
     assert redraws, "the panel heard the edit on session.changed"
-    # The toast the operator saw when the window was told directly.
-    (message,) = shown
-    assert message.startswith(f"Agent edited {lamella.name} — description: ")
-    assert message.endswith("'from the agent'")
+    # The edit is on the web Agent page, not a toast.
+    assert shown == []
 
 
 def test_an_agent_grid_edit_redraws_the_grid_views(ui, experiment, monkeypatch):
