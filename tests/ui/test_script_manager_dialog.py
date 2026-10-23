@@ -11,13 +11,6 @@ from fibsem.ui.widgets.script_manager_dialog import ScriptManagerDialog  # noqa:
 from fibsem.ui.widgets.script_runner import ScriptRunner  # noqa: E402
 
 
-@pytest.fixture
-def qapp():
-    from PyQt5.QtWidgets import QApplication
-
-    yield QApplication.instance() or QApplication([])
-
-
 class FakeContext:
     def __init__(self):
         self.saved = False

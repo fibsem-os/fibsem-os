@@ -24,7 +24,6 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QApplication
 
 from fibsem.applications.autolamella.structures import (
     Lamella,
@@ -33,11 +32,6 @@ from fibsem.applications.autolamella.ui.lamella.cards import LamellaCardContaine
 from fibsem.applications.autolamella.ui.lamella.rows import LamellaListWidget
 from fibsem.ui.widgets.workflow.task_list import WorkflowTaskList
 from fibsem.workflows.task_config import TaskPlan
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    return QApplication.instance() or QApplication([])
 
 
 @pytest.fixture()

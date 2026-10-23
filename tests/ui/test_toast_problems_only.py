@@ -9,14 +9,9 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from PyQt5.QtWidgets import QApplication, QWidget
+from PyQt5.QtWidgets import QWidget
 
 from fibsem.ui.widgets.notifications import NotificationBell, ToastManager
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    return QApplication.instance() or QApplication([])
 
 
 @pytest.fixture()

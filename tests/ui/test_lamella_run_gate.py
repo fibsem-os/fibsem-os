@@ -7,6 +7,8 @@ to the confirmation as before.
 
 import os
 
+from tests.fixtures.main_window import main_window_fixture
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
@@ -16,7 +18,6 @@ pytest.importorskip("PyQt5")
 from fibsem.applications.autolamella.structures import (
     Experiment,
 )
-from fibsem.applications.autolamella.ui import window as module
 from fibsem.applications.autolamella.ui.workflow import tab as workflow_tab
 from fibsem.structures import FibsemStagePosition
 from fibsem.workflows.runner import ITEMS
@@ -26,30 +27,7 @@ from fibsem.workflows.site_tasks.reference_image import (
 from tests.protocols import planned, task_protocol
 from tests.run_state import hold_runs, started_with
 
-
-@pytest.fixture
-def main_ui(qapp, monkeypatch):
-    import fibsem.config as fibsem_config
-
-    window = module.AutoLamellaWindow()
-    ui = window
-    config = os.path.join(
-        os.path.dirname(fibsem_config.__file__),
-        "config",
-        "sim-arctis-configuration.yaml",
-    )
-    monkeypatch.setattr(
-        ui.system_widget, "load_configuration", lambda configuration_name=None: config
-    )
-    ui.system_widget.connect_to_microscope()
-    yield window
-    ui.microscope.disconnect()
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
-        window.close()
-    finally:
-        qapp.quit = original_quit
+main_ui = main_window_fixture(connect=True, config="sim-arctis-configuration.yaml")
 
 
 def test_run_is_refused_by_name_until_the_grid_is_loaded(

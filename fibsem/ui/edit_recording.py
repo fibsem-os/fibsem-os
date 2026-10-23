@@ -9,8 +9,8 @@ from typing import Any, Callable, Optional, Tuple
 
 from PyQt5.QtCore import QObject, QTimer
 
-from fibsem.server.task_configs import save_edits
 from fibsem.workflows import edit_recording
+from fibsem.workflows.task_configs import save_edits
 
 # Long enough to swallow a run of field edits, short enough that the window a
 # crash could take an edit from stays small. Every place where waiting longer
