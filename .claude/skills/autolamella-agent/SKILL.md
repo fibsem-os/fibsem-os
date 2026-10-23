@@ -185,6 +185,8 @@ Its lines:
   *Messages*.
 - `NOTE from the operator on <grid>`: the operator kept a note on a grid.
   It is not to you; nothing to answer.
+- `WAKE <reason>`: a wake-up you set with `wake_after` (fibsem-agent only)
+  has come. Do what you set it for.
 
 A workflow's end is not the end of the session: the next one may start from
 the app at any time, or from you. Keep the watcher running until the operator

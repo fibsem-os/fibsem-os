@@ -173,6 +173,69 @@ def _heard(caplog, start):
 # --- the kickoff and the session's tools ------------------------------------
 
 
+# --- the wake-up -------------------------------------------------------------
+
+
+def test_a_wake_up_rings_once_with_its_reason():
+    async def main():
+        rang = []
+        alarm = runner_mod.Alarm()
+        alarm.bind(asyncio.get_running_loop(), rang.append)
+        said = alarm.set(0.001, "check drift on 02")
+        assert "0.001 min" in said and alarm.reason == "check drift on 02"
+        await asyncio.sleep(0.2)
+        assert rang == ["WAKE check drift on 02 (you asked 0.001 min ago)"]
+        assert alarm.reason is None
+
+    asyncio.run(main())
+
+
+def test_a_new_wake_up_replaces_the_last_and_zero_cancels():
+    async def main():
+        rang = []
+        alarm = runner_mod.Alarm()
+        alarm.bind(asyncio.get_running_loop(), rang.append)
+        alarm.set(0.001, "first")
+        alarm.set(0.002, "second")
+        await asyncio.sleep(0.3)
+        assert rang == ["WAKE second (you asked 0.002 min ago)"]
+        alarm.set(0.001, "third")
+        assert alarm.set(0, "") == "No wake-up is set."
+        await asyncio.sleep(0.2)
+        assert len(rang) == 1
+        # Capped, and cancelled when the run ends.
+        assert f"{runner_mod.WAKE_MAX_MIN} min" in alarm.set(10_000, "later")
+        alarm.cancel()
+        assert alarm.reason is None
+
+    asyncio.run(main())
+
+
+def test_a_wake_up_before_the_run_says_it_cannot_ring():
+    assert "can't wake you" in runner_mod.Alarm().set(5, "x")
+
+
+def test_the_wake_up_tool_is_the_runners_own_server():
+    pytest.importorskip("claude_agent_sdk")
+    checkout = runner_mod.find_checkout()
+    options = runner_mod.build_options(
+        checkout, url="http://127.0.0.1:9", token="t0k", alarm=runner_mod.Alarm()
+    )
+    assert list(options.mcp_servers) == ["fibsem", runner_mod.RUNNER_SERVER]
+    assert options.mcp_servers[runner_mod.RUNNER_SERVER]["type"] == "sdk"
+    assert runner_mod.WAKE_TOOL in options.allowed_tools
+
+
+def test_a_wake_up_rings_into_the_next_turn(session):
+    agent = ScriptedAgent()
+    running = _runner(session, agent, alarm=(alarm := runner_mod.Alarm()))
+    _until(lambda: len(agent.prompts) >= 1, what="the kickoff")
+    running.runner._loop.call_soon_threadsafe(alarm.set, 0.001, "look at 03 again")
+    _until(lambda: len(agent.prompts) >= 2, what="the wake-up turn")
+    assert "WAKE look at 03 again" in agent.prompts[1]
+    running.stop()
+
+
 def test_the_kickoff_reads_the_skill_for_the_level():
     first = kickoff()
     assert "autolamella-agent" in first
@@ -197,12 +260,9 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
     )
 
     assert options.permission_mode == "dontAsk"
-    assert (
-        options.allowed_tools
-        == ["mcp__fibsem__*", "ToolSearch", "SendMessage"]
-        + [f"Agent({name})" for name in runner_mod.SPECIALISTS]
-        + runner_mod.TODO_TOOLS
-    )
+    assert options.allowed_tools == ["mcp__fibsem__*", "ToolSearch", "SendMessage"] + [
+        f"Agent({name})" for name in runner_mod.SPECIALISTS
+    ] + runner_mod.TODO_TOOLS + [runner_mod.WAKE_TOOL]
     # SendMessage carries a specialist on (one Verifier per lamella's passes);
     # the todo tools keep the operator's instructions.
     assert (

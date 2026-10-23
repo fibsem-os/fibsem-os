@@ -49,12 +49,18 @@ SPECIALISTS = (
 # The agent's own todo list: TodoWrite, or the Task* tools in newer CLIs. They
 # touch nothing outside the session.
 TODO_TOOLS = ["TodoWrite", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet"]
+# The runner's own tools, in-process: the wake-up timer (`Alarm`).
+RUNNER_SERVER = "fibsem_agent"
+WAKE_TOOL = f"mcp__{RUNNER_SERVER}__wake_after"
+# The longest a wake-up can be set for, in minutes.
+WAKE_MAX_MIN = 240
 # The server's level gate decides what the fibsem tools may do, so they need no
 # prompt; ToolSearch only finds them.
 ALLOWED_TOOLS = (
     [f"mcp__{SERVER}__*", "ToolSearch", "SendMessage"]
     + [f"Agent({name})" for name in SPECIALISTS]
     + TODO_TOOLS
+    + [WAKE_TOOL]
 )
 # The only built-in tools the agent has: reading its skills, finding the
 # sidecar's tools when the CLI defers them, calling a specialist or carrying
@@ -134,6 +140,9 @@ TaskCreate and TaskUpdate): the goal and each instruction a MESSAGE gives, in \
 their words, as it arrives. Read the list before each step and tick an item \
 only when it is done. A new instruction adds to the list; it never replaces \
 what is there unless the operator says so.
+- To look again later with nothing to wake you (after a long mill, to check \
+drift, before a deadline), set a wake-up with wake_after: a WAKE line with \
+your reason comes then. One at a time; a new one replaces it.
 - Your goal changes only when the operator's MESSAGE explicitly gives you a \
 new one. Then call server_report_session with just goal, so the app shows \
 it, and say back the goal you took.
@@ -241,6 +250,69 @@ class Wakes:
             return None
         lines, self._held = self._held, []
         return turn_prompt(lines)
+
+
+class Alarm:
+    """The agent's wake-up timer (the ``wake_after`` tool): one at a time, a
+    new one replacing it. When it rings, a ``WAKE`` line joins the watcher's
+    lines, so it is a turn like any other and is held while the agent is Off."""
+
+    def __init__(self) -> None:
+        self._ring: Optional[Callable[[str], None]] = None
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._timer: Optional[asyncio.TimerHandle] = None
+        self.reason: Optional[str] = None
+
+    def bind(self, loop: asyncio.AbstractEventLoop, ring: Callable[[str], None]):
+        """Ring through *ring* on *loop* (`Runner.run`)."""
+        self._loop, self._ring = loop, ring
+
+    def set(self, minutes: float, reason: str) -> str:
+        """Wake the agent after *minutes*; 0 cancels. What to tell the agent."""
+        self.cancel()
+        if minutes <= 0:
+            return "No wake-up is set."
+        if self._loop is None:
+            return "The runner can't wake you yet; the watcher's lines still will."
+        minutes = min(float(minutes), WAKE_MAX_MIN)
+        self.reason = reason.strip() or "you asked to be woken"
+        line = f"WAKE {self.reason} (you asked {minutes:g} min ago)"
+        self._timer = self._loop.call_later(minutes * 60, self._rang, line)
+        log.info("Wake-up in %g min: %s", minutes, self.reason)
+        return (
+            f"You will be woken in {minutes:g} min with: {self.reason}. A new "
+            "wake_after replaces it; 0 cancels it."
+        )
+
+    def cancel(self) -> None:
+        if self._timer is not None:
+            self._timer.cancel()
+        self._timer, self.reason = None, None
+
+    def _rang(self, line: str) -> None:
+        self._timer, self.reason = None, None
+        if self._ring is not None:
+            self._ring(line)
+
+
+def wake_server(alarm: Alarm):
+    """The runner's in-process MCP server: the ``wake_after`` tool on *alarm*."""
+    from claude_agent_sdk import create_sdk_mcp_server, tool
+
+    @tool(
+        "wake_after",
+        "Wake yourself after some minutes to look again: after a long mill, to "
+        "check drift, before a deadline. When it rings you get a WAKE line with "
+        f"your reason, like the watcher's lines. One at a time, at most "
+        f"{WAKE_MAX_MIN} min: a new one replaces it and minutes 0 cancels it. "
+        "The watcher still wakes you for anything that happens before then.",
+        {"minutes": float, "reason": str},
+    )
+    async def wake_after(args):
+        said = alarm.set(float(args.get("minutes", 0)), str(args.get("reason", "")))
+        return {"content": [{"type": "text", "text": said}]}
+
+    return create_sdk_mcp_server(RUNNER_SERVER, tools=[wake_after])
 
 
 @dataclass
@@ -420,8 +492,11 @@ class Runner:
         goal: Optional[str] = None,
         budget_usd: Optional[float] = None,
         about: Optional[dict] = None,
+        alarm: Optional[Alarm] = None,
     ) -> None:
         self._agent = agent
+        # The agent's wake-up timer: it rings into the watcher's lines.
+        self._alarm = alarm
         self._goal = goal
         self._goal_sent = False
         # What it can do (code mode, effort, skills), sent with the first report.
@@ -460,6 +535,10 @@ class Runner:
         self._loop = asyncio.get_running_loop()
         self._stopping = asyncio.Event()
         self._items = asyncio.Queue()
+        if self._alarm is not None:
+            self._alarm.bind(
+                self._loop, lambda line: self._items.put_nowait((self._watcher, line))
+            )
         if self._stop_requested:
             return 0
         # The kickoff's own actions are news: the watch starts at the tail, so
@@ -477,6 +556,8 @@ class Runner:
                 raise
             log.debug("The agent's process ended as it stopped.", exc_info=True)
         finally:
+            if self._alarm is not None:
+                self._alarm.cancel()
             # Before the watcher stops: stopping it closes the client.
             await self._report(ended=True)
             if self._watcher is not None:
@@ -904,6 +985,11 @@ def step(name: str, arguments: dict, cwd: Optional[Path] = None) -> tuple:
         return "Searched", _clip(arguments.get("pattern", ""), 160)
     if name == "Skill":
         return "Read", f"the {arguments.get('skill', '')} skill"
+    if name == WAKE_TOOL:
+        minutes = arguments.get("minutes", "")
+        return "Set", _clip(
+            f"a wake-up in {minutes} min: {arguments.get('reason', '')}", 200
+        )
     if short == "experiment_fetch_file":
         return "Fetched", _clip(arguments.get("path", ""), 160)
     text = json.dumps(arguments, ensure_ascii=False) if arguments else ""
@@ -1024,6 +1110,7 @@ def build_options(
     work: Optional[Path] = None,
     session_id: Optional[str] = None,
     code: bool = True,
+    alarm: Optional[Alarm] = None,
 ):
     """The SDK session: the sidecar as the only MCP server, the project's
     skills and nothing of the user's Claude Code config. With ``work``, code
@@ -1049,6 +1136,9 @@ def build_options(
         allowed = ALLOWED_TOOLS + code_mode.allowed_tools(work, code)
         denied = [tool for tool in DENIED_TOOLS if tool not in given]
         settings = code_mode.settings_json(work, {**os.environ, **env}, code)
+    servers = {SERVER: server}
+    if alarm is not None:
+        servers[RUNNER_SERVER] = wake_server(alarm)
     return ClaudeAgentOptions(
         cwd=str(work or checkout),
         # The checkout's .claude/skills (CLAUDE.md is off, see CLI_ENV), and none of
@@ -1060,7 +1150,7 @@ def build_options(
         disallowed_tools=list(denied),
         permission_mode=PERMISSION_MODE,
         settings=settings,
-        mcp_servers={SERVER: server},
+        mcp_servers=servers,
         env=env,
         # Only the server above: not a `fibsem` registered in ~/.claude.json.
         strict_mcp_config=True,
@@ -1307,8 +1397,10 @@ def main(argv=None) -> int:
         for line in code_mode.details():
             log.debug(line)
 
+    alarm = Alarm()
     options = build_options(
         checkout,
+        alarm=alarm,
         url=args.url,
         token=token,
         model=args.model,
