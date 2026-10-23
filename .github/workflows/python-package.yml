@@ -5,15 +5,12 @@ name: Python package
 
 on:
   # A release branch is cut from a release tag and the final is tagged from it, so
-  # what lands there by cherry-pick is what ships -- and without this it would be the
-  # one code path in the repository that reaches users having run no tests at all.
+  # what lands there by cherry-pick is what ships: it runs the full matrix.
   #
-  # main is not here. Every change reaches main through a pull request that already
-  # ran, so a run per merge mostly repeated that answer, and with about 20 concurrent
-  # hosted jobs for the account it queued behind open pull requests (2026-10-07).
-  # What a merge run uniquely caught -- two pull requests green alone and broken
+  # main is not here: every change reaches it through a pull request that already ran.
+  # What a merge run would uniquely catch -- two pull requests green alone and broken
   # together, and the versions the pull request subset skips -- the nightly run below
-  # catches instead, a day later at most.
+  # catches, a day later at most.
   push:
     branches: [ "release/**" ]
   # The full matrix on main once a day, and on demand (Actions tab, "Run workflow")
@@ -29,10 +26,8 @@ on:
 # A PR's runs share one group, and a new push to the PR cancels the run in progress:
 # only its latest commit matters. Any other run is the record of one commit on main or a
 # release branch, so its group is keyed on the commit, not the branch, and nothing
-# cancels it. Keying on the branch was not enough even with cancel-in-progress off: a
-# group holds one running and one *pending* run, and each newly queued run cancels the
-# pending one -- so a merge that queued behind a running one was dropped whenever
-# another merge followed before it could start (7 of main's 12 push runs, 2026-09-22).
+# cancels it: a branch-keyed group holds one running and one *pending* run, and each
+# newly queued run cancels the pending one.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -44,20 +39,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Linux on every supported version, Windows on the ends of the range.
-        # The microscopes all run Windows, so every platform-specific claim in the
-        # codebase was previously untested on the platform that matters (FIB-704) --
-        # but eight jobs is more wall-clock than the coverage is worth, and the
-        # oldest and newest catch what the middle would.
+        # Linux on every supported version, Windows on the ends of the range. The
+        # microscopes all run Windows; the oldest and newest catch what the middle
+        # would.
         #
-        # A pull request runs a subset: Linux 3.10 and Windows 3.10. The account gets
-        # about 20 concurrent hosted jobs and a full run takes 9 of them, so with many
-        # open pull requests pushing, jobs queued for 15 to 75 minutes before starting
-        # (2026-10-06). The subset keeps the 3.10 floor on both platforms; 3.11 to 3.13
-        # run nightly on main and on every push to a release branch. Linux 3.13 left
-        # the subset on 2026-10-15: a push still cost about 83 runner-minutes, so 20
-        # jobs cleared about 14 pushes an hour against 15 to 40 arriving, and agents
-        # already run the suite locally on 3.13 before pushing.
+        # A pull request runs a subset: Linux 3.10 and Windows 3.10, the floor on both
+        # platforms. The account gets about 20 concurrent hosted jobs, so the full
+        # matrix runs nightly on main and on every push to a release branch.
         os: [ubuntu-latest]
         python-version: ${{ fromJSON(github.event_name == 'pull_request' && '["3.10"]' || '["3.10", "3.11", "3.12", "3.13"]') }}
         include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"os":"windows-latest","python-version":"3.10"}]' || '[{"os":"windows-latest","python-version":"3.10"}, {"os":"windows-latest","python-version":"3.13"}]') }}
@@ -72,12 +60,9 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        # UI deps (the [ui] extra) are intentionally not installed *here*. Not
-        # because the tests that need them do not matter -- the `ui-tests` job
-        # below runs every one of them -- but because Qt is dead weight on a job
-        # that runs six times. (napari used to be the bigger reason: 100
-        # packages, 116 MB and three pytest plugins. It is in [labelling] now and
-        # no CI job installs it.)
+        # UI deps (the [ui] extra) are intentionally not installed here: the
+        # `ui-tests` job below runs every test that needs them, and Qt is dead weight
+        # on a job that runs six times.
         python -m pip install ".[test]"
     - name: Install the plugin entry point fixture
       # A packaged plugin is the only way into two of the three extension
@@ -92,11 +77,10 @@ jobs:
         # the install step above would silently skip the entry point tests and
         # leave the build green -- the exact silent breakage they exist to catch.
         FIBSEM_REQUIRE_PLUGIN_FIXTURE: "1"
-      # Tests marked `slow` (simulated alignment and FM acquisition, 15 to 120 s each;
-      # about 60 of them were half the suite's time on 2026-10-15) run on one leg of a
-      # pull request, Linux, and on every leg of the nightly and release runs. They
-      # exercise the simulator rather than anything platform-specific, so the leg
-      # that skips them is Windows, the slowest.
+      # Tests marked `slow` (simulated alignment and FM acquisition, 15 to 120 s each)
+      # run on one leg of a pull request, Linux, and on every leg of the nightly and
+      # release runs. They exercise the simulator rather than anything
+      # platform-specific, so the leg that skips them is Windows, the slowest.
       run: pytest tests/ -n auto --dist worksteal --timeout=300 ${{ (github.event_name == 'pull_request' && runner.os == 'Windows') && '-m "not slow"' || '' }}
 
   ui-tests:
@@ -105,22 +89,14 @@ jobs:
     # and tests/fm/ that guard on PyQt5.
     #
     # Every file under tests/ui/ opens with `pytest.importorskip("PyQt5")`. The
-    # matrix job above installs `.[test]` without it, so all 103 files skip silently
-    # and its green says nothing whatsoever about that directory. That is not
-    # theoretical: main reported success while tests/ui/test_fm_overview_widget.py
-    # failed 17 tests locally, because two pull requests that were each green alone
-    # bound the same name to two different constants (#581). Only a run with PyQt5
-    # installed could have caught it, and this is that run.
+    # matrix job above installs `.[test]` without it, so those files skip there and
+    # its green says nothing about that directory; two pull requests each green alone
+    # can break it together, and only a run with PyQt5 installed catches that.
     #
-    # tests/correlation/ and tests/fm/ are here for the same reason. 21 of their
-    # files guard on PyQt5 too, and until this job listed them nothing ran them:
-    # a test there stayed broken for two weeks after #812 while CI stayed green.
-    # Only the files there that name PyQt5 run here, found at run time rather than
-    # listed, so a Qt test added there later is still picked up. Their other tests
-    # run in the matrix; running whole directories here repeated them serially, nine
-    # minutes on a job that was the slowest in the workflow (26 minutes, 2026-10-15).
-    # Every Qt test file in those directories names PyQt5 (checked 2026-10-15: no
-    # other file imports fibsem.ui, qtpy, superqt or qtawesome).
+    # In tests/correlation/ and tests/fm/, only the files that name PyQt5 run here,
+    # found at run time rather than listed, so a Qt test added there later is still
+    # picked up. Their other tests run in the matrix. No other file there imports
+    # fibsem.ui, qtpy, superqt or qtawesome.
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v7
@@ -177,8 +153,7 @@ jobs:
     # place tests/server/ runs with them present. Every file there opens with
     # `pytest.importorskip("fastapi")`, so the matrix job's green says nothing
     # about that directory — the same silent-skip failure mode the ui-tests job
-    # above exists to end. The original fibsem/server shipped with zero CI
-    # coverage for exactly this reason: no job ever installed its extra.
+    # above exists to end.
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v7
@@ -196,8 +171,8 @@ jobs:
     - name: Fail if the extras did not actually install
       # Same rationale as the ui-tests guard: every test file skips on missing
       # imports, so a broken install empties the run instead of reddening it.
-      # Pillow is asserted too — the preview endpoints need it, and today it
-      # only arrives transitively.
+      # Pillow is asserted too — the preview endpoints need it, and it only
+      # arrives transitively.
       run: python -c "import fastapi, uvicorn, httpx, mcp, PIL, websockets.sync.client"
     - name: Test with pytest
       run: pytest tests/server/ -q --timeout=300
@@ -223,9 +198,8 @@ jobs:
     - run: ruff check --output-format=github .
     - name: Check formatting of the files this PR changes
       # Format-on-touch rather than a whole-tree flag day: a file has to be
-      # formatted once something in it is edited, so the tree converts fastest
-      # where the work actually happens. `main` stays mixed for a while, which
-      # is the accepted cost.
+      # formatted once something in it is edited. `main` stays mixed for a while,
+      # which is the accepted cost.
       #
       # The count is echoed on purpose. The failure mode of a diff-scoped check
       # is that the diff comes back empty -- wrong base, shallow clone -- and
@@ -249,9 +223,7 @@ jobs:
         # NUL-separated: a path with a space would otherwise split into two.
         # --force-exclude is required, not optional: ruff ignores `exclude` for
         # paths named explicitly on the command line, and this step names every
-        # path explicitly. Without it the config's `exclude` silently stops
-        # applying here -- today that means a pull request touching a notebook-
-        # adjacent or otherwise excluded path gets told to reformat it anyway.
+        # path explicitly.
         if ! tr '\n' '\0' < "$changed" \
              | xargs -0 ruff format --check --force-exclude --; then
           echo

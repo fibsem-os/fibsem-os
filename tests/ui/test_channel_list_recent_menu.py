@@ -13,17 +13,11 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from PyQt5.QtWidgets import QApplication, QMenu, QWidgetAction
+from PyQt5.QtWidgets import QMenu, QWidgetAction
 
 from fibsem.fm import config as fm_config
 from fibsem.fm.structures import REFLECTION, ChannelSettings, EmissionFilter
 from fibsem.ui.fm.widgets import channel_list_widget as clw
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    app = QApplication.instance() or QApplication([])
-    yield app
 
 
 @pytest.fixture

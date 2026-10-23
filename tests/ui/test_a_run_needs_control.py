@@ -3,11 +3,8 @@ beams-on to its end, and a start is refused, by name, while someone else is in
 control -- a command from the App Server, say. Both through the session's
 runner, with no window: what any caller, headless included, gets."""
 
-import os
-
 import pytest
 
-from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
@@ -17,22 +14,10 @@ from fibsem.hooks import FunctionHook, HookEvent, HookManager
 from fibsem.workflows.grid.manager import GridTaskManager
 from fibsem.workflows.runner import GRIDS, ITEMS, RunRequest
 from fibsem.workflows.session import AppSession
+from tests.fixtures.microscopes import demo_microscope
 from tests.protocols import add_planned, planned
 
-
-@pytest.fixture(scope="module")
-def microscope():
-    import fibsem.config as fibsem_config
-
-    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
-    config = os.path.join(
-        os.path.dirname(fibsem_config.__file__),
-        "config",
-        "sim-arctis-configuration.yaml",
-    )
-    microscope, _ = utils.setup_session(config_path=config)
-    yield microscope
-    microscope.disconnect()
+microscope = demo_microscope("sim-arctis-configuration.yaml")
 
 
 @pytest.fixture

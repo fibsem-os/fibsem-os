@@ -11,14 +11,9 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from PyQt5.QtCore import Qt  # noqa: E402
-from PyQt5.QtWidgets import QApplication, QLabel  # noqa: E402
+from PyQt5.QtWidgets import QLabel  # noqa: E402
 
 from fibsem.ui.widgets.custom_widgets import TaskNameListWidget  # noqa: E402
-
-
-@pytest.fixture
-def qapp():
-    yield QApplication.instance() or QApplication([])
 
 
 def _chips(widget: TaskNameListWidget):

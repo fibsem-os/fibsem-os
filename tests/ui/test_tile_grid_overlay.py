@@ -14,7 +14,6 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from PyQt5.QtWidgets import QApplication
 
 from fibsem.imaging.tiling.geometry import compute_tile_grid_from_fov
 from fibsem.ui.widgets.canvas.canvas_base import ContentRect
@@ -27,12 +26,6 @@ WIDTH = HEIGHT = 1024
 PIXEL_SIZE = 1e-7
 FOV = WIDTH * PIXEL_SIZE
 OVERLAP = 0.1
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    app = QApplication.instance() or QApplication([])
-    yield app
 
 
 class _FakeCanvas:

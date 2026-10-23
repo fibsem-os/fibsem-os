@@ -1,8 +1,6 @@
 """The App Server's devices service (FIB-1035): off, nothing that reaches the
 instrument is registered; on, everything is."""
 
-import os
-
 import pytest
 
 pytest.importorskip("fastapi")
@@ -10,7 +8,6 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from fibsem import utils  # noqa: E402
 from fibsem.ai.agent.catalog import tools_for_capabilities  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 
@@ -28,13 +25,6 @@ INSTRUMENT_ROUTES = [
     ("GET", "/microscope/devices"),
     ("GET", "/microscope/services"),
 ]
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    return microscope
 
 
 def _client(microscope, **kwargs) -> TestClient:

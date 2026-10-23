@@ -24,7 +24,6 @@ from PyQt5.QtWidgets import QApplication
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import ParameterMetadata
 from fibsem.structures import BeamType
-from fibsem.ui import notification_service
 from fibsem.ui.widgets.beam_settings_widget import FibsemBeamSettingsWidget
 
 _app = QApplication.instance() or QApplication([])
@@ -95,17 +94,6 @@ def make_widget(beam_type, presets, current_preset="A", fail_activation=False):
     widget = FibsemBeamSettingsWidget(microscope=microscope, beam_type=beam_type)
     widget.populate_beam_combos()
     return widget, microscope
-
-
-@pytest.fixture
-def toasts(monkeypatch):
-    events = []
-    monkeypatch.setattr(
-        notification_service,
-        "show_toast",
-        lambda msg, notification_type="info": events.append((msg, notification_type)),
-    )
-    return events
 
 
 # ---------------------------------------------------------------------------

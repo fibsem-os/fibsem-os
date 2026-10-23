@@ -4,8 +4,6 @@ behind the server's token, level and control of the microscope.
 Skipped when the [server] extra is not installed.
 """
 
-import os
-
 import pytest
 
 fastapi = pytest.importorskip("fastapi")
@@ -13,7 +11,6 @@ pytest.importorskip("httpx")  # TestClient transport
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from fibsem import utils  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.structures import (  # noqa: E402
     BeamType,
@@ -22,18 +19,6 @@ from fibsem.structures import (  # noqa: E402
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    previous = os.environ.get("FIBSEM_SIM_NO_DELAY")
-    os.environ["FIBSEM_SIM_NO_DELAY"] = "1"
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    yield microscope
-    if previous is None:
-        os.environ.pop("FIBSEM_SIM_NO_DELAY", None)
-    else:
-        os.environ["FIBSEM_SIM_NO_DELAY"] = previous
 
 
 @pytest.fixture(scope="module")

@@ -6,6 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests.fixtures.main_window import close_window
+
 pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
 
 from PyQt5.QtWidgets import QApplication, QPushButton
@@ -426,13 +428,7 @@ def window(qapp, tmp_path):
     yield window
     if window.microscope is not None:
         window.microscope.disconnect()
-    # closeEvent ends in app.quit(); on the shared QApplication that latches.
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
-        window.close()
-    finally:
-        qapp.quit = original_quit
+    close_window(window)
 
 
 @pytest.mark.parametrize("source", ["overview acquired", "workflow status"])

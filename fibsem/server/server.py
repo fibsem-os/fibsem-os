@@ -81,7 +81,7 @@ from fibsem.server.responses import (
     Status,
     answer,
 )
-from fibsem.server.web_app import page, web_app_router
+from fibsem.server.web_app import web_app_router
 from fibsem.structures import BeamType, MicroscopeState
 from fibsem.workflows.actions import ACTION, action_record
 
@@ -573,8 +573,7 @@ def build_server(
             content={"detail": {"error_type": type(exc).__name__, "message": str(exc)}},
         )
 
-    # /capabilities, which every client reads first, whatever is mounted, the
-    # event log page included.
+    # /capabilities, which every client reads first, whatever is mounted.
     base = APIRouter(dependencies=[Depends(require_monitoring())])
     # The whole instrument: who it is, and its state across stage and beams.
     whole = APIRouter(prefix=MICROSCOPE, route_class=_RefusingRoute)
@@ -585,14 +584,6 @@ def build_server(
     def health():
         # Unauthenticated liveness probe; everything informative lives in /capabilities.
         return {"status": "ok"}
-
-    @app.get("/dashboard/log")
-    def dashboard_log():
-        # The event stream as one filterable table. Served unauthenticated like
-        # /health: the file is static and carries no session data; every API
-        # call the page makes needs the bearer token, which reaches it via the
-        # URL fragment (never sent to the server) or a paste.
-        return page("dashboard_log.html")
 
     @app.get("/chat")
     def chat():

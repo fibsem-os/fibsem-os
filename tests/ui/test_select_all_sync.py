@@ -24,7 +24,6 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QApplication
 
 from fibsem.fm.structures import ChannelSettings, EmissionFilter
 from fibsem.milling.base import FibsemMillingStage
@@ -32,11 +31,6 @@ from fibsem.milling.patterning import get_pattern
 from fibsem.structures import FibsemMillingSettings
 from fibsem.ui.fm.widgets.channel_list_widget import ChannelListWidget
 from fibsem.ui.widgets.milling_stage_list_widget import MillingStageListWidget
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    return QApplication.instance() or QApplication([])
 
 
 class _FakeFilterSet:
