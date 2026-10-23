@@ -98,6 +98,29 @@ def artist_box(figure, artist) -> Box:
     return (extent.x0, height - extent.y1, extent.x1, height - extent.y0)
 
 
+def legend(axes, handles: List[Any]) -> List[Box]:
+    """*handles* in a dark box at the top left, sized to read at the
+    picture's width; answers the place it takes."""
+    if not handles:
+        return []
+    size = max(10.0, axes.figure.bbox.width / 42) * PT
+    for handle in handles:
+        if hasattr(handle, "set_markersize"):
+            handle.set_markersize(size * handle.get_markersize())
+    drawn = axes.legend(
+        handles=handles,
+        loc="upper left",
+        fontsize=size,
+        labelcolor="white",
+        facecolor="black",
+        edgecolor="none",
+        framealpha=170 / 255,
+        handlelength=1.4,
+    )
+    drawn.get_frame().set_boxstyle("round", pad=0.2)
+    return [artist_box(axes.figure, drawn)]
+
+
 def _segments(x1, y1, x2, y2, pieces: int = 8):
     for i in range(pieces):
         a, b = i / pieces, (i + 1) / pieces
@@ -117,8 +140,10 @@ def draw_marks(
     colour: str,
     dashed: bool = False,
 ) -> None:
-    """*marks* (the image's pixels) on *axes* in *colour*, their labels placed
-    by *placer*: every mark is kept clear first, so no label covers one."""
+    """*marks* (the image's pixels) on *axes* in *colour* (a mark's own
+    ``colour`` when it has one: the markers picture's status), their labels
+    placed by *placer*: every mark is kept clear first, so no label covers
+    one."""
     from matplotlib import patheffects
     from matplotlib.patches import Circle, FancyArrowPatch, Rectangle
 
@@ -131,11 +156,11 @@ def draw_marks(
     arm = line * 6 / scale  # a point's reach, in the image's pixels
     s = scale
 
-    def plot(xs, ys):
+    def plot(xs, ys, c):
         axes.plot(
             xs,
             ys,
-            color=colour,
+            color=c,
             linewidth=width,
             linestyle=style,
             solid_capstyle="round",
@@ -166,16 +191,20 @@ def draw_marks(
         for piece in _segments(mark["x1"], mark["y1"], mark["x2"], mark["y2"]):
             placer.keep_clear_source(*piece, margin=line)
 
-    labelled: List[Tuple[Box, str]] = []
+    def of(mark) -> str:
+        return mark.get("colour") or colour
+
+    labelled: List[Tuple[Box, str, str]] = []
     for point in points:
         x, y = float(point["x"]), float(point["y"])
+        c = of(point)
         if point.get("shape") == "target":
             axes.add_patch(
                 Circle(
                     (x, y),
                     arm * 0.6,
                     fill=False,
-                    ec=colour,
+                    ec=c,
                     lw=width,
                     linestyle=style,
                     path_effects=halo,
@@ -183,14 +212,15 @@ def draw_marks(
             )
             gap = arm * 0.25
             for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                plot([x + dx * gap, x + dx * arm], [y + dy * gap, y + dy * arm])
+                plot([x + dx * gap, x + dx * arm], [y + dy * gap, y + dy * arm], c)
         else:
-            plot([x - arm, x + arm], [y, y])
-            plot([x, x], [y - arm, y + arm])
+            plot([x - arm, x + arm], [y, y], c)
+            plot([x, x], [y - arm, y + arm], c)
         anchor = ((x - arm) * s, (y - arm) * s, (x + arm) * s, (y + arm) * s)
-        labelled.append((anchor, point.get("label") or ""))
+        labelled.append((anchor, point.get("label") or "", c))
     for area in areas:
         x, y = float(area["x"]), float(area["y"])
+        c = of(area)
         w, h = float(area["width"]), float(area["height"])
         axes.add_patch(
             Rectangle(
@@ -198,23 +228,24 @@ def draw_marks(
                 w,
                 h,
                 fill=False,
-                edgecolor=colour,
+                edgecolor=c,
                 linewidth=width,
-                linestyle="--" if dashed else "-",
+                linestyle=style,
                 path_effects=halo,
             )
         )
         labelled.append(
-            ((x * s, y * s, (x + w) * s, (y + h) * s), area.get("label") or "")
+            ((x * s, y * s, (x + w) * s, (y + h) * s), area.get("label") or "", c)
         )
     for circle in circles:
         x, y, r = float(circle["x"]), float(circle["y"]), float(circle["radius"])
+        c = of(circle)
         axes.add_patch(
             Circle(
                 (x, y),
                 r,
                 fill=False,
-                ec=colour,
+                ec=c,
                 lw=width,
                 linestyle=style,
                 path_effects=halo,
@@ -224,10 +255,12 @@ def draw_marks(
             (
                 ((x - r) * s, (y - r) * s, (x + r) * s, (y + r) * s),
                 circle.get("label") or "",
+                c,
             )
         )
     for mark in lines:
         x1, y1, x2, y2 = (float(mark[k]) for k in ("x1", "y1", "x2", "y2"))
+        c = of(mark)
         if mark.get("arrow"):
             axes.add_patch(
                 FancyArrowPatch(
@@ -235,27 +268,27 @@ def draw_marks(
                     (x2, y2),
                     arrowstyle=f"-|>,head_length={line * 4},head_width={line * 2}",
                     mutation_scale=1,
-                    color=colour,
+                    color=c,
                     linewidth=width,
                     linestyle=style,
                     path_effects=halo,
                 )
             )
         else:
-            plot([x1, x2], [y1, y2])
+            plot([x1, x2], [y1, y2], c)
         if mark.get("measure"):
             # The ruler's end ticks, square to the line.
             length = math.hypot(x2 - x1, y2 - y1) or 1.0
             nx, ny = -(y2 - y1) / length * arm * 0.6, (x2 - x1) / length * arm * 0.6
             for ex, ey in ((x1, y1), (x2, y2)):
-                plot([ex - nx, ex + nx], [ey - ny, ey + ny])
+                plot([ex - nx, ex + nx], [ey - ny, ey + ny], c)
             cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
         else:
             cx, cy = x1, y1  # at the tail: the head stays clear
         anchor = ((cx * s) - line, (cy * s) - line, (cx * s) + line, (cy * s) + line)
-        labelled.append((anchor, mark.get("label") or ""))
-    for anchor, label in labelled:
-        placer.place(anchor, label, colour)
+        labelled.append((anchor, mark.get("label") or "", c))
+    for anchor, label, c in labelled:
+        placer.place(anchor, label, c)
 
 
 def load_marked_image(path: str, channels: Optional[Sequence[str]] = None):
@@ -394,6 +427,36 @@ def side_by_side(left: np.ndarray, right: np.ndarray) -> np.ndarray:
     out[: left.shape[0], : left.shape[1]] = left
     out[: right.shape[0], left.shape[1] + PAIR_GAP :] = right
     return out
+
+
+def image_stem(path: str) -> str:
+    """A file's name without its extensions (``.ome.tiff`` whole)."""
+    import os
+
+    name = os.path.basename(path)
+    for suffix in (".ome.tiff", ".ome.tif"):
+        if name.lower().endswith(suffix):
+            return name[: -len(suffix)]
+    return os.path.splitext(name)[0]
+
+
+def drawn_path(beside: str, name: str) -> str:
+    """Where a picture drawn on the image *beside* is kept: ``drawn/<name>.png``
+    in its folder."""
+    import os
+
+    return os.path.join(os.path.dirname(beside), "drawn", f"{name}.png")
+
+
+def save_drawn(rgb: np.ndarray, path: str) -> Dict[str, str]:
+    """Save the drawn picture *rgb* as the PNG *path*; answers its preview."""
+    import base64
+    import os
+
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as f:
+        f.write(png_bytes(rgb))
+    return {"image_b64_jpeg": base64.b64encode(jpeg_bytes(rgb, 1536)).decode()}
 
 
 # The widest a drawn picture is saved, each half of a pair too.

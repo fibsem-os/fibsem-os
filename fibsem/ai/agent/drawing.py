@@ -28,6 +28,7 @@ from fibsem.imaging.labels import Box
 from fibsem.imaging.marks import (
     PT,
     artist_box,
+    legend,
     load_marked_image,
     mark_colour,
     marked_picture,
@@ -63,16 +64,13 @@ def _mark(axes, shape: str, x: float, y: float, arm: float, colour, width) -> No
     axes.plot([x, x], [y - arm, y + arm], color=colour, linewidth=width)
 
 
-def _legend(axes, entries: List[Tuple[str, str, str]], out_width: int) -> List[Box]:
-    """*entries* (`legend_entries`) in a dark box at the top left, sized to
-    read at the card's width; answers the place it takes."""
+def _legend(axes, entries: List[Tuple[str, str, str]]) -> List[Box]:
+    """*entries* (`legend_entries`) in the pictures' legend at the top left;
+    answers the place it takes."""
     from matplotlib.colors import to_rgba
     from matplotlib.lines import Line2D
     from matplotlib.patches import Patch
 
-    if not entries:
-        return []
-    size = max(10.0, out_width / 42) * PT
     handles = []
     for colour, shape, text in entries:
         if shape not in (CROSS, TARGET, DOT):
@@ -92,25 +90,15 @@ def _legend(axes, entries: List[Tuple[str, str, str]], out_width: int) -> List[B
                 [],
                 linestyle="",
                 marker={CROSS: "+", TARGET: "o", DOT: "o"}[shape],
-                markersize=size * (0.6 if shape == DOT else 1.0),
+                # times the legend's font size
+                markersize=0.6 if shape == DOT else 1.0,
                 markeredgewidth=1.5,
                 color=colour,
                 markerfacecolor=colour if shape == DOT else "none",
                 label=text,
             )
         )
-    legend = axes.legend(
-        handles=handles,
-        loc="upper left",
-        fontsize=size,
-        labelcolor="white",
-        facecolor="black",
-        edgecolor="none",
-        framealpha=170 / 255,
-        handlelength=1.4,
-    )
-    legend.get_frame().set_boxstyle("round", pad=0.2)
-    return [artist_box(axes.figure, legend)]
+    return legend(axes, handles)
 
 
 def _chip(axes, text: str, out_width: int) -> List[Box]:
@@ -204,9 +192,7 @@ def picture_png(
             for shape in (CROSS, TARGET, DOT):
                 for x, y in layer.points(shape):
                     _mark(axes, shape, x, y, arm, layer.colour, line * 1.3 * PT)
-        return _legend(axes, legend_entries(layers), out_width) + _chip(
-            axes, chip, out_width
-        )
+        return _legend(axes, legend_entries(layers)) + _chip(axes, chip, out_width)
 
     rgb = marked_picture(
         image,

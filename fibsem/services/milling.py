@@ -1006,17 +1006,18 @@ class Milling(Service):
     ) -> Any:
         """*stages* drawn over the saved image at *image_path* (an ion image, to
         see where they would mill), or with no stages the patterns ``prepare``
-        drew. An RGB image the saved image's shape, scaled down to 1024 px wide;
-        reads the file and moves nothing."""
+        drew. An RGB image the saved image's shape, scaled down to 1024 px wide,
+        drawn as every milling picture is (`milling_picture`); reads the file
+        and moves nothing."""
         from fibsem.devices.wire import Frame
-        from fibsem.milling.patterning.plotting import render_milling_patterns
+        from fibsem.milling.patterning.picture import milling_picture
 
         image = FibsemImage.load(image_path)
         if stages is None:
             drawn = [_Drawn(self.drawn_patterns)] if self.drawn_patterns else []
         else:
             drawn = list(stages)
-        data = render_milling_patterns(image, drawn)
+        data = milling_picture(image, drawn, metadata_bar=False)
         return Frame(
             data,
             {

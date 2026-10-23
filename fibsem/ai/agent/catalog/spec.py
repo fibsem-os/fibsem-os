@@ -171,6 +171,7 @@ _WRITES_AT_WATCH = frozenset(
         "experiment_render_markers",  # saves its picture beside the image
         "experiment_draw_image",  # saves its picture beside the image
         "experiment_draw_pair",  # saves its picture beside the first image
+        "item_draw_milling",  # saves its picture beside the image
     }
 )
 

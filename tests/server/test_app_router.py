@@ -1029,6 +1029,16 @@ def test_render_markers_draws_the_items_on_any_beam_image(
     assert os.path.getsize(body["path"]) > 0
     assert base64.b64decode(body["plot"]["image_b64_jpeg"])[:2] == b"\xff\xd8"
     assert len(body["items"]) == 3 and body["linked"] is True
+    boxed = client.post(
+        url,
+        headers=AUTH,
+        json={"path": str(overview / "overview.tif"), "fov": True, "current": True},
+    )
+    assert boxed.status_code == 200, boxed.text
+    flag = client.post(
+        url, headers=AUTH, json={"path": str(overview / "overview.tif"), "fov": 1}
+    )
+    assert flag.status_code == 422
 
     # One of the agent's own overviews, on no grid's record.
     own = os.path.join(str(host.experiment.path), "overviews", "mine.tif")
@@ -1121,6 +1131,92 @@ def test_draw_pair_puts_two_images_side_by_side_at_one_scale(
     # Each at most its source's width: the overview 128 px, the after 128 px
     # scaled to half the overview's 128 (one scale), plus the gap.
     assert width == 128 + 8 + 64
+
+
+def _milling_item(host):
+    """The first item with the shipped protocol's milling tasks."""
+    import copy
+
+    import fibsem.applications.autolamella as autolamella
+
+    protocol = AutoLamellaTaskProtocol.load(
+        os.path.join(
+            os.path.dirname(autolamella.__file__), "protocol", "task-protocol.yaml"
+        )
+    )
+    item = host.experiment.positions[0]
+    for name, config in protocol.task_config.items():
+        item.task_config[name] = copy.deepcopy(config)
+    return item
+
+
+def test_item_draw_milling_draws_a_task_with_its_related_tasks_behind(
+    client, host, microscope
+):
+    from fibsem.structures import BeamType, ImageSettings
+
+    item = _milling_item(host)
+    url = f"/app/experiment/items/{item.name}/milling/drawn"
+    # No FIB image of the item yet: say to pass one.
+    none = client.post(url, headers=AUTH, json={"task_names": ["Rough Milling"]})
+    assert none.status_code == 404 and "image_path" in none.json()["detail"]["message"]
+
+    image = microscope.acquire_image(
+        ImageSettings(resolution=(384, 256), hfw=150e-6, beam_type=BeamType.ION)
+    )
+    path = os.path.join(str(item.path), "ref_ion_ib.tif")
+    image.save(path)
+    resp = client.post(
+        url,
+        headers=AUTH,
+        json={
+            "task_names": ["Rough Milling"],
+            "image_path": path,
+            "scan_direction": True,
+            "alignment_area": True,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["path"] == os.path.join(
+        str(item.path), "drawn", "ref_ion_ib-Rough Milling.png"
+    )
+    assert os.path.getsize(body["path"]) > 0
+    assert body["stages"] == ["Rough Mill 01", "Rough Mill 02", "Stress Relief Feature"]
+    # Fiducial and polishing, as the lamella editor shows them behind.
+    assert sorted(body["background"]) == ["Fiducial 01", "Polishing Mill 01"]
+
+    alone = client.post(
+        url,
+        headers=AUTH,
+        json={"task_names": "Polishing", "image_path": path, "background": "none"},
+    ).json()
+    assert alone["stages"] == ["Polishing Mill 01"] and alone["background"] == []
+
+    unknown = client.post(
+        url, headers=AUTH, json={"task_names": ["Nope"], "image_path": path}
+    )
+    assert unknown.status_code == 404
+    assert "Rough Milling" in unknown.json()["detail"]["task_names"]
+    assert client.post(url, headers=AUTH, json={}).status_code == 422
+    bad = client.post(
+        url,
+        headers=AUTH,
+        json={"task_names": ["Polishing"], "image_path": path, "background": "x"},
+    )
+    assert bad.status_code == 422
+
+
+def test_the_lamella_editor_s_related_tasks_are_the_lamella_s(host):
+    item = _milling_item(host)
+    related = [stage.name for stage in item.related_milling_stages("Polishing")]
+    assert related == [
+        "Fiducial 01",
+        "Rough Mill 01",
+        "Rough Mill 02",
+        "Stress Relief Feature",
+    ]
+    assert item.related_milling_stages("Setup Lamella Position") == []
 
 
 def test_fm_overview_previews_in_colour_and_places_markers(

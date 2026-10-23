@@ -1135,9 +1135,16 @@ def build_sidecar(client, capabilities):
             "experiment_get_image_stage_position", path=path, x=x, y=y, fx=fx, fy=fy
         )
 
-    def experiment_render_markers(path: str, grid_name: Optional[str] = None):
+    def experiment_render_markers(
+        path: str,
+        grid_name: Optional[str] = None,
+        fov: Optional[bool] = None,
+        current: Optional[bool] = None,
+    ):
         return _routed(
-            "experiment_render_markers", path=path, **_given(grid_name=grid_name)
+            "experiment_render_markers",
+            path=path,
+            **_given(grid_name=grid_name, fov=fov, current=current),
         )
 
     def experiment_draw_image(
@@ -1173,6 +1180,30 @@ def build_sidecar(client, capabilities):
                 marks=dict(marks) if marks is not None else None,
                 metadata_bar=metadata_bar,
                 channels=list(channels) if channels is not None else None,
+            ),
+        )
+
+    def item_draw_milling(
+        item_name: str,
+        task_names: List[str],
+        image_path: Optional[str] = None,
+        background: Optional[str] = None,
+        scan_direction: Optional[bool] = None,
+        alignment_area: Optional[bool] = None,
+        metadata_bar: Optional[bool] = None,
+    ):
+        return _routed(
+            "item_draw_milling",
+            item_name=item_name,
+            task_names=[task_names]
+            if isinstance(task_names, str)
+            else list(task_names),
+            **_given(
+                image_path=image_path,
+                background=background,
+                scan_direction=scan_direction,
+                alignment_area=alignment_area,
+                metadata_bar=metadata_bar,
             ),
         )
 
@@ -1766,6 +1797,7 @@ def build_sidecar(client, capabilities):
             experiment_render_markers,
             experiment_draw_image,
             experiment_draw_pair,
+            item_draw_milling,
             experiment_get_image_pixels,
             grid_set_quality,
             grid_set_note,

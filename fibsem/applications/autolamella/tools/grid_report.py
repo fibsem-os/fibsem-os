@@ -31,6 +31,7 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
 )
+from fibsem.config import POSITION_FOV_HEIGHT, POSITION_FOV_WIDTH
 from fibsem.fm.preview import is_fluorescence_image
 from fibsem.fm.structures import FluorescenceImageMetadata, safe_ome_from_tiff
 from fibsem.geometry.projection import BeamStageProjection, FMStageProjection
@@ -50,13 +51,6 @@ logger = logging.getLogger(__name__)
 # The output roles a grid task records, and the modality each stands for.
 OVERVIEW_ROLES = ("overview_sem", "overview_fib", "overview_fm")
 _MODALITY = {"overview_sem": "SEM", "overview_fib": "FIB", "overview_fm": "FM"}
-
-# The box drawn around a marked lamella: the field of view a lamella image
-# covers. The same size the Positions view draws
-# (`fibsem.ui.widgets.stored_overview_canvas.POSITION_FOV_*`), restated here so
-# this module stays free of `fibsem.ui`; keep the two in step.
-LAMELLA_BOX_WIDTH = 100e-6
-LAMELLA_BOX_HEIGHT = LAMELLA_BOX_WIDTH * (1024 / 1536)
 
 
 @dataclass
@@ -257,8 +251,8 @@ def _mark(
                 name=lamella.name,
                 x=shape[1] / 2 + dx / pixel_size,
                 y=shape[0] / 2 + dy / pixel_size,
-                width=LAMELLA_BOX_WIDTH / pixel_size,
-                height=LAMELLA_BOX_HEIGHT / pixel_size,
+                width=POSITION_FOV_WIDTH / pixel_size,
+                height=POSITION_FOV_HEIGHT / pixel_size,
             )
         )
     return marks, unmarked
