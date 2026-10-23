@@ -13,13 +13,13 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.ui import window as window_module  # noqa: E402
-from fibsem.applications.autolamella.ui.common import run_refusal  # noqa: E402
 from fibsem.applications.autolamella.ui.protocol import (  # noqa: E402
     protocol_tab as protocol_module,
 )
 from fibsem.applications.autolamella.ui.workflow import (
     tab as workflow_module,  # noqa: E402
 )
+from fibsem.ui import run_refusal  # noqa: E402
 from fibsem.workflows.runner import WorkflowRunner  # noqa: E402
 from fibsem.workflows.task_config import TaskPlan  # noqa: E402
 from tests.protocols import planned, task_protocol  # noqa: E402

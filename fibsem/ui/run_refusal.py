@@ -1,4 +1,4 @@
-"""The window's side of `WorkflowRunner.run_refusal`: an edit no run may see
+"""A window's side of `WorkflowRunner.run_refusal`: an edit no run may see
 change under it is refused while one runs, with the App Server's words."""
 
 from typing import Any

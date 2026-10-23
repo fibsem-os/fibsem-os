@@ -28,7 +28,6 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaWorkflowConfig,
     Lamella,
 )
-from fibsem.applications.autolamella.ui.common.run_refusal import refused_during_run
 from fibsem.applications.autolamella.ui.dialogs.create_experiment import (
     create_experiment_dialog,
 )
@@ -59,6 +58,7 @@ from fibsem.ui.fm.widgets import FMImageViewerWidget
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.run.attention import AttentionRouter
 from fibsem.ui.run.view import RunView
+from fibsem.ui.run_refusal import refused_during_run
 from fibsem.ui.stylesheets import GRAY_ICON_COLOR
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 from fibsem.ui.widgets.microscope_panel import MicroscopePanel
