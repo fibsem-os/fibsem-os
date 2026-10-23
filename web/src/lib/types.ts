@@ -8,6 +8,8 @@ export interface Capabilities {
   routers: { microscope: boolean; services: boolean; app: boolean };
   app_name?: string;
   level?: string;
+  // the optional /app parts the app serves (fibsem.server.parts)
+  parts?: string[];
   fibsem?: { version: string; path: string };
 }
 
@@ -418,4 +420,56 @@ export interface GridMarkers {
   linked?: boolean;
   reason?: string;
   error?: string;
+}
+
+/** One recorded action of the experiment replay. */
+export interface ReplayRow {
+  index: number;
+  time: string;
+  kind: string;
+  summary: string;
+  item: string | null;
+  item_type: string | null;
+  task: string | null;
+  step: string | null;
+  // "task", "agent" or "operator"; null when the record doesn't say
+  actor: string | null;
+  duration: number | null;
+}
+
+/** GET /app/experiment/replay: every recorded action, in time order. */
+export interface ReplayTimeline {
+  available: boolean;
+  source: string | null;
+  start: string | null;
+  end: string | null;
+  counts: Record<string, number>;
+  events: ReplayRow[];
+  error: string | null;
+}
+
+/** A replay image and what is drawn over it, in fractions of the image (+y down). */
+export interface ReplayImage {
+  path: string;
+  time: string;
+  item: string | null;
+  unsaved_since: number;
+  milling: { name: string; current: boolean; outlines: number[][][] }[];
+  spots: number[][];
+  proposed: number[][];
+  decided: number[][];
+  areas_proposed: number[][];
+  areas_decided: number[][];
+}
+
+/** GET /app/experiment/replay/{index}: the instrument at one recorded action. */
+export interface ReplayView {
+  available: boolean;
+  index: number;
+  event: ReplayRow | null;
+  sem: ReplayImage | null;
+  fib: ReplayImage | null;
+  fm: string | null;
+  stage_position: Record<string, number | string | null> | null;
+  error: string | null;
 }

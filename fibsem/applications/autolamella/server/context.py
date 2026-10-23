@@ -26,9 +26,11 @@ edit runs where the session edits the experiment, and a window redraws on the
 experiment's events and ``session.changed``.
 """
 
+import functools
 import logging
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import fibsem.config as fibsem_cfg
@@ -49,6 +51,8 @@ from fibsem.server.responses import (
     ExperimentSummary,
     ItemDetail,
     ProtocolView,
+    ReplayTimeline,
+    ReplayView,
     SummaryRow,
     TaskOutputs,
 )
@@ -359,6 +363,26 @@ class AutoLamellaAppContext(AppContext):
             **result.to_dict(),
             "plot": {"image_b64_jpeg": base64.b64encode(result.plot_jpeg()).decode()},
         }
+
+    # --- replay: the recorded actions, stepped through on the web page ---------
+
+    @functools.cached_property
+    def _replay_reader(self):
+        from fibsem.applications.autolamella.server.replay import ReplayReader
+
+        return ReplayReader()
+
+    def replay(self) -> ReplayTimeline:
+        experiment = self._experiment
+        if experiment is None:
+            return ReplayTimeline(available=False, error="No experiment is open.")
+        return self._replay_reader.timeline(Path(experiment.path))
+
+    def replay_scene(self, index: int, item: Optional[str] = None):
+        experiment = self._experiment
+        if experiment is None:
+            return ReplayView(available=False, error="No experiment is open.")
+        return self._replay_reader.view(Path(experiment.path), index, item)
 
     # --- grids: the screening read model (FIB-876) ----------------------------
 

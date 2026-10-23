@@ -311,15 +311,25 @@ class ReplayEvent:
         return (self.data.get("metadata") or {}).get("image") or self.data
 
     @property
-    def field_size(self) -> Optional[Tuple[float, float]]:
-        """The (width, height) in metres an image covers, if recorded."""
-        settings = self._image_settings
+    def resolution(self) -> Optional[Tuple[float, float]]:
+        """The (width, height) in pixels of an image, if recorded."""
         try:
-            hfw = float(settings["hfw"])
-            w, h = (float(v) for v in settings["resolution"])
+            w, h = (float(v) for v in self._image_settings["resolution"])
         except (KeyError, TypeError, ValueError):
             return None
-        return (hfw, hfw * h / w) if w else None
+        return (w, h) if w and h else None
+
+    @property
+    def field_size(self) -> Optional[Tuple[float, float]]:
+        """The (width, height) in metres an image covers, if recorded."""
+        try:
+            hfw = float(self._image_settings["hfw"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        if self.resolution is None:
+            return None
+        w, h = self.resolution
+        return (hfw, hfw * h / w)
 
     @property
     def is_full_frame(self) -> bool:
