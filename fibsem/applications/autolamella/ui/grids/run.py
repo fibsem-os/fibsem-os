@@ -33,9 +33,6 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.structures import Experiment
-from fibsem.applications.autolamella.tools.grid_report_pdf import (
-    report_unavailable_reason,
-)
 from fibsem.applications.autolamella.ui.grids.card import grid_headline
 from fibsem.applications.autolamella.workflows.estimate import exchanges_for
 from fibsem.structures import GridInventoryEntry, GridSlotState
@@ -523,8 +520,8 @@ class GridRunOptionsPopup(OptionsPopup):
             "run. A Stop leaves it loaded."
         )
         self.report_check = QCheckBox("Write the grid screening report at the end")
-        self._report_tooltip = (
-            "Writes grid-screening-report.pdf to the experiment folder, after "
+        self.report_check.setToolTip(
+            "Writes the grid screening report to the experiment folder, after "
             "the unload. No grid has a verdict yet then: write it again once "
             "they do."
         )
@@ -532,7 +529,6 @@ class GridRunOptionsPopup(OptionsPopup):
         # operator has stopped watching; the report only writes a file, so it is on.
         self.unload_check.setChecked(False)
         self.report_check.setChecked(True)
-        self._report_wanted = True
         for box in (self.unload_check, self.report_check):
             box.setStyleSheet(
                 f"QCheckBox {{ color: {TEXT_COLOR}; font-size: 12px; "
@@ -541,24 +537,13 @@ class GridRunOptionsPopup(OptionsPopup):
             )
             box.toggled.connect(self.changed)
             self.body.addWidget(box)
-        self.set_availability(can_unload=False, report_unavailable="")
+        self.set_availability(can_unload=False)
 
-    def set_availability(self, can_unload: bool, report_unavailable: str) -> None:
+    def set_availability(self, can_unload: bool) -> None:
         """What this setup can do at the end of a run: an unload only with a
-        loader to return the grid to, the report only where reportlab is
-        installed (`report_unavailable` says why not). The choices are kept, so
-        they come back with the microscope."""
+        loader to return the grid to. The choice is kept, so it comes back with
+        the microscope."""
         self.unload_check.setVisible(can_unload)
-        report = self.report_check
-        # A report that cannot be written reads unticked, not ticked and greyed:
-        # the operator's choice is put back when it can be written again.
-        if report_unavailable and report.isEnabled():
-            self._report_wanted = report.isChecked()
-            report.setChecked(False)
-        elif not report_unavailable and not report.isEnabled():
-            report.setChecked(self._report_wanted)
-        report.setEnabled(not report_unavailable)
-        self.report_check.setToolTip(report_unavailable or self._report_tooltip)
         self.changed.emit()
 
     def unload_at_end(self) -> bool:
@@ -567,7 +552,7 @@ class GridRunOptionsPopup(OptionsPopup):
 
     def report_at_end(self) -> bool:
         """Whether a run writes the grid screening report as it ends."""
-        return self.report_check.isEnabled() and self.report_check.isChecked()
+        return self.report_check.isChecked()
 
 
 class GridWorkflowWidget(QWidget):
@@ -655,7 +640,6 @@ class GridWorkflowWidget(QWidget):
         stage = self.stage
         self.options.set_availability(
             can_unload=stage is not None and stage.magazine is not None,
-            report_unavailable=report_unavailable_reason(),
         )
         self.refresh()
 
@@ -670,10 +654,7 @@ class GridWorkflowWidget(QWidget):
     def _refresh_settings_button(self) -> None:
         """The ⚙ in the accent colour while an option is off its default, as the
         Lamella page's is while something in it is set."""
-        report = self.options.report_check
-        changed = self.unload_at_end() or (
-            report.isEnabled() and not report.isChecked()
-        )
+        changed = self.unload_at_end() or not self.report_at_end()
         self.btn_settings.setIcon(
             fibsem_icon(
                 "mdi:cog-outline",

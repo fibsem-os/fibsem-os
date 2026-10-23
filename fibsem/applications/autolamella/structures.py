@@ -779,14 +779,14 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
         return self.task_protocol.grid_tasks
 
     def write_grid_report(self, inventory: Any) -> Path:
-        """Write the grid screening report, the file Tools -> Reporting writes:
-        what a grid run's end-of-run report calls. ``inventory`` is the stage's
-        own record, for the slot column."""
-        from fibsem.applications.autolamella.tools.grid_report_pdf import (
-            generate_grid_report,
+        """Write the grid screening report, and its PDF where a browser can print
+        one: what Tools -> Reporting, the Grids tab and a grid run's end all
+        call. ``inventory`` is the stage's own record, for the slot column."""
+        from fibsem.applications.autolamella.tools.grid_report_html import (
+            write_grid_report,
         )
 
-        return Path(generate_grid_report(self, inventory=inventory))
+        return write_grid_report(self, inventory=inventory)
 
     def _release_grid(self, grid: GridRecord) -> None:
         """A grid no longer tracked: its lamellae are orphaned, not deleted."""
