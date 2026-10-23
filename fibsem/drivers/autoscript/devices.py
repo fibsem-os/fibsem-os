@@ -2273,7 +2273,9 @@ class _OnTheFMChannel(Device):
 class AutoscriptFMFilterSet(_OnTheFMChannel, FilterSet):
     """The excitation is held here, as the old filter set holds it: AutoScript's
     emission type is read-only, so the colour is applied when the light starts. The
-    emission filter is the camera's filter type, reflection or fluorescence."""
+    emission filter is the camera's filter type, reflection or fluorescence. It is held
+    too: AutoScript applies the filter type only during an acquisition and doesn't
+    store it, so reading it back is never right."""
 
     needs_channel = frozenset({"emission_filter"})
 
@@ -2282,6 +2284,7 @@ class AutoscriptFMFilterSet(_OnTheFMChannel, FilterSet):
 
         super().__init__("filter_set", channel, **kwargs)
         self.emission_type = CameraEmissionType.RED
+        self._emission_filter: EmissionFilter = REFLECTION
 
     def read_excitation_wavelength(self) -> float:
         color_to_wavelength = _color_to_wavelength()
@@ -2305,12 +2308,7 @@ class AutoscriptFMFilterSet(_OnTheFMChannel, FilterSet):
         return ParameterMetadata(choices=sorted(AVAILABLE_FM_WAVELENGTHS))
 
     def read_emission_filter(self) -> EmissionFilter:
-        from autoscript_sdb_microscope_client.enumerations import CameraFilterType
-
-        mode = self._channel.read(lambda: self._channel.settings().filter.type.value)
-        if mode is CameraFilterType.FLUORESCENCE:
-            return MULTI_BAND
-        return REFLECTION
+        return self._emission_filter
 
     def write_emission_filter(self, value: EmissionFilter) -> None:
         from autoscript_sdb_microscope_client.enumerations import CameraFilterType
@@ -2322,6 +2320,7 @@ class AutoscriptFMFilterSet(_OnTheFMChannel, FilterSet):
             settings.filter.type.value = CameraFilterType.REFLECTION
         else:
             settings.filter.type.value = CameraFilterType.FLUORESCENCE
+        self._emission_filter = value
 
     def metadata_emission_filter(self) -> ParameterMetadata:
         return ParameterMetadata(choices=[REFLECTION, MULTI_BAND])

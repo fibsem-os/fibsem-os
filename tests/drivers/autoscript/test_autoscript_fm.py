@@ -27,6 +27,12 @@ What has to match:
 - every FM call made with the FM's view selected, and the view left where the old
   code left it.
 
+The one departure is the emission filter: the driver holds it instead of reading
+AutoScript's filter type, which AutoScript applies only during an acquisition and
+doesn't store. The old class read it, so where the fake's filter is on fluorescence its
+pins report the quad-band filter and the driver reports reflection, its filter until
+one is set.
+
 The fake SDK has to be in place before the Thermo FM drivers first import it, so
 the recording runs in its own interpreter (``tests/fixtures/autoscript_fm_parity.py``).
 Nothing here has run on an instrument.
@@ -52,6 +58,14 @@ PARTS = ("camera", "light", "filter", "objective")
 # The setters that check before writing, so hold the view across the check.
 CHECKED_WRITES = ("camera set exposure_time", "camera set binning")
 FM_VIEW = 3
+# The old class read the filter type back; the driver holds the filter instead.
+FILTER_READ = "detector.camera_settings.filter.type.value"
+HELD_FILTER = (
+    "filter get emission",
+    "filter reads",
+    "acquire current settings",
+    "acquire_image current settings",
+)
 
 
 @pytest.fixture(scope="module")
@@ -136,6 +150,10 @@ def _reads(log):
     return sorted({entry[1] for entry in log if entry[0] == "get"})
 
 
+def _held(case):
+    return _name(case) in HELD_FILTER
+
+
 def test_the_recording_covers_every_part_and_both_views(recording):
     assert len(recording) > 300
     assert {case["group"] for case in recording} == {*PARTS, "acquire", "live"}
@@ -152,9 +170,42 @@ def test_every_case_has_the_same_result(recording):
     differ = [
         (case["key"], case["old"][0], case["new"][0])
         for case in recording
-        if case["old"][0] != case["new"][0]
+        if not _held(case) and case["old"][0] != case["new"][0]
     ]
     assert differ == []
+
+
+def _old_result(case):
+    return case["old"]["result"] if isinstance(case["old"], dict) else case["old"][0]
+
+
+def test_the_emission_filter_is_held_not_read_back(recording, api):
+    # Nothing has set the filter, so every case reads as the old class did with the
+    # filter on reflection.
+    cases = recording + api
+    on_reflection = {
+        case["key"]: _old_result(case)
+        for case in cases
+        if "filter=REFLECTION" in case["key"]
+    }
+    held = [case for case in cases if _held(case)]
+    assert {_name(case) for case in held} == set(HELD_FILTER)
+    differ = [
+        case["key"]
+        for case in held
+        if case["new"][0]
+        != on_reflection[
+            case["key"].replace("filter=FLUORESCENCE", "filter=REFLECTION")
+        ]
+    ]
+    assert differ == []
+    reads = [
+        (case["key"], entry)
+        for case in recording + api
+        for entry in case["new"][1]
+        if entry[0] == "get" and entry[1] == FILTER_READ
+    ]
+    assert reads == []
 
 
 def test_some_cases_raise_on_both_sides(recording):
@@ -171,12 +222,21 @@ def test_some_cases_raise_on_both_sides(recording):
     } <= raised
 
 
+def test_the_emission_filter_reads_back_what_was_set(facts):
+    assert facts["emission_filter_after_writes"] == [
+        "REFLECTION",
+        "MULTI_BAND",
+        "REFLECTION",
+    ]
+
+
 def test_the_parts_make_the_same_calls(recording):
     differ = [
         case["key"]
         for case in recording
         if case["group"] in PARTS
         and not _name(case).startswith(CHECKED_WRITES)
+        and not _held(case)
         and case["old"][1] != case["new"][1]
     ]
     assert differ == []
@@ -208,7 +268,8 @@ def test_acquisitions_read_the_same_settings(recording):
     differ = [
         (case["key"], _reads(case["old"][1]), _reads(case["new"][1]))
         for case in acquisitions
-        if _reads(case["old"][1]) != _reads(case["new"][1])
+        if [r for r in _reads(case["old"][1]) if r != FILTER_READ]
+        != _reads(case["new"][1])
     ]
     assert differ == []
 
@@ -368,7 +429,7 @@ def test_the_api_returns_the_same(api):
     differ = [
         (case["key"], case["old"]["result"], case["new"][0])
         for case in api
-        if case["old"]["result"] != case["new"][0]
+        if not _held(case) and case["old"]["result"] != case["new"][0]
     ]
     assert differ == []
 
@@ -390,7 +451,8 @@ def test_the_api_makes_the_same_changes_in_the_same_order(api):
 def test_the_api_reads_the_same_settings_but_limits_once(api):
     differ = []
     for case in api:
-        old, new = set(case["old"]["reads"]), set(_reads(case["new"][1]))
+        old = set(case["old"]["reads"]) - {FILTER_READ}
+        new = set(_reads(case["new"][1]))
         if not new <= old or not (old - new) <= set(CACHED_AT_CONNECT):
             differ.append((case["key"], sorted(old ^ new)))
     assert differ == []
