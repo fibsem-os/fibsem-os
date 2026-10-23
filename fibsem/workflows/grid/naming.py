@@ -1,5 +1,5 @@
 """A grid's name: when it may change, and changing it on the hardware and the
-record together (FIB-1137).
+record together.
 
 A grid is named on its slot, where the hardware keeps it, and on its record in
 the experiment, which links to the slot by that name. Once a task has run on
@@ -39,8 +39,8 @@ NAME_FIXED_REASON = (
 
 
 def grid_rename_refusal(experiment, old: str, new: str) -> str:
-    """Why grid *old* may not be renamed *new*, or "": the Sample view's rules
-    (FIB-1137). A grid that has run keeps its name, and no two grids share one."""
+    """Why grid *old* may not be renamed *new*, or "": the Sample view's rules.
+    A grid that has run keeps its name, and no two grids share one."""
     record = experiment.get_grid_by_name(old)
     if record is not None and grid_has_run(record):
         return f"{old} cannot be renamed. {NAME_FIXED_REASON}"

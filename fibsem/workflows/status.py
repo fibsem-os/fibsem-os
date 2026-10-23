@@ -2,7 +2,7 @@
 payloads on the runner's ``status`` that report it.
 
 ``WorkflowStatusUpdate`` began as the record nested inside the dict
-``workflow_update_signal``'s ``status`` key; that signal is gone (FIB-826), and
+``workflow_update_signal``'s ``status`` key; that signal is gone, and
 the record now rides inside :class:`WorkflowStatusEvent`.
 
 Unlike the other progress signals, there was no vocabulary to design here. ``status``
@@ -65,7 +65,7 @@ class TaskState:
     # repeats its tasks; None for one that does not.
     iteration: Optional[int] = None
     # When the run started and ended: aware datetimes, written as ISO 8601 with
-    # their offset (FIB-1197). Files written before that hold POSIX floats, which
+    # their offset. Files written before that hold POSIX floats, which
     # read as this machine's zone -- the clock time they always displayed.
     start_timestamp: Optional[Timestamp] = field(default_factory=now)
     end_timestamp: Optional[Timestamp] = None
@@ -168,8 +168,8 @@ class WorkflowStatusUpdate:
 
         Total by construction, and that is the point rather than politeness. This
         runs inside a queued Qt slot, where PyQt5 turns any escaping exception into
-        ``qFatal`` -- the process aborts mid-run and the abort reaches no logfile
-        (FIB-329). This signal has already killed the app that way once, over a
+        ``qFatal`` -- the process aborts mid-run and the abort reaches no logfile.
+        This signal has already killed the app that way once, over a
         missing ``msg`` key. So every field has a default and nothing here indexes.
 
         Deleted once the producer flips; until then the dict is the live path.
@@ -259,14 +259,14 @@ class Hold:
     # the lamella/task pairs waiting, when there are some
     items: Tuple[str, ...] = ()
     # an agent at Drive is listening and expected to decide it: the operator
-    # is not needed unless it goes quiet or is stopped (FIB-1498)
+    # is not needed unless it goes quiet or is stopped
     agent_deciding: bool = False
 
 
 def take_back_finish(item: Any, task_id: str, status: TaskStatus, message: str) -> None:
     """Record that a run which finished did not end Completed after all: what
-    came after its work -- settling its result, saving the experiment -- failed
-    (FIB-1374). The item's task_state says so, and so does the run's history
+    came after its work -- settling its result, saving the experiment -- failed.
+    The item's task_state says so, and so does the run's history
     entry, which post_task froze as Completed: replaced, so the run has one
     entry and a later save writes the failure, not the success. A run with no
     entry yet gets one.

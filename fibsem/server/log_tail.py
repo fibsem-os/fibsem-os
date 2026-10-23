@@ -1,4 +1,4 @@
-"""The session's ``logfile.log`` over the App Server (FIB-905).
+"""The session's ``logfile.log`` over the App Server.
 
 What an agent asks of the log is "what was logged while this run was going",
 so the read is a time window: ``since``/``until``, or a run's own start and end

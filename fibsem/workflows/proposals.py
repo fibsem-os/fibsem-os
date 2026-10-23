@@ -55,8 +55,8 @@ from fibsem.util.timestamps import now
 # briefly by both, so neither serialises a half-applied write of the other.
 EXPERIMENT_WRITE_LOCK = threading.RLock()
 
-# Where a model put the features it was asked to find, for someone to correct:
-# asked while the task runs (FIB-1025). Its value is the feature set, keyed by name, so a delta is per
+# Where a model put the features it was asked to find, for someone to correct: asked
+# while the task runs. Its value is the feature set, keyed by name, so a delta is per
 # feature and not one number for the lot.
 DETECTION = "detection"
 # The instrument's state as a task arrived at it, for the operator to confirm
@@ -69,7 +69,7 @@ STATE = "state"
 # The reduced area the alignment reference is taken in: a rectangle in
 # fractions of the FIB frame, dragged on the last FIB image. Asked mid-task,
 # right before that reference is acquired, so it is written nowhere: the
-# task acquires with the area it is handed (FIB-1053).
+# task acquires with the area it is handed.
 ALIGNMENT_AREA = "alignment_area"
 # One pass of a loop the task runs and asks about again: a mill, a spot burn.
 # The value is what the pass would run (the milling config, the spot-burn
@@ -84,12 +84,12 @@ SPOT_BURN = "spot_burn"
 # (``poi_sync_plan``): a lamella's milling patterns, a volume position's slice.
 POINT_OF_INTEREST = "point_of_interest"
 # What an agent at Assist asks to do: its tool calls, run in order once the
-# operator approves (FIB-1283). About the experiment, not an item; the value
+# operator approves. About the experiment, not an item; the value
 # is the calls with the operator's lines for each, written nowhere.
 ACTIONS = "actions"
 
-# What a pass may be decided as. Each has one meaning whenever it is asked
-# (FIB-1297): ``run`` runs the value as decided and asks again; ``edit`` takes
+# What a pass may be decided as. Each has one meaning whenever it is asked:
+# ``run`` runs the value as decided and asks again; ``edit`` takes
 # the value as decided and asks again, nothing runs; ``skip`` goes on without
 # running it (before any pass); ``accept`` goes on with what was run (after a
 # pass, or when running is off).
@@ -345,7 +345,7 @@ class PreparedWrite:
     def nothing(cls) -> "PreparedWrite":
         """A value that is checked and written nowhere: its consumer is not the
         item. An in-run answer is the first -- the task parked on it applies it
-        (FIB-1025) -- and an answer given at the instrument, already applied by
+        -- and an answer given at the instrument, already applied by
         the hardware when it is recorded, is the same shape."""
         return cls(apply=lambda: [], undo=lambda: None)
 
@@ -414,11 +414,11 @@ def prepare_values(
 def _prepare_features(experiment: Any, item: Any, value: Any) -> PreparedWrite:
     """Checked, and written nowhere.
 
-    A value decided after its task has ended (a point of interest, say) is
-    written to the item, because there is nobody left to act on the answer. A detection is asked *during* a task (FIB-1025): the consumer
-    is the task itself, parked on the answer, which applies it with the
-    instrument in the state it asked in. Writing it to the item here would be
-    a second, later application of the same correction.
+    A value decided after its task has ended (a point of interest, say) is written to
+    the item, because there is nobody left to act on the answer. A detection is asked
+    *during* a task: the consumer is the task itself, parked on the answer, which
+    applies it with the instrument in the state it asked in. Writing it to the item here
+    would be a second, later application of the same correction.
 
     So the value is still checked -- a malformed answer must be refused before
     the run is released on it -- and then left for its waiter.
@@ -667,7 +667,7 @@ class Decision:
     actor: SavedActor
     values: Values = field(default_factory=dict)  # confirmed values
     reason: str = ""  # required on Rejected
-    # Aware, written as ISO 8601 with its offset (FIB-1197); older records hold a
+    # Aware, written as ISO 8601 with its offset; older records hold a
     # POSIX float, which reads as this machine's zone. None when the record has none.
     timestamp: Optional[Timestamp] = field(default_factory=now)
     # Where it was decided: "workflow" (in the window, or by the task itself),
@@ -767,11 +767,11 @@ class Proposal:
     values: Values = field(default_factory=dict)
     provenance: Dict[str, Any] = field(default_factory=dict)
     decisions: List[Decision] = field(default_factory=list)
-    # As Decision.timestamp (FIB-1197).
+    # As Decision.timestamp.
     created_at: Optional[Timestamp] = field(default_factory=now)
     # Whether the task that made this is parked on it right now, waiting to be
     # told the answer -- an in-run question rather than a result left for
-    # later (FIB-1025). It is the one thing that lets a decision land on a
+    # later. It is the one thing that lets a decision land on a
     # running task, so it is deliberately **not persisted**: a question only
     # exists while something is waiting on it, and a flag that survived a
     # reload would claim a waiter that is gone.
@@ -780,7 +780,7 @@ class Proposal:
     )
     # Whether the asker fills in the values of an "as it stands" confirmation
     # once it lands (``BaseTask.ask`` with ``decided``). Not persisted: the
-    # record holds the decision once, with its values (FIB-1491).
+    # record holds the decision once, with its values.
     filling_in: Annotated[bool, Field(exclude=True)] = field(
         default=False, compare=False, repr=False
     )

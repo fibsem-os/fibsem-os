@@ -8,7 +8,7 @@ SharkSEM is one socket and is NOT thread-safe. UI signal callbacks (e.g.
 stage.position.changed -> update_ui) run on the main thread while worker threads drive
 movements and acquisition, so two threads can hit the socket at once and corrupt the
 byte stream (empty strings -> ValueError, or None -> TypeError). Every SDK call holds
-``lock`` (FIB-786).
+``lock``.
 
 This module imports nothing from the SDK; the Tescan backend's guarded import is the
 only one.
@@ -102,9 +102,7 @@ class TescanConnection:
         """Pause before an ion image that directly follows an electron image.
 
         Requested acquisitions only: the live re-acquire loop passes a beam type, not
-        image settings, and does not reach this. The pause used to sit in the shared
-        `acquire.take_reference_images` behind a Tescan check; it is the driver's
-        business, and here it also covers any other electron-then-ion pair.
+        image settings, and does not reach this. Covers any electron-then-ion pair.
         """
         previous = self._last_requested_beam_type
         self._last_requested_beam_type = beam_type

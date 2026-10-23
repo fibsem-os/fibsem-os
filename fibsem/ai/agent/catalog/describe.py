@@ -1,4 +1,4 @@
-"""What each requested action does, in the operator's words (FIB-1283).
+"""What each requested action does, in the operator's words.
 
 The approval popover shows every action of a request as two lines: what it acts
 on (an item and task, the stage, a beam) and the change. The server writes them
@@ -11,7 +11,7 @@ own (``command(line=...)``), whichever tool calls it. A config edit shows each
 dotted path as old -> new, the old value read from the same document the edit
 patches, when ``read`` can supply it. Where the app can reach the typed config
 (``describe``), each path reads as its form names it, in display units: "Rough
-Mill 01 · trench depth 2 µm → 2.5 µm" (FIB-1403).
+Mill 01 · trench depth 2 µm → 2.5 µm".
 """
 
 import re
@@ -40,7 +40,7 @@ def describe_actions(
 
     A line that can only fail when it runs carries ``refused``, why: a grid
     load the inventory doesn't hold, with no inventory scan before it. The
-    request is refused at filing for it (FIB-1493)."""
+    request is refused at filing for it."""
     from fibsem.services.sample_handling import NOT_IN_INVENTORY
 
     described = []

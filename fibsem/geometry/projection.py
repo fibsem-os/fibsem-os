@@ -71,10 +71,10 @@ def surface_foreshortening(
     ratio is the cosine. Verified against all six beam/orientation pairs at a 35 degree
     pre-tilt, where it recovers cos 0, cos 52, cos 23 and cos 75 exactly.
 
-    Distinct from *stage-axis* spans, which is what the overlays used to use: stepping
+    Distinct from *stage-axis* spans: stepping
     stage y with no z is a move **through** the tilted surface rather than along it, and
     inflates every length by `1 / cos(pre_tilt)`. That is invisible at a pre-tilt of 0 --
-    every Arctis, and every test written against one -- and 22% at 35 degrees (FIB-657).
+    every Arctis, and every test written against one -- and 22% at 35 degrees.
     """
     moved = projection.from_plane(0.0, _FORESHORTENING_PROBE, base)
     travel = float(
@@ -139,7 +139,7 @@ class FMStageProjection:
 
         And, at present, an acquired tile has no geometry to read: the metadata
         constructors that combine channels and z-planes rebuild it field by field, and
-        a stitched mosaic inherits the gap (FIB-416). Taking it from the displayed
+        a stitched mosaic inherits the gap. Taking it from the displayed
         image made everything drawn from a stage position vanish the moment an overview
         was acquired.
         """
@@ -355,8 +355,8 @@ class BeamStageProjection:
         so the two cannot drift: it is what the tab being replaced uses, and matching it
         exactly is what makes the swap a swap. The half turn is centred on
         ``rotation_centre``, which the caller takes from the geometry the image was
-        acquired under; None (no centre recorded) turns about the stage origin
-        (FIB-1081).
+        acquired under; None (no centre recorded) turns about the stage origin.
+
 
         Not applied in :meth:`from_plane`: a click resolves to a position *at the
         overview's own orientation*, which is what `project_stable_move` returns too.
@@ -437,7 +437,7 @@ def lifted(
 
     A point on an overview resolves onto the plane it was taken on, at the height
     it was taken at. Setting coincidence or loading another grid lifts the stage
-    off that plane, and a lamella marked there must be lifted with it (FIB-1007).
+    off that plane, and a lamella marked there must be lifted with it.
     The lift is judged from the electron column, which is blind to the vertical
     move a coincidence correction makes. It is a vector, not a height: on a tilted
     stage it is y as well as z.
@@ -470,7 +470,7 @@ def plane_point_to_stage(
     stage: Optional[FibsemStagePosition] = None,
 ) -> FibsemStagePosition:
     """The stage position at (*dx*, *dy*) metres on the plane through *origin*:
-    how every overview resolves a click (FIB-1452).
+    how every overview resolves a click.
 
     Given where the *stage* is now (a beam projection only), the answer is lifted
     by however far the stage sits off that plane (:func:`lifted`) and posed like
@@ -512,7 +512,7 @@ def reproject_pixel(source, target, x: float, y: float) -> Tuple[float, float]:
     were taken (:func:`image_point_to_stage`); otherwise as the same offset from
     the image centre, in metres, which holds for a change of field of view at
     one stage position. The one way an agent's value measured on one frame is
-    drawn on the frame a view shows now (FIB-1411).
+    drawn on the frame a view shows now.
     """
 
     def pixel_size(image) -> float:
