@@ -93,8 +93,9 @@ def _flag(mark: Dict[str, Any], name: str) -> bool:
 _SHAPE = (
     "marks is {points: [{x, y, shape?, label?}], areas: [{x, y, width, height, "
     "label?}], circles: [{x, y, radius, label?}], lines: [{x1, y1, x2, y2, "
-    "arrow?, measure?, label?}]}, in the image's full-resolution pixels from its "
-    "top left; shape is cross or target."
+    "arrow?, measure?, label?}], crop?}, in the image's full-resolution pixels from "
+    "its top left, or as read off a crop's picture when crop names it (a cell, B3, "
+    "or the box [x, y, width, height]); shape is cross or target."
 )
 
 
@@ -243,13 +244,44 @@ def _with_stage(
     return marks
 
 
+def _uncropped(marks: Any) -> Any:
+    """*marks* without the crop they may be given in."""
+    if isinstance(marks, dict) and "crop" in marks:
+        return {key: value for key, value in marks.items() if key != "crop"}
+    return marks
+
+
+def _moved(
+    marks: Optional[Dict[str, List[Dict[str, Any]]]], crop: Any, image_path: str
+) -> Optional[Dict[str, List[Dict[str, Any]]]]:
+    """*marks* read off the picture of *crop* (a cell's name or a box,
+    `fibsem.imaging.cells.from_crop`) moved into the image's pixels; as they
+    are when no crop is given."""
+    if crop is None:
+        return marks
+    from fibsem.imaging.cells import from_crop
+    from fibsem.imaging.marks import scaled_marks
+
+    try:
+        scale, x0, y0, _ = from_crop(image_path, crop)
+    except ValueError as exc:
+        raise EvidenceRefused(422, "invalid", str(exc))
+    return scaled_marks(marks, scale, scale, x0, y0)
+
+
+def _crop(marks: Any) -> Any:
+    return marks.get("crop") if isinstance(marks, dict) else None
+
+
 def checked_marks(
     marks: Any, image_path: str
 ) -> Optional[Dict[str, List[Dict[str, Any]]]]:
-    """*marks* as `_marks` reads them (refused as it refuses them), each
-    measured line labelled with its length and each place given its stage
-    position, from the image at *image_path*."""
-    return _with_stage(_with_lengths(_marks(marks), image_path), image_path)
+    """*marks* as `_marks` reads them (refused as it refuses them), moved
+    from the crop they name into the image's pixels, each measured line
+    labelled with its length and each place given its stage position, from
+    the image at *image_path*."""
+    placed = _moved(_marks(_uncropped(marks)), _crop(marks), image_path)
+    return _with_stage(_with_lengths(placed, image_path), image_path)
 
 
 def _found(path: str, root: str, item_name: Optional[str]) -> Optional[str]:
@@ -352,12 +384,18 @@ def save(
     if item_name is not None and not isinstance(item_name, str):
         raise EvidenceRefused(422, "invalid", "item_name is a string.")
     root = _root(experiment_path)
-    checked_marks = _marks(marks)
+    checked_marks = _marks(_uncropped(marks))
     checked_channels = _channels(channels)
     checked_source = _inside(source, root, "source", item_name) if source else None
     evidence_id = secrets.token_hex(4)
     where = folder(root)
     if upload is not None:
+        if _crop(marks) is not None:
+            raise EvidenceRefused(
+                422,
+                "invalid",
+                "A crop is for marks on an image in the experiment, not an upload.",
+            )
         os.makedirs(where, exist_ok=True)
         _save_upload(upload, os.path.join(where, f"{evidence_id}.png"))
         path = os.path.join(FOLDER, f"{evidence_id}.png")
@@ -373,8 +411,10 @@ def save(
                     "channels is for marks on a fluorescence stack's projection; "
                     f"{image} is not one.",
                 )
-        checked_marks = _with_lengths(checked_marks, os.path.join(root, path))
-        checked_marks = _with_stage(checked_marks, os.path.join(root, path))
+        image_path = os.path.join(root, path)
+        checked_marks = _moved(checked_marks, _crop(marks), image_path)
+        checked_marks = _with_lengths(checked_marks, image_path)
+        checked_marks = _with_stage(checked_marks, image_path)
     record = {
         "evidence_id": evidence_id,
         "by": by,

@@ -116,7 +116,9 @@ MARKS_PARAM = (
     "label?}]} in the image's full-resolution pixels from its top left: shape is "
     "cross (default) or target (a ring crosshair); arrow puts a head at x2, y2; "
     "measure labels the line with its length, as the ruler does. Labels (at most "
-    "32 characters) name what is where; at most 50 marks"
+    "32 characters) name what is where; at most 50 marks. Marks read off a crop "
+    "take crop: the cell's name (B3) or the crop's box [x, y, width, height], "
+    "their x, y then as read off that crop's picture"
 )
 
 # The optional argument every acting tool takes (`ToolSpec.takes_evidence`):

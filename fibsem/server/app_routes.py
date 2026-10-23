@@ -479,8 +479,10 @@ def build_app_router(context: Any) -> APIRouter:
         responses=_JPEG,
         tags=[GRIDS],
     )
-    def grid_output_image(grid_name: str, filename: str):
-        return _jpeg_or_404(context.grid_output_image(grid_name, filename))
+    def grid_output_image(grid_name: str, filename: str, cells: bool = False):
+        # cells: the overview's named cells drawn on it, listed in the
+        # metadata header.
+        return _jpeg_or_404(context.grid_output_image(grid_name, filename, cells=cells))
 
     # {filename:path}: any saved image's path in the experiment, slashes and all.
     @router.get(
@@ -571,12 +573,16 @@ def build_app_router(context: Any) -> APIRouter:
         y: Optional[float] = None,
         fx: Optional[float] = None,
         fy: Optional[float] = None,
+        crop: Optional[str] = None,
     ):
         # Any saved image in the experiment, beam or FM: a point on it as a
-        # stage position, from the image's own metadata.
+        # stage position, from the image's own metadata. crop: the point is
+        # read off a crop's picture, a cell's name (B3) or "x,y,width,height".
         px = None if x is None or y is None else [x, y]
         fraction = None if fx is None or fy is None else [fx, fy]
-        return _typed(context.image_stage_position(path, px, fraction))
+        if crop is not None and "," in crop:
+            crop = _numbers(crop)
+        return _typed(context.image_stage_position(path, px, fraction, crop))
 
     def _flags(body: Dict[str, Any], *keys: str) -> Dict[str, bool]:
         """*body*'s true-or-false *keys* that are given, or the 422."""
@@ -725,6 +731,7 @@ def build_app_router(context: Any) -> APIRouter:
         width: Optional[int] = None,
         z: Optional[int] = None,
         channels: Optional[str] = None,
+        cells: Optional[str] = None,
         raw: bool = False,
         experiment: Optional[str] = None,
     ):
@@ -746,6 +753,10 @@ def build_app_router(context: Any) -> APIRouter:
         # width: the preview's at most, for a thumbnail or a full-size view.
         # A fluorescence stack: plane z (0 the first; none, the max projection)
         # in channels, comma-separated names (none, all).
+        # cells: "true" draws the image's named cells on the preview; names,
+        # comma-separated ("B3,C4"), crop those cells.
+        show_cells = (cells or "").strip().lower() == "true"
+        crops = None if show_cells or not cells else [c for c in cells.split(",") if c]
         answer = _files_answer(
             experiment,
             files.read,
@@ -755,6 +766,8 @@ def build_app_router(context: Any) -> APIRouter:
             max_width=files.preview_width(width),
             z=z,
             channels=[c for c in (channels or "").split(",") if c] or None,
+            cells=show_cells,
+            crops=crops,
         )
         _record_read(experiment, path, False)
         return answer

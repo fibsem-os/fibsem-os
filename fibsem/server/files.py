@@ -11,9 +11,10 @@ an absolute path elsewhere and a link out of the folder are refused alike
 (:class:`FileRefusal`, 403 ``not_allowed``).
 """
 
+import base64
 import os
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -187,9 +188,12 @@ def load_image(
     return data, image, pixel_size, fm
 
 
-def jpeg_preview(path: str, filename: str, max_width: int = 768) -> Dict[str, Any]:
+def jpeg_preview(
+    path: str, filename: str, max_width: int = 768, cells: bool = False
+) -> Dict[str, Any]:
     """One saved image as downscaled JPEG bytes with its metadata block, or the
-    reason it is not: the outputs routes' answer, served as image/jpeg."""
+    reason it is not: the outputs routes' answer, served as image/jpeg. With
+    *cells*, the image's cells drawn on it and listed in its metadata."""
     from fibsem.server.images import image_metadata, preview_jpeg_bytes
 
     try:
@@ -198,6 +202,9 @@ def jpeg_preview(path: str, filename: str, max_width: int = 768) -> Dict[str, An
         metadata = image_metadata(image, path) if image is not None else None
         if fm is not None:
             metadata = {"fm": fm, "pixel_size": pixel_size}
+        if cells:
+            jpeg, block = with_cells(jpeg, path, data.shape)
+            metadata = {**(metadata or {"pixel_size": pixel_size}), "cells": block}
         if metadata is not None and metadata["pixel_size"] and width:
             # metres per PREVIEW pixel, as image answers carry it.
             metadata["preview_pixelsize"] = (
@@ -256,6 +263,65 @@ def _region(
     return x0, y0, x1 - x0, y1 - y0
 
 
+def _region_preview(data, metadata, region, pixel_size, max_width) -> Dict[str, Any]:
+    """The preview of *region* (source pixels) of *data*, its field width the
+    region's, not the image's."""
+    from fibsem.server.images import array_preview_payload
+
+    x, y, width, height = (region[k] for k in ("x", "y", "width", "height"))
+    preview = array_preview_payload(
+        data[y : y + height, x : x + width],
+        metadata,
+        max_width=max_width,
+        pixel_size=pixel_size,
+    )
+    preview["region"] = region
+    if pixel_size is not None:
+        preview["hfw"] = pixel_size * width
+    return preview
+
+
+def _stages(target: str, cells) -> List[Optional[Dict[str, float]]]:
+    """The stage position (x, y, metres) under each of *cells*' centres; None
+    each when the image has no stage geometry."""
+    from fibsem.geometry.saved_images import image_points_to_stage
+
+    try:
+        positions = image_points_to_stage(target, [cell.centre for cell in cells])
+    except Exception:  # noqa: BLE001 - an image without geometry keeps pixels only
+        positions = [None] * len(cells)
+    return [
+        {"x": float(p.x), "y": float(p.y)} if p is not None else None for p in positions
+    ]
+
+
+def with_cells(jpeg: bytes, target: str, shape) -> Tuple[bytes, Dict[str, Any]]:
+    """The preview *jpeg* of the image at *target* (its data *shape*) redrawn
+    with the image's cells on it (`fibsem.imaging.cells`), and the cells: each
+    one's name, box (source pixels) and centre stage position."""
+    import io
+
+    from PIL import Image
+
+    from fibsem.imaging.cells import cells_of, cells_picture
+    from fibsem.imaging.marks import jpeg_bytes
+
+    kind, cells = cells_of(target, shape)
+    with Image.open(io.BytesIO(jpeg)) as im:
+        shown = np.asarray(im.convert("RGB"))
+    drawn = cells_picture(shown, cells, shown.shape[1] / shape[1])
+    block = {
+        "kind": kind,
+        "columns": len({cell.x for cell in cells}),
+        "rows": len({cell.y for cell in cells}),
+        "items": [
+            {"name": cell.name, "box": cell.box, "stage": stage}
+            for cell, stage in zip(cells, _stages(target, cells))
+        ],
+    }
+    return jpeg_bytes(drawn, drawn.shape[1]), block
+
+
 def _image_answer(
     target: str,
     box: Optional[Sequence[float]],
@@ -263,20 +329,14 @@ def _image_answer(
     max_width: int,
     z: Optional[int] = None,
     channels: Optional[Sequence[str]] = None,
+    cells: bool = False,
+    crops: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
     from fibsem.server.images import array_preview_payload, image_metadata
 
     data, image, pixel_size, fm = load_image(target, z, channels)
     source_shape = list(data.shape)
-    region = None
-    if box is not None or fraction is not None:
-        x, y, width, height = _region(data.shape, box, fraction)
-        data = data[y : y + height, x : x + width]
-        region = {"x": x, "y": y, "width": width, "height": height}
     metadata = image.metadata if image is not None else None
-    preview = array_preview_payload(
-        data, metadata, max_width=max_width, pixel_size=pixel_size
-    )
     if image is not None:
         summary = {"kind": "image", **image_metadata(image, target)}
     else:
@@ -293,11 +353,39 @@ def _image_answer(
                 "z": z,  # None: the max projection
                 "channels": list(channels) if channels else None,  # None: all
             }
-    if region is not None:
-        # The region in source pixels; its field width, not the image's.
-        preview["region"] = region
-        if pixel_size is not None:
-            preview["hfw"] = pixel_size * region["width"]
+    if crops:
+        from fibsem.imaging.cells import cells_of, named
+
+        try:
+            picked = named(cells_of(target, data.shape)[1], crops)
+        except ValueError as exc:
+            raise FileRefusal(422, "invalid", str(exc)) from exc
+        answers = []
+        for cell, stage in zip(picked, _stages(target, picked)):
+            region = dict(zip(("x", "y", "width", "height"), cell.box))
+            answers.append(
+                {
+                    "name": cell.name,
+                    "stage": stage,
+                    "preview": _region_preview(
+                        data, metadata, region, pixel_size, max_width
+                    ),
+                }
+            )
+        return {"summary": summary, "path": target, "crops": answers}
+    if box is not None or fraction is not None:
+        x, y, width, height = _region(data.shape, box, fraction)
+        region = {"x": x, "y": y, "width": width, "height": height}
+        preview = _region_preview(data, metadata, region, pixel_size, max_width)
+    else:
+        preview = array_preview_payload(
+            data, metadata, max_width=max_width, pixel_size=pixel_size
+        )
+        if cells:
+            jpeg, preview["cells"] = with_cells(
+                base64.b64decode(preview["image_b64_jpeg"]), target, data.shape
+            )
+            preview["image_b64_jpeg"] = base64.b64encode(jpeg).decode()
     return {"summary": summary, "path": target, "preview": preview}
 
 
@@ -317,18 +405,37 @@ def read(
     max_width: int = 768,
     z: Optional[int] = None,
     channels: Optional[Sequence[str]] = None,
+    cells: bool = False,
+    crops: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
     """One file of the experiment, as its kind is read: a folder as its listing,
     text as text, an image as a preview and its metadata (or the region *box* or
     *fraction* names, at native resolution up to *max_width*), anything else as
     its name and size only. A fluorescence stack shows plane *z* in *channels*
-    when given (:func:`load_image`)."""
+    when given (:func:`load_image`). With *cells*, the preview shows the
+    image's named cells and lists them (`fibsem.imaging.cells`); *crops* names
+    up to `MAX_CROPS` of them to answer each at native resolution."""
+    from fibsem.imaging.cells import MAX_CROPS
+
     target = resolve(root, path)
     file_kind = kind(target)
     if file_kind == "folder":
         return list_folder(root, path)
     cropping = box is not None or fraction is not None
-    if (cropping or z is not None or channels) and file_kind != "image":
+    if crops is not None and (cropping or cells):
+        raise FileRefusal(
+            422, "invalid", "Give one of cells, box or fraction, not more."
+        )
+    if crops is not None and not 1 <= len(crops) <= MAX_CROPS:
+        raise FileRefusal(
+            422, "invalid", f"cells names 1 to {MAX_CROPS} cells to crop."
+        )
+    if cropping and cells:
+        raise FileRefusal(
+            422, "invalid", "The cells show on the whole image, not a crop of it."
+        )
+    asks_image = cropping or z is not None or channels or cells or crops
+    if asks_image and file_kind != "image":
         raise FileRefusal(
             422, "invalid", f"Only an image crops or shows a plane; {path} is not one."
         )
@@ -345,7 +452,9 @@ def read(
         try:
             return {
                 **entry,
-                **_image_answer(target, box, fraction, max_width, z, channels),
+                **_image_answer(
+                    target, box, fraction, max_width, z, channels, cells, crops
+                ),
             }
         except FileRefusal:
             raise

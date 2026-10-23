@@ -674,6 +674,8 @@ class FileRead:
     # an image: its metadata and its preview (`fibsem.server.files.read`)
     summary: Optional[Dict[str, Any]] = None
     preview: Optional[Dict[str, Any]] = None
+    # cells cropped by name: each its name, centre stage position and preview
+    crops: Optional[List[Dict[str, Any]]] = None
 
 
 @dataclass
