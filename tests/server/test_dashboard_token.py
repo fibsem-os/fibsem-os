@@ -60,6 +60,7 @@ MONITORING = [
     "/app/workflow/status",
     "/app/workflow/queue",
     "/app/events",
+    "/app/events/history",  # the Events page's earlier records
     "/microscope/devices",  # what it has, not a device's values
 ]
 
