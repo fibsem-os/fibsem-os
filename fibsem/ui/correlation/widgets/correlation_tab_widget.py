@@ -2798,12 +2798,6 @@ class CorrelationTabWidget(QWidget):
         with self._session.reading():  # showing it writes nothing either
             self._show_state(state, shown)
 
-    def _adopt_state(self, state: CorrelationState) -> None:
-        """Apply a loaded correlation state (:meth:`CorrelationSession.adopt_state`)."""
-        shown = self._session.result is not None
-        self._session.adopt_state(state)
-        self._show_state(state, shown)
-
     def _show_state(self, state: CorrelationState, shown: bool) -> None:
         """Show a state the session has just adopted; ``shown`` is whether a
         result was on screen before it."""
@@ -4198,16 +4192,6 @@ class CorrelationTabWidget(QWidget):
         with self._session.reading():  # showing it writes nothing either
             self._on_result_ready(result, live=live)
 
-    def _load_result(
-        self, result: CorrelationResult, *, adopt_inputs: bool = True
-    ) -> None:
-        """Adopt a correlation result already read, and its input data unless
-        ``adopt_inputs`` is False (:meth:`CorrelationSession.adopt_result`)."""
-        live = self._session.adopt_result(result, adopt_inputs=adopt_inputs)
-        # _on_result_ready refreshes the run button and sets the final status
-        # text itself — no trailing update here, it would overwrite the status.
-        self._on_result_ready(result, live=live)
-
     def _menu_load_correlation(self) -> None:
         start = self._session.project_dir or ""
         path, _ = QFileDialog.getOpenFileName(
@@ -4252,9 +4236,6 @@ class CorrelationTabWidget(QWidget):
         """The coordinate lists whose points live in the FM volume (carry z)."""
         cl = self._coords_tab
         return [cl.fm_list, cl.poi_list, cl.fm_surface_list]
-
-    def _fm_point_count(self) -> int:
-        return sum(len(lst.coordinates) for lst in self._fm_side_lists())
 
     def _on_interpolate_fm(self) -> None:
         if self._session.fm_image is None:

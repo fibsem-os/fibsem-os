@@ -79,10 +79,6 @@ class MainThreadGarbageCollector(QObject):
         else:
             gc.collect(2)
 
-    def collect_now(self) -> int:
-        """Force an immediate full collection (for tests and shutdown paths)."""
-        return gc.collect()
-
 
 def install_main_thread_gc(
     parent: Optional[QObject] = None,

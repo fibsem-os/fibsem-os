@@ -38,6 +38,15 @@ from fibsem.workflows.grids import GridRecord
 SLOT_X = {"Grid-A": -2.5e-3, "Grid-B": 2.5e-3}
 
 
+def _show_page(cell, key: str) -> None:
+    """Step the page cycler round to *key*, as the operator does."""
+    for _ in range(len(cell._keys)):
+        if cell.page == key:
+            return
+        cell.step(1)
+    assert cell.page == key, key
+
+
 def _calibrate(microscope):
     stage = microscope.system.stage
     z = microscope.get_stage_position().z
@@ -291,9 +300,9 @@ def test_the_page_s_controls_share_the_cell_s_header_row(world):
     cell = controller.widget.page_cell
     cell.add_page("overview", "Overview", world.page, header=world.page.header)
     assert world.page.header.parentWidget() is cell._headers
-    cell.set_page("chamber")
+    _show_page(cell, "chamber")
     assert cell._headers.currentWidget() is not world.page.header
-    cell.set_page("overview")
+    _show_page(cell, "overview")
     assert cell._headers.currentWidget() is world.page.header
 
 
@@ -303,7 +312,7 @@ def test_the_header_stays_at_the_top_of_an_empty_page(world):
     controller = MicroscopeViewController()  # kept: it owns the cell
     cell = controller.widget.page_cell
     cell.add_page("overview", "Overview", world.page, header=world.page.header)
-    cell.set_page("overview")
+    _show_page(cell, "overview")
     _pin(world.page, world.grids["Grid-C"].id)
     controller.widget.resize(900, 700)
     controller.widget.show()

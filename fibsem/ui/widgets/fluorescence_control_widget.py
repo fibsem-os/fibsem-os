@@ -1113,15 +1113,3 @@ class FMControlWidget(QWidget):
             self.comboBox_default_orientation.setCurrentText(config.default_orientation)
         finally:
             self._loading_config = False
-
-
-class _DemoHost(QWidget):
-    """A host with a quad view, for the widget outside AutoLamella (the tests use
-    it). Pass ``view_controller=lambda: host.view_controller`` or the FM canvas
-    stays empty."""
-
-    def __init__(self):
-        from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
-
-        super().__init__()
-        self.view_controller = MicroscopeViewController(parent=self)
