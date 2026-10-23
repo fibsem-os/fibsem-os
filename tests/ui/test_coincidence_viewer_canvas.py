@@ -77,17 +77,7 @@ def _coincidence_viewer():
     ``microscope.fm is None``, so on a plain demo session the viewer constructs with none
     of its signals wired and every interaction test would pass without testing anything.
 
-    The milling config path is redirected at a throwaway file so the viewer always starts
-    from its built-in ``DEFAULT_MILLING_TASK_CONFIG``. ``_load_milling_config`` otherwise
-    restores whatever this machine last saved to
-    ``fibsem/config/coincidence-milling-config.yaml`` — a runtime-written, gitignored file
-    inside the package, so a poisoned one is invisible to ``git status`` — which made the
-    drag test below depend on ambient state, and let the widget's debounced autosave
-    overwrite a developer's real saved config from a test run.
-
-    Left redirected for the rest of the process on purpose: that autosave is a 1s
-    ``qdebounced`` timer, so it can fire long after the test that built the widget
-    returned, whenever another test spins the event loop.
+    The viewer always starts from its built-in ``DEFAULT_MILLING_TASK_CONFIG``.
     """
     import tempfile
 
@@ -96,10 +86,6 @@ def _coincidence_viewer():
     from fibsem.applications.autolamella.structures import Experiment
     from fibsem.applications.autolamella.ui.coincidence.viewer import (
         FluorescenceCoincidenceViewerWidget,
-    )
-
-    cfg.COINCIDENCE_MILLING_CONFIG_PATH = os.path.join(
-        tempfile.mkdtemp(), "coincidence-milling-config.yaml"
     )
 
     microscope, _ = utils.setup_session(

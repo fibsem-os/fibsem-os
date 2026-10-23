@@ -18,7 +18,6 @@ from typing import (
 
 import numpy as np
 import tifffile as tff
-import yaml
 from ome_types import from_tiff, from_xml
 from ome_types.model import (
     OME as OMEMetadata,
@@ -1725,49 +1724,3 @@ class FluorescenceConfiguration:
         from fibsem.codec.upgrades.fluorescence import configuration
 
         return decode(cls, configuration(ddict))
-
-    def export(self, filename: str) -> str:
-        """Export FM configuration to YAML file.
-
-        Args:
-            filename: Output YAML filename
-
-        Returns:
-            str: Path to the exported file
-
-        Example:
-            >>> config = FluorescenceConfiguration(channels, z_params, overview_params)
-            >>> config.export("my_config.yaml")
-        """
-        # Convert to dictionary
-        config_dict = self.to_dict()
-
-        # Write to YAML file
-        with open(filename, "w") as f:
-            yaml.dump(
-                config_dict, f, default_flow_style=False, indent=4, sort_keys=False
-            )
-
-        logging.info(f"FM configuration exported to: {filename}")
-        return filename
-
-    @classmethod
-    def load(cls, filename: str) -> "FluorescenceConfiguration":
-        """Load FM configuration from YAML file.
-
-        Args:
-            filename: Path to YAML configuration file
-
-        Returns:
-            FluorescenceConfiguration: Loaded configuration object
-
-        Example:
-            >>> config = FluorescenceConfiguration.load("config.yaml")
-            >>> print(f"Loaded {len(config.channel_settings)} channels")
-        """
-        with open(filename) as f:
-            config_dict = yaml.safe_load(f)
-
-        config = cls.from_dict(config_dict)
-        logging.info(f"FM configuration loaded from: {filename}")
-        return config

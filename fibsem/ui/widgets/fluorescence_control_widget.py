@@ -7,7 +7,6 @@ from PyQt5.QtCore import QEvent, pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (
     QCheckBox,
     QComboBox,
-    QFileDialog,
     QGridLayout,
     QLabel,
     QMessageBox,
@@ -19,7 +18,6 @@ from PyQt5.QtWidgets import (
 )
 from superqt import ensure_main_thread
 
-from fibsem import config as fcfg
 from fibsem import conversions, utils
 from fibsem.fm.calibration import run_autofocus
 from fibsem.fm.config import record_recent_channels
@@ -1064,27 +1062,6 @@ class FMControlWidget(QWidget):
 
         event.accept()
 
-    def import_fm_configuration(self):
-        """Load FM configuration from a YAML file."""
-        try:
-            # Get filename from user
-            filename, _ = QFileDialog.getOpenFileName(
-                parent=self,
-                caption="Select Fluorescence Configuration to load",
-                directory=os.path.join(fcfg.CONFIG_PATH, "fm"),
-                filter="YAML files (*.yaml *.yml);;All files (*.*)",
-            )
-
-            if not filename:
-                return
-
-            # load configuration and apply to widgets
-            config = FluorescenceConfiguration.load(filename)
-            self._apply_fluorescence_configuration(config)
-
-        except Exception as e:
-            logging.error(f"Failed to load FM configuration: {e}")
-
     def _build_fluorescence_configuration(self) -> FluorescenceConfiguration:
         """Build a complete FluorescenceConfiguration from the current UI settings."""
         settings = self._get_current_settings()
@@ -1166,37 +1143,6 @@ class FMControlWidget(QWidget):
             self.comboBox_default_orientation.setCurrentText(config.default_orientation)
         finally:
             self._loading_config = False
-
-    def export_fm_configuration(self):
-        """Save current FM configuration to a YAML file."""
-        try:
-            # Get filename from user
-            filename, _ = QFileDialog.getSaveFileName(
-                parent=self,
-                caption="Save Fluorescence Configuration",
-                directory=os.path.join(fcfg.CONFIG_PATH, "fm", "fm-configuration.yaml"),
-                filter="YAML files (*.yaml *.yml);;All files (*.*)",
-            )
-
-            if not filename:
-                return
-
-            # Export configuration (incl. camera transform + objective limit position)
-            self._build_fluorescence_configuration().export(filename)
-
-            QMessageBox.information(
-                self,
-                "Fluorescence Configuration Saved",
-                f"Configuration saved to:\n{filename}",
-            )
-
-        except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Error Saving Fluorescence Configuration",
-                f"Failed to save FM configuration:\n{str(e)}",
-            )
-            logging.error(f"Error saving FM configuration: {e}")
 
 
 class _DemoHost(QWidget):
