@@ -81,19 +81,6 @@ from fibsem.workflows.status import (
 )
 from fibsem.workflows.workflow_edits import save_workflow_change
 
-# The PDF report needs the `reporting` extra (reportlab). The overview plot does not --
-# it is matplotlib and Qt -- so it is imported with the other dialogs above, where a
-# missing reportlab cannot take it down.
-REPORTING_AVAILABLE: bool = False
-try:
-    from fibsem.applications.autolamella.ui.dialogs.report import generate_report_dialog
-
-    REPORTING_AVAILABLE = True
-except ImportError as e:
-    logging.debug(
-        f"Could not import generate_report from fibsem.applications.autolamella.tools.reporting: {e}"
-    )
-
 # What to do next, shown in the window's status bar. Each names something visible
 # on screen at the moment it is shown -- three of these used to name menus that do
 # not exist ("Connection ->", "Experiment ->" are not menus; the File entries are
@@ -133,7 +120,6 @@ class AutoLamellaWindow(AppWindow):
                 save_protocol=self.export_protocol_ui,
                 fm_image_viewer=self._open_fm_image_viewer,
                 coincidence_viewer=self._open_coincidence_milling_viewer,
-                generate_report=self.action_generate_report,
                 generate_overview_plot=self.action_generate_overview_plot,
                 grid_report=self._on_generate_grid_report,
                 app_server=self._on_app_server_dialog,
@@ -1261,23 +1247,6 @@ class AutoLamellaWindow(AppWindow):
         )
 
         return AutoLamellaAppContext(self.session, event_buffer=event_buffer)
-
-    #### REPORT GENERATION
-    def action_generate_report(self) -> None:
-        """Generate a pdf report of the experiment."""
-        if self.experiment is None:
-            return
-
-        if not REPORTING_AVAILABLE:
-            notification_service.show_toast(
-                "Reporting tools are not available. "
-                'Install the reporting extra: pip install "fibsem[reporting]"',
-                "warning",
-            )
-            return
-
-        generate_report_dialog(self.experiment, parent=self)
-        return
 
     def action_generate_overview_plot(self) -> None:
         """Generate an plot with the lamella position on an overview image."""

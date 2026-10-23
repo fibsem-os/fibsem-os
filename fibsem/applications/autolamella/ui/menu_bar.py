@@ -52,7 +52,6 @@ class MenuActions:
     save_protocol: Callable[[], None]
     fm_image_viewer: Callable[[], None]
     coincidence_viewer: Callable[[], None]
-    generate_report: Callable[[], None]
     generate_overview_plot: Callable[[], None]
     grid_report: Callable[[], None]
     app_server: Callable[[], None]
@@ -258,18 +257,13 @@ class MainMenuBar(QObject):
         reporting_menu = tools_menu.addMenu("Reporting")
         if reporting_menu is None:
             raise RuntimeError("Failed to create Reporting submenu in AutoLamella UI.")
+        # An HTML page built from events.jsonl.
         self.action_generate_report = QAction("Generate Report", self._host)
-        self.action_generate_report.triggered.connect(self._actions.generate_report)
-        # Report v2: an HTML page built from events.jsonl. Offered
-        # beside the PDF report until it has been checked against real runs.
-        self.action_generate_report_v2 = QAction(
-            "Generate Report v2 (preview)", self._host
-        )
-        self.action_generate_report_v2.setToolTip(
+        self.action_generate_report.setToolTip(
             "Write an HTML report from the experiment's events.jsonl under its "
             "folder, and open it"
         )
-        self.action_generate_report_v2.triggered.connect(self._on_generate_report_v2)
+        self.action_generate_report.triggered.connect(self._on_generate_report)
         self.action_generate_overview_plot = QAction(
             "Generate Overview Plot", self._host
         )
@@ -286,7 +280,6 @@ class MainMenuBar(QObject):
         )
         self.action_generate_grid_report.triggered.connect(self._actions.grid_report)
         reporting_menu.addAction(self.action_generate_report)
-        reporting_menu.addAction(self.action_generate_report_v2)
         reporting_menu.addAction(self.action_generate_grid_report)
         reporting_menu.addAction(self.action_generate_overview_plot)
 
@@ -767,8 +760,8 @@ class MainMenuBar(QObject):
             return
         image_widget.run_autofocus()
 
-    def _on_generate_report_v2(self):
-        """Tools → Reporting → Generate Report v2 (preview): write the page from
+    def _on_generate_report(self):
+        """Tools → Reporting → Generate Report: write the page from
         the experiment's events.jsonl, under its folder, and open it; then
         print it to a PDF beside it.
 

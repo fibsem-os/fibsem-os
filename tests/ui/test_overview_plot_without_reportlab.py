@@ -1,13 +1,7 @@
-"""The overview plot does not need the `reporting` extra; the PDF report does.
+"""The window and its overview plot do not need the `reporting` extra (reportlab).
 
-Both dialogs were imported in one ``try`` block in ``AutoLamellaUI.py``. The report
-dialog imports reportlab, so without the extra the import failed, the overview plot --
-matplotlib and Qt only -- went with it, and Generate Overview Plot said "Reporting
-tools are not available". Generate Report, meanwhile, never checked the flag and
-called a name the failed import had never defined.
-
-Each case runs in a fresh interpreter: hiding reportlab only works before the window
-module is first imported, and these must not leave it hidden for the rest of the run.
+It runs in a fresh interpreter: hiding reportlab only works before the window
+module is first imported, and it must not leave it hidden for the rest of the run.
 
 Run directly (no display needed):
     QT_QPA_PLATFORM=offscreen python -m pytest tests/ui/test_overview_plot_without_reportlab.py
@@ -56,26 +50,7 @@ def _run(body: str) -> subprocess.CompletedProcess:
 def test_the_overview_plot_is_there_without_reportlab():
     result = _run(
         """
-        assert window.REPORTING_AVAILABLE is False, "reportlab was not hidden"
         assert callable(window.create_overview_image_widget)
-        print("OK")
-        """
-    )
-    assert result.returncode == 0 and "OK" in result.stdout, result.stderr[-2000:]
-
-
-def test_generate_report_says_why_instead_of_raising():
-    """Called unbound, on a stand-in for the window: the method reads one attribute."""
-    result = _run(
-        """
-        from types import SimpleNamespace
-        toasts = []
-        window.notification_service.show_toast = (
-            lambda message, kind="info", *a, **k: toasts.append((message, kind))
-        )
-        window.AutoLamellaWindow.action_generate_report(SimpleNamespace(experiment=object()))
-        assert toasts and toasts[0][1] == "warning", toasts
-        assert "reporting" in toasts[0][0], toasts
         print("OK")
         """
     )
