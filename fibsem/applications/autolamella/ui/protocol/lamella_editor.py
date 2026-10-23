@@ -40,6 +40,7 @@ from fibsem.applications.autolamella.task_outputs import (
     lamella_images,
     latest_task_image,
 )
+from fibsem.applications.autolamella.ui.protocol.dialogs import ApplyLamellaConfigDialog
 from fibsem.applications.autolamella.ui.protocol.editor import (
     AutoLamellaTaskConfigEditor,
 )
@@ -73,7 +74,6 @@ from fibsem.ui.widgets.canvas.quad_view import (
     LamellaEditorView,
     MicroscopeViewController,
 )
-from fibsem.ui.widgets.checklist import ApplyLamellaConfigDialog
 from fibsem.ui.widgets.custom_widgets import (
     ContextMenuConfig,
     IconToolButton,

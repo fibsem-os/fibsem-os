@@ -334,8 +334,8 @@ class BaseTaskManager:
 
     # --- Deferral: what cannot run yet, and why ---
 
-    # How many of the items a hold names read, past three: "4 lamellae".
-    ITEM_NOUN = "lamellae"
+    # What the items are called in the log: "Starting tasks: [...], for items: [...]".
+    ITEM_NOUN = "items"
     # Steps the queue keeps where the plan put them (TaskQueue.fixed_tasks).
     FIXED_TASKS: Tuple[str, ...] = ()
 

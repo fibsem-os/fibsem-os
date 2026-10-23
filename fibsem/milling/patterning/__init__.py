@@ -141,36 +141,3 @@ def get_pattern(name: str, config: Optional[Dict[str, Any]] = None) -> BasePatte
 MILLING_PATTERNS = get_patterns()
 MILLING_PATTERN_NAMES = get_pattern_names()
 DEFAULT_MILLING_PATTERN = DEFAULT_PATTERN
-
-# Legacy protocol mapping
-PROTOCOL_MILL_MAP = {
-    "cut": RectanglePattern,
-    "fiducial": FiducialPattern,
-    "flatten": RectanglePattern,
-    "undercut": UndercutPattern,
-    "horseshoe": HorseshoePattern,
-    "lamella": TrenchPattern,
-    "polish_lamella": TrenchPattern,
-    "thin_lamella": TrenchPattern,
-    "sever": RectanglePattern,
-    "sharpen": RectanglePattern,
-    "needle": RectanglePattern,
-    "copper_release": HorseshoePattern,
-    "serial_trench": HorseshoePattern,
-    "serial_undercut": RectanglePattern,
-    "serial_sever": RectanglePattern,
-    "lamella_sever": RectanglePattern,
-    "lamella_polish": TrenchPattern,
-    "trench": TrenchPattern,
-    "notch": WaffleNotchPattern,
-    "microexpansion": MicroExpansionPattern,
-    "clover": CloverPattern,
-    "autolamella": TrenchPattern,
-    "MillUndercut": RectanglePattern,
-    "rectangle": RectanglePattern,
-    "MillRough": TrenchPattern,
-    "MillRegularCut": TrenchPattern,
-    "MillPolishing": TrenchPattern,
-    "mill_rough": TrenchPattern,
-    "mill_polishing": TrenchPattern,
-}

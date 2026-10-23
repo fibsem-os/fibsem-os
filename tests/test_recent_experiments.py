@@ -72,7 +72,7 @@ def test_peek_reads_display_metadata(prefs_env):
     info = cfg.peek_experiment(path)
     assert info.name == "cool-experiment"
     assert info.created_at.timestamp() == 1234.0
-    assert info.num_lamella == 3
+    assert info.num_items == 3
     assert info.exists is True
     assert info.available is True
 
