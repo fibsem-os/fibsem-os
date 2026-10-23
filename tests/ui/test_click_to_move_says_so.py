@@ -35,6 +35,7 @@ from PyQt5.QtWidgets import QApplication  # noqa: E402
 
 from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession  # noqa: E402
 from fibsem.structures import FibsemStagePosition  # noqa: E402
+from fibsem.ui.widgets import overview_base  # noqa: E402
 from fibsem.ui.widgets import overview_widget as beam_module  # noqa: E402
 from fibsem.ui.widgets.overview_widget import FibsemOverviewWidget  # noqa: E402
 
@@ -80,7 +81,7 @@ microscope = demo_microscope("sim-arctis-configuration.yaml")
 
 @pytest.fixture
 def widget(microscope, monkeypatch):
-    monkeypatch.setattr(beam_module, "FunctionWorker", SynchronousWorker)
+    monkeypatch.setattr(overview_base, "FunctionWorker", SynchronousWorker)
     w = FibsemOverviewWidget(OverviewSession(microscope))
     w.resize(900, 700)
     yield w
@@ -277,7 +278,7 @@ def fm_widget(qapp):
 def fm_synchronous(monkeypatch):
     from fibsem.ui.fm.widgets import fm_overview_widget as fm_module
 
-    monkeypatch.setattr(fm_module, "FunctionWorker", SynchronousWorker)
+    monkeypatch.setattr(overview_base, "FunctionWorker", SynchronousWorker)
     return fm_module
 
 
