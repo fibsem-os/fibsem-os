@@ -161,8 +161,10 @@ fibsem-agent
   checkout's `CLAUDE.md` (developer guidance) and not Claude Code's auto memory.
 - **What it says.** The agent's replies and tool calls go to the console and
   to `~/.fibsem/agent/fibsem-agent-<time>.log` (`--log` to choose). What the
-  operator must see in the app, it puts in a note (`experiment_add_note`),
-  answering a message from the Agent card with its `reply_to`.
+  operator must read in the app, it sends as a message
+  (`experiment_message_operator`, a toast in the window), answering a message
+  from the Agent card with its `reply_to`; a judgment worth keeping is a note
+  (`experiment_add_note`).
 - **Waking.** Lines are held while the level is Off, and come as one turn
   once it is back; started at Off, the agent's first turn waits for it too. A `GAP`, a restart or the level coming back tells the
   agent to re-read the status. If the app can't be watched, the runner waits

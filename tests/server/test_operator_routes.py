@@ -264,7 +264,7 @@ def test_the_card_s_rows_read_as_a_conversation(server):
     rows = server.get("/app/agent/recent", headers=server.operator).json()["rows"]
     assert [(row["kind"], row["text"]) for row in rows[-2:]] == [
         ("you", "how's 01?"),
-        ("reply", "01 is **fine**"),
+        ("message", "01 is **fine**"),
     ]
     assert server.get("/app/agent/recent", headers=server.agent).status_code == 403
 

@@ -15,7 +15,7 @@ tagged with it and served only when the context implements that part.
 import functools
 import json
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -177,6 +177,27 @@ def _missing_field(message: str) -> HTTPException:
     return HTTPException(
         status_code=422, detail={"error_type": "missing_field", "message": message}
     )
+
+
+def _note_body(body: Dict[str, Any], *optional: str) -> Tuple[str, Optional[str]]:
+    """A note's or a message's text and item name, or the 422 that says what
+    to pass; the *optional* fields are strings too."""
+    text = body.get("text")
+    strings = ("item_name",) + optional
+    if (
+        not isinstance(text, str)
+        or not text.strip()
+        or len(text) > 4000
+        or any(
+            body.get(k) is not None and not isinstance(body.get(k), str)
+            for k in strings
+        )
+    ):
+        raise _missing_field(
+            "Pass text (a non-empty string, at most 4000 characters); "
+            f"{' and '.join(strings)} (strings) are optional."
+        )
+    return text, body.get("item_name")
 
 
 def _recorded_or_not_found(result: Dict[str, Any]) -> Dict[str, Any]:
@@ -675,22 +696,23 @@ def build_app_router(context: Any) -> APIRouter:
         # Observations for the record — event stream + experiment log. On the
         # read router, a POST the dashboard token is refused: a watching agent
         # notes what it sees (FIB-1035), and a note changes nothing.
-        text = body.get("text")
-        item_name = body.get("item_name")
-        reply_to = body.get("reply_to")
-        if (
-            not isinstance(text, str)
-            or not text.strip()
-            or len(text) > 4000
-            or (item_name is not None and not isinstance(item_name, str))
-            or (reply_to is not None and not isinstance(reply_to, str))
-        ):
-            raise _missing_field(
-                "Pass text (a non-empty string, at most 4000 characters); "
-                "item_name and reply_to (strings) are optional."
-            )
+        text, item_name = _note_body(body)
         cited = cited_evidence(context)
         result = context.add_note(
+            text,
+            item_name,
+            **({"evidence": cited["evidence_id"]} if cited else {}),
+        )
+        return _recorded_or_not_found(result)
+
+    @router.post("/experiment/messages", response_model=Recorded)
+    def add_message(body: Dict[str, Any]):
+        # The agent's message to the operator, on the record as a note to them;
+        # the window tells them. Like a note, it changes nothing.
+        text, item_name = _note_body(body, "reply_to")
+        reply_to = body.get("reply_to")
+        cited = cited_evidence(context)
+        result = context.add_message(
             text,
             item_name,
             reply_to,

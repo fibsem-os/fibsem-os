@@ -2,7 +2,8 @@
 
 One shape for every act, whoever did it -- an agent's call, an approved
 request's step, a stop, the operator's Stop button -- and one for every note:
-the agent's notes and replies, the operator's messages to it, a grid's note.
+the agent's notes, the messages between the operator and the agent, a grid's
+note.
 Who did it is the record's actor (``fibsem.acting``), stamped as it is written;
 these build the payload.
 
@@ -57,13 +58,25 @@ def note_record(
     item_name: Optional[str] = None,
     **fields: Any,
 ) -> Dict[str, Any]:
-    """A note: its text, the item it is about if any, and how it threads
-    (``id`` for a message to answer, ``reply_to`` for the answer)."""
+    """A note: its text, the item it is about if any, and for a message who it
+    is ``to`` (`OPERATOR` or `AGENT`), its ``id`` and the ``reply_to`` it answers."""
     payload: Dict[str, Any] = {"text": text}
     if item_id:
         payload.update(item_id=item_id, item_name=item_name)
     payload.update({k: v for k, v in fields.items() if v is not None and v != ""})
     return payload
+
+
+def is_message(record: Dict[str, Any]) -> bool:
+    """Whether the note *record* is a message between the operator and the
+    agent rather than a note for the record. Older records mark no ``to``: the
+    operator's message had an ``id``, the agent's a ``reply_to``."""
+    p = record.get("payload") or {}
+    return bool(
+        p.get("to")
+        or p.get("reply_to")
+        or (record.get("actor") == OPERATOR and p.get("id"))
+    )
 
 
 def record_operator_action(microscope: Any, what: str, **fields: Any) -> None:

@@ -759,8 +759,8 @@ class GridPlan:
 
 @dataclass
 class Recorded:
-    """A note or evidence put on the record; for evidence, its record
-    (`fibsem.workflows.evidence.save`)."""
+    """A note, a message or evidence put on the record; for a message, its
+    ``id``; for evidence, its record (`fibsem.workflows.evidence.save`)."""
 
     available: bool
     recorded: bool
@@ -769,6 +769,7 @@ class Recorded:
     evidence_id: Optional[str] = None
     image: Optional[str] = None
     uploaded: Optional[bool] = None
+    id: Optional[str] = None
     source: Optional[str] = None
     marks: Optional[Any] = None
     item_name: Optional[str] = None

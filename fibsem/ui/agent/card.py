@@ -1448,7 +1448,7 @@ class AgentCard(QFrame):
         last = ""
         if newest is not None and not shown:
             if newest.conversation:
-                head = {"you": "You", "reply": "Reply"}.get(newest.kind, "Note")
+                head = {"you": "You", "message": "Agent"}.get(newest.kind, "Note")
                 last = f"{head}: {newest.text.split(chr(10), 1)[0]}"
             else:
                 last = ", ".join(t for t in (newest.text, newest.outcome) if t)
@@ -1510,7 +1510,7 @@ class AgentCard(QFrame):
         column.setSpacing(3)
         head = QHBoxLayout()
         head.setSpacing(6)
-        who = {"you": "You", "reply": "Agent"}.get(row.kind, "Agent · note")
+        who = {"you": "You", "message": "Agent"}.get(row.kind, "Agent · note")
         head.addWidget(_label(who, TEXT_STRONG_COLOR, small=True, bold=True))
         head.addWidget(_label(row.when, TEXT_MUTED_COLOR, small=True))
         head.addStretch(1)

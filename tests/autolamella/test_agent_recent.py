@@ -304,9 +304,24 @@ def test_the_operator_s_message_and_the_agent_s_reply_are_rows():
     )
     recent.add(_record("agent_note", {"text": "skipping 03", "reply_to": "ab12"}))
     assert _rows(recent) == [("skip 03", "", MUTED), ("skipping 03", "", MUTED)]
-    assert [row.kind for row in recent.rows] == ["you", "reply"]
+    assert [row.kind for row in recent.rows] == ["you", "message"]
     # The operator's line is at no level; the agent's reply at its own.
     assert [row.level for row in recent.rows] == ["", "drive"]
+
+
+def test_the_agent_s_message_and_note_are_told_apart():
+    recent = RecentActions()
+    recent.add(_record("agent_level_set", {"level": "drive"}, actor=OPERATOR))
+    recent.add(_record("note", {"text": "curtaining on 02, accepted"}))
+    recent.add(
+        _record("note", {"text": "Spot burn failed", "to": "operator", "id": "c3"})
+    )
+    recent.add(
+        _record("note", {"text": "skip 03", "to": "agent", "id": "ab12"}, OPERATOR)
+    )
+    # A grid's note the operator kept is not a message to the agent.
+    recent.add(_record("note", {"text": "cracked", "item_name": "G1"}, OPERATOR))
+    assert [row.kind for row in recent.rows] == ["note", "message", "you"]
 
 
 def test_a_request_on_the_record_as_a_proposal_is_one_row():

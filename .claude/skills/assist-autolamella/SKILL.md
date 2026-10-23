@@ -47,6 +47,7 @@ The tools this skill uses, with their routes for plain HTTP:
 | `request_get` | `GET /app/agent/requests/{request_id}` |
 | `request_withdraw` | `POST /app/agent/requests/{request_id}/withdraw` with `{"reason": ...}` |
 | `experiment_add_note` | `POST /app/experiment/notes` |
+| `experiment_message_operator` | `POST /app/experiment/messages` |
 | `workflow_stop`, `milling_stop` | `POST /app/workflow/stop`, `POST /microscope/services/milling/commands/stop`, each with `{"reason": ...}` |
 | `milling_end` | `POST /microscope/services/milling/commands/end` with `{"kwargs": {"reason": ..., "by": "agent"}, "reason": ...}` |
 
@@ -181,8 +182,8 @@ only after one lamella passed it first time, and never Setup or Polishing;
 the switch is a request too, and so is turning supervision back on.
 
 When you can't judge a proposal, don't suggest or file a decision. Tell the operator
-what you see and that it's theirs, and put that on the record with
-`experiment_add_note` (nobody else will). Typical cases:
+what you see and that it's theirs with `experiment_message_operator`, which
+also puts it on the record (nobody else will). Typical cases:
 
 - an image you can't read, or one with no `acquired_at` (treat it as
   stale);
