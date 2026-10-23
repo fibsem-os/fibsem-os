@@ -214,7 +214,9 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
     microscope, _ = utils.setup_session(
         manufacturer="Demo",
-        config_path=os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml"),
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml"
+        ),
     )
     microscope.system.sim["coincidence_projection"] = True
     microscope._connection.setup_sample_scene()
@@ -302,7 +304,9 @@ def main():
     # 5. the fluorescence view: the dye model by excitation line (the
     # shuttle Demo has no FM; the Arctis one does)
     arctis, _ = utils.setup_session(
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
+        )
     )
     fm_scene = SampleScene(seed=5, fiducial=True)
     fm_scene.anchor(arctis.get_stage_position())

@@ -1,5 +1,5 @@
 from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import QCheckBox, QGridLayout, QLabel, QSpinBox, QWidget
+from PyQt5.QtWidgets import QCheckBox, QGridLayout, QLabel, QWidget
 
 from fibsem.structures import MillingAlignment
 from fibsem.ui.widgets.custom_widgets import (

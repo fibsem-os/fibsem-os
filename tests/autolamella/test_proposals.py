@@ -1100,8 +1100,6 @@ def test_decide_and_save_share_the_write_lock(tmp_path):
     decision is being applied waits for it, and vice versa."""
     import threading
 
-    from fibsem.applications.autolamella import structures as S
-
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
     set_proposals(lamella, SETUP, [_proposal(Point(0.0, 0.0))])

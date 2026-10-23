@@ -23,11 +23,9 @@ from fibsem.milling.properties import distance_param
 from fibsem.structures import (
     Configurable,
     Display,
-    Parameter,
     Point,
     RangeLimit,
     TFibsemPatternSettings,
-    field_specs,
     flagged_fields,
     param,
 )

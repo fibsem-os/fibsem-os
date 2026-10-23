@@ -13,7 +13,6 @@ Run headless:
 """
 
 import threading
-import types
 
 import pytest
 

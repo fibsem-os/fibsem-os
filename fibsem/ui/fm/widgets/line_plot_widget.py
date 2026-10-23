@@ -24,7 +24,6 @@ from fibsem.ui.tokens import (
     NEUTRAL_400,
     NEUTRAL_450,
     ORANGE_COLOR,
-    SURFACE_COLOR,
 )
 
 _OVERLAY_BTN_STYLE = (
@@ -126,12 +125,10 @@ class LinePlotWidget(QWidget):
         self.canvas.setMinimumSize(200, 150)
 
         # Connect pan/zoom mouse events
-        self._mpl_cids = [
-            self.canvas.mpl_connect("scroll_event", self._on_scroll),
-            self.canvas.mpl_connect("button_press_event", self._on_mouse_press),
-            self.canvas.mpl_connect("motion_notify_event", self._on_mouse_motion),
-            self.canvas.mpl_connect("button_release_event", self._on_mouse_release),
-        ]
+        self.canvas.mpl_connect("scroll_event", self._on_scroll)
+        self.canvas.mpl_connect("button_press_event", self._on_mouse_press)
+        self.canvas.mpl_connect("motion_notify_event", self._on_mouse_motion)
+        self.canvas.mpl_connect("button_release_event", self._on_mouse_release)
 
         # ── Overlay buttons (parented to canvas, stacked right-to-left) ──────
         def _obtn(icon_name: str, tooltip: str, checkable: bool = False) -> QPushButton:
@@ -707,33 +704,3 @@ class LinePlotWidget(QWidget):
         # Invalidate blit background — next blit cycle will draw the line on top
         self.canvas.draw()
         self.background = self.canvas.copy_from_bbox(self.ax.bbox)
-
-    def update_chart(self, data_array: Optional[np.ndarray], title: str = ""):
-        """Update the chart with a new array of data (replaces current data).
-
-        Args:
-            data_array: 1D numpy array containing the data to plot
-            title: Optional title for the plot
-        """
-        if data_array is None or data_array.size == 0:
-            self.reset_chart()
-            return
-
-        # Clear buffers and add new data
-        self.data_buffer.clear()
-        self.time_buffer.clear()
-
-        # Take only the last max_length values if array is too long
-        if len(data_array) > self.max_length:
-            data_array = data_array[-self.max_length :]
-
-        # Generate timestamps spaced 1 second apart ending at now
-        now = datetime.now()
-        start = now - timedelta(seconds=len(data_array) - 1)
-
-        for i, value in enumerate(data_array):
-            self.data_buffer.append(float(value))
-            self.time_buffer.append(start + timedelta(seconds=i))
-
-        # Update the plot
-        self._append_value_internal(self.data_buffer[-1], title)

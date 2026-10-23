@@ -29,9 +29,9 @@ from PyQt5.QtWidgets import (
 from fibsem.applications.autolamella.structures import Lamella
 from fibsem.applications.autolamella.task_outputs import history_images
 from fibsem.cancellation import CANCELLED, COMPLETED, FAILED, SKIPPED
-from fibsem.config import load_user_preferences, update_user_preferences
 from fibsem.imaging.drawing import draw_image_overlays
 from fibsem.imaging.export import ImageFields, image_caption, image_summary
+from fibsem.session_state import user_state
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.thumbnails import (
@@ -75,6 +75,10 @@ from fibsem.workflows.history_rows import (
     shown_images,
 )
 from fibsem.workflows.status import TaskStatus
+
+# The filter's section in the per-account session state (FIB-1256): empty until
+# someone filters, so the tab's default still reaches everyone who never did.
+HISTORY_FILTER = "history_filter"
 
 _MIN_THUMB_WIDTH = 120
 _MAX_THUMB_WIDTH = TARGET_WIDTH
@@ -444,7 +448,7 @@ class LamellaTaskImageWidget(QWidget):
 
         self._filter_button = _HistoryFilterButton(self)
         self._filter_button.set_filter(
-            HistoryFilter.from_dict(load_user_preferences().display.history_filter)
+            HistoryFilter.from_dict(user_state().load_section(HISTORY_FILTER, {}) or {})
         )
         self._filter_button.changed.connect(self._on_filter_changed)
         self._filter_button.hide()
@@ -586,9 +590,7 @@ class LamellaTaskImageWidget(QWidget):
 
     def _on_filter_changed(self) -> None:
         flt = self._filter_button.filter
-        update_user_preferences(
-            lambda prefs: setattr(prefs.display, "history_filter", flt.to_dict())
-        )
+        user_state(writable=True).save_section(HISTORY_FILTER, flt.to_dict())
         self._cancel_worker()
         self._rebuild()
 

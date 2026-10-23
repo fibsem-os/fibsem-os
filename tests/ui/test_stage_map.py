@@ -210,7 +210,10 @@ def test_an_offset_fm_station_is_drawn_where_the_stage_goes_for_it(qapp, pose):
     )
     microscope.move_stage_absolute(at_fm)
     stage_map = _update(controller, microscope).map
-    assert microscope.get_current_device(microscope.get_stage_position()) == "FM"
+    assert (
+        microscope.stage_movement.current_device(microscope.get_stage_position())
+        == "FM"
+    )
 
     stations = stage_map._device_stations()
     assert [name for name, _ in stations] == ["FM"]

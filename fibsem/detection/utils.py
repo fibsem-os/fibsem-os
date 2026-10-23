@@ -10,8 +10,8 @@ from PIL import Image
 
 from fibsem import config as cfg
 from fibsem import utils
+from fibsem.constants import DATETIME_FILE_NANO
 from fibsem.detection.detection import DetectedFeatures, Feature
-from fibsem.structures import FibsemImageMetadata
 
 
 def decode_segmap(image, nc=3):
@@ -64,7 +64,7 @@ def save_ml_feature_data(
         logging.warning(
             "No image metadata found for ml images, saving with timestamp instead"
         )
-        fname = f"ml-{utils.current_timestamp_v2()}"
+        fname = f"ml-{utils.current_timestamp(DATETIME_FILE_NANO)}"
         beam_type = "NULL"
 
     # beam_type is a BeamType enum when metadata is present, else the "NULL" string fallback

@@ -1,0 +1,38 @@
+{
+  "asked_by": null,
+  "created_at": "2025-10-09T08:53:20+00:00",
+  "decisions": [
+    {
+      "action": "",
+      "actor": "operator:operator",
+      "evidence": "",
+      "outcome": "Confirmed",
+      "proposal_id": "",
+      "reason": "",
+      "suggestion_id": "",
+      "task_id": "",
+      "timestamp": "2025-10-09T08:53:20+00:00",
+      "values": {
+        "poi": {
+          "name": null,
+          "x": 1e-06,
+          "y": 0.0
+        }
+      },
+      "via": ""
+    }
+  ],
+  "id": "proposal-1",
+  "kind": "poi",
+  "provenance": {
+    "task_id": "task-1"
+  },
+  "suggestion": null,
+  "values": {
+    "poi": {
+      "name": null,
+      "x": 0.0,
+      "y": 1e-06
+    }
+  }
+}

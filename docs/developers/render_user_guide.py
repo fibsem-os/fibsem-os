@@ -180,7 +180,7 @@ class Harness:
         # into the configuration it was connected with.
         for name, filename in SIM_CONFIGURATIONS.items():
             copy = tmp / filename
-            shutil.copyfile(os.path.join(cfg.CONFIG_PATH, filename), copy)
+            shutil.copyfile(os.path.join(cfg.SHIPPED_CONFIG_PATH, filename), copy)
             cfg.USER_CONFIGURATIONS[name] = {"path": str(copy)}
 
     # -- driving ------------------------------------------------------------
@@ -845,7 +845,7 @@ def render_movement(h: Harness) -> None:
         ("compustage", "sim-arctis-configuration.yaml"),
     ):
         demo, _ = utils.setup_session(
-            config_path=os.path.join(cfg.CONFIG_PATH, filename),
+            config_path=os.path.join(cfg.SHIPPED_CONFIG_PATH, filename),
             manufacturer="Demo",
             setup_logging=False,
         )
@@ -1331,7 +1331,6 @@ def render_fluorescence(h: Harness) -> None:
     for panel in (
         fmc.cameraPanel,
         fmc.acquisitionSettingsWidget.autofocus_panel,
-        fmc.histogramPanel,
     ):
         panel._btn_collapse.setChecked(False)
     fmc.acquisitionSettingsWidget.z_parameters_panel._btn_collapse.setChecked(True)
@@ -2066,7 +2065,7 @@ def render_grid_workflow(h: Harness) -> None:
     from PyQt5.QtGui import QTextCursor
     from PyQt5.QtWidgets import QDialog, QInputDialog, QMenu, QPlainTextEdit
 
-    from fibsem.applications.autolamella.tools import grid_report_pdf
+    from fibsem.applications.autolamella.tools import grid_report_html
     from fibsem.applications.autolamella.ui import window as main_module
     from fibsem.applications.autolamella.ui.common.lamella_display import (
         add_verdict_actions,
@@ -2379,9 +2378,10 @@ def render_grid_workflow(h: Harness) -> None:
 
     # -- the report, from Tools -> Reporting ---------------------------------
     # The cover names the experiment folder, which is the scratch directory;
-    # the worked example's is on the support PC. The PDF opens in the
-    # desktop's viewer, so its path is kept instead, and two pages drawn.
-    real_collect = grid_report_pdf.collect_grid_report
+    # the worked example's is on the support PC. The page opens in the
+    # desktop's browser, so its path is kept instead, and two pages of the PDF
+    # printed beside it drawn.
+    real_collect = grid_report_html.collect_grid_report
 
     def collect(*args, **kwargs):
         report = real_collect(*args, **kwargs)
@@ -2389,7 +2389,7 @@ def render_grid_workflow(h: Harness) -> None:
         return report
 
     written: List[str] = []
-    grid_report_pdf.collect_grid_report = collect
+    grid_report_html.collect_grid_report = collect
     gt.open_report = written.append
     try:
         h.window.action_generate_grid_report.trigger()
@@ -2398,13 +2398,16 @@ def render_grid_workflow(h: Harness) -> None:
             h.pump(250)
             waited += 250
     finally:
-        grid_report_pdf.collect_grid_report = real_collect
+        grid_report_html.collect_grid_report = real_collect
         del gt.open_report
     if not written:
         raise RuntimeError("the grid screening report was not written")
     import fitz
 
-    pdf = fitz.open(written[0])
+    printed = Path(written[0]).with_suffix(".pdf")
+    if not printed.exists():
+        raise RuntimeError("no browser printed the grid screening report to a PDF")
+    pdf = fitz.open(str(printed))
     pages = [p.get_text() for p in pdf]
     grid_page = next(
         (i for i, text in enumerate(pages) if i > 0 and first.name in text), None

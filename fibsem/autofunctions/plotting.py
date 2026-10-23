@@ -153,7 +153,6 @@ def plot_autofocus_result(
 
 def _plot_autofocus_result(result, save_path, theme):
     import matplotlib.gridspec as gridspec
-    import numpy as np
     from matplotlib.figure import Figure
 
     iters = result.iterations

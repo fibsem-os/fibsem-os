@@ -65,7 +65,7 @@ def is_enabled() -> bool:
 
     **Opt-in.** These run on instrument PCs, sometimes on institutional networks
     where an unannounced connection at startup is a compliance question, so the
-    user has to ask for it (``reporting.update_check_enabled``).
+    user has to ask for it (``install.update_check_enabled``).
 
     This governs the background check only. A user-initiated check goes through
     ``refresh(force=True)`` — the click is the consent.
@@ -75,17 +75,12 @@ def is_enabled() -> bool:
     try:
         from fibsem.config import load_user_preferences
 
-        return bool(load_user_preferences().reporting.update_check_enabled)
+        return bool(load_user_preferences().install.update_check_enabled)
     except Exception:
         # Fail closed. An unreadable preferences file must not produce a network
         # call the user never opted into.
         logger.debug("Could not read update-check preference", exc_info=True)
         return False
-
-
-def get_status() -> Optional[UpdateStatus]:
-    """The cached result, or None if no check has succeeded this session."""
-    return _status
 
 
 def get_available_update() -> Optional[str]:
@@ -165,8 +160,9 @@ def refresh(package: str = _PACKAGE, force: bool = False) -> Optional[UpdateStat
         current = version.parse(current_raw)
         latest = version.parse(versions[0])
     except Exception as exc:
-        logger.debug("Could not compare versions (%r vs %r): %s",
-                     current_raw, versions[0], exc)
+        logger.debug(
+            "Could not compare versions (%r vs %r): %s", current_raw, versions[0], exc
+        )
         return None
 
     _status = UpdateStatus(

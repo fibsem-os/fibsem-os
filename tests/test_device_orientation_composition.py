@@ -22,8 +22,8 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.structures import FibsemStagePosition
 
-IFLM_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
-ARCTIS_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+IFLM_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml")
+ARCTIS_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
 
 ORIENTATIONS = ("SEM", "FIB", "MILLING")
 TRAVERSE = 48.8e-3
@@ -82,7 +82,7 @@ def test_fm_milling_is_a_device_and_an_orientation_not_a_fifth_orientation():
         _at(microscope, "SEM", 0.0), "MILLING", target_device="FM"
     )
 
-    assert microscope.get_current_device(target) == "FM"
+    assert microscope.stage_movement.current_device(target) == "FM"
     assert microscope.get_stage_orientation(target) == "MILLING"
     assert target.t == pytest.approx(microscope.get_orientation("MILLING").t)
 
@@ -152,7 +152,7 @@ def test_the_traverse_lands_inside_the_fm_range_whatever_the_pose(x_mm: float):
         target = microscope.get_target_position(
             _at(microscope, "SEM", x_mm), orientation, target_device="FM"
         )
-        assert microscope.get_current_device(target) == "FM"
+        assert microscope.stage_movement.current_device(target) == "FM"
 
 
 # ── what did not change ──────────────────────────────────────────────
@@ -211,7 +211,7 @@ def test_converting_from_no_device_is_refused():
     microscope.system.stage.devices["FIBSEM"].range = FibsemStagePosition(x=20.0e-3)
     stranded = _at(microscope, "SEM", 24.0)  # past the beams, short of the FM
 
-    assert microscope.get_current_device(stranded) is None
+    assert microscope.stage_movement.current_device(stranded) is None
 
     with pytest.raises(ValueError, match="not at any configured device"):
         microscope.get_target_position(stranded, "FIB", target_device="FM")
@@ -258,7 +258,7 @@ def test_asking_for_an_orientation_alone_still_snaps():
     target = microscope.get_target_position(start, "MILLING")
 
     assert np.isclose(target.t, microscope.get_orientation("MILLING").t)
-    assert microscope.get_current_device(target) == "FIBSEM"
+    assert microscope.stage_movement.current_device(target) == "FIBSEM"
 
 
 def test_asking_for_both_snaps_and_relocates():
@@ -268,7 +268,7 @@ def test_asking_for_both_snaps_and_relocates():
 
     target = microscope.get_target_position(start, "MILLING", target_device="FM")
 
-    assert microscope.get_current_device(target) == "FM"
+    assert microscope.stage_movement.current_device(target) == "FM"
     assert microscope.get_stage_orientation(target) == "MILLING"
     assert np.isclose(target.t, microscope.get_orientation("MILLING").t)
 

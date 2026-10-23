@@ -44,7 +44,6 @@ def _reporting_actions(window):
 def test_it_sits_with_the_lamella_report(window):
     assert _reporting_actions(window) == [
         "Generate Report",
-        "Generate Report v2 (preview)",
         "Generate Grid Screening Report",
         "Generate Overview Plot",
     ]
@@ -62,7 +61,6 @@ def test_it_refuses_with_nothing_to_report(window, experiment, monkeypatch):
 
 
 def test_it_shows_the_grids_tab_and_writes_there(window, experiment, monkeypatch):
-    pytest.importorskip("reportlab")
     experiment.add_grid(GridRecord(name="grid-oak"))
     window.experiment = experiment
     window._on_experiment_update()
@@ -73,5 +71,7 @@ def test_it_shows_the_grids_tab_and_writes_there(window, experiment, monkeypatch
     window.menu_bar.action_generate_grid_report.trigger()
     assert window.tab_widget.currentWidget() is tab
     (path,) = opened
-    assert path == os.path.join(str(experiment.path), "grid-screening-report.pdf")
-    assert tab.status_label.text() == "Report written: grid-screening-report.pdf"
+    assert path == os.path.join(
+        str(experiment.path), "reporting", "grid-screening-report.html"
+    )
+    assert tab.status_label.text() == "Report written: grid-screening-report.html"

@@ -1,4 +1,4 @@
-"""Tools → Reporting → Generate Report v2 (preview) writes the page from the
+"""Tools → Reporting → Generate Report writes the page from the
 experiment's events.jsonl, opens it, and prints it to a PDF (FIB-1036).
 
 The real main window, with no microscope: the report reads records only. What
@@ -94,7 +94,7 @@ def test_the_report_is_written_opened_and_printed(window, seen, tmp_path):
     experiment = _experiment(tmp_path, "recorded")
     window.experiment = experiment
 
-    window.menu_bar.action_generate_report_v2.trigger()
+    window.menu_bar.action_generate_report.trigger()
 
     # written on a worker, then opened, then printed on another
     assert _toasts(seen, 2) == [
@@ -113,7 +113,7 @@ def test_with_no_pdf_the_page_still_is_and_says_how_to_make_one(window, seen, tm
     window.experiment = _experiment(tmp_path, "no-browser")
     seen["no_pdf"] = "no Edge, Chrome or Chromium was found to print the page with"
 
-    window.menu_bar.action_generate_report_v2.trigger()
+    window.menu_bar.action_generate_report.trigger()
 
     assert _toasts(seen, 2)[1] == (
         "warning",
@@ -126,7 +126,7 @@ def test_with_no_pdf_the_page_still_is_and_says_how_to_make_one(window, seen, tm
 def test_an_older_experiment_says_why_there_is_no_v2_report(window, seen, tmp_path):
     window.experiment = _experiment(tmp_path, "older", recorded=False)
 
-    window.menu_bar.action_generate_report_v2.trigger()
+    window.menu_bar.action_generate_report.trigger()
 
     assert seen["opened"] == [] and seen["printed"] == []
     ((level, message),) = seen["toasts"]
@@ -136,7 +136,7 @@ def test_an_older_experiment_says_why_there_is_no_v2_report(window, seen, tmp_pa
 def test_with_no_experiment_open(window, seen):
     window.experiment = None
 
-    window.menu_bar.action_generate_report_v2.trigger()
+    window.menu_bar.action_generate_report.trigger()
 
     assert seen["opened"] == [] and seen["printed"] == []
     assert seen["toasts"] == [("warning", "Open an experiment to report on.")]

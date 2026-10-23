@@ -20,7 +20,6 @@ import json
 import logging
 import os
 import sys
-import threading
 import types
 
 logging.disable(logging.CRITICAL)
@@ -211,12 +210,12 @@ from fibsem import utils  # noqa: E402
 from fibsem.drivers.autoscript.connection import AutoScriptConnection  # noqa: E402
 from fibsem.drivers.autoscript.devices import (  # noqa: E402
     AutoscriptCompustage,
-    bind_autoscript_stage,
 )
 from fibsem.structures import (  # noqa: E402
     BeamType,
     FibsemStagePosition,
     InsertableDeviceState,
+    RangeLimit,
 )
 
 assert A.THERMO_API_AVAILABLE, A.THERMO_API_IMPORT_ERROR
@@ -228,7 +227,7 @@ OFFSET_LIMITS = {
     "t": (np.radians(-15), np.radians(70)),
 }
 SYSTEM = utils.load_microscope_configuration(
-    os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+    os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
 ).system
 
 
@@ -446,10 +445,10 @@ def cases():
                 for axis in ("x", "y", "z", "t"):
                     raw = m._connection.vendor_stage.get_axis_limits(axis)
                     scale = np.degrees if axis == "t" else float
-                    limits[axis] = A.RangeLimit(min=scale(raw.min), max=scale(raw.max))
-                limits["r"] = A.RangeLimit(min=-360, max=360)
+                    limits[axis] = RangeLimit(min=scale(raw.min), max=scale(raw.max))
+                limits["r"] = RangeLimit(min=-360, max=360)
             return {
-                k: A.RangeLimit(
+                k: RangeLimit(
                     min=float(np.radians(v.min)) if k in "rt" else v.min,
                     max=float(np.radians(v.max)) if k in "rt" else v.max,
                 )
@@ -458,7 +457,8 @@ def cases():
 
         def new_limits(stage, m):
             LOG.clear()
-            return bind_autoscript_stage(m).position.limits
+            m._build_stage()
+            return m.stage.position.limits
 
         add("limits", old_limits, new_limits)
         add(
@@ -471,7 +471,7 @@ def cases():
 
         add(
             "get position",
-            lambda m: m._stage_value("position"),
+            lambda m: m.stage.parameters["position"].get_value(),
             lambda s, m: s.position.get_value(),
         )
         add(
@@ -481,20 +481,20 @@ def cases():
         )
         add(
             "get homed",
-            lambda m: m._stage_value("homed"),
+            lambda m: m.stage.parameters["homed"].get_value(),
             lambda s, m: s.homed.get_value(),
         )
         add("home", lambda m: (m.stage.home(), None)[1], lambda s, m: s._home())
         if not compustage:
             add(
                 "get linked",
-                lambda m: m._stage_value("linked"),
+                lambda m: m.stage.parameters["linked"].get_value(),
                 lambda s, m: s.linked.get_value(),
             )
             add("link", lambda m: (m.stage.link(), None)[1], lambda s, m: s._link())
             add(
                 "link_stage",
-                lambda m: m.link_stage(),
+                lambda m: m.stage.link(),
                 lambda s, m: (s._link(), s.linked.get_value())[1],
             )
         add("home()", lambda m: m.stage.home(), lambda s, m: (s._home(), True)[1])
