@@ -131,7 +131,7 @@ def test_an_approved_request_starts_the_run_from_the_gui_thread(ui, qapp, monkey
 
         done = store.get(request_id)
         assert done.status == "applied", done.results
-        assert done.results[0]["result"] == {"available": True, "started": True}
+        assert done.results[0]["result"] == {"started": True}
         assert started_with(held) == [
             (["Mill Fiducial"], [ui.experiment.positions[0].name])
         ]

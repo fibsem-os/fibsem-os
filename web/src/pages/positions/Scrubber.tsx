@@ -5,9 +5,9 @@ import { ImageViewer } from "@/components/images";
 import { Stepper } from "@/components/stepper";
 import { Button } from "@/components/ui/button";
 import { api, imageUrl } from "@/lib/api";
+import * as fmt from "@/lib/format";
 import type { ItemStack, StackSlice } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { clock } from "../lamellae/History";
 
 // A slice loads small while it is scrubbed past, and full width once it rests.
 const SMALL = 320;
@@ -57,7 +57,7 @@ function indexOf(stack: StackSlice[], iteration: number | null) {
 function readout(slice: StackSlice, planned: number | undefined) {
   const parts = [`Slice ${slice.iteration + 1}${planned ? ` of ${planned}` : ""}`];
   if (slice.z != null) parts.push(`z ${(slice.z * 1e6).toFixed(1)} µm`);
-  if (slice.acquired_at) parts.push(clock(Date.parse(slice.acquired_at) / 1000));
+  if (slice.acquired_at) parts.push(fmt.clock(slice.acquired_at));
   return parts.join(" · ");
 }
 
