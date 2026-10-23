@@ -46,6 +46,8 @@ BLUE = ChannelSettings(
 def microscope():
     microscope, _ = utils.setup_session(manufacturer="Demo")
     assert microscope.fm is not None, "the fm package config must carry an FM"
+    # the projection is pinned here, so the stage goes exactly where it is sent
+    microscope.stage.sim_error = None
     microscope.system.sim["sample"] = {
         "enabled": True,
         "coincidence_offset": 0.0,
