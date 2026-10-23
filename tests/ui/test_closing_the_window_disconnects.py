@@ -16,18 +16,6 @@ from tests.protocols import add_planned, planned
 pytest.importorskip("PyQt5")
 
 
-@pytest.fixture
-def no_quit(qapp):
-    # AutoLamella's closeEvent ends in app.quit(), which latches on the shared
-    # test QApplication (see test_mainui_workflow_status.py).
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
-        yield
-    finally:
-        qapp.quit = original_quit
-
-
 def _refuse_to_disconnect():
     raise RuntimeError("client already gone")
 

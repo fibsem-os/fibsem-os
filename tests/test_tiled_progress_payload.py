@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import pytest
 
-from fibsem import utils
 from fibsem.imaging.tiled import TiledAcquisitionRunner
 from fibsem.imaging.tiling.progress import (
     MODALITY_BEAM,
@@ -32,12 +31,6 @@ from fibsem.structures import (
     ImageSettings,
     OverviewAcquisitionSettings,
 )
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    scope, _ = utils.setup_session(manufacturer="Demo")
-    return scope
 
 
 @pytest.fixture(scope="module")

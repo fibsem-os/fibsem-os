@@ -3,22 +3,11 @@ same headless as in the app: a command from the App Server or a script is
 refused beside it, and a run does not start beside them. Every run executes
 through ``BaseTaskManager.execute``, whoever starts it."""
 
-import os
-
 import pytest
 
-from fibsem import utils
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.workflows.grid.manager import GridTaskManager
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    yield microscope
-    microscope.disconnect()
 
 
 @pytest.fixture

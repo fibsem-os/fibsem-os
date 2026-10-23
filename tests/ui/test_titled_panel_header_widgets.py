@@ -16,11 +16,6 @@ from PyQt5.QtWidgets import QApplication, QLabel, QPushButton  # noqa: E402
 from fibsem.ui.widgets.custom_widgets import TitledPanel, header_chip  # noqa: E402
 
 
-@pytest.fixture
-def qapp():
-    yield QApplication.instance() or QApplication([])
-
-
 def _panel_with(widget):
     panel = TitledPanel("Panel", content=QLabel("body"))
     panel.add_header_widget(widget)

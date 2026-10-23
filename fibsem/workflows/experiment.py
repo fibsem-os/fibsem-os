@@ -397,6 +397,20 @@ class FibsemExperiment(ProposalDecisions, BaseExperiment):
         return experiment
 
 
+def find_item(experiment, item_name: str):
+    """The item named *item_name*, and None; or None and why not, in the words
+    every route refuses an unknown item with, and the names there are. Each
+    route puts the refusal in its own answer's shape."""
+    positions = experiment.positions if experiment is not None else []
+    item = next((p for p in positions if p.name == item_name), None)
+    if item is not None:
+        return item, None
+    return None, {
+        "error": f"No item named {item_name!r} in this experiment.",
+        "item_names": [p.name for p in positions],
+    }
+
+
 # app -> the experiment class that reads it, for :func:`load_experiment`. The
 # built-ins are named by import path so this module imports no application.
 _BUILTIN_TYPES: Dict[str, str] = {

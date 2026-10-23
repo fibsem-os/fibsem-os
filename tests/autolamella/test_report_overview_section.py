@@ -19,7 +19,6 @@ pytest.importorskip("reportlab")
 
 from reportlab.platypus import Image, Paragraph  # noqa: E402
 
-from fibsem import utils  # noqa: E402
 from fibsem.applications.autolamella.poses import build_lamella_poses  # noqa: E402
 from fibsem.applications.autolamella.structures import Experiment, Lamella  # noqa: E402
 from fibsem.applications.autolamella.tools.reporting import (  # noqa: E402
@@ -27,19 +26,6 @@ from fibsem.applications.autolamella.tools.reporting import (  # noqa: E402
     _add_overview_section,
 )
 from fibsem.structures import BeamType, FibsemImage, ImageSettings  # noqa: E402
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    import fibsem.config as fibsem_config
-
-    path = os.path.join(
-        os.path.dirname(fibsem_config.__file__),
-        "config",
-        "microscope-configuration.yaml",
-    )
-    scope, _ = utils.setup_session(manufacturer="Demo", config_path=path)
-    return scope
 
 
 @pytest.fixture

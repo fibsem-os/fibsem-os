@@ -8,6 +8,8 @@ selecting another lamella and back.
 import os
 from datetime import datetime
 
+from tests.fixtures.main_window import main_window_fixture
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
@@ -21,9 +23,6 @@ from PyQt5.QtWidgets import QApplication, QLabel  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
     Experiment,
-)
-from fibsem.applications.autolamella.ui import (
-    window as module,  # noqa: E402  # noqa: E402
 )
 from fibsem.applications.autolamella.ui.lamella.history import (
     LamellaTaskImageWidget,  # noqa: E402
@@ -51,19 +50,7 @@ def _preferences(tmp_path, monkeypatch):
     monkeypatch.setattr(cfg, "USER_PREFERENCES_PATH", str(tmp_path / "prefs.yaml"))
 
 
-@pytest.fixture
-def main_ui(qapp):
-    window = module.AutoLamellaWindow()
-    ui = window
-    ui.system_widget.connect_to_microscope()
-    yield window
-    ui.microscope.disconnect()
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
-        window.close()
-    finally:
-        qapp.quit = original_quit
+main_ui = main_window_fixture(connect=True)
 
 
 @pytest.fixture

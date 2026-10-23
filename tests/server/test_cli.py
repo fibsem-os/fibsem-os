@@ -6,7 +6,6 @@ Skipped when the [server] extra is not installed.
 
 import json
 import math
-import os
 
 import pytest
 import yaml
@@ -14,7 +13,7 @@ import yaml
 pytest.importorskip("fastapi")
 uvicorn = pytest.importorskip("uvicorn")
 
-from fibsem import cli, utils  # noqa: E402
+from fibsem import cli  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.server.app_context import AppContext  # noqa: E402
 from fibsem.structures import FibsemImage  # noqa: E402
@@ -24,18 +23,6 @@ from tests.fixtures.app_server import serving  # noqa: E402
 OPERATOR = "operator-token"
 # A stage offset as the codec reads one: every field named.
 DELTA = {"x": 1e-6, "y": 0.0, "z": 0.0, "r": 0.0, "t": 0.0, "coordinate_system": "RAW"}
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    previous = os.environ.get("FIBSEM_SIM_NO_DELAY")
-    os.environ["FIBSEM_SIM_NO_DELAY"] = "1"
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    yield microscope
-    if previous is None:
-        os.environ.pop("FIBSEM_SIM_NO_DELAY", None)
-    else:
-        os.environ["FIBSEM_SIM_NO_DELAY"] = previous
 
 
 @pytest.fixture(scope="module")

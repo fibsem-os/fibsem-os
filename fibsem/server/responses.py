@@ -23,6 +23,7 @@ from fibsem.structures import (
     Point,
 )
 from fibsem.workflows.outputs import RunFiles, StackSlice
+from fibsem.workflows.progress_line import ProgressLine
 
 if TYPE_CHECKING:
     from fastapi.responses import JSONResponse
@@ -248,12 +249,32 @@ class Asking:
 
 
 @dataclass
+class RunFailed:
+    """The run's last failed task, or why it stalled: kept until the next run."""
+
+    what: str
+    message: str
+    at: Optional[str] = None
+    # how many of the run's tasks failed
+    count: int = 1
+
+
+@dataclass
 class WorkflowState:
     running: bool
     current_task: Optional[str] = None
     current_item: Optional[str] = None
+    # the task's place in the live queue, 1-based, of queue_total
+    queue_position: Optional[int] = None
     queue_total: Optional[int] = None
     queue_version: Optional[int] = None
+    iteration: Optional[int] = None
+    # what the task or the run is doing now: "Aligning", "Loading grid G2..."
+    step: Optional[str] = None
+    # what releases a held run, and since when
+    waiting_on: Optional[str] = None
+    waiting_since: Optional[str] = None
+    failed: Optional[RunFailed] = None
     asking: List[Asking] = field(default_factory=list)
 
 
@@ -262,6 +283,10 @@ class AppStatus:
     microscope_connected: bool
     experiment: Optional[ExperimentRef]
     workflow: WorkflowState
+    # measurable progress on the microscope: milling, tiles, a spot burn, FM
+    progress: Optional[ProgressLine] = None
+    # who holds the microscope, doing what, when it is not the run
+    in_control: Optional[InControl] = None
 
 
 @dataclass

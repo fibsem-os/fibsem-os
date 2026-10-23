@@ -7,7 +7,7 @@ exercised against exactly the structures the server patches in production.
 
 import pytest
 
-from fibsem.server.config_patch import PatchError, apply_patch
+from fibsem.workflows.config_patch import PatchError, apply_patch
 
 
 @pytest.fixture
@@ -217,7 +217,7 @@ def test_a_float_field_holding_a_whole_number_takes_a_float():
 
 
 def test_check_patch_refuses_as_apply_does_and_sets_nothing(config):
-    from fibsem.server.config_patch import check_patch
+    from fibsem.workflows.config_patch import check_patch
 
     path = "milling.mill_rough.stages.0.pattern.depth"
     before = config.milling["mill_rough"].stages[0].pattern.depth
