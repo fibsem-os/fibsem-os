@@ -90,20 +90,11 @@ def _point_session_state_at(monkeypatch, directory):
 
     monkeypatch.setattr(session_state, "SESSION_STATE_DIRECTORY", str(directory))
     monkeypatch.setattr(
-        cfg, "FM_CONFIGURATION_PATH", str(directory / "fm-configuration.yaml")
-    )
-    monkeypatch.setattr(
         cfg, "FM_RECENT_CHANNELS_PATH", str(directory / "fm-recent-channels.yaml")
     )
     # and the two files saved positions are imported from
     monkeypatch.setattr(cfg, "POSITION_PATH", str(directory / "saved-positions.yaml"))
     monkeypatch.setattr(cfg, "LEGACY_POSITIONS_PATH", str(directory / "positions.yaml"))
-    # the coincidence viewer saves its milling config when it closes
-    monkeypatch.setattr(
-        cfg,
-        "COINCIDENCE_MILLING_CONFIG_PATH",
-        str(directory / "coincidence-milling-config.yaml"),
-    )
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -267,6 +258,24 @@ def destroy_widgets_after_test(qapp):
             widget.close()
             widget.deleteLater()
     QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+
+@pytest.fixture
+def no_pyplot(monkeypatch):
+    """Fail the test if it makes a pyplot figure or switches matplotlib's backend.
+
+    Figures the server draws must not: with the Qt backend active, a pyplot
+    figure made off the main thread raises "Starting a Matplotlib GUI outside of
+    the main thread", and switching to Agg takes the live app's backend with it.
+    """
+    import matplotlib
+    import matplotlib.pyplot as plt
+
+    def refused(*args, **kwargs):
+        raise AssertionError("drew with pyplot or switched the backend")
+
+    monkeypatch.setattr(plt, "figure", refused)
+    monkeypatch.setattr(matplotlib, "use", refused)
 
 
 @pytest.fixture(autouse=True, scope="session")

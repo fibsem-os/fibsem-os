@@ -1,8 +1,5 @@
 """The app's event stream for a microscope session, and its record on disk.
 
-The event buffer (``events.py``) began as the App Server's: built when
-the server started, gone when it stopped, so with the server off nothing -- the
-dashboard, a monitor, a replay -- had a stream to read. It is the app's now.
 An :class:`EventRecorder` is created when a microscope connects, whether or not
 any server runs, and owns:
 
@@ -15,7 +12,7 @@ any server runs, and owns:
 
 A workflow run records through the same recorder: the task manager finds the
 microscope's with :func:`recorder_for`, or makes one for the run when nothing
-keeps one -- a run without the GUI (FIB-1044).
+keeps one -- a run without the GUI.
 
 The App Server, when it runs, reads the same buffer.
 
@@ -338,8 +335,7 @@ def _parse_line(line: bytes, skip_needles: List[bytes]) -> Optional[Dict[str, An
 
 def milling_run_of(payload: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
     """A milling event's run id and milling task name: ``milling_run_id`` and
-    ``milling_task_name``, or ``task_id`` and ``task_name`` in a file recorded
-    before FIB-1356, when the payload used the names the envelope's task has."""
+    ``milling_task_name``, or ``task_id`` and ``task_name`` in an older file."""
     return (
         payload.get("milling_run_id") or payload.get("task_id"),
         payload.get("milling_task_name") or payload.get("task_name"),
@@ -371,7 +367,7 @@ def _workflow_ends() -> frozenset:
 
 
 # How a run ends, which the run itself reports: the task's, though they name no
-# task and fire outside any task's mark (FIB-1079). Its start is whoever
+# task and fire outside any task's mark. Its start is whoever
 # started it -- the operator's Run button, or the agent through the server --
 # so workflow_started is left to the thread's mark.
 _WORKFLOW_ENDS = _workflow_ends()
@@ -423,8 +419,8 @@ class EventRecorder:
         ]
         try:
             self._disposers += attach_microscope_taps(self.buffer, microscope)
-            # Registered for each run by the task manager that runs it
-            # (FIB-1044), so this object is handed over again every time.
+            # Registered for each run by the task manager that runs it,
+            # so this object is handed over again every time.
             self.lifecycle_hook = make_lifecycle_hook(self.buffer)
             self.set_experiment(experiment_path, experiment)
         except BaseException:
@@ -526,8 +522,8 @@ class EventRecorder:
             item = named
         if kind in _PROPOSAL_EVENTS and isinstance(payload, dict):
             # A proposal is its own item's, or the experiment's (an agent's
-            # request): not the running task's, unless it is that task's
-            # (FIB-1510).
+            # request): not the running task's, unless it is that task's.
+            #
             named = payload.get("item")
             if named is None or item is None or item.get("id") != named.get("id"):
                 item, task = named, None
@@ -553,7 +549,7 @@ class EventRecorder:
 # task's.
 class ProposalTap:
     """The questions a run asks, and every decision on a proposal, from the
-    experiment's own ``asked`` and ``decided`` signals (FIB-1034).
+    experiment's own ``asked`` and ``decided`` signals.
 
     Every way a decision reaches the record fires ``decided``: the widget a
     question is answered on and an agent over the server through ``Experiment.decide``,
@@ -562,7 +558,7 @@ class ProposalTap:
     is one ``proposal_decided`` event, with the values proposed and the values
     decided, whole: the reader compares them. A confirmation whose values the
     task fills in afterwards (a position "as it stands") is recorded once they
-    arrive, with them (FIB-1491).
+    arrive, with them.
 
     The signals name only the item and the task, so what is new is found by
     what has been seen: whatever the experiment holds when it is watched counts
@@ -722,7 +718,7 @@ def _proposal_payload(item: Any, task_name: str, proposal: Any) -> Dict[str, Any
     if proposal.provenance.get("reference_image"):
         payload["image"] = proposal.provenance["reference_image"]
     # The model a detection came from: a correction only means something
-    # against the checkpoint that made the prediction (FIB-1066).
+    # against the checkpoint that made the prediction.
     checkpoint = proposal.provenance.get("checkpoint")
     if checkpoint:
         payload["checkpoint"] = checkpoint

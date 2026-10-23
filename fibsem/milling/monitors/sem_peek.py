@@ -1,5 +1,5 @@
 """SEM peek: every ``interval`` seconds of milled time, pause the mill, take
-an SEM image, and resume (FIB-1482).
+an SEM image, and resume.
 
 Not a live monitor: it images only while the pattern is paused, so the step
 keeps looking at the instrument as usual. Its files: each image
@@ -73,18 +73,16 @@ class SemPeekMonitor(MillingPeriodicMonitor[SemPeekConfig]):
 
     def _sheet(self) -> Optional[str]:
         try:
-            import matplotlib
-
-            matplotlib.use("Agg")
-            import matplotlib.pyplot as plt
+            from matplotlib.backends.backend_agg import FigureCanvasAgg
+            from matplotlib.figure import Figure
         except ImportError:
             return None
         n = len(self._thumbs)
         cols = min(n, 4)
         rows = (n + cols - 1) // cols
-        fig, axes = plt.subplots(
-            rows, cols, figsize=(3 * cols, 2.2 * rows), squeeze=False
-        )
+        fig = Figure(figsize=(3 * cols, 2.2 * rows))
+        FigureCanvasAgg(fig)
+        axes = fig.subplots(rows, cols, squeeze=False)
         for ax in axes.flat:
             ax.axis("off")
         for ax, (milled, thumb) in zip(axes.flat, self._thumbs):
@@ -97,7 +95,6 @@ class SemPeekMonitor(MillingPeriodicMonitor[SemPeekConfig]):
         except Exception:  # noqa: BLE001 - the figure must not cost the record
             logging.debug("could not save the SEM peek sheet", exc_info=True)
             path = None
-        plt.close(fig)
         return path
 
     def result(self) -> MillingMonitorResult:

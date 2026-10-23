@@ -1,79 +1,26 @@
 """One Overview tab, with the imaging modality chosen above the canvas.
 
-The FIB/SEM overview and the fluorescence overview were two top-level tabs sitting next
-to each other, driving the same stage over the same experiment through two widgets that
-share fifty-five method names. Every fix in the area had to be made twice, and twice it
-was not: the beam tab went silent on click-to-move (FIB-765) purely by drifting from the
-fluorescence one. This is the tab that holds both (FIB-780).
+It merges the tab, not the widgets. `BeamOverviewTab` and `FluorescenceOverviewTab`
+are kept whole in a stack and picking a modality raises one. The two widgets composite
+differently, take pixels from different instruments and mark different stage poses, so
+a single widget with a modality flag would be mostly branches.
 
-# What this does and does not merge
+Neither side is torn down on a switch. Each modality keeps its own view; one overview
+must not drive the stage while the other is acquiring, so `OverviewLocks` derives each
+tab's lock from the other tab and from the run; and since a hidden tab is still doing
+work, unavailability drops the widget (`set_enabled`, `_can_build`) rather than hiding a
+page.
 
-It merges the **tab**, not the widgets. Both host tabs are kept whole and put in a stack;
-picking a modality raises one. `BeamOverviewTab` and
-`FluorescenceOverviewTab` are untouched, and everything they and their widgets
-do -- poses, projections, settings columns, view chips, acquisition -- goes on working
-exactly as it did as a separate tab.
-
-That is deliberate rather than a first step deferred. The two widgets composite
-differently, take pixels from different instruments and mark different stage poses; a
-single widget with a modality flag would be mostly branches, which is the finding
-FIB-693 already recorded. What was worth removing was the *second tab*, not the second
-widget.
-
-# Neither side is torn down on a switch
-
-Both tabs stay built and stay subscribed while the other is showing. Three things follow,
-and all three are wanted:
-
-* **Each modality remembers its own view.** The beam tab's chip strip is still on the
-  view it was left on, because nothing destroyed it. FIB-780 asks for this explicitly;
-  here it costs nothing.
-* **FIB-706 still applies unchanged.** One overview must not drive the stage while the
-  other is acquiring. Both can still be acquiring, so `OverviewLocks` derives each
-  tab's lock from the other tab and from the run.
-* **A hidden tab is still doing work.** Which is why unavailability is answered by
-  dropping the widget (`set_enabled`, `_can_build`) rather than by hiding a page -- the
-  same build-or-drop answer both tabs already give.
-
-# The chips
-
-Two levels, one row, read left to right as it narrows:
+The chips are two levels in one row:
 
     [ FIB/SEM | Fluorescence ] | [ SEM @ SEM · FIB @ Milling ]
        what this tab *is*          what the canvas is *showing*
 
-The view chips are **not built here.** They are the page's own -- the beam widget
-discovers its views as they are acquired in and marks the one the next run would land in
--- so this only lends them a place to sit, beside the modality chips. Building a second
-copy would be a second thing to keep in step, which is the failure this tab exists to
-stop. `_mount_view_strip` moves the active page's strip into the bar and `_unmount_view_strip`
-hands it back before that page is rebuilt; the fluorescence page has no such strip, so
-its half of the bar is empty and the divider hides.
-
-This does move the view chips off the canvas's own width, which `overview_widget`'s
-`canvas_pane` comment had deliberately chosen -- "it keeps saying *this selects what the
-canvas is showing*". The bar is now led by a control that governs the settings column
-too, so spanning the tab is the honest width for it, and splitting the row to preserve
-the old rule would cost two rows of chrome to make a distinction the divider already
-makes.
-
-An unavailable modality keeps its chip, disabled, with a tooltip saying why -- the same
-choice the tab bar already made for the FM tab (FIB-614), and for the same reason: a
-control that appears and vanishes with the hardware is harder to live with than one that
-explains itself. That only became true when the chip styles grew a `:disabled` rule --
-before it, a greyed chip was pixel-identical to a live one, so "disabled" was a claim the
-UI did not actually make.
-
-# No flag on either modality
-
-This tab ships to everyone, and so do both of its chips. `features.overview_canvas_tab`
-gated the beam side while the canvas overview sat beside the napari one; it was retired
-rather than carried, because there was nothing left for it to gate -- the canvas
-overview *is* the Overview tab now. `features.napari_overview_tab` replaced it,
-pointing at the old Minimap tab instead, and has gone with that tab.
-
-A modality is therefore unavailable only when there is no hardware behind it, which is
-the FM tab's existing capability check and nothing new.
+The view chips belong to the beam page, which discovers its views as they are acquired;
+`_mount_view_strip` moves the active page's strip into the bar and `_unmount_view_strip`
+hands it back before that page is rebuilt. The fluorescence page has no such strip, so
+its half of the bar is empty and the divider hides. A modality with no hardware behind
+it keeps its chip, disabled, with a tooltip saying why.
 """
 
 from __future__ import annotations
@@ -133,7 +80,7 @@ class OverviewLocks:
 
     A running workflow owns the instrument; and one overview must not drive the stage
     while the other is acquiring, because the other's run goes on placing tiles at the
-    poses it planned, so its mosaic comes out plausible and wrong (FIB-706). Derived
+    poses it planned, so its mosaic comes out plausible and wrong. Derived
     from both every time: a workflow finishing while an overview runs must not unlock
     the other tab. Each tab keeps its Cancel live whatever this says.
     """

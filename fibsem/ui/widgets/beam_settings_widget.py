@@ -299,7 +299,7 @@ class FibsemBeamSettingsWidget(QWidget):
         sb.blockSignals(False)
         self._wd_wheel_target_mm = new_val
         # transient flash on the canvas that emitted the scroll (fades after scrolling
-        # stops): the target and the step, in the bar's words (FIB-1188). Three decimals,
+        # stops): the target and the step, in the bar's words. Three decimals,
         # where the bar shows two: a notch is 1 µm, and each one should be seen.
         canvas = self.sender()
         if canvas is not None and hasattr(canvas, "flash_message"):
@@ -324,7 +324,7 @@ class FibsemBeamSettingsWidget(QWidget):
         self.settings_changed.emit(self.get_settings())
 
     def _set(self, label: str, setter, value) -> bool:
-        """Write ``value`` holding control (FIB-1488). Refused, the controls show
+        """Write ``value`` holding control. Refused, the controls show
         the beam's values again."""
         action = f"set the {self.beam_type.name} {label}"
         if operator_acts(

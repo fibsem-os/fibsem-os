@@ -113,7 +113,7 @@ def cached_thumbnail(
 
     A strip of cards is rebuilt on every refresh, so without this a 100-lamella
     experiment re-opened and re-scaled 100 PNGs on the GUI thread each time -- 2.8 s
-    of frozen UI per added lamella (FIB-681).
+    of frozen UI per added lamella.
 
     Cached as a QImage rather than a QPixmap on purpose. It is just as quick to hand
     to a label, because `QPixmap.fromImage` on an already-scaled image costs nothing,

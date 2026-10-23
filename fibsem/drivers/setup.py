@@ -1,4 +1,4 @@
-"""What a driver tells the first-run guided setup about itself (FIB-1350).
+"""What a driver tells the first-run guided setup about itself.
 
 Each driver that can be set up from the wizard names a :class:`DriverSetup` on its
 ``DRIVER`` record (``DriverEntry.setup``, as ``"module:attribute"``). The wizard

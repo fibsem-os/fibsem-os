@@ -356,7 +356,7 @@ class WorkflowRunner:
         """Put a stop on the session's record (events.jsonl) and in the log,
         before it runs: what was stopped, by whom and from where. Without it a
         stop leaves only the run's ``task_cancelled``, which does not say who
-        stopped it (FIB-1397). The agent's stop records itself (``_stop_reason`` in the server),
+        stopped it. The agent's stop records itself (``_stop_reason`` in the server),
         so a stop with no actor named records nothing here."""
         if actor is None or not self.is_running:
             return
@@ -389,7 +389,7 @@ class WorkflowRunner:
         ``notice`` when someone listens."""
         manager = app_runs(app).make_hooks()
         # The event stream's lifecycle feed is registered by the task manager
-        # for its run (FIB-1044). The App Server shares the recorder's hook;
+        # for its run. The App Server shares the recorder's hook;
         # one of its own (a server started without a recorder) is added here.
         recorder = self._session.recorder
         host = self._session.app_server
@@ -442,7 +442,7 @@ class WorkflowRunner:
             self.line.reset()
             self.relay(self.manager)
             # The run is whoever started it: the agent's run records its
-            # events as the agent's (FIB-1276), so it runs in a copy of the
+            # events as the agent's, so it runs in a copy of the
             # starter's context.
             context = contextvars.copy_context()
             thread = threading.Thread(

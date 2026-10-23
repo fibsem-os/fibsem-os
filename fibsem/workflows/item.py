@@ -52,7 +52,7 @@ class ExperimentItem:
         """The names of the tasks that have completed on this item.
 
         Filtered on status: task_history records every terminal outcome, not
-        just successes (FIB-490), so an unfiltered read would count a failed
+        just successes, so an unfiltered read would count a failed
         task as done -- and a failed prerequisite would license the task that
         requires it.
         """

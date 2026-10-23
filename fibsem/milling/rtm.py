@@ -1,5 +1,5 @@
 """Real Time Monitor (RTM): what the ion beam reads back from the patterns as
-they mill (FIB-1178).
+they mill.
 
 A driver with RTM reads, at most once per interval, a value at points of each
 monitored pattern; the milling service makes each read an `RtmFrame` and emits

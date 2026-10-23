@@ -42,7 +42,7 @@ def setup_milling(
     alignment_settings = milling_stage.alignment
     full_frame_reference: Optional[FibsemImage] = None
     if alignment_settings.enabled:
-        raise_if_cancelled(stop_event)  # no beam after a stop (FIB-1430)
+        raise_if_cancelled(stop_event)  # no beam after a stop
         reference_image = get_stage_reference_image(
             microscope=microscope, milling_stage=milling_stage
         )

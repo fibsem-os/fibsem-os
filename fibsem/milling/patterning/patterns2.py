@@ -2,9 +2,8 @@
 
 ``BasePattern`` is in ``fibsem.milling.patterning.base`` and each built-in pattern in
 ``fibsem.milling.patterning.patterns.<name>``. This module stays so that existing
-imports, including those in plugins and saved notebooks, keep working. It also
-re-exports the structures and metadata names the old module imported, since callers
-imported those from here too.
+imports, including those in plugins and saved notebooks, keep working, with the
+structures and metadata names callers import from here.
 """
 
 from fibsem import constants  # noqa: F401

@@ -1,4 +1,4 @@
-"""Edits to an experiment's plan, for the experiment's record (FIB-1034).
+"""Edits to an experiment's plan, for the experiment's record.
 
 Before an edit is applied, the code applying it *touches* what it is about to
 change: it hands over a reader of the value. The value is read then, as the
