@@ -48,6 +48,20 @@ DETAIL_PX = 12
 CHIP_HEIGHT = 22
 
 
+def sync_select_all(box: QCheckBox, checked: int, total: int) -> None:
+    """Set a select-all tick box from its rows: all ticked, some (partly), or
+    none, so its next click means the opposite. Emits nothing."""
+    box.blockSignals(True)
+    if total and checked == total:
+        box.setCheckState(Qt.CheckState.Checked)
+    elif checked:
+        box.setTristate(True)
+        box.setCheckState(Qt.CheckState.PartiallyChecked)
+    else:
+        box.setCheckState(Qt.CheckState.Unchecked)
+    box.blockSignals(False)
+
+
 class ListHeader(QWidget):
     """A list's header: a tick box for the whole list, the list's title and a muted
     count, then whatever the list puts on the right (`add_widget`).
@@ -110,18 +124,8 @@ class ListHeader(QWidget):
         self.count_label.setText(text)
 
     def sync(self, checked: int, total: int) -> None:
-        """Set the tick box from its rows: all ticked, some (partly), or none,
-        so its next click means the opposite. Emits nothing."""
-        box = self.checkbox_all
-        box.blockSignals(True)
-        if total and checked == total:
-            box.setCheckState(Qt.CheckState.Checked)
-        elif checked:
-            box.setTristate(True)
-            box.setCheckState(Qt.CheckState.PartiallyChecked)
-        else:
-            box.setCheckState(Qt.CheckState.Unchecked)
-        box.blockSignals(False)
+        """Set the tick box from its rows. Emits nothing."""
+        sync_select_all(self.checkbox_all, checked, total)
 
     def add_widget(self, widget: QWidget, stretch: int = 0) -> None:
         self._layout.addWidget(widget, stretch)
