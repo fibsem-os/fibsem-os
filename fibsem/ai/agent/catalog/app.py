@@ -4,7 +4,7 @@ import os
 from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
 
-from fibsem.ai.agent.catalog.spec import ToolSpec
+from fibsem.ai.agent.catalog.spec import MARKS_PARAM, ToolSpec
 from fibsem.server.parts import GRIDS, LAMELLAE, MILLING_STAGES
 from fibsem.util import wording
 
@@ -423,7 +423,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="app_get_status",
         returns="AppStatus",
-        description="What the application is doing: experiment, running workflow, current task and item.",
+        description="What the application is doing: experiment, running workflow, current task and item, its place in the queue and step, what holds it, its last failure, progress on the microscope and who holds it.",
         method="GET",
         path="/app/workflow/status",
         level="watch",
@@ -497,7 +497,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="experiment_render_markers",
         returns="MarkersDrawn",
-        description="Any saved SEM or FIB image in the experiment (an overview, yours or a grid task's, or a single image) with the experiment's items drawn on it, as the overview plot dialog draws them: each item's number, green, red for a failed one, and a scale bar. grid_name draws only that grid's items; without it, every item with a pose. Saved beside the image as markers/<image>.png (replaced when drawn again): cite that path as evidence ({image: path}) when you report on the items, so the operator sees it in your note. Answers the path, the items drawn and a preview. Fluorescence images are refused.",
+        description="Any saved SEM or FIB image in the experiment (an overview, yours or a grid task's, or a single image) with the experiment's items drawn on it: each item's number, green, red for a failed one, placed clear of the others, with the scale bar and metadata bar. fov draws each item's field of view box, as the Overview canvas does; current, where the stage is now. grid_name draws only that grid's items; without it, every item with a pose. Saved beside the image as markers/<image>.png (replaced when drawn again): cite that path as evidence ({image: path}) when you report on the items, so the operator sees it in your note. Answers the path, the items drawn and a preview. Fluorescence images are refused.",
         method="POST",
         path="/app/experiment/images/markers",
         level="watch",
@@ -506,13 +506,75 @@ TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "path": "a beam image file path inside the experiment folder",
             "grid_name": "draw only this grid's items",
+            "fov": "optional: each item's field of view box (default false)",
+            "current": "optional: where the stage is now, a yellow target (default false)",
         },
-        optional=("grid_name",),
+        optional=("grid_name", "fov", "current"),
+    ),
+    ToolSpec(
+        name="experiment_draw_image",
+        returns="ImageDrawn",
+        description="Draw marks on any saved image in the experiment (a beam image, or a fluorescence stack's max projection) and look at them before you act or cite them: the same marks as evidence takes, drawn as the operator sees them, in your purple, each label in a box placed clear of the others. crosshair adds the centre crosshair; the scale bar and metadata bar are under it. Saved beside the image as drawn/<image>.png (replaced when drawn again): cite that path as evidence ({image: path}). Answers the path, the marks (measured lines with their length, each place with its stage position when the image says where it was taken) and a preview.",
+        method="POST",
+        path="/app/experiment/images/drawn",
+        level="watch",
+        router="app",
+        params={
+            "path": "an image file path inside the experiment folder",
+            "marks": MARKS_PARAM,
+            "crosshair": "optional: draw the centre crosshair (default false)",
+            "metadata_bar": "optional: the metadata bar under the image (default true)",
+            "channels": "optional: for a fluorescence stack, the channels to show, by name (default all)",
+        },
+        optional=("marks", "crosshair", "metadata_bar", "channels"),
+    ),
+    ToolSpec(
+        name="experiment_draw_pair",
+        returns="ImagePairDrawn",
+        description="Two saved images of the experiment side by side at one scale, each with its own scale bar and metadata bar: before and after a mill, before and after an alignment, SEM next to FIB of one site. marks (in before's pixels) are drawn on both, at the same place of each frame, so a shift or a missing feature shows. Saved beside before as drawn/<before>-<after>.png: cite that path as evidence. Answers the path, the marks and a preview.",
+        method="POST",
+        path="/app/experiment/images/pair",
+        level="watch",
+        router="app",
+        params={
+            "before": "an image file path inside the experiment folder, drawn on the left",
+            "after": "an image file path inside the experiment folder, drawn on the right",
+            "marks": MARKS_PARAM,
+            "metadata_bar": "optional: the metadata bar under each image (default true)",
+            "channels": "optional: for fluorescence stacks, the channels to show, by name (default all)",
+        },
+        optional=("marks", "metadata_bar", "channels"),
+    ),
+    ToolSpec(
+        name="item_draw_milling",
+        returns="ItemMillingDrawn",
+        description="An item's milling as its own task configs have it, drawn on an ion image as the lamella editor shows it: the first task's enabled stages in the milling view's colours with a legend, the other tasks you name behind them in black, plus the tasks related to the first (background related, the default: fiducial, rough and polishing beside each other), and the item's point of interest. scan_direction draws each rectangle's scan direction; alignment_area the item's alignment area. Drawn on the item's latest FIB image unless you give image_path. Saved beside the image as drawn/<image>-<task>.png: cite that path as evidence. Answers the path, the stages drawn and a preview. Nothing moves.",
+        method="POST",
+        path="/app/experiment/items/{item_name}/milling/drawn",
+        level="watch",
+        router="app",
+        part=LAMELLAE,
+        params={
+            "item_name": "the item's name",
+            "task_names": "the milling tasks to draw, e.g. [mill_rough, mill_polishing]: the first in colour, the rest behind it",
+            "image_path": "optional: an ion image inside the experiment to draw on (default the item's latest FIB image)",
+            "background": "optional: related (default) also draws the first task's related tasks behind it; none draws only the tasks named",
+            "scan_direction": "optional: an arrow for each rectangle's scan direction (default false)",
+            "alignment_area": "optional: the item's alignment area (default false)",
+            "metadata_bar": "optional: the metadata bar under the image (default true)",
+        },
+        optional=(
+            "image_path",
+            "background",
+            "scan_direction",
+            "alignment_area",
+            "metadata_bar",
+        ),
     ),
     ToolSpec(
         name="experiment_get_image_stage_position",
         returns="SavedImagePosition",
-        description="The stage position under a point of any saved image in the experiment, beam or FM, from the image's own metadata, so it holds wherever the stage is now. Give x, y in source pixels, or fx, fy from 0 to 1 for a point read off a preview. Nothing moves.",
+        description="The stage position under a point of any saved image in the experiment, beam or FM, from the image's own metadata, so it holds wherever the stage is now. Give x, y in source pixels, or fx, fy from 0 to 1 for a point read off a preview; with crop, x, y as read off that crop's picture (or fx, fy of it), converted for you. Nothing moves.",
         method="GET",
         path="/app/experiment/images/stage_position",
         level="watch",
@@ -523,8 +585,9 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "y": "source-pixel y, +y down (with x)",
             "fx": "fraction across the image, 0-1 (with fy)",
             "fy": "fraction down the image, 0-1 (with fx)",
+            "crop": "optional: the crop the point was read off: a cell's name (B3) from experiment_crop_image, or its box [x, y, width, height]",
         },
-        optional=("x", "y", "fx", "fy"),
+        optional=("x", "y", "fx", "fy", "crop"),
     ),
     ToolSpec(
         name="experiment_get_image_pixels",
@@ -556,7 +619,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="experiment_read_file",
         returns="FileRead",
-        description="One file of the open experiment: text (yaml, json, log, md, csv) as text, up to 512 KB; an image (tif, png, jpg) as a 768 px preview you can look at, with its metadata block; a folder as its listing. A fluorescence stack (.ome.tiff) shows the max projection of every channel; give z for one plane and channels for some of them. Its metadata's fm block lists the channels, z_positions, and each channel's sharpness per plane (1 the sharpest) and sharpest_plane. Previews and metadata: for detail in part of an image, experiment_crop_image; for the file itself, to work on with your own code, experiment_fetch_file. Paths outside the experiment are refused.",
+        description="One file of the open experiment: text (yaml, json, log, md, csv) as text, up to 512 KB; an image (tif, png, jpg) as a 768 px preview you can look at, with its metadata block; a folder as its listing. A fluorescence stack (.ome.tiff) shows the max projection of every channel; give z for one plane and channels for some of them. Its metadata's fm block lists the channels, z_positions, and each channel's sharpness per plane (1 the sharpest) and sharpest_plane. Previews and metadata: for detail in part of an image, experiment_crop_image; for the file itself, to work on with your own code, experiment_fetch_file. With cells, the preview shows the image cut into named cells (columns A, B, ..., rows 1, 2, ...: a tiled overview's own tiles, else a plain grid) and lists each cell's box and centre stage position; crop them by name. Paths outside the experiment are refused.",
         method="GET",
         path="/app/experiment/files/{path}",
         level="watch",
@@ -564,9 +627,10 @@ TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "path": "a path from experiment_list_files, or an image path an image answer gave",
             **_STACK_PARAMS,
+            "cells": "optional: true draws the image's named cells on the preview and lists them (default false)",
             "experiment": "optional: a past experiment to read instead of the open one, by its relative_path from experiment_list_all (or its path from experiment_list_recent); only one the operator named. Every read of it goes on the record",
         },
-        optional=("z", "channels", "experiment"),
+        optional=("z", "channels", "cells", "experiment"),
     ),
     ToolSpec(
         name="experiment_fetch_file",
@@ -585,7 +649,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="experiment_crop_image",
         returns="FileRead",
-        description="One region of an image in the open experiment, at native resolution (downscaled only when wider than 768 px): full detail where it matters, without the whole file. Give box in source pixels or fraction (0 to 1, as read off a preview), each [x, y, width, height]. The answer's preview carries the region and its own scale.",
+        description="One region of an image in the open experiment, at native resolution (downscaled only when wider than 768 px): full detail where it matters, without the whole file. Give box in source pixels or fraction (0 to 1, as read off a preview), each [x, y, width, height]; or cells, up to 8 cells by name (B3, as experiment_read_file with cells lists them), each answered with its own preview and centre stage position. The answer's preview carries the region and its own scale. A point read off a crop's picture goes to experiment_get_image_stage_position and marks with crop (the cell's name or the box), so you never offset it yourself.",
         method="GET",
         path="/app/experiment/files/{path}",
         level="watch",
@@ -594,10 +658,11 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "path": "an image path from experiment_list_files, or one an image answer gave",
             "box": "[x, y, width, height] in source pixels (instead of fraction)",
             "fraction": "[left, top, width, height] as fractions of the image, 0 to 1 (instead of box)",
+            "cells": 'up to 8 cell names, e.g. ["B3", "C3"] (instead of box)',
             **_STACK_PARAMS,
             "experiment": "optional: a past experiment to read instead of the open one, by its relative_path from experiment_list_all (or its path from experiment_list_recent); only one the operator named. Every read of it goes on the record",
         },
-        optional=("box", "fraction", "z", "channels", "experiment"),
+        optional=("box", "fraction", "cells", "z", "channels", "experiment"),
     ),
     ToolSpec(
         name="protocol_get_task_config",

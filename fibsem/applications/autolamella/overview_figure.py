@@ -1,8 +1,9 @@
-"""The experiment's lamellae drawn on an overview: one figure for the overview
-plot dialog and for the picture the agent cites (`experiment_render_markers`).
+"""The experiment's lamellae drawn on an overview: the overview plot dialog's
+figure, and the picture the agent cites (`experiment_render_markers`), drawn
+as marks so their numbers are placed clear of each other.
 
-Pure: no Qt. Positions are the lamellae's milling poses, reprojected by
-`plot_minimap`.
+Pure: no Qt. Positions are the lamellae's milling poses (`milling_positions`),
+reprojected the same way for both.
 """
 
 from __future__ import annotations
@@ -90,30 +91,85 @@ def overview_figure(
     )
 
 
-def save_markers_picture(
-    image: FibsemImage, lamellae: Iterable["Lamella"], path: str
-) -> bytes:
-    """*lamellae* on *image* as the agent cites them: numbers, green and red,
-    outlined, with a scale bar. Saved as a PNG at *path*; answers a JPEG
-    preview of it."""
-    import io
-    import os
-
-    height, width = image.data.shape[:2]
-    fig = overview_figure(
-        image,
-        lamellae,
-        by_status=True,
-        short_names=True,
-        outline=True,
-        fontsize=22,
-        markersize=40,
-        show_scalebar=True,
-        figsize=(8, 8 * height / width),
+def markers_marks(
+    image: FibsemImage,
+    lamellae: Iterable["Lamella"],
+    fov: bool = False,
+    current: Optional[FibsemStagePosition] = None,
+) -> dict:
+    """*lamellae* on *image* as marks (`fibsem.imaging.marks`): a cross at
+    each milling position named by its number, green or red for a failed one;
+    with *fov*, the field of view a lamella image there covers, as the
+    Overview canvas draws it; the *current* stage position as a yellow target.
+    Positions off the image are left out."""
+    from fibsem.config import POSITION_FOV_HEIGHT, POSITION_FOV_WIDTH
+    from fibsem.imaging.tiling.reprojection import (
+        reproject_stage_positions_onto_image2,
     )
-    saved = {"bbox_inches": "tight", "pad_inches": 0, "facecolor": "black"}
-    buf = io.BytesIO()
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    fig.savefig(path, dpi=200, **saved)
-    fig.savefig(buf, format="jpeg", dpi=96, pil_kwargs={"quality": 85}, **saved)
-    return buf.getvalue()
+    from fibsem.theme.tokens import CURRENT_POSITION_COLOUR
+
+    placed = milling_positions(lamellae, short=True)
+    positions = [position for _, position in placed]
+    if current is not None:
+        positions.append(current)
+    pixels = reproject_stage_positions_onto_image2(image, positions)
+    height, width = image.data.shape[:2]
+    size = image.metadata.pixel_size.x
+    box = (POSITION_FOV_WIDTH / size, POSITION_FOV_HEIGHT / size)
+    points, areas = [], []
+    for index, pixel in enumerate(pixels):
+        if not (0 <= pixel.x < width and 0 <= pixel.y < height):
+            continue
+        if index == len(placed):
+            points.append(
+                {
+                    "x": pixel.x,
+                    "y": pixel.y,
+                    "shape": "target",
+                    "label": "stage",
+                    "colour": CURRENT_POSITION_COLOUR,
+                }
+            )
+            continue
+        lamella, position = placed[index]
+        colour = FAILED_COLOR if lamella.is_failure else OK_COLOR
+        points.append(
+            {"x": pixel.x, "y": pixel.y, "label": position.name, "colour": colour}
+        )
+        if fov:
+            areas.append(
+                {
+                    "x": pixel.x - box[0] / 2,
+                    "y": pixel.y - box[1] / 2,
+                    "width": box[0],
+                    "height": box[1],
+                    "colour": colour,
+                }
+            )
+    return {"points": points, "areas": areas}
+
+
+def save_markers_picture(
+    image: FibsemImage,
+    lamellae: Iterable["Lamella"],
+    path: str,
+    fov: bool = False,
+    current: Optional[FibsemStagePosition] = None,
+) -> bytes:
+    """*lamellae* on *image* as the agent cites them (`markers_marks`), each
+    number placed clear of the others, with the scale bar and metadata bar.
+    Saved as a PNG at *path*; answers a JPEG preview of it."""
+    from fibsem.imaging.export import from_fibsem_image
+    from fibsem.imaging.marks import (
+        DRAWN_WIDTH,
+        jpeg_bytes,
+        marked_picture,
+        options_for,
+        save_drawn,
+    )
+
+    export = from_fibsem_image(image)
+    marks = markers_marks(image, lamellae, fov=fov, current=current)
+    rgb = marked_picture(export, marks, OK_COLOR, options_for(export), DRAWN_WIDTH)
+    save_drawn(rgb, path)
+    return jpeg_bytes(rgb)

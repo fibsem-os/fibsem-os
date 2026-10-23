@@ -1,4 +1,4 @@
-"""A prior FM->FIB transform from a previous correlation run (FIB-956).
+"""A prior FM->FIB transform from a previous correlation run.
 
 The rotation and scale a correlation fits are properties of the instrument and
 its mount, not of the lamella: on eight saved METEOR runs the fitted rotations
@@ -59,11 +59,11 @@ def transform_from_result(
 ) -> Optional[NominalTransform]:
     """The fitted transform of a saved result, in the current images' units.
 
-    A result fitted before FIB-881 (``fm_z_scale`` 1.0 on an anisotropic stack)
+    An older result (``fm_z_scale`` 1.0 on an anisotropic stack)
     has its depth column in raw slices; it is brought to isotropic units with
     the anisotropy of the stack it was fitted on -- its own recorded z step,
     not the current stack's, which differs whenever the prior came from an
-    interpolated or re-acquired stack (FIB-1240). The xy pixel size is the
+    interpolated or re-acquired stack. The xy pixel size is the
     current one: the same camera and objective, and a run does not record it.
     Returns None when the result holds no usable rotation.
     """
@@ -157,7 +157,7 @@ def placement_offset_from_runs(
 ) -> Optional[PlacementOffset]:
     """The first run, in the given order, that recorded a usable placement offset.
 
-    Skips runs without one (written before FIB-979) and runs whose fit was
+    Skips runs without one (older runs) and runs whose fit was
     too poor to have measured it. Same order as :func:`prior_from_runs`.
     """
     import time
@@ -172,7 +172,7 @@ def placement_offset_from_runs(
         if rms_um is None or rms_um > max_rms_um:
             logging.debug(f"placement offset from {label} skipped: rms {rms_um} um")
             continue
-        # `now` and the result's time: aware datetimes, or POSIX (FIB-1197)
+        # `now` and the result's time: aware datetimes, or POSIX
         current = to_datetime(now if now is not None else time.time())
         updated = to_datetime(result.updated_at)
         age = max(0.0, (current - updated).total_seconds()) if updated else 0.0

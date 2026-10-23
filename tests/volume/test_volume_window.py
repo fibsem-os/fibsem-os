@@ -178,6 +178,7 @@ def test_the_position_view_edits_through_the_experiment(window, position_view, t
 
 def test_the_position_view_draws_the_milling_where_it_mills(position_view):
     from fibsem.applications.volume.position_milling import position_millings
+    from fibsem.applications.volume.tasks.milling import slice_at
 
     editor = position_view
     position = editor.position
@@ -185,36 +186,44 @@ def test_the_position_view_draws_the_milling_where_it_mills(position_view):
     editor.show_position(position.name)
     combo = editor.milling_combo
     assert [combo.itemText(i) for i in range(combo.count())] == [
+        "Volume milling",
         "Volume FIB Milling",
-        "Setup · Trench",
+        "Setup · Clearing trench",
+        "Setup · Redeposition lanes",
+        "Setup · Start slice",
         "Setup · Fiducial",
-        "Setup · Face",
     ]
+    config = editor.experiment.task_protocol.task_config["Volume FIB Milling"]
 
     def millings():
         return {m.label: m for m in position_millings(editor.experiment, position)}
 
-    # nothing cut: slice 1 next at the point of interest, the rest to cut below
+    # nothing cut: slice 1 next against the start slice, the rest to cut past it
     progress = millings()["Volume FIB Milling"]
     stages = progress.milling.stages
     assert [s.name for s in stages] == ["Next · slice 1", "To cut · slices 2 to 100"]
     assert progress.styles == ("outline", "dashed")
-    assert stages[0].pattern.point == position.poi
-    # the band runs from slice 2's top to slice 100's bottom
-    poi_y, t, h = position.poi.y, 200e-9, stages[0].pattern.height
-    band = stages[1].pattern
-    assert band.point.y + band.height / 2 == pytest.approx(poi_y - t + h / 2)
-    assert band.point.y - band.height / 2 == pytest.approx(poi_y - 99 * t - h / 2)
-    face = millings()["Setup · Face"].milling
-    assert face.stages[0].pattern.point == position.poi
-    # the trench mills where its config sets it, not at the point of interest
-    trench = editor.experiment.task_protocol.task_config["Setup FIB Milling Position"]
-    assert millings()["Setup · Trench"].milling.stages[1].pattern.point == (
-        trench.trench.stages[1].pattern.point
+    assert (
+        stages[0].pattern.point == slice_at(config, position, 0).stages[0].pattern.point
     )
+    band = stages[1].pattern
+    first = slice_at(config, position, 1).stages[0].pattern
+    last = slice_at(config, position, 99).stages[0].pattern
+    assert band.point.y + band.height / 2 == pytest.approx(
+        first.point.y + first.height / 2
+    )
+    assert band.point.y - band.height / 2 == pytest.approx(
+        last.point.y - last.height / 2
+    )
+    start = millings()["Setup · Start slice"].milling
+    assert start.stages[0].pattern.point == position.poi
+    # the whole volume draws the slices in one colour, each setup piece in its own
+    whole = millings()["Volume milling"]
+    assert len(whole.milling.stages) == 2 + 1 + 2 + 1 + 1
+    assert whole.colours[0] == whole.colours[1] != whole.colours[2]
     assert editor.depth_label.text() == "0.0 of 20.0 µm (100 × 0.200 µm)"
 
-    # two slices cut: those filled, slice 3 next, two thicknesses down
+    # two slices cut: those filled, slice 3 next, two thicknesses on
     for iteration in (0, 1):
         position.task_history.append(
             TaskState(
@@ -224,7 +233,7 @@ def test_the_position_view_draws_the_milling_where_it_mills(position_view):
             )
         )
     editor.show_position(position.name)
-    assert combo.currentText() == "Volume FIB Milling"
+    assert combo.currentText() == "Volume milling"
     progress = millings()["Volume FIB Milling"]
     stages = progress.milling.stages
     assert [s.name for s in stages] == [
@@ -233,7 +242,9 @@ def test_the_position_view_draws_the_milling_where_it_mills(position_view):
         "To cut · slices 4 to 100",
     ]
     assert progress.styles == ("filled", "outline", "dashed")
-    assert stages[1].pattern.point.y == pytest.approx(poi_y - 2 * t)
+    assert stages[1].pattern.point.y == pytest.approx(
+        slice_at(config, position, 0).stages[0].pattern.point.y - 2 * 200e-9
+    )
     assert editor.depth_label.text().startswith("0.4 of ")
 
 
@@ -294,17 +305,31 @@ def test_the_task_clicked_shows_its_settings_and_writes_them(window, qapp, monke
     tab.tasks.set_current("Volume FIB Milling")
     editor = tab.task_editor
     assert editor.task_name == "Volume FIB Milling"
-    # the milling has its own editor, not a row of the form
-    assert [row.field for row in editor.parameters._rows] == ["slice_thickness"]
-    assert editor.milling_choice.isHidden()
+    # the millings have their own editor, not a row of the form
+    assert [row.field for row in editor.parameters._rows] == [
+        "mill_trench",
+        "lane_left",
+        "lane_right",
+        "slice_thickness",
+        "flipped",
+    ]
     assert editor.reference_imaging.isHidden()
+    combo = editor._milling_combo
+    assert [combo.itemText(i) for i in range(combo.count())] == [
+        "Clearing trench",
+        "Redeposition lane",
+        "Start slice",
+        "Slice",
+    ]
 
     editor.set_values({"slice_thickness": 300e-9})
+    combo.setCurrentIndex(3)
     sent = copy.deepcopy(config.milling)
     sent.field_of_view = 80e-6
     editor.milling.settings_changed.emit(sent)
     assert config.slice_thickness == 300e-9
     assert config.milling.field_of_view == 80e-6
+    assert config.trench.field_of_view != 80e-6
     assert config.milling is not sent
 
     tab.flush_pending_save()
@@ -314,12 +339,14 @@ def test_the_task_clicked_shows_its_settings_and_writes_them(window, qapp, monke
     ]
 
 
-def test_slice_milling_shows_what_a_slice_changes_and_writes_it(window, qapp):
+def test_volume_milling_shows_each_piece_in_one_form_and_writes_it(window, qapp):
+    from fibsem.applications.volume.ui.volume_milling import preview_milling
+
     tab = window.protocol_tab
     config = window.experiment.task_protocol.task_config["Volume FIB Milling"]
     tab.tasks.set_current("Volume FIB Milling")
-    form, editor = tab.slice_form, tab.task_editor
-    assert not form.isHidden() and not tab.slice_preview.isHidden()
+    form, editor = tab.volume_form, tab.task_editor
+    assert not form.isHidden() and not tab.volume_preview.isHidden()
     assert editor.isHidden() and editor.milling.isHidden()
     assert form.warning.isHidden()  # 200 nm cut, 200 nm slices
 
@@ -328,48 +355,35 @@ def test_slice_milling_shows_what_a_slice_changes_and_writes_it(window, qapp):
     assert "0.050 µm is left between slices" in form.warning.text()
     assert not form.warning.isHidden()
 
-    form._controls["width"].write(12e-6)
-    assert config.milling.stages[0].pattern.width == pytest.approx(12e-6)
+    form._controls["start_slice.width"].write(12e-6)
+    assert config.start_slice.stages[0].pattern.width == pytest.approx(12e-6)
+    # a current the microscope offers
+    form._controls["trench.milling_current"].write(2e-9)
+    assert config.trench.stages[0].milling.milling_current == pytest.approx(2e-9)
+    form._controls["lane_left"].write(False)
+    assert config.lane_left is False
 
-    # the preview: slice 1 at the centre, the next two a thickness below each
-    from fibsem.applications.volume.ui.slice_milling import preview_slices
-
-    slices = preview_slices(config)
-    assert [s.name for s in slices] == ["Slice 1", "Slice 2", "Slice 3"]
-    assert [s.pattern.point.y for s in slices] == pytest.approx([0, -250e-9, -5e-7])
+    # the preview: every piece, around a point of interest at the centre
+    names = [s.name for s in preview_milling(config).milling.stages]
+    assert names == [
+        "Next · slice 1",
+        "To cut · slices 2 to 50",
+        "Clearing trench",
+        "Redeposition lane · right",
+        "Start slice",
+    ]
 
     form.all_settings_button.click()
     assert not editor.isHidden() and not editor.milling.isHidden()
-    assert form.isHidden() and tab.slice_preview.isHidden()
-    tab.slice_settings_button.click()
+    assert form.isHidden() and tab.volume_preview.isHidden()
+    tab.volume_settings_button.click()
     assert not form.isHidden() and editor.isHidden()
 
-    # another task shows the full editor, and coming back shows the slice form
+    # another task shows the full editor, and coming back shows the form
     tab.tasks.set_current("Setup FIB Milling Position")
     assert form.isHidden() and not editor.isHidden()
     tab.tasks.set_current("Volume FIB Milling")
     assert not form.isHidden()
-
-
-def test_a_task_with_several_millings_picks_the_one_shown(window):
-    tab = window.protocol_tab
-    config = window.experiment.task_protocol.task_config["Setup FIB Milling Position"]
-    tab.tasks.set_current("Setup FIB Milling Position")
-    editor = tab.task_editor
-    combo = editor._milling_combo
-    assert not editor.milling_choice.isHidden()
-    assert [combo.itemText(i) for i in range(combo.count())] == [
-        "Trench",
-        "Fiducial",
-        "Face",
-    ]
-
-    combo.setCurrentIndex(2)
-    sent = editor.milling.get_config()
-    sent.field_of_view = 90e-6
-    editor.milling.settings_changed.emit(sent)
-    assert config.face.field_of_view == 90e-6
-    assert config.trench.field_of_view != 90e-6
 
 
 def test_the_settings_go_with_the_microscope(window, qapp):

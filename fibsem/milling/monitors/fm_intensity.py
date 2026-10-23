@@ -1,5 +1,5 @@
 """FM intensity: watch the fluorescence under the mill, and end or flag the
-step when it drops (FIB-1482).
+step when it drops.
 
 A live monitor on the FM view: the FM streams frames while the pattern mills,
 and each frame's mean (inside ``bbox`` when set) goes through the same drop

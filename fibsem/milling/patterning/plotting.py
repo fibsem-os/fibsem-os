@@ -161,7 +161,7 @@ def _line_pattern_to_image_pixels(
     # That asymmetry is inherited, not chosen: this function used `/ 2` for the
     # centre where the others used `// 2`, which differs by half a pixel on an
     # odd image dimension. Preserved exactly rather than quietly unified,
-    # because picking one changes where a milling pattern is drawn (FIB-644).
+    # because picking one changes where a milling pattern is drawn.
     start = microscope_image_to_image_coordinates(
         Point(x=start_x, y=start_y), image_shape, pixel_size, subpixel_precision=True
     )
@@ -788,8 +788,8 @@ def draw_milling_patterns(
     # draw scalebar
     if scalebar:
         try:
-            # A core dependency since FIB-562; the guard below is now only for a
-            # ScaleBar that cannot be constructed, not for a missing package.
+            # A core dependency; the guard below is for a ScaleBar that cannot be
+            # constructed, not for a missing package.
             from matplotlib_scalebar.scalebar import ScaleBar
 
             ax.add_artist(
@@ -1202,27 +1202,3 @@ def simple_example(stages: List[FibsemMillingStage], image: FibsemImage) -> plt.
     plt.show()
 
     return fig
-
-
-def render_milling_patterns(
-    image: FibsemImage,
-    milling_stages: List[FibsemMillingStage],
-    max_width: int = 1024,
-) -> np.ndarray:
-    """*milling_stages* drawn over *image*, as an RGB array the image's shape
-    (scaled down to *max_width*), so a pixel in it is the same place in the
-    image. Drawn on a figure of its own, not pyplot's, so it is safe off the
-    main thread (an App Server request)."""
-    from matplotlib.backends.backend_agg import FigureCanvasAgg
-    from matplotlib.figure import Figure
-
-    height, width = image.data.shape[:2]
-    scale = min(1.0, max_width / width)
-    dpi = 100
-    fig = Figure(figsize=(width * scale / dpi, height * scale / dpi), dpi=dpi)
-    canvas = FigureCanvasAgg(fig)
-    ax = fig.add_axes((0, 0, 1, 1))
-    draw_milling_patterns(image, milling_stages, title="", ax=ax)
-    ax.set_axis_off()
-    canvas.draw()
-    return np.asarray(canvas.buffer_rgba())[..., :3].copy()

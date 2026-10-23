@@ -1,4 +1,4 @@
-"""Point pairs between an image and the overview it is laid over (FIB-1030).
+"""Point pairs between an image and the overview it is laid over.
 
 Users find three clicked pairs easier than a drag, and three pairs are enough for the
 similarity a flat sample allows. Two picking canvases, the ones the correlation tab

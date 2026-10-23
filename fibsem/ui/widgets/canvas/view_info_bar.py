@@ -1,8 +1,7 @@
-"""The bar under a view: what the image on it is, in the export bar's words (FIB-1186).
+"""The bar under a view: what the image on it is, in the export bar's words.
 
-One row under each SEM, FIB and FM view, replacing the title row that used to sit
-above it. It names the view, then reads the displayed image's metadata through
-:func:`fibsem.imaging.export.image_fields`, so it says exactly what an export of the
+One row under each SEM, FIB and FM view. It names the view, then reads the displayed
+image's metadata through :func:`fibsem.imaging.export.image_fields`, so it says exactly what an export of the
 same image would: the detector or objective unlabelled, then up to five short
 labelled values, then when the image was taken. It describes the image as acquired,
 not the microscope now -- the controls beside the view already show that.
@@ -91,7 +90,7 @@ _FIELD_STYLE = (
     f"font-family: {NUMBER_FONT}; font-size: 11px; padding: 0px 3px;"
     f" border-radius: 3px; {_CLEAR}"
 )
-# A field whose value just changed: an accent tint behind it, fading out (FIB-1188).
+# A field whose value just changed: an accent tint behind it, fading out.
 _HIGHLIGHT_RGB = "80, 166, 255"  # ACCENT_COLOR
 _HIGHLIGHT_ALPHA = 0.22
 _HIGHLIGHT_VALUE_COLOR = "#8cc4ff"
@@ -170,7 +169,7 @@ class ViewInfoBar(QWidget):
     field button, for one whose fields are not the image's.
 
     With *highlight_changes*, a field whose value changes lights up and fades, so the
-    next frame -- or a value the microscope pushed -- is seen catching up (FIB-1188).
+    next frame -- or a value the microscope pushed -- is seen catching up.
     For a live view only: a bar whose image is chosen, in the lamella editor or the
     image viewer, would light up every field that differs from the last one picked.
     """

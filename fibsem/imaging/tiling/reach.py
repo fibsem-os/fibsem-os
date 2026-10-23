@@ -3,7 +3,7 @@
 The runners refuse a grid with any tile past the stage's travel, but only once the
 run has started (`raise_if_outside_stage_limits`). These ask the same question from a
 centre and a projection beforehand, through `unreachable_tiles`, for the grid tasks
-(which turn the unreachable tiles off and acquire the rest, FIB-1131), the Protocol
+(which turn the unreachable tiles off and acquire the rest), the Protocol
 tab's Grid page and the imaging service's overview estimates. Reach is judged by tile
 centre, as the Overview tabs draw it.
 
@@ -59,7 +59,7 @@ def reachable_overview(
 
     The tile runner refuses a grid with any tile past the stage's travel, but only at
     acquire time (`raise_if_outside_stage_limits`). For a grid overview that is after
-    the exchange, and again on every grid (FIB-1131), so the tiles out of reach are
+    the exchange, and again on every grid, so the tiles out of reach are
     turned off first and the rest acquired. It is the question the Overview tab asks
     before it draws a tile as unreachable, through the same helper and projection, so
     the runner's own check passes on what is left. Reach is judged by tile centre, as

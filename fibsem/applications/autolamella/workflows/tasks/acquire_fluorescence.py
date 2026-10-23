@@ -96,7 +96,7 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
                 "Fluorescence microscope not initialized in the FibsemMicroscope instance"
             )
         # Said here, up front: the autofocus falls back to the first channel
-        # and would fail with an IndexError that names nothing (FIB-1067).
+        # and would fail with an IndexError that names nothing.
         if not self.config.channel_settings:
             raise ValueError(
                 "No fluorescence channels configured for "
@@ -135,7 +135,7 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
         # Generate timestamp-based filename
         timestamp = utils.current_timestamp_v3(timeonly=True)
         basename = f"{self.lamella.name}-zstack-{timestamp}.ome.tiff"
-        filename = os.path.join(self.output_dir, basename)  # the run's (FIB-1275)
+        filename = os.path.join(self.output_dir, basename)  # the run's
 
         # Acquire image
         self.log_status_message(
@@ -218,7 +218,7 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
         )
         self.log_status_message("AUTOFOCUS", af_display)
         # Query: pass in channel settings so we are certain the channel is correct
-        # Saved by the sweep, so its record says where (FIB-1257).
+        # Saved by the sweep, so its record says where.
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         result = run_coarse_fine_autofocus(
             self.microscope.fm,

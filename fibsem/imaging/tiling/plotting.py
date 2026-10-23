@@ -309,9 +309,8 @@ def plot_stage_positions_on_image(
     """Plot stage positions reprojected on an image as matplotlib figure. Assumes image is flat to beam.
 
     An adapter over :func:`plot_minimap`, which draws the overview plot dialog's
-    preview. This used to be a second renderer, and the two had drifted, so the
-    overview page in the PDF report was not what the dialog showed. What it keeps of
-    its own: a colour per position when ``color`` is None, which the statistics plots
+    preview, so the PDF report's overview page is what the dialog shows. What it keeps
+    of its own: a colour per position when ``color`` is None, which the statistics plots
     use to tell tracks apart, and its 14 pt labels.
 
     Args:

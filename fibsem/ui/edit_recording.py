@@ -9,8 +9,8 @@ from typing import Any, Callable, Optional, Tuple
 
 from PyQt5.QtCore import QObject, QTimer
 
-from fibsem.server.task_configs import save_edits
 from fibsem.workflows import edit_recording
+from fibsem.workflows.task_configs import save_edits
 
 # Long enough to swallow a run of field edits, short enough that the window a
 # crash could take an edit from stays small. Every place where waiting longer
@@ -20,7 +20,7 @@ SETTLE_MS = 400
 
 class PendingEdits(edit_recording.PendingEdits):
     """:class:`edit_recording.PendingEdits`, flushed by a timer, with the
-    experiment's write the edits wait for (FIB-683: a write is the whole
+    experiment's write the edits wait for (a write is the whole
     experiment, so a burst of edits makes one)."""
 
     def __init__(
