@@ -99,7 +99,6 @@ from fibsem.devices.core import (
     ParameterReadOnly,
     ParameterUnavailable,
     ResourceBusy,
-    _limits_to_dict,
 )
 from fibsem.devices.runs import RUNNING, Run
 from fibsem.devices.sample_loader import GridExchangeError
