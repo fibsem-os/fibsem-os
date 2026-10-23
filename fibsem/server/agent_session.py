@@ -197,7 +197,7 @@ def _hooks(items: Any) -> List[Dict[str, str]]:
             for item in items
         )
     ):
-        raise _refused(
+        raise _invalid(
             f"hooks is a list of at most {MAX_HOOKS} reminders, each {{when, "
             f"label, say}} of at most {MAX_TEXT} characters."
         )
