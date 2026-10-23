@@ -40,5 +40,3 @@ def get_strategy_names() -> typing.List[str]:
         for name, cls in get_strategies().items()
         if getattr(cls, "selectable", True)
     ]
-
-
