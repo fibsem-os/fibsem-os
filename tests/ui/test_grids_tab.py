@@ -349,22 +349,6 @@ def test_on_a_fixed_holder_there_is_nothing_to_load(qapp, experiment):
     assert not card._action_load.isVisible() and not card._action_unload.isVisible()
 
 
-@pytest.fixture
-def main_ui(qapp):
-    from fibsem.applications.autolamella.ui import window as module
-
-    window = module.AutoLamellaWindow()
-    yield window
-    if window.microscope is not None:
-        window.microscope.disconnect()
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
-        window.close()
-    finally:
-        qapp.quit = original_quit
-
-
 class _NoMinimap:
     def set_experiment(self) -> None:
         pass
@@ -710,3 +694,37 @@ class TestNote:
         pdf = Path(path).read_bytes()
         assert pdf.count(b"Even ice across") == 2
         assert pdf.count(b"east half.") == 2
+
+
+def test_the_tab_s_grid_edits_are_the_app_server_s(tab, arctis, experiment):
+    """Rename, verdict, note and removal go through the functions the App Server
+    calls: saved, signed, and a rename on the record as the route's is."""
+    from pathlib import Path
+
+    from fibsem.applications.autolamella.structures import Experiment as Loaded
+    from fibsem.workflows.grid.naming import GRIDS_CHANGED
+    from fibsem.workflows.quality import Verdict
+
+    grid = GridRecord(name="G1")
+    experiment.add_grid(grid)
+    recorded = []
+
+    def record(kind, payload):
+        recorded.append((kind, payload))
+
+    arctis.session.record_signal.connect(record)
+    try:
+        tab._on_rename(grid, "G-cedar")
+        grid.quality.verdict = Verdict.REWORK
+        tab._on_quality_changed(grid)
+    finally:
+        arctis.session.record_signal.disconnect(record)
+
+    assert (GRIDS_CHANGED, {"renamed": "G1", "grid_name": "G-cedar"}) in recorded
+    saved = Loaded.load(Path(experiment.path) / "experiment.yaml").get_grid_by_name(
+        "G-cedar"
+    )
+    assert saved.quality.verdict is Verdict.REWORK
+    assert saved.quality.actor == str(experiment.actor())
+    tab._on_remove(grid)
+    assert Loaded.load(Path(experiment.path) / "experiment.yaml").grids == []

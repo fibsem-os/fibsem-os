@@ -9,6 +9,8 @@ announcing, and announced once an edit settles rather than per slider step.
 
 import os
 
+from tests.fixtures.microscopes import demo_microscope
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
@@ -17,8 +19,6 @@ import yaml
 
 pytest.importorskip("PyQt5")
 
-import fibsem.config as fibsem_config
-from fibsem import utils
 from fibsem.fm.composite import composite_fm_layers
 from fibsem.fm.structures import (
     FluorescenceChannelMetadata,
@@ -40,15 +40,7 @@ RED_SPOT = (48, 48)  # inside the second's
 DARK = (30, 5)  # in neither
 
 
-@pytest.fixture(scope="module")
-def microscope():
-    path = os.path.join(
-        os.path.dirname(fibsem_config.__file__),
-        "config",
-        "sim-arctis-configuration.yaml",
-    )
-    scope, _ = utils.setup_session(manufacturer="Demo", config_path=path)
-    return scope
+microscope = demo_microscope("sim-arctis-configuration.yaml")
 
 
 @pytest.fixture(autouse=True)

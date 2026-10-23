@@ -37,7 +37,7 @@ from fibsem.services.coating import (
     Coating,
     bind_coating,
 )
-from fibsem.services.milling import Milling, bind_milling, progress_update
+from fibsem.services.milling import BeamMilling, bind_milling, progress_update
 from fibsem.services.spot_burn import SpotBurn, bind_spot_burn
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
@@ -53,26 +53,17 @@ if TYPE_CHECKING:
     from fibsem.drivers.demo.microscope import DemoMicroscope
     from fibsem.drivers.demo.simulator import DemoSimulator
 
-_PATTERNING_MODES = ("Serial", "Parallel")
 # simulated seconds each pattern takes
 _PATTERN_TIME = 5
 # set to mill for this fraction of the sputter-rate estimate instead
 SIM_MILL_SCALE = "FIBSEM_SIM_MILL_SCALE"
 
 
-class DemoMilling(Milling):
+class DemoMilling(BeamMilling):
     """The Demo's milling, on the simulator's ``milling_system``."""
 
     parent: DemoMicroscope
 
-    setting_names = (
-        "milling_channel",
-        "hfw",
-        "milling_current",
-        "milling_voltage",
-        "application_file",
-        "patterning_mode",
-    )
     scan_directions = tuple(SIMULATOR_SCAN_DIRECTIONS)
     rtm_modes = RTM_MODES
 
@@ -96,27 +87,15 @@ class DemoMilling(Milling):
             return ParameterMetadata(choices=tuple(files))
         return super()._setting_metadata(name)
 
-    def _setup(self, settings: FibsemMillingSettings, name: Optional[str]) -> None:
-        if settings.patterning_mode not in _PATTERNING_MODES:
-            raise ValueError(
-                f"Invalid patterning mode: {settings.patterning_mode}. "
-                f"Must be one of {_PATTERNING_MODES}."
-            )
-        microscope = self.parent
+    def _select(self, settings: FibsemMillingSettings) -> None:
         system = self.connection.milling_system
-        channel = settings.milling_channel
-        microscope.milling_channel = channel
-        self.connection.set_channel(channel)
-        system.default_beam_type = channel
+        self.connection.set_channel(settings.milling_channel)
+        system.default_beam_type = settings.milling_channel
         system.default_application_file = settings.application_file
-        system.patterning_mode = settings.patterning_mode
-        # the recipe's beam conditions go through the beam devices
-        beam = self.beam(channel)
-        beam.hfw.write_through(settings.hfw)
-        beam.current.write_through(settings.milling_current)
-        beam.voltage.write_through(settings.milling_voltage)
-        self._clear()
-        logging.debug({"msg": "setup_milling", "mill_settings": settings.to_dict()})
+        self._set_patterning_mode(settings.patterning_mode)
+
+    def _set_patterning_mode(self, mode: str) -> None:
+        self.connection.milling_system.patterning_mode = mode
 
     def _add(self, pattern: FibsemPatternSettings) -> None:
         logging.debug({"msg": "draw_pattern", "pattern_settings": pattern.to_dict()})
@@ -175,14 +154,14 @@ class DemoMilling(Milling):
         self._run_total = None
         self._set_state(MillingState.IDLE)
 
-    def _stop(self) -> None:
+    def _stop_patterning(self) -> None:
         self._set_state(MillingState.IDLE)
         self._open_ended = False
 
-    def _pause(self) -> None:
+    def _pause_patterning(self) -> None:
         self._set_state(MillingState.PAUSED)
 
-    def _resume(self) -> None:
+    def _resume_patterning(self) -> None:
         self._set_state(MillingState.RUNNING)
 
     def _estimate(self) -> float:

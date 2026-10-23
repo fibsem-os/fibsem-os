@@ -63,16 +63,3 @@ def test_old_name_is_the_new_class(name):
     assert getattr(home, name) is obj
     if name != "BasePattern":
         assert obj.__module__.startswith("fibsem.milling.patterning.patterns.")
-
-
-def test_a_legacy_protocol_without_a_type_finds_its_pattern():
-    """The legacy key lookup imported PROTOCOL_MILL_MAP from patterns2, which never
-    defined it, so a protocol with no "type" raised ImportError instead of mapping."""
-    from fibsem.applications.autolamella.protocol.validation import (
-        convert_protocol_to_stage_config,
-    )
-    from fibsem.milling.patterning.patterns import UndercutPattern
-
-    config = convert_protocol_to_stage_config({}, "undercut")
-
-    assert config["pattern"]["name"] == UndercutPattern.name

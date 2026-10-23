@@ -1,0 +1,646 @@
+{
+  "correlation": {
+    "auto_interpolate": false,
+    "auto_rerun": false,
+    "delete_fiducial": "ask",
+    "fit": {
+      "fib_method": "Hole",
+      "fluorescence_cutout": 5,
+      "fm_fiducial_channel": null,
+      "fm_fiducial_method": "None",
+      "fm_poi_channel": null,
+      "fm_poi_method": "Gaussian",
+      "reflection_cutout": 2
+    },
+    "load_spot_burns": true,
+    "ri": {
+      "depth_um": 4.0,
+      "mode": "pre",
+      "n2": 1.35,
+      "na": 0.75,
+      "tilt_deg": 15.0,
+      "wavelength_um": 0.515
+    }
+  },
+  "description": "auto-converted protocol from autolamella-flat-on-grid - AutoLamella-OnGrid",
+  "grid_tasks": {
+    "id": "pinned-grid-protocol-id",
+    "name": "Grid Task Protocol",
+    "task_config": {},
+    "workflow_config": {
+      "tasks": []
+    }
+  },
+  "id": "pinned-protocol-id",
+  "lamella_defaults": {
+    "name_prefix": "",
+    "use_petname": true
+  },
+  "name": "autolamella-flat-on-grid",
+  "options": {
+    "show_run_summary": true,
+    "turn_beams_off": false
+  },
+  "task_config": {
+    "Mill Fiducial": {
+      "align_to_reference": true,
+      "alignment_expansion": 100.0,
+      "confirm_alignment_area": true,
+      "milling": {
+        "fiducial": {
+          "acquisition": {
+            "acquire_fib": false,
+            "acquire_final_image": true,
+            "acquire_sem": false,
+            "imaging": {
+              "autocontrast": false,
+              "beam_type": "ELECTRON",
+              "drift_correction": false,
+              "dwell_time": 1e-06,
+              "filename": "default_image",
+              "frame_integration": null,
+              "hfw": 0.00015,
+              "line_integration": null,
+              "path": null,
+              "reduced_area": null,
+              "resolution": [
+                1536,
+                1024
+              ],
+              "save": false,
+              "scan_interlacing": null
+            }
+          },
+          "alignment": {
+            "enabled": false,
+            "full_frame_below": 0.0,
+            "imaging": {
+              "autocontrast": false,
+              "beam_type": "ELECTRON",
+              "drift_correction": false,
+              "dwell_time": 1e-06,
+              "filename": "default_image",
+              "frame_integration": null,
+              "hfw": 0.00015,
+              "line_integration": null,
+              "path": null,
+              "reduced_area": null,
+              "resolution": [
+                1536,
+                1024
+              ],
+              "save": false,
+              "scan_interlacing": null
+            },
+            "interval": 30,
+            "interval_enabled": false,
+            "rect": {
+              "height": 0.4,
+              "left": 0.7,
+              "top": 0.3,
+              "width": 0.25
+            },
+            "steps": 3,
+            "use_autocontrast": true,
+            "use_autofocus": false
+          },
+          "channel": "ION",
+          "field_of_view": 8e-05,
+          "name": "Fiducial",
+          "stages": [
+            {
+              "enabled": true,
+              "milling": {
+                "application_file": "Si",
+                "driver": {},
+                "hfw": 8e-05,
+                "milling_channel": "ION",
+                "milling_current": 2e-09,
+                "milling_voltage": 30000.0,
+                "patterning_mode": "Serial"
+              },
+              "monitors": [],
+              "name": "fiducial",
+              "pattern": {
+                "asymmetric": false,
+                "cross_section": "Rectangle",
+                "depth": 1e-06,
+                "height": 1e-05,
+                "name": "Fiducial",
+                "point": {
+                  "name": null,
+                  "x": 2.5e-05,
+                  "y": 0.0
+                },
+                "rotation": 45.0,
+                "width": 1e-06
+              },
+              "strategy": {
+                "config": {},
+                "name": "Standard"
+              }
+            }
+          ]
+        }
+      },
+      "reference_imaging": {
+        "acquire_fib": true,
+        "acquire_image1": true,
+        "acquire_image2": true,
+        "acquire_sem": true,
+        "field_of_view1": 0.0001,
+        "field_of_view2": 0.00015,
+        "imaging": {
+          "autocontrast": false,
+          "beam_type": "ELECTRON",
+          "drift_correction": false,
+          "dwell_time": 1e-06,
+          "filename": "default_image",
+          "frame_integration": null,
+          "hfw": 0.00015,
+          "line_integration": null,
+          "path": null,
+          "reduced_area": null,
+          "resolution": [
+            1536,
+            1024
+          ],
+          "save": false,
+          "scan_interlacing": null
+        }
+      },
+      "task_name": "Mill Fiducial",
+      "task_type": "MILL_FIDUCIAL"
+    },
+    "Polishing": {
+      "milling": {
+        "mill_polishing": {
+          "acquisition": {
+            "acquire_fib": false,
+            "acquire_final_image": true,
+            "acquire_sem": false,
+            "imaging": {
+              "autocontrast": false,
+              "beam_type": "ELECTRON",
+              "drift_correction": false,
+              "dwell_time": 1e-06,
+              "filename": "default_image",
+              "frame_integration": null,
+              "hfw": 0.00015,
+              "line_integration": null,
+              "path": null,
+              "reduced_area": null,
+              "resolution": [
+                1536,
+                1024
+              ],
+              "save": false,
+              "scan_interlacing": null
+            }
+          },
+          "alignment": {
+            "enabled": false,
+            "full_frame_below": 0.0,
+            "imaging": {
+              "autocontrast": false,
+              "beam_type": "ELECTRON",
+              "drift_correction": false,
+              "dwell_time": 1e-06,
+              "filename": "default_image",
+              "frame_integration": null,
+              "hfw": 0.00015,
+              "line_integration": null,
+              "path": null,
+              "reduced_area": null,
+              "resolution": [
+                1536,
+                1024
+              ],
+              "save": false,
+              "scan_interlacing": null
+            },
+            "interval": 30,
+            "interval_enabled": false,
+            "rect": {
+              "height": 0.4,
+              "left": 0.7,
+              "top": 0.3,
+              "width": 0.25
+            },
+            "steps": 3,
+            "use_autocontrast": true,
+            "use_autofocus": false
+          },
+          "channel": "ION",
+          "field_of_view": 5e-05,
+          "name": "Polishing",
+          "stages": [
+            {
+              "enabled": true,
+              "milling": {
+                "application_file": "Si-ccs",
+                "driver": {},
+                "hfw": 5e-05,
+                "milling_channel": "ION",
+                "milling_current": 6e-11,
+                "milling_voltage": 30000.0,
+                "patterning_mode": "Serial"
+              },
+              "monitors": [],
+              "name": "Polishing Mill 01",
+              "pattern": {
+                "cross_section": "CleaningCrossSection",
+                "depth": 4e-07,
+                "fillet": 0.0,
+                "lower_trench_height": 7e-07,
+                "name": "Trench",
+                "passes": 0,
+                "point": {
+                  "name": null,
+                  "x": 0.0,
+                  "y": 0.0
+                },
+                "spacing": 3e-07,
+                "time": 0.0,
+                "upper_trench_height": 3.5e-07,
+                "width": 9e-06
+              },
+              "strategy": {
+                "config": {},
+                "name": "Standard"
+              }
+            }
+          ]
+        }
+      },
+      "reference_imaging": {
+        "acquire_fib": true,
+        "acquire_image1": true,
+        "acquire_image2": true,
+        "acquire_sem": true,
+        "field_of_view1": 0.0001,
+        "field_of_view2": 0.00015,
+        "imaging": {
+          "autocontrast": false,
+          "beam_type": "ELECTRON",
+          "drift_correction": false,
+          "dwell_time": 1e-06,
+          "filename": "default_image",
+          "frame_integration": null,
+          "hfw": 0.00015,
+          "line_integration": null,
+          "path": null,
+          "reduced_area": null,
+          "resolution": [
+            1536,
+            1024
+          ],
+          "save": false,
+          "scan_interlacing": null
+        }
+      },
+      "sync_to_poi": true,
+      "task_name": "Polishing",
+      "task_type": "MILL_POLISHING"
+    },
+    "Rough Milling": {
+      "milling": {
+        "mill_rough": {
+          "acquisition": {
+            "acquire_fib": false,
+            "acquire_final_image": true,
+            "acquire_sem": false,
+            "imaging": {
+              "autocontrast": false,
+              "beam_type": "ELECTRON",
+              "drift_correction": false,
+              "dwell_time": 1e-06,
+              "filename": "default_image",
+              "frame_integration": null,
+              "hfw": 0.00015,
+              "line_integration": null,
+              "path": null,
+              "reduced_area": null,
+              "resolution": [
+                1536,
+                1024
+              ],
+              "save": false,
+              "scan_interlacing": null
+            }
+          },
+          "alignment": {
+            "enabled": false,
+            "full_frame_below": 0.0,
+            "imaging": {
+              "autocontrast": false,
+              "beam_type": "ELECTRON",
+              "drift_correction": false,
+              "dwell_time": 1e-06,
+              "filename": "default_image",
+              "frame_integration": null,
+              "hfw": 0.00015,
+              "line_integration": null,
+              "path": null,
+              "reduced_area": null,
+              "resolution": [
+                1536,
+                1024
+              ],
+              "save": false,
+              "scan_interlacing": null
+            },
+            "interval": 30,
+            "interval_enabled": false,
+            "rect": {
+              "height": 0.4,
+              "left": 0.7,
+              "top": 0.3,
+              "width": 0.25
+            },
+            "steps": 3,
+            "use_autocontrast": true,
+            "use_autofocus": false
+          },
+          "channel": "ION",
+          "field_of_view": 5e-05,
+          "name": "Rough Milling",
+          "stages": [
+            {
+              "enabled": true,
+              "milling": {
+                "application_file": "Si-ccs",
+                "driver": {},
+                "hfw": 5e-05,
+                "milling_channel": "ION",
+                "milling_current": 7.4e-10,
+                "milling_voltage": 30000.0,
+                "patterning_mode": "Serial"
+              },
+              "monitors": [],
+              "name": "Rough Mill 01",
+              "pattern": {
+                "cross_section": "CleaningCrossSection",
+                "depth": 6.5e-07,
+                "fillet": 0.0,
+                "lower_trench_height": 3.5e-06,
+                "name": "Trench",
+                "passes": 0,
+                "point": {
+                  "name": null,
+                  "x": 0.0,
+                  "y": 0.0
+                },
+                "spacing": 4.6e-06,
+                "time": 0.0,
+                "upper_trench_height": 3.5e-06,
+                "width": 1e-05
+              },
+              "strategy": {
+                "config": {},
+                "name": "Standard"
+              }
+            },
+            {
+              "enabled": true,
+              "milling": {
+                "application_file": "Si",
+                "driver": {},
+                "hfw": 8e-05,
+                "milling_channel": "ION",
+                "milling_current": 2e-09,
+                "milling_voltage": 30000.0,
+                "patterning_mode": "Serial"
+              },
+              "monitors": [],
+              "name": "microexpansion",
+              "pattern": {
+                "depth": 1e-06,
+                "distance": 1e-05,
+                "height": 1.8e-05,
+                "name": "MicroExpansion",
+                "point": {
+                  "name": null,
+                  "x": 0.0,
+                  "y": 0.0
+                },
+                "width": 5e-07
+              },
+              "strategy": {
+                "config": {},
+                "name": "Standard"
+              }
+            }
+          ]
+        },
+        "stress-relief": {
+          "acquisition": {
+            "acquire_fib": false,
+            "acquire_final_image": true,
+            "acquire_sem": false,
+            "imaging": {
+              "autocontrast": false,
+              "beam_type": "ELECTRON",
+              "drift_correction": false,
+              "dwell_time": 1e-06,
+              "filename": "default_image",
+              "frame_integration": null,
+              "hfw": 0.00015,
+              "line_integration": null,
+              "path": null,
+              "reduced_area": null,
+              "resolution": [
+                1536,
+                1024
+              ],
+              "save": false,
+              "scan_interlacing": null
+            }
+          },
+          "alignment": {
+            "enabled": false,
+            "full_frame_below": 0.0,
+            "imaging": {
+              "autocontrast": false,
+              "beam_type": "ELECTRON",
+              "drift_correction": false,
+              "dwell_time": 1e-06,
+              "filename": "default_image",
+              "frame_integration": null,
+              "hfw": 0.00015,
+              "line_integration": null,
+              "path": null,
+              "reduced_area": null,
+              "resolution": [
+                1536,
+                1024
+              ],
+              "save": false,
+              "scan_interlacing": null
+            },
+            "interval": 30,
+            "interval_enabled": false,
+            "rect": {
+              "height": 0.4,
+              "left": 0.7,
+              "top": 0.3,
+              "width": 0.25
+            },
+            "steps": 3,
+            "use_autocontrast": true,
+            "use_autofocus": false
+          },
+          "channel": "ION",
+          "field_of_view": 8e-05,
+          "name": "Notch",
+          "stages": [
+            {
+              "enabled": true,
+              "milling": {
+                "application_file": "Si",
+                "driver": {},
+                "hfw": 8e-05,
+                "milling_channel": "ION",
+                "milling_current": 2e-09,
+                "milling_voltage": 30000.0,
+                "patterning_mode": "Serial"
+              },
+              "monitors": [],
+              "name": "notch",
+              "pattern": {
+                "cross_section": "Rectangle",
+                "depth": 2.5e-06,
+                "distance": 2e-06,
+                "hheight": 2e-07,
+                "hwidth": 4e-06,
+                "inverted": false,
+                "name": "WaffleNotch",
+                "point": {
+                  "name": null,
+                  "x": 0.0,
+                  "y": 0.0
+                },
+                "vheight": 2e-06,
+                "vwidth": 2e-07
+              },
+              "strategy": {
+                "config": {},
+                "name": "Standard"
+              }
+            }
+          ]
+        }
+      },
+      "reacquire_alignment_reference": false,
+      "reference_imaging": {
+        "acquire_fib": true,
+        "acquire_image1": true,
+        "acquire_image2": true,
+        "acquire_sem": true,
+        "field_of_view1": 0.0001,
+        "field_of_view2": 0.00015,
+        "imaging": {
+          "autocontrast": false,
+          "beam_type": "ELECTRON",
+          "drift_correction": false,
+          "dwell_time": 1e-06,
+          "filename": "default_image",
+          "frame_integration": null,
+          "hfw": 0.00015,
+          "line_integration": null,
+          "path": null,
+          "reduced_area": null,
+          "resolution": [
+            1536,
+            1024
+          ],
+          "save": false,
+          "scan_interlacing": null
+        }
+      },
+      "sync_polishing_position": true,
+      "sync_to_poi": true,
+      "task_name": "Rough Milling",
+      "task_type": "MILL_ROUGH"
+    },
+    "Setup Lamella Position": {
+      "auto_milling_alignment": false,
+      "confirm_alignment_area": true,
+      "confirm_position": true,
+      "confirm_tilt": true,
+      "milling": {},
+      "milling_angle": 20.0,
+      "reference_imaging": {
+        "acquire_fib": true,
+        "acquire_image1": true,
+        "acquire_image2": true,
+        "acquire_sem": true,
+        "field_of_view1": 0.0001,
+        "field_of_view2": 0.00015,
+        "imaging": {
+          "autocontrast": false,
+          "beam_type": "ELECTRON",
+          "drift_correction": false,
+          "dwell_time": 1e-06,
+          "filename": "default_image",
+          "frame_integration": null,
+          "hfw": 0.00015,
+          "line_integration": null,
+          "path": null,
+          "reduced_area": null,
+          "resolution": [
+            1536,
+            1024
+          ],
+          "save": false,
+          "scan_interlacing": null
+        }
+      },
+      "select_poi": true,
+      "sync_fiducial_position": true,
+      "sync_fluorescence_pose": false,
+      "task_name": "Setup Lamella Position",
+      "task_type": "SELECT_MILLING_POSITION",
+      "use_autofocus": true
+    }
+  },
+  "version": "1.0",
+  "workflow_config": {
+    "description": "auto-converted protocol from autolamella-flat-on-grid - AutoLamella-OnGrid",
+    "name": "autolamella-flat-on-grid",
+    "tasks": [
+      {
+        "attention": "automated",
+        "name": "Setup Lamella Position",
+        "required": true,
+        "requires": [],
+        "scheduled_at": null
+      },
+      {
+        "attention": "automated",
+        "name": "Mill Fiducial",
+        "required": true,
+        "requires": [],
+        "scheduled_at": null
+      },
+      {
+        "attention": "supervised",
+        "name": "Rough Milling",
+        "required": true,
+        "requires": [
+          "Mill Fiducial"
+        ],
+        "scheduled_at": null
+      },
+      {
+        "attention": "automated",
+        "name": "Polishing",
+        "required": true,
+        "requires": [
+          "Rough Milling"
+        ],
+        "scheduled_at": null
+      }
+    ]
+  }
+}

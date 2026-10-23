@@ -11,7 +11,6 @@ in tests/fm/_odemis_stubs.py, and the microscope is created without __init__.
 """
 
 import os
-import sys
 
 import numpy as np
 import pytest
@@ -29,6 +28,7 @@ from fibsem.structures import (
     FibsemCircleSettings,
     FibsemExperimentRef,
     FibsemImage,
+    FibsemMillingSettings,
     FibsemPolygonSettings,
     FibsemRectangleSettings,
     FibsemUser,
@@ -239,23 +239,6 @@ class FakeStage:
         return stubs.FakeFuture()
 
 
-@pytest.fixture(scope="module")
-def odemis_microscope_cls():
-    """Import OdemisThermoMicroscope against stub odemis modules."""
-    saved = {}
-    for name in stubs.ODEMIS_MODULE_NAMES + stubs.FIBSEM_ODEMIS_MODULE_NAMES:
-        if name in sys.modules:
-            saved[name] = sys.modules.pop(name)
-
-    stubs.install_odemis_stubs()
-    from fibsem.drivers.odemis.microscope import OdemisThermoMicroscope
-
-    yield OdemisThermoMicroscope
-
-    stubs.remove_odemis_stubs()
-    sys.modules.update(saved)
-
-
 @pytest.fixture
 def microscope(odemis_microscope_cls):
     microscope = object.__new__(odemis_microscope_cls)  # skip __init__ (hardware)
@@ -269,7 +252,7 @@ def microscope(odemis_microscope_cls):
     microscope.user = FibsemUser()
     microscope.experiment = FibsemExperimentRef()
     microscope.milling_channel = BeamType.ION
-    microscope._build_devices()
+    microscope._build_odemis_devices()
     microscope._build_milling()
     microscope._build_imaging()
     microscope._connection.sdk.calls.clear()
@@ -386,8 +369,8 @@ def test_finish_milling_restores_the_beam_and_the_patterning_mode(microscope):
 
 
 def test_set_patterning_mode_refuses_unknown_modes(microscope):
-    with pytest.raises(ValueError):
-        microscope.milling._set_patterning_mode("Sideways")
+    with pytest.raises(ValueError, match="Sideways"):
+        microscope.setup_milling(FibsemMillingSettings(patterning_mode="Sideways"))
 
 
 def test_milling_state_is_read_on_the_milling_channel(microscope):

@@ -10,10 +10,10 @@ from typing import Dict, List, Optional
 
 import pytest
 
-from fibsem import utils
 from fibsem.devices.chamber import CryoCompartment
 from fibsem.drivers.autoscript import devices as autoscript_devices
 from fibsem.drivers.autoscript.connection import AutoScriptConnection
+from tests.fixtures.microscopes import demo_microscope
 
 CRYO_PARAMETERS = {
     "touch_alarm",
@@ -129,10 +129,7 @@ class FakeConnection:
         self.specimen = FakeSpecimen(autoloader)
 
 
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    return microscope
+microscope = demo_microscope(scope="function")
 
 
 Compartments = Optional[Dict[str, FakeCompartment]]

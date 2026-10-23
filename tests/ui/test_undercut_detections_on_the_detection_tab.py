@@ -14,6 +14,8 @@ skipped otherwise (nothing here downloads).
 
 import os
 
+from tests.fixtures.main_window import close_window
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import threading
@@ -102,12 +104,7 @@ def window(qapp, tmp_path, checkpoint):
     ui.disconnect_from_microscope()
     if microscope is not None:
         microscope.disconnect()
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
-        win.close()
-    finally:
-        qapp.quit = original_quit
+    close_window(win)
     win.deleteLater()
     QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
     qapp.processEvents()

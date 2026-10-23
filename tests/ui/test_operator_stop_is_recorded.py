@@ -17,20 +17,6 @@ from tests.run_state import StubRunner
 
 
 @pytest.fixture
-def main_ui(qapp):
-    from fibsem.applications.autolamella.ui import window as module
-
-    window = module.AutoLamellaWindow()
-    yield window
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
-        window.close()
-    finally:
-        qapp.quit = original_quit
-
-
-@pytest.fixture
 def recorder(main_ui):
     from fibsem import utils
     from fibsem.workflows.event_recording import EventRecorder
