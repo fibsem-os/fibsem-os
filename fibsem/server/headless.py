@@ -11,7 +11,6 @@ import threading
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from fibsem import utils
 from fibsem.server.agent_setup import setup_text
 from fibsem.workflows.session import AppSession
 

@@ -111,12 +111,20 @@ class StackSlice:
     hfw: Optional[float] = None
     # metres into the item, when the app knows its slice thickness
     z: Optional[float] = None
+    # the file relative to the experiment folder, as its files route serves it
+    path: Optional[str] = None
 
 
-def stack_slices(root: Any, runs: Iterable[TaskState], role: str) -> List[StackSlice]:
+def stack_slices(
+    root: Any,
+    runs: Iterable[TaskState],
+    role: str,
+    experiment_root: Optional[Any] = None,
+) -> List[StackSlice]:
     """The existing files the runs recorded under *role*, in iteration order
     (runs without one last, in run order), each with its image's scale and
-    time. A file whose metadata can't be read keeps those None."""
+    time, and its path in *experiment_root* when given. A file whose metadata
+    can't be read keeps those None."""
     from fibsem.structures import FibsemImageMetadata
     from fibsem.util.timestamps import to_iso
 
@@ -135,6 +143,9 @@ def stack_slices(root: Any, runs: Iterable[TaskState], role: str) -> List[StackS
                     acquired_at=to_iso(acquired_at or run.end_timestamp),
                     pixel_size=metadata.pixel_size.x if metadata else None,
                     hfw=metadata.image_settings.hfw if metadata else None,
+                    path=os.path.relpath(path, experiment_root)
+                    if experiment_root is not None
+                    else None,
                 )
             )
     # stable: files of the same iteration keep their run order

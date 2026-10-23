@@ -519,7 +519,9 @@ class AppContext:
         order: a volume position's slices, scrubbed as one stack."""
 
         def read(experiment, item) -> ItemStack:
-            slices = stack_slices(experiment.item_path(item), item.task_history, role)
+            slices = stack_slices(
+                experiment.item_path(item), item.task_history, role, experiment.path
+            )
             for entry in slices:
                 entry.z = self.slice_depth(item, entry.iteration)
             return ItemStack(
