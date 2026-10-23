@@ -842,6 +842,33 @@ class GridPlan:
 
 
 @dataclass
+class RunStep:
+    item: str
+    task: str
+
+
+@dataclass
+class RunPlan:
+    """A lamella run's steps in queue order and its estimate, or for an
+    addition to the running queue what it adds and delays; why not when
+    ``valid`` is false."""
+
+    available: bool
+    valid: bool
+    reason: Optional[str] = None
+    add: Optional[bool] = None
+    run_next: Optional[bool] = None
+    task_names: Optional[List[str]] = None
+    item_names: Optional[List[str]] = None
+    steps: List[RunStep] = field(default_factory=list)
+    already_queued: List[str] = field(default_factory=list)
+    # work and hold seconds, expected finish, and each task's count and seconds
+    estimate: Optional[Dict[str, Any]] = None
+    # work and delay seconds, finish before and after, hold seconds
+    addition: Optional[Dict[str, Any]] = None
+
+
+@dataclass
 class Recorded:
     """A note, a message or evidence put on the record; for a message, its
     ``id``; for evidence, its record (`fibsem.workflows.evidence.save`)."""

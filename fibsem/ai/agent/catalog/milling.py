@@ -182,7 +182,10 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "strategy.name takes, and the monitors a stage can list: each name with "
             "its config's fields. A stage lists a monitor in its monitors as "
             "{name, config}; a protocol stage's monitor config is patched as "
-            "stages.<stage>.monitors.<i>.config.<field>."
+            "stages.<stage>.monitors.<i>.config.<field>. settings: the recipe "
+            "(stage.milling) fields this instrument mills with, per channel, each "
+            "with its limits and choices; a driver's own are named by their path "
+            "(driver.Tescan.preset), and the fields left out it ignores."
         ),
         method="POST",
         path="/microscope/services/milling/queries/list_options",

@@ -6,10 +6,12 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
 import fibsem.constants as constants
-from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.drivers.tescan.connection import TescanConnection
 from fibsem.drivers.tescan.devices import STAGE_FRAME_TESCAN
+from fibsem.drivers.tescan.settings import TescanMillingSettings
 from fibsem.microscope import (
+    BEAM_TYPES,
+    STAGE_TYPES,
     FibsemMicroscope,
 )
 
@@ -64,7 +66,6 @@ from fibsem.structures import (  # noqa
     BeamSystemSettings,
     BeamType,
     CrossSectionPattern,
-    DeviceEntry,
     FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemExperimentRef,
@@ -206,8 +207,11 @@ def parse_current_from_preset(preset: Optional[str]) -> Optional[float]:
     return float(match.group(1)) * _SI_CURRENT_PREFIX[match.group(2)]
 
 
-def estimate_preset_milling_time(stage: FibsemMillingStage) -> Optional[float]:
-    """Dose-model estimate t = volume / (rate × current) for a preset-driven stage.
+def estimate_preset_milling_time(
+    stage: FibsemMillingStage, own: TescanMillingSettings
+) -> Optional[float]:
+    """Dose-model estimate t = volume / (rate × current) for a preset-driven stage,
+    milled with *own*, the stage's Tescan settings.
 
     The same inputs DrawBeam computes the real exposure from: the stage's own
     (per-material) etch rate and the current embedded in the preset name. The
@@ -219,8 +223,8 @@ def estimate_preset_milling_time(stage: FibsemMillingStage) -> Optional[float]:
     if pattern_time:
         return pattern_time
 
-    current = parse_current_from_preset(stage.milling.preset)
-    rate = stage.milling.rate  # m³/A/s
+    current = parse_current_from_preset(own.preset)
+    rate = own.rate  # m³/A/s
     if current is None or current <= 0 or not rate or rate <= 0:
         return None
 
@@ -233,11 +237,9 @@ def estimate_preset_milling_time(stage: FibsemMillingStage) -> Optional[float]:
     return volume / (rate * current)
 
 
-# The device types each connect step builds (``TescanMicroscope._build_devices``).
+# The device types each connect step builds (``FibsemMicroscope._build_devices``).
 # The FM is built on its own path; any other type a configuration adds is built last.
-_BEAM_TYPES = ("beam",)
-_STAGE_TYPES = ("stage",)
-_OWN_TYPES = _BEAM_TYPES + _STAGE_TYPES + ("fm",)
+_OWN_TYPES = BEAM_TYPES + STAGE_TYPES + ("fm",)
 
 
 class TescanMicroscope(FibsemMicroscope):
@@ -357,38 +359,6 @@ class TescanMicroscope(FibsemMicroscope):
             }
         )
 
-    def _build_devices(
-        self,
-        defaults: List[DeviceEntry],
-        types: Optional[Tuple[str, ...]] = None,
-        exclude_types: Tuple[str, ...] = (),
-    ) -> Dict[str, Any]:
-        """Build one connect step's devices: *defaults*, what the instrument has, with
-        the configuration's ``hardware.devices`` entries of *types* over them
-        (``fibsem.devices.entries``), and put them in ``devices``."""
-        resolved = resolve_system_devices(
-            self.system, defaults, types, exclude_types, self.driver_name
-        )
-        built = build_device_entries(resolved, self)
-        for name, device in built.items():
-            self._set_device(name, device)
-        return built
-
-    def _build_beams(self) -> None:
-        """Build the beam devices.
-
-        A parameter a beam does not have (the ion column's working distance,
-        ``detector_mode``) is unsupported; their wrappers answer for themselves. A
-        disabled column gets no device, and its wrappers read None.
-        """
-        self._build_devices(
-            [
-                DeviceEntry(name="electron", type="beam"),
-                DeviceEntry(name="ion", type="beam"),
-            ],
-            _BEAM_TYPES,
-        )
-
     def _build_milling(self) -> None:
         """Build the milling service over the beams; the milling methods then go to it
         (`FibsemMicroscope`). Without an ion beam there is none, and they raise."""
@@ -409,16 +379,6 @@ class TescanMicroscope(FibsemMicroscope):
         from fibsem.drivers.tescan.services import bind_tescan_spot_burn
 
         self.spot_burn = bind_tescan_spot_burn(self)
-
-    def _build_stage(self) -> None:
-        """Build the stage device.
-
-        The absolute and relative moves then go through the device, and so do the
-        view-corrected moves, which end in them. The device has no ``homed``, so it
-        reads None. A disabled stage gets no device, and then
-        the stage cannot be read or moved.
-        """
-        self._build_devices([DeviceEntry(name="stage", type="stage")], _STAGE_TYPES)
 
     @property
     def stage_frame(self) -> str:

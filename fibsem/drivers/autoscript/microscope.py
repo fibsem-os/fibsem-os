@@ -18,10 +18,11 @@ import numpy as np
 from packaging.version import InvalidVersion, Version
 from packaging.version import parse as parse_version
 
-from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.devices.sample_loader import GridExchangeError
 from fibsem.drivers.autoscript.connection import AutoScriptConnection
 from fibsem.microscope import (
+    BEAM_TYPES,
+    STAGE_TYPES,
     FibsemMicroscope,
     RequiredDeviceUnavailable,
 )
@@ -399,17 +400,15 @@ def manipulator_position_from_autoscript(
     )
 
 
-# The device types each connect step builds (``ThermoMicroscope._build_devices``).
+# The device types each connect step builds (``FibsemMicroscope._build_devices``).
 # The FM is built on its own path; any other type a configuration adds is built last.
-_BEAM_TYPES = ("beam",)
-_STAGE_TYPES = ("stage",)
 _PART_TYPES = ("chamber", "chamber_camera", "manipulator")
 _LOADER_TYPES = ("sample_loader",)
 _GIS_TYPES = ("gis",)
 _SPUTTER_COATER_TYPES = ("sputter_coater",)
 _OWN_TYPES = (
-    _BEAM_TYPES
-    + _STAGE_TYPES
+    BEAM_TYPES
+    + STAGE_TYPES
     + _PART_TYPES
     + _LOADER_TYPES
     + _GIS_TYPES
@@ -650,38 +649,6 @@ class ThermoMicroscope(FibsemMicroscope):
         self._bind_device_roles()
         self._build_thermo_coating()
 
-    def _build_devices(
-        self,
-        defaults: List[DeviceEntry],
-        types: Optional[Tuple[str, ...]] = None,
-        exclude_types: Tuple[str, ...] = (),
-    ) -> Dict[str, Any]:
-        """Build one connect step's devices: *defaults*, what the instrument has, with
-        the configuration's ``hardware.devices`` entries of *types* over them
-        (``fibsem.devices.entries``), and put them in ``devices``."""
-        resolved = resolve_system_devices(
-            self.system, defaults, types, exclude_types, self.driver_name
-        )
-        built = build_device_entries(resolved, self)
-        for name, device in built.items():
-            self._set_device(name, device)
-        return built
-
-    def _build_beams(self) -> None:
-        """Build the beam devices.
-
-        The scan-mode methods then use the beam's scan commands, and acquire_image,
-        autocontrast and auto_focus its imaging commands. A disabled column
-        gets no device: its wrappers read None, and its imaging raises.
-        """
-        self._build_devices(
-            [
-                DeviceEntry(name="electron", type="beam"),
-                DeviceEntry(name="ion", type="beam"),
-            ],
-            _BEAM_TYPES,
-        )
-
     def _build_milling(self) -> None:
         """Build the milling service over the beams; the milling methods then go to it
         (`FibsemMicroscope`). Without an ion beam there is none, and they raise."""
@@ -695,15 +662,6 @@ class ThermoMicroscope(FibsemMicroscope):
         from fibsem.services.spot_burn import SpotBurn, bind_spot_burn
 
         self.spot_burn = bind_spot_burn(SpotBurn, self)
-
-    def _build_stage(self) -> None:
-        """Build the stage device.
-
-        The moves, ``home`` and ``link_stage`` then go through the device. Its
-        ``link`` command only links, and a compustage has no ``linked`` (it reads
-        None).
-        """
-        self._build_devices([DeviceEntry(name="stage", type="stage")], _STAGE_TYPES)
 
     def _build_parts(self) -> None:
         """Build the chamber, its camera and the manipulator, and keep the

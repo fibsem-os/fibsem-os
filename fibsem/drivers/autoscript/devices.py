@@ -87,6 +87,7 @@ from fibsem.devices.core import (
     Resources,
     resources_of,
 )
+from fibsem.devices.entries import beam_type_of, named
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
 from fibsem.devices.gis import GasInjector
 from fibsem.devices.manipulator import Manipulator
@@ -1227,7 +1228,7 @@ def autoloader_installed(microscope: ThermoMicroscope) -> bool:
 _MANIPULATOR_NAMES = ("PARK", "EUCENTRIC")
 
 
-def _in_raw_unless_named(
+def _in_raw_unlessnamed(
     position: FibsemManipulatorPosition,
 ) -> FibsemManipulatorPosition:
     """A position that names no coordinate system moves in the needle's raw frame."""
@@ -1355,7 +1356,7 @@ class AutoscriptManipulator(Manipulator):
             manipulator_position_to_autoscript,
         )
 
-        delta = _in_raw_unless_named(delta)
+        delta = _in_raw_unlessnamed(delta)
         logging.info(f"moving manipulator by {delta}")
         self._needle.relative_move(manipulator_position_to_autoscript(delta))
         logging.debug({"msg": "move_manipulator_relative", "position": delta.to_dict()})
@@ -1365,7 +1366,7 @@ class AutoscriptManipulator(Manipulator):
             manipulator_position_to_autoscript,
         )
 
-        position = _in_raw_unless_named(position)
+        position = _in_raw_unlessnamed(position)
         logging.info(f"moving manipulator to {position}")
         self._needle.absolute_move(manipulator_position_to_autoscript(position))
         logging.debug(
@@ -1934,16 +1935,9 @@ def sputter_coater_fitted(microscope: ThermoMicroscope) -> bool:
 # ``_build_parts``).
 
 
-def _named(device: Device, entry: DeviceEntry) -> Device:
-    device.name = entry.name
-    return device.connect()
-
-
 def build_autoscript_beam(entry: DeviceEntry, context: BuildContext) -> AutoscriptBeam:
     """The column an ``electron`` or ``ion`` entry names."""
-    if entry.name not in ("electron", "ion"):
-        raise ValueError("a Thermo beam is named 'electron' or 'ion'")
-    beam_type = BeamType.ELECTRON if entry.name == "electron" else BeamType.ION
+    beam_type = beam_type_of(entry)
     microscope = context.microscope
     return AutoscriptBeam(beam_type, microscope, microscope._connection).connect()
 
@@ -1953,35 +1947,35 @@ def build_autoscript_stage(
 ) -> AutoscriptStage:
     microscope = context.microscope
     stage = autoscript_stage_class(microscope)
-    return _named(stage(microscope, microscope._connection), entry)
+    return named(stage(microscope, microscope._connection), entry)
 
 
 def build_autoscript_chamber(
     entry: DeviceEntry, context: BuildContext
 ) -> AutoscriptChamber:
     microscope = context.microscope
-    return _named(AutoscriptChamber(microscope, microscope._connection), entry)
+    return named(AutoscriptChamber(microscope, microscope._connection), entry)
 
 
 def build_autoscript_chamber_camera(
     entry: DeviceEntry, context: BuildContext
 ) -> AutoscriptChamberCamera:
     microscope = context.microscope
-    return _named(AutoscriptChamberCamera(microscope, microscope._connection), entry)
+    return named(AutoscriptChamberCamera(microscope, microscope._connection), entry)
 
 
 def build_autoscript_manipulator(
     entry: DeviceEntry, context: BuildContext
 ) -> AutoscriptManipulator:
     microscope = context.microscope
-    return _named(AutoscriptManipulator(microscope, microscope._connection), entry)
+    return named(AutoscriptManipulator(microscope, microscope._connection), entry)
 
 
 def build_autoscript_sample_loader(
     entry: DeviceEntry, context: BuildContext
 ) -> AutoscriptSampleLoader:
     microscope = context.microscope
-    return _named(AutoscriptSampleLoader(microscope, microscope._connection), entry)
+    return named(AutoscriptSampleLoader(microscope, microscope._connection), entry)
 
 
 def build_autoscript_sputter_coater(
@@ -1998,7 +1992,7 @@ def build_autoscript_sputter_coater(
         device = AutoscriptArctisSputterCoater(microscope, connection)
     if not device.is_installed():
         raise ValueError("the instrument reports no sputter coater")
-    return _named(device, entry)
+    return named(device, entry)
 
 
 def build_autoscript_gis(
@@ -2035,7 +2029,7 @@ def build_autoscript_gis(
         )
     if device.is_installed() is False:
         raise ValueError(f"the instrument has no GIS port {port!r}")
-    return _named(device, entry)
+    return named(device, entry)
 
 
 # The FM.

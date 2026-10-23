@@ -16,9 +16,8 @@ from fibsem.drivers.odemis.microscope import (
     ODEMIS_SCAN_DIRECTIONS,
     beam_type_to_odemis,
 )
-from fibsem.services.milling import Milling, bind_milling
+from fibsem.services.milling import BeamMilling, bind_milling
 from fibsem.structures import (
-    ACTIVE_MILLING_STATES,
     CrossSectionPattern,
     FibsemCircleSettings,
     FibsemLineSettings,
@@ -32,22 +31,12 @@ if TYPE_CHECKING:
     from fibsem.drivers.odemis.connection import OdemisConnection
     from fibsem.drivers.odemis.microscope import OdemisThermoMicroscope
 
-_PATTERNING_MODES = ("Serial", "Parallel")
 
-
-class OdemisMilling(Milling):
+class OdemisMilling(BeamMilling):
     """Odemis milling, on the AutoScript adapter's patterning."""
 
     parent: OdemisThermoMicroscope
 
-    setting_names = (
-        "milling_channel",
-        "hfw",
-        "milling_current",
-        "milling_voltage",
-        "application_file",
-        "patterning_mode",
-    )
     scan_directions = ODEMIS_SCAN_DIRECTIONS
 
     def __init__(self, connection: OdemisConnection, *args, **kwargs):
@@ -67,13 +56,9 @@ class OdemisMilling(Milling):
             return ParameterMetadata(choices=tuple(files))
         return super()._setting_metadata(name)
 
-    def _setup(self, settings: FibsemMillingSettings, name: Optional[str]) -> None:
-        # the milling view, the application file, the patterning mode, then hfw,
-        # current and voltage on the milling beam
-        microscope = self.parent
+    def _select(self, settings: FibsemMillingSettings) -> None:
         channel = settings.milling_channel
         self._application_file = settings.application_file
-        microscope.milling_channel = channel
         self.connection.set_channel(channel)
         odemis_channel = beam_type_to_odemis[channel]
         self._connection.set_default_patterning_beam_type(odemis_channel)
@@ -81,18 +66,8 @@ class OdemisMilling(Milling):
         self._connection.set_default_application_file(settings.application_file)
         logging.info(f"Default application file set to {settings.application_file}.")
         self._set_patterning_mode(settings.patterning_mode)
-        beam = self.beam(channel)
-        beam.hfw.write_through(settings.hfw)
-        beam.current.write_through(settings.milling_current)
-        beam.voltage.write_through(settings.milling_voltage)
-        self._clear()
-        logging.debug({"msg": "setup_milling", "mill_settings": settings.to_dict()})
 
     def _set_patterning_mode(self, mode: str) -> None:
-        if mode not in _PATTERNING_MODES:
-            raise ValueError(
-                f"Patterning mode {mode} not supported. Supported modes: Serial, Parallel"
-            )
         self._connection.set_patterning_mode(mode)
         logging.debug({"msg": "set_patterning_mode", "mode": mode})
 
@@ -177,38 +152,23 @@ class OdemisMilling(Milling):
             self.connection.set_channel(microscope.milling_channel)
             return MillingState[self._connection.get_patterning_state().upper()]
 
-    def _start(self) -> None:
-        if self.read_state() is MillingState.IDLE:
-            self._connection.start_milling()
-            logging.info("Starting milling...")
+    def _start_patterning(self) -> None:
+        self._connection.start_milling()
 
-    def _stop(self) -> None:
-        if self.read_state() in ACTIVE_MILLING_STATES:
-            logging.info("Stopping milling...")
-            self._connection.stop_milling()
-            logging.info("Milling stopped.")
+    def _stop_patterning(self) -> None:
+        self._connection.stop_milling()
 
-    def _pause(self) -> None:
-        if self.read_state() is MillingState.RUNNING:
-            logging.info("Pausing milling...")
-            self._connection.pause_milling()
-            logging.info("Milling paused.")
+    def _pause_patterning(self) -> None:
+        self._connection.pause_milling()
 
-    def _resume(self) -> None:
-        if self.read_state() is MillingState.PAUSED:
-            logging.info("Resuming milling...")
-            self._connection.resume_milling()
-            logging.info("Milling resumed.")
+    def _resume_patterning(self) -> None:
+        self._connection.resume_milling()
 
     def _estimate(self) -> float:
         return self._connection.estimate_milling_time()
 
     def _clear(self) -> None:
         self._connection.clear_patterns()
-
-    def _restore(self) -> None:
-        # The patterning mode persists in xT, as on ThermoFisher.
-        self._set_patterning_mode("Serial")
 
 
 def bind_odemis_milling(
